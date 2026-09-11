@@ -1,0 +1,72 @@
+:root {
+  /* Color Palette - Obsidian Stage & Champagne Gold */
+  --bg-primary: #0a0e17;
+  --bg-surface: #111827;
+  --bg-surface-elevated: #1a2234;
+  --bg-surface-hover: #222d42;
+  --bg-glass: rgba(17, 24, 39, 0.75);
+  --bg-glass-elevated: rgba(26, 34, 52, 0.85);
+
+  /* Borders & Dividers */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(245, 158, 11, 0.5);
+  --border-highlight: rgba(255, 255, 255, 0.16);
+
+  /* Primary Accent - Champagne Gold / Amber for Stage Presence */
+  --primary: #f59e0b;
+  --primary-light: #fbbf24;
+  --primary-dark: #d97706;
+  --primary-glow: rgba(245, 158, 11, 0.25);
+
+  /* Stage Cue Colors */
+  --cue-pause-bg: rgba(56, 189, 248, 0.15);
+  --cue-pause-text: #38bdf8;
+  --cue-pause-border: rgba(56, 189, 248, 0.35);
+
+  --cue-emphasis-bg: rgba(245, 158, 11, 0.18);
+  --cue-emphasis-text: #fbbf24;
+  --cue-emphasis-border: rgba(245, 158, 11, 0.4);
+
+  --cue-eye-bg: rgba(168, 85, 247, 0.18);
+  --cue-eye-text: #c084fc;
+  --cue-eye-border: rgba(168, 85, 247, 0.35);
+
+  --cue-whisper-bg: rgba(99, 102, 241, 0.18);
+  --cue-whisper-text: #818cf8;
+  --cue-whisper-border: rgba(99, 102, 241, 0.35);
+
+  --cue-applause-bg: rgba(244, 63, 94, 0.18);
+  --cue-applause-text: #fb7185;
+  --cue-applause-border: rgba(244, 63, 94, 0.35);
+
+  --cue-story-bg: rgba(52, 211, 153, 0.18);
+  --cue-story-text: #34d399;
+  --cue-story-border: rgba(52, 211, 153, 0.35);
+
+  /* Text Colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-inverse: #0f172a;
+
+  /* Typography */
+  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 35px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 24px var(--primary-glow);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}

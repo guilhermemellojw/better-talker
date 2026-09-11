@@ -1,0 +1,7 @@
+@import './styles/variables.css';
+@import './styles/base.css';
+@import './styles/editor.css';
+@import './styles/metrics.css';
+@import './styles/copilot.css';
+@import './styles/teleprompter.css';
+@import './styles/modal.css';

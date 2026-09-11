@@ -1,0 +1,159 @@
+/* Teleprompter / Stage Rehearsal Mode */
+.teleprompter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background-color: #030712;
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.teleprompter-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1.5rem;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  transition: opacity 0.3s ease;
+}
+
+.teleprompter-header.hidden-controls {
+  opacity: 0.15;
+}
+
+.teleprompter-header.hidden-controls:hover {
+  opacity: 1;
+}
+
+.teleprompter-timer-box {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.tele-timer {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--primary-light);
+  letter-spacing: 0.05em;
+}
+
+.tele-pace-indicator {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Control Hub */
+.teleprompter-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tele-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: all var(--transition-fast);
+}
+
+.tele-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tele-btn.play-btn {
+  background: var(--primary);
+  color: #0f172a;
+  border-color: var(--primary);
+  padding: 0.5rem 1.4rem;
+  font-size: 1rem;
+}
+
+.tele-btn.play-btn:hover {
+  background: var(--primary-light);
+}
+
+/* Scroll Container */
+.teleprompter-scroll-container {
+  flex: 1;
+  overflow-y: scroll;
+  padding: 180px 2rem 400px 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  scroll-behavior: auto;
+}
+
+.teleprompter-scroll-container.mirrored {
+  transform: scaleX(-1);
+}
+
+.teleprompter-text-body {
+  max-width: 900px;
+  width: 100%;
+  line-height: 1.8;
+  font-family: var(--font-display);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* Eye Focus Guide Band in the middle */
+.teleprompter-focus-guide {
+  position: absolute;
+  top: 45%;
+  left: 0;
+  right: 0;
+  height: 90px;
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.04) 0%, rgba(245, 158, 11, 0.12) 50%, rgba(245, 158, 11, 0.04) 100%);
+  border-top: 1px solid rgba(245, 158, 11, 0.25);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.focus-marker-left, .focus-marker-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--primary);
+  font-size: 1.2rem;
+}
+
+.focus-marker-left { left: 1rem; }
+.focus-marker-right { right: 1rem; }
+
+/* In Teleprompter, stage cues are big and luminous */
+.teleprompter-text-body .stage-cue-badge {
+  font-size: 1.1rem;
+  padding: 0.3rem 0.8rem;
+  margin: 0.2rem 0.4rem;
+  font-weight: 800;
+}
+
+.teleprompter-progress-line {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: var(--primary);
+  transition: width 0.1s linear;
+  z-index: 60;
+}
