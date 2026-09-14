@@ -7,16 +7,15 @@
 
 ## 🌟 Principais Recursos
 
-### 1. ✍️ Editor de Oratória com Estilização em Tempo Real (WYSIWYG)
-- **Formatação Rápida de Palco:** Negrito, Itálico, Sublinhado, Títulos de Bloco (H2) e listas da Regra de Três.
+### 1. ✍️ Editor de Oratória com Blocos de Tempo
+- **Blocos Temporais:** O editor organiza o discurso em abas por blocos de tempo (ex: `2 min`, `8 min`, `12 min`). Cada bloco tem métricas independentes.
+- **Importar Esboço:** Upload de `.docx`, `.rtf`, `.pdf` ou `.jwpub` — parser extrai automaticamente a estrutura por blocos.
 - **Marca-Texto de Entonação Vocal:**
   - 🟡 **Amarelo:** Ênfase e Atenção Normal.
   - 🟢 **Verde:** Storytelling, Conexão e Cadência Calma.
   - 🔴 **Vermelho:** Clímax, Ponto Alto e Impacto Dramático.
   - 🟣 **Roxo:** Perguntas Retóricas e Metáforas.
-- **Badges de Palco Inline:** Marcadores clicáveis inseridos diretamente no fluxo do texto:
-  - `[⏸ 2s Pausa]`, `[⏳ 3s Pausa Reflexiva]`, `[🛑 5s Silêncio Teatral]`, `[⚡ Ênfase Máxima]`, `[👁 Olhar Plateia]`, `[🤫 Voz Baixa/Segredo]`, `[👏 Pausa p/ Aplausos]`, `[👐 Gesto Aberto]`.
-- **Blocos Estruturais:** Inserção ágil de Gancho Inicial (*The Hook*), Conexão Humana (*Story*), Três Pilares e Clímax.
+- **Badges de Palco Inline:** Marcadores clicáveis inseridos diretamente no fluxo do texto.
 
 ### 2. ⏱️ Telemetria & Métricas de Fala ao Vivo
 - **Tempo Estimado de Discurso:** Calculado em tempo real com base no ritmo em palavras por minuto (PPM/WPM) somado ao tempo exato de todas as pausas de palco.
@@ -56,17 +55,20 @@
 - **Frontend:** [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/)
 - **Ícones:** [Lucide React](https://lucide.dev/)
 - **Estilização:** Vanilla CSS Design System (Dark theme de alta performance, sem dependências de frameworks pesados)
-- **Persistência:** [IndexedDB](https://developer.mozilla.org/pt-BR/docs/Web/API/IndexedDB_API) com fallback resiliente (100% Offline-First)
+- **Persistência:** [Dexie.js](https://dexie.org/) (IndexedDB v2) com fallback resiliente (100% Offline-First)
+- **Parser:** [mammoth](https://mammoth.js.org/) (.docx), [pdfjs-dist](https://mozilla.github.io/pdf.js/) (.pdf), [JSZip](https://stuk.github.io/jszip/) (.epub)
 - **Multiplataforma:**
   - **PWA:** Service Worker e Web Manifest para instalação instantânea no Android e desktop
   - **Capacitor:** Configuração pronta para empacotamento nativo Android (`@capacitor/android`)
+
+> **Pré-requisito:** Node.js versão **22** ou superior (necessário para `pdfjs-dist`).
 
 ---
 
 ## 🚀 Como Executar Localmente
 
 ### Pré-requisitos
-- [Node.js](https://nodejs.org/) (versão 18 ou superior)
+- [Node.js](https://nodejs.org/) (versão 22 ou superior)
 - Git
 
 ### Instalação
