@@ -67,8 +67,22 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
       - name: Build debug APK
+        id: build_apk
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+        continue-on-error: true
+
+      - name: Show Gradle failure log
+        if: failure() && steps.build_apk.conclusion == 'failure'
+        working-directory: android
+        run: |
+          echo "::group::Gradle build log (last 80 lines)"
+          tail -80 gradle-build.log || true
+          echo "::endgroup::"
+          echo "::group::Errors only"
+          grep -iE "error|FAILURE|what went wrong|Caused by|could not|cannot|unable" gradle-build.log | tail -30 || true
+          echo "::endgroup::"
+          exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
