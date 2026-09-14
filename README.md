@@ -135,8 +135,8 @@ O Better Talker sincroniza **apenas metadados** (título, blocos, duração, cat
 2. Baixe o arquivo `google-services.json` e coloque em `android/app/google-services.json` (o template Capacitor já aplica o plugin `google-services` automaticamente quando o arquivo existe).
 3. Adicione um app **Web** ao mesmo projeto e copie as configurações para `.env.local` (veja `.env.example`):
    - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
-4. Habilite o **Cloud Firestore** em *Build > Firestore Database*.
-5. Nas **regras de segurança do Firestore**, restringa gravações (ex.: `allow write: if request.auth != null;`).
+4. Habilite o **Realtime Database** em *Build > Realtime Database*.
+5. Nas **regras do Realtime Database**, restrinja gravações (ex.: `"write": "auth != null"`).
 
 > O `google-services.json` está no `.gitignore` — nunca commite credenciais.
 > Sem o `.env.local`, o app roda normalmente 100% offline; o sync é ignorado silenciosamente.

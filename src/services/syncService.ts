@@ -33,9 +33,9 @@ export async function initFirebaseSync(): Promise<boolean> {
   if (!config) return false;
   try {
     const { initializeApp } = await import('firebase/app');
-    const { getFirestore } = await import('firebase/firestore');
+    const { getDatabase } = await import('firebase/database');
     const app = initializeApp(config);
-    getFirestore(app);
+    getDatabase(app);
     initialized = true;
     return true;
   } catch (e) {
@@ -57,7 +57,7 @@ export async function syncSpeechToCloud(speech: Speech): Promise<void> {
     tags: speech.tags,
     updatedAt: speech.updatedAt,
   };
-  await postToFirestore('speeches', speech.id, payload);
+  await writeToRtdb(`speeches/${speech.id}`, payload);
 }
 
 export async function syncSettingsToCloud(settings: AppSettings): Promise<void> {
@@ -67,7 +67,7 @@ export async function syncSettingsToCloud(settings: AppSettings): Promise<void> 
     teleprompterFontSize: settings.teleprompterFontSize,
     teleprompterMirrored: settings.teleprompterMirrored,
   };
-  await postToFirestore('settings', 'app', payload);
+  await writeToRtdb('settings/app', payload);
 }
 
 export async function syncPublicationMetasToCloud(publications: Publication[]): Promise<void> {
@@ -81,7 +81,7 @@ export async function syncPublicationMetasToCloud(publications: Publication[]): 
       indexed: p.indexed,
       addedAt: p.addedAt,
     };
-    await postToFirestore('publications', p.id, meta);
+    await writeToRtdb(`publications/${p.id}`, meta);
   }
 }
 
@@ -97,18 +97,16 @@ export function validateNoPublicationBinaryInSync(speech: Speech): boolean {
   return true;
 }
 
-async function postToFirestore(collection: string, docId: string, data: unknown): Promise<void> {
+async function writeToRtdb(path: string, data: unknown): Promise<void> {
   if (!initialized) return;
   const config = loadFirebaseConfig();
   if (!config) return;
   try {
-    const { doc, setDoc } = await import('firebase/firestore');
-    const { getFirestore } = await import('firebase/firestore');
-    const { getApps, getApp } = await import('firebase/app');
-    const app = getApps().length > 0 ? getApp() : null;
-    if (!app) return;
-    await setDoc(doc(getFirestore(app), collection, docId), data as object, { merge: true });
+    const { ref, set, getDatabase } = await import('firebase/database');
+    const { getApp } = await import('firebase/app');
+    const app = getApp();
+    await set(ref(getDatabase(app), path), data);
   } catch (e) {
-    console.warn('[Sync] Falha ao gravar no Firestore:', e);
+    console.warn('[Sync] Falha ao gravar no Realtime Database:', e);
   }
 }
