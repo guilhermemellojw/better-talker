@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import type { Speech, AppSettings } from './types/speech';
+import type { Speech, AppSettings, SpeechBlock } from './types/speech';
 import { speechStorage } from './services/db';
 import {
   calculateSpeechMetrics,
   generateOfflineCopilotSuggestions,
   extractPlainTextFromHtml,
 } from './services/rhetoricEngine';
+import { parseOutline } from './services/outlineParser';
+import { LibraryModal } from './components/Modals/LibraryModal';
 import { Header } from './components/Header/Header';
-import { RichSpeechEditor } from './components/Editor/RichSpeechEditor';
+import { BlockEditorTabs } from './components/Editor/BlockEditor';
 import { SpeechMetricsBar } from './components/Metrics/SpeechMetricsBar';
 import { CopilotDrawer } from './components/Copilot/CopilotDrawer';
 import { TeleprompterModal } from './components/Teleprompter/TeleprompterModal';
@@ -18,6 +20,7 @@ import { ExportModal } from './components/Modals/ExportModal';
 export function App() {
   const [speeches, setSpeeches] = useState<Speech[]>([]);
   const [activeSpeech, setActiveSpeech] = useState<Speech | null>(null);
+  const [activeBlockId, setActiveBlockId] = useState<string>('');
   const [settings, setSettings] = useState<AppSettings>({
     geminiApiKey: '',
     defaultWpm: 130,
@@ -31,77 +34,69 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const autosaveTimerRef = useRef<number | null>(null);
 
-  // Initialize DB and load data
   useEffect(() => {
     async function initData() {
       const loadedSettings = await speechStorage.getSettings();
       setSettings(loadedSettings);
-
       const loadedSpeeches = await speechStorage.getAllSpeeches();
       setSpeeches(loadedSpeeches);
       if (loadedSpeeches.length > 0) {
-        setActiveSpeech(loadedSpeeches[0]);
+        const first = loadedSpeeches[0];
+        setActiveSpeech(first);
+        setActiveBlockId(first.blocks[0]?.id || '');
       }
     }
     initData();
   }, []);
 
-  // Compute live speech metrics
+  const activeBlock = activeSpeech?.blocks.find((b) => b.id === activeBlockId) || activeSpeech?.blocks[0];
+
   const metrics = useMemo(() => {
-    if (!activeSpeech) {
-      return calculateSpeechMetrics('', 130, 5);
-    }
+    if (!activeBlock) return calculateSpeechMetrics('', 130, 5);
     return calculateSpeechMetrics(
-      activeSpeech.contentHtml,
-      activeSpeech.targetWpm || settings.defaultWpm || 130,
-      activeSpeech.targetDurationMinutes || 5
+      activeBlock.contentHtml,
+      activeBlock.minutes > 0 ? Math.round(activeSpeech!.targetWpm / activeSpeech!.blocks.length) : settings.defaultWpm || 130,
+      activeBlock.minutes
     );
-  }, [activeSpeech?.contentHtml, activeSpeech?.targetWpm, activeSpeech?.targetDurationMinutes, settings.defaultWpm]);
+  }, [activeBlock?.contentHtml, activeBlock?.minutes, activeSpeech?.targetWpm, activeSpeech?.blocks, settings.defaultWpm]);
 
-  // Compute real-time offline rhetoric suggestions
   const offlineSuggestions = useMemo(() => {
-    if (!activeSpeech) return [];
-    const plainText = extractPlainTextFromHtml(activeSpeech.contentHtml);
-    return generateOfflineCopilotSuggestions(activeSpeech.title, plainText, metrics);
-  }, [activeSpeech?.title, activeSpeech?.contentHtml, metrics]);
+    if (!activeBlock) return [];
+    const plainText = extractPlainTextFromHtml(activeBlock.contentHtml);
+    return generateOfflineCopilotSuggestions(activeSpeech?.title || '', plainText, metrics);
+  }, [activeBlock?.contentHtml, metrics, activeSpeech?.title]);
 
-  // Handle Speech Updates with Debounced Autosave
   const handleSpeechChange = (updatedFields: Partial<Speech>) => {
     if (!activeSpeech) return;
-
-    const updatedSpeech: Speech = {
-      ...activeSpeech,
-      ...updatedFields,
-      updatedAt: Date.now(),
-    };
-
+    const updatedSpeech: Speech = { ...activeSpeech, ...updatedFields, updatedAt: Date.now() };
     if (updatedFields.contentHtml !== undefined) {
       updatedSpeech.plainText = extractPlainTextFromHtml(updatedFields.contentHtml);
     }
-
     setActiveSpeech(updatedSpeech);
-    setSpeeches((prev) =>
-      prev.map((s) => (s.id === updatedSpeech.id ? updatedSpeech : s))
-    );
-
-    // Debounced autosave
+    setSpeeches((prev) => prev.map((s) => (s.id === updatedSpeech.id ? updatedSpeech : s)));
     setIsSaving(true);
-    if (autosaveTimerRef.current) {
-      clearTimeout(autosaveTimerRef.current);
-    }
-
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = window.setTimeout(async () => {
       await speechStorage.saveSpeech(updatedSpeech);
       setIsSaving(false);
     }, 400);
   };
 
-  // Create New Speech
+  const handleBlockChange = (blockId: string, patch: Partial<SpeechBlock>) => {
+    if (!activeSpeech) return;
+    const updatedBlocks = activeSpeech.blocks.map((b) =>
+      b.id === blockId ? { ...b, ...patch } : b
+    );
+    handleSpeechChange({ blocks: updatedBlocks });
+  };
+
   const handleNewSpeech = async () => {
     const newId = `speech-${Date.now()}`;
+    const blockId = `block-${newId}`;
     const newSpeech: Speech = {
       id: newId,
       title: 'Novo Discurso',
@@ -111,47 +106,75 @@ export function App() {
       tags: ['Rascunho'],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      contentHtml: `
-<h2>🎯 <strong>O Gancho de Abertura</strong></h2>
-<p>Comece com uma pergunta ou fato inesperado... <span class="stage-cue-badge cue-pause" data-cue-type="pause-2s" contenteditable="false">⏸ 2s Pausa</span></p>
-<hr/>
-<h2>💡 <strong>Desenvolvimento</strong></h2>
-<p>Apresente sua ideia principal com convicção e clareza. <span class="stage-cue-badge cue-emphasis" data-cue-type="emphasis" contenteditable="false">⚡ Ênfase</span></p>
-<hr/>
-<h2>🚀 <strong>Encerramento</strong></h2>
-<p>Deixe uma mensagem final inesquecível. Muito obrigado! <span class="stage-cue-badge cue-applause" data-cue-type="applause" contenteditable="false">👏 Pausa</span></p>
-      `.trim(),
-      plainText: 'Comece com uma pergunta ou fato inesperado... Apresente sua ideia principal com convicção e clareza. Deixe uma mensagem final inesquecível. Muito obrigado!',
+      contentHtml: '',
+      plainText: '',
+      blocks: [
+        {
+          id: blockId,
+          speechId: newId,
+          order: 0,
+          minutes: 5,
+          title: 'Novo Discurso',
+          contentHtml: '',
+          plainText: '',
+        },
+      ],
     };
-
     await speechStorage.saveSpeech(newSpeech);
     setSpeeches((prev) => [newSpeech, ...prev]);
     setActiveSpeech(newSpeech);
+    setActiveBlockId(blockId);
   };
 
-  // Delete Speech
+  const handleImportOutline = async (buffer: ArrayBuffer) => {
+    const { speech, blocks } = parseOutline(buffer);
+    const newId = `speech-${Date.now()}`;
+    const blockIds = blocks.map((_, i) => `block-${newId}-${i}`);
+    const fullBlocks = blocks.map((b, i) => ({
+      ...b,
+      id: blockIds[i],
+      speechId: newId,
+    }));
+    const totalMinutes = fullBlocks.reduce((acc, b) => acc + b.minutes, 0);
+    const newSpeech: Speech = {
+      id: newId,
+      title: speech.title || 'Discurso Importado',
+      contentHtml: '',
+      plainText: '',
+      targetDurationMinutes: totalMinutes,
+      targetWpm: settings.defaultWpm || 130,
+      category: 'geral',
+      tags: ['Importado'],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      blocks: fullBlocks,
+    };
+    await speechStorage.saveSpeech(newSpeech);
+    setSpeeches((prev) => [newSpeech, ...prev]);
+    setActiveSpeech(newSpeech);
+    setActiveBlockId(blockIds[0]);
+  };
+
   const handleDeleteSpeech = async (id: string) => {
     await speechStorage.deleteSpeech(id);
     const remaining = speeches.filter((s) => s.id !== id);
     setSpeeches(remaining);
     if (activeSpeech?.id === id) {
       setActiveSpeech(remaining[0] || null);
+      setActiveBlockId(remaining[0]?.blocks[0]?.id || '');
     }
   };
 
-  // Save Settings
   const handleSaveSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
     await speechStorage.saveSettings(newSettings);
   };
 
-  // Insert Text from Copilot into Speech
   const handleInsertTextFromCopilot = (textToInsert: string) => {
-    if (!activeSpeech) return;
+    if (!activeBlock) return;
     const formattedAppend = `<p>${textToInsert}</p>`;
-    handleSpeechChange({
-      contentHtml: activeSpeech.contentHtml + '\n' + formattedAppend,
-    });
+    const updatedContent = activeBlock.contentHtml + formattedAppend;
+    handleBlockChange(activeBlock.id, { contentHtml: updatedContent });
   };
 
   if (!activeSpeech) {
@@ -164,7 +187,6 @@ export function App() {
 
   return (
     <div className="app-container">
-      {/* Header */}
       <Header
         onOpenSpeechList={() => setSpeechListOpen(true)}
         onNewSpeech={handleNewSpeech}
@@ -173,16 +195,18 @@ export function App() {
         onToggleCopilot={() => setIsCopilotOpen(!isCopilotOpen)}
         isCopilotOpen={isCopilotOpen}
         onOpenTeleprompter={() => setTeleprompterOpen(true)}
+        onOpenLibrary={() => setLibraryOpen(true)}
       />
 
-      {/* Main Content Area */}
       <main className="main-content">
-        <RichSpeechEditor
+        <BlockEditorTabs
           speech={activeSpeech}
-          onChange={handleSpeechChange}
+          activeBlockId={activeBlockId}
+          onActiveBlockChange={setActiveBlockId}
+          onBlockChange={handleBlockChange}
+          onSpeechChange={handleSpeechChange}
         />
 
-        {/* Copilot Drawer / Sidebar */}
         <CopilotDrawer
           isOpen={isCopilotOpen}
           onClose={() => setIsCopilotOpen(false)}
@@ -190,20 +214,19 @@ export function App() {
           metrics={metrics}
           apiKey={settings.geminiApiKey}
           offlineSuggestions={offlineSuggestions}
+          activeBlock={activeBlock}
           onInsertTextIntoSpeech={handleInsertTextFromCopilot}
         />
       </main>
 
-      {/* Real-time Telemetry & Metrics Bar */}
       <SpeechMetricsBar
         metrics={metrics}
-        targetMinutes={activeSpeech.targetDurationMinutes}
+        targetMinutes={activeBlock?.minutes || activeSpeech.targetDurationMinutes}
         wpm={activeSpeech.targetWpm || settings.defaultWpm}
         onWpmChange={(newWpm) => handleSpeechChange({ targetWpm: newWpm })}
         isSaving={isSaving}
       />
 
-      {/* Teleprompter / Rehearsal Mode */}
       <TeleprompterModal
         speech={activeSpeech}
         isOpen={teleprompterOpen}
@@ -211,18 +234,21 @@ export function App() {
         defaultWpm={activeSpeech.targetWpm || settings.defaultWpm}
       />
 
-      {/* Speech Manager Modal */}
       <SpeechListModal
         isOpen={speechListOpen}
         onClose={() => setSpeechListOpen(false)}
         speeches={speeches}
         activeSpeechId={activeSpeech.id}
-        onSelectSpeech={(sp) => setActiveSpeech(sp)}
+        onSelectSpeech={(sp) => {
+          setActiveSpeech(sp);
+          setActiveBlockId(sp.blocks[0]?.id || '');
+          setSpeechListOpen(false);
+        }}
         onNewSpeech={handleNewSpeech}
         onDeleteSpeech={handleDeleteSpeech}
+        onImportOutline={handleImportOutline}
       />
 
-      {/* Settings Modal */}
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -230,12 +256,17 @@ export function App() {
         onSaveSettings={handleSaveSettings}
       />
 
-      {/* Export & Cue Cards Modal */}
       <ExportModal
         isOpen={exportOpen}
         onClose={() => setExportOpen(false)}
         speech={activeSpeech}
         metrics={metrics}
+      />
+
+      <LibraryModal
+        isOpen={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        onImportComplete={() => {}}
       />
     </div>
   );

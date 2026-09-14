@@ -1,12 +1,12 @@
-export type SpeechCategory = 
-  | 'ted' 
-  | 'pitch' 
-  | 'keynote' 
-  | 'debate' 
-  | 'cerimonia' 
+export type SpeechCategory =
+  | 'ted'
+  | 'pitch'
+  | 'keynote'
+  | 'debate'
+  | 'cerimonia'
   | 'geral';
 
-export type StageCueType = 
+export type StageCueType =
   | 'pause-2s'
   | 'pause-3s'
   | 'pause-5s'
@@ -27,6 +27,20 @@ export interface StageCueDefinition {
   tooltip: string;
 }
 
+export type PublicationKind = 'epub' | 'pdf';
+export type CitationStatus = 'missing' | 'resolving' | 'resolved';
+
+export interface SpeechBlock {
+  id: string;
+  speechId: string;
+  order: number;
+  minutes: number;
+  title: string;
+  contentHtml: string;
+  plainText: string;
+  sourceExcerpt?: string;
+}
+
 export interface Speech {
   id: string;
   title: string;
@@ -38,6 +52,32 @@ export interface Speech {
   tags: string[];
   createdAt: number;
   updatedAt: number;
+  blocks: SpeechBlock[];
+  sourceFileName?: string;
+}
+
+export interface Publication {
+  id: string;
+  fileName: string;
+  title: string;
+  kind: PublicationKind;
+  localPath: string;
+  addedAt: number;
+  indexed: boolean;
+}
+
+export interface Passage {
+  id: string;
+  pubId: string;
+  ref: string;
+  text: string;
+  normalizedText: string;
+}
+
+export interface MissingCitation {
+  raw: string;
+  blockId: string;
+  status: CitationStatus;
 }
 
 export interface SpeechMetrics {

@@ -1,35 +1,40 @@
 import { useRef, useEffect } from 'react';
-import type { Speech, SpeechCategory, StageCueDefinition } from '../../types/speech';
+import type { Speech, SpeechBlock, SpeechCategory, StageCueDefinition } from '../../types/speech';
 import { StageCueBar } from './StageCueBar';
 import { FloatingFormatToolbar } from './FloatingFormatToolbar';
-import { Clock, Tag } from 'lucide-react';
+import { Clock, Tag, ChevronLeft, ChevronRight } from 'lucide-react';
 
-interface RichSpeechEditorProps {
+interface BlockEditorTabsProps {
   speech: Speech;
-  onChange: (updated: Partial<Speech>) => void;
-  onOpenCopilotWithSelection?: (selectedText: string) => void;
+  activeBlockId: string;
+  onActiveBlockChange: (blockId: string) => void;
+  onBlockChange: (blockId: string, patch: Partial<SpeechBlock>) => void;
+  onSpeechChange: (patch: Partial<Speech>) => void;
 }
 
-export const RichSpeechEditor = ({
+export const BlockEditorTabs = ({
   speech,
-  onChange,
-}: RichSpeechEditorProps) => {
+  activeBlockId,
+  onActiveBlockChange,
+  onBlockChange,
+  onSpeechChange,
+}: BlockEditorTabsProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
-  const lastHtmlRef = useRef<string>(speech.contentHtml);
+  const lastHtmlRef = useRef<string>('');
   const savedSelectionRef = useRef<Range | null>(null);
 
-  // Sync speech content if a completely different speech is loaded
-  useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== speech.contentHtml) {
-      // Only set if different to prevent cursor jumps
-      if (speech.contentHtml !== lastHtmlRef.current) {
-        editorRef.current.innerHTML = speech.contentHtml;
-        lastHtmlRef.current = speech.contentHtml;
-      }
-    }
-  }, [speech.id, speech.contentHtml]);
+  const activeBlock = speech.blocks.find((b) => b.id === activeBlockId) || speech.blocks[0];
+  const activeIndex = speech.blocks.findIndex((b) => b.id === activeBlockId);
 
-  // Save selection before clicking toolbars
+  // Sync editor content when active block changes
+  useEffect(() => {
+    if (!editorRef.current || !activeBlock) return;
+    if (activeBlock.contentHtml !== lastHtmlRef.current) {
+      editorRef.current.innerHTML = activeBlock.contentHtml;
+      lastHtmlRef.current = activeBlock.contentHtml;
+    }
+  }, [activeBlock?.id, activeBlock?.contentHtml]);
+
   const saveCurrentSelection = () => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
@@ -46,10 +51,14 @@ export const RichSpeechEditor = ({
   };
 
   const handleInput = () => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || !activeBlock) return;
     const newHtml = editorRef.current.innerHTML;
     lastHtmlRef.current = newHtml;
-    onChange({ contentHtml: newHtml });
+    const plainText = newHtml.replace(/<[^>]+>/g, '').replace(/\u00A0/g, ' ').trim();
+    onBlockChange(activeBlock.id, { contentHtml: newHtml, plainText });
+    onSpeechChange({
+      contentHtml: speech.blocks.map((b) => b.id === activeBlock.id ? `<h2>${b.title}</h2><p>${b.plainText}</p>` : b.contentHtml).join('<hr/>'),
+    });
   };
 
   const handleFormat = (command: string, value: string = '') => {
@@ -66,9 +75,7 @@ export const RichSpeechEditor = ({
     restoreSelection();
 
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
-      return;
-    }
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
 
     const range = sel.getRangeAt(0);
     const selectedText = range.extractContents();
@@ -76,24 +83,20 @@ export const RichSpeechEditor = ({
     mark.className = colorClass;
     mark.appendChild(selectedText);
     range.insertNode(mark);
-
-    // Reposition cursor after mark
     range.setStartAfter(mark);
     range.collapse(true);
     sel.removeAllRanges();
     sel.addRange(range);
-
     handleInput();
   };
 
   const handleInsertCue = (cue: StageCueDefinition) => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || !activeBlock) return;
     editorRef.current.focus();
     restoreSelection();
 
     const sel = window.getSelection();
     let range: Range;
-
     if (sel && sel.rangeCount > 0) {
       range = sel.getRangeAt(0);
     } else {
@@ -102,27 +105,21 @@ export const RichSpeechEditor = ({
       range.collapse(false);
     }
 
-    // Create Stage Cue Badge DOM element
     const badge = document.createElement('span');
     badge.className = `stage-cue-badge ${cue.badgeClass}`;
     badge.setAttribute('data-cue-type', cue.id);
     badge.setAttribute('contenteditable', 'false');
     badge.innerHTML = `${cue.icon} ${cue.label}`;
 
-    // Space after badge
     const spaceNode = document.createTextNode('\u00A0');
-
     range.insertNode(spaceNode);
     range.insertNode(badge);
-
-    // Position cursor after the inserted badge and space
     range.setStartAfter(spaceNode);
     range.collapse(true);
     if (sel) {
       sel.removeAllRanges();
       sel.addRange(range);
     }
-
     handleInput();
   };
 
@@ -149,82 +146,82 @@ export const RichSpeechEditor = ({
         structureHtml = `<h2>🚀 <strong>Chamada para Ação & Encerramento</strong></h2><p>Portanto, façam valer cada momento. Muito obrigado! <span class="stage-cue-badge cue-applause" data-cue-type="applause" contenteditable="false">👏 Pausa para Aplausos</span></p>`;
         break;
     }
-
     document.execCommand('insertHTML', false, structureHtml);
     handleInput();
   };
 
+
+
+  if (!activeBlock) return null;
+
   return (
     <div className="editor-workspace" onMouseUp={saveCurrentSelection} onKeyUp={saveCurrentSelection}>
       <div className="editor-card">
-        {/* Title Input */}
         <div className="speech-title-container">
           <input
             type="text"
             className="speech-title-input"
             value={speech.title}
-            onChange={(e) => onChange({ title: e.target.value })}
+            onChange={(e) => onSpeechChange({ title: e.target.value })}
             placeholder="Título do Discurso..."
           />
         </div>
 
-        {/* Metadata Controls */}
         <div className="speech-meta-tags">
           <div className="category-chip">
             <Tag size={13} />
             <select
               value={speech.category}
-              onChange={(e) => onChange({ category: e.target.value as SpeechCategory })}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'inherit',
-                font: 'inherit',
-                fontWeight: 700,
-                cursor: 'pointer',
-                padding: 0,
-              }}
+              onChange={(e) => onSpeechChange({ category: e.target.value as SpeechCategory })}
+              style={{ background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', fontWeight: 700, cursor: 'pointer', padding: 0 }}
             >
-              <option value="ted" style={{ background: '#111827' }}>TED Talk / Inspirador</option>
-              <option value="pitch" style={{ background: '#111827' }}>Pitch de Negócios / Vendas</option>
-              <option value="keynote" style={{ background: '#111827' }}>Palestra / Keynote</option>
-              <option value="debate" style={{ background: '#111827' }}>Debate / Argumentação</option>
-              <option value="cerimonia" style={{ background: '#111827' }}>Cerimônia / Homenagem</option>
-              <option value="geral" style={{ background: '#111827' }}>Geral</option>
+              <option value="ted">TED Talk / Inspirador</option>
+              <option value="pitch">Pitch de Negócios / Vendas</option>
+              <option value="keynote">Palestra / Keynote</option>
+              <option value="debate">Debate / Argumentação</option>
+              <option value="cerimonia">Cerimônia / Homenagem</option>
+              <option value="geral">Geral</option>
             </select>
           </div>
-
           <div className="target-badge">
             <Clock size={14} />
-            <span>Meta de tempo:</span>
+            <span>Meta:</span>
             <input
               type="number"
               min="1"
               max="120"
               value={speech.targetDurationMinutes}
-              onChange={(e) => onChange({ targetDurationMinutes: Math.max(1, parseInt(e.target.value) || 1) })}
-              style={{
-                width: '52px',
-                padding: '0.15rem 0.4rem',
-                fontSize: '0.85rem',
-                textAlign: 'center',
-              }}
+              onChange={(e) => onSpeechChange({ targetDurationMinutes: Math.max(1, parseInt(e.target.value) || 1) })}
+              style={{ width: '52px', padding: '0.15rem 0.4rem', fontSize: '0.85rem', textAlign: 'center' }}
             />
-            <span>minutos</span>
+            <span>min</span>
           </div>
         </div>
 
-        {/* Floating Format Toolbar */}
+        <div className="block-tabs">
+          {speech.blocks.map((block, idx) => (
+            <button
+              key={block.id}
+              type="button"
+              className={`block-tab ${block.id === activeBlockId ? 'active' : ''}`}
+              onClick={() => onActiveBlockChange(block.id)}
+            >
+              <span className="block-tab-minutes">{block.minutes} min</span>
+              <span className="block-tab-title">{block.title}</span>
+              {idx > 0 && <ChevronLeft size={12} />}
+              {idx < speech.blocks.length - 1 && <ChevronRight size={12} />}
+            </button>
+          ))}
+        </div>
+
         <FloatingFormatToolbar
           onFormat={handleFormat}
           onApplyHighlight={handleApplyHighlight}
           onInsertStructure={handleInsertStructure}
         />
 
-        {/* Stage Cue Badges Bar */}
         <StageCueBar onInsertCue={handleInsertCue} />
 
-        {/* Editable Rich Canvas */}
         <div
           ref={editorRef}
           className="rich-text-canvas"
@@ -232,9 +229,14 @@ export const RichSpeechEditor = ({
           suppressContentEditableWarning
           onInput={handleInput}
           onBlur={handleInput}
-          dangerouslySetInnerHTML={{ __html: speech.contentHtml }}
-          data-placeholder="Comece a escrever ou estruture seu discurso com os botões de gancho e marcadores de palco acima..."
+          dangerouslySetInnerHTML={{ __html: activeBlock.contentHtml }}
+          data-placeholder="Comece a escrever este bloco..."
         />
+
+        <div className="block-footer">
+          <span>Bloco {activeIndex + 1} de {speech.blocks.length}</span>
+          <span>{activeBlock.minutes} min</span>
+        </div>
       </div>
     </div>
   );

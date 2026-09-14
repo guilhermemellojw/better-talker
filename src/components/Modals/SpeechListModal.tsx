@@ -1,5 +1,5 @@
 import type { Speech } from '../../types/speech';
-import { X, Plus, Trash2, Calendar, Clock, FileText } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, Clock, FileText, FileInput } from 'lucide-react';
 
 interface SpeechListModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface SpeechListModalProps {
   onSelectSpeech: (speech: Speech) => void;
   onNewSpeech: () => void;
   onDeleteSpeech: (id: string) => void;
+  onImportOutline: (buffer: ArrayBuffer) => void;
 }
 
 export const SpeechListModal = ({
@@ -19,6 +20,7 @@ export const SpeechListModal = ({
   onSelectSpeech,
   onNewSpeech,
   onDeleteSpeech,
+  onImportOutline,
 }: SpeechListModalProps) => {
   if (!isOpen) return null;
 
@@ -29,6 +31,18 @@ export const SpeechListModal = ({
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const buffer = ev.target?.result as ArrayBuffer;
+      onImportOutline(buffer);
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
   };
 
   return (
@@ -45,17 +59,30 @@ export const SpeechListModal = ({
         </div>
 
         <div className="modal-body">
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn-primary"
-              onClick={() => {
-                onNewSpeech();
-                onClose();
-              }}
+              onClick={() => { onNewSpeech(); onClose(); }}
             >
               <Plus size={16} />
               <span>Novo Discurso</span>
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = '.docx,.rtf,.pdf,.jwpub';
+                input.multiple = false;
+                input.onchange = (ev) => handleImport(ev as unknown as React.ChangeEvent<HTMLInputElement>);
+                input.click();
+              }}
+              title="Importar esboço (.docx, .rtf, .pdf)"
+            >
+              <FileInput size={16} />
+              <span>Importar Esboço</span>
             </button>
           </div>
 
@@ -83,6 +110,11 @@ export const SpeechListModal = ({
                       <span className="category-chip" style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem' }}>
                         {sp.category.toUpperCase()}
                       </span>
+                      {sp.blocks.length > 0 && (
+                        <span className="category-chip" style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', background: 'var(--primary)', color: '#fff' }}>
+                          {sp.blocks.length} blocos
+                        </span>
+                      )}
                     </div>
                   </div>
 

@@ -1,9 +1,5 @@
-import type { Speech, AppSettings } from '../types/speech';
-
-const DB_NAME = 'BetterTalkerDB';
-const DB_VERSION = 1;
-const SPEECHES_STORE = 'speeches';
-const SETTINGS_STORE = 'settings';
+import Dexie, { type Table } from 'dexie';
+import type { Speech, AppSettings, SpeechBlock, Publication, Passage } from '../types/speech';
 
 const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKey: '',
@@ -48,74 +44,73 @@ const INITIAL_DEMO_SPEECH: Speech = {
 <p>Muito obrigado! <span class="stage-cue-badge cue-applause" data-cue-type="applause" contenteditable="false">👏 Pausa para Aplausos</span></p>
   `.trim(),
   plainText: `Vocês já se perguntaram por que lembramos de certas frases por décadas, enquanto esquecemos reuniões inteiras de duas horas minutos depois de sair da sala? A verdade incômoda é esta: as pessoas não compram apenas as suas ideias, elas compram a convicção com que você as expressa. Eu me lembro da minha primeira palestra como se fosse ontem. As mãos suavam frio. O coração batia a 160 por minuto. Eu cheguei a pensar em fingir uma tosse e abandonar o palco. Mas ali aprendi uma lição de ouro: a vulnerabilidade não é fraqueza no palco; é a ponte mais veloz para a empatia. Para dominar o palco, todo orador precisa cultivar apenas três regras simples: A Regra de Três, O Silêncio Estratégico e Voz de Peito. Não deixe suas melhores ideias presas na garganta. O mundo precisa de vozes autênticas com a coragem de se fazer ouvir. Muito obrigado!`,
+  blocks: [],
 };
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (!window.indexedDB) {
-      reject(new Error('IndexedDB não suportado'));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+class BetterTalkerDB extends Dexie {
+  speeches!: Table<Speech, string>;
+  blocks!: Table<SpeechBlock, string>;
+  publications!: Table<Publication, string>;
+  passages!: Table<Passage, string>;
+  settings!: Table<{ key: string; value: AppSettings }, string>;
 
-    request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(SPEECHES_STORE)) {
-        const speechStore = db.createObjectStore(SPEECHES_STORE, { keyPath: 'id' });
-        speechStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
-        db.createObjectStore(SETTINGS_STORE, { keyPath: 'key' });
-      }
-    };
+  constructor() {
+    super('BetterTalkerDB');
+    this.version(2).stores({
+      speeches: 'id, updatedAt, sourceFileName',
+      blocks: 'id, speechId, order',
+      publications: 'id, fileName, indexed',
+      passages: 'id, pubId, normalizedText',
+      settings: 'key',
+    });
+  }
+}
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+const db = new BetterTalkerDB();
+
+function toSpeechWithBlocks(speech: Speech): Speech {
+  if (speech.blocks && speech.blocks.length > 0) return speech;
+  return {
+    ...speech,
+    blocks: [
+      {
+        id: `block-${speech.id}`,
+        speechId: speech.id,
+        order: 0,
+        minutes: speech.targetDurationMinutes,
+        title: speech.title,
+        contentHtml: speech.contentHtml,
+        plainText: speech.plainText,
+      },
+    ],
+  };
 }
 
 export const speechStorage = {
   async getAllSpeeches(): Promise<Speech[]> {
     try {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(SPEECHES_STORE, 'readonly');
-        const store = tx.objectStore(SPEECHES_STORE);
-        const request = store.getAll();
-
-        request.onsuccess = () => {
-          const list = request.result as Speech[];
-          if (!list || list.length === 0) {
-            // Seed initial speech
-            speechStorage.saveSpeech(INITIAL_DEMO_SPEECH).then(() => resolve([INITIAL_DEMO_SPEECH]));
-          } else {
-            // Sort by updatedAt descending
-            resolve(list.sort((a, b) => b.updatedAt - a.updatedAt));
-          }
-        };
-        request.onerror = () => reject(request.error);
-      });
+      const list = await db.speeches.orderBy('updatedAt').reverse().toArray();
+      if (!list || list.length === 0) {
+        await this.saveSpeech(INITIAL_DEMO_SPEECH);
+        const saved = await db.speeches.get(INITIAL_DEMO_SPEECH.id!);
+        return saved ? [toSpeechWithBlocks(saved)] : [INITIAL_DEMO_SPEECH];
+      }
+      return list.map(toSpeechWithBlocks);
     } catch (e) {
       console.warn('Fallback para localStorage', e);
-      const raw = localStorage.getItem(SPEECHES_STORE);
+      const raw = localStorage.getItem('SPEECHES_STORE');
       if (!raw) {
-        localStorage.setItem(SPEECHES_STORE, JSON.stringify([INITIAL_DEMO_SPEECH]));
+        localStorage.setItem('SPEECHES_STORE', JSON.stringify([INITIAL_DEMO_SPEECH]));
         return [INITIAL_DEMO_SPEECH];
       }
-      return JSON.parse(raw);
+      return JSON.parse(raw).map(toSpeechWithBlocks);
     }
   },
 
   async getSpeechById(id: string): Promise<Speech | null> {
     try {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(SPEECHES_STORE, 'readonly');
-        const store = tx.objectStore(SPEECHES_STORE);
-        const request = store.get(id);
-        request.onsuccess = () => resolve((request.result as Speech) || null);
-        request.onerror = () => reject(request.error);
-      });
+      const speech = await db.speeches.get(id);
+      return speech ? toSpeechWithBlocks(speech) : null;
     } catch {
       const list = await this.getAllSpeeches();
       return list.find((s) => s.id === id) || null;
@@ -125,18 +120,11 @@ export const speechStorage = {
   async saveSpeech(speech: Speech): Promise<void> {
     const item = { ...speech, updatedAt: Date.now() };
     try {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(SPEECHES_STORE, 'readwrite');
-        const store = tx.objectStore(SPEECHES_STORE);
-        store.put(item);
-        tx.oncomplete = () => {
-          // Also sync to backup localStorage
-          this.backupToLocalStorage(item);
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      });
+      await db.speeches.put(item);
+      if (item.blocks?.length) {
+        await db.blocks.bulkPut(item.blocks);
+      }
+      this.backupToLocalStorage(item);
     } catch (e) {
       this.backupToLocalStorage(item);
     }
@@ -144,44 +132,57 @@ export const speechStorage = {
 
   async deleteSpeech(id: string): Promise<void> {
     try {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(SPEECHES_STORE, 'readwrite');
-        const store = tx.objectStore(SPEECHES_STORE);
-        store.delete(id);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
+      await db.transaction('rw', [db.speeches, db.blocks], async () => {
+        await db.speeches.delete(id);
+        await db.blocks.where('speechId').equals(id).delete();
       });
     } catch {
       const list = await this.getAllSpeeches();
       const filtered = list.filter((s) => s.id !== id);
-      localStorage.setItem(SPEECHES_STORE, JSON.stringify(filtered));
+      localStorage.setItem('SPEECHES_STORE', JSON.stringify(filtered));
     }
+  },
+
+  async savePublication(publication: Publication): Promise<void> {
+    await db.publications.put(publication);
+  },
+
+  async deletePublication(id: string): Promise<void> {
+    await db.transaction('rw', [db.publications, db.passages], async () => {
+      await db.publications.delete(id);
+      await db.passages.where('pubId').equals(id).delete();
+    });
+  },
+
+  async getAllPublications(): Promise<Publication[]> {
+    return db.publications.orderBy('addedAt').reverse().toArray();
+  },
+
+  async getPublicationById(id: string): Promise<Publication | undefined> {
+    return db.publications.get(id);
+  },
+
+  async getPassagesByPubId(pubId: string): Promise<Passage[]> {
+    return db.passages.where('pubId').equals(pubId).toArray();
   },
 
   backupToLocalStorage(speech: Speech) {
     try {
-      const raw = localStorage.getItem(SPEECHES_STORE);
+      const raw = localStorage.getItem('SPEECHES_STORE');
       let list: Speech[] = raw ? JSON.parse(raw) : [];
       const idx = list.findIndex((s) => s.id === speech.id);
       if (idx >= 0) list[idx] = speech;
       else list.unshift(speech);
-      localStorage.setItem(SPEECHES_STORE, JSON.stringify(list));
+      localStorage.setItem('SPEECHES_STORE', JSON.stringify(list));
     } catch {}
   },
 
   async getSettings(): Promise<AppSettings> {
     try {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(SETTINGS_STORE, 'readonly');
-        const store = tx.objectStore(SETTINGS_STORE);
-        const req = store.get('app_settings');
-        req.onsuccess = () => {
-          resolve(req.result ? req.result.value : DEFAULT_SETTINGS);
-        };
-        req.onerror = () => resolve(DEFAULT_SETTINGS);
-      });
+      const rec = await db.settings.get('app_settings');
+      const settings = rec?.value ?? DEFAULT_SETTINGS;
+      if (!settings) return DEFAULT_SETTINGS;
+      return settings;
     } catch {
       const raw = localStorage.getItem('better_talker_settings');
       return raw ? JSON.parse(raw) : DEFAULT_SETTINGS;
@@ -190,18 +191,12 @@ export const speechStorage = {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     try {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(SETTINGS_STORE, 'readwrite');
-        const store = tx.objectStore(SETTINGS_STORE);
-        store.put({ key: 'app_settings', value: settings });
-        tx.oncomplete = () => {
-          localStorage.setItem('better_talker_settings', JSON.stringify(settings));
-          resolve();
-        };
-      });
+      await db.settings.put({ key: 'app_settings', value: settings });
+      localStorage.setItem('better_talker_settings', JSON.stringify(settings));
     } catch {
       localStorage.setItem('better_talker_settings', JSON.stringify(settings));
     }
-  }
+  },
 };
+
+export { db };

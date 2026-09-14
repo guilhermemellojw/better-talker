@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Speech, SpeechMetrics, CopilotSuggestion } from '../../types/speech';
+import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../../types/speech';
 import { queryGeminiOratoryCoach } from '../../services/geminiService';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle } from 'lucide-react';
 
@@ -10,7 +10,9 @@ interface CopilotDrawerProps {
   metrics: SpeechMetrics;
   apiKey: string;
   offlineSuggestions: CopilotSuggestion[];
+  activeBlock?: SpeechBlock;
   onInsertTextIntoSpeech: (text: string) => void;
+  contextPassages?: string[];
 }
 
 export const CopilotDrawer = ({
@@ -20,7 +22,9 @@ export const CopilotDrawer = ({
   metrics,
   apiKey,
   offlineSuggestions,
+  activeBlock,
   onInsertTextIntoSpeech,
+  contextPassages = [],
 }: CopilotDrawerProps) => {
   const [activeTone, setActiveTone] = useState<'ted' | 'pitch' | 'motivational' | 'academic' | 'humorous'>('ted');
   const [isLoading, setIsLoading] = useState(false);
@@ -37,14 +41,15 @@ export const CopilotDrawer = ({
     setIsLoading(true);
     setResultTitle(title);
     setResultText(null);
+    const textToAnalyze = activeBlock?.plainText || speech.plainText || speech.title;
 
     try {
-      const textToAnalyze = speech.plainText.trim() || speech.title;
       const res = await queryGeminiOratoryCoach({
         apiKey,
         text: textToAnalyze,
         action,
         tone: activeTone,
+        contextPassages,
       });
       setResultText(res);
     } catch (err) {

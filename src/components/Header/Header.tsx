@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, Download, Settings, Sparkles, Play } from 'lucide-react';
+import { FolderOpen, Plus, Download, Settings, Sparkles, Play, BookOpen } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSpeechList: () => void;
@@ -8,6 +8,7 @@ interface HeaderProps {
   onToggleCopilot: () => void;
   isCopilotOpen: boolean;
   onOpenTeleprompter: () => void;
+  onOpenLibrary: () => void;
 }
 
 export const Header = ({
@@ -18,6 +19,7 @@ export const Header = ({
   onToggleCopilot,
   isCopilotOpen,
   onOpenTeleprompter,
+  onOpenLibrary,
 }: HeaderProps) => {
   return (
     <header className="app-header">
@@ -49,6 +51,16 @@ export const Header = ({
         >
           <Plus size={16} />
           <span className="hide-mobile">Novo</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={onOpenLibrary}
+          title="Acervo de publicações"
+        >
+          <BookOpen size={16} />
+          <span className="hide-mobile">Acervo</span>
         </button>
 
         <button

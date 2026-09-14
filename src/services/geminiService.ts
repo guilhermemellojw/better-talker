@@ -3,39 +3,54 @@ export interface AICallOptions {
   tone?: 'ted' | 'pitch' | 'motivational' | 'academic' | 'humorous';
   text: string;
   action: 'hook' | 'rewrite' | 'critique' | 'cues' | 'shorten';
+  contextPassages?: string[];
+  blockTitle?: string;
+  blockMinutes?: number;
 }
 
 export async function queryGeminiOratoryCoach(options: AICallOptions): Promise<string> {
-  const { apiKey, text, action, tone = 'ted' } = options;
+  const { apiKey, text, action, tone = 'ted', contextPassages = [], blockTitle, blockMinutes } = options;
 
   if (!apiKey || apiKey.trim() === '') {
-    // Return high quality offline simulated response
     return getOfflineSimulatedResponse(action, text, tone);
   }
 
   const systemPrompt = `Você é o "Better Talker Copilot", o mais experiente preparador de oratória e discursos para palestrantes do TED, líderes executivos e oradores de grande palco.
-Seu objetivo é tornar discursos memoráveis, orais (fáceis de falar em voz alta, com ritmo e respiração adequados), persuasivos e de alto impacto emocional.
-Responda em português com formatação direta, sem enrolações. Use tags curtas de palco como [Pausa 2s], [Ênfase] ou marcações em negrito onde for oportuno.`;
+Sua função é sugerir melhorias de tom, perguntas de raciocínio, ilustrações e aplicações práticas baseadas estritamente nos princípios de ensino presentes no acervo de oratória importado pelo usuário. Mantenha um tom instrutivo, modesto e focado em clareza.
+Regra fundamental: NUNCA invente ou adivinhe o conteúdo de uma citação. Se o usuário perguntar sobre uma publicação ou citação que não esteja no acervo local, informe explicitamente que a citação não foi encontrada e oriente-o a baixar a publicação via navegador oficial. Não tente fornecer texto que não exista no acervo.`;
+
+  let contextSection = '';
+  if (contextPassages.length > 0) {
+    contextSection = `\n\n--- INFORMAÇÕES DO ACERVO LOCAL ---\n${contextPassages.map((p, i) => `Trecho ${i + 1}: ${p}`).join('\n\n')}\n--- FIM DO ACERVO ---\n`;
+  }
+
+  let blockContext = '';
+  if (blockTitle || blockMinutes) {
+    blockContext = `\n\n--- BLOCO ATUAL ---\nTítulo: ${blockTitle || 'Sem título'}\nDuração: ${blockMinutes || '?'} minutos\n--- FIM DO BLOCO ---\n`;
+  }
 
   let userPrompt = '';
   switch (action) {
     case 'hook':
-      userPrompt = `Crie 3 opções poderosas de ganchos de abertura (primeiros 30 segundos) para este discurso ou tema:
+      userPrompt = `Crie 3 opções poderosas de ganchos de abertura (primeiros 30 segundos) para este bloco de discurso:
 "${text}"
+${contextSection}${blockContext}
 Opção 1: Pergunta retórica provocativa e incômoda.
 Opção 2: História breve ou paradoxo visual.
 Opção 3: Estatística ou afirmação contraintuitiva.`;
       break;
 
     case 'rewrite':
-      userPrompt = `Reescreva o trecho a seguir no tom "${tone}". Otimize o ritmo para fala ao vivo (evite períodos excessivamente longos, use ritmo cadenciado, tricolon e clareza).
+      userPrompt = `Reescreva o trecho a seguir no tom "${tone}". Otimize o ritmo para fala ao vivo (evite períodos excessivamente longos, use ritmo cadenciado, tricolon e clareza). Baseie-se apenas nos princípios do acervo local fornecidos.
 Texto original:
-"${text}"`;
+"${text}"
+${contextSection}${blockContext}`;
       break;
 
     case 'critique':
-      userPrompt = `Faça uma análise crítica de oratória deste discurso:
+      userPrompt = `Faça uma análise crítica de oratória deste bloco de discurso:
 "${text}"
+${contextSection}${blockContext}
 Destaque:
 1. Ponto mais forte (o que cativa).
 2. Ponto de vulnerabilidade (onde a plateia pode dispersar ou se cansar).
@@ -44,12 +59,14 @@ Destaque:
 
     case 'cues':
       userPrompt = `Analise este trecho de discurso e insira marcadores de palco no texto como [Pausa 2s], [Ênfase Máxima] e [Olhar Plateia] nos momentos de maior carga dramática:
-"${text}"`;
+"${text}"
+${contextSection}${blockContext}`;
       break;
 
     case 'shorten':
-      userPrompt = `Corte o excesso de palavras deste discurso sem perder a alma da mensagem. Torne-o direto, veloz e afiado para palco:
-"${text}"`;
+      userPrompt = `Corte o excesso de palavras deste bloco de discurso sem perder a alma da mensagem. Torne-o direto, veloz e afiado para palco. Baseie-se apenas nos princípios do acervo local.
+"${text}"
+${contextSection}${blockContext}`;
       break;
   }
 
@@ -66,7 +83,7 @@ Destaque:
           },
         ],
         generationConfig: {
-          temperature: 0.7,
+          temperature: 0.2,
           maxOutputTokens: 1000,
         },
       }),
