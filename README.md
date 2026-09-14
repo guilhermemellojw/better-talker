@@ -125,6 +125,22 @@ npx cap sync
 npx cap open android
 ```
 
+### 🔥 Vinculando ao Firebase (Cloud Sync de Metadados — BYOD)
+
+O Better Talker sincroniza **apenas metadados** (título, blocos, duração, categoria) para a nuvem — **nunca** o conteúdo de publicações (`publications/`). Isso respeita o modelo **BYOD**: a biblioteca de publicações é sempre local.
+
+**Passo a passo:**
+
+1. No [Firebase Console](https://console.firebase.google.com/), crie um projeto e adicione um app **Android** com o package `com.bettertalker.app`.
+2. Baixe o arquivo `google-services.json` e coloque em `android/app/google-services.json` (o template Capacitor já aplica o plugin `google-services` automaticamente quando o arquivo existe).
+3. Adicione um app **Web** ao mesmo projeto e copie as configurações para `.env.local` (veja `.env.example`):
+   - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
+4. Habilite o **Cloud Firestore** em *Build > Firestore Database*.
+5. Nas **regras de segurança do Firestore**, restringa gravações (ex.: `allow write: if request.auth != null;`).
+
+> O `google-services.json` está no `.gitignore` — nunca commite credenciais.
+> Sem o `.env.local`, o app roda normalmente 100% offline; o sync é ignorado silenciosamente.
+
 ---
 
 ## 📄 Licença

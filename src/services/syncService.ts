@@ -1,4 +1,5 @@
 import type { Speech, AppSettings, Publication } from '../types/speech';
+import { loadFirebaseConfig } from './firebaseConfig';
 
 export interface SyncPayload {
   speechId: string;
@@ -27,45 +28,51 @@ export interface SyncPublicationMeta {
 
 let initialized = false;
 
-export function initFirebaseSync(_firebaseConfig: Record<string, string>): void {
-  const forbiddenKeys = ['publicationText', 'binaryData', 'fileContent'];
-  const configKeys = Object.keys(_firebaseConfig);
-  const violation = forbiddenKeys.some((k) => configKeys.includes(k));
-  if (violation) {
-    throw new Error(
-      '[BYOD Guardrail] Firebase config contains forbidden key. Publications must never be synced to the cloud.'
-    );
+export async function initFirebaseSync(): Promise<boolean> {
+  const config = loadFirebaseConfig();
+  if (!config) return false;
+  try {
+    const { initializeApp } = await import('firebase/app');
+    const { getFirestore } = await import('firebase/firestore');
+    const app = initializeApp(config);
+    getFirestore(app);
+    initialized = true;
+    return true;
+  } catch (e) {
+    console.warn('[Sync] Falha ao inicializar Firebase:', e);
+    initialized = false;
+    return false;
   }
-  initialized = true;
 }
 
-export async function syncSpeechToCloud(_speech: Speech): Promise<void> {
+export async function syncSpeechToCloud(speech: Speech): Promise<void> {
   if (!initialized) return;
+  if (!validateNoPublicationBinaryInSync(speech)) return;
   const payload: SyncPayload = {
-    speechId: _speech.id,
-    title: _speech.title,
-    blocks: _speech.blocks.map((b) => ({ id: b.id, order: b.order, minutes: b.minutes, title: b.title })),
-    targetDurationMinutes: _speech.targetDurationMinutes,
-    category: _speech.category,
-    tags: _speech.tags,
-    updatedAt: _speech.updatedAt,
+    speechId: speech.id,
+    title: speech.title,
+    blocks: speech.blocks.map((b) => ({ id: b.id, order: b.order, minutes: b.minutes, title: b.title })),
+    targetDurationMinutes: speech.targetDurationMinutes,
+    category: speech.category,
+    tags: speech.tags,
+    updatedAt: speech.updatedAt,
   };
-  await postToFirestore('speeches', _speech.id, payload);
+  await postToFirestore('speeches', speech.id, payload);
 }
 
-export async function syncSettingsToCloud(_settings: AppSettings): Promise<void> {
+export async function syncSettingsToCloud(settings: AppSettings): Promise<void> {
   if (!initialized) return;
   const payload: SyncSettingsPayload = {
-    defaultWpm: _settings.defaultWpm,
-    teleprompterFontSize: _settings.teleprompterFontSize,
-    teleprompterMirrored: _settings.teleprompterMirrored,
+    defaultWpm: settings.defaultWpm,
+    teleprompterFontSize: settings.teleprompterFontSize,
+    teleprompterMirrored: settings.teleprompterMirrored,
   };
   await postToFirestore('settings', 'app', payload);
 }
 
-export async function syncPublicationMetasToCloud(_publications: Publication[]): Promise<void> {
+export async function syncPublicationMetasToCloud(publications: Publication[]): Promise<void> {
   if (!initialized) return;
-  for (const p of _publications) {
+  for (const p of publications) {
     const meta: SyncPublicationMeta = {
       id: p.id,
       fileName: p.fileName,
@@ -84,13 +91,24 @@ export function validateNoPublicationBinaryInSync(speech: Speech): boolean {
     forbiddenPatterns.some((p) => p.test(b.contentHtml || b.plainText))
   );
   if (hasBinary) {
-    console.error('[BYOD Guardrail] Attempted to sync publication binary data!');
+    console.error('[BYOD Guardrail] Tentativa de sincronizar dados binários de publicação!');
     return false;
   }
   return true;
 }
 
-async function postToFirestore(_collection: string, _docId: string, _data: unknown): Promise<void> {
+async function postToFirestore(collection: string, docId: string, data: unknown): Promise<void> {
   if (!initialized) return;
-  console.warn('[Sync] Firestore write simulated — credentials not configured.');
+  const config = loadFirebaseConfig();
+  if (!config) return;
+  try {
+    const { doc, setDoc } = await import('firebase/firestore');
+    const { getFirestore } = await import('firebase/firestore');
+    const { getApps, getApp } = await import('firebase/app');
+    const app = getApps().length > 0 ? getApp() : null;
+    if (!app) return;
+    await setDoc(doc(getFirestore(app), collection, docId), data as object, { merge: true });
+  } catch (e) {
+    console.warn('[Sync] Falha ao gravar no Firestore:', e);
+  }
 }

@@ -7,6 +7,7 @@ import {
   extractPlainTextFromHtml,
 } from './services/rhetoricEngine';
 import { parseOutline } from './services/outlineParser';
+import { initFirebaseSync, syncSpeechToCloud, syncSettingsToCloud } from './services/syncService';
 import { LibraryModal } from './components/Modals/LibraryModal';
 import { Header } from './components/Header/Header';
 import { BlockEditorTabs } from './components/Editor/BlockEditor';
@@ -40,6 +41,7 @@ export function App() {
 
   useEffect(() => {
     async function initData() {
+      await initFirebaseSync();
       const loadedSettings = await speechStorage.getSettings();
       setSettings(loadedSettings);
       const loadedSpeeches = await speechStorage.getAllSpeeches();
@@ -82,6 +84,7 @@ export function App() {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = window.setTimeout(async () => {
       await speechStorage.saveSpeech(updatedSpeech);
+      await syncSpeechToCloud(updatedSpeech);
       setIsSaving(false);
     }, 400);
   };
@@ -168,6 +171,7 @@ export function App() {
   const handleSaveSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
     await speechStorage.saveSettings(newSettings);
+    await syncSettingsToCloud(newSettings);
   };
 
   const handleInsertTextFromCopilot = (textToInsert: string) => {
