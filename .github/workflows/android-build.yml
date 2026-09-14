@@ -10,6 +10,7 @@ on:
       - 'package.json'
       - 'capacitor.config.ts'
       - 'index.html'
+      - '.github/workflows/android-build.yml'
 
 permissions:
   contents: read
