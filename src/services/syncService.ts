@@ -34,8 +34,11 @@ export async function initFirebaseSync(): Promise<boolean> {
   try {
     const { initializeApp } = await import('firebase/app');
     const { getDatabase } = await import('firebase/database');
+    const { getAuth, signInAnonymously } = await import('firebase/auth');
     const app = initializeApp(config);
-    getDatabase(app);
+    getDatabase(app, 'https://better-talker-default-rtdb.firebaseio.com');
+    const auth = getAuth(app);
+    await signInAnonymously(auth);
     initialized = true;
     return true;
   } catch (e) {
@@ -105,7 +108,7 @@ async function writeToRtdb(path: string, data: unknown): Promise<void> {
     const { ref, set, getDatabase } = await import('firebase/database');
     const { getApp } = await import('firebase/app');
     const app = getApp();
-    await set(ref(getDatabase(app), path), data);
+    await set(ref(getDatabase(app, 'https://better-talker-default-rtdb.firebaseio.com'), path), data);
   } catch (e) {
     console.warn('[Sync] Falha ao gravar no Realtime Database:', e);
   }
