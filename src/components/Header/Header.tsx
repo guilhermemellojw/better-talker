@@ -25,7 +25,7 @@ export const Header = ({
     <header className="app-header">
       {/* Brand */}
       <div className="header-brand" onClick={onOpenSpeechList} title="Ver lista de discursos">
-        <img src="/favicon.svg" alt="Better Talker" className="brand-icon" />
+        <img src="favicon.svg" alt="Better Talker" className="brand-icon" />
         <div className="brand-title">
           Better <span>Talker</span>
         </div>
