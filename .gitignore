@@ -22,6 +22,11 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 
+# Firebase credentials (never commit)
+google-services.json
+*.p12
+*.key
+
 # IDE and OS files
 .vscode/*
 !.vscode/extensions.json
