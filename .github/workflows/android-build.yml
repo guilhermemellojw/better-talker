@@ -69,11 +69,11 @@ jobs:
       - name: Build debug APK
         id: build_apk
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
         continue-on-error: true
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
 
       - name: Show Gradle failure log
-        if: failure() && steps.build_apk.conclusion == 'failure'
+        if: steps.build_apk.outcome == 'failure'
         working-directory: android
         run: |
           echo "::group::Gradle build log (last 80 lines)"
