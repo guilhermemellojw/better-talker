@@ -13,6 +13,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.fragment.app.DialogFragment
+import com.bettertalker.app.R
 import java.io.File
 
 class DownloadWebViewDialog : DialogFragment() {
@@ -51,7 +52,7 @@ class DownloadWebViewDialog : DialogFragment() {
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
 
-            downloadListener = DownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+            setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
                 val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
                 val dir = File(context.filesDir, "publicacoes")
                 if (!dir.exists()) dir.mkdirs()

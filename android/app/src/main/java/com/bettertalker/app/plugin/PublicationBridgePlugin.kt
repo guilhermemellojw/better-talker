@@ -26,7 +26,9 @@ class PublicationBridgePlugin : Plugin() {
         }
 
         webViewDialog = DownloadWebViewDialog.newInstance(url)
-        webViewDialog?.show(bridge.context.supportFragmentManager, "downloadWebView")
+        activity?.let { act ->
+            webViewDialog?.show(act.supportFragmentManager, "downloadWebView")
+        } ?: call.reject("Atividade indisponível")
 
         call.resolve()
     }
