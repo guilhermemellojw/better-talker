@@ -66,6 +66,15 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
+      - name: Confirm native Firebase config
+        run: |
+          if [ -f android/app/google-services.json ]; then
+            echo "google-services.json present -> Google Services plugin will apply"
+            grep -E "project_id|package_name" android/app/google-services.json
+          else
+            echo "google-services.json MISSING -> native plugin skipped (JS SDK only)"
+          fi
+
       - name: Build debug APK
         id: build_apk
         working-directory: android
