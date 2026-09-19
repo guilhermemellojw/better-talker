@@ -1,5 +1,5 @@
 ext {
-    minSdkVersion = 24
+    minSdkVersion = 26
     compileSdkVersion = 36
     targetSdkVersion = 36
     androidxActivityVersion = '1.11.0'
@@ -13,4 +13,12 @@ ext {
     androidxJunitVersion = '1.3.0'
     androidxEspressoCoreVersion = '3.7.0'
     cordovaAndroidVersion = '14.0.1'
+    // 100% nativo Compose — sem Capacitor
+    composeBomVersion = '2025.10.00'
+    navigationComposeVersion = '2.9.3'
+    lifecycleVersion = '2.9.2'
+    roomVersion = '2.7.0'
+    datastoreVersion = '1.1.7'
+    workVersion = '2.10.0'
+    pdfBoxVersion = '2.0.27.0'
 }
