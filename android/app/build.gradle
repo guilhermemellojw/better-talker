@@ -57,8 +57,48 @@ dependencies {
     implementation "androidx.datastore:datastore-preferences:${rootProject.ext.datastoreVersion}"
     implementation "androidx.work:work-runtime-ktx:${rootProject.ext.workVersion}"
 
+    // Leitura local PDF (BYOD, 100% offline). EPUB lido via java.util.zip (sem dep).
     implementation "com.tom-roush:pdfbox-android:${rootProject.ext.pdfBoxVersion}"
+
+    // Firebase (Auth + Firestore) — runtime só ativa com google-services.json
+    implementation platform("com.google.firebase:firebase-bom:${rootProject.ext.firebaseBomVersion}")
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-firestore'
+
+    // Login Google via Credential Manager
+    implementation "androidx.credentials:credentials:${rootProject.ext.credentialsVersion}"
+    implementation "androidx.credentials:credentials-play-services-auth:${rootProject.ext.credentialsVersion}"
+    implementation "com.google.android.gms:play-services-auth:${rootProject.ext.playAuthVersion}"
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 
     testImplementation "junit:junit:${rootProject.ext.junitVersion}"
     debugImplementation 'androidx.compose.ui:ui-tooling'
+}
+
+// Firebase SEM o plugin google-services (incompatível com AGP 8.13):
+// gera os mesmos string resources que o plugin geraria, lendo o json.
+// Sem o json, o build segue 100% local e o Firebase fica inativo em runtime.
+def gsFile = file('google-services.json')
+if (gsFile.exists() && gsFile.text.contains('project_id')) {
+    def gs = new groovy.json.JsonSlurper().parse(gsFile)
+    def client = gs.client.find {
+        it.client_info.android_client_info.package_name == 'com.bettertalker.app'
+    } ?: gs.client[0]
+    android.defaultConfig.resValue 'string', 'google_app_id', client.client_info.mobilesdk_app_id
+    android.defaultConfig.resValue 'string', 'gcm_defaultSenderId', gs.project_info.project_number
+    android.defaultConfig.resValue 'string', 'google_api_key', client.api_key[0].current_key
+    android.defaultConfig.resValue 'string', 'project_id', gs.project_info.project_id
+    if (gs.project_info.firebase_url) {
+        android.defaultConfig.resValue 'string', 'firebase_database_url', gs.project_info.firebase_url
+    }
+    if (gs.project_info.storage_bucket) {
+        android.defaultConfig.resValue 'string', 'google_storage_bucket', gs.project_info.storage_bucket
+    }
+    def webClient = client.oauth_client?.find { it.client_type == 3 }
+    if (webClient?.client_id) {
+        android.defaultConfig.resValue 'string', 'default_web_client_id', webClient.client_id
+    }
+    logger.lifecycle('[BetterTalker] Firebase resources gerados do google-services.json (login + Firestore ativos).')
+} else {
+    logger.lifecycle('[BetterTalker] google-services.json ausente: build 100% local, sem Firebase.')
 }

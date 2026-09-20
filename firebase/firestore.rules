@@ -1,0 +1,14 @@
+rules_version = '2';
+// Better Talker — cada usuário só acessa a própria árvore.
+// Sincroniza notas/pastas/metadados do usuário; binários e trechos nunca sobem.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{collection}/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid
+        && collection in ['notes', 'folders', 'attachments', 'tombstones'];
+    }
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}

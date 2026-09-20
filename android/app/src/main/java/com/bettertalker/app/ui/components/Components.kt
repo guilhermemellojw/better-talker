@@ -10,8 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +59,7 @@ fun NoteCard(
     attachCount: Int,
     colorArgb: Long,
     onClick: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = if (colorArgb != 0L) {
@@ -73,8 +80,30 @@ fun NoteCard(
                 )
             }
             Column(Modifier.padding(14.dp)) {
-                if (pinned) Text("📌 Fixada", style = MaterialTheme.typography.labelSmall)
-                Text(title.ifBlank { "Sem título" }, style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    if (pinned) Text("📌 Fixada  ", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        title.ifBlank { "Sem título" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (onDelete != null) {
+                        val showMenu = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                        IconButton(onClick = { showMenu.value = true }) {
+                            Icon(Icons.Default.MoreVert, "Opções")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu.value,
+                            onDismissRequest = { showMenu.value = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Excluir") },
+                                onClick = { showMenu.value = false; onDelete() }
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(previewOf(md), style = MaterialTheme.typography.bodySmall, maxLines = 4)
                 Spacer(Modifier.height(8.dp))

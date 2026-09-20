@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class EditorViewModel(private val db: AppDatabase, private val noteId: String) : ViewModel() {
-    private val repo = NotesRepository(db)
+class EditorViewModel(private val appCtx: android.content.Context, private val db: AppDatabase, private val noteId: String) : ViewModel() {
+    private val repo = NotesRepository(appCtx.applicationContext, db)
     private val _title = MutableStateFlow("")
     private val _md = MutableStateFlow(TextFieldValue(""))
     private val _saving = MutableStateFlow(false)
@@ -120,10 +120,13 @@ class EditorViewModel(private val db: AppDatabase, private val noteId: String) :
 
     fun unlinkAttachment(id: String) = viewModelScope.launch {
         db.attachmentDao().setNote(id, null)
+        com.bettertalker.app.data.cloud.SyncScheduler.requestSync(getAppCtx())
     }
 
-    class Factory(private val db: AppDatabase, private val noteId: String) : ViewModelProvider.Factory {
+    private fun getAppCtx(): android.content.Context = appCtx
+
+    class Factory(private val ctx: android.content.Context, private val db: AppDatabase, private val noteId: String) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = EditorViewModel(db, noteId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = EditorViewModel(ctx, db, noteId) as T
     }
 }

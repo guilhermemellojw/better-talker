@@ -26,8 +26,13 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
 
     fun importUri(uri: Uri, noteId: String? = null) =
         viewModelScope.launch {
-            val id = repo.importUri(uri, noteId)
-            if (id == null) _toast.value = "Formato não suportado. Use PDF, EPUB, DOCX, RTF, ZIP ou TXT."
+            try {
+                repo.importUri(uri, noteId)
+            } catch (e: com.bettertalker.app.data.repo.ImportException) {
+                _toast.value = e.message ?: "Falha ao importar."
+            } catch (_: Exception) {
+                _toast.value = "Falha ao importar o arquivo."
+            }
         }
 
     class Factory(private val db: AppDatabase, private val repo: LibraryRepository) : ViewModelProvider.Factory {

@@ -20,4 +20,15 @@ class SettingsStore(private val ctx: Context) {
         runCatching { ThemeMode.valueOf(it[THEME] ?: "AUTO") }.getOrDefault(ThemeMode.AUTO)
     }
     suspend fun setThemeMode(v: ThemeMode) { ctx.store.edit { it[THEME] = v.name } }
+
+    private val REINDEX_V3 = stringPreferencesKey("reindexed_v3")
+    suspend fun needsReindexV3(): Boolean {
+        var need = false
+        ctx.store.edit { need = it[REINDEX_V3] != "done"; it[REINDEX_V3] = "done" }
+        return need
+    }
+
+    private val LAST_SYNC = androidx.datastore.preferences.core.longPreferencesKey("last_sync")
+    val lastSync: Flow<Long> = ctx.store.data.map { it[LAST_SYNC] ?: 0L }
+    suspend fun setLastSync(v: Long) { ctx.store.edit { it[LAST_SYNC] = v } }
 }

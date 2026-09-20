@@ -5,11 +5,13 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.util.decodeBytes
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.normalizeText
-import com.bettertalker.app.data.util.splitSentences
+import com.bettertalker.app.data.util.splitRawSentences
 import com.bettertalker.app.data.util.stripRtf
 import com.bettertalker.app.data.util.stripXml
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
@@ -36,18 +38,24 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                 db.attachmentDao().setStatus(id, false, "failed", "Não foi possível extrair texto (arquivo vazio ou protegido).")
                 return Result.success()
             }
-            val norm = normalizeText(raw)
-            val sentences = splitSentences(norm).take(MAX_SENTENCES)
+            // separa frases no texto CRU (normalizar apaga . ! ? \n) e indexa cada uma
+            val sentences = splitRawSentences(raw).take(MAX_SENTENCES)
+                .mapNotNull { s ->
+                    val norm = normalizeText(s)
+                    if (norm.length > 5) s.replace(Regex("\\s+"), " ").trim().take(500) to norm.take(500)
+                    else null
+                }
             if (sentences.isEmpty()) {
                 db.attachmentDao().setStatus(id, false, "failed", "Texto sem trechos aproveitáveis.")
                 return Result.success()
             }
-            val rows = sentences.mapIndexed { i, s ->
-                PassageEntity("$id-p$i", id, s.take(500), s.take(500))
+            val rows = sentences.mapIndexed { i, (text, norm) ->
+                PassageEntity("$id-p$i", id, text, norm)
             }
             db.passageDao().deleteForAttachment(id)
             db.passageDao().insertAll(rows)
             db.attachmentDao().setStatus(id, true, "ready", null)
+            com.bettertalker.app.data.cloud.SyncScheduler.requestSync(applicationContext)
             // auto-reconhecimento do slot base (be/th) pelo nome do arquivo
             if (att.baseSlot == null) {
                 matchBaseSlot(att.fileName)?.let { db.attachmentDao().setBaseSlot(id, it) }
@@ -143,9 +151,7 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                     if (!entry.isDirectory && name.endsWith(".rtf")) {
                         val bytes = zin.readBytes()
                         if (bytes.size in 1..300_000) {
-                            // RTF costuma ser windows-1252/latin1
-                            val raw = runCatching { String(bytes, Charsets.UTF_8) }
-                                .getOrDefault(String(bytes, charset("windows-1252")))
+                            val raw = decodeBytes(bytes)
                             sb.append("\n\n=== ${entry.name} ===\n")
                             sb.append(stripRtf(raw))
                             count++
@@ -161,9 +167,19 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
 
     private fun readTxt(f: File): String {
         return try {
-            val bytes = f.inputStream().use { it.readBytes().take(500_000).toByteArray() }
-            runCatching { String(bytes, Charsets.UTF_8) }
-                .getOrDefault(String(bytes, charset("windows-1252")))
+            // leitura limitada por stream (nunca o arquivo inteiro na RAM)
+            val buf = ByteArrayOutputStream()
+            f.inputStream().buffered().use { ins ->
+                val tmp = ByteArray(64 * 1024)
+                var total = 0
+                while (total < MAX_TEXT * 2) {
+                    val n = ins.read(tmp)
+                    if (n < 0) break
+                    buf.write(tmp, 0, n)
+                    total += n
+                }
+            }
+            decodeBytes(buf.toByteArray())
         } catch (_: Exception) { "" }
     }
 }

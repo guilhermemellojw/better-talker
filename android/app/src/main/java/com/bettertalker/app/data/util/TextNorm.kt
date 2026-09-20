@@ -77,11 +77,11 @@ val BASE_PUBS = listOf(
 /** Casa um nome de arquivo com um slot base (be/th) ou null. */
 fun matchBaseSlot(fileName: String): String? {
     val norm = normalizeText(fileName)
+    val tokens = norm.split(" ").toSet()
     for (pub in BASE_PUBS) {
-        if (norm.contains(pub.code.trimEnd('_')) && (norm.contains("_t") || norm.contains(" t "))) {
-            // ex: be_t.pdf / th_t.epub — prefixo oficial do DownloadManager
-            return pub.slot
-        }
+        val code = pub.code.trimEnd('_') // be | th
+        // prefixo oficial (be_T.pdf -> be t pdf) exige marcador de idioma "t"
+        if (tokens.contains(code) && tokens.contains("t")) return pub.slot
         if (pub.synonyms.any { norm.contains(it) }) return pub.slot
     }
     return null
@@ -119,7 +119,7 @@ fun detectKind(fileName: String, file: java.io.File? = null): DocKind {
 
 /** Remove marcação RTF mantendo texto e quebras. */
 fun stripRtf(raw: String): String {
-    var s = raw
+    var s = removeRtfGroups(raw)
     s = s.replace(Regex("\\\\par[d]?"), "\n")
     s = s.replace(Regex("\\\\(tab|line)"), " ")
     s = s.replace(Regex("\\\\u-?\\d+\\??"), " ") // unicode \uN
@@ -129,6 +129,58 @@ fun stripRtf(raw: String): String {
     s = s.replace(Regex("\\\\"), " ")
     return s.replace(Regex("[ \\t\\r]+"), " ").replace(Regex("\n{3,}"), "\n\n").trim()
 }
+
+/**
+ * Remove grupos RTF binários/de controle (imagens \pict, tabelas de fonte/cor,
+ * estilos, metadados) com casamento de chaves — o conteúdo hex vira lixo no índice.
+ */
+fun removeRtfGroups(raw: String): String {
+    val out = StringBuilder(raw.length)
+    var i = 0
+    val n = raw.length
+    val keywords = listOf("\\pict", "\\fonttbl", "\\colortbl", "\\stylesheet", "\\info", "\\header", "\\footer")
+    while (i < n) {
+        if (raw[i] == '{') {
+            var j = i + 1
+            while (j < n && (raw[j] == ' ' || raw[j] == '\n' || raw[j] == '\r' || raw[j] == '\t')) j++
+            val hit = keywords.any { kw -> raw.regionMatches(j, kw, 0, kw.length, ignoreCase = true) }
+            if (hit) {
+                var depth = 0
+                while (i < n) {
+                    if (raw[i] == '{') depth++
+                    else if (raw[i] == '}') {
+                        depth--
+                        if (depth == 0) { i++; break }
+                    }
+                    i++
+                }
+                out.append(' ')
+                continue
+            }
+        }
+        out.append(raw[i])
+        i++
+    }
+    return out.toString()
+}
+
+/** Decodifica bytes: UTF-8 estrito, fallback windows-1252 (acentos de RTF/TXT). */
+fun decodeBytes(bytes: ByteArray): String {
+    return try {
+        val dec = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        dec.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+    } catch (_: Exception) {
+        String(bytes, charset("windows-1252"))
+    }
+}
+
+/** Separa frases no texto CRU (antes de normalizar) — normalizar apaga os delimitadores. */
+fun splitRawSentences(raw: String): List<String> =
+    raw.split(Regex("[.!?\\n]+"))
+        .map { it.replace(Regex("\\s+"), " ").trim() }
+        .filter { it.length > 5 }
 
 /** Remove tags XML/HTML genéricas. */
 fun stripXml(raw: String): String =

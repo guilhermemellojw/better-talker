@@ -58,6 +58,14 @@ data class PassageEntity(
     val normalized: String
 )
 
+/** Exclusões a propagar para a nuvem (tombstones). */
+@Entity(tableName = "tombstones")
+data class TombstoneEntity(
+    @PrimaryKey val id: String,
+    val type: String, // note | folder | attachment
+    val deletedAt: Long
+)
+
 // FTS futuro: busca atual usa LIKE sobre `normalized` (100% offline).
 // Mantido fora do @Database para evitar validação do compiler na v1.
 
@@ -90,8 +98,16 @@ interface NoteDao {
     suspend fun upsert(note: NoteEntity)
     @Query("UPDATE notes SET trashed = 1, updatedAt = :now WHERE id = :id")
     suspend fun trash(id: String, now: Long)
+    @Query("UPDATE notes SET trashed = 0, updatedAt = :now WHERE id = :id")
+    suspend fun restore(id: String, now: Long)
+    @Query("SELECT * FROM notes WHERE trashed = 1 ORDER BY updatedAt DESC")
+    fun observeTrashed(): Flow<List<NoteEntity>>
+    @Query("SELECT * FROM notes")
+    suspend fun allIncludingTrashed(): List<NoteEntity>
     @Query("DELETE FROM notes WHERE id = :id")
     suspend fun delete(id: String)
+    @Query("UPDATE notes SET folderId = NULL WHERE folderId = :folderId")
+    suspend fun clearFolder(folderId: String)
     @Query("SELECT COUNT(*) FROM notes WHERE trashed = 0")
     suspend fun count(): Int
 }
@@ -108,6 +124,8 @@ interface AttachmentDao {
     suspend fun get(id: String): AttachmentEntity?
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(a: AttachmentEntity)
+    @Update
+    suspend fun update(a: AttachmentEntity)
     @Query("UPDATE attachments SET indexed = :indexed WHERE id = :id")
     suspend fun setIndexed(id: String, indexed: Boolean)
     @Query("UPDATE attachments SET indexed = :indexed, status = :status, error = :error WHERE id = :id")
@@ -145,8 +163,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class],
-    version = 2,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -154,4 +172,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun passageDao(): PassageDao
+    abstract fun tombstoneDao(): TombstoneDao
+}
+
+@Dao
+interface TombstoneDao {
+    @Query("SELECT * FROM tombstones")
+    suspend fun all(): List<TombstoneEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(t: TombstoneEntity)
+    @Query("DELETE FROM tombstones WHERE id = :id")
+    suspend fun remove(id: String)
 }

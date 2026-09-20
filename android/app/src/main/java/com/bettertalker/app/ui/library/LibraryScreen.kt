@@ -68,6 +68,21 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importUri(uri)
     }
+    // Android 13+: notificação de conclusão do DownloadManager precisa de permissão
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { showJw = true }
+    val openJw: () -> Unit = {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            showJw = true
+        }
+    }
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
@@ -87,7 +102,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
             ByodNotice()
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { showJw = true }, modifier = Modifier.weight(1f)) {
+                Button(onClick = openJw, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
                 }
                 OutlinedButton(onClick = { picker.launch(PICKER_MIMES) }, modifier = Modifier.weight(1f)) {
@@ -115,6 +130,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                     Text(
                                         "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
                                             "ready" -> "Indexado"
+                                            "downloading" -> "Baixando…"
                                             "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
                                             else -> "Indexando…"
                                         },

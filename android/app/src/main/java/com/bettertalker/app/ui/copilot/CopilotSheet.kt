@@ -36,20 +36,53 @@ import com.bettertalker.app.ui.jw.JwDownloadDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CopilotSheet(vm: CopilotViewModel, onDismiss: () -> Unit, onInsert: (String) -> Unit) {
+fun CopilotSheet(
+    vm: CopilotViewModel,
+    onDismiss: () -> Unit,
+    onInsert: (String) -> Unit,
+    noteText: String = ""
+) {
     val q by vm.query.collectAsState()
     val busy by vm.busy.collectAsState()
     val summary by vm.summary.collectAsState()
     val ideas by vm.ideas.collectAsState()
     val insert by vm.insertText.collectAsState()
     val missing by vm.missing.collectAsState()
+    val refs by vm.refs.collectAsState()
+    val refsBusy by vm.refsBusy.collectAsState()
     val ctx = LocalContext.current
     var dlUrl by remember { mutableStateOf<String?>(null) }
+    // Android 13+: permissão de notificação para o DownloadManager concluir com aviso
+    val notifPermission = remember {
+        mutableStateOf<String?>(null)
+    }
+    val notifLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { dlUrl = notifPermission.value }
+    val openDownload: (String) -> Unit = { url ->
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.value = url
+            notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            dlUrl = url
+        }
+    }
 
     LaunchedEffect(insert) { if (insert.isNotEmpty()) { onInsert(insert); vm.consumeInsert() } }
 
     dlUrl?.let { url ->
-        JwDownloadDialog(url = url, onDismiss = { dlUrl = null; vm.refreshBases() })
+        JwDownloadDialog(
+            url = url,
+            onDismiss = {
+                dlUrl = null
+                vm.refreshBases()
+                if (refs != null) vm.checkRefs(noteText)
+            }
+        )
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -79,7 +112,7 @@ fun CopilotSheet(vm: CopilotViewModel, onDismiss: () -> Unit, onInsert: (String)
                                 )
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { dlUrl = pub.landingUrl }) { Text("Baixar") }
+                                Button(onClick = { openDownload(pub.landingUrl) }) { Text("Baixar") }
                                 TextButton(onClick = {
                                     ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pub.downloadsUrl)))
                                 }) { Text("Ver formatos") }
@@ -103,6 +136,66 @@ fun CopilotSheet(vm: CopilotViewModel, onDismiss: () -> Unit, onInsert: (String)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = vm::ideas, enabled = !busy) { Text("Gerar ideias") }
                 OutlinedButton(onClick = vm::summarize, enabled = !busy) { Text("Resumir") }
+            }
+            Spacer(Modifier.height(8.dp))
+            // Verificação de referências da nota (sob demanda, edição exata)
+            OutlinedButton(
+                onClick = { vm.checkRefs(noteText) },
+                enabled = !refsBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (refsBusy) "Verificando…" else "Verificar referências da nota") }
+            refs?.let { list ->
+                Spacer(Modifier.height(8.dp))
+                val ok = list.filter { it.resolved }
+                val lacking = list.filter { !it.resolved }
+                if (list.isEmpty()) {
+                    Text(
+                        "Nenhuma referência a publicação encontrada na nota.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                if (ok.isNotEmpty()) {
+                    Text("Disponíveis (${ok.size})", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    ok.forEach { st ->
+                        Card(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("✅ ${st.ref.label}", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "No arquivo: ${st.fileName}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                        }
+                    }
+                }
+                if (lacking.isNotEmpty()) {
+                    Text("Faltando (${lacking.size})", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Baixe no site oficial e anexe ao app — depois toque Verificar de novo.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    lacking.forEach { st ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Text("⬇️ ${st.ref.label}", style = MaterialTheme.typography.bodySmall)
+                                if (st.hint.isNotEmpty()) {
+                                    Text(st.hint, style = MaterialTheme.typography.labelSmall)
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Button(onClick = { openDownload(st.downloadUrl) }) { Text("Baixar no jw.org") }
+                            }
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(8.dp))
             if (summary.isNotEmpty()) {

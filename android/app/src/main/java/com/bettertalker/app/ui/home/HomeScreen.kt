@@ -21,9 +21,12 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Contrast
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.ui.components.NoteCard
+import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.bettertalker.app.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -61,15 +65,19 @@ fun HomeScreen(
     vm: HomeViewModel,
     onOpenNote: (String) -> Unit,
     onOpenLibrary: () -> Unit,
+    onOpenTrash: () -> Unit,
+    onOpenAccount: () -> Unit,
     settings: SettingsStore
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
     val query by vm.query.collectAsState()
     val folderId by vm.folderId.collectAsState()
+    val counts by vm.attachCounts.collectAsState()
     val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
     val scope = rememberCoroutineScope()
     var showTheme by remember { mutableStateOf(false) }
+    var showNewFolder by remember { mutableStateOf(false) }
 
     if (showTheme) {
         AlertDialog(
@@ -108,6 +116,43 @@ fun HomeScreen(
         )
     }
 
+    if (showNewFolder) {
+        var name by remember { mutableStateOf("") }
+        var color by remember { mutableStateOf(NOTE_COLORS.first().value.toLong()) }
+        AlertDialog(
+            onDismissRequest = { showNewFolder = false },
+            title = { Text("Nova pasta") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it },
+                        label = { Text("Nome") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        NOTE_COLORS.forEach { c ->
+                            Box(
+                                Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(c)
+                                    .clickable { color = c.value.toLong() }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (name.isNotBlank()) vm.newFolder(name.trim(), color)
+                    showNewFolder = false
+                }) { Text("Criar") }
+            },
+            dismissButton = { TextButton(onClick = { showNewFolder = false }) { Text("Cancelar") } }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -115,6 +160,8 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = { showTheme = true }) { Icon(Icons.Default.Contrast, "Aparência") }
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
+                    IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
+                    IconButton(onClick = onOpenAccount) { Icon(Icons.Default.AccountCircle, "Conta") }
                 }
             )
         },
@@ -136,7 +183,8 @@ fun HomeScreen(
             Spacer(Modifier.height(8.dp))
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 item {
                     FilterChip(selected = folderId == null, onClick = { vm.setFolder(null) }, label = { Text("Todas") })
@@ -152,6 +200,11 @@ fun HomeScreen(
                             }
                         }
                     )
+                }
+                item {
+                    IconButton(onClick = { showNewFolder = true }) {
+                        Icon(Icons.Default.CreateNewFolder, "Nova pasta")
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -170,8 +223,10 @@ fun HomeScreen(
                     items(notes, key = { it.id }) { n ->
                         NoteCard(
                             title = n.title, md = n.mdText, updatedAt = n.updatedAt,
-                            pinned = n.pinned, attachCount = 0, colorArgb = n.colorArgb,
-                            onClick = { onOpenNote(n.id) }
+                            pinned = n.pinned, attachCount = counts[n.id] ?: 0,
+                            colorArgb = n.colorArgb,
+                            onClick = { onOpenNote(n.id) },
+                            onDelete = { vm.trash(n.id) }
                         )
                     }
                 }

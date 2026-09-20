@@ -3,6 +3,7 @@ package com.bettertalker.app.data.repo
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.util.BASE_PUBS
+import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.buildJwUrl
 import com.bettertalker.app.data.util.normalizeText
 
@@ -32,12 +33,9 @@ class CopilotRepository(private val db: AppDatabase) {
 
     /** Escopo: 2 bases + anexos vinculados à nota (se aberta). 100% offline. */
     suspend fun askScoped(query: String, noteId: String? = null, limit: Int = 6): List<ScopedHit> {
-        val norm = normalizeText(query).split(" ")
-            .filter { it.length > 2 }.take(3).joinToString(" ")
-        if (norm.isBlank()) return emptyList()
-        val keys = listOf(norm).plus(
-            norm.split(" ").take(1)
-        ).distinct()
+        val words = normalizeText(query).split(" ")
+            .filter { it.length > 2 }.take(4)
+        if (words.isEmpty()) return emptyList()
 
         val scopeIds = mutableListOf<String>()
         val sourceOf = mutableMapOf<String, String>()
@@ -57,33 +55,34 @@ class CopilotRepository(private val db: AppDatabase) {
                 }
             }
         }
+        // consulta cada palavra e ordena por nº de acertos (ranking simples)
+        suspend fun ranked(ids: List<String>?, label: (String) -> String): List<ScopedHit> {
+            val hits = mutableMapOf<String, ScopedHit>()
+            val score = mutableMapOf<String, Int>()
+            for (w in words) {
+                val found = if (ids == null) db.passageDao().searchLike(w, limit * 2)
+                else db.passageDao().searchLikeIn(ids, w, limit * 2)
+                for (h in found) {
+                    if (!hits.containsKey(h.id)) {
+                        hits[h.id] = ScopedHit(h, label(h.attachmentId))
+                    }
+                    score[h.id] = (score[h.id] ?: 0) + 1
+                }
+            }
+            return hits.values.sortedByDescending { score[it.passage.id] ?: 0 }.take(limit)
+        }
         if (scopeIds.isEmpty()) {
             // fallback: acervo inteiro (antes das bases existirem)
-            val hits = searchFallback(norm, keys, limit)
-            return hits.map { ScopedHit(it, "Biblioteca") }
+            return ranked(null) { "Biblioteca" }
         }
-        val out = mutableListOf<ScopedHit>()
-        for (k in keys) {
-            val hits = db.passageDao().searchLikeIn(scopeIds, k, limit)
-            for (h in hits) {
-                if (out.none { it.passage.id == h.id }) {
-                    out += ScopedHit(h, sourceOf[h.attachmentId] ?: "Biblioteca")
-                }
-                if (out.size >= limit) return out
-            }
-        }
-        return out
-    }
-
-    private suspend fun searchFallback(norm: String, keys: List<String>, limit: Int): List<PassageEntity> {
-        for (k in keys) {
-            val hits = db.passageDao().searchLike(k, limit)
-            if (hits.isNotEmpty()) return hits
-        }
-        return emptyList()
+        return ranked(scopeIds) { sourceOf[it] ?: "Biblioteca" }
     }
 
     suspend fun passagesFor(attachmentId: String) = db.passageDao().forAttachment(attachmentId)
+
+    /** Referências da nota: detecta, casa edição exata com anexos locais. */
+    suspend fun checkRefs(noteText: String): List<RefDetector.RefStatus> =
+        RefDetector.checkAll(noteText, db.attachmentDao().all())
 
     /** Gera ideias de discurso a partir dos trechos — sem inventar citação. */
     fun ideasFor(topic: String, hits: List<ScopedHit>): List<IdeaCard> {

@@ -21,4 +21,9 @@ ext {
     datastoreVersion = '1.1.7'
     workVersion = '2.10.0'
     pdfBoxVersion = '2.0.27.0'
+    // Firebase (opcional: só ativa com google-services.json presente)
+    firebaseBomVersion = '34.0.0'
+    credentialsVersion = '1.3.0'
+    playAuthVersion = '21.0.0'
+    gmsVersion = '4.5.0'
 }

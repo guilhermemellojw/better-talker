@@ -26,10 +26,19 @@ object DbProvider {
         }
     }
 
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS tombstones " +
+                    "(id TEXT NOT NULL, type TEXT NOT NULL, deletedAt INTEGER NOT NULL, PRIMARY KEY(id))"
+            )
+        }
+    }
+
     fun get(ctx: Context): AppDatabase =
         inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "better-talker.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
