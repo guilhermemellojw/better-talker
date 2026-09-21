@@ -70,7 +70,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             }
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            if (settings.needsReindexV3()) libRepo.reindexAll()
+            if (settings.needsIndexFormat(4)) libRepo.reindexAll()
         }
     }
 
@@ -102,10 +102,10 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
-            val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(db, noteId))
+            val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId))
             val showSheet = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
             val sheetTitle by vm.title.collectAsState()
-            val sheetMd by vm.md.collectAsState()
+            val sheetMdText by vm.mdText.collectAsState()
             EditorScreen(
                 vm,
                 onBack = { nav.popBackStack() },
@@ -116,8 +116,9 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 CopilotSheet(
                     copilotVm,
                     onDismiss = { showSheet.value = false },
-                    onInsert = { vm.appendText(it); showSheet.value = false },
-                    noteText = sheetTitle + "\n" + sheetMd.text
+                    onInsert = { text, heading -> vm.insertUnderHeading(heading, text) },
+                    noteText = sheetTitle + "\n" + sheetMdText,
+                    headings = com.bettertalker.app.data.util.headingsOf(sheetMdText)
                 )
             }
         }

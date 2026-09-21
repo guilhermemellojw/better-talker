@@ -2,6 +2,7 @@ package com.bettertalker.app.ui.account
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -93,6 +95,8 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                         Button(onClick = vm::signIn, enabled = !busy) {
                             Text(if (busy) "Entrando…" else "Entrar com Google")
                         }
+                        Spacer(Modifier.height(12.dp))
+                        Sha1Row()
                     } else {
                         Text(user?.email ?: user?.uid ?: "Conectado", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
@@ -129,6 +133,31 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun Sha1Row() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val sha1 = remember { com.bettertalker.app.data.util.buildSha1(ctx) }
+    val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+    Column {
+        Text(
+            "Se o login falhar com “no credentials”, registre este SHA-1 no Firebase Console (Configurações do projeto → seu app Android → Impressões digitais):",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                sha1,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = {
+                clip.setText(androidx.compose.ui.text.AnnotatedString(sha1))
+            }) { Text("Copiar") }
         }
     }
 }

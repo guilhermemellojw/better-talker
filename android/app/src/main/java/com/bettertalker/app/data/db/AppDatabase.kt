@@ -55,15 +55,30 @@ data class PassageEntity(
     @PrimaryKey val id: String,
     val attachmentId: String,
     val text: String,
-    val normalized: String
+    val normalized: String,
+    val section: String = ""
 )
 
 /** Exclusões a propagar para a nuvem (tombstones). */
 @Entity(tableName = "tombstones")
 data class TombstoneEntity(
     @PrimaryKey val id: String,
-    val type: String, // note | folder | attachment
+    val type: String, // note | folder | attachment | outline
     val deletedAt: Long
+)
+
+/** Esboço-base do discurso: um por nota (id determinístico out-<noteId>). */
+@Entity(tableName = "outlines")
+data class OutlineEntity(
+    @PrimaryKey val id: String,
+    val noteId: String,
+    val fileName: String,
+    val title: String,
+    val totalMinutes: Int?,
+    val sectionsJson: String,
+    val refsJson: String = "[]",
+    val createdAt: Long,
+    val updatedAt: Long
 )
 
 // FTS futuro: busca atual usa LIKE sobre `normalized` (100% offline).
@@ -79,6 +94,8 @@ interface FolderDao {
     suspend fun all(): List<FolderEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(folder: FolderEntity)
+    @Query("UPDATE folders SET name = :name WHERE id = :id")
+    suspend fun rename(id: String, name: String)
     @Query("DELETE FROM folders WHERE id = :id")
     suspend fun delete(id: String)
 }
@@ -94,12 +111,18 @@ interface NoteDao {
     fun observe(folderId: String?, q: String): Flow<List<NoteEntity>>
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun get(id: String): NoteEntity?
+    @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<NoteEntity?>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(note: NoteEntity)
     @Query("UPDATE notes SET trashed = 1, updatedAt = :now WHERE id = :id")
     suspend fun trash(id: String, now: Long)
+    @Query("UPDATE notes SET pinned = NOT pinned, updatedAt = :now WHERE id = :id")
+    suspend fun togglePin(id: String, now: Long)
     @Query("UPDATE notes SET trashed = 0, updatedAt = :now WHERE id = :id")
     suspend fun restore(id: String, now: Long)
+    @Query("UPDATE notes SET folderId = :folderId, updatedAt = :now WHERE id = :id")
+    suspend fun move(id: String, folderId: String?, now: Long)
     @Query("SELECT * FROM notes WHERE trashed = 1 ORDER BY updatedAt DESC")
     fun observeTrashed(): Flow<List<NoteEntity>>
     @Query("SELECT * FROM notes")
@@ -163,8 +186,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class],
-    version = 3,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -173,6 +196,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun attachmentDao(): AttachmentDao
     abstract fun passageDao(): PassageDao
     abstract fun tombstoneDao(): TombstoneDao
+    abstract fun outlineDao(): OutlineDao
 }
 
 @Dao
@@ -183,4 +207,20 @@ interface TombstoneDao {
     suspend fun put(t: TombstoneEntity)
     @Query("DELETE FROM tombstones WHERE id = :id")
     suspend fun remove(id: String)
+}
+
+@Dao
+interface OutlineDao {
+    @Query("SELECT * FROM outlines WHERE noteId = :noteId LIMIT 1")
+    fun observeForNote(noteId: String): Flow<List<OutlineEntity>>
+    @Query("SELECT * FROM outlines WHERE noteId = :noteId LIMIT 1")
+    suspend fun getForNote(noteId: String): OutlineEntity?
+    @Query("SELECT * FROM outlines")
+    suspend fun all(): List<OutlineEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(o: OutlineEntity)
+    @Query("DELETE FROM outlines WHERE noteId = :noteId")
+    suspend fun deleteForNote(noteId: String)
+    @Query("DELETE FROM outlines WHERE id = :id")
+    suspend fun delete(id: String)
 }

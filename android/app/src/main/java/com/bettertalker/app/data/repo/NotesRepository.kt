@@ -41,18 +41,25 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
         db.noteDao().trash(id, System.currentTimeMillis())
         SyncScheduler.requestSync(ctx)
     }
-    suspend fun restore(id: String) {
+    suspend fun togglePin(id: String) {
+        db.noteDao().togglePin(id, System.currentTimeMillis())
+        SyncScheduler.requestSync(ctx)
+    }    suspend fun restore(id: String) {
         db.noteDao().restore(id, System.currentTimeMillis())
         SyncScheduler.requestSync(ctx)
     }
 
-    /** Exclusão definitiva: remove a nota + anexos vinculados a ela (arquivos e trechos). */
+    /** Exclusão definitiva: remove a nota + esboço + anexos vinculados (arquivos e trechos). */
     suspend fun deleteForever(id: String) {
         for (a in db.attachmentDao().all().filter { it.noteId == id }) {
             runCatching { File(a.appPath).delete() }
             db.passageDao().deleteForAttachment(a.id)
             db.attachmentDao().delete(a.id)
             db.tombstoneDao().put(TombstoneEntity(a.id, "attachment", System.currentTimeMillis()))
+        }
+        db.outlineDao().getForNote(id)?.let {
+            db.outlineDao().deleteForNote(id)
+            db.tombstoneDao().put(TombstoneEntity(it.id, "outline", System.currentTimeMillis()))
         }
         db.noteDao().delete(id)
         db.tombstoneDao().put(TombstoneEntity(id, "note", System.currentTimeMillis()))
@@ -61,6 +68,14 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
 
     suspend fun newFolder(name: String, color: Long) {
         db.folderDao().upsert(FolderEntity(newId("fld"), name, color, System.currentTimeMillis()))
+        SyncScheduler.requestSync(ctx)
+    }
+    suspend fun renameFolder(id: String, name: String) {
+        db.folderDao().rename(id, name)
+        SyncScheduler.requestSync(ctx)
+    }
+    suspend fun moveNote(id: String, folderId: String?) {
+        db.noteDao().move(id, folderId, System.currentTimeMillis())
         SyncScheduler.requestSync(ctx)
     }
     suspend fun deleteFolder(id: String) {

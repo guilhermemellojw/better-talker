@@ -60,6 +60,7 @@ fun NoteCard(
     colorArgb: Long,
     onClick: () -> Unit,
     onDelete: (() -> Unit)? = null,
+    onTogglePin: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = if (colorArgb != 0L) {
@@ -88,7 +89,7 @@ fun NoteCard(
                         maxLines = 2,
                         modifier = Modifier.weight(1f)
                     )
-                    if (onDelete != null) {
+                    if (onDelete != null || onTogglePin != null) {
                         val showMenu = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                         IconButton(onClick = { showMenu.value = true }) {
                             Icon(Icons.Default.MoreVert, "Opções")
@@ -97,10 +98,18 @@ fun NoteCard(
                             expanded = showMenu.value,
                             onDismissRequest = { showMenu.value = false }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Excluir") },
-                                onClick = { showMenu.value = false; onDelete() }
-                            )
+                            if (onTogglePin != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (pinned) "Desafixar" else "Fixar") },
+                                    onClick = { showMenu.value = false; onTogglePin() }
+                                )
+                            }
+                            if (onDelete != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Excluir") },
+                                    onClick = { showMenu.value = false; onDelete() }
+                                )
+                            }
                         }
                     }
                 }

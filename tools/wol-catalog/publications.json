@@ -1,0 +1,782 @@
+{
+ "cl": {
+  "symbol": "cl",
+  "title": "Achegue-se a Jeová",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/cl"
+ },
+ "rr": {
+  "symbol": "rr",
+  "title": "Adoração Pura",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/rr"
+ },
+ "wt": {
+  "symbol": "wt",
+  "title": "Adore a Deus",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/wt"
+ },
+ "ad": {
+  "symbol": "ad",
+  "title": "Ajuda",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ad"
+ },
+ "kj": {
+  "symbol": "kj",
+  "title": "“As Nações Terão de Saber”",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/kj"
+ },
+ "lp": {
+  "symbol": "lp",
+  "title": "A Vida Tem Objetivo",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lp"
+ },
+ "be": {
+  "symbol": "be",
+  "title": "Beneficie-se",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/be"
+ },
+ "bh": {
+  "symbol": "bh",
+  "title": "Bíblia Ensina",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/bh"
+ },
+ "gh": {
+  "symbol": "gh",
+  "title": "Boas Novas",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/gh"
+ },
+ "sh": {
+  "symbol": "sh",
+  "title": "Busca de Deus",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/sh"
+ },
+ "sjj": {
+  "symbol": "sjj",
+  "title": "Cante de Coração",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/livros/cante-de-coração-sjj"
+ },
+ "sn": {
+  "symbol": "sn",
+  "title": "Cantemos a Jeová",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/sn"
+ },
+ "snnw": {
+  "symbol": "snnw",
+  "title": "Cantemos a Jeová — Novos Cânticos",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/snnw"
+ },
+ "Ssb": {
+  "symbol": "Ssb",
+  "title": "Cantemos Louvores",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/Ssb"
+ },
+ "re": {
+  "symbol": "re",
+  "title": "Clímax de Revelação",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/re"
+ },
+ "kl": {
+  "symbol": "kl",
+  "title": "Conhecimento",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/kl"
+ },
+ "lvs": {
+  "symbol": "lvs",
+  "title": "Continue",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lvs"
+ },
+ "wcg": {
+  "symbol": "wcg",
+  "title": "Coragem",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/wcg"
+ },
+ "ce": {
+  "symbol": "ce",
+  "title": "Criação",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ce"
+ },
+ "ct": {
+  "symbol": "ct",
+  "title": "Criador",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ct"
+ },
+ "jd": {
+  "symbol": "jd",
+  "title": "Dia de Jeová",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/jd"
+ },
+ "ts": {
+  "symbol": "ts",
+  "title": "É Esta Vida?",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ts"
+ },
+ "bhs": {
+  "symbol": "bhs",
+  "title": "Entenda a Bíblia",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/bhs"
+ },
+ "hs": {
+  "symbol": "hs",
+  "title": "Espírito Santo",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/hs"
+ },
+ "fy": {
+  "symbol": "fy",
+  "title": "Família Feliz",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/fy"
+ },
+ "hp": {
+  "symbol": "hp",
+  "title": "Felicidade",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/hp"
+ },
+ "go": {
+  "symbol": "go",
+  "title": "Governo Mundial",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/go"
+ },
+ "te": {
+  "symbol": "te",
+  "title": "Grande Instrutor",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/te"
+ },
+ "my": {
+  "symbol": "my",
+  "title": "Histórias Bíblicas",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/my"
+ },
+ "lfb": {
+  "symbol": "lfb",
+  "title": "Histórias da Bíblia",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lfb"
+ },
+ "ia": {
+  "symbol": "ia",
+  "title": "Imite",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ia"
+ },
+ "lr": {
+  "symbol": "lr",
+  "title": "Instrutor",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lr"
+ },
+ "jr": {
+  "symbol": "jr",
+  "title": "Jeremias",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/jr"
+ },
+ "jy": {
+  "symbol": "jy",
+  "title": "Jesus — o Caminho",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/jy"
+ },
+ "yy": {
+  "symbol": "yy",
+  "title": "Juventude",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/yy"
+ },
+ "lv": {
+  "symbol": "lv",
+  "title": "‘Mantenha-se’",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lv"
+ },
+ "sg": {
+  "symbol": "sg",
+  "title": "Manual da Escola",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/sg"
+ },
+ "bw": {
+  "symbol": "bw",
+  "title": "Melhor Modo de Vida",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/bw"
+ },
+ "gt": {
+  "symbol": "gt",
+  "title": "O Maior Homem",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/gt"
+ },
+ "ka": {
+  "symbol": "ka",
+  "title": "O Reino de Deus de Mil Anos",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ka"
+ },
+ "kr": {
+  "symbol": "kr",
+  "title": "O Reino de Deus já Governa!",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/kr"
+ },
+ "od": {
+  "symbol": "od",
+  "title": "Organizados",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/od"
+ },
+ "yp": {
+  "symbol": "yp",
+  "title": "Os Jovens Perguntam",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/yp"
+ },
+ "yp1": {
+  "symbol": "yp1",
+  "title": "Os Jovens Perguntam 1",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/yp1"
+ },
+ "yp2": {
+  "symbol": "yp2",
+  "title": "Os Jovens Perguntam 2",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/yp2"
+ },
+ "gm": {
+  "symbol": "gm",
+  "title": "Palavra de Deus",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/gm"
+ },
+ "pm": {
+  "symbol": "pm",
+  "title": "Paraíso Restabelecido",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/pm"
+ },
+ "tp73": {
+  "symbol": "tp73",
+  "title": "Paz e Segurança",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/tp73"
+ },
+ "scl": {
+  "symbol": "scl",
+  "title": "Princípios Bíblicos para a Vida Cristã",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/scl"
+ },
+ "jv": {
+  "symbol": "jv",
+  "title": "Proclamadores",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/jv"
+ },
+ "dp": {
+  "symbol": "dp",
+  "title": "Profecia de Daniel",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/dp"
+ },
+ "ip-1": {
+  "symbol": "ip-1",
+  "title": "Profecia de Isaías I",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-1"
+ },
+ "ip-2": {
+  "symbol": "ip-2",
+  "title": "Profecia de Isaías II",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-2"
+ },
+ "po": {
+  "symbol": "po",
+  "title": "“Propósito Eterno”",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/po"
+ },
+ "rs": {
+  "symbol": "rs",
+  "title": "Raciocínios",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/livros/raciocínios-rs"
+ },
+ "sl": {
+  "symbol": "sl",
+  "title": "Salvação do Homem",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/sl"
+ },
+ "ws": {
+  "symbol": "ws",
+  "title": "Segurança Mundial",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ws"
+ },
+ "lff": {
+  "symbol": "lff",
+  "title": "Seja Feliz para Sempre!",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lff"
+ },
+ "su": {
+  "symbol": "su",
+  "title": "Sobrevivência",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/su"
+ },
+ "bt": {
+  "symbol": "bt",
+  "title": "Testemunho Cabal",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/bt"
+ },
+ "si": {
+  "symbol": "si",
+  "title": "“Toda a Escritura”",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/livros/toda-a-escritura-si"
+ },
+ "uw": {
+  "symbol": "uw",
+  "title": "Unidos",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/uw"
+ },
+ "kc": {
+  "symbol": "kc",
+  "title": "“Venha o Teu Reino”",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/kc"
+ },
+ "cf": {
+  "symbol": "cf",
+  "title": "‘Venha Ser Meu Seguidor’",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/cf"
+ },
+ "tp": {
+  "symbol": "tp",
+  "title": "Verdadeira Paz",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/tp"
+ },
+ "fl": {
+  "symbol": "fl",
+  "title": "Vida Familiar",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/fl"
+ },
+ "pe": {
+  "symbol": "pe",
+  "title": "Viver Para Sempre",
+  "kind": "book",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/pe"
+ },
+ "ypq": {
+  "symbol": "ypq",
+  "title": "10 Perguntas",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ypq"
+ },
+ "lmd": {
+  "symbol": "lmd",
+  "title": "Ame as Pessoas",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lmd"
+ },
+ "gf": {
+  "symbol": "gf",
+  "title": "Amigo de Deus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/gf"
+ },
+ "wfg": {
+  "symbol": "wfg",
+  "title": "Aprenda com a Sabedoria de Jesus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/wfg"
+ },
+ "lc": {
+  "symbol": "lc",
+  "title": "A Vida — Teve um Criador?",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/a-vida-teve-um-criador-lc"
+ },
+ "fg": {
+  "symbol": "fg",
+  "title": "Boas Notícias",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/fg"
+ },
+ "gl": {
+  "symbol": "gl",
+  "title": "‘Boa Terra’",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/boa-terra-gl"
+ },
+ "brfi": {
+  "symbol": "brfi",
+  "title": "Brochura Triângulos Roxos",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/brochura-triângulos-roxos-brfi"
+ },
+ "ph": {
+  "symbol": "ph",
+  "title": "Caminho",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/caminho-ph"
+ },
+ "ol": {
+  "symbol": "ol",
+  "title": "Caminho para a Vida",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/ol"
+ },
+ "hb": {
+  "symbol": "hb",
+  "title": "Como Pode o Sangue?",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/como-pode-o-sangue-hb"
+ },
+ "rq": {
+  "symbol": "rq",
+  "title": "Deus Requer",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/rq"
+ },
+ "ed": {
+  "symbol": "ed",
+  "title": "Educação",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/educação-ed"
+ },
+ "Lmn": {
+  "symbol": "Lmn",
+  "title": "“Eis”",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/eis-lmn"
+ },
+ "yc": {
+  "symbol": "yc",
+  "title": "Ensine Seus Filhos",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/yc"
+ },
+ "sj": {
+  "symbol": "sj",
+  "title": "Escola",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/escola-sj"
+ },
+ "ld": {
+  "symbol": "ld",
+  "title": "Escute a Deus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/escute-a-deus-ld"
+ },
+ "ll": {
+  "symbol": "ll",
+  "title": "Escute e Viva",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/escute-e-viva-ll"
+ },
+ "sp": {
+  "symbol": "sp",
+  "title": "Espíritos dos Mortos",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/espíritos-dos-mortos-sp"
+ },
+ "us": {
+  "symbol": "us",
+  "title": "Espíritos Invisíveis",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/espíritos-invisíveis-us"
+ },
+ "gc": {
+  "symbol": "gc",
+  "title": "Existe um Deus Que se Importa?",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/existe-um-deus-que-se-importa-gc"
+ },
+ "hf": {
+  "symbol": "hf",
+  "title": "Família",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/hf"
+ },
+ "je": {
+  "symbol": "je",
+  "title": "Fazer Mundialmente a Vontade de Deus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fazer-mundialmente-a-vontade-de-deus-je"
+ },
+ "hu": {
+  "symbol": "hu",
+  "title": "Fracasso dos Planos Humanos",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fracasso-dos-planos-humanos-hu"
+ },
+ "fu": {
+  "symbol": "fu",
+  "title": "Futuro Seguro",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/futuro-seguro-fu"
+ },
+ "bp": {
+  "symbol": "bp",
+  "title": "Governo",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/governo-bp"
+ },
+ "ml": {
+  "symbol": "ml",
+  "title": "Há Muito Mais Envolvido na Vida!",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/há-muito-mais-envolvido-na-vida-ml"
+ },
+ "dg": {
+  "symbol": "dg",
+  "title": "Importa-se Deus?",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/dg"
+ },
+ "kp": {
+  "symbol": "kp",
+  "title": "Mantenha-se Vigilante!",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/mantenha-se-vigilante-kp"
+ },
+ "th": {
+  "symbol": "th",
+  "title": "Melhore",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/th"
+ },
+ "bm": {
+  "symbol": "bm",
+  "title": "Mensagem da Bíblia",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/bm"
+ },
+ "mb": {
+  "symbol": "mb",
+  "title": "Minhas Lições da Bíblia",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/minhas-lições-da-bíblia-mb"
+ },
+ "wi": {
+  "symbol": "wi",
+  "title": "Mundo sem Guerra",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/mundo-sem-guerra-wi"
+ },
+ "na": {
+  "symbol": "na",
+  "title": "Nome Divino",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/nome-divino-na"
+ },
+ "pr": {
+  "symbol": "pr",
+  "title": "Objetivo da Vida",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/pr"
+ },
+ "lf": {
+  "symbol": "lf",
+  "title": "Origem da Vida",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lf"
+ },
+ "wj": {
+  "symbol": "wj",
+  "title": "Por Que Adorar a Deus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/wj"
+ },
+ "mbs": {
+  "symbol": "mbs",
+  "title": "Programação de leitura da Bíblia para a Celebração",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/mbs"
+ },
+ "we": {
+  "symbol": "we",
+  "title": "Quando Morre Alguém",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/quando-morre-alguém-we"
+ },
+ "ie": {
+  "symbol": "ie",
+  "title": "Quando Morremos",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/quando-morremos-ie"
+ },
+ "bq": {
+  "symbol": "bq",
+  "title": "Questão do Sangue",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/questão-do-sangue-bq"
+ },
+ "dn": {
+  "symbol": "dn",
+  "title": "Regência Divina",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/regência-divina-dn"
+ },
+ "sv": {
+  "symbol": "sv",
+  "title": "Salvação da Raça Humana",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/salvação-da-raça-humana-sv"
+ },
+ "lffi": {
+  "symbol": "lffi",
+  "title": "Seja Feliz para Sempre!",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/lffi"
+ },
+ "og": {
+  "symbol": "og",
+  "title": "Soberania de Deus",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/soberania-de-deus-og"
+ },
+ "jt": {
+  "symbol": "jt",
+  "title": "Testemunhas de Jeová — Quem São? Em Que Crêem?",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/testemunhas-de-jeová-quem-são-em-que-crêem-jt"
+ },
+ "br78": {
+  "symbol": "br78",
+  "title": "TJ",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/tj-br78"
+ },
+ "nc": {
+  "symbol": "nc",
+  "title": "Todas as Nações",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/todas-as-nações-nc"
+ },
+ "td": {
+  "symbol": "td",
+  "title": "Tópicos Bíblicos para Palestrar",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/tópicos-bíblicos-para-palestrar-td"
+ },
+ "ti": {
+  "symbol": "ti",
+  "title": "Trindade",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/trindade-ti"
+ },
+ "ba": {
+  "symbol": "ba",
+  "title": "Um Livro para Todas as Pessoas",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/um-livro-para-todas-as-pessoas-ba"
+ },
+ "rk": {
+  "symbol": "rk",
+  "title": "Verdadeira Fé",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/rk"
+ },
+ "pc": {
+  "symbol": "pc",
+  "title": "Verdadeira Paz e Felicidade",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/verdadeira-paz-e-felicidade-pc"
+ },
+ "hl": {
+  "symbol": "hl",
+  "title": "Vida Feliz",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/hl"
+ },
+ "la": {
+  "symbol": "la",
+  "title": "Vida Satisfatória",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/la"
+ },
+ "dy": {
+  "symbol": "dy",
+  "title": "Vitória Divina",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/vitória-divina-dy"
+ },
+ "le": {
+  "symbol": "le",
+  "title": "Viva Para Sempre",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/viva-para-sempre-le"
+ },
+ "rj": {
+  "symbol": "rj",
+  "title": "Volte para Jeová",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/volte-para-jeová-rj"
+ },
+ "jl": {
+  "symbol": "jl",
+  "title": "Vontade de Jeová",
+  "kind": "brochure",
+  "wol": "https://wol.jw.org/pt/wol/publication/r5/lp-t/jl"
+ },
+ "w": {
+  "symbol": "w",
+  "title": "A Sentinela (estudo)",
+  "kind": "magazine",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/a-sentinela"
+ },
+ "wp": {
+  "symbol": "wp",
+  "title": "A Sentinela (pública)",
+  "kind": "magazine",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/a-sentinela"
+ },
+ "g": {
+  "symbol": "g",
+  "title": "Despertai!",
+  "kind": "magazine",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/despertai"
+ },
+ "mwb": {
+  "symbol": "mwb",
+  "title": "Apostila Vida e Ministério",
+  "kind": "workbook",
+  "wol": "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/apostilas"
+ }
+}

@@ -3,6 +3,8 @@ package com.bettertalker.app.data.cloud
 import android.content.Context
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
@@ -67,6 +69,11 @@ class AuthRepository(private val ctx: Context) {
             _user.value = authOrNull()?.currentUser
             SyncScheduler.requestSync(ctx)
             null
+        } catch (e: GetCredentialCancellationException) {
+            null // usuário cancelou: sem erro
+        } catch (e: NoCredentialException) {
+            "Sem credenciais: adicione uma conta Google no aparelho e confira o " +
+                "SHA-1 deste build registrado no Firebase (mostrado abaixo)."
         } catch (e: Exception) {
             e.message?.take(200) ?: "Falha no login."
         }

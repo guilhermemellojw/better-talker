@@ -89,7 +89,7 @@ fun matchBaseSlot(fileName: String): String? {
 
 // ---------- Detecção de formato ----------
 
-enum class DocKind(val ext: String) { PDF("pdf"), EPUB("epub"), DOCX("docx"), RTF("rtf"), ZIP("zip"), TXT("txt"), UNSUPPORTED("bin") }
+enum class DocKind(val ext: String) { PDF("pdf"), EPUB("epub"), DOCX("docx"), RTF("rtf"), ZIP("zip"), TXT("txt"), JWPUB("jwpub"), UNSUPPORTED("bin") }
 
 fun detectKind(fileName: String, file: java.io.File? = null): DocKind {
     val ext = fileName.substringAfterLast('.', "").lowercase()
@@ -100,6 +100,7 @@ fun detectKind(fileName: String, file: java.io.File? = null): DocKind {
         "rtf" -> return DocKind.RTF
         "zip" -> return DocKind.ZIP
         "txt", "md" -> return DocKind.TXT
+        "jwpub" -> return DocKind.JWPUB
     }
     // sniffing pelo header quando a extensão falha
     if (file != null && file.exists()) {
@@ -120,9 +121,18 @@ fun detectKind(fileName: String, file: java.io.File? = null): DocKind {
 /** Remove marcação RTF mantendo texto e quebras. */
 fun stripRtf(raw: String): String {
     var s = removeRtfGroups(raw)
+    // \uN = caractere unicode (ex: \u243? = ó) — converte em vez de apagar
+    s = Regex("""\\u(-?\d+)\??""").replace(s) { m ->
+        var n = m.groupValues[1].toIntOrNull() ?: return@replace " "
+        if (n < 0) n += 65536
+        try {
+            n.toChar().toString()
+        } catch (_: Exception) {
+            " "
+        }
+    }
     s = s.replace(Regex("\\\\par[d]?"), "\n")
     s = s.replace(Regex("\\\\(tab|line)"), " ")
-    s = s.replace(Regex("\\\\u-?\\d+\\??"), " ") // unicode \uN
     s = s.replace(Regex("\\\\'[0-9a-fA-F]{2}"), " ") // hex \'xx
     s = s.replace(Regex("\\\\[a-zA-Z]+-?\\d* ?"), " ") // palavras de controle
     s = s.replace(Regex("[{}]"), " ")
@@ -143,7 +153,9 @@ fun removeRtfGroups(raw: String): String {
         if (raw[i] == '{') {
             var j = i + 1
             while (j < n && (raw[j] == ' ' || raw[j] == '\n' || raw[j] == '\r' || raw[j] == '\t')) j++
-            val hit = keywords.any { kw -> raw.regionMatches(j, kw, 0, kw.length, ignoreCase = true) }
+            // {\*\...} = grupo de destino (metadados) — descarta inteiro
+            val starred = j < n && raw[j] == '\\' && j + 1 < n && raw[j + 1] == '*'
+            val hit = starred || keywords.any { kw -> raw.regionMatches(j, kw, 0, kw.length, ignoreCase = true) }
             if (hit) {
                 var depth = 0
                 while (i < n) {
@@ -178,10 +190,47 @@ fun decodeBytes(bytes: ByteArray): String {
 
 /** Separa frases no texto CRU (antes de normalizar) — normalizar apaga os delimitadores. */
 fun splitRawSentences(raw: String): List<String> =
-    raw.split(Regex("[.!?\\n]+"))
-        .map { it.replace(Regex("\\s+"), " ").trim() }
-        .filter { it.length > 5 }
+    splitWithSections(raw).map { it.first }
 
-/** Remove tags XML/HTML genéricas. */
+/**
+ * Divide em (frase, seção). Seção = último título detectado:
+ * linha tipo "Lição 3", "Capítulo 5", ou linha curta sem pontuação
+ * seguida de parágrafo longo. Marcadores === arquivo === resetam.
+ */
+fun splitWithSections(raw: String): List<Pair<String, String>> {
+    val out = mutableListOf<Pair<String, String>>()
+    var section = ""
+    // RTF/PDF usam \n simples entre parágrafos — trabalha linha a linha
+    val lines = raw.split("\n").map { it.replace(Regex("\\s+"), " ").trim() }
+        .filter { it.isNotEmpty() }
+    val lessonRe = Regex("^(li[cç][aã]o|cap[íi]tulo|estudo|parte|se[cç][aã]o)\\s+\\d+", RegexOption.IGNORE_CASE)
+    val markerRe = Regex("^===.*===$")
+    lines.forEachIndexed { idx, line ->
+        if (markerRe.matches(line)) {
+            section = ""
+            return@forEachIndexed
+        }
+        val nextLen = lines.getOrNull(idx + 1)?.length ?: 0
+        val isLesson = lessonRe.containsMatchIn(line)
+        val isShortTitle = line.length in 4..80 &&
+            line.last().let { it != '.' && it != '?' && it != '!' && it != ':' } &&
+            nextLen > 120
+        if (isLesson || isShortTitle) {
+            section = line.take(120)
+            return@forEachIndexed
+        }
+        line.split(Regex("[.!?]+"))
+            .map { it.trim() }
+            .filter { it.length > 5 }
+            .forEach { out += it to section }
+    }
+    return out
+}
+
+/** Remove tags XML/HTML preservando quebras de linha (estrutura de parágrafos). */
 fun stripXml(raw: String): String =
-    raw.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim()
+    raw.replace(Regex("<[^>]+>"), " ")
+        // NOTA: sem \v aqui — em Java \v = whitespace vertical (inclui \n)!
+        .replace(Regex("[ \\t\\r\\f]+"), " ")
+        .replace(Regex("\n[ \t]*\n(?:[ \t]*\n)*"), "\n\n")
+        .trim()

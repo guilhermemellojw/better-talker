@@ -36,9 +36,11 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
 
     suspend fun newNote(): String = repo.newNote(folderId.value)
     fun trash(id: String) = viewModelScope.launch { repo.trash(id) }
+    fun togglePin(id: String) = viewModelScope.launch { repo.togglePin(id) }
     fun restore(id: String) = viewModelScope.launch { repo.restore(id) }
     fun deleteForever(id: String) = viewModelScope.launch { repo.deleteForever(id) }
     fun newFolder(name: String, color: Long) = viewModelScope.launch { repo.newFolder(name, color) }
+    fun renameFolder(id: String, name: String) = viewModelScope.launch { repo.renameFolder(id, name) }
     fun deleteFolder(id: String) = viewModelScope.launch {
         repo.deleteFolder(id)
         if (folderId.value == id) folderId.value = null

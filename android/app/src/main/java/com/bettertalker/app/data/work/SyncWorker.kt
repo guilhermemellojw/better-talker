@@ -32,6 +32,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             syncNotes(db, root)
             syncFolders(db, root)
             syncAttachments(db, root)
+            syncOutlines(db, root)
             SettingsStore(applicationContext).setLastSync(System.currentTimeMillis())
             Result.success()
         } catch (_: Exception) {
@@ -173,6 +174,54 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                         "sizeBytes" to a.sizeBytes, "baseSlot" to a.baseSlot,
                         "noteId" to a.noteId, "indexed" to a.indexed,
                         "addedAt" to a.addedAt
+                    ).filterValues { it != null },
+                    SetOptions.merge()
+                ).await()
+            }
+        }
+    }
+
+    // ---------- outlines (união por id determinístico out-<noteId>) ----------
+
+    private suspend fun syncOutlines(db: AppDatabase, root: com.google.firebase.firestore.DocumentReference) {
+        val col = root.collection("outlines")
+        val cloud = col.get().await().documents.associate { it.id to it.data.orEmpty() }
+        val tombs = db.tombstoneDao().all().filter { it.type == "outline" }.map { it.id }.toSet()
+        val local = db.outlineDao().all()
+        for (tid in tombs) {
+            col.document(tid).delete().await()
+            if (!cloud.containsKey(tid)) db.tombstoneDao().remove(tid)
+        }
+        for ((id, data) in cloud) {
+            if (tombs.contains(id)) continue
+            val cur = local.firstOrNull { it.id == id }
+            val cup = (data["updatedAt"] as? Long) ?: 0L
+            if (cur == null || cup > cur.updatedAt) {
+                db.outlineDao().upsert(
+                    com.bettertalker.app.data.db.OutlineEntity(
+                        id = id,
+                        noteId = data["noteId"] as? String ?: "",
+                        fileName = data["fileName"] as? String ?: "",
+                        title = data["title"] as? String ?: "Esboço",
+                        totalMinutes = (data["totalMinutes"] as? Long)?.toInt(),
+                        sectionsJson = data["sectionsJson"] as? String ?: "[]",
+                        refsJson = data["refsJson"] as? String ?: "[]",
+                        createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
+                        updatedAt = cup
+                    )
+                )
+            }
+        }
+        for (o in local) {
+            val data = cloud[o.id]
+            val cup = (data?.get("updatedAt") as? Long) ?: -1L
+            if (data == null || o.updatedAt > cup) {
+                col.document(o.id).set(
+                    mapOf(
+                        "noteId" to o.noteId, "fileName" to o.fileName,
+                        "title" to o.title, "totalMinutes" to o.totalMinutes,
+                        "sectionsJson" to o.sectionsJson, "refsJson" to o.refsJson,
+                        "createdAt" to o.createdAt, "updatedAt" to o.updatedAt
                     ).filterValues { it != null },
                     SetOptions.merge()
                 ).await()

@@ -57,6 +57,8 @@ dependencies {
     implementation "androidx.datastore:datastore-preferences:${rootProject.ext.datastoreVersion}"
     implementation "androidx.work:work-runtime-ktx:${rootProject.ext.workVersion}"
 
+    // Editor visual WYSIWYG (markdown segue como formato do Copilot)
+    implementation 'com.mohamedrejeb.richeditor:richeditor-compose:1.0.0-rc14'
     // Leitura local PDF (BYOD, 100% offline). EPUB lido via java.util.zip (sem dep).
     implementation "com.tom-roush:pdfbox-android:${rootProject.ext.pdfBoxVersion}"
 

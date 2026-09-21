@@ -17,7 +17,7 @@ ext {
     composeBomVersion = '2025.10.00'
     navigationComposeVersion = '2.9.3'
     lifecycleVersion = '2.9.2'
-    roomVersion = '2.7.0'
+    roomVersion = '2.8.5'
     datastoreVersion = '1.1.7'
     workVersion = '2.10.0'
     pdfBoxVersion = '2.0.27.0'

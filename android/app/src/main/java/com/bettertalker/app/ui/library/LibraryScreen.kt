@@ -55,7 +55,7 @@ private val PICKER_MIMES = arrayOf(
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/rtf", "text/rtf",
     "application/zip", "application/x-zip-compressed",
-    "text/plain"
+    "text/plain", "application/octet-stream"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,7 +111,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "PDF, EPUB, DOCX, RTF, ZIP de RTFs e TXT.",
+                "PDF, EPUB, DOCX, RTF, ZIP de RTFs, TXT e JWPUB.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
@@ -128,9 +128,9 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                 Column(Modifier.weight(1f)) {
                                     Text(a.fileName, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                                     Text(
-                                        "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
+                                        if (a.status == "downloading") "Baixando… ${a.fileName}"
+                                        else "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
                                             "ready" -> "Indexado"
-                                            "downloading" -> "Baixando…"
                                             "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
                                             else -> "Indexando…"
                                         },
@@ -149,7 +149,10 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                     IconButton(onClick = { vm.reindex(a.id) }) { Icon(Icons.Default.Refresh, "Tentar de novo") }
                                 }
                                 if (linkNoteId != null && a.noteId != linkNoteId) {
-                                    TextButton(onClick = { vm.linkToNote(a.id, linkNoteId) }) { Text("Vincular") }
+                                    TextButton(onClick = {
+                                        vm.linkToNote(a.id, linkNoteId)
+                                        onBack()
+                                    }) { Text("Vincular") }
                                 }
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
                                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

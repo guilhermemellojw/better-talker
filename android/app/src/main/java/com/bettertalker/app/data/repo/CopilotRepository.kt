@@ -12,7 +12,10 @@ data class IdeaCard(
     val body: String,
     val snippet: String,
     val jwUrl: String,
-    val source: String = "" // ex: "Beneficie-se…" / "Melhore…" / "Nota"
+    val source: String = "", // ex: "Beneficie-se…" / "Melhore…" / "Nota"
+    /** Seção do esboço a que pertence (destino sugerido de inserção). */
+    val sectionTitle: String = "",
+    val placementReason: String = ""
 )
 
 data class ScopedHit(val passage: PassageEntity, val source: String)
@@ -32,9 +35,9 @@ class CopilotRepository(private val db: AppDatabase) {
         BASE_PUBS.firstOrNull { it.slot == slot }?.title ?: slot
 
     /** Escopo: 2 bases + anexos vinculados à nota (se aberta). 100% offline. */
-    suspend fun askScoped(query: String, noteId: String? = null, limit: Int = 6): List<ScopedHit> {
+    suspend fun askScoped(query: String, noteId: String? = null, limit: Int = 6, maxWords: Int = 4): List<ScopedHit> {
         val words = normalizeText(query).split(" ")
-            .filter { it.length > 2 }.take(4)
+            .filter { it.length > 2 }.take(maxWords)
         if (words.isEmpty()) return emptyList()
 
         val scopeIds = mutableListOf<String>()
@@ -64,7 +67,9 @@ class CopilotRepository(private val db: AppDatabase) {
                 else db.passageDao().searchLikeIn(ids, w, limit * 2)
                 for (h in found) {
                     if (!hits.containsKey(h.id)) {
-                        hits[h.id] = ScopedHit(h, label(h.attachmentId))
+                        val base = label(h.attachmentId)
+                        val src = if (h.section.isNotEmpty()) "$base · ${h.section}" else base
+                        hits[h.id] = ScopedHit(h, src)
                     }
                     score[h.id] = (score[h.id] ?: 0) + 1
                 }
@@ -80,9 +85,58 @@ class CopilotRepository(private val db: AppDatabase) {
 
     suspend fun passagesFor(attachmentId: String) = db.passageDao().forAttachment(attachmentId)
 
+    suspend fun hasOutline(noteId: String?): Boolean =
+        noteId != null && db.outlineDao().getForNote(noteId) != null
+
+    /**
+     * Ideias para UMA seção do esboço (geração avulsa).
+     * A seção guia: consulta = título da seção + pergunta; vizinhas dão contexto.
+     */
+    suspend fun ideasForSection(
+        section: com.bettertalker.app.data.util.OutlineSection,
+        neighbors: List<String>,
+        query: String,
+        noteId: String?
+    ): List<IdeaCard> {
+        // o corpo da seção guia a busca: subtemas e refs do esboço original
+        val q = listOf(section.title, section.body.take(400), query)
+            .filter { it.isNotBlank() }.joinToString(" ")
+        val hits = askScoped(q.ifBlank { section.title }, noteId, 6, maxWords = 8)
+        if (hits.isEmpty()) return emptyList()
+        val t = { i: Int -> hits.getOrNull(i) ?: hits[0] }
+        val time = section.minutes?.let { " (${it} min)" } ?: ""
+        val link = if (neighbors.isNotEmpty()) " Liga com: ${neighbors.joinToString(" → ")}." else ""
+        return listOf(
+            IdeaCard(
+                title = "Explorar — ${section.title}",
+                body = "Ângulo de abordagem para “${section.title}”$time.$link " +
+                    "Abra a seção com uma pergunta ou cena que prenda atenção.",
+                snippet = t(0).passage.text.take(140),
+                jwUrl = buildJwUrl(section.title),
+                source = t(0).source,
+                sectionTitle = section.title,
+                placementReason = "Pertence à seção “${section.title}” do esboço."
+            ),
+            IdeaCard(
+                title = "Ilustrar e aplicar — ${section.title}",
+                body = "Ilustração ou aplicação prática para “${section.title}”$time. " +
+                    "Feche a seção ligando ao próximo ponto.",
+                snippet = t(1).passage.text.take(140),
+                jwUrl = buildJwUrl(section.title),
+                source = t(1).source,
+                sectionTitle = section.title,
+                placementReason = "Pertence à seção “${section.title}” do esboço."
+            )
+        )
+    }
+
     /** Referências da nota: detecta, casa edição exata com anexos locais. */
     suspend fun checkRefs(noteText: String): List<RefDetector.RefStatus> =
         RefDetector.checkAll(noteText, db.attachmentDao().all())
+
+    /** Referências citadas no esboço (guardadas no link): resolve contra anexos atuais. */
+    suspend fun outlineRefs(refsJson: String): List<RefDetector.RefStatus> =
+        RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all())
 
     /** Gera ideias de discurso a partir dos trechos — sem inventar citação. */
     fun ideasFor(topic: String, hits: List<ScopedHit>): List<IdeaCard> {

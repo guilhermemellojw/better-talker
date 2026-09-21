@@ -22,9 +22,18 @@ class SettingsStore(private val ctx: Context) {
     suspend fun setThemeMode(v: ThemeMode) { ctx.store.edit { it[THEME] = v.name } }
 
     private val REINDEX_V3 = stringPreferencesKey("reindexed_v3")
-    suspend fun needsReindexV3(): Boolean {
+    private val INDEX_FORMAT = androidx.datastore.preferences.core.intPreferencesKey("index_format")
+    suspend fun needsReindexV3(): Boolean = needsIndexFormat(3)
+
+    /** Formato atual do índice. Bump => reindexa tudo uma vez. */
+    suspend fun needsIndexFormat(current: Int): Boolean {
         var need = false
-        ctx.store.edit { need = it[REINDEX_V3] != "done"; it[REINDEX_V3] = "done" }
+        ctx.store.edit {
+            need = (it[INDEX_FORMAT] ?: 0) < current
+            // mantém a flag legada marcada para não reindexar duas vezes
+            it[REINDEX_V3] = "done"
+            if (need) it[INDEX_FORMAT] = current
+        }
         return need
     }
 

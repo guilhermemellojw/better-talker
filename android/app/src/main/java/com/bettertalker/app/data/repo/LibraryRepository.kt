@@ -46,7 +46,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         }
         val kind = detectKind(name)
         if (kind == DocKind.UNSUPPORTED) {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP ou TXT.")
+            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
         }
         val tmp = File(ctx.cacheDir, "imp-${System.currentTimeMillis()}-$name")
         try {
@@ -115,7 +115,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             "jwpub" -> "JWPUB ainda não suportado — baixe EPUB ou PDF no site."
             "brl", "bes" -> "Formato $ext ainda não suportado — baixe EPUB ou PDF no site."
             "mp3", "aac", "m4a" -> "Áudio não é indexado — baixe o texto (PDF/EPUB) no site."
-            else -> "Formato não suportado: $fileName. Use PDF, EPUB, DOCX, RTF, ZIP ou TXT."
+            else -> "Formato não suportado: $fileName. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB."
         }
     }
 
