@@ -28,11 +28,15 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
         return id
     }
     suspend fun get(id: String) = db.noteDao().get(id)
-    suspend fun save(id: String, title: String, md: String, folderId: String?, color: Long, pinned: Boolean) {
+    suspend fun save(
+        id: String, title: String, md: String, html: String,
+        folderId: String?, color: Long, pinned: Boolean
+    ) {
         val cur = db.noteDao().get(id) ?: return
         db.noteDao().upsert(
             cur.copy(title = title.ifBlank { "Sem título" }, mdText = md,
-                plainText = plainFromMarkdown(md), folderId = folderId,
+                plainText = plainFromMarkdown(md), richHtml = html,
+                folderId = folderId,
                 colorArgb = color, pinned = pinned, updatedAt = System.currentTimeMillis())
         )
         SyncScheduler.requestSync(ctx)

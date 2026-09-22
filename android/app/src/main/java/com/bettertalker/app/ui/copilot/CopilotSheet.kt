@@ -337,6 +337,7 @@ fun CopilotSheet(
                                 minutes = d.minutes,
                                 included = d.included,
                                 body = d.body,
+                                level = d.level,
                                 onTitle = { vm.updateDraftTitle(i, it) },
                                 onMinutes = { vm.updateDraftMinutes(i, it) },
                                 onToggle = { vm.toggleDraftInclude(i) },
@@ -395,6 +396,9 @@ fun CopilotSheet(
                                 )
                                 Spacer(Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { vm.reinsertSkeleton() }) {
+                                        Text("Inserir esqueleto")
+                                    }
                                     TextButton(onClick = { vm.clearDraft(); outlinePicker.launch(OUTLINE_MIMES) }) {
                                         Text("Trocar")
                                     }
@@ -464,12 +468,17 @@ fun CopilotSheet(
                         }
                         ideas.filter { it.sectionTitle == s.title }.forEach { card ->
                             item(key = "idea-${s.title.hashCode()}-${card.title.hashCode()}-${card.snippet.hashCode()}") {
-                                IdeaCardRow(
-                                    card = card,
-                                    headings = headings,
-                                    onInsert = { body, dest -> vm.insert(card, body, dest) },
-                                    onDismiss = { vm.dismissIdea(card) }
-                                )
+                                Box(
+                                    Modifier.fillMaxWidth()
+                                        .padding(start = (8 + s.level * 12).dp)
+                                ) {
+                                    IdeaCardRow(
+                                        card = card,
+                                        headings = headings,
+                                        onInsert = { body, dest -> vm.insert(card, body, dest) },
+                                        onDismiss = { vm.dismissIdea(card) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -601,7 +610,10 @@ private fun SectionRow(
     busy: Boolean,
     onGenerate: () -> Unit
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        Modifier.fillMaxWidth()
+            .padding(start = (section.level * 12).dp)
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -630,12 +642,16 @@ private fun DraftRow(
     minutes: Int?,
     included: Boolean,
     body: String,
+    level: Int,
     onTitle: (String) -> Unit,
     onMinutes: (Int?) -> Unit,
     onToggle: () -> Unit,
     onRemove: () -> Unit
 ) {
-    Card(Modifier.fillMaxWidth()) {
+    Card(
+        Modifier.fillMaxWidth()
+            .padding(start = (level * 12).dp)
+    ) {
         Column(Modifier.padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = included, onCheckedChange = { onToggle() })

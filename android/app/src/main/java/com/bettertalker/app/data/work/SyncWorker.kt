@@ -81,6 +81,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             title = d["title"] as? String ?: "",
             mdText = md,
             plainText = com.bettertalker.app.data.util.plainFromMarkdown(md),
+            richHtml = d["richHtml"] as? String ?: "",
             folderId = d["folderId"] as? String,
             colorArgb = (d["colorArgb"] as? Long) ?: 0L,
             pinned = (d["pinned"] as? Boolean) ?: false,
@@ -92,6 +93,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
     private fun noteMap(n: NoteEntity) = mapOf(
         "title" to n.title, "mdText" to n.mdText,
+        "richHtml" to n.richHtml,
         "folderId" to n.folderId, "colorArgb" to n.colorArgb,
         "pinned" to n.pinned, "trashed" to n.trashed,
         "createdAt" to n.createdAt, "updatedAt" to n.updatedAt

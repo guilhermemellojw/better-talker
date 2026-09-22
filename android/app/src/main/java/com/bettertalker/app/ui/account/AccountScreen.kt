@@ -133,6 +133,11 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+            Text(
+                "Versão ${com.bettertalker.app.BuildConfig.VERSION_NAME} (${com.bettertalker.app.BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
         }
     }
 }

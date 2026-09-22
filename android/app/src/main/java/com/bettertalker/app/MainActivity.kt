@@ -106,6 +106,14 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val showSheet = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
             val sheetTitle by vm.title.collectAsState()
             val sheetMdText by vm.mdText.collectAsState()
+            val skeleton by copilotVm.skeletonEvent.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(skeleton) {
+                val sk = skeleton
+                if (!sk.isNullOrEmpty()) {
+                    vm.queueInsertMarkdown(sk, null)
+                    copilotVm.consumeSkeleton()
+                }
+            }
             EditorScreen(
                 vm,
                 onBack = { nav.popBackStack() },
@@ -116,7 +124,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 CopilotSheet(
                     copilotVm,
                     onDismiss = { showSheet.value = false },
-                    onInsert = { text, heading -> vm.insertUnderHeading(heading, text) },
+                    onInsert = { text, heading -> vm.queueInsertMarkdown(text, heading) },
                     noteText = sheetTitle + "\n" + sheetMdText,
                     headings = com.bettertalker.app.data.util.headingsOf(sheetMdText)
                 )

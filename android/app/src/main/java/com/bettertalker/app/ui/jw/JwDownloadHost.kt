@@ -16,6 +16,10 @@ fun JwDownloadDialog(url: String, onDismiss: () -> Unit) {
         fm.setFragmentResultListener(JwDownloadDialog.resultKey(tag), activity) { _, _ ->
             currentOnDismiss.value()
         }
+        // rotação restaura o diálogo antigo: dispensa duplicados antes de exibir
+        fm.fragments.filterIsInstance<JwDownloadDialog>().forEach {
+            runCatching { it.dismissAllowingStateLoss() }
+        }
         // se um diálogo anterior com outra tag ficou para trás, fecha antes
         (fm.findFragmentByTag(tag) as? JwDownloadDialog)?.dismissAllowingStateLoss()
         dlg.show(fm, tag)

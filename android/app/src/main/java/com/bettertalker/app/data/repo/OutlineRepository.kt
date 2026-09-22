@@ -14,7 +14,6 @@ import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.detectKind
-import com.bettertalker.app.data.util.plainFromMarkdown
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
@@ -92,7 +91,8 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
         return OutlinePreview(name, parsed, refsJson)
     }
 
-    /** Vincula o esboço à nota (um por nota; substitui) + pré-preenche o esqueleto integral. */
+    /** Vincula o esboço à nota (um por nota; substitui). O esqueleto vai
+     * pela fila de inserção do editor (preserva estilos); aqui só persiste. */
     suspend fun link(
         noteId: String,
         fileName: String,
@@ -113,27 +113,8 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
                 updatedAt = now
             )
         )
-        prefillSkeleton(noteId, sections, preamble)
-        SyncScheduler.requestSync(ctx)
-    }
-
-    /** Esqueleto integral: preâmbulo + ## Seção [(N min)] com o corpo original. */
-    suspend fun prefillSkeleton(noteId: String, sections: List<OutlineSection>, preamble: String = "") {
-        val note = db.noteDao().get(noteId) ?: return
-        val parts = mutableListOf<String>()
-        if (preamble.isNotBlank()) parts += preamble
-        sections.forEach {
-            val head = "## " + it.title + (if (it.minutes != null) " (${it.minutes} min)" else "")
-            parts += if (it.body.isNotBlank()) "$head\n\n${it.body}" else head
-        }
-        val skeleton = parts.joinToString("\n\n")
-        val md = if (note.mdText.isBlank()) skeleton else (note.mdText.trimEnd() + "\n\n" + skeleton).trim()
-        db.noteDao().upsert(
-            note.copy(
-                mdText = md, plainText = plainFromMarkdown(md),
-                updatedAt = System.currentTimeMillis()
-            )
-        )
+        // O esqueleto vai pela fila de inserção do editor (preserva estilos);
+        // aqui só persiste o esboço. Ver skeletonMarkdown().
         SyncScheduler.requestSync(ctx)
     }
 

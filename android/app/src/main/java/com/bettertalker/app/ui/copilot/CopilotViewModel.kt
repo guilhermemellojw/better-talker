@@ -21,7 +21,13 @@ import kotlinx.coroutines.launch
 
 data class InsertRequest(val text: String, val heading: String?)
 
-data class DraftSection(var title: String, var minutes: Int?, var included: Boolean = true, var body: String = "")
+data class DraftSection(
+    var title: String,
+    var minutes: Int?,
+    var included: Boolean = true,
+    var body: String = "",
+    var level: Int = 0
+)
 
 class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase, private val noteId: String? = null) : ViewModel() {
     private val app = ctx.applicationContext
@@ -61,10 +67,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _draftBusy = MutableStateFlow(false)
     private val _dropped = MutableStateFlow(0)
     private val _merges = MutableStateFlow<List<PastedOutlineAnalyzer.MergeSuggestion>>(emptyList())
+    /** pares dispensados (chave estável) para não ressugerir */
+    private val dismissedMerges = mutableSetOf<String>()
     private val _candTexts = MutableStateFlow<List<String>>(emptyList())
     private val _previewRefsJson = MutableStateFlow("[]")
     private val _outlineRefs = MutableStateFlow<List<RefDetector.RefStatus>?>(null)
     private val _dlError = MutableStateFlow("")
+    /** Esqueleto markdown a inserir no editor (via fila, preserva estilos). */
+    private val _skeletonEvent = MutableStateFlow<String?>(null)
+    val skeletonEvent = _skeletonEvent.asStateFlow()
     val outlineRefs = _outlineRefs.asStateFlow()
     val dlError = _dlError.asStateFlow()
     val draftName = _draftName.asStateFlow()
@@ -121,7 +132,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _busy.value = true
         val topic = _query.value.ifBlank { "discurso" }
         val hits = repo.askScoped(topic, noteId)
-        _ideas.value = repo.ideasFor(topic, hits)
+        // genéricas entram em grupo próprio, sem apagar as por seção
+        val generic = repo.ideasFor(topic, hits).map { it.copy(sectionTitle = "") }
+        _ideas.value = _ideas.value.filter { it.sectionTitle.isNotEmpty() } + generic
         _busy.value = false
     }
 
@@ -157,8 +170,27 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _draftPreamble.value = ""
         _dropped.value = 0
         _merges.value = emptyList()
+        dismissedMerges.clear()
         _candTexts.value = emptyList()
         _previewRefsJson.value = "[]"
+    }
+
+    /** Recalcula fusões do draft atual (chamado após qualquer mutação). */
+    private fun refreshMerges() {
+        val cur = _draft.value
+        val cands = cur.mapIndexed { i, d ->
+            PastedOutlineAnalyzer.Candidate(d.title, i, d.included)
+        }
+        _merges.value = PastedOutlineAnalyzer.suggestMerges(cands)
+            .filterNot { dismissedMerges.contains(mergeKey(cur[it.a].title, cur[it.b].title)) }
+    }
+
+    private fun mergeKey(a: String, b: String): String {
+        val pair = listOf(
+            com.bettertalker.app.data.util.normalizeText(a),
+            com.bettertalker.app.data.util.normalizeText(b)
+        ).sorted()
+        return pair.joinToString("||")
     }
 
     fun importOutlineFile(uri: Uri) = viewModelScope.launch {
@@ -190,9 +222,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             return@launch
         }
         _candTexts.value = cands.map { it.text }
-        _draft.value = cands.map { DraftSection(it.text, null, it.suggested) }
+        _draft.value = cands.map { DraftSection(it.text, null, it.suggested, "", it.level) }
         _dropped.value = droppedCount
-        _merges.value = PastedOutlineAnalyzer.suggestMerges(cands)
+        dismissedMerges.clear()
+        refreshMerges()
         _draftName.value = "texto colado"
         _draftTitle.value = cands.firstOrNull()?.text?.take(60) ?: "Esboço"
         _draftTotal.value = null
@@ -202,6 +235,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     fun updateDraftTitle(i: Int, t: String) {
         _draft.value = _draft.value.toMutableList().also { it[i] = it[i].copy(title = t) }
+        refreshMerges()
     }
 
     fun setDraftTitle(t: String) { _draftTitle.value = t }
@@ -217,7 +251,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     fun removeDraft(i: Int) {
         _draft.value = _draft.value.toMutableList().also { it.removeAt(i) }
-        dropMergesWith(i)
+        refreshMerges()
     }
 
     fun acceptMerge(a: Int, b: Int) {
@@ -225,29 +259,33 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         if (a !in cur.indices || b !in cur.indices || a == b) return
         val ma = cur[a].minutes
         val mb = cur[b].minutes
+        val la = cur[a].level
+        val lb = cur[b].level
         val merged = DraftSection(
             PastedOutlineAnalyzer.mergeTitles(cur[a].title, cur[b].title),
-            if (ma != null && mb != null) ma + mb else (ma ?: mb)
+            if (ma != null && mb != null) ma + mb else (ma ?: mb),
+            included = cur[a].included || cur[b].included,
+            body = listOf(cur[a].body, cur[b].body).filter { it.isNotBlank() }.joinToString("\n"),
+            level = minOf(la, lb)
         )
         val lo = minOf(a, b)
         cur[lo] = merged
         cur.removeAt(maxOf(a, b))
         _draft.value = cur
-        _merges.value = emptyList()
+        refreshMerges()
     }
 
     fun dismissMerge(a: Int, b: Int) {
-        _merges.value = _merges.value.filterNot { it.a == a && it.b == b }
-    }
-
-    private fun dropMergesWith(i: Int) {
-        _merges.value = _merges.value.filterNot { it.a == i || it.b == i }
+        val cur = _draft.value
+        if (a !in cur.indices || b !in cur.indices) return
+        dismissedMerges += mergeKey(cur[a].title, cur[b].title)
+        refreshMerges()
     }
 
     fun linkDraft() = viewModelScope.launch {
         val nid = noteId ?: return@launch
         val sections = _draft.value.filter { it.included && it.title.isNotBlank() }
-            .mapIndexed { i, d -> OutlineSection(d.title.trim(), d.minutes, i, d.body) }
+            .mapIndexed { i, d -> OutlineSection(d.title.trim(), d.minutes, i, d.body, d.level) }
         if (sections.size < 2) {
             _draftError.value = "Marque ao menos 2 tópicos para vincular."
             return@launch
@@ -256,12 +294,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             nid, _draftName.value.ifBlank { "esboço" }, _draftTitle.value,
             _draftTotal.value, sections, _previewRefsJson.value, _draftPreamble.value
         )
+        _skeletonEvent.value = com.bettertalker.app.data.util.skeletonMarkdown(
+            sections, _draftPreamble.value
+        )
         clearDraft()
+    }
+
+    fun consumeSkeleton() { _skeletonEvent.value = null }
+
+    /** Reinsere o esqueleto do esboço vinculado (recupera após morte do processo etc.). */
+    fun reinsertSkeleton() = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val o = outlines.get(nid) ?: return@launch
+        val (preamble, sections) = OutlineParser.parseEnvelope(
+            o.sectionsJson.takeIf { it.isNotBlank() } ?: "[]"
+        )
+        if (sections.isEmpty()) return@launch
+        _skeletonEvent.value = com.bettertalker.app.data.util.skeletonMarkdown(sections, preamble)
     }
 
     fun unlinkOutline() = viewModelScope.launch {
         val nid = noteId ?: return@launch
         outlines.unlink(nid)
+        _ideas.value = emptyList()
     }
 
     /** Resolve as referências citadas no esboço contra os anexos atuais. */

@@ -99,6 +99,14 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
         snackbarHost = { SnackbarHost(snack) }
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
+            if (linkNoteId != null) {
+                Text(
+                    "Toque Vincular para anexar à nota e voltar.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             ByodNotice()
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

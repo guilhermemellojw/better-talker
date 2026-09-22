@@ -12,24 +12,31 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** Inserção pendente a aplicar na árvore viva (preserva estilos). */
+data class PendingInsert(val markdown: String, val heading: String?)
+
 /**
- * Fonte de verdade do markdown (formato do Copilot/sync/busca).
- * A tela edita visualmente (WYSIWYG) e sincroniza nos dois sentidos
- * via mdText + mdRevision (sem loops).
+ * Verdade visual = HTML; markdown é derivado para Copilot/busca/sync.
+ * Escritas externas (abertura, sync) entram por revisão; inserções
+ * (Copilot, esboço) entram pela fila, aplicadas na árvore viva.
  */
 class EditorViewModel(private val appCtx: android.content.Context, private val db: AppDatabase, private val noteId: String) : ViewModel() {
     private val repo = NotesRepository(appCtx.applicationContext, db)
     private val _title = MutableStateFlow("")
+    private val _html = MutableStateFlow("")
     private val _mdText = MutableStateFlow("")
-    /** incrementado a cada escrita externa (load, prefill, insert) */
+    /** incrementado a cada escrita externa (load, sync) */
     private val _mdRevision = MutableStateFlow(0)
+    private val _pending = MutableStateFlow<List<PendingInsert>>(emptyList())
     private val _saving = MutableStateFlow(false)
     private val _color = MutableStateFlow(NOTE_COLORS.first().value.toLong())
     private val _folderId = MutableStateFlow<String?>(null)
     private val _pinned = MutableStateFlow(false)
     val title = _title.asStateFlow()
+    val html = _html.asStateFlow()
     val mdText = _mdText.asStateFlow()
     val mdRevision = _mdRevision.asStateFlow()
+    val pendingInserts = _pending.asStateFlow()
     val saving = _saving.asStateFlow()
     val color = _color.asStateFlow()
     val folderId = _folderId.asStateFlow()
@@ -41,23 +48,27 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private var curPinned: Boolean = false
     private var job: Job? = null
     private var loadedOnce = false
+    private var lastLocalEdit = 0L
 
     init {
-        // reage a mudanças externas (pré-preenchimento do esboço, sync, outra tela)
+        // reage a mudanças externas (sync, outra tela)
         viewModelScope.launch {
             db.noteDao().observeById(noteId).collect { note ->
                 if (note == null) return@collect
                 if (!loadedOnce) {
-                    applyExternal(note.title, note.mdText, note.folderId, note.colorArgb, note.pinned)
+                    applyExternal(note.title, note.richHtml, note.mdText,
+                        note.folderId, note.colorArgb, note.pinned)
                     loadedOnce = true
                     return@collect
                 }
                 // eco do próprio save: ignora
                 if (_saving.value) return@collect
-                if (note.mdText != _mdText.value || note.title != _title.value) {
-                    applyExternal(note.title, note.mdText, note.folderId, note.colorArgb, note.pinned)
+                if (note.richHtml != _html.value || note.title != _title.value) {
+                    // digitando agora (<2s): mantém o local; um pull futuro re-entrega
+                    if (System.currentTimeMillis() - lastLocalEdit < 2000) return@collect
+                    applyExternal(note.title, note.richHtml, note.mdText,
+                        note.folderId, note.colorArgb, note.pinned)
                 } else {
-                    // metadados mudaram fora (cor, pasta, fixar)
                     if (note.colorArgb != 0L) _color.value = note.colorArgb
                     curFolderId = note.folderId
                     _folderId.value = note.folderId
@@ -68,8 +79,9 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         }
     }
 
-    private fun applyExternal(title: String, md: String, folderId: String?, color: Long, pinned: Boolean) {
+    private fun applyExternal(title: String, html: String, md: String, folderId: String?, color: Long, pinned: Boolean) {
         _title.value = title
+        _html.value = html
         _mdText.value = md
         _mdRevision.value = _mdRevision.value + 1
         curFolderId = folderId
@@ -79,12 +91,14 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         _pinned.value = pinned
     }
 
-    fun onTitle(v: String) { _title.value = v; schedule() }
+    fun onTitle(v: String) { _title.value = v; lastLocalEdit = System.currentTimeMillis(); schedule() }
 
-    /** Chamado pelo editor visual (debounce na tela) com o markdown exportado. */
-    fun onMdText(v: String) {
-        if (v == _mdText.value) return
-        _mdText.value = v
+    /** Chamado pelo editor visual com HTML + markdown exportados. */
+    fun onContent(html: String, md: String) {
+        if (html == _html.value && md == _mdText.value) return
+        _html.value = html
+        _mdText.value = md
+        lastLocalEdit = System.currentTimeMillis()
         schedule()
     }
 
@@ -98,9 +112,19 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         job = viewModelScope.launch {
             _saving.value = true
             delay(400)
-            repo.save(noteId, _title.value, _mdText.value, curFolderId, _color.value, curPinned)
+            repo.save(noteId, _title.value, _mdText.value, _html.value,
+                curFolderId, _color.value, curPinned)
             _saving.value = false
         }
+    }
+
+    /** Enfileira inserção para a tela aplicar na árvore viva (preserva estilos). */
+    fun queueInsertMarkdown(markdown: String, heading: String? = null) {
+        _pending.value = _pending.value + PendingInsert(markdown, heading)
+    }
+
+    fun consumePending() {
+        _pending.value = emptyList()
     }
 
     fun unlinkAttachment(id: String) = viewModelScope.launch {
@@ -116,14 +140,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     }
 
     fun unlinkOutline() = viewModelScope.launch { outlines.unlink(noteId) }
-
-    /** Insere bloco markdown sob o título ## indicado (ou no fim). */
-    fun insertUnderHeading(heading: String?, block: String) {
-        val (t, _) = com.bettertalker.app.data.util.insertUnder(_mdText.value, heading, block)
-        _mdText.value = t
-        _mdRevision.value = _mdRevision.value + 1
-        schedule()
-    }
 
     fun moveToFolder(fid: String?) = viewModelScope.launch {
         repo.moveNote(noteId, fid)

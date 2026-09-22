@@ -32,7 +32,9 @@ data class NoteEntity(
     val pinned: Boolean,
     val trashed: Boolean,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** Verdade visual (cores, highlight, S/T...); mdText é derivado p/ Copilot. */
+    val richHtml: String = ""
 )
 
 @Entity(tableName = "attachments")
@@ -187,7 +189,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

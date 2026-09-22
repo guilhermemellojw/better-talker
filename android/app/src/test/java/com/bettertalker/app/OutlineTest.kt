@@ -5,8 +5,10 @@ import com.bettertalker.app.data.util.DocExtractors
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.data.util.headingsOf
 import com.bettertalker.app.data.util.insertUnder
+import com.bettertalker.app.data.util.skeletonMarkdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -469,5 +471,106 @@ S-34-T N.º 35 5/20
         // sem anexos: tudo faltando com destino
         val missing = RefDetector.resolve(detected, emptyList())
         assertTrue(missing.all { !it.resolved && it.downloadUrl.isNotEmpty() })
+    }
+
+    @Test
+    fun headingOffsetFindsSection() {        val text = "Intro\n\n## Desenvolvimento (9 min)\n\ntexto D\n\n## Conclusão\nfim"
+        val at = headingOffset(text, "Desenvolvimento (9 min)")
+        assertNotNull(at)
+        assertTrue(text.substring(at!!).startsWith("texto D"))
+        assertNull(headingOffset(text, "Inexistente"))
+        assertNull(headingOffset(text, ""))
+    }
+
+    @Test
+    fun skeletonMarkdownBuilds() {        val secs = listOf(
+            com.bettertalker.app.data.util.OutlineSection("Abertura", 5, 0, "Corpo A."),
+            com.bettertalker.app.data.util.OutlineSection("Fim", null, 1, "")
+        )
+        val md = skeletonMarkdown(secs, "Preâmbulo.")
+        assertTrue(md.startsWith("Preâmbulo."))
+        assertTrue(md.contains("## Abertura (5 min)\n\nCorpo A."))
+        assertTrue(md.contains("## Fim"))
+    }
+
+    @Test
+    fun richTextMarkdownRoundTrip() {
+        // headless: valida o par setMarkdown/toMarkdown usado pelo editor/Copilot
+        val state = com.mohamedrejeb.richeditor.model.RichTextState()
+        state.setMarkdown("# T\n\n**b** *i*\n\n- a\n- b")
+        val md = state.toMarkdown()
+        assertTrue("roundtrip: $md", md.contains("# T") && md.contains("**b**"))
+    }
+
+    @Test
+    fun pastedIndentLevels() {
+        val text = "Tesouros da Palavra de Deus.\n" +
+            "  Jeová deseja que vivamos em paz.\n" +
+            "    Porque ele nos ama primeiro.\n" +
+            "  Oração.\n" +
+            "Conclusão."
+        val (cands, _) = PastedOutlineAnalyzer.candidates(text)
+        assertEquals(listOf(0, 1, 2, 1, 0), cands.map { it.level })
+        assertEquals(
+            listOf(
+                "Tesouros da Palavra de Deus.",
+                "Jeová deseja que vivamos em paz.",
+                "Porque ele nos ama primeiro.",
+                "Oração.",
+                "Conclusão."
+            ),
+            cands.map { it.text }
+        )
+    }
+
+    @Test
+    fun pastedParenAttachesToPrevious() {
+        val (cands, _) = PastedOutlineAnalyzer.candidates(
+            "Jeová deseja que vivamos em paz.\n(Sal 37:29).\nOração."
+        )
+        assertEquals(2, cands.size)
+        assertTrue(cands[0].text.contains("(Sal 37:29)"))
+        assertEquals("Oração.", cands[1].text)
+    }
+
+    @Test
+    fun pastedParenFirstStaysRow() {
+        val (cands, _) = PastedOutlineAnalyzer.candidates("(Sal 37:29).\nOração.")
+        assertEquals(2, cands.size)
+        assertTrue(!cands[0].suggested) // sem anterior: linha própria desmarcada
+    }
+
+    @Test
+    fun jsonLevelRoundTrip() {
+        val secs = listOf(
+            com.bettertalker.app.data.util.OutlineSection("A", 5, 0, "", 0),
+            com.bettertalker.app.data.util.OutlineSection("A.1", null, 1, "corpo", 1)
+        )
+        val back = OutlineParser.fromJson(OutlineParser.toJson(secs, ""))
+        assertEquals(listOf(0, 1), back.map { it.level })
+        assertEquals("corpo", back[1].body)
+        // legado sem level abre com 0
+        val legacy = OutlineParser.fromJson("[{\"t\":\"X\",\"m\":3}]")
+        assertEquals(0, legacy[0].level)
+    }
+
+    @Test
+    fun skeletonNestsLevels() {
+        val secs = listOf(
+            com.bettertalker.app.data.util.OutlineSection("A", 5, 0, "", 0),
+            com.bettertalker.app.data.util.OutlineSection("A.1", null, 1, "", 1)
+        )
+        val md = com.bettertalker.app.data.util.skeletonMarkdown(secs, "")
+        assertTrue(md.contains("## A (5 min)"))
+        assertTrue(md.contains("### A.1"))
+        assertEquals(listOf("A (5 min)", "A.1"), com.bettertalker.app.data.util.headingsOf(md))
+    }
+
+    @Test
+    fun headingOffsetFindsNested() {
+        val md = "## A\n\ntexto\n\n### A.1\n\ncorpo"
+        val at = com.bettertalker.app.data.util.headingOffset(md, "A.1")
+        assertNotNull(at)
+        assertTrue(md.substring(at!!).startsWith("corpo"))
     }
 }
