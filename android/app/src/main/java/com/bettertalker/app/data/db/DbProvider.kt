@@ -64,10 +64,28 @@ object DbProvider {
         }
     }
 
+    private val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE attachments ADD COLUMN downloadId INTEGER NOT NULL DEFAULT -1")
+            db.execSQL("ALTER TABLE attachments ADD COLUMN sourceUrl TEXT")
+        }
+    }
+
+    private val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS chat_messages " +
+                    "(id TEXT NOT NULL, noteId TEXT NOT NULL, fromMe INTEGER NOT NULL, " +
+                    "kind TEXT NOT NULL, payload TEXT NOT NULL, createdAt INTEGER NOT NULL, " +
+                    "PRIMARY KEY(id))"
+            )
+        }
+    }
+
     fun get(ctx: Context): AppDatabase =
         inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "better-talker.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

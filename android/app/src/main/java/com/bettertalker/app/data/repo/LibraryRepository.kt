@@ -17,11 +17,25 @@ import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.work.IndexPublicationWorker
 import com.bettertalker.app.data.work.RegisterDownloadWorker
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class ImportException(val reason: Reason, msg: String) : Exception(msg) {
     enum class Reason { UNSUPPORTED, TOO_BIG, IO }
 }
+
+/** Arquivo de documento achado em Downloads, ainda fora do app. */
+data class DownloadCandidate(val uriString: String, val name: String, val sizeBytes: Long)
+
+/**
+ * Tira os já registrados (por nome). Puro/testável.
+ * Nome igual = mesmo arquivo baixado de novo (o registro mostra o estado).
+ */
+fun filterUnregistered(
+    cands: List<DownloadCandidate>,
+    registeredNames: Set<String>
+): List<DownloadCandidate> = cands.filter { it.name !in registeredNames }
 
 class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     companion object {
@@ -30,6 +44,48 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
 
     fun observe(): Flow<List<AttachmentEntity>> = db.attachmentDao().observe()
     suspend fun all() = db.attachmentDao().all()
+
+    /**
+     * Documentos em Downloads (MediaStore) ainda não importados.
+     * Best-effort: no Android 13+ só enxerga arquivos próprios/via SAF —
+     * o vazio orienta para o botão Importar. Nunca quebra (try/catch).
+     */
+    suspend fun scanDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 29) return@withContext emptyList()
+            val col = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val out = mutableListOf<DownloadCandidate>()
+            ctx.contentResolver.query(
+                col,
+                arrayOf(
+                    android.provider.MediaStore.Downloads._ID,
+                    android.provider.MediaStore.Downloads.DISPLAY_NAME,
+                    android.provider.MediaStore.Downloads.SIZE
+                ),
+                null, null,
+                "${android.provider.MediaStore.Downloads.DATE_MODIFIED} DESC"
+            )?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID)
+                val nameIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.DISPLAY_NAME)
+                val sizeIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.SIZE)
+                var n = 0
+                while (c.moveToNext() && n < 50) {
+                    val name = c.getString(nameIdx).orEmpty()
+                    if (detectKind(name) == DocKind.UNSUPPORTED) continue
+                    val id = c.getLong(idIdx)
+                    out += DownloadCandidate(
+                        android.content.ContentUris.withAppendedId(col, id).toString(),
+                        name, c.getLong(sizeIdx)
+                    )
+                    n++
+                }
+            }
+            val registered = db.attachmentDao().all().map { it.fileName }.toSet()
+            filterUnregistered(out, registered)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)
 
@@ -120,17 +176,28 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     }
 
     /** Entrada provisória "Baixando…" criada no momento do enqueue do DownloadManager. */
-    suspend fun insertPlaceholder(fileName: String, noteId: String? = null): String? {
+    suspend fun insertPlaceholder(
+        fileName: String,
+        noteId: String? = null,
+        downloadId: Long = -1L,
+        sourceUrl: String? = null
+    ): String? {
         if (detectKind(fileName) == DocKind.UNSUPPORTED) return null
         val id = newId("att")
         db.attachmentDao().upsert(
             AttachmentEntity(
                 id, noteId, fileName, detectKind(fileName).ext, 0L, "",
                 false, System.currentTimeMillis(), matchBaseSlot(fileName),
-                "downloading", null
+                "downloading", null, downloadId, sourceUrl
             )
         )
         return id
+    }
+
+    /** Vincula dmId/URL de origem a um placeholder existente. */
+    suspend fun bindDownload(id: String, downloadId: Long, sourceUrl: String?) {
+        val cur = db.attachmentDao().get(id) ?: return
+        db.attachmentDao().update(cur.copy(downloadId = downloadId, sourceUrl = sourceUrl))
     }
 
     /** Conclui o placeholder com o arquivo copiado e agenda a indexação. */
@@ -183,6 +250,36 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         db.attachmentDao().setStatus(id, false, "indexing", null)
         enqueueIndex(id)
         SyncScheduler.requestSync(ctx)
+    }
+
+    /**
+     * Tenta de novo o REGISTRO de um download (usa o downloadId guardado;
+     * o DownloadManager mantém o arquivo concluído). Para entradas que
+     * nunca foram importadas (appPath vazio).
+     */
+    suspend fun retryRegister(id: String): Boolean {
+        val cur = db.attachmentDao().get(id) ?: return false
+        if (cur.downloadId < 0) return false
+        db.attachmentDao().update(cur.copy(status = "downloading", error = null))
+        enqueueRegisterDownload(cur.downloadId, cur.fileName, id, cur.noteId)
+        return true
+    }
+
+    /**
+     * Baixa de novo via URL de origem guardada (arquivo direto).
+     * Retorna false se não há URL de arquivo (caso de página -> abrir WebView).
+     */
+    suspend fun redownloadDirect(id: String): Boolean {
+        val cur = db.attachmentDao().get(id) ?: return false
+        val url = cur.sourceUrl ?: return false
+        if (com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(url)) return false
+        val dmId = com.bettertalker.app.ui.jw.DownloadHelper.enqueue(ctx, url, cur.fileName)
+            ?: return false
+        db.attachmentDao().update(
+            cur.copy(status = "downloading", error = null, downloadId = dmId)
+        )
+        enqueueRegisterDownload(dmId, cur.fileName, id, cur.noteId)
+        return true
     }
 
     /** Reindexa todo o acervo uma vez (migração de formato de índice). */

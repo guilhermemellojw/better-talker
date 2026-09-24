@@ -166,11 +166,19 @@ object RefDetector {
             if (month in 1..12 && day in 1..31) {
                 val edition = if (day == 1) "pública" else "estudo"
                 val monthName = PT_MONTHS[month - 1]
+                // pág./§ logo após vão só para o rótulo (ex: "w08 15/10 11 § 18")
+                val tail = text.substring(m.range.last + 1)
+                    .let { Regex("""^\s*(\d+)?\s*(§\s*\d+)?""").find(it) }
+                val extra = listOfNotNull(
+                    tail?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }?.let { "pág. $it" },
+                    tail?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
+                ).joinToString(" ").trim()
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.MAGAZINE, "w",
                         "w|$year|$month|$day",
-                        "A Sentinela, ${day}º de $monthName de $year ($edition)"
+                        "A Sentinela, ${day}º de $monthName de $year ($edition)" +
+                            (if (extra.isNotEmpty()) " • $extra" else "")
                     )
                 )
             }
@@ -225,6 +233,68 @@ object RefDetector {
                 )
             }
         }
+        // livro + estudo + parágrafo: "jr 27 § 22" (validado no catálogo)
+        Regex("""\b([a-z]{2,4})\s+(\d{1,3})\s*§\s*(\d{1,3})\b""").findAll(text).forEach { m ->
+            val sym = m.groupValues[1].lowercase()
+            if (PubCatalog.isSymbol(sym)) {
+                bookKeys += sym
+                add(
+                    DetectedRef(
+                        m.value.trim(), Kind.BOOK, sym,
+                        "book|$sym",
+                        "${PubCatalog.titleOf(sym) ?: sym} (estudo ${m.groupValues[2]})"
+                    )
+                )
+            }
+        }
+        // sigla + número avulsos: "lff 27", "(jy 15)" — fora códigos de revista
+        // (lookahead final: \b impediria consumir o ")" e quebraria o balanceamento)
+        Regex("""\(?\b([a-z]{2,4}(?:-[12])?)\s+(\d{1,3})\)?(?![a-z0-9])""").findAll(text).forEach { m ->
+            val raw = m.value.trim()
+            val balanced = raw.startsWith("(") == raw.endsWith(")")
+            if (!balanced) return@forEach
+            val sym = m.groupValues[1].lowercase()
+            if (sym in setOf("w", "g", "wp", "gn")) return@forEach
+            if (sym.length < 3 && !raw.startsWith("(")) return@forEach
+            if (!PubCatalog.isSymbol(sym)) return@forEach
+            bookKeys += sym
+            add(
+                DetectedRef(
+                    raw, Kind.BOOK, sym,
+                    "book|$sym",
+                    "${PubCatalog.titleOf(sym) ?: sym} (estudo ${m.groupValues[2]})"
+                )
+            )
+        }
+        // título integral: vale com palavra-guia colada antes ("veja o livro X")
+        // ou sufixo de estudo colado depois ("X, capítulo 5").
+        // Frase comum ("viver para sempre") ou instrução ("obter conhecimento")
+        // sozinhas não viram citação; "(5 min)" é duração, não estudo.
+        for ((normTitle, sym) in PubCatalog.titleIndex()) {
+            if (sym in bookKeys) continue
+            // qualquer ocorrência guiada/estudada vale
+            val cited = Regex("""\b$normTitle\b""").findAll(norm).any { m ->
+                val before = norm.substring((m.range.first - 20).coerceAtLeast(0), m.range.first)
+                val after = norm.substring(
+                    (m.range.last + 1).coerceAtMost(norm.length),
+                    (m.range.last + 21).coerceAtMost(norm.length)
+                )
+                Regex(
+                    """(livro|brochura|publicacao|obra|revista|apostila|ver|veja|ler|leia|estud\w*|consult\w*)\s*$"""
+                ).containsMatchIn(before) ||
+                    Regex(
+                        """^\s*\(?(cap|licao|pag|parag|[0-9]+(?!\s*min))"""
+                    ).containsMatchIn(after)
+            }
+            if (!cited) continue
+            bookKeys += sym
+            add(
+                DetectedRef(
+                    PubCatalog.titleOf(sym) ?: sym, Kind.BOOK, sym,
+                    "book|$sym", PubCatalog.titleOf(sym) ?: sym
+                )
+            )
+        }
         BOOK_NAMES.forEach { (name, key) ->
             if (key in bookKeys) return@forEach // sigla já detectou
             if (norm.contains(name)) {
@@ -237,17 +307,41 @@ object RefDetector {
         return out
     }
 
+    /**
+     * Meses (MM) candidatos para uma edição numerada da Sentinela pública (wp),
+     * pois o nome do arquivo traz ano+mês (ex: wp_T_201909 = N.º 3 de 2019).
+     * Calendário: 2016-2017 bimestral (6/ano: jan,mar,mai,jul,set,nov);
+     * 2018-2021 trimestral (3/ano: jan,mai,set); 2022+ anual (N.º 1).
+     * Retorna meses de início e fim do bimestre/trimestre quando conhecidos.
+     */
+    fun wpIssueMonths(year: Int, num: Int): List<String> {
+        val starts: List<Int> = when {
+            year in 2016..2017 && num in 1..6 -> listOf(2 * num - 1)
+            year in 2018..2021 && num in 1..3 -> listOf(listOf(1, 5, 9)[num - 1])
+            year >= 2022 && num == 1 -> (1..12).toList()
+            else -> return emptyList()
+        }
+        return starts.flatMap { s -> listOf(s, (s + 1).coerceAtMost(12)) }
+            .distinct()
+            .map { it.toString().padStart(2, '0') }
+    }
+
     /** Casa anexo com a edição exata da referência. */
-    fun matchEdition(ref: DetectedRef, attachments: List<AttachmentEntity>): AttachmentEntity? {
-        if (ref.kind == Kind.BOOK) {
+    fun matchEdition(ref: DetectedRef, attachments: List<AttachmentEntity>): AttachmentEntity? {        if (ref.kind == Kind.BOOK) {
             // slot base primeiro, depois título no nome do arquivo
             attachments.firstOrNull { it.baseSlot == ref.pubKey && it.indexed }?.let { return it }
             val normKey = normalizeText(ref.pubKey)
+            val titleNorm = PubCatalog.titleOf(ref.pubKey)?.let { normalizeText(it) }.orEmpty()
             return attachments.firstOrNull { a ->
                 if (!a.indexed) return@firstOrNull false
-                val tokens = normalizeText(a.fileName).split(" ").toSet()
+                val nf = normalizeText(a.fileName)
+                val tokens = nf.split(" ").toSet()
+                // "Seja Feliz para Sempre.pdf" (sem sigla no nome)
+                val titleHit = titleNorm.length >= 4 &&
+                    (if (' ' in titleNorm) nf.contains(titleNorm) else tokens.contains(titleNorm))
                 tokens.contains(ref.pubKey) || // lff_T.pdf, bhs_T.epub…
-                    normalizeText(a.fileName).contains(normKey) ||
+                    nf.contains(normKey) ||
+                    titleHit ||
                     (ref.pubKey == "be" && matchBaseSlot(a.fileName) == "be") ||
                     (ref.pubKey == "th" && matchBaseSlot(a.fileName) == "th")
             }
@@ -264,11 +358,27 @@ object RefDetector {
             if (!a.indexed) return@firstOrNull false
             val n = normalizeText(a.fileName)
             val tokens = n.split(" ").toSet()
-            val hasCode = tokens.any { it == code || it == parts[0] || it.startsWith(code) }
+            // título da revista no nome ("A Sentinela N.º 3 2019.pdf")
+            val titleHit = when (parts[0]) {
+                "w", "wp" -> n.contains("sentinela")
+                "g", "gn" -> n.contains("despertai")
+                "mwb" -> n.contains("mwb") || n.contains("apostila")
+                else -> false
+            }
+            val hasCode = titleHit ||
+                tokens.any { it == code || it == parts[0] || it.startsWith(code) }
             val mm = num.toIntOrNull()?.toString()?.padStart(2, '0') ?: num
             val yy = year2.toString().padStart(2, '0')
+            // ns sem espaços: "wp19_3" -> "wp193" casa ano2+número
+            val ns = n.replace(" ", "")
+            // wp pública: o arquivo traz ano+mês da edição (ex: wp_T_201909 = N.º 3/2019)
+            val wpMonths = if (parts[0] == "wp") {
+                wpIssueMonths(year.toIntOrNull() ?: 0, num.toIntOrNull() ?: 0)
+            } else emptyList()
             var hasYear = tokens.any { it == year || it == yy } ||
                 n.contains(year + mm) || n.contains(mm + yy) ||
+                ns.contains(yy + num) || ns.contains(yy + mm) ||
+                wpMonths.any { m -> n.contains(year + m) || ns.contains(yy + m) } ||
                 (code == "g" && n.contains(year + mm))
             if (day != null) {
                 // edição datada antiga: exige o dia no nome (w19990501, w99 15-5…)
@@ -356,6 +466,97 @@ object RefDetector {
     fun checkAll(text: String, attachments: List<AttachmentEntity>): List<RefStatus> =
         resolve(detect(text), attachments)
 
+    /** Une refs da nota + do esboço sem duplicar edição. Puro/testável. */
+    fun unionRefs(a: List<DetectedRef>, b: List<DetectedRef>): List<DetectedRef> {
+        val seen = mutableSetOf<String>()
+        return (a + b).filter { seen.add(it.editionKey) }
+    }
+
+    /** Livro bíblico normalizado -> rótulo (para detecção de versículos). */
+    private val BIBLE_BOOKS: Map<String, String> = mapOf(
+        "gen" to "Gênesis", "genesis" to "Gênesis",
+        "ex" to "Êxodo", "exodo" to "Êxodo",
+        "lev" to "Levítico", "levitico" to "Levítico",
+        "num" to "Números", "numeros" to "Números",
+        "deut" to "Deuteronômio", "deuteronomio" to "Deuteronômio",
+        "jos" to "Josué", "josue" to "Josué",
+        "jz" to "Juízes", "juizes" to "Juízes",
+        "rt" to "Rute", "rute" to "Rute",
+        "1sm" to "1 Samuel", "1samuel" to "1 Samuel",
+        "2sm" to "2 Samuel", "2samuel" to "2 Samuel",
+        "1rs" to "1 Reis", "1reis" to "1 Reis",
+        "2rs" to "2 Reis", "2reis" to "2 Reis",
+        "1cr" to "1 Crônicas", "1cronicas" to "1 Crônicas",
+        "2cr" to "2 Crônicas", "2cronicas" to "2 Crônicas",
+        "ed" to "Esdras", "esdras" to "Esdras",
+        "ne" to "Neemias", "neemias" to "Neemias",
+        "est" to "Ester", "ester" to "Ester",
+        "jo" to "João", "joao" to "João",
+        "sal" to "Salmos", "salmos" to "Salmos", "salmo" to "Salmos",
+        "pro" to "Provérbios", "proverbios" to "Provérbios",
+        "ecl" to "Eclesiastes", "eclesiastes" to "Eclesiastes",
+        "cant" to "Cânticos", "cantares" to "Cânticos",
+        "is" to "Isaías", "isaias" to "Isaías",
+        "jr" to "Jeremias", "jeremias" to "Jeremias",
+        "lam" to "Lamentações", "lamentacoes" to "Lamentações",
+        "ez" to "Ezequiel", "ezequiel" to "Ezequiel",
+        "dn" to "Daniel", "daniel" to "Daniel",
+        "os" to "Oseias", "oseias" to "Oseias",
+        "jl" to "Joel", "joel" to "Joel",
+        "am" to "Amós", "amos" to "Amós",
+        "ob" to "Obadias", "obadias" to "Obadias",
+        "jn" to "Jonas", "jonas" to "Jonas",
+        "mq" to "Miqueias", "miqueias" to "Miqueias",
+        "hc" to "Habacuque", "habacuque" to "Habacuque",
+        "sof" to "Sofonias", "sofonias" to "Sofonias",
+        "ag" to "Ageu", "ageu" to "Ageu",
+        "zc" to "Zacarias", "zacarias" to "Zacarias",
+        "ml" to "Malaquias", "malaquias" to "Malaquias",
+        "mt" to "Mateus", "mateus" to "Mateus",
+        "mc" to "Marcos", "marcos" to "Marcos",
+        "lc" to "Lucas", "lucas" to "Lucas",
+        "at" to "Atos", "atos" to "Atos",
+        "rm" to "Romanos", "romanos" to "Romanos",
+        "1co" to "1 Coríntios", "1corintios" to "1 Coríntios",
+        "2co" to "2 Coríntios", "2corintios" to "2 Coríntios",
+        "gl" to "Gálatas", "galatas" to "Gálatas",
+        "ef" to "Efésios", "efesios" to "Efésios",
+        "fp" to "Filipenses", "filipenses" to "Filipenses",
+        "cl" to "Colossenses", "colossenses" to "Colossenses",
+        "1ts" to "1 Tessalonicenses", "1tessalonicenses" to "1 Tessalonicenses",
+        "2ts" to "2 Tessalonicenses", "2tessalonicenses" to "2 Tessalonicenses",
+        "1tm" to "1 Timóteo", "1timoteo" to "1 Timóteo",
+        "2tm" to "2 Timóteo", "2timoteo" to "2 Timóteo",
+        "tt" to "Tito", "tito" to "Tito",
+        "fm" to "Filemom", "filemom" to "Filemom",
+        "hb" to "Hebreus", "hebreus" to "Hebreus",
+        "tg" to "Tiago", "tiago" to "Tiago",
+        "1pe" to "1 Pedro", "1pedro" to "1 Pedro",
+        "2pe" to "2 Pedro", "2pedro" to "2 Pedro",
+        "1jo" to "1 João", "1joao" to "1 João",
+        "2jo" to "2 João", "2joao" to "2 João",
+        "3jo" to "3 João", "3joao" to "3 João",
+        "jd" to "Judas", "judas" to "Judas",
+        "ap" to "Apocalipse", "apocalipse" to "Apocalipse"
+    )
+
+    /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
+    data class BibleRef(val bookNorm: String, val label: String, val chapter: Int, val verse: Int)
+
+    /** Detecta menções a versículos (puro/testável). */
+    fun detectBible(text: String): List<BibleRef> {
+        val out = mutableListOf<BibleRef>()
+        val seen = mutableSetOf<String>()
+        val re = Regex("""\b((?:[1-3]\s+)?[a-zà-ÿ]+)\s+(\d{1,3})\s*:\s*(\d{1,3})\b""")
+        for (m in re.findAll(text.lowercase())) {
+            val key = normalizeText(m.groupValues[1]).replace(" ", "")
+            val label = BIBLE_BOOKS[key] ?: continue
+            val ref = BibleRef(key, label, m.groupValues[2].toInt(), m.groupValues[3].toInt())
+            // "Jo 3:16" e "João 3:16" são a mesma menção
+            if (seen.add("$label|${ref.chapter}|${ref.verse}")) out += ref
+        }
+        return out
+    }
     /** Resolve refs já detectadas (ex: salvas no esboço) contra os anexos atuais. */
     fun resolve(detected: List<DetectedRef>, attachments: List<AttachmentEntity>): List<RefStatus> {
         return detected.map { ref ->

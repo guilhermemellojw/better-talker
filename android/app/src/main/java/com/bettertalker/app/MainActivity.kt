@@ -17,7 +17,7 @@ import androidx.navigation.navArgument
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
 import com.bettertalker.app.navigation.Routes
-import com.bettertalker.app.ui.copilot.CopilotSheet
+import com.bettertalker.app.ui.copilot.ChatScreen
 import com.bettertalker.app.ui.copilot.CopilotViewModel
 import com.bettertalker.app.ui.editor.EditorScreen
 import com.bettertalker.app.ui.editor.EditorViewModel
@@ -57,15 +57,24 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     // Reconhece downloads via worker (sobrevive a rotação/morte do app).
-    // Reindex geral one-shot (formato de índice v3).
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        com.bettertalker.app.ui.jw.JwDownloadDialog.onEnqueued = { dmId, name ->
+        com.bettertalker.app.ui.jw.JwDownloadDialog.onEnqueued = { dmId, name, pageUrl ->
             scope.launch {
                 try {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        val ph = libRepo.insertPlaceholder(name)
-                        if (ph != null) libRepo.enqueueRegisterDownload(dmId, name, ph)
+                    val msg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val ph = libRepo.insertPlaceholder(name, null, dmId, pageUrl)
+                        if (ph != null) {
+                            libRepo.enqueueRegisterDownload(dmId, name, ph)
+                            "Download iniciado — acompanhe na Biblioteca"
+                        } else {
+                            // antes: descarte silencioso ("baixada e nunca indexada")
+                            "Formato não reconhecido ($name). Toque Importar na Biblioteca e escolha o arquivo."
+                        }
                     }
+                    android.widget.Toast.makeText(
+                        ctx, msg,
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
                 } catch (_: Exception) { }
             }
         }
@@ -103,9 +112,6 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
             val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId))
-            val showSheet = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-            val sheetTitle by vm.title.collectAsState()
-            val sheetMdText by vm.mdText.collectAsState()
             val skeleton by copilotVm.skeletonEvent.collectAsState()
             androidx.compose.runtime.LaunchedEffect(skeleton) {
                 val sk = skeleton
@@ -114,21 +120,63 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                     copilotVm.consumeSkeleton()
                 }
             }
+            // tema do esboço vira título da nota
+            val titleEv by copilotVm.titleEvent.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(titleEv) {
+                val t = titleEv
+                if (!t.isNullOrBlank()) {
+                    vm.onTitle(t)
+                    copilotVm.consumeTitle()
+                }
+            }
             EditorScreen(
                 vm,
                 onBack = { nav.popBackStack() },
-                onCopilot = { showSheet.value = true },
-                onAttach = { nav.navigate(Routes.library(noteId)) }
+                onAttach = { nav.navigate(Routes.library(noteId)) },
+                onOpenChat = { nav.navigate(Routes.chat(noteId)) }
             )
-            if (showSheet.value) {
-                CopilotSheet(
-                    copilotVm,
-                    onDismiss = { showSheet.value = false },
-                    onInsert = { text, heading -> vm.queueInsertMarkdown(text, heading) },
-                    noteText = sheetTitle + "\n" + sheetMdText,
-                    headings = com.bettertalker.app.data.util.headingsOf(sheetMdText)
-                )
+        }
+        composable(
+            Routes.CHAT,
+            arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+        ) { back ->
+            val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // reusa o MESMO CopilotViewModel do editor (histórico compartilhado)
+            val copilotVm: CopilotViewModel = viewModel(
+                key = "cop-$noteId",
+                factory = CopilotViewModel.Factory(ctx, db, noteId)
+            )
+            // EditorViewModel do editor (mesma store da rota editor p/ enfileirar inserções)
+            val editorEntry = remember(back) { nav.getBackStackEntry(Routes.EDITOR) }
+            val editorVm: EditorViewModel = viewModel(
+                editorEntry, key = noteId,
+                factory = EditorViewModel.Factory(ctx, db, noteId)
+            )
+            // esqueleto vinculado pelo chat entrega na hora (não depende de voltar ao editor)
+            val chatSkeleton by copilotVm.skeletonEvent.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(chatSkeleton) {
+                val sk = chatSkeleton
+                if (!sk.isNullOrEmpty()) {
+                    editorVm.queueInsertMarkdown(sk, null)
+                    copilotVm.consumeSkeleton()
+                }
             }
+            // tema do esboço vira título da nota
+            val chatTitleEv by copilotVm.titleEvent.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(chatTitleEv) {
+                val t = chatTitleEv
+                if (!t.isNullOrBlank()) {
+                    editorVm.onTitle(t)
+                    copilotVm.consumeTitle()
+                }
+            }
+            ChatScreen(
+                copilotVm,
+                onBack = { nav.popBackStack() },
+                onInsert = { text, heading -> editorVm.queueInsertMarkdown(text, heading) },
+                onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
+                headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value)
+            )
         }
         composable(
             Routes.LIBRARY,
@@ -138,7 +186,13 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
         ) { back ->
             val linkNote = back.arguments?.getString("linkNote")?.ifBlank { null }
             val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory(db, libRepo))
-            LibraryScreen(vm, onBack = { nav.popBackStack() }, linkNoteId = linkNote)
+            LibraryScreen(vm, onBack = { nav.popBackStack() }, linkNoteId = linkNote,
+                onOpenModel = { nav.navigate(Routes.MODEL) })
+        }
+        composable(Routes.MODEL) { _ ->
+            val vm: com.bettertalker.app.ui.aimodel.ModelViewModel =
+                viewModel(factory = com.bettertalker.app.ui.aimodel.ModelViewModel.Factory(ctx))
+            com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
     }
 }

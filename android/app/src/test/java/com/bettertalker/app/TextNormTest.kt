@@ -3,6 +3,7 @@ package com.bettertalker.app
 import com.bettertalker.app.data.util.decodeBytes
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.DocKind
+import com.bettertalker.app.data.util.isPageUrl
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.data.util.splitWithSections
@@ -94,5 +95,43 @@ class TextNormTest {
         f.writeBytes(byteArrayOf(0x50, 0x4B, 0x03, 0x04, 0, 0, 0, 0))
         assertEquals(DocKind.ZIP, detectKind("noext", f))
         f.delete()
+    }
+
+    @Test
+    fun pageVsFileUrl() {
+        assertTrue(isPageUrl("https://www.jw.org/pt/biblioteca/revistas/g201308/"))
+        assertTrue(isPageUrl("https://www.jw.org/finder?wtlocale=T&pub=be&srcid=share"))
+        assertTrue(!isPageUrl("https://cfp2.jw-cdn.org/a/xyz/o/th_T.pdf"))
+    }
+
+    @Test
+    fun detectKindEdges() {
+        // sem extensão e .bin nunca entram (antes: descarte silencioso)
+        assertEquals(DocKind.UNSUPPORTED, detectKind("download.bin"))
+        assertEquals(DocKind.UNSUPPORTED, detectKind("semextensao"))
+        assertEquals(DocKind.PDF, detectKind("REVISTA.PDF"))
+        assertEquals(DocKind.EPUB, detectKind("wp19.numerada.epub"))
+    }
+
+    @Test
+    fun ensureExtensionRescuesMime() {
+        val dl = com.bettertalker.app.ui.jw.DownloadHelper
+        assertEquals("x.pdf", dl.ensureExtension("x", "application/pdf"))
+        assertEquals("x.epub", dl.ensureExtension("x", "application/epub+zip"))
+        assertEquals("x.docx", dl.ensureExtension("x", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+        assertEquals("a.pdf", dl.ensureExtension("a.pdf", "text/html"))
+        assertEquals("semmime", dl.ensureExtension("semmime", null))
+        assertEquals("video.mp4", dl.ensureExtension("video.mp4", "video/mp4"))
+    }
+
+    @Test
+    fun filterUnregisteredByName() {
+        val mk = { n: String ->
+            com.bettertalker.app.data.repo.DownloadCandidate("content://x/$n", n, 10L)
+        }
+        val cands = listOf(mk("wp19.pdf"), mk("lff.pdf"))
+        val out = com.bettertalker.app.data.repo.filterUnregistered(cands, setOf("wp19.pdf"))
+        assertEquals(listOf("lff.pdf"), out.map { it.name })
+        assertTrue(com.bettertalker.app.data.repo.filterUnregistered(cands, setOf("wp19.pdf", "lff.pdf")).isEmpty())
     }
 }

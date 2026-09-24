@@ -155,5 +155,16 @@ object PubCatalog {
 
     fun entryOf(symbol: String): Entry? = MAP[symbol.lowercase()]
 
+    /**
+     * Títulos normalizados de livros/brochuras (título -> sigla),
+     * maior primeiro, p/ detecção por nome integral. Revistas fora
+     * (exigem edição exata).
+     */
+    fun titleIndex(): List<Pair<String, String>> =
+        MAP.values.filter { it.kind != "magazine" }
+            .map { normalizeText(it.title) to it.symbol }
+            .filter { it.first.length >= 4 }
+            .sortedByDescending { it.first.length }
+
     fun size(): Int = MAP.size
 }

@@ -9,7 +9,9 @@ import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.data.util.headingsOf
 import com.bettertalker.app.data.util.insertUnder
 import com.bettertalker.app.data.util.skeletonMarkdown
+import com.bettertalker.app.data.repo.CopilotRepository.ExampleKind as EK
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -503,8 +505,7 @@ S-34-T N.º 35 5/20
     }
 
     @Test
-    fun pastedIndentLevels() {
-        val text = "Tesouros da Palavra de Deus.\n" +
+    fun pastedIndentLevels() {        val text = "Tesouros da Palavra de Deus.\n" +
             "  Jeová deseja que vivamos em paz.\n" +
             "    Porque ele nos ama primeiro.\n" +
             "  Oração.\n" +
@@ -572,5 +573,698 @@ S-34-T N.º 35 5/20
         val at = com.bettertalker.app.data.util.headingOffset(md, "A.1")
         assertNotNull(at)
         assertTrue(md.substring(at!!).startsWith("corpo"))
+    }
+
+
+    @Test
+    fun markerLevelDirect() {        val m = PastedOutlineAnalyzer::markerLevel
+        assertEquals(0, m("1. Tesouros."))
+        assertEquals(1, m("a) Ponto."))
+        assertEquals(1, m("- item."))
+        assertEquals(2, m("ii. Item."))
+        assertEquals(null, m("A vida eterna é real."))
+        assertEquals(null, m("Tesouros da Palavra de Deus."))
+    }
+
+    @Test
+    fun pastedNumberingLevelsWhenFlat() {
+        val text = "1. Tesouros da Palavra de Deus.\na) Jeová deseja paz.\nb) Oremos sempre.\n2. Conclusão."
+        val (cands, _) = PastedOutlineAnalyzer.candidates(text)
+        assertEquals(listOf(0, 1, 1, 0), cands.map { it.level })
+    }
+
+    @Test
+    fun pastedArticleStartNotLeveled() {
+        // frase comum começando com "a " NÃO vira subnível
+        val (cands, _) = PastedOutlineAnalyzer.candidates("Tesouros.\nA vida eterna é real.")
+        assertTrue(cands.all { it.level == 0 })
+    }
+
+    @Test
+    fun structuredBodyKeepsIndent() {
+        val text = "SEÇÃO (5 min)\n  Subponto recuado aqui.\nTexto normal."
+        val o = OutlineParser.parse(text, "s.pdf")
+        assertEquals(1, o.sections.size)
+        assertTrue("corpo: ${o.sections[0].body}", o.sections[0].body.contains("  Subponto"))
+    }
+
+    @Test
+    fun skeletonIndentsLevels() {
+        val secs = listOf(
+            com.bettertalker.app.data.util.OutlineSection("A", 5, 0, "", 0),
+            com.bettertalker.app.data.util.OutlineSection("A.1", null, 1, "", 1),
+            com.bettertalker.app.data.util.OutlineSection("A.1.a", null, 2, "", 2)
+        )
+        val md = com.bettertalker.app.data.util.skeletonMarkdown(secs, "")
+        assertTrue(md.contains("## A (5 min)"))
+        assertTrue(md.contains("  ### A.1"))
+        // nível 2: 3 espaços no máximo (4+ viraria bloco de código)
+        assertTrue(md.contains("   #### A.1.a"))
+        assertEquals(listOf("A (5 min)", "A.1", "A.1.a"), com.bettertalker.app.data.util.headingsOf(md))
+    }
+
+    @Test
+    fun pastedTitleFirst() {
+        // exemplo real estilo mwb: título (N min) + tópicos num parágrafo só
+        val text = "Jeová apoia aqueles que apoiam o Seu Reino (10 min) " +
+            "Em uma época de divisão política, Jeremias pregou uma mensagem que não agradava as pessoas. " +
+            "(Jer. 37:6-10; jr 27 § 22) Ele foi perseguido porque entenderam errado. " +
+            "(Jer. 37:13-15; jr 28 § 23) Jeová ajudou Jeremias preso. " +
+            "(Jer. 37:21; w08 15/10 11 § 18) PERGUNTE-SE: ‘Como o exemplo nos incentiva?’"
+        val (title, rest) = PastedOutlineAnalyzer.splitTitle(text)
+        assertEquals("Jeová apoia aqueles que apoiam o Seu Reino (10 min)", title)
+        assertTrue(rest.startsWith("Em uma época"))
+        val (cands, _) = PastedOutlineAnalyzer.candidates(rest)
+        assertEquals(4, cands.size)
+        assertTrue(cands[0].text.contains("(Jer. 37:6-10; jr 27 § 22)"))
+        assertTrue(cands[1].text.startsWith("Ele foi perseguido"))
+        assertTrue(cands[2].text.contains("w08 15/10"))
+        assertTrue(cands[3].text.startsWith("PERGUNTE-SE"))
+    }
+
+    @Test
+    fun pastedTitleOnlyAtStart() {
+        // (N min) longe do início NÃO vira título
+        val far = "Introdução. " + "palavra ".repeat(60) + "(5 min) resto."
+        val (title, rest) = PastedOutlineAnalyzer.splitTitle(far)
+        assertNull(title)
+        assertEquals(far, rest)
+    }
+
+    @Test
+    fun bookSectionRef() {
+        // "jr 27 § 22": livro + estudo + parágrafo
+        val refs = RefDetector.detect("conforme jr 27 § 22 sobre o tema")
+        val jr = refs.firstOrNull { it.pubKey == "jr" }
+        assertNotNull(jr)
+        assertEquals("book|jr", jr!!.editionKey)
+        // "ver § 5" sozinho não vira ref (sem sigla)
+        assertTrue(RefDetector.detect("ver § 5 do estudo").none { it.editionKey == "book|ver" })
+    }
+
+    @Test
+    fun wDayPageLabel() {
+        val refs = RefDetector.detect("conforme w08 15/10 11 § 18 sobre ele")
+        val w = refs.firstOrNull { it.editionKey == "w|2008|10|15" }
+        assertNotNull(w)
+        assertTrue("rótulo: ${w!!.label}", w.label.contains("pág. 11") && w.label.contains("§ 18"))
+    }
+
+    @Test
+    fun chatIntentRouting() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.classify("me resuma o discurso") is com.bettertalker.app.data.util.ChatIntent.Intent.Summarize)
+        assertTrue(ci.classify("quais referências faltam?") is com.bettertalker.app.data.util.ChatIntent.Intent.CheckRefs)
+        assertTrue(ci.classify("verificar refs") is com.bettertalker.app.data.util.ChatIntent.Intent.CheckRefs)
+        val ins = ci.classify("insere a segunda ideia")
+        assertTrue(ins is com.bettertalker.app.data.util.ChatIntent.Intent.Insert && (ins as com.bettertalker.app.data.util.ChatIntent.Intent.Insert).index == 1)
+        assertTrue(ci.classify("coloca a 1") is com.bettertalker.app.data.util.ChatIntent.Intent.Insert)
+        val id = ci.classify("ideias para a conclusão", listOf(com.bettertalker.app.data.util.ChatIntent.SectionRef("Abertura"), com.bettertalker.app.data.util.ChatIntent.SectionRef("Conclusão")))
+        assertTrue(id is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas &&
+            (id as com.bettertalker.app.data.util.ChatIntent.Intent.Ideas).sectionHint == "Conclusão")
+        assertTrue(ci.classify("ideias gerais") is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas)
+        assertTrue(ci.classify("oi") is com.bettertalker.app.data.util.ChatIntent.Intent.Help)
+        assertTrue(ci.classify("obrigado!") is com.bettertalker.app.data.util.ChatIntent.Intent.Thanks)
+        val ask = ci.classify("o que a Bíblia diz sobre fé?")
+        assertTrue(ask is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+        assertNull((ci.classify("insere") as com.bettertalker.app.data.util.ChatIntent.Intent.Insert).index)
+    }
+
+    @Test
+    fun chatIntentCopilotActions() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.classify("refs do esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.OutlineRefs)
+        assertTrue(ci.classify("mostre as seções") is com.bettertalker.app.data.util.ChatIntent.Intent.Sections)
+        assertTrue(ci.classify("qual a estrutura do esboço?") is com.bettertalker.app.data.util.ChatIntent.Intent.Sections)
+        assertTrue(ci.classify("reinserir esqueleto") is com.bettertalker.app.data.util.ChatIntent.Intent.Skeleton)
+        assertTrue(ci.classify("desvincule o esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.Unlink)
+        assertTrue(ci.classify("remover o esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.Unlink)
+        assertTrue(ci.classify("baixar as bases") is com.bettertalker.app.data.util.ChatIntent.Intent.Bases)
+        // sem regressão: refs da nota continuam CheckRefs, ideias continuam Ideas
+        assertTrue(ci.classify("verificar refs") is com.bettertalker.app.data.util.ChatIntent.Intent.CheckRefs)
+        assertTrue(ci.classify("quais referências faltam?") is com.bettertalker.app.data.util.ChatIntent.Intent.CheckRefs)
+        val id = ci.classify("ideias para a conclusão", listOf(com.bettertalker.app.data.util.ChatIntent.SectionRef("Abertura"), com.bettertalker.app.data.util.ChatIntent.SectionRef("Conclusão")))
+        assertTrue(id is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas)
+        // "tirar dúvida" não desvincula nada
+        assertTrue(ci.classify("tire uma dúvida sobre fé") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+    }
+
+    @Test
+    fun chatFollowUpMore() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.isFollowUpMore("mais"))
+        assertTrue(ci.isFollowUpMore("manda outra ideia"))
+        assertTrue(ci.isFollowUpMore("fala mais sobre fé"))
+        assertTrue(ci.isFollowUpMore("detalhe mais"))
+        assertTrue(ci.isFollowUpMore("outra, por favor"))
+        assertFalse(ci.isFollowUpMore("jamais fiz isso"))
+        assertFalse(ci.isFollowUpMore("o que dizem sobre fé?"))
+        assertFalse(ci.isFollowUpMore("ideias para a conclusão"))
+    }
+
+    @Test
+    fun chatStripMoreWords() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertEquals("sobre fe", ci.stripMoreWords("fala mais sobre fé"))
+        assertEquals("", ci.stripMoreWords("mais"))
+        assertEquals("", ci.stripMoreWords("manda outra ideia"))
+    }
+
+    @Test
+    fun chatMatchSectionTitle() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        val titles = listOf("Abertura", "Conclusão")
+        assertEquals("Conclusão", ci.matchSectionTitle("a conclusão", titles))
+        assertEquals("Abertura", ci.matchSectionTitle("ideias para abertura", titles))
+        assertNull(ci.matchSectionTitle("sobre fé", titles))
+    }
+
+    @Test
+    fun pastedBodiesGroupChildren() {
+        val text = "Tesouros da Palavra de Deus.\n" +
+            "  Jeová deseja que vivamos em paz (Sal 37:29).\n" +
+            "    Porque ele nos ama primeiro.\n" +
+            "Conclusão."
+        val (cands, _) = PastedOutlineAnalyzer.candidates(text)
+        assertEquals(4, cands.size)
+        val bodies = PastedOutlineAnalyzer.bodies(cands)
+        assertEquals(4, bodies.size)
+        // pai agrega subtópicos e refs; tópico plano continua sem corpo
+        assertTrue("corpo: ${bodies[0]}", bodies[0].contains("Jeová deseja que vivamos em paz"))
+        assertTrue(bodies[0].contains("Porque ele nos ama primeiro"))
+        assertTrue(bodies[1].contains("Porque ele nos ama primeiro"))
+        assertEquals("", bodies[2])
+        assertEquals("", bodies[3])
+    }
+
+    @Test
+    fun chatMatchSectionByBody() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        val secs = listOf(
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Tesouros", "Jeová deseja que vivamos em paz (Sal 37:29)"),
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Conclusão", "Aplicação para esta semana")
+        )
+        // título continua ganhando
+        assertEquals("Conclusão", ci.matchSection("ideias para a conclusão", secs))
+        // subtópico/termo do corpo acha a seção
+        assertEquals("Tesouros", ci.matchSection("deseja que vivamos em paz", secs))
+        // 1 palavra comum não basta
+        assertNull(ci.matchSection("sobre fé", secs))
+        assertNull(ci.matchSection("ideias", secs))
+    }
+
+    @Test
+    fun chatSectionsCodecLevelTolerant() {        val codec = com.bettertalker.app.data.util.ChatCodec
+        val secs = listOf(
+            com.bettertalker.app.data.util.ChatCodec.SecItem("Abertura", 3, 0),
+            com.bettertalker.app.data.util.ChatCodec.SecItem("Detalhe", null, 1)
+        )
+        val back = codec.sectionsFromJson(codec.sectionsToJson(secs))
+        assertEquals(secs, back)
+        // mensagens antigas (sem "l") continuam lendo
+        val legacy = codec.sectionsFromJson("""[{"t":"X","m":5}]""")
+        assertEquals(listOf(com.bettertalker.app.data.util.ChatCodec.SecItem("X", 5, 0)), legacy)
+    }
+
+    @Test
+    fun chatIntentNumbers() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertEquals(0, ci.parseNumber("a primeira") ?: -1)
+        assertEquals(2, ci.parseNumber("coloca a terceira") ?: -1)
+        assertEquals(4, ci.parseNumber("5") ?: -1)
+        assertNull(ci.parseNumber("sem número"))
+    }
+
+    @Test
+    fun chatCardCodecRoundTrip() {
+        val c = com.bettertalker.app.data.repo.IdeaCard(
+            "T \"com\" aspas", "corpo\nquebra", "snip", "http://x",
+            "fonte", "seção", "motivo"
+        )
+        val back = com.bettertalker.app.data.util.ChatCodec.cardsFromJson(
+            com.bettertalker.app.data.util.ChatCodec.cardsToJson(listOf(c))
+        )
+        assertEquals(1, back.size)
+        assertEquals(c, back[0])
+        assertEquals(emptyList<com.bettertalker.app.data.repo.IdeaCard>(), com.bettertalker.app.data.util.ChatCodec.cardsFromJson("lixo"))
+    }
+
+    @Test
+    fun chatCardInsertableFlag() {
+        // orientação (guia) nunca vai para a nota
+        val g = com.bettertalker.app.data.repo.IdeaCard(
+            "Orientação", "instrução", "", "", "be", "Seção", "guia",
+            insertable = false
+        )
+        assertFalse(g.insertable)
+        val back = com.bettertalker.app.data.util.ChatCodec.cardsFromJson(
+            com.bettertalker.app.data.util.ChatCodec.cardsToJson(listOf(g))
+        )
+        assertEquals(1, back.size)
+        assertFalse(back[0].insertable)
+        // mensagens antigas (sem "f") continuam inseríveis
+        val legacy = com.bettertalker.app.data.util.ChatCodec.cardsFromJson(
+            """[{"t":"T","b":"B","s":"","u":"","src":"","sec":"","pr":""}]"""
+        )
+        assertEquals(1, legacy.size)
+        assertTrue(legacy[0].insertable)
+    }
+
+    @Test
+    fun chatMsgCodecRoundTrip() {
+        val codec = com.bettertalker.app.data.util.ChatCodec
+        val payload = codec.escMap(mapOf(
+            "text" to "Olá! \"aspas\", quebra\ne backslash \\ aqui",
+            "slots" to "be,th"
+        ))
+        val back = codec.unescMap(payload)
+        assertEquals("Olá! \"aspas\", quebra\ne backslash \\ aqui", back["text"])
+        assertEquals("be,th", back["slots"])
+        assertEquals(emptyMap<String, String>(), codec.unescMap("lixo"))
+    }
+
+    @Test
+    fun chatMsgCodecNestedCards() {
+        val codec = com.bettertalker.app.data.util.ChatCodec
+        val cards = listOf(
+            com.bettertalker.app.data.repo.IdeaCard(
+                "T \"com\" aspas", "corpo\nmultilinha \\ barra", "snip", "http://x",
+                "fonte", "seção", "motivo"
+            )
+        )
+        val payload = codec.escMap(mapOf(
+            "section" to "Conclusão",
+            "cards" to codec.cardsToJson(cards)
+        ))
+        val m = codec.unescMap(payload)
+        assertEquals("Conclusão", m["section"])
+        val back = codec.cardsFromJson(m["cards"].orEmpty())
+        assertEquals(1, back.size)
+        assertEquals(cards[0], back[0])
+    }
+
+    @Test
+    fun refDetectFullTitle() {
+        val refs = RefDetector.detect("conforme Seja Feliz para Sempre, capítulo 5, sobre a oração")
+        val lff = refs.firstOrNull { it.editionKey == "book|lff" }
+        assertNotNull("refs: ${refs.map { it.editionKey }}", lff)
+    }
+
+    @Test
+    fun refDetectBareSymbolNumber() {
+        val a = RefDetector.detect("ver lff 27 sobre ele")
+        assertTrue(a.any { it.editionKey == "book|lff" })
+        val b = RefDetector.detect("como diz (jy 15) sobre Jesus")
+        assertTrue(b.any { it.editionKey == "book|jy" })
+        // código de revista não vira livro
+        val c = RefDetector.detect("w 24 é bom")
+        assertTrue(c.none { it.kind == RefDetector.Kind.BOOK })
+    }
+
+    @Test
+    fun refDetectNoFalsePositiveCommonWords() {
+        assertTrue(RefDetector.detect("o governo humano é falho").none { it.editionKey == "book|bp" })
+        assertTrue(RefDetector.detect("fui à escola ontem").none { it.editionKey == "book|sj" })
+        // com pista de estudo, vale
+        assertTrue(RefDetector.detect("Escola, lição 5, sobre leitura").any { it.editionKey == "book|sj" })
+    }
+
+    @Test
+    fun refMatchByFileTitle() {
+        val att = com.bettertalker.app.data.db.AttachmentEntity(
+            id = "a1", noteId = null, fileName = "Seja Feliz para Sempre.pdf",
+            kind = "pdf", sizeBytes = 1, appPath = "/x", indexed = true, addedAt = 0
+        )
+        val ref = RefDetector.DetectedRef("lff 27", RefDetector.Kind.BOOK, "lff", "book|lff", "x")
+        assertEquals("a1", RefDetector.matchEdition(ref, listOf(att))?.id)
+    }
+
+    @Test
+    fun partitionGuideSplitsGuideAndContent() {
+        val mkHit = { src: String ->
+            com.bettertalker.app.data.repo.ScopedHit(
+                com.bettertalker.app.data.db.PassageEntity("p-$src", "a", "texto", "texto"),
+                src
+            )
+        }
+        val guide = mkHit("Beneficie-se da Escola do Ministério Teocrático")
+        val content = mkHit("Seja Feliz para Sempre!")
+        val (g, c) = com.bettertalker.app.data.repo.partitionGuideHits(listOf(guide, content))
+        assertEquals(listOf(guide), g)
+        assertEquals(listOf(content), c)
+    }
+
+    @Test
+    fun exampleKindForPositionAndWords() {
+        fun k(first: Boolean, last: Boolean, words: String) =
+            com.bettertalker.app.data.repo.exampleKindFor(first, last, words)
+        assertEquals(EK.INTRO, k(true, false, ""))
+        assertEquals(EK.CONCLUSION, k(false, true, ""))
+        assertEquals(EK.ILLUSTRATION, k(false, false, ""))
+        assertEquals(EK.INTRO, k(false, false, "como introduzir o tema"))
+        assertEquals(EK.INTRO, k(false, true, "exemplo de introducao"))
+        assertEquals(EK.CONCLUSION, k(true, false, "como concluir"))
+        assertEquals(EK.QUESTION, k(false, false, "pergunta inicial"))
+        assertEquals(EK.ILLUSTRATION, k(false, false, "ilustracao para a secao"))
+    }
+
+    @Test
+    fun exampleGuideQueryDistinct() {
+        val qs = EK.values().map { com.bettertalker.app.data.repo.exampleGuideQuery(it) }
+        assertEquals(4, qs.toSet().size)
+        assertTrue(qs.all { it.isNotBlank() })
+    }
+
+    @Test
+    fun chatIntentExampleRouting() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        val secs = listOf(
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Introdução"),
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Conclusão")
+        )
+        val ex = ci.classify("exemplo para a conclusão", secs)
+        assertTrue(ex is com.bettertalker.app.data.util.ChatIntent.Intent.Example)
+        ex as com.bettertalker.app.data.util.ChatIntent.Intent.Example
+        assertEquals("conclusion", ex.kind)
+        assertEquals("Conclusão", ex.sectionHint)
+        val intro = ci.classify("como introduzir o tema")
+        assertTrue(intro is com.bettertalker.app.data.util.ChatIntent.Intent.Example &&
+            (intro as com.bettertalker.app.data.util.ChatIntent.Intent.Example).kind == "intro")
+        val ill = ci.classify("me dá uma ilustração")
+        assertTrue(ill is com.bettertalker.app.data.util.ChatIntent.Intent.Example &&
+            (ill as com.bettertalker.app.data.util.ChatIntent.Intent.Example).kind == "illustration")
+        val q = ci.classify("pergunta inicial")
+        assertTrue(q is com.bettertalker.app.data.util.ChatIntent.Intent.Example &&
+            (q as com.bettertalker.app.data.util.ChatIntent.Intent.Example).kind == "question")
+        val bare = ci.classify("exemplo")
+        assertTrue(bare is com.bettertalker.app.data.util.ChatIntent.Intent.Example &&
+            (bare as com.bettertalker.app.data.util.ChatIntent.Intent.Example).kind == null)
+        assertEquals("intro", ci.exampleKindHint("Exemplo de introdução"))
+        // sem regressão
+        val id = ci.classify("ideias para a conclusão", secs)
+        assertTrue(id is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas)
+        assertTrue(ci.classify("o que dizem sobre fé?") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+        assertTrue(ci.classify("insere a segunda") is com.bettertalker.app.data.util.ChatIntent.Intent.Insert)
+    }
+
+    @Test
+    fun chatIntentSyncRouting() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.classify("sincronizar esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.Sync)
+        assertTrue(ci.classify("atualizar o esboço pela nota") is com.bettertalker.app.data.util.ChatIntent.Intent.Sync)
+        // sem regressão
+        assertTrue(ci.classify("mostre as seções") is com.bettertalker.app.data.util.ChatIntent.Intent.Sections)
+        assertTrue(ci.classify("o que dizem sobre fé?") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+    }
+
+    @Test
+    fun chatConfirmYesNo() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.isYes("sim"))
+        assertTrue(ci.isYes("Isso, pode adicionar"))
+        assertTrue(ci.isYes("ok, fechado"))
+        assertTrue(ci.isNo("não"))
+        assertTrue(ci.isNo("melhor não, deixa pra depois"))
+        assertTrue(ci.isNo("cancela"))
+        assertFalse(ci.isYes("não pode ser"))
+        assertFalse(ci.isNo("sim, continua"))
+    }
+
+    @Test
+    fun syncSectionsFromNote() {
+        val linked = listOf(
+            com.bettertalker.app.data.util.OutlineSection("Abertura", 3, 0, "corpo velho", 0),
+            com.bettertalker.app.data.util.OutlineSection("Conclusão", 4, 1, "", 0),
+            com.bettertalker.app.data.util.OutlineSection("Sumida", null, 2, "", 0)
+        )
+        val md = "## Abertura Nova (5 min)\n\ntexto novo\n\n" +
+            "## Ideia inserida\n\n## Conclusão\n\nfim\n\n## Tópico Novo\n"
+        val (updated, r) = com.bettertalker.app.data.util.syncSections(
+            linked, md, setOf("ideia inserida"))
+        assertEquals(listOf("Abertura Nova", "Conclusão", "Sumida"), updated.map { it.title })
+        assertEquals(5, updated[0].minutes)
+        assertEquals("texto novo", updated[0].body)
+        assertEquals(listOf("Sumida"), r.missing)
+        assertEquals(listOf("Tópico Novo"), r.added)
+        assertTrue(r.updated.contains("Abertura Nova"))
+    }
+
+    @Test
+    fun s34RealPublicWatchtower() {
+        // S-34-T N.º 35 integral (texto real do usuário): Sentinela pública tem que sair
+        val text = """
+N.º 35 É possível viver para sempre? O que você precisa fazer?
+FOMOS CRIADOS PARA VIVER PARA SEMPRE (5 min)
+O tempo passa muito rápido e a vida parece muito curta. (Despertai! 08/13 pág. 6)
+Temos o desejo de continuar vivendo e nunca morrer. [Leia Eclesiastes 3:11.] (Despertai! 08/13 pág. 8 parág. 1-2)
+Deus criou os humanos para viver uma vida perfeita, eterna, na Terra. (Gên 1:26, 31; Sentinela número 3 de 2019 pág. 6-7)
+Adão e Eva poderiam ter vivido para sempre se tivessem obedecido a Deus. (Gên 2:16, 17)
+COMO A VIDA ETERNA FOI PERDIDA (4 min)
+Por conta própria, Adão e Eva escolheram desobedecer a Deus. (Gên 3:6) [Imagem 1]
+Eles foram expulsos do jardim do Éden e, com o tempo, morreram. (Gên 3:19, 22, 23; 5:5)
+Adão transmitiu o pecado, a imperfeição e a morte a todos os seus descendentes.
+[Leia Romanos 5:12.]
+Apesar de Adão e Eva terem desobedecido a Deus, o propósito Dele para a humanidade não mudou. (Despertai! 12/08 pág. 7)
+COMO É POSSÍVEL TER VIDA ETERNA (9 min)
+Os avanços na medicina aumentaram a expectativa de vida. (Sal 90:10; Sentinela número 3 de 2019 pág. 5 parág. 3-4)
+Jeová Deus providenciou a solução para o problema do pecado e da morte herdados.
+[Leia João 3:16.]
+Jesus, de vontade própria, deu sua vida para resgatar os descendentes de Adão. (Mt 20:28; Ro 5:19; Entenda a Bíblia cap. 5 parág. 10-11) [Imagem 2]
+Muitos vão viver para sempre em um paraíso na Terra, como é a vontade de Deus. (Sal 37:29)
+Milhões vão sobreviver ao fim deste atual sistema. (Ap 7:9, 14; 20:13)
+SERÁ QUE A VIDA ETERNA VAI SER AGRADÁVEL? (8 min)
+Toda a maldade vai deixar de existir. (Sal 37:10, 11)
+Serão eliminadas a doença e a morte. (Is 25:8; 33:24; Ap 21:3, 4)
+Deus vai reverter o processo de envelhecimento. (Jó 33:24, 25)
+A humanidade vai viver em paz e ter boa qualidade de vida. (Sal 72:7, 16)
+E o mais importante, vamos continuar aprendendo sobre Jeová. (Ro 11:33)
+VOCÊ VAI VIVER PARA SEMPRE? (4 min)
+Deus promete dar vida eterna aos que exercem fé no resgate.
+(Jo 3:36; Sentinela número 2 de 2017 pág. 7 parág. 1)
+Faça com que a coisa mais importante da sua vida seja obter o conhecimento. (Jo 17:3)
+[Siga de perto o material do esboço. Veja o livro Beneficie-se, páginas 52-55, 166-169.]
+TEMPO TOTAL: 30 MINUTOS
+S-34-T N.º 35 5/20
+""".trimIndent()
+        val keys = RefDetector.detect(text).map { it.editionKey }.toSet()
+        // revistas: Despertai! antigas + Sentinela PÚBLICA (foco do teste)
+        assertTrue("keys=$keys", keys.containsAll(setOf("g|2013|8", "g|2008|12", "wp|2019|3", "wp|2017|2")))
+        // livros citados por título/sigla
+        assertTrue("keys=$keys", keys.contains("book|bhs"))
+        assertTrue("keys=$keys", keys.contains("book|be"))
+        // textos bíblicos (Gên/Ro/Jo/Sal/Ap/Is/Mt/Eclesiastes/Romanos) não viram publicação
+        assertTrue("keys=$keys", keys.none { it.startsWith("book|") && it !in setOf("book|bhs", "book|be") })
+        assertEquals(6, keys.size)
+    }
+
+    @Test
+    fun wpFileNameVariantsMatch() {
+        val att = { name: String ->
+            AttachmentEntity(
+                id = "a-$name", noteId = null, fileName = name,
+                kind = "pdf", sizeBytes = 1, appPath = "/x", indexed = true, addedAt = 0
+            )
+        }
+        val ref = RefDetector.DetectedRef(
+            "Sentinela número 3 de 2019", RefDetector.Kind.MAGAZINE,
+            "wp", "wp|2019|3", "A Sentinela N.º 3 2019 (pública)"
+        )
+        for (name in listOf("wp19.3.pdf", "wp19_3_T.pdf", "wp2019_3.pdf", "wp201903.pdf")) {
+            val hit = RefDetector.matchEdition(ref, listOf(att(name)))
+            assertNotNull(name, hit)
+            assertEquals(name, "a-$name", hit!!.id)
+        }
+        // nome real do site: ano+mês da edição (N.º 3/2019 = set-out/2019)
+        for (name in listOf("wp_T_201909.pdf", "wp201909.pdf", "wp19_09.pdf")) {
+            val hit = RefDetector.matchEdition(ref, listOf(att(name)))
+            assertNotNull(name, hit)
+            assertEquals(name, "a-$name", hit!!.id)
+        }
+        // mês errado não casa (maio/2019 não é o N.º 3)
+        assertNull(
+            RefDetector.matchEdition(ref, listOf(att("wp_T_201905.pdf")))
+        )
+    }
+
+    @Test
+    fun wpIssueMonthsMapping() {
+        // 2016-2017: bimestral (N.º 5/2017 = set-out)
+        assertEquals(listOf("09", "10"), RefDetector.wpIssueMonths(2017, 5))
+        assertEquals(listOf("01", "02"), RefDetector.wpIssueMonths(2016, 1))
+        // 2018-2021: trimestral (N.º 3/2019 = set-out; N.º 1 = jan-fev)
+        assertEquals(listOf("09", "10"), RefDetector.wpIssueMonths(2019, 3))
+        assertEquals(listOf("01", "02"), RefDetector.wpIssueMonths(2018, 1))
+        // 2022+: anual, mês do arquivo varia
+        assertTrue(RefDetector.wpIssueMonths(2022, 1).contains("01"))
+        // fora do calendário conhecido: sem candidatos
+        assertTrue(RefDetector.wpIssueMonths(2015, 1).isEmpty())
+        assertTrue(RefDetector.wpIssueMonths(2019, 4).isEmpty())
+    }
+
+    @Test
+    fun contentHitsExcludesGuide() {
+        val mkHit = { src: String ->
+            com.bettertalker.app.data.repo.ScopedHit(
+                com.bettertalker.app.data.db.PassageEntity("p-$src", "a", "texto", "texto"),
+                src
+            )
+        }
+        val guide = mkHit("Beneficie-se da Escola do Ministério Teocrático")
+        val content = mkHit("A Sentinela N.º 3 2019 (pública)")
+        assertEquals(listOf(content), com.bettertalker.app.data.repo.contentHits(listOf(guide, content)))
+        assertTrue(com.bettertalker.app.data.repo.contentHits(listOf(guide)).isEmpty())
+    }
+
+    @Test
+    fun composeDraftSelectsAndCites() {
+        val mkHit = { src: String, text: String ->
+            com.bettertalker.app.data.repo.ScopedHit(
+                com.bettertalker.app.data.db.PassageEntity("p-$src-$text", "a", text, text.lowercase()),
+                src
+            )
+        }
+        val long1 = "Jeová deseja que todos vivam para sempre em paz na terra prometida por Deus"
+        val dup = "Jeová deseja que todos vivam para sempre em paz na terra prometida"
+        val long2 = "A Bíblia promete que a morte será eliminada para sempre no futuro próximo"
+        val hits = listOf(
+            mkHit("Revista", "$long1. Frase curta."),
+            mkHit("Livro", "$dup. Outra frase longa sobre a esperança da vida eterna aqui."),
+            mkHit("Revista", long2)
+        )
+        val out = com.bettertalker.app.data.repo.composeDraft(hits, maxSentences = 5)
+        // dedup: long1 e dup colapsam; curta fora; fontes anexadas
+        assertEquals(3, out.size)
+        assertTrue(out.all { it.text.length >= 40 && it.source.isNotBlank() })
+        assertEquals("Revista", out[0].source)
+        assertTrue(com.bettertalker.app.data.repo.composeDraft(emptyList()).isEmpty())
+        assertEquals(2, com.bettertalker.app.data.repo.composeDraft(hits, maxSentences = 2).size)
+    }
+
+    @Test
+    fun chatDevelopVerbs() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.hasDevelopVerbs("desenvolva a introdução"))
+        assertTrue(ci.hasDevelopVerbs("escreva sobre fé"))
+        assertTrue(ci.hasDevelopVerbs("redija a conclusão"))
+        assertFalse(ci.hasDevelopVerbs("ideias para a conclusão"))
+        assertFalse(ci.hasDevelopVerbs("o que dizem sobre fé?"))
+    }
+
+    @Test
+    fun chatIntentDevelopRouting() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        val secs = listOf(
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Introdução"),
+            com.bettertalker.app.data.util.ChatIntent.SectionRef("Conclusão")
+        )
+        val d = ci.classify("desenvolva a introdução", secs)
+        assertTrue(d is com.bettertalker.app.data.util.ChatIntent.Intent.Develop)
+        d as com.bettertalker.app.data.util.ChatIntent.Intent.Develop
+        assertEquals("Introdução", d.sectionHint)
+        val help = ci.classify("me ajude com a conclusão", secs)
+        assertTrue(help is com.bettertalker.app.data.util.ChatIntent.Intent.Develop &&
+            (help as com.bettertalker.app.data.util.ChatIntent.Intent.Develop).sectionHint == "Conclusão")
+        val bare = ci.classify("escreva sobre a fé", secs)
+        assertTrue(bare is com.bettertalker.app.data.util.ChatIntent.Intent.Develop)
+        // sem regressão: ideias continuam ideias, resto intacto
+        val id = ci.classify("ideias para a conclusão", secs)
+        assertTrue(id is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas)
+        assertTrue(ci.classify("me ajude") is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas)
+        assertTrue(ci.classify("exemplo para a conclusão", secs) is com.bettertalker.app.data.util.ChatIntent.Intent.Example)
+        assertTrue(ci.classify("insere a segunda") is com.bettertalker.app.data.util.ChatIntent.Intent.Insert)
+        assertTrue(ci.classify("o que dizem sobre fé?") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+    }
+
+    @Test
+    fun chatAckGoesToHelp() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        assertTrue(ci.isAck("sim"))
+        assertTrue(ci.isAck("ok, entendi"))
+        assertTrue(ci.isAck("beleza"))
+        assertFalse(ci.isAck("o que dizem sobre fé?"))
+        assertFalse(ci.isAck("sim, gera para a conclusão"))
+        assertTrue(ci.classify("sim") is com.bettertalker.app.data.util.ChatIntent.Intent.Help)
+        assertTrue(ci.classify("ok") is com.bettertalker.app.data.util.ChatIntent.Intent.Help)
+        // tópicos curtos continuam pergunta
+        assertTrue(ci.classify("fé") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
+        assertTrue(ci.classify("oi") is com.bettertalker.app.data.util.ChatIntent.Intent.Help)
+        assertTrue(ci.classify("obrigado!") is com.bettertalker.app.data.util.ChatIntent.Intent.Thanks)
+    }
+
+    @Test
+    fun chatDismissKeepsNumbers() {
+        // dispensar o cartão 1 reescreve o payload: "insere a 1" pega o próximo
+        val codec = com.bettertalker.app.data.util.ChatCodec
+        val cards = listOf(
+            com.bettertalker.app.data.repo.IdeaCard("A", "ba", "sa", "", "src", "Sec", ""),
+            com.bettertalker.app.data.repo.IdeaCard("B", "bb", "sb", "", "src", "Sec", "")
+        )
+        val payload = codec.escMap(mapOf("section" to "Sec", "cards" to codec.cardsToJson(cards)))
+        val rest = codec.cardsFromJson(codec.unescMap(payload)["cards"].orEmpty())
+            .toMutableList().also { it.removeAt(0) }
+        val payload2 = codec.escMap(mapOf("section" to "Sec", "cards" to codec.cardsToJson(rest)))
+        val back = codec.cardsFromJson(codec.unescMap(payload2)["cards"].orEmpty())
+        assertEquals(1, back.size)
+        assertEquals("B", back[0].title)
+    }
+
+    @Test
+    fun unionRefsDedupes() {
+        val a = RefDetector.DetectedRef("x", RefDetector.Kind.MAGAZINE, "wp", "wp|2019|3", "X")
+        val b = RefDetector.DetectedRef("y", RefDetector.Kind.MAGAZINE, "wp", "wp|2019|3", "Y")
+        val c = RefDetector.DetectedRef("z", RefDetector.Kind.BOOK, "lff", "book|lff", "Z")
+        val u = RefDetector.unionRefs(listOf(a, c), listOf(b))
+        assertEquals(listOf("wp|2019|3", "book|lff"), u.map { it.editionKey })
+        assertTrue(RefDetector.unionRefs(emptyList(), emptyList()).isEmpty())
+    }
+
+    @Test
+    fun matchSectionNumber() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        val titles = listOf("Abertura", "Meio", "Conclusão")
+        assertEquals("Abertura", ci.matchSectionNumber("desenvolva parte 1", titles))
+        assertEquals("Meio", ci.matchSectionNumber("ideias para a seção 2", titles))
+        assertEquals("Conclusão", ci.matchSectionNumber("tópico 3", titles))
+        assertNull(ci.matchSectionNumber("desenvolva a introdução", titles))
+        assertNull(ci.matchSectionNumber("parte 9", titles))
+        assertNull(ci.matchSectionNumber("o que dizem sobre fé?", titles))
+        // número vira dica nas três ações
+        val d = ci.classify("desenvolva parte 1", titles.map { com.bettertalker.app.data.util.ChatIntent.SectionRef(it) })
+        assertTrue(d is com.bettertalker.app.data.util.ChatIntent.Intent.Develop &&
+            (d as com.bettertalker.app.data.util.ChatIntent.Intent.Develop).sectionHint == "Abertura")
+        val e = ci.classify("exemplo da parte 3", titles.map { com.bettertalker.app.data.util.ChatIntent.SectionRef(it) })
+        assertTrue(e is com.bettertalker.app.data.util.ChatIntent.Intent.Example)
+        val i = ci.classify("ideias para o tópico 2", titles.map { com.bettertalker.app.data.util.ChatIntent.SectionRef(it) })
+        assertTrue(i is com.bettertalker.app.data.util.ChatIntent.Intent.Ideas &&
+            (i as com.bettertalker.app.data.util.ChatIntent.Intent.Ideas).sectionHint == "Meio")
+    }
+
+    @Test
+    fun detectBibleVerses() {
+        val b1 = RefDetector.detectBible("o que diz Gênesis 1:26?")
+        assertEquals(1, b1.size)
+        assertEquals("genesis", b1[0].bookNorm)
+        assertEquals("Gênesis", b1[0].label)
+        assertEquals(1, b1[0].chapter)
+        assertEquals(26, b1[0].verse)
+        val b2 = RefDetector.detectBible("conforme 1 João 4:8 e Jo 3:16")
+        assertEquals(setOf("1 João 4:8", "João 3:16"),
+            b2.map { "${it.label} ${it.chapter}:${it.verse}" }.toSet())
+        // "às 19:30" não é versículo; sigla desconhecida também não
+        assertTrue(RefDetector.detectBible("a reunião é às 19:30").isEmpty())
+        assertTrue(RefDetector.detectBible("ver XYZ 1:1 sobre isso").isEmpty())
+        // dedupe
+        assertEquals(1, RefDetector.detectBible("Jo 3:16 e João 3:16").size)
+    }
+
+    @Test
+    fun verseRefMatchesNumbers() {
+        fun f(norm: String, book: String, chapter: Int, verse: Int) =
+            com.bettertalker.app.data.repo.verseRefMatches(norm, book, chapter, verse)
+        assertTrue(f("no principio deus criou os ceus e a terra gen 1 26", "gen", 1, 26))
+        assertFalse(f("no principio deus criou os ceus e a terra gen 1 26", "gen", 1, 27))
+        assertFalse(f("outro texto sem o livro", "gen", 1, 26))
+        // "gen 126" grudado não vale como cap 12 v 6 (sem fronteira não há match exato)
+        assertFalse(f("texto gen 126 aqui", "gen", 12, 6))
     }
 }

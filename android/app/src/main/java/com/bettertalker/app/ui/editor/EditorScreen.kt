@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -45,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -96,9 +100,9 @@ private val HIGHLIGHT_COLORS = listOf(
     Color(0xFFFFB3BA), Color(0xFFFFE08A)
 )
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalLayoutApi::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit, onAttach: () -> Unit) {
+fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, onOpenChat: () -> Unit) {
     val title by vm.title.collectAsState()
     val html by vm.html.collectAsState()
     val mdText by vm.mdText.collectAsState()
@@ -118,6 +122,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
     var showColors by remember { mutableStateOf(false) }
     var showHighlight by remember { mutableStateOf(false) }
     var showSize by remember { mutableStateOf(false) }
+    // teclado aberto -> esconde rodapé (anexos) p/ dar espaço ao texto
+    val imeVisible = WindowInsets.isImeVisible
 
     // Editor visual: HTML é a verdade; markdown é derivado p/ Copilot
     val richState = rememberRichTextState()
@@ -214,6 +220,11 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
     }
 
     Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = onOpenChat) {
+                Icon(Icons.Default.AutoAwesome, "Conversar com o Copilot")
+            }
+        },
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar") } },
@@ -225,7 +236,6 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
                     }) {
                         Icon(if (preview) Icons.Default.Edit else Icons.Default.Visibility, "Preview")
                     }
-                    IconButton(onClick = onCopilot) { Icon(Icons.Default.AutoAwesome, "Copilot") }
                     IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                         DropdownMenuItem(
@@ -293,7 +303,6 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = onCopilot) { Text("Ver seções") }
                     IconButton(onClick = { vm.unlinkOutline() }) {
                         Icon(Icons.Default.Close, "Desvincular esboço")
                     }
@@ -304,34 +313,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
                 val wordCount = remember(mdText) {
                     mdText.split(Regex("\\s+")).count { it.any(Char::isLetterOrDigit) }
                 }
-                BasicRichTextEditor(
-                    state = richState,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    decorationBox = { inner ->
-                        Box(Modifier.fillMaxWidth()) {
-                            if (richState.annotatedString.isEmpty()) {
-                                Text(
-                                    "Escreva aqui…",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                            }
-                            inner()
-                        }
-                    }
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "$wordCount palavras",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                Spacer(Modifier.height(4.dp))
-                // Toolbar Word-like sobre a seleção (rolável p/ telas estreitas)
+                // Toolbar Word-like fixa no topo (rolável p/ telas estreitas)
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(end = 8.dp),
@@ -452,41 +434,71 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onCopilot: () -> Unit,
                         }
                     }
                 }
+                Spacer(Modifier.height(4.dp))
+                BasicRichTextEditor(
+                    state = richState,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    decorationBox = { inner ->
+                        Box(Modifier.fillMaxWidth()) {
+                            if (richState.annotatedString.isEmpty()) {
+                                Text(
+                                    "Escreva aqui…",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                            inner()
+                        }
+                    }
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "$wordCount palavras",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
             } else {
                 Box(Modifier.fillMaxWidth().weight(1f)) {
                     MarkdownPreview(mdText)
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Row {
-                TextButton(onClick = onAttach) {
-                    Icon(Icons.Default.AttachFile, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Anexos da nota (${attachments.size})")
-                }
-            }
-            attachments.take(4).forEach { a ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "• ${a.fileName}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { vm.unlinkAttachment(a.id) }) {
-                        Icon(Icons.Default.Close, "Desvincular")
+            // com o teclado aberto, o rodapé some p/ dar espaço ao texto
+            if (!imeVisible) {
+                Spacer(Modifier.height(4.dp))
+                Row {
+                    TextButton(onClick = onAttach) {
+                        Icon(Icons.Default.AttachFile, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Anexos da nota (${attachments.size})")
                     }
                 }
-            }
-            if (attachments.size > 4) {
-                Text(
-                    "+${attachments.size - 4} anexos (veja na Biblioteca)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
+                attachments.take(4).forEach { a ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "• ${a.fileName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { vm.unlinkAttachment(a.id) }) {
+                            Icon(Icons.Default.Close, "Desvincular")
+                        }
+                    }
+                }
+                if (attachments.size > 4) {
+                    Text(
+                        "+${attachments.size - 4} anexos (veja na Biblioteca)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
             }
         }
     }

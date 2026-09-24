@@ -6,7 +6,10 @@ object Routes {
     const val LIBRARY = "library?linkNote={linkNote}"
     const val TRASH = "trash"
     const val ACCOUNT = "account"
+    const val CHAT = "chat/{noteId}"
+    const val MODEL = "model"
     fun editor(noteId: String) = "editor/$noteId"
+    fun chat(noteId: String) = "chat/$noteId"
     fun library(linkNote: String? = null) =
         if (linkNote == null) "library?linkNote=" else "library?linkNote=$linkNote"
 }

@@ -49,7 +49,11 @@ data class AttachmentEntity(
     val addedAt: Long,
     val baseSlot: String? = null, // be | th | null
     val status: String = "indexing", // indexing | ready | failed
-    val error: String? = null
+    val error: String? = null,
+    /** DownloadManager id para retentar o registro; -1 = n/a. */
+    val downloadId: Long = -1L,
+    /** URL de origem (arquivo direto ou página) para baixar de novo. */
+    val sourceUrl: String? = null
 )
 
 @Entity(tableName = "passages")
@@ -188,8 +192,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class],
-    version = 7,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class],
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -199,6 +203,33 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun passageDao(): PassageDao
     abstract fun tombstoneDao(): TombstoneDao
     abstract fun outlineDao(): OutlineDao
+    abstract fun chatDao(): ChatDao
+}
+
+/** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
+@Entity(tableName = "chat_messages")
+data class ChatEntity(
+    @PrimaryKey val id: String,
+    val noteId: String,
+    val fromMe: Boolean,
+    /** text | ideas | refs | outline_refs */
+    val kind: String,
+    val payload: String,
+    val createdAt: Long
+)
+
+@Dao
+interface ChatDao {
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId ORDER BY createdAt ASC")
+    fun observe(noteId: String): Flow<List<ChatEntity>>
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId ORDER BY createdAt ASC")
+    suspend fun all(noteId: String): List<ChatEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(m: ChatEntity)
+    @Query("DELETE FROM chat_messages WHERE noteId = :noteId")
+    suspend fun clear(noteId: String)
+    @Query("DELETE FROM chat_messages WHERE id = :id")
+    suspend fun delete(id: String)
 }
 
 @Dao

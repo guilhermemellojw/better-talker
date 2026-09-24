@@ -129,4 +129,56 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
         val o = db.outlineDao().getForNote(noteId) ?: return emptyList()
         return OutlineParser.fromJson(o.sectionsJson)
     }
+
+    /**
+     * Recalcula o esboço a partir do markdown atual da nota (edição livre
+     * no editor). Preserva refs, preâmbulo e total. Novas ## não entram
+     * sozinhas (vão em SyncResult.added p/ confirmação).
+     */
+    suspend fun refreshFromMarkdown(
+        noteId: String,
+        mdText: String,
+        insertedTitles: Set<String> = emptySet()
+    ): com.bettertalker.app.data.util.SyncResult {
+        val o = db.outlineDao().getForNote(noteId)
+            ?: return com.bettertalker.app.data.util.SyncResult(emptyList(), emptyList(), emptyList())
+        val (preamble, linked) = OutlineParser.parseEnvelope(
+            o.sectionsJson.takeIf { it.isNotBlank() } ?: "[]"
+        )
+        val (updated, result) = com.bettertalker.app.data.util.syncSections(linked, mdText, insertedTitles)
+        db.outlineDao().upsert(
+            o.copy(
+                sectionsJson = OutlineParser.toJson(updated, preamble),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        return result
+    }
+
+    /** Adiciona tópicos confirmados ao fim do esboço. */
+    suspend fun addTopics(noteId: String, titles: List<String>) {
+        val o = db.outlineDao().getForNote(noteId) ?: return
+        val (preamble, linked) = OutlineParser.parseEnvelope(
+            o.sectionsJson.takeIf { it.isNotBlank() } ?: "[]"
+        )
+        val clean = titles.map { it.trim().take(120) }.filter { it.isNotBlank() }
+        if (clean.isEmpty()) return
+        val updated = linked + clean.mapIndexed { i, t ->
+            OutlineSection(t, null, linked.size + i, "", 0)
+        }
+        db.outlineDao().upsert(
+            o.copy(
+                sectionsJson = OutlineParser.toJson(updated, preamble),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    /** Renomeia o tema do esboço (título da nota é mestre). */
+    suspend fun updateTitle(noteId: String, title: String) {
+        val o = db.outlineDao().getForNote(noteId) ?: return
+        val t = title.trim().take(140)
+        if (t.isBlank() || t == o.title) return
+        db.outlineDao().upsert(o.copy(title = t, updatedAt = System.currentTimeMillis()))
+    }
 }

@@ -30,14 +30,23 @@ object OutlineParser {
     private val NOISE_RE = Regex("""^(N\.º|©|\(|S-\d+)""")
 
     fun parse(text: String, fileName: String): ParsedOutline {
-        val rawLines = text.split("\n").map { it.replace(Regex("\\s+"), " ").trim() }
-            .filter { it.isNotEmpty() }
+        // preserva recuo original (tab = 4, teto 8) para o corpo; matching usa texto limpo
+        data class RLine(val indent: Int, val text: String)
+        val rawLines = text.split("\n").mapNotNull { raw ->
+            val indent = raw.takeWhile { it == ' ' || it == '\t' }
+                .fold(0) { acc, c -> acc + if (c == '\t') 4 else 1 }
+            val clean = raw.trim().replace(Regex("\\s+"), " ")
+            if (clean.isEmpty()) null else RLine(indent, clean)
+        }
         // 1) junta "(N min)" órfão (quebra de linha do PDF/DOCX) à linha anterior
-        val lines = mutableListOf<String>()
+        val lines = mutableListOf<RLine>()
         for (line in rawLines) {
-            val orphan = ORPHAN_MIN_RE.find(line)
+            val orphan = ORPHAN_MIN_RE.find(line.text)
             if (orphan != null && lines.isNotEmpty()) {
-                lines[lines.size - 1] = (lines.last() + " " + orphan.value.trim()).trim()
+                val prev = lines.last()
+                lines[lines.size - 1] = prev.copy(
+                    text = (prev.text + " " + orphan.value.trim()).trim()
+                )
             } else {
                 lines += line
             }
@@ -49,27 +58,38 @@ object OutlineParser {
         var title = ""
         var prevLine = ""
         var prevConsumed = true
+        var lastAppended = ""
+
+        fun indented(r: RLine): String =
+            " ".repeat(r.indent.coerceIn(0, 8)) + r.text
 
         fun bodyTarget(): StringBuilder? =
             if (bodies.size == sections.size && sections.isNotEmpty()) bodies.last() else null
 
+        fun toBody(r: RLine) {
+            val s = indented(r)
+            (bodyTarget() ?: preamble).append(s).append('\n')
+            lastAppended = s
+        }
+
         for (line in lines) {
-            if (TOTAL_RE.find(line) != null) {
-                total = TOTAL_RE.find(line)!!.groupValues[1].toIntOrNull()
-                prevLine = line
+            val t0 = line.text
+            if (TOTAL_RE.find(t0) != null) {
+                total = TOTAL_RE.find(t0)!!.groupValues[1].toIntOrNull()
+                prevLine = t0
                 prevConsumed = true
                 continue
             }
-            val m = MIN_RE.find(line)
-            if (m != null && line.indexOf(m.value) > 0) {
-                var t = line.substring(0, line.indexOf(m.value)).trim().trimEnd(':')
+            val m = MIN_RE.find(t0)
+            if (m != null && t0.indexOf(m.value) > 0) {
+                var t = t0.substring(0, t0.indexOf(m.value)).trim().trimEnd(':')
                 val min = m.groupValues[1].toIntOrNull()
                 // evita falso positivo no meio de frase comum ("fale por (5 min) sobre…"):
                 // exige minutos no fim da linha ou título com cara de cabeçalho
-                val atEnd = line.trimEnd().endsWith(m.value)
+                val atEnd = t0.trimEnd().endsWith(m.value)
                 if (!atEnd && !isHeadingLike(t)) {
-                    (bodyTarget() ?: preamble).append(line).append('\n')
-                    prevLine = line
+                    toBody(line)
+                    prevLine = t0
                     prevConsumed = false
                     continue
                 }
@@ -78,32 +98,35 @@ object OutlineParser {
                 if (!prevConsumed && isHeadingLike(prevLine) && t.length < 60) {
                     val target = bodyTarget() ?: preamble
                     val s = target.toString()
-                    if (s.endsWith(prevLine + "\n")) target.setLength(s.length - prevLine.length - 1)
+                    if (s.endsWith(lastAppended + "\n")) {
+                        target.setLength(s.length - lastAppended.length - 1)
+                    }
                     t = (prevLine + " " + t).trim()
                 }
                 if (t.length >= 3 && min != null) {
                     sections += OutlineSection(t, min, sections.size)
                     bodies += StringBuilder()
                     // resto da linha após o marcador também é corpo
-                    val rest = line.substring(line.indexOf(m.value) + m.value.length).trim()
+                    val rest = t0.substring(t0.indexOf(m.value) + m.value.length).trim()
                     if (rest.isNotEmpty()) bodies.last().append(rest).append('\n')
-                    prevLine = line
+                    prevLine = t0
                     prevConsumed = true
                     continue
                 }
             }
             // corpo integral: tudo entre um tópico e outro é preservado
-            (bodyTarget() ?: preamble).append(line).append('\n')
-            prevLine = line
+            toBody(line)
+            prevLine = t0
             prevConsumed = false
         }
         // título = primeira linha de conteúdo (ignora cabeçalhos tipo N.º/©)
-        title = rawLines.firstOrNull { l ->
-            l.length > 10 && !NOISE_RE.containsMatchIn(l) && MIN_RE.find(l) == null &&
-                TOTAL_RE.find(l) == null
-        } ?: fileName.substringBeforeLast('.')
+        title = lines.firstOrNull { l ->
+            l.text.length > 10 && !NOISE_RE.containsMatchIn(l.text) && MIN_RE.find(l.text) == null &&
+                TOTAL_RE.find(l.text) == null
+        }?.text ?: fileName.substringBeforeLast('.')
         val final = sections.mapIndexed { i, s ->
-            s.copy(order = i, body = bodies.getOrNull(i)?.toString()?.trim().orEmpty())
+            // trimEnd: preserva o recuo da primeira linha do corpo
+            s.copy(order = i, body = bodies.getOrNull(i)?.toString()?.trimEnd().orEmpty())
         }
         return ParsedOutline(title.take(140), total, final, preamble.toString().trim())
     }
@@ -237,6 +260,79 @@ object PastedOutlineAnalyzer {
 
     private data class Seg(val text: String, val indent: Int)
 
+    /**
+     * Título inicial "Título (N min)" — só vale no começo do texto colado.
+     * Retorna (título?, restante). Puro/testável.
+     */
+    fun splitTitle(text: String): Pair<String?, String> {
+        val m = Regex("""^(.{10,140}?\(\d+\s*min[^)]*\))[\s\n]+""").find(text.trimStart())
+            ?: return null to text
+        return m.groupValues[1].trim() to text.trimStart().substring(m.value.length)
+    }
+
+    /** Abreviações cujo ponto NÃO quebra frase ("Jer. 37", "cap. 5"). */
+    private val ABBREVS = setOf(
+        "jer", "gên", "gen", "sal", "ap", "mt", "ro", "is", "jó", "jo",
+        "ecl", "pro", "efe", "fil", "col", "tim", "tia", "ped", "cor",
+        "heb", "tg", "jud", "cap", "pág", "pag", "parág", "parag",
+        "etc", "vol", "vers", "art", "pp", "ex", "lev", "num", "deut",
+        "n", "v", "sr", "sra", "sto", "sta"
+    )
+
+    private const val DOT_HOLD = "\uFFFE" // placeholder p/ ponto protegido
+
+    private fun protectAbbrevs(s: String): String {
+        var r = s
+        for (a in ABBREVS) {
+            r = r.replace(
+                Regex("""\b($a)\.(\s+\d)""", setOf(RegexOption.IGNORE_CASE)),
+                "$1$DOT_HOLD$2"
+            )
+        }
+        // "1. Tesouros": ponto de número antes de maiúscula não quebra frase
+        r = r.replace(Regex("""\b(\d+)\.(\s+[A-ZÀ-Þ])"""), "$1$DOT_HOLD$2")
+        return r
+    }
+
+    /**
+     * Quebra após ")" + maiúscula SÓ com conteúdo real antes (ref longa),
+     * para não triturar marcadores ("a) X", "(1) Y").
+     */
+    private fun splitParenRef(s: String): List<String> {
+        val out = mutableListOf<String>()
+        var start = 0
+        val re = Regex("""\)\s+(?=[A-ZÀ-Þ])""")
+        for (m in re.findAll(s)) {
+            val before = s.substring(start, m.range.first).trimStart('(', ' ')
+            if (before.length >= 8) {
+                out += s.substring(start, m.range.first + 1)
+                start = m.range.last + 1
+            }
+        }
+        out += s.substring(start)
+        return out.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    private fun restoreDots(s: String): String = s.replace(DOT_HOLD, ".")
+
+    /** Marcador inicial: 0 = número (1.), 1 = letra/bullet (a), -), 2 = romano (ii.) */
+    fun markerLevel(line: String): Int? {
+        val t = line.trimStart()
+        // número exige ponto/parêntese: "1. ", "1) ", "(1) "
+        if (Regex("""^\(?\d+\)?[.)]\s+""").find(t) != null) return 0
+        // bullet sempre é nível 1
+        if (Regex("""^[-*•]\s+""").find(t) != null) return 1
+        // letra isolada com pontuação: "a) ", "a. ", "(a) "
+        val lm = Regex("""^\([a-z]\)\s+|^[a-z][.)]\s+""", RegexOption.IGNORE_CASE).find(t)
+        if (lm != null) {
+            // "i" isolado pode ser romano; demais letras = 1
+            return 1
+        }
+        // romano multi-char: "ii. ", "iv) ", "(iii) "
+        if (Regex("""^\(?(ii+|iii|iv|vi+|vii|viii|ix|x|xi+)\)?[.)]\s+""", RegexOption.IGNORE_CASE).find(t) != null) return 2
+        return null
+    }
+
     fun candidates(text: String): Pair<List<Candidate>, Int> {
         var dropped = 0
         val segs = mutableListOf<Seg>()
@@ -250,14 +346,20 @@ object PastedOutlineAnalyzer {
                 dropped++
                 continue
             }
-            line.split(Regex("(?<=[.!?])\\s+")).forEach { s0 ->
-                val s = s0.trim()
-                // tópicos curtos valem ("Oração"); só cai vazio/número/pontuação pura
-                if (s.length > 2 && s.any { c -> c.isLetter() }) segs += Seg(s, indent)
+            // proteção ANTES de qualquer split: senão "Jer." já fraturou
+            val guarded = protectAbbrevs(line)
+            guarded.split(Regex("(?<=[.!?])\\s+")).forEach { s0 ->
+                // quebra também após ")" + maiúscula: "(…§ 22) Ele foi…" vira tópico novo
+                splitParenRef(s0).forEach { s1 ->
+                    val s = restoreDots(s1.trim())
+                    // tópicos curtos valem ("Oração"); só cai vazio/número/pontuação pura
+                    if (s.length > 2 && s.any { c -> c.isLetter() }) segs += Seg(s, indent)
+                }
             }
         }
         // nível = posição do recuo entre os distintos (robusto a 2 ou 4 espaços)
-        val levels = segs.map { it.indent }.distinct().sorted()
+        val distinctIndents = segs.map { it.indent }.distinct().sorted()
+        val flat = distinctIndents.size <= 1
         val out = mutableListOf<Candidate>()
         for (seg in segs) {
             if (PAREN_ONLY_RE.matches(seg.text) && out.isNotEmpty()) {
@@ -265,13 +367,35 @@ object PastedOutlineAnalyzer {
                 out[out.size - 1] = last.copy(text = "${last.text} ${seg.text}")
                 continue
             }
-            val level = levels.indexOf(seg.indent).coerceAtLeast(0)
+            // sem recuo na origem: numeração/bullets definem o nível
+            var level = distinctIndents.indexOf(seg.indent).coerceAtLeast(0)
+            if (flat) level = markerLevel(seg.text) ?: 0
             // título = frase integral (refs preservadas); só limita tamanho
             val title = if (seg.text.length > 140) seg.text.take(137).trimEnd() + "…" else seg.text
             val soft = SOFT_NOISE_RES.any { it.containsMatchIn(seg.text) }
             out += Candidate(title, out.size, suggested = !soft, level = level)
         }
         return out to dropped
+    }
+
+    /**
+     * Corpo de cada tópico: concatena os candidatos seguintes com nível MAIOR
+     * (subtópicos, refs, conteúdo entre tópicos), até o próximo de nível
+     * menor ou igual. Texto plano (tudo nível 0) continua sem corpo.
+     * Não altera candidates(). Puro/testável.
+     */
+    fun bodies(cands: List<Candidate>, maxChars: Int = 2000): List<String> {
+        return cands.mapIndexed { i, c ->
+            val sb = StringBuilder()
+            var j = i + 1
+            while (j < cands.size && cands[j].level > c.level) {
+                if (sb.isNotEmpty()) sb.append('\n')
+                sb.append(cands[j].text)
+                if (sb.length >= maxChars) break
+                j++
+            }
+            sb.toString().take(maxChars)
+        }
     }
 
     /** Similaridade Jaccard sobre palavras normalizadas. */
@@ -306,6 +430,97 @@ fun headingsOf(md: String): List<String> =
         val m = Regex("^(#{2,6})\\s+(.*)$").find(t) ?: return@mapNotNull null
         m.groupValues[2].trim().take(120).ifEmpty { null }
     }.distinct()
+
+/** Resultado da sincronia esboço <- nota. Puro/testável. */
+data class SyncResult(
+    /** títulos atualizados (como ficaram) */
+    val updated: List<String>,
+    /** seções sem ## correspondente (mantidas) */
+    val missing: List<String>,
+    /** ## novas na nota (candidatas a tópico) */
+    val added: List<String>
+)
+
+/**
+ * Recalcula as seções vinculadas a partir do markdown atual da nota.
+ * Casa por título (exato, senão contém); atualiza título como escrito,
+ * "(N min)" e corpo até o próximo título; ignora títulos de cartões já
+ * inseridos; novas ## viram candidatas (não entram sozinhas).
+ */
+fun syncSections(
+    linked: List<OutlineSection>,
+    mdText: String,
+    insertedTitles: Set<String> = emptySet()
+): Pair<List<OutlineSection>, SyncResult> {
+    val lines = mdText.split("\n")
+    // linhas de título com índice e nível
+    data class H(val idx: Int, val level: Int, val title: String)
+    val heads = mutableListOf<H>()
+    lines.forEachIndexed { i, line ->
+        val m = Regex("^(#{2,6})\\s+(.*)$").find(line.trimStart()) ?: return@forEachIndexed
+        val title = m.groupValues[2].trim().take(120).ifEmpty { null } ?: return@forEachIndexed
+        heads += H(i, m.groupValues[1].length, title)
+    }
+    val used = mutableSetOf<Int>()
+    val updatedSecs = mutableListOf<OutlineSection>()
+    val updatedNames = mutableListOf<String>()
+    val missing = mutableListOf<String>()
+    val minRe = Regex("""\((\d{1,3})\s*min\)\s*$""")
+    for (s in linked) {
+        val normTarget = normalizeText(s.title)
+        var bestIdx = -1
+        var bestScore = 0
+        heads.forEachIndexed { hi, h ->
+            if (hi in used) return@forEachIndexed
+            val sc = headingScore(normalizeText(h.title), normTarget)
+            if (sc > bestScore) {
+                bestScore = sc
+                bestIdx = hi
+            }
+        }
+        if (bestIdx < 0) {
+            missing += s.title
+            updatedSecs += s
+            continue
+        }
+        used += bestIdx
+        val h = heads[bestIdx]
+        val mins = minRe.find(h.title)?.groupValues?.get(1)?.toIntOrNull()
+        val title = h.title.replace(minRe, "").trim().ifEmpty { s.title }
+        // corpo: até o próximo título (pula a linha ## de cartões inseridos)
+        val bodyLines = mutableListOf<String>()
+        var li = h.idx + 1
+        while (li < lines.size) {
+            val ht = headingTitleOf(lines[li])
+            if (ht != null) {
+                if (normalizeText(ht) in insertedTitles) {
+                    li++
+                    continue
+                }
+                break
+            }
+            bodyLines += lines[li]
+            li++
+        }
+        val body = bodyLines.joinToString("\n").trim()
+        updatedSecs += s.copy(
+            title = title,
+            minutes = mins ?: s.minutes,
+            body = body,
+            level = (h.level - 2).coerceIn(0, 4)
+        )
+        updatedNames += title
+    }
+    val linkedNorm = linked.map { normalizeText(it.title) }.toSet()
+    val added = heads
+        .filter { normalizeText(it.title) !in insertedTitles }
+        .map { it.title }
+        .filter { t ->
+            linkedNorm.none { l -> headingScore(normalizeText(t), l) > 0 }
+        }
+        .distinct()
+    return updatedSecs to SyncResult(updatedNames, missing, added)
+}
 
 /** Score de casamento título buscado x título da linha: 2 exato, 1 contém, 0 nada. */
 private fun headingScore(hNorm: String, target: String): Int {
@@ -366,9 +581,11 @@ fun skeletonMarkdown(sections: List<OutlineSection>, preamble: String = ""): Str
     val parts = mutableListOf<String>()
     if (preamble.isNotBlank()) parts += preamble
     sections.forEach {
-        // nível vira profundidade do título (##, ###, …) — hierarquia visível
+        // nível vira profundidade do título (##, ###, …) + recuo visual;
+        // ATX tolera até 3 espaços (4+ viraria bloco de código)
+        val pad = " ".repeat((it.level * 2).coerceIn(0, 3))
         val marks = "#".repeat((it.level + 2).coerceAtMost(6))
-        val head = "$marks " + it.title + (if (it.minutes != null) " (${it.minutes} min)" else "")
+        val head = pad + marks + " " + it.title + (if (it.minutes != null) " (${it.minutes} min)" else "")
         parts += if (it.body.isNotBlank()) "$head\n\n${it.body}" else head
     }
     return parts.joinToString("\n\n")

@@ -25,8 +25,8 @@ class JwDownloadDialog : DialogFragment() {
     companion object {
         private const val ARG_URL = "url"
         private const val ARG_TAG = "tag"
-        /** (downloadManagerId, fileName) — o registro é feito por worker (sobrevive à rotação). */
-        var onEnqueued: ((downloadId: Long, fileName: String) -> Unit)? = null
+        /** (downloadManagerId, fileName, pageUrl) — o registro é feito por worker. */
+        var onEnqueued: ((downloadId: Long, fileName: String, pageUrl: String) -> Unit)? = null
         fun resultKey(tag: String) = "jw_dismiss_$tag"
         fun newInstance(url: String, tag: String) = JwDownloadDialog().apply {
             arguments = Bundle().apply {
@@ -96,13 +96,15 @@ class JwDownloadDialog : DialogFragment() {
             }
             setDownloadListener(DownloadListener { dlUrl, _, disposition, mime, _ ->
                 try {
-                    val fileName = URLUtil.guessFileName(dlUrl, disposition, mime)
+                    val fileName = DownloadHelper.ensureExtension(
+                        URLUtil.guessFileName(dlUrl, disposition, mime), mime
+                    )
                     val reference = DownloadHelper.enqueue(context, dlUrl, fileName)
                     if (reference == null) {
                         Toast.makeText(context, "Não foi possível iniciar o download.", Toast.LENGTH_LONG).show()
                     } else {
                         Toast.makeText(context, "Download iniciado: $fileName", Toast.LENGTH_LONG).show()
-                        onEnqueued?.invoke(reference, fileName)
+                        onEnqueued?.invoke(reference, fileName, url)
                     }
                 } catch (e: Exception) {
                     Toast.makeText(context, "Erro: ${e.message}", Toast.LENGTH_LONG).show()

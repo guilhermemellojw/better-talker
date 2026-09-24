@@ -15,9 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -60,11 +63,12 @@ private val PICKER_MIMES = arrayOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? = null) {
+fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? = null, onOpenModel: () -> Unit = {}) {
     val items by vm.items.collectAsState(initial = emptyList())
     val toast by vm.toast.collectAsState()
     val ctx = LocalContext.current
     var showJw by remember { mutableStateOf(false) }
+    var jwUrl by remember { mutableStateOf(JW_FINDER_HOME) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importUri(uri)
     }
@@ -73,6 +77,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
         ActivityResultContracts.RequestPermission()
     ) { showJw = true }
     val openJw: () -> Unit = {
+        jwUrl = JW_FINDER_HOME
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 ctx, android.Manifest.permission.POST_NOTIFICATIONS
@@ -87,7 +92,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
 
-    if (showJw) JwDownloadDialog(url = JW_FINDER_HOME, onDismiss = { showJw = false })
+    if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 
     Scaffold(
         topBar = {
@@ -110,12 +115,15 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
             ByodNotice()
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = openJw, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
+                Button(onClick = openJw, modifier = Modifier.weight(1f)) {                    Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
                 }
                 OutlinedButton(onClick = { picker.launch(PICKER_MIMES) }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.UploadFile, null); Text(" Importar")
                 }
+            }
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(onClick = onOpenModel, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.SmartToy, null); Text(" Modelo IA (local, opcional)")
             }
             Spacer(Modifier.height(4.dp))
             Text(
@@ -123,6 +131,41 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
+            Spacer(Modifier.height(8.dp))
+            // Achados em Downloads (ex: baixados no navegador, fora do app)
+            val scan by vm.scan.collectAsState()
+            OutlinedButton(
+                onClick = { vm.scanDownloads() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Download, null); Text(" Procurar em Downloads")
+            }
+            scan?.let { found ->
+                if (found.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Na pasta Downloads, ainda fora do app:",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    found.forEach { c ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "• ${c.name}",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { vm.importScanned(c, linkNoteId) }) {
+                                Text("Importar")
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+            }
             Spacer(Modifier.height(12.dp))
             if (items.isEmpty()) {
                 Text("Nenhuma publicação. Baixe você mesmo do site oficial e importe.", color = MaterialTheme.colorScheme.secondary)
@@ -153,7 +196,19 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                         )
                                     }
                                 }
-                                if (a.status == "failed") {
+                                if (a.status == "failed" && a.appPath.isBlank()) {
+                                    // nunca importado: retenta o registro ou baixa de novo
+                                    TextButton(onClick = { vm.retryRegister(a.id) }) { Text("Tentar de novo") }
+                                    TextButton(onClick = {
+                                        val src = a.sourceUrl.orEmpty()
+                                        if (src.startsWith("http") && !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)) {
+                                            vm.redownloadDirect(a.id)
+                                        } else {
+                                            jwUrl = src.ifBlank { JW_FINDER_HOME }
+                                            showJw = true
+                                        }
+                                    }) { Text("Baixar de novo") }
+                                } else if (a.status == "failed") {
                                     IconButton(onClick = { vm.reindex(a.id) }) { Icon(Icons.Default.Refresh, "Tentar de novo") }
                                 }
                                 if (linkNoteId != null && a.noteId != linkNoteId) {

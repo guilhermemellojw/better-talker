@@ -42,6 +42,10 @@ fun buildJwUrl(ref: String): String {
 
 const val JW_FINDER_HOME = "https://www.jw.org/finder?wtlocale=T&srcid=share"
 
+/** URL de página (reabre WebView) vs arquivo direto (re-enfileira DM). */
+fun isPageUrl(url: String): Boolean =
+    url.contains("/biblioteca/") || url.contains("finder") || url.contains("busca")
+
 // ---------- Publicações-base do Copilot (slots fixos) ----------
 // URLs oficiais verificadas — só landings + páginas de download.
 // Nunca fixar URL direta de arquivo (mudam a cada revisão).
