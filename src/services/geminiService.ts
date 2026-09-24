@@ -11,10 +11,15 @@ export interface AICallOptions {
   blockMinutes?: number;
 }
 
+/**
+ * Compat: mantém a assinatura legada retornando texto.
+ * Erros remotos agora propagam ProviderError (sem fallback silencioso).
+ */
 export async function queryGeminiOratoryCoach(options: AICallOptions): Promise<string> {
   const { apiKey, text, action, tone = 'ted', contextPassages = [], blockTitle, blockMinutes } = options;
   const provider = new GeminiProvider(apiKey ?? '');
-  return provider.query({ text, action, tone, contextPassages, blockTitle, blockMinutes });
+  const res = await provider.generate({ text, action, tone, contextPassages, blockTitle, blockMinutes });
+  return res.text;
 }
 
 export { GeminiProvider };

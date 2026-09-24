@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../../types/speech';
-import { GeminiProvider } from '../../copilot/geminiProvider';
+import { createCopilotProviderFromEnv } from '../../copilot/providerFactory';
+import { isProviderError, type ProviderErrorCode } from '../../copilot/llmErrors';
+import type { LlmResponseMeta } from '../../copilot/llmProvider';
 import type { EvidenceMeta } from '../../copilot/retrieval';
-import { Sparkles, X, Wand2, Copy, Check, PlusCircle } from 'lucide-react';
+import { Sparkles, X, Wand2, Copy, Check, PlusCircle, Square } from 'lucide-react';
 
 interface CopilotDrawerProps {
   isOpen: boolean;
@@ -34,33 +36,66 @@ export const CopilotDrawer = ({
   const [resultText, setResultText] = useState<string | null>(null);
   const [resultTitle, setResultTitle] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const [resultMeta, setResultMeta] = useState<LlmResponseMeta | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
+
+  const friendlyError = (code: ProviderErrorCode): string => {
+    switch (code) {
+      case 'cancelled':
+        return 'Geração cancelada. Nenhuma alteração foi feita no discurso.';
+      case 'timeout':
+        return 'Tempo esgotado ao chamar o modelo. Tente novamente ou use o motor offline.';
+      case 'authentication':
+        return 'Chave de API inválida ou sem autorização. Confira nas Configurações.';
+      case 'rate_limit':
+        return 'Limite de requisições atingido. Aguarde um pouco e tente de novo.';
+      case 'network':
+        return 'Sem conexão com o provedor. O motor offline continua disponível abaixo.';
+      case 'unavailable':
+        return 'Modelo remoto indisponível no momento. Tente mais tarde.';
+      default:
+        return 'Ocorreu um erro ao processar com a IA. Tente novamente.';
+    }
+  };
+
+  const handleCancel = () => {
+    abortRef.current?.abort();
+  };
 
   const handleRunAIAction = async (
     action: 'hook' | 'rewrite' | 'critique' | 'cues' | 'shorten',
     title: string
   ) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setIsLoading(true);
     setResultTitle(title);
     setResultText(null);
+    setResultMeta(null);
     const textToAnalyze = activeBlock?.plainText || speech.plainText || speech.title;
 
     try {
-      const provider = new GeminiProvider(apiKey);
-      const res = await provider.query({
+      // A UI depende da abstração; a factory decide Gemini/Qwen (§3).
+      const provider = createCopilotProviderFromEnv(apiKey);
+      const res = await provider.generate({
         text: textToAnalyze,
         action,
         tone: activeTone,
         contextPassages,
         blockTitle: activeBlock?.title,
         blockMinutes: activeBlock?.minutes,
+        signal: ctrl.signal,
       });
-      setResultText(res);
+      setResultText(res.text);
+      setResultMeta(res.meta);
     } catch (err) {
       console.error(err);
-      setResultText('Ocorreu um erro ao processar com a IA. Tente novamente.');
+      setResultText(isProviderError(err) ? friendlyError(err.code) : 'Ocorreu um erro ao processar com a IA. Tente novamente.');
     } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
       setIsLoading(false);
     }
   };
@@ -201,6 +236,16 @@ export const CopilotDrawer = ({
             <Wand2 size={24} className="spin-animation" style={{ color: 'var(--primary)', margin: '0 auto 0.5rem' }} />
             <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>O Copilot está refinando a oratória...</div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>Analisando cadência e impacto vocal</div>
+            <button
+              type="button"
+              className="action-btn-sm"
+              onClick={handleCancel}
+              title="Cancelar geração"
+              style={{ marginTop: '0.75rem' }}
+            >
+              <Square size={14} />
+              <span>Cancelar</span>
+            </button>
           </div>
         )}
 
@@ -209,6 +254,12 @@ export const CopilotDrawer = ({
           <div className="ai-result-box">
             <div className="ai-result-header">
               <h4>{resultTitle}</h4>
+              {resultMeta && (
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }} title="Diagnóstico técnico da chamada">
+                  via {resultMeta.providerId} · {resultMeta.model} · {(resultMeta.durationMs / 1000).toFixed(1)}s
+                  {resultMeta.offline ? ' · offline' : ''}
+                </div>
+              )}
               <div className="ai-result-actions">
                 <button type="button" className="action-btn-sm" onClick={handleCopy} title="Copiar texto">
                   {copied ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}

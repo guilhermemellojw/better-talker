@@ -1,8 +1,17 @@
-// GeminiProvider — implementação atual do LlmProvider sobre a API Gemini.
-// Mantém o comportamento de geminiService.ts (fallback offline) sem mudar a UI.
+// GeminiProvider — Fase 4: timeout, retry controlado, cancelamento,
+// erros de domínio e observabilidade. Sem chave => motor offline explícito.
+// Erro remoto NÃO cai mais em fallback offline silencioso (§§4,12,19).
 
-import type { LlmProvider, LlmQueryOptions } from './llmProvider';
-import { contextPackToPassageStrings } from './contextPack';
+import { buildLlmPrompt } from './llmPrompt';
+import { postJsonWithRetry } from './llmHttp';
+import { ProviderError } from './llmErrors';
+import {
+  DEFAULT_LLM_MAX_ATTEMPTS,
+  DEFAULT_LLM_TIMEOUT_MS,
+  type LlmProvider,
+  type LlmRequest,
+  type LlmResponse,
+} from './llmProvider';
 
 function getOfflineSimulatedResponse(action: string, text: string, tone: string): string {
   switch (action) {
@@ -21,75 +30,61 @@ function getOfflineSimulatedResponse(action: string, text: string, tone: string)
   }
 }
 
+interface GeminiResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+}
+
 export class GeminiProvider implements LlmProvider {
   readonly id = 'gemini';
+  readonly model: string;
   private apiKey: string;
-  private model: string;
+  private timeoutMs: number;
+  private maxAttempts: number;
 
-  constructor(apiKey: string, model = 'gemini-2.5-flash') {
+  constructor(apiKey: string, model = 'gemini-2.5-flash', timeoutMs = DEFAULT_LLM_TIMEOUT_MS, maxAttempts = DEFAULT_LLM_MAX_ATTEMPTS) {
     this.apiKey = apiKey;
     this.model = model;
+    this.timeoutMs = timeoutMs;
+    this.maxAttempts = maxAttempts;
   }
 
-  async query(options: LlmQueryOptions): Promise<string> {
-    const { text, action, tone = 'ted', contextPack, contextPassages = [], blockTitle, blockMinutes } = options;
+  async generate(request: LlmRequest): Promise<LlmResponse> {
+    const tone = request.tone ?? 'ted';
+    const started = Date.now();
+
+    // Modo offline explícito: só quando NÃO há chave (§12).
     if (!this.apiKey || this.apiKey.trim() === '') {
-      return getOfflineSimulatedResponse(action, text, tone);
+      return {
+        text: getOfflineSimulatedResponse(request.action, request.text, tone),
+        meta: { providerId: this.id, model: `${this.model}+offline`, durationMs: Date.now() - started, attempts: 0, offline: true },
+      };
     }
 
-    const packPassages = contextPack ? contextPackToPassageStrings(contextPack) : [];
-    const allPassages = [...packPassages, ...contextPassages].slice(0, 12);
+    const prompt = buildLlmPrompt(request);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
+    const { data, attempts } = await postJsonWithRetry(
+      url,
+      {
+        contents: [{ role: 'user', parts: [{ text: `${prompt.system}\n\n${prompt.user}` }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1000 },
+      },
+      {
+        providerId: this.id,
+        model: this.model,
+        timeoutMs: request.timeoutMs ?? this.timeoutMs,
+        maxAttempts: request.maxAttempts ?? this.maxAttempts,
+        signal: request.signal,
+      },
+    );
 
-    const systemPrompt = `Você é o "Better Talker Copilot", o mais experiente preparador de oratória e discursos para palestrantes do TED, líderes executivos e oradores de grande palco.
-Sua função é sugerir melhorias de tom, perguntas de raciocínio, ilustrações e aplicações práticas baseadas estritamente nos princípios de ensino presentes no acervo de oratória importado pelo usuário. Mantenha um tom instrutivo, modesto e focado em clareza.
-Regra fundamental: NUNCA invente ou adivinhe o conteúdo de uma citação. Se o usuário perguntar sobre uma publicação ou citação que não esteja no acervo local, informe explicitamente que a citação não foi encontrada e oriente-o a baixar a publicação via navegador oficial. Não tente fornecer texto que não exista no acervo.`;
-
-    let contextSection = '';
-    if (allPassages.length > 0) {
-      contextSection = `\n\n--- INFORMAÇÕES DO ACERVO LOCAL ---\n${allPassages.map((p, i) => `Trecho ${i + 1}: ${p}`).join('\n\n')}\n--- FIM DO ACERVO ---\n`;
+    // §5: valida antes de entregar ao Copilot; inválido => invalid_response.
+    const candidateText = (data as GeminiResponse)?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!candidateText || typeof candidateText !== 'string') {
+      throw new ProviderError('invalid_response', 'Resposta do Gemini em formato inesperado.', this.id, attempts);
     }
-    let blockContext = '';
-    if (blockTitle || blockMinutes) {
-      blockContext = `\n\n--- BLOCO ATUAL ---\nTítulo: ${blockTitle || 'Sem título'}\nDuração: ${blockMinutes || '?'} minutos\n--- FIM DO BLOCO ---\n`;
-    }
-
-    let userPrompt = '';
-    switch (action) {
-      case 'hook':
-        userPrompt = `Crie 3 opções poderosas de ganchos de abertura (primeiros 30 segundos) para este bloco de discurso:\n"${text}"\n${contextSection}${blockContext}\nOpção 1: Pergunta retórica provocativa e incômoda.\nOpção 2: História breve ou paradoxo visual.\nOpção 3: Estatística ou afirmação contraintuitiva.`;
-        break;
-      case 'rewrite':
-        userPrompt = `Reescreva o trecho a seguir no tom "${tone}". Otimize o ritmo para fala ao vivo (evite períodos excessivamente longos, use ritmo cadenciado, tricolon e clareza). Baseie-se apenas nos princípios do acervo local fornecidos.\nTexto original:\n"${text}"\n${contextSection}${blockContext}`;
-        break;
-      case 'critique':
-        userPrompt = `Faça uma análise crítica de oratória deste bloco de discurso:\n"${text}"\n${contextSection}${blockContext}\nDestaque:\n1. Ponto mais forte (o que cativa).\n2. Ponto de vulnerabilidade (onde a plateia pode dispersar ou se cansar).\n3. Uma mudança prática que tornará a fala 2x mais memorável.`;
-        break;
-      case 'cues':
-        userPrompt = `Analise este trecho de discurso e insira marcadores de palco no texto como [Pausa 2s], [Ênfase Máxima] e [Olhar Plateia] nos momentos de maior carga dramática:\n"${text}"\n${contextSection}${blockContext}`;
-        break;
-      case 'shorten':
-        userPrompt = `Corte o excesso de palavras deste bloco de discurso sem perder a alma da mensagem. Torne-o direto, veloz e afiado para palco. Baseie-se apenas nos princípios do acervo local.\n"${text}"\n${contextSection}${blockContext}`;
-        break;
-    }
-
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 1000 },
-        }),
-      });
-      if (!response.ok) throw new Error(`Erro na API Gemini: ${response.statusText}`);
-      const data = await response.json();
-      const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!candidateText) throw new Error('Nenhuma resposta retornada pelo modelo');
-      return candidateText;
-    } catch (error) {
-      console.warn('Erro ao chamar Gemini API online, acionando motor offline:', error);
-      return getOfflineSimulatedResponse(action, text, tone);
-    }
+    return {
+      text: candidateText,
+      meta: { providerId: this.id, model: this.model, durationMs: Date.now() - started, attempts, offline: false },
+    };
   }
 }
