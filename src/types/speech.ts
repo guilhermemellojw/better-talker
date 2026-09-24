@@ -30,6 +30,9 @@ export interface StageCueDefinition {
 export type PublicationKind = 'epub' | 'pdf';
 export type CitationStatus = 'missing' | 'resolving' | 'resolved';
 
+/** Origem lógica do corpus. BE/TH = metodologia de oratória, não conteúdo. */
+export type CorpusSourceType = 'publication' | 'speech_training' | 'bible' | 'user';
+
 export interface SpeechBlock {
   id: string;
   speechId: string;
@@ -64,6 +67,13 @@ export interface Publication {
   localPath: string;
   addedAt: number;
   indexed: boolean;
+  /** Fase 2: metadata rica (opcional p/ compat com registros v2). */
+  symbol?: string;
+  source_type?: CorpusSourceType;
+  language?: string;
+  year?: number;
+  totalPassages?: number;
+  fileSize?: number;
 }
 
 export interface Passage {
@@ -72,6 +82,14 @@ export interface Passage {
   ref: string;
   text: string;
   normalizedText: string;
+  /** Fase 2: proveniência (opcional p/ compat com registros v2). */
+  source_type?: CorpusSourceType;
+  symbol?: string;
+  section?: string;
+  paragraph?: number;
+  page?: number;
+  order?: number;
+  language?: string;
 }
 
 export interface MissingCitation {

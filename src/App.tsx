@@ -7,6 +7,8 @@ import {
   extractPlainTextFromHtml,
 } from './services/rhetoricEngine';
 import { parseOutline } from './services/outlineParser';
+import { getRelevantPassages, passagesToContextStrings } from './copilot/retrieval';
+import { buildContextPack } from './copilot/contextPack';
 import { initFirebaseSync, syncSpeechToCloud, syncSettingsToCloud } from './services/syncService';
 import { LibraryModal } from './components/Modals/LibraryModal';
 import { Header } from './components/Header/Header';
@@ -36,6 +38,7 @@ export function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [contextPassages, setContextPassages] = useState<string[]>([]);
 
   const autosaveTimerRef = useRef<number | null>(null);
 
@@ -71,6 +74,33 @@ export function App() {
     const plainText = extractPlainTextFromHtml(activeBlock.contentHtml);
     return generateOfflineCopilotSuggestions(activeSpeech?.title || '', plainText, metrics);
   }, [activeBlock?.contentHtml, metrics, activeSpeech?.title]);
+
+  // Retrieval plugado (Fase 1): busca passagens do acervo local para o bloco ativo.
+  // Debounce 600ms para não consultar o Dexie a cada tecla.
+  useEffect(() => {
+    const plainText = activeBlock?.plainText || '';
+    if (!plainText || plainText.trim().length < 20) {
+      setContextPassages([]);
+      return;
+    }
+    const t = window.setTimeout(async () => {
+      const passages = await getRelevantPassages(plainText, 5);
+      setContextPassages(passagesToContextStrings(passages));
+      // ContextPack estruturado disponível para Fase 4/5 ( BE/TH separado ):
+      void buildContextPack(
+        {
+          task: 'research',
+          speechTitle: activeSpeech?.title || '',
+          speechTimeLimitMinutes: activeSpeech?.targetDurationMinutes,
+          blockTitle: activeBlock?.title,
+          blockText: plainText,
+          blockMinutes: activeBlock?.minutes,
+        },
+        passages,
+      );
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [activeBlock?.plainText, activeBlock?.title, activeBlock?.minutes, activeSpeech?.title, activeSpeech?.targetDurationMinutes]);
 
   const handleSpeechChange = (updatedFields: Partial<Speech>) => {
     if (!activeSpeech) return;
@@ -220,6 +250,7 @@ export function App() {
           offlineSuggestions={offlineSuggestions}
           activeBlock={activeBlock}
           onInsertTextIntoSpeech={handleInsertTextFromCopilot}
+          contextPassages={contextPassages}
         />
       </main>
 

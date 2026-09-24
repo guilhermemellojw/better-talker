@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { speechStorage } from '../../services/db';
-import { indexPublication, getPublications } from '../../services/libraryIndexer';
+import { indexPublication, getPublications, getPassageCount } from '../../services/libraryIndexer';
 import type { Publication } from '../../types/speech';
 import { X, FileText, FileUp, Trash2, CheckCircle, Clock } from 'lucide-react';
 
@@ -14,10 +14,14 @@ export const LibraryModal = ({ isOpen, onClose, onImportComplete }: LibraryModal
   const [publications, setPublications] = useState<Publication[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [counts, setCounts] = useState<Record<string, number>>({});
 
   const loadPublications = async () => {
     const list = await getPublications();
     setPublications(list);
+    const entries = await Promise.all(list.slice(0, 100).map(async (p) => [p.id, await getPassageCount(p.id)] as const));
+    setCounts(Object.fromEntries(entries));
   };
 
   useEffect(() => {
@@ -31,9 +35,12 @@ export const LibraryModal = ({ isOpen, onClose, onImportComplete }: LibraryModal
     setImporting(true);
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const kind = file.name.endsWith('.epub') ? 'epub' : 'pdf';
-      await indexPublication(file, kind);
+      const lower = file.name.toLowerCase();
+      const kind = lower.endsWith('.epub') ? 'epub' : 'pdf';
+      setProgress(`(${i + 1}/${files.length}) ${file.name}…`);
+      await indexPublication(file, kind, (stage) => setProgress(`${file.name}: ${stage}`));
     }
+    setProgress('');
     setImporting(false);
     await loadPublications();
     setLoading(false);
@@ -78,9 +85,12 @@ export const LibraryModal = ({ isOpen, onClose, onImportComplete }: LibraryModal
               disabled={importing}
             >
               <FileUp size={16} />
-              <span>{importing ? 'Indexando...' : 'Importar EPUB/PDF'}</span>
+              <span>{importing ? `Indexando… ${progress}` : 'Importar EPUB/PDF'}</span>
             </button>
           </div>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.75rem' }}>
+            BE/TH são marcados como metodologia de oratória; demais arquivos como conteúdo. Cada trecho guarda seção/página/parágrafo para rastreabilidade.
+          </p>
 
           {loading ? (
             <p>Carregando acervo...</p>
@@ -96,9 +106,15 @@ export const LibraryModal = ({ isOpen, onClose, onImportComplete }: LibraryModal
                     <h4>{pub.title}</h4>
                     <div className="speech-item-meta">
                       <span className="category-chip">{pub.kind.toUpperCase()}</span>
+                      {pub.symbol ? (
+                        <span className="category-chip" title="Símbolo detectado">{pub.symbol}</span>
+                      ) : null}
+                      {pub.source_type === 'speech_training' ? (
+                        <span style={{ color: '#a78bfa', fontSize: '0.75rem' }} title="Metodologia de oratória (BE/TH)">🎓 Treinamento</span>
+                      ) : null}
                       {pub.indexed ? (
                         <span style={{ color: '#10b981', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <CheckCircle size={12} /> Indexado
+                          <CheckCircle size={12} /> Indexado{counts[pub.id] != null ? ` • ${counts[pub.id]} trechos` : ''}
                         </span>
                       ) : (
                         <span style={{ color: 'var(--text-tertiary)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>

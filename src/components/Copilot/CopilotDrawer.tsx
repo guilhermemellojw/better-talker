@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../../types/speech';
-import { queryGeminiOratoryCoach } from '../../services/geminiService';
+import { GeminiProvider } from '../../copilot/geminiProvider';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle } from 'lucide-react';
 
 interface CopilotDrawerProps {
@@ -44,12 +44,14 @@ export const CopilotDrawer = ({
     const textToAnalyze = activeBlock?.plainText || speech.plainText || speech.title;
 
     try {
-      const res = await queryGeminiOratoryCoach({
-        apiKey,
+      const provider = new GeminiProvider(apiKey);
+      const res = await provider.query({
         text: textToAnalyze,
         action,
         tone: activeTone,
         contextPassages,
+        blockTitle: activeBlock?.title,
+        blockMinutes: activeBlock?.minutes,
       });
       setResultText(res);
     } catch (err) {
@@ -90,6 +92,14 @@ export const CopilotDrawer = ({
       </div>
 
       <div className="copilot-body">
+        <div
+          style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem' }}
+          title="Trechos do acervo local injetados no prompt"
+        >
+          {contextPassages.length > 0
+            ? `📚 ${contextPassages.length} trecho(s) do acervo local fundamentando a resposta`
+            : '📚 Nenhum trecho do acervo local encontrado para este bloco'}
+        </div>
         {/* Tone Selector */}
         <div className="tone-picker-container">
           <span className="tone-picker-label">Tom Desejado para Palco:</span>

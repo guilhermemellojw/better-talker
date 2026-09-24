@@ -63,6 +63,14 @@ class BetterTalkerDB extends Dexie {
       passages: 'id, pubId, normalizedText',
       settings: 'key',
     });
+    // Fase 2: metadata rica do corpus (source_type/symbol) + ordenação estável.
+    this.version(3).stores({
+      speeches: 'id, updatedAt, sourceFileName',
+      blocks: 'id, speechId, order',
+      publications: 'id, fileName, indexed, symbol, source_type',
+      passages: 'id, pubId, normalizedText, source_type, symbol, order',
+      settings: 'key',
+    });
   }
 }
 
@@ -163,7 +171,20 @@ export const speechStorage = {
   },
 
   async getPassagesByPubId(pubId: string): Promise<Passage[]> {
-    return db.passages.where('pubId').equals(pubId).toArray();
+    const list = await db.passages.where('pubId').equals(pubId).toArray();
+    return list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  },
+
+  async getAllPassages(limit = 2000): Promise<Passage[]> {
+    return db.passages.orderBy('id').reverse().limit(limit).toArray();
+  },
+
+  async getPassagesBySourceType(sourceType: string, limit = 200): Promise<Passage[]> {
+    try {
+      return await db.passages.where('source_type').equals(sourceType).limit(limit).toArray();
+    } catch {
+      return [];
+    }
   },
 
   backupToLocalStorage(speech: Speech) {
