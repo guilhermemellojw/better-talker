@@ -168,6 +168,27 @@ fun rememberDownloadCtl(vm: CopilotViewModel, snack: SnackbarHostState): Downloa
 
 // ---------- linhas reaproveitadas do sheet ----------
 
+/**
+ * Fase 8 (§14): proveniência básica com distinção visual.
+ * Conteúdo = 📖 fonte factual; guia BE/TH = 🎤 técnica + categoria.
+ */
+@Composable
+fun ProvenanceLine(source: String, trainingCategory: String?) {
+    if (trainingCategory != null) {
+        Text(
+            "🎤 Técnica de apresentação ($trainingCategory): $source",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+    } else {
+        Text(
+            "📖 Fonte: $source",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
 @Composable
 fun SectionRow(
     index: Int,
@@ -224,11 +245,7 @@ fun IdeaCardRow(
                         style = MaterialTheme.typography.titleSmall
                     )
                     if (card.source.isNotEmpty()) {
-                        Text(
-                            "Fonte: ${card.source}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        ProvenanceLine(source = card.source, trainingCategory = card.trainingCategory)
                     }
                     Text(
                         "📍 ${if (dest == null) "Fim da nota" else "Sob “$destLabel”"}" +

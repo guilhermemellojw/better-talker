@@ -42,21 +42,23 @@ object ChatCodec {
         "{\"t\":\"${esc(c.title)}\",\"b\":\"${esc(c.body)}\"," +
             "\"s\":\"${esc(c.snippet)}\",\"u\":\"${esc(c.jwUrl)}\"," +
             "\"src\":\"${esc(c.source)}\",\"sec\":\"${esc(c.sectionTitle)}\"," +
-            "\"pr\":\"${esc(c.placementReason)}\",\"f\":${if (c.insertable) 1 else 0}}"
+            "\"pr\":\"${esc(c.placementReason)}\",\"f\":${if (c.insertable) 1 else 0}" +
+            (if (c.trainingCategory != null) ",\"tc\":\"${esc(c.trainingCategory)}\"" else "") + "}"
 
     fun cardsToJson(cards: List<IdeaCard>): String =
         cards.joinToString(",", "[", "]") { cardToJson(it) }
 
     fun cardsFromJson(json: String): List<IdeaCard> {        return try {
-            // tolerante: mensagens antigas não têm "f" (= inserível)
-            val item = Regex("""\{"t":"((?:[^"\\]|\\.)*)","b":"((?:[^"\\]|\\.)*)","s":"((?:[^"\\]|\\.)*)","u":"((?:[^"\\]|\\.)*)","src":"((?:[^"\\]|\\.)*)","sec":"((?:[^"\\]|\\.)*)","pr":"((?:[^"\\]|\\.)*)"(?:,"f":([01]))?\}""")
+            // tolerante: mensagens antigas não têm "f" (= inserível) nem "tc".
+            val item = Regex("""\{"t":"((?:[^"\\]|\\.)*)","b":"((?:[^"\\]|\\.)*)","s":"((?:[^"\\]|\\.)*)","u":"((?:[^"\\]|\\.)*)","src":"((?:[^"\\]|\\.)*)","sec":"((?:[^"\\]|\\.)*)","pr":"((?:[^"\\]|\\.)*)"(?:,"f":([01]))?(?:,"tc":"((?:[^"\\]|\\.)*)")?\}""")
             item.findAll(json).map { m ->
                 IdeaCard(
                     unesc(m.groupValues[1]), unesc(m.groupValues[2]),
                     unesc(m.groupValues[3]), unesc(m.groupValues[4]),
                     unesc(m.groupValues[5]), unesc(m.groupValues[6]),
                     unesc(m.groupValues[7]),
-                    m.groupValues[8].takeIf { it.isNotEmpty() }?.let { it == "1" } ?: true
+                    m.groupValues[8].takeIf { it.isNotEmpty() }?.let { it == "1" } ?: true,
+                    m.groupValues[9].takeIf { it.isNotEmpty() }?.let { unesc(it) }
                 )
             }.toList()
         } catch (_: Exception) {

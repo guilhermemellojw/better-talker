@@ -5,6 +5,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.domain.SourceType
+import com.bettertalker.app.data.domain.TrainingClassifier
 import com.bettertalker.app.data.util.DocExtractors
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.normalizeText
@@ -62,10 +64,23 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                 return Result.success()
             }
             val rows = sentences.mapIndexed { i, (text, norm, section) ->
-                PassageEntity("$id-p$i", id, text, norm, section)
+                // Fase 8: trilho via slot (legado ou recém-detectado); categoria
+                // só para training (demais trilhos: null, sem inferência).
+                val slot = att.baseSlot ?: matchBaseSlot(att.fileName)
+                val sourceType = SourceType.fromBaseSlot(slot)
+                val category = if (sourceType == SourceType.TRAINING) {
+                    TrainingClassifier.classify(section, att.fileName, text).serial
+                } else null
+                PassageEntity(
+                    id = "$id-p$i", attachmentId = id, text = text, normalized = norm,
+                    section = section, ord = i, trainingCategory = category
+                )
             }
             db.passageDao().deleteForAttachment(id)
             db.passageDao().insertAll(rows)
+            // Fase 8: persiste trilho/símbolo do anexo (símbolo = slot quando conhecido).
+            val finalSlot = att.baseSlot ?: matchBaseSlot(att.fileName)
+            db.attachmentDao().setSourceMeta(id, SourceType.fromBaseSlot(finalSlot).serial, finalSlot)
             db.attachmentDao().setStatus(id, true, "ready", null)
             com.bettertalker.app.data.cloud.SyncScheduler.requestSync(applicationContext)
             // auto-reconhecimento do slot base (be/th) pelo nome do arquivo

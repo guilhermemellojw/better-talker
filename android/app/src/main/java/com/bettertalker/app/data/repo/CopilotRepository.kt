@@ -19,7 +19,9 @@ data class IdeaCard(
     val sectionTitle: String = "",
     val placementReason: String = "",
     /** false = guia de estrutura (orientação be/th): nunca vai para a nota. */
-    val insertable: Boolean = true
+    val insertable: Boolean = true,
+    /** Fase 8: categoria de treinamento do guia (ex: illustration); null = n/a. */
+    val trainingCategory: String? = null
 )
 
 data class ScopedHit(val passage: PassageEntity, val source: String)
@@ -78,12 +80,11 @@ class CopilotRepository(private val db: AppDatabase) {
             }
         }
         // consulta cada palavra e ordena por nº de acertos (ranking simples)
-        suspend fun ranked(ids: List<String>?, label: (String) -> String): List<ScopedHit> {
+        suspend fun ranked(ids: List<String>, label: (String) -> String): List<ScopedHit> {
             val hits = mutableMapOf<String, ScopedHit>()
             val score = mutableMapOf<String, Int>()
             for (w in words) {
-                val found = if (ids == null) db.passageDao().searchLike(w, limit * 2)
-                else db.passageDao().searchLikeIn(ids, w, limit * 2)
+                val found = db.passageDao().searchLikeIn(ids, w, limit * 2)
                 for (h in found) {
                     if (!hits.containsKey(h.id)) {
                         val base = label(h.attachmentId)
@@ -96,8 +97,9 @@ class CopilotRepository(private val db: AppDatabase) {
             return hits.values.sortedByDescending { score[it.passage.id] ?: 0 }.take(limit)
         }
         if (scopeIds.isEmpty()) {
-            // fallback: acervo inteiro (antes das bases existirem)
-            return ranked(null) { "Biblioteca" }
+            // Fase 8 (§10): sem fontes autorizadas => insuficiência.
+            // NUNCA varrer a biblioteca inteira como fallback silencioso.
+            return emptyList()
         }
         return ranked(scopeIds) { sourceOf[it] ?: "Biblioteca" }
     }
@@ -241,6 +243,10 @@ class CopilotRepository(private val db: AppDatabase) {
             )
         )
         if (g != null) {
+            // Fase 8: categoria efetiva (gravada ou classificada) vai ao card.
+            val guideCategory = com.bettertalker.app.data.domain.TrainingClassifier.effective(
+                g.passage.trainingCategory, g.passage.section, g.source, g.passage.text
+            ).serial
             cards += IdeaCard(
                 title = "Orientação — ${g.source}",
                 body = "Siga a orientação de ${g.source} para $kindLabel. " +
@@ -250,7 +256,8 @@ class CopilotRepository(private val db: AppDatabase) {
                 source = g.source,
                 sectionTitle = section.title,
                 placementReason = "Instrução da publicação sobre $kindLabel.",
-                insertable = false
+                insertable = false,
+                trainingCategory = guideCategory
             )
         }
         cards += IdeaCard(

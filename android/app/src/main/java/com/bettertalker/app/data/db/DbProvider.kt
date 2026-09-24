@@ -82,10 +82,31 @@ object DbProvider {
         }
     }
 
+    /**
+     * Fase 8: proveniência dos passages + trilho/símbolo dos attachments.
+     * Aditiva e anulável (exceto defaults): nenhum dado apagado.
+     * Backfill do trilho a partir do slot legado (be|th -> training, nwt -> bible).
+     */
+    private val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE attachments ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'content'")
+            db.execSQL("ALTER TABLE attachments ADD COLUMN symbol TEXT")
+            db.execSQL("ALTER TABLE passages ADD COLUMN ref TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE passages ADD COLUMN page INTEGER")
+            db.execSQL("ALTER TABLE passages ADD COLUMN paragraph INTEGER")
+            db.execSQL("ALTER TABLE passages ADD COLUMN ord INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE passages ADD COLUMN trainingCategory TEXT")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_attachments_baseSlot ON attachments(baseSlot)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_passages_attachmentId ON passages(attachmentId)")
+            db.execSQL("UPDATE attachments SET sourceType = 'training' WHERE baseSlot IN ('be', 'th')")
+            db.execSQL("UPDATE attachments SET sourceType = 'bible' WHERE baseSlot = 'nwt'")
+        }
+    }
+
     fun get(ctx: Context): AppDatabase =
         inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "better-talker.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

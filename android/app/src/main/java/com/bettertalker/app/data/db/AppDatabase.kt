@@ -3,6 +3,7 @@ package com.bettertalker.app.data.db
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -37,7 +38,7 @@ data class NoteEntity(
     val richHtml: String = ""
 )
 
-@Entity(tableName = "attachments")
+@Entity(tableName = "attachments", indices = [Index("baseSlot")])
 data class AttachmentEntity(
     @PrimaryKey val id: String,
     val noteId: String?,
@@ -53,16 +54,27 @@ data class AttachmentEntity(
     /** DownloadManager id para retentar o registro; -1 = n/a. */
     val downloadId: Long = -1L,
     /** URL de origem (arquivo direto ou página) para baixar de novo. */
-    val sourceUrl: String? = null
+    val sourceUrl: String? = null,
+    /** Fase 8: trilho (content|training|bible). Backfill via baseSlot na v10. */
+    val sourceType: String = "content",
+    /** Fase 8: símbolo da publicação (ex: be, th, w); null = desconhecido. */
+    val symbol: String? = null
 )
 
-@Entity(tableName = "passages")
+@Entity(tableName = "passages", indices = [Index("attachmentId")])
 data class PassageEntity(
     @PrimaryKey val id: String,
     val attachmentId: String,
     val text: String,
     val normalized: String,
-    val section: String = ""
+    val section: String = "",
+    /** Fase 8: proveniência (null = ausente, nunca inferir). */
+    val ref: String = "",
+    val page: Int? = null,
+    val paragraph: Int? = null,
+    val ord: Int = 0,
+    /** Fase 8: categoria serial minúscula; null = classificar on-the-fly. */
+    val trainingCategory: String? = null
 )
 
 /** Exclusões a propagar para a nuvem (tombstones). */
@@ -161,6 +173,9 @@ interface AttachmentDao {
     suspend fun setStatus(id: String, indexed: Boolean, status: String, error: String?)
     @Query("UPDATE attachments SET baseSlot = :slot WHERE id = :id")
     suspend fun setBaseSlot(id: String, slot: String?)
+    // Fase 8: metadados de trilho/símbolo (indexação classifica).
+    @Query("UPDATE attachments SET sourceType = :sourceType, symbol = :symbol WHERE id = :id")
+    suspend fun setSourceMeta(id: String, sourceType: String, symbol: String?)
     @Query("UPDATE attachments SET noteId = :noteId WHERE id = :id")
     suspend fun setNote(id: String, noteId: String?)
     @Query("SELECT * FROM attachments WHERE baseSlot = :slot AND indexed = 1 LIMIT 1")
@@ -189,11 +204,14 @@ interface PassageDao {
     suspend fun searchLikeIn(ids: List<String>, norm: String, limit: Int): List<PassageEntity>
     @Query("SELECT DISTINCT attachmentId FROM passages")
     suspend fun indexedAttachmentIds(): List<String>
+    // Fase 8: carga restrita ao escopo (ordenada para determinismo).
+    @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC")
+    suspend fun forAttachments(ids: List<String>): List<PassageEntity>
 }
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
