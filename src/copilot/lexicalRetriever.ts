@@ -31,6 +31,9 @@ export class LexicalIndex {
 
   idf(term: string): number {
     const df = this.docFreq.get(term) ?? 0;
+    // Termo ausente do conjunto candidato não discrimina nada: contribui 0
+    // (em vez de punir todos os candidatos igualmente com idf máximo).
+    if (df === 0) return 0;
     // IDF suavizado em (0,1]: raro => ~1, onipresente => ~0.
     return clampScore(Math.log(1 + this.docCount / (1 + df)) / Math.log(1 + this.docCount));
   }

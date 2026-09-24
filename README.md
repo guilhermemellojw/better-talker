@@ -25,6 +25,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Com chave Gemini** (inserida nas Configurações, guardada só no IndexedDB local): ganchos de abertura, reescrita de tom (TED, pitch, motivacional, descontraído, corporativo), raio-X de palco e inserção de marcadores — via `gemini-2.5-flash`, com fallback automático para o motor offline em caso de erro.
 - **Fundamentação no acervo:** o app busca trechos do acervo local relacionados ao bloco ativo e os injeta no prompt (o painel mostra quantos trechos estão fundamentando a resposta). O prompt do sistema proíbe inventar citações e manda informar quando o conteúdo não está no acervo.
 - **Edição assistida:** o Copilot propõe mudanças estruturadas (reescrever, melhorar, inserir, excluir) com preview ANTES/DEPOIS — nada é aplicado sem Aceitar, e tudo pode ser desfeito/refeito (botões no topo).
+- **Verificação de fidelidade:** botão "Verificar fidelidade" extrai afirmações do bloco e indica ✓ suporte, ⚠ parcial, ? insuficiente ou 💡 criativo, com evidência e proveniência — inclusive no conteúdo proposto antes do aceite.
 - **Arquitetura (`src/copilot/`):** `LlmProvider` com `GeminiProvider` (timeout, retry, cancelamento) e `QwenProvider` (endpoint remoto opcional via `VITE_QWEN_*`); retrieval híbrido com escopo e ranking; `ContextPack` separa fontes de conteúdo de treinamento (BE/TH).
 
 ### 4. 📚 Acervo local de publicações (BYOD)

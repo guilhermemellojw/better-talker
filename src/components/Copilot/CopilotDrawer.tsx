@@ -3,9 +3,11 @@ import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../.
 import { createCopilotProviderFromEnv } from '../../copilot/providerFactory';
 import { isProviderError, type ProviderErrorCode } from '../../copilot/llmErrors';
 import type { LlmResponseMeta } from '../../copilot/llmProvider';
-import type { CopilotEditProposal, EditProposalMode, ProposalApplyStatus } from '../../copilot/domain';
-import { stripHtmlToText } from '../../copilot/editProposal';
+import type { CopilotEditProposal, EditProposalMode, ProposalApplyStatus, TextVerification } from '../../copilot/domain';
+import { stripHtmlToText, hashText } from '../../copilot/editProposal';
 import { parseEditProposal } from '../../copilot/proposalParser';
+import { verifyText } from '../../copilot/verifier';
+import { buildScopeFromLibrary, dexiePassageStore } from '../../copilot/retrieval';
 import type { EvidenceMeta } from '../../copilot/retrieval';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle, Square } from 'lucide-react';
 
@@ -55,6 +57,11 @@ export const CopilotDrawer = ({
   const [editMode, setEditMode] = useState<EditProposalMode>('suggest');
   const [proposal, setProposal] = useState<CopilotEditProposal | null>(null);
   const [proposalNotice, setProposalNotice] = useState<string | null>(null);
+  // Fase 6: verificação sob demanda (local-first, sem juiz remoto por padrão).
+  const [verifying, setVerifying] = useState(false);
+  const [verification, setVerification] = useState<TextVerification | null>(null);
+  const [verifiedHash, setVerifiedHash] = useState<string | null>(null);
+  const [proposalVerification, setProposalVerification] = useState<TextVerification | null>(null);
 
   const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
 
@@ -94,6 +101,7 @@ export const CopilotDrawer = ({
     setIsLoading(true);
     setProposal(null);
     setProposalNotice(null);
+    setProposalVerification(null);
     setResultText(null);
     try {
       if (editMode === 'delete') {
@@ -150,7 +158,66 @@ export const CopilotDrawer = ({
     // Rejeitar não altera nada nem registra histórico.
     setProposal(null);
     setProposalNotice(null);
+    setProposalVerification(null);
   };
+
+  const STATUS_GLYPH: Record<string, string> = {
+    supported: '✓',
+    partially_supported: '⚠',
+    insufficient: '?',
+    creative: '💡',
+  };
+
+  /** Fase 6 (§23): verificação sob demanda do bloco ativo. */
+  const handleVerifyBlock = async () => {
+    const text = activeBlock?.plainText || '';
+    if (!text.trim()) return;
+    setVerifying(true);
+    try {
+      const scope = await buildScopeFromLibrary();
+      const result = await verifyText({
+        text,
+        blockId: activeBlock?.id,
+        scope,
+        store: dexiePassageStore,
+      });
+      setVerification(result);
+      setVerifiedHash(hashText(text));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  /** Fase 6 (§22): verifica o conteúdo proposto antes do aceite (não aplica). */
+  const handleVerifyProposal = async () => {
+    if (!proposal) return;
+    setVerifying(true);
+    try {
+      const scope = await buildScopeFromLibrary();
+      const proposedText = proposal.operations
+        .map((op) => (op.type === 'delete' ? '' : stripHtmlToText(op.contentHtml)))
+        .filter(Boolean)
+        .join('\n');
+      const result = await verifyText({
+        text: proposedText || '(remoção — sem conteúdo novo)',
+        blockId: proposal.operations[0]?.targetId,
+        scope,
+        store: dexiePassageStore,
+      });
+      setProposalVerification(result);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const verificationStale =
+    verification !== null &&
+    verifiedHash !== null &&
+    hashText(activeBlock?.plainText || '') !== verifiedHash;
 
   const handleRunAIAction = async (
     action: 'hook' | 'rewrite' | 'critique' | 'cues' | 'shorten',
@@ -235,6 +302,54 @@ export const CopilotDrawer = ({
             ))}
           </div>
         )}
+        {/* Verificação de fidelidade (Fase 6, sob demanda) */}
+        <div style={{ marginBottom: '0.5rem' }}>
+          <button
+            type="button"
+            className="ai-action-btn"
+            onClick={handleVerifyBlock}
+            disabled={verifying || !(activeBlock?.plainText || '').trim()}
+            title="Extrai afirmações do bloco e busca suporte nas fontes autorizadas"
+            style={{ width: '100%' }}
+          >
+            <span className="btn-icon">🔍</span>
+            <span className="btn-title">{verifying ? 'Verificando...' : 'Verificar fidelidade'}</span>
+            <span className="btn-desc">Suporte nas fontes · sem juízo absoluto</span>
+          </button>
+          {verification && (
+            <div className="ai-result-box" style={{ marginTop: '0.5rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+                ✓ {verification.summary.supported} com suporte · ⚠ {verification.summary.partial} parcial ·{' '}
+                ? {verification.summary.insufficient} sem suporte · 💡 {verification.summary.creative} criativos
+              </div>
+              {verification.limited && (
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                  Verificação local — sem avaliador remoto disponível.
+                </div>
+              )}
+              {verificationStale && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--primary)' }}>
+                  Verificação obsoleta: o bloco mudou. Verifique novamente.
+                </div>
+              )}
+              {!verificationStale && verification.claims.map((vc) => (
+                <details key={vc.claim.id} style={{ fontSize: '0.78rem', marginTop: '0.4rem' }}>
+                  <summary>
+                    {STATUS_GLYPH[vc.status]} “{vc.claim.text.slice(0, 80)}{vc.claim.text.length > 80 ? '…' : ''}”
+                    <span style={{ color: 'var(--text-tertiary)' }}> ({vc.claim.type})</span>
+                  </summary>
+                  <div style={{ marginTop: '0.25rem' }}>{vc.reason}</div>
+                  {vc.evidence.map((e) => (
+                    <div key={e.evidenceId} style={{ color: 'var(--text-tertiary)', marginTop: '0.2rem' }}>
+                      📖 {e.provenance.ref || e.provenance.title || e.evidenceId}
+                      {e.score != null ? ` · relevância ${e.score.toFixed(2)}` : ''}
+                    </div>
+                  ))}
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
         {/* Tone Selector */}
         <div className="tone-picker-container">
           <span className="tone-picker-label">Tom Desejado para Palco:</span>
@@ -397,6 +512,23 @@ export const CopilotDrawer = ({
                   </div>
                 );
               })}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="action-btn-sm"
+                  onClick={handleVerifyProposal}
+                  disabled={verifying}
+                  title="Verifica o suporte do conteúdo proposto (não aplica)"
+                >
+                  <span>{verifying ? 'Verificando...' : '🔍 Verificar proposta'}</span>
+                </button>
+                {proposalVerification && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                    ✓ {proposalVerification.summary.supported} · ⚠ {proposalVerification.summary.partial} ·{' '}
+                    ? {proposalVerification.summary.insufficient} · 💡 {proposalVerification.summary.creative}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>
