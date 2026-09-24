@@ -28,6 +28,8 @@ export interface LlmRequest {
   responseFormat?: 'text' | 'edit-proposal';
   /** Fase 5: intenção de edição (só com responseFormat edit-proposal). */
   editMode?: 'rewrite' | 'improve' | 'insert';
+  /** Fase 9: foco vindo de uma observação estrutural (ex: transição fraca). */
+  brief?: string;
 }
 
 export interface LlmResponseMeta {

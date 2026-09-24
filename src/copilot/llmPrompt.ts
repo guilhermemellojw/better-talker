@@ -95,7 +95,7 @@ export function buildLlmPrompt(request: LlmRequest): BuiltPrompt {
   if (request.responseFormat === 'edit-proposal' && request.editMode) {
     return {
       system: SYSTEM_PROMPT,
-      user: editProposalPrompt(request.editMode, request.text, tone, context, block),
+      user: editProposalPrompt(request.editMode, request.text, tone, context, block, request.brief),
     };
   }
   return {
@@ -114,6 +114,7 @@ export function editProposalPrompt(
   tone: LlmTone,
   context: string,
   block: string,
+  brief?: string,
 ): string {
   const goal =
     mode === 'rewrite'
@@ -121,11 +122,12 @@ export function editProposalPrompt(
       : mode === 'improve'
         ? `Melhore a clareza e a fluidez do bloco a seguir PRESERVANDO todas as ideias originais (sem acrescentar fatos novos).`
         : `Crie um conteúdo NOVO (ilustração, aplicação ou transição, conforme o bloco pedir) para inserir APÓS o bloco atual, sem repetir o que já está nele. Tom: "${tone}".`;
+  const focus = brief ? `Foco da tarefa (observação estrutural): ${brief}\n` : '';
   return `${goal}
-Texto do bloco atual:
+${focus}Texto do bloco atual:
 "${text}"
 ${context}${block}
 Responda SOMENTE com este JSON em cerca \`\`\`json (sem texto fora dela):
 {"explanation": "1 frase sobre o que foi proposto", "operations": [{"type": "replace", "content": "<p>...novo bloco integral...</p>"}]}
-Para conteúdo novo use {"type": "insert", "position": "after", "content": "<p>...</p>"}. Use HTML simples (p, strong, em). Nunca invente fatos, citações ou referências.`;
+Para conteúdo novo use {"type": "insert", "position": "after", "content": "<p>...</p>"}. Use HTML simples (p, strong, em). Nunca invente fatos, citações ou referências. Se criar ilustração, pergunta ou transição, apresente como sugestão do modelo, sem atribuir à fonte.`;
 }

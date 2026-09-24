@@ -311,6 +311,7 @@ export function App() {
           activeBlock={activeBlock}
           onInsertTextIntoSpeech={handleInsertTextFromCopilot}
           onAcceptProposal={handleAcceptProposal}
+          onSelectBlock={(id) => setActiveBlockId(id)}
           contextPassages={contextPassages}
           evidenceMeta={evidenceMeta}
         />
