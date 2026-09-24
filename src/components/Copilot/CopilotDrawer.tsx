@@ -3,8 +3,19 @@ import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../.
 import { createCopilotProviderFromEnv } from '../../copilot/providerFactory';
 import { isProviderError, type ProviderErrorCode } from '../../copilot/llmErrors';
 import type { LlmResponseMeta } from '../../copilot/llmProvider';
+import type { CopilotEditProposal, EditProposalMode, ProposalApplyStatus } from '../../copilot/domain';
+import { stripHtmlToText } from '../../copilot/editProposal';
+import { parseEditProposal } from '../../copilot/proposalParser';
 import type { EvidenceMeta } from '../../copilot/retrieval';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle, Square } from 'lucide-react';
+
+const EDIT_MODES: Array<{ id: EditProposalMode; label: string; desc: string }> = [
+  { id: 'suggest', label: 'Sugerir', desc: 'Só texto, sem tocar no discurso' },
+  { id: 'rewrite', label: 'Reescrever', desc: 'Nova versão integral do bloco' },
+  { id: 'improve', label: 'Melhorar', desc: 'Clareza preservando as ideias' },
+  { id: 'insert', label: 'Inserir', desc: 'Conteúdo novo após o bloco' },
+  { id: 'delete', label: 'Excluir', desc: 'Propor remoção do bloco' },
+];
 
 interface CopilotDrawerProps {
   isOpen: boolean;
@@ -15,6 +26,7 @@ interface CopilotDrawerProps {
   offlineSuggestions: CopilotSuggestion[];
   activeBlock?: SpeechBlock;
   onInsertTextIntoSpeech: (text: string) => void;
+  onAcceptProposal: (proposal: CopilotEditProposal) => ProposalApplyStatus | Promise<ProposalApplyStatus>;
   contextPassages?: string[];
   evidenceMeta?: EvidenceMeta[];
 }
@@ -28,6 +40,7 @@ export const CopilotDrawer = ({
   offlineSuggestions,
   activeBlock,
   onInsertTextIntoSpeech,
+  onAcceptProposal,
   contextPassages = [],
   evidenceMeta = [],
 }: CopilotDrawerProps) => {
@@ -38,6 +51,10 @@ export const CopilotDrawer = ({
   const [copied, setCopied] = useState(false);
   const [resultMeta, setResultMeta] = useState<LlmResponseMeta | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Fase 5: edição assistida — o modelo propõe, o usuário decide.
+  const [editMode, setEditMode] = useState<EditProposalMode>('suggest');
+  const [proposal, setProposal] = useState<CopilotEditProposal | null>(null);
+  const [proposalNotice, setProposalNotice] = useState<string | null>(null);
 
   const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
 
@@ -62,6 +79,77 @@ export const CopilotDrawer = ({
 
   const handleCancel = () => {
     abortRef.current?.abort();
+  };
+
+  /** Fase 5: gera proposta estruturada para o bloco ativo (alvo do app, não do modelo). */
+  const handleGenerateProposal = async () => {
+    const target = activeBlock;
+    if (!target) {
+      setProposalNotice('Preciso saber qual parte do discurso você quer alterar.');
+      return;
+    }
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setIsLoading(true);
+    setProposal(null);
+    setProposalNotice(null);
+    setResultText(null);
+    try {
+      if (editMode === 'delete') {
+        // Exclusão é determinística e local: sem LLM.
+        const parsed = parseEditProposal('', speech, target.id, 'delete');
+        if (!parsed.ok) throw new Error('invalid');
+        setProposal(parsed.proposal);
+        return;
+      }
+      if (editMode === 'suggest') return; // Sugerir usa o fluxo de texto acima.
+      const provider = createCopilotProviderFromEnv(apiKey);
+      const res = await provider.generate({
+        text: target.plainText || target.title,
+        // action é irrelevante aqui: responseFormat + editMode dirigem o prompt.
+        action: 'rewrite',
+        tone: activeTone,
+        contextPassages,
+        blockTitle: target.title,
+        blockMinutes: target.minutes,
+        responseFormat: 'edit-proposal',
+        editMode,
+        signal: ctrl.signal,
+      });
+      const parsed = parseEditProposal(res.text, speech, target.id, editMode);
+      if (!parsed.ok) {
+        setProposalNotice('A resposta do modelo veio em formato inválido. Tente gerar novamente.');
+        return;
+      }
+      setProposal(parsed.proposal);
+      setResultMeta(res.meta);
+    } catch (err) {
+      console.error(err);
+      setProposalNotice(isProviderError(err) ? friendlyError(err.code) : 'Ocorreu um erro ao gerar a proposta. Tente novamente.');
+    } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
+      setIsLoading(false);
+    }
+  };
+
+  const handleAcceptProposal = async () => {
+    if (!proposal) return;
+    const status = await onAcceptProposal(proposal);
+    if (status === 'applied') {
+      setProposal(null);
+      setProposalNotice('Proposta aplicada. Use Desfazer no topo se precisar reverter.');
+    } else if (status === 'stale_proposal') {
+      setProposalNotice('Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.');
+    } else {
+      setProposalNotice('Proposta inválida para o estado atual. Gere novamente.');
+    }
+  };
+
+  const handleRejectProposal = () => {
+    // Rejeitar não altera nada nem registra histórico.
+    setProposal(null);
+    setProposalNotice(null);
   };
 
   const handleRunAIAction = async (
@@ -220,6 +308,97 @@ export const CopilotDrawer = ({
               <span className="btn-desc">Pausas e ênfases no texto</span>
             </button>
           </div>
+        </div>
+
+        {/* Edição assistida (Fase 5): o modelo propõe, o usuário decide */}
+        <div>
+          <span className="tone-picker-label" style={{ display: 'block', marginBottom: '0.4rem' }}>
+            Edição assistida — alvo: {activeBlock?.title || 'nenhum bloco'}
+          </span>
+          <div className="tone-pills" style={{ marginBottom: '0.5rem' }}>
+            {EDIT_MODES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={`tone-pill-btn ${editMode === m.id ? 'active' : ''}`}
+                onClick={() => {
+                  setEditMode(m.id);
+                  setProposal(null);
+                  setProposalNotice(null);
+                }}
+                title={m.desc}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          {editMode !== 'suggest' && (
+            <button
+              type="button"
+              className="ai-action-btn"
+              onClick={handleGenerateProposal}
+              disabled={isLoading || !activeBlock}
+              title={EDIT_MODES.find((m) => m.id === editMode)?.desc}
+              style={{ width: '100%', marginBottom: '0.5rem' }}
+            >
+              <span className="btn-icon">✏️</span>
+              <span className="btn-title">Gerar proposta ({EDIT_MODES.find((m) => m.id === editMode)?.label})</span>
+              <span className="btn-desc">Preview antes de aplicar — nada muda sozinho</span>
+            </button>
+          )}
+          {proposalNotice && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem' }}>
+              {proposalNotice}
+            </div>
+          )}
+          {proposal && (
+            <div className="ai-result-box">
+              <div className="ai-result-header">
+                <h4>Proposta: {EDIT_MODES.find((m) => m.id === proposal.mode)?.label}</h4>
+                <div className="ai-result-actions">
+                  <button type="button" className="action-btn-sm" onClick={handleRejectProposal} title="Descartar sem alterar nada">
+                    <X size={14} />
+                    <span>Rejeitar</span>
+                  </button>
+                  <button type="button" className="action-btn-sm primary" onClick={handleAcceptProposal} title="Validar e aplicar atomicamente">
+                    <Check size={14} />
+                    <span>Aceitar</span>
+                  </button>
+                </div>
+              </div>
+              {proposal.explanation && (
+                <div style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>{proposal.explanation}</div>
+              )}
+              {proposal.operations.map((op, i) => {
+                const target = speech.blocks.find((b) => b.id === op.targetId);
+                const before = target ? stripHtmlToText(target.contentHtml) : '(bloco não encontrado)';
+                return (
+                  <div key={i} className="ai-result-content" style={{ marginBottom: '0.5rem' }}>
+                    {op.type === 'replace' && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>ANTES</div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.slice(0, 600)}</div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginTop: '0.4rem' }}>DEPOIS</div>
+                        <div style={{ fontSize: '0.8rem' }}>{stripHtmlToText(op.contentHtml).slice(0, 1200)}</div>
+                      </>
+                    )}
+                    {op.type === 'insert' && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>+ SERÁ INSERIDO {op.position === 'before' ? 'ANTES' : 'APÓS'} “{target?.title}”</div>
+                        <div style={{ fontSize: '0.8rem' }}>{stripHtmlToText(op.contentHtml).slice(0, 1200)}</div>
+                      </>
+                    )}
+                    {op.type === 'delete' && (
+                      <>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>− SERÁ REMOVIDO</div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.slice(0, 600)}</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Loading Indicator */}

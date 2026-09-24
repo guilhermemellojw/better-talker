@@ -77,8 +77,40 @@ export function buildLlmPrompt(request: LlmRequest): BuiltPrompt {
     ? serializePack(request.contextPack, request.contextPassages ?? [])
     : serializePack(emptyContextPack(), request.contextPassages ?? []);
   const block = blockSection(request.blockTitle, request.blockMinutes);
+  if (request.responseFormat === 'edit-proposal' && request.editMode) {
+    return {
+      system: SYSTEM_PROMPT,
+      user: editProposalPrompt(request.editMode, request.text, tone, context, block),
+    };
+  }
   return {
     system: SYSTEM_PROMPT,
     user: actionPrompt(request.action, request.text, tone, context, block),
   };
+}
+
+/**
+ * Fase 5: instrução de edição — o modelo retorna explanation + operations em
+ * cerca ```json. O alvo é preenchido pelo app (bloco ativo), nunca pelo modelo.
+ */
+export function editProposalPrompt(
+  mode: 'rewrite' | 'improve' | 'insert',
+  text: string,
+  tone: LlmTone,
+  context: string,
+  block: string,
+): string {
+  const goal =
+    mode === 'rewrite'
+      ? `Reescreva INTEGRALMENTE o bloco a seguir com nova versão completa (mesma ideia central, forma renovada para palco).`
+      : mode === 'improve'
+        ? `Melhore a clareza e a fluidez do bloco a seguir PRESERVANDO todas as ideias originais (sem acrescentar fatos novos).`
+        : `Crie um conteúdo NOVO (ilustração, aplicação ou transição, conforme o bloco pedir) para inserir APÓS o bloco atual, sem repetir o que já está nele. Tom: "${tone}".`;
+  return `${goal}
+Texto do bloco atual:
+"${text}"
+${context}${block}
+Responda SOMENTE com este JSON em cerca \`\`\`json (sem texto fora dela):
+{"explanation": "1 frase sobre o que foi proposto", "operations": [{"type": "replace", "content": "<p>...novo bloco integral...</p>"}]}
+Para conteúdo novo use {"type": "insert", "position": "after", "content": "<p>...</p>"}. Use HTML simples (p, strong, em). Nunca invente fatos, citações ou referências.`;
 }

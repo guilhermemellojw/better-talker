@@ -21,6 +21,13 @@ export interface LlmRequest {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxAttempts?: number;
+  /**
+   * Fase 5: 'edit-proposal' pede ao modelo JSON em cerca para virar
+   * CopilotEditProposal (parse + validação locais). Default 'text'.
+   */
+  responseFormat?: 'text' | 'edit-proposal';
+  /** Fase 5: intenção de edição (só com responseFormat edit-proposal). */
+  editMode?: 'rewrite' | 'improve' | 'insert';
 }
 
 export interface LlmResponseMeta {

@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, Download, Settings, Sparkles, Play, BookOpen } from 'lucide-react';
+import { FolderOpen, Plus, Download, Settings, Sparkles, Play, BookOpen, Undo2, Redo2 } from 'lucide-react';
 
 interface HeaderProps {
   onOpenSpeechList: () => void;
@@ -9,6 +9,10 @@ interface HeaderProps {
   isCopilotOpen: boolean;
   onOpenTeleprompter: () => void;
   onOpenLibrary: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export const Header = ({
@@ -20,6 +24,10 @@ export const Header = ({
   isCopilotOpen,
   onOpenTeleprompter,
   onOpenLibrary,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: HeaderProps) => {
   return (
     <header className="app-header">
@@ -61,6 +69,26 @@ export const Header = ({
         >
           <BookOpen size={16} />
           <span className="hide-mobile">Acervo</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="Desfazer alteração do Copilot"
+        >
+          <Undo2 size={16} />
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="Refazer alteração do Copilot"
+        >
+          <Redo2 size={16} />
         </button>
 
         <button

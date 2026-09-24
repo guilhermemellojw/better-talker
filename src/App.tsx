@@ -9,6 +9,9 @@ import {
 import { parseOutline } from './services/outlineParser';
 import { getRelevantEvidence, passagesToContextStrings, candidatesToMeta, type EvidenceMeta } from './copilot/retrieval';
 import { buildContextPack } from './copilot/contextPack';
+import { applyEditProposal } from './copilot/editProposal';
+import { EditHistory } from './copilot/editHistory';
+import type { CopilotEditProposal, ProposalApplyStatus } from './copilot/domain';
 import { initFirebaseSync, syncSpeechToCloud, syncSettingsToCloud } from './services/syncService';
 import { LibraryModal } from './components/Modals/LibraryModal';
 import { Header } from './components/Header/Header';
@@ -40,6 +43,23 @@ export function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [contextPassages, setContextPassages] = useState<string[]>([]);
   const [evidenceMeta, setEvidenceMeta] = useState<EvidenceMeta[]>([]);
+  // Histórico de propostas aceitas do Copilot (Fase 5), um por discurso.
+  const [histories] = useState(() => new Map<string, EditHistory>());
+  // Re-render para atualizar canUndo/canRedo após push/undo/redo.
+  const [, setHistoryTick] = useState(0);
+
+  const historyFor = (speechId: string): EditHistory => {
+    let h = histories.get(speechId);
+    if (!h) {
+      h = new EditHistory();
+      histories.set(speechId, h);
+      if (histories.size > 10) {
+        const oldest = histories.keys().next();
+        if (!oldest.done) histories.delete(oldest.value);
+      }
+    }
+    return h;
+  };
 
   const autosaveTimerRef = useRef<number | null>(null);
 
@@ -194,6 +214,7 @@ export function App() {
 
   const handleDeleteSpeech = async (id: string) => {
     await speechStorage.deleteSpeech(id);
+    histories.delete(id);
     const remaining = speeches.filter((s) => s.id !== id);
     setSpeeches(remaining);
     if (activeSpeech?.id === id) {
@@ -215,6 +236,33 @@ export function App() {
     handleBlockChange(activeBlock.id, { contentHtml: updatedContent });
   };
 
+  // Fase 5: aceitar proposta do Copilot — valida, aplica atomicamente e registra.
+  const handleAcceptProposal = (proposal: CopilotEditProposal): ProposalApplyStatus => {
+    if (!activeSpeech) return 'invalid';
+    const result = applyEditProposal(activeSpeech, proposal);
+    if (result.status !== 'applied' || !result.speech) return result.status;
+    historyFor(activeSpeech.id).push(activeSpeech.blocks);
+    setHistoryTick((t) => t + 1);
+    handleSpeechChange({ blocks: result.speech.blocks });
+    return 'applied';
+  };
+
+  const handleUndo = () => {
+    if (!activeSpeech) return;
+    const prev = historyFor(activeSpeech.id).undo(activeSpeech.blocks);
+    if (!prev) return;
+    setHistoryTick((t) => t + 1);
+    handleSpeechChange({ blocks: prev });
+  };
+
+  const handleRedo = () => {
+    if (!activeSpeech) return;
+    const next = historyFor(activeSpeech.id).redo(activeSpeech.blocks);
+    if (!next) return;
+    setHistoryTick((t) => t + 1);
+    handleSpeechChange({ blocks: next });
+  };
+
   if (!activeSpeech) {
     return (
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -234,6 +282,10 @@ export function App() {
         isCopilotOpen={isCopilotOpen}
         onOpenTeleprompter={() => setTeleprompterOpen(true)}
         onOpenLibrary={() => setLibraryOpen(true)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={histories.get(activeSpeech.id)?.canUndo ?? false}
+        canRedo={histories.get(activeSpeech.id)?.canRedo ?? false}
       />
 
       <main className="main-content">
@@ -254,6 +306,7 @@ export function App() {
           offlineSuggestions={offlineSuggestions}
           activeBlock={activeBlock}
           onInsertTextIntoSpeech={handleInsertTextFromCopilot}
+          onAcceptProposal={handleAcceptProposal}
           contextPassages={contextPassages}
           evidenceMeta={evidenceMeta}
         />

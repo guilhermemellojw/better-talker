@@ -78,23 +78,33 @@ export interface ContextPack {
   };
 }
 
-export type EditOperationType =
-  | 'insert_text'
-  | 'replace_text'
-  | 'delete_text'
-  | 'insert_section'
-  | 'move_section'
-  | 'add_claim'
-  | 'add_citation';
+/** Fase 5: modos de edição do Copilot (intenção declarada da proposta). */
+export type EditProposalMode = 'suggest' | 'rewrite' | 'improve' | 'insert' | 'delete';
 
-export interface EditOperation {
-  operation: EditOperationType;
-  block_id: string;
-  start?: number;
-  end?: number;
-  replacement?: string;
-  payload?: unknown;
+/** Fase 5: operações estruturadas por ID de bloco (sem offsets frágeis). */
+export type EditOperation =
+  | { type: 'insert'; targetId: string; position: 'before' | 'after'; contentHtml: string }
+  | { type: 'replace'; targetId: string; contentHtml: string }
+  | { type: 'delete'; targetId: string };
+
+/** Proposta validável, atômica e reversível. baseHashes detecta stale. */
+export interface CopilotEditProposal {
+  id: string;
+  mode: EditProposalMode;
+  explanation?: string;
+  operations: EditOperation[];
+  baseHashes: Record<string, string>;
+  createdAt: number;
 }
+
+export type ProposalApplyStatus = 'applied' | 'stale_proposal' | 'invalid';
+
+export type ProposalValidationError =
+  | 'unknown_target'
+  | 'invalid_position'
+  | 'empty_content'
+  | 'last_block'
+  | 'stale_proposal';
 
 export function emptyContextPack(task: CopilotTask = 'research'): ContextPack {
   return {
