@@ -4,6 +4,7 @@
 
 import { emptyContextPack, type ContextPack } from './domain';
 import type { LlmAction, LlmRequest, LlmTone } from './llmProvider';
+import { trainingCategoryOf } from './trainingClassifier';
 
 export const INSUFFICIENT_EVIDENCE_MESSAGE = 'Não encontrei suporte suficiente nas fontes disponíveis.';
 
@@ -20,7 +21,13 @@ CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO:
 - Não preencha lacunas com conhecimento geral apresentado como se viesse das fontes;
   pode explicar ou reformular o que as fontes sustentam.
 - Se as fontes não sustentarem a resposta, diga exatamente: "${INSUFFICIENT_EVIDENCE_MESSAGE}"
-  e oriente a importar a publicação pelo navegador oficial. Mantenha tom instrutivo e modesto.`;
+  e oriente a importar a publicação pelo navegador oficial. Mantenha tom instrutivo e modesto.
+- SOBRE AS ORIENTAÇÕES DE ORATÓRIA (Fase 7): use-as para decidir COMO apresentar, nunca
+  para criar autoridade factual. Não apresente uma técnica como mandamento; se faltar
+  orientação de treinamento, diga que não há orientação suficiente em vez de inventar
+  um ensinamento atribuído ao BE/TH. Ilustrações, perguntas ou transições CRIADAS por
+  você devem ser apresentadas como sugestão do modelo ("Uma técnica/ilustração possível
+  seria..."), nunca atribuídas à fonte.`;
 
 export interface BuiltPrompt {
   system: string;
@@ -41,7 +48,15 @@ function serializePack(pack: ContextPack, legacyPassages: string[]): string {
     section += `\n\n--- FONTES DE CONTEÚDO (base para afirmações factuais) ---\n${lines.join('\n\n')}\n--- FIM DAS FONTES DE CONTEÚDO ---\n`;
   }
   if (training.length > 0) {
-    section += `\n\n--- ORIENTAÇÕES DE ORATÓRIA (técnica de apresentação; NÃO usar como fatos) ---\n${training.map((s, i) => `[Orientação ${i + 1}: ${s.reference}] ${s.text}`).join('\n\n')}\n--- FIM DAS ORIENTAÇÕES ---\n`;
+    section += `\n\n--- ORIENTAÇÕES DE ORATÓRIA (técnica de apresentação; NÃO usar como fatos) ---\n${training
+      .map((s, i) => {
+        const category = s.training_category ?? trainingCategoryOf(undefined, {
+          section: s.section,
+          text: s.text,
+        });
+        return `[Orientação ${i + 1}: ${s.reference} | técnica: ${category}] ${s.text}`;
+      })
+      .join('\n\n')}\n--- FIM DAS ORIENTAÇÕES ---\n`;
   }
   if (!section) {
     section = `\n\n(Nenhuma fonte do acervo local foi recuperada para este bloco. Responda apenas com técnica geral de oratória ou diga que não há suporte suficiente.)\n`;

@@ -55,6 +55,8 @@ export interface EvidenceSource {
   score?: number;
   matchedTerms?: string[];
   foundBy?: string[];
+  /** Fase 7: categoria de treinamento (só em training_sources). */
+  training_category?: TrainingCategory;
 }
 
 export interface ContextPack {
@@ -105,6 +107,21 @@ export type ProposalValidationError =
   | 'empty_content'
   | 'last_block'
   | 'stale_proposal';
+
+/** Fase 7: taxonomia de conhecimento de treinamento (BE/TH = COMO dizer). */
+export type TrainingCategory =
+  | 'introduction'
+  | 'development'
+  | 'explanation'
+  | 'illustration'
+  | 'application'
+  | 'transition'
+  | 'conclusion'
+  | 'questions'
+  | 'clarity'
+  | 'naturalness'
+  | 'delivery'
+  | 'unknown';
 
 /** Fase 6: tipo da claim — nem toda frase é afirmação factual. */
 export type ClaimType =

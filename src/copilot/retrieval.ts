@@ -6,6 +6,8 @@
 import { db, speechStorage } from '../services/db';
 import type { Passage, Publication } from '../types/speech';
 import { HybridRetriever } from './hybridRetriever';
+import { trainingCategoryOf } from './trainingClassifier';
+import type { TrainingCategory } from './domain';
 import {
   type PassageStore,
   type RetrievalCandidate,
@@ -105,15 +107,28 @@ export interface EvidenceMeta {
   reference: string;
   relevance: number;
   track: RetrievalTrack;
+  /** Fase 7: categoria efetiva (só no trilho training). */
+  category?: TrainingCategory;
 }
 
 /** Metadados mínimos para a UI mostrar "Fonte · Relevância" (§19). */
 export function candidatesToMeta(candidates: RetrievalCandidate[], track: RetrievalTrack): EvidenceMeta[] {
-  return candidates.map((c) => ({
-    reference: formatProvenance(c.passage),
-    relevance: Math.round(c.finalScore * 100) / 100,
-    track,
-  }));
+  return candidates.map((c) => {
+    const meta: EvidenceMeta = {
+      reference: formatProvenance(c.passage),
+      relevance: Math.round(c.finalScore * 100) / 100,
+      track,
+    };
+    if (track === 'training') {
+      meta.category = trainingCategoryOf(c.passage.training_category, {
+        symbol: c.passage.symbol,
+        title: c.publicationTitle,
+        section: c.passage.section,
+        text: c.passage.text,
+      });
+    }
+    return meta;
+  });
 }
 
 export function formatProvenance(p: Passage): string {

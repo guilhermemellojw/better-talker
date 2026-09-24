@@ -31,7 +31,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 ### 4. 📚 Acervo local de publicações (BYOD)
 - Importação de **`.epub` e `.pdf`** (arquivos que o próprio usuário possui) via `JSZip`/`pdfjs-dist`: até 200 seções EPUB e 500 páginas PDF por arquivo, fatiados em trechos de 3 frases com sobreposição.
 - Cada trecho guarda **rastreabilidade**: símbolo detectado do nome do arquivo, seção/título, página (PDF), nº de parágrafo e referência (`símbolo + seção/página + §`).
-- Arquivos **`be`/`th` são classificados como metodologia de oratória** (`speech_training`), separados do conteúdo das demais publicações — a UI mostra o selo 🎓 Treinamento e a contagem de trechos por publicação.
+- Arquivos **`be`/`th` são classificados como metodologia de oratória** (`speech_training`), separados do conteúdo das demais publicações — a UI mostra o selo 🎓 Treinamento e a contagem de trechos por publicação. Cada trecho de treinamento recebe uma categoria (introdução, ilustração, transição, entrega etc.), e o Copilot busca a técnica pela intenção sem jamais usar BE/TH como prova factual.
 - Persistência em **Dexie/IndexedDB (v3)**. O conteúdo das publicações **nunca** sai do dispositivo (ver sync abaixo).
 - **Detector de citações:** regex identifica referências no texto e gera links para o localizador do jw.org; o status permanece `missing` — **não há verificação automática** de que o conteúdo citado existe no acervo.
 

@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import { db } from './db';
+import { classifyTraining } from '../copilot/trainingClassifier';
 import type { CorpusSourceType, Passage, Publication } from '../types/speech';
 
 const MAX_EPUB_FILES = 200;
@@ -105,6 +106,11 @@ async function indexPassages(
         page: unit.page,
         order: order++,
         language: pub.language ?? 'pt-BR',
+        // Fase 7: categoria gravada no índice (backfill classifica on-the-fly).
+        training_category:
+          pub.source_type === 'speech_training'
+            ? classifyTraining({ symbol: pub.symbol, title: pub.title, section: unit.section, text })
+            : undefined,
       });
     }
   }

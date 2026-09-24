@@ -2,10 +2,11 @@
 // Separa content_sources (publicações) de training_sources (BE/TH).
 
 import type { Passage } from '../types/speech';
-import type { ContextPack, CopilotMode, CopilotTask, EvidenceSource, SourceType } from './domain';
+import type { ContextPack, CopilotMode, CopilotTask, EvidenceSource, SourceType, TrainingCategory } from './domain';
 import type { RetrievalCandidate } from './retrievalTypes';
+import { trainingCategoryOf } from './trainingClassifier';
 
-interface BuildInput {
+export interface BuildInput {
   task: CopilotTask;
   mode?: CopilotMode;
   speechTitle: string;
@@ -77,12 +78,23 @@ export function buildContextPack(
 /** Fase 3 (§13): converte candidato ranqueado preservando score/proveniência. */
 export function candidateToEvidence(c: RetrievalCandidate, fallbackRef: string): EvidenceSource {
   const base = passageToEvidence(c.passage, fallbackRef);
-  return {
+  const ev: EvidenceSource = {
     ...base,
     score: c.finalScore,
     matchedTerms: c.matchedTerms,
     foundBy: [...c.foundBy],
   };
+  // Fase 7: categoria efetiva (gravada ou classificada) chega à UI/prompt.
+  if (base.source_type === 'speech_training') {
+    const category: TrainingCategory = trainingCategoryOf(c.passage.training_category, {
+      symbol: c.passage.symbol,
+      title: c.publicationTitle,
+      section: c.passage.section,
+      text: c.passage.text,
+    });
+    ev.training_category = category;
+  }
+  return ev;
 }
 
 /** Fase 3 (§13): mesma forma do buildContextPack, a partir de candidatos. */

@@ -3,11 +3,14 @@ import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../.
 import { createCopilotProviderFromEnv } from '../../copilot/providerFactory';
 import { isProviderError, type ProviderErrorCode } from '../../copilot/llmErrors';
 import type { LlmResponseMeta } from '../../copilot/llmProvider';
-import type { CopilotEditProposal, EditProposalMode, ProposalApplyStatus, TextVerification } from '../../copilot/domain';
+import type { ContextPack, CopilotEditProposal, EditProposalMode, ProposalApplyStatus, TextVerification, TrainingCategory } from '../../copilot/domain';
 import { stripHtmlToText, hashText } from '../../copilot/editProposal';
 import { parseEditProposal } from '../../copilot/proposalParser';
 import { verifyText } from '../../copilot/verifier';
 import { buildScopeFromLibrary, dexiePassageStore } from '../../copilot/retrieval';
+import { retrieveTraining } from '../../copilot/trainingRetriever';
+import { trainingCategoryForAction, trainingCategoryForEditMode } from '../../copilot/trainingIntent';
+import { buildContextPackFromCandidates, type BuildInput } from '../../copilot/contextPack';
 import type { EvidenceMeta } from '../../copilot/retrieval';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle, Square } from 'lucide-react';
 
@@ -88,6 +91,39 @@ export const CopilotDrawer = ({
     abortRef.current?.abort();
   };
 
+  /**
+   * Fase 7 (§13): busca training pela intenção e monta ContextPack com trilhos
+   * separados. Retorna undefined quando a intenção pede só conteúdo.
+   */
+  const fetchTrainingPack = async (
+    queryText: string,
+    category: TrainingCategory | null,
+  ): Promise<ContextPack | undefined> => {
+    if (!category) return undefined;
+    try {
+      const scope = await buildScopeFromLibrary();
+      const res = await retrieveTraining({
+        query: queryText,
+        category,
+        scope,
+        store: dexiePassageStore,
+        limit: 3,
+      });
+      if (res.status !== 'ok' || res.hits.length === 0) return undefined;
+      const input: BuildInput = {
+        task: 'research',
+        speechTitle: speech.title,
+        blockTitle: activeBlock?.title,
+        blockText: queryText,
+        blockMinutes: activeBlock?.minutes,
+      };
+      return buildContextPackFromCandidates(input, [], res.hits);
+    } catch (err) {
+      console.warn('Training retrieval indisponível, seguindo só com conteúdo:', err);
+      return undefined;
+    }
+  };
+
   /** Fase 5: gera proposta estruturada para o bloco ativo (alvo do app, não do modelo). */
   const handleGenerateProposal = async () => {
     const target = activeBlock;
@@ -113,12 +149,17 @@ export const CopilotDrawer = ({
       }
       if (editMode === 'suggest') return; // Sugerir usa o fluxo de texto acima.
       const provider = createCopilotProviderFromEnv(apiKey);
+      const trainingPack = await fetchTrainingPack(
+        target.plainText || target.title,
+        trainingCategoryForEditMode(editMode),
+      );
       const res = await provider.generate({
         text: target.plainText || target.title,
         // action é irrelevante aqui: responseFormat + editMode dirigem o prompt.
         action: 'rewrite',
         tone: activeTone,
         contextPassages,
+        contextPack: trainingPack,
         blockTitle: target.title,
         blockMinutes: target.minutes,
         responseFormat: 'edit-proposal',
@@ -235,11 +276,13 @@ export const CopilotDrawer = ({
     try {
       // A UI depende da abstração; a factory decide Gemini/Qwen (§3).
       const provider = createCopilotProviderFromEnv(apiKey);
+      const trainingPack = await fetchTrainingPack(textToAnalyze, trainingCategoryForAction(action));
       const res = await provider.generate({
         text: textToAnalyze,
         action,
         tone: activeTone,
         contextPassages,
+        contextPack: trainingPack,
         blockTitle: activeBlock?.title,
         blockMinutes: activeBlock?.minutes,
         signal: ctrl.signal,
@@ -296,8 +339,9 @@ export const CopilotDrawer = ({
         {evidenceMeta.length > 0 && (
           <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem' }}>
             {evidenceMeta.slice(0, 5).map((m, i) => (
-              <div key={i} title="Relevância de recuperação — não é certeza factual">
-                {m.reference} · Relevância {m.relevance.toFixed(2)}
+              <div key={i} title={m.track === 'training' ? 'Técnica de apresentação (BE/TH) — não é prova factual' : 'Relevância de recuperação — não é certeza factual'}>
+                {m.track === 'training' ? '🎤' : '📖'} {m.reference} · Relevância {m.relevance.toFixed(2)}
+                {m.category && m.category !== 'unknown' ? ` · técnica: ${m.category}` : ''}
               </div>
             ))}
           </div>

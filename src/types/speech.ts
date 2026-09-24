@@ -90,6 +90,8 @@ export interface Passage {
   page?: number;
   order?: number;
   language?: string;
+  /** Fase 7: categoria de treinamento (só quando source_type = speech_training). */
+  training_category?: string;
 }
 
 export interface MissingCitation {

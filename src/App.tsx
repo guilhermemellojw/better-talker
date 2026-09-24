@@ -109,7 +109,11 @@ export function App() {
       const ev = await getRelevantEvidence(plainText, 5);
       const passages = ev.content.map((c) => c.passage);
       setContextPassages(passagesToContextStrings(passages));
-      setEvidenceMeta(candidatesToMeta(ev.content, 'content'));
+      // Fase 7: trilhos combinados na UI com distinção visual (📖/🎤).
+      setEvidenceMeta([
+        ...candidatesToMeta(ev.content, 'content'),
+        ...candidatesToMeta(ev.training, 'training'),
+      ]);
       // ContextPack estruturado disponível para Fase 4/5 ( BE/TH separado ):
       void buildContextPack(
         {
