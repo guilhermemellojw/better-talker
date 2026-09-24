@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Speech, SpeechMetrics, CopilotSuggestion, SpeechBlock } from '../../types/speech';
 import { GeminiProvider } from '../../copilot/geminiProvider';
+import type { EvidenceMeta } from '../../copilot/retrieval';
 import { Sparkles, X, Wand2, Copy, Check, PlusCircle } from 'lucide-react';
 
 interface CopilotDrawerProps {
@@ -13,6 +14,7 @@ interface CopilotDrawerProps {
   activeBlock?: SpeechBlock;
   onInsertTextIntoSpeech: (text: string) => void;
   contextPassages?: string[];
+  evidenceMeta?: EvidenceMeta[];
 }
 
 export const CopilotDrawer = ({
@@ -25,6 +27,7 @@ export const CopilotDrawer = ({
   activeBlock,
   onInsertTextIntoSpeech,
   contextPassages = [],
+  evidenceMeta = [],
 }: CopilotDrawerProps) => {
   const [activeTone, setActiveTone] = useState<'ted' | 'pitch' | 'motivational' | 'academic' | 'humorous'>('ted');
   const [isLoading, setIsLoading] = useState(false);
@@ -100,6 +103,15 @@ export const CopilotDrawer = ({
             ? `📚 ${contextPassages.length} trecho(s) do acervo local fundamentando a resposta`
             : '📚 Nenhum trecho do acervo local encontrado para este bloco'}
         </div>
+        {evidenceMeta.length > 0 && (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem' }}>
+            {evidenceMeta.slice(0, 5).map((m, i) => (
+              <div key={i} title="Relevância de recuperação — não é certeza factual">
+                {m.reference} · Relevância {m.relevance.toFixed(2)}
+              </div>
+            ))}
+          </div>
+        )}
         {/* Tone Selector */}
         <div className="tone-picker-container">
           <span className="tone-picker-label">Tom Desejado para Palco:</span>

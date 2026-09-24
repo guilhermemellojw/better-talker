@@ -3,6 +3,7 @@
 
 import type { Passage } from '../types/speech';
 import type { ContextPack, CopilotMode, CopilotTask, EvidenceSource, SourceType } from './domain';
+import type { RetrievalCandidate } from './retrievalTypes';
 
 interface BuildInput {
   task: CopilotTask;
@@ -71,6 +72,33 @@ export function buildContextPack(
       tone: input.tone,
     },
   };
+}
+
+/** Fase 3 (§13): converte candidato ranqueado preservando score/proveniência. */
+export function candidateToEvidence(c: RetrievalCandidate, fallbackRef: string): EvidenceSource {
+  const base = passageToEvidence(c.passage, fallbackRef);
+  return {
+    ...base,
+    score: c.finalScore,
+    matchedTerms: c.matchedTerms,
+    foundBy: [...c.foundBy],
+  };
+}
+
+/** Fase 3 (§13): mesma forma do buildContextPack, a partir de candidatos. */
+export function buildContextPackFromCandidates(
+  input: BuildInput,
+  content: RetrievalCandidate[],
+  training: RetrievalCandidate[] = [],
+): ContextPack {
+  const pack = buildContextPack(input, [], []);
+  pack.content_sources = content
+    .slice(0, 8)
+    .map((c, i) => candidateToEvidence(c, `Fonte ${i + 1}`));
+  pack.training_sources = training
+    .slice(0, 4)
+    .map((c, i) => candidateToEvidence(c, `Treinamento ${i + 1}`));
+  return pack;
 }
 
 /** Serializa ContextPack para injeção no prompt (seção ACERVO LOCAL legada). */

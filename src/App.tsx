@@ -7,7 +7,7 @@ import {
   extractPlainTextFromHtml,
 } from './services/rhetoricEngine';
 import { parseOutline } from './services/outlineParser';
-import { getRelevantPassages, passagesToContextStrings } from './copilot/retrieval';
+import { getRelevantEvidence, passagesToContextStrings, candidatesToMeta, type EvidenceMeta } from './copilot/retrieval';
 import { buildContextPack } from './copilot/contextPack';
 import { initFirebaseSync, syncSpeechToCloud, syncSettingsToCloud } from './services/syncService';
 import { LibraryModal } from './components/Modals/LibraryModal';
@@ -39,6 +39,7 @@ export function App() {
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [contextPassages, setContextPassages] = useState<string[]>([]);
+  const [evidenceMeta, setEvidenceMeta] = useState<EvidenceMeta[]>([]);
 
   const autosaveTimerRef = useRef<number | null>(null);
 
@@ -75,17 +76,20 @@ export function App() {
     return generateOfflineCopilotSuggestions(activeSpeech?.title || '', plainText, metrics);
   }, [activeBlock?.contentHtml, metrics, activeSpeech?.title]);
 
-  // Retrieval plugado (Fase 1): busca passagens do acervo local para o bloco ativo.
+  // Retrieval híbrido com escopo (Fase 3): trechos ranqueados do acervo local.
   // Debounce 600ms para não consultar o Dexie a cada tecla.
   useEffect(() => {
     const plainText = activeBlock?.plainText || '';
     if (!plainText || plainText.trim().length < 20) {
       setContextPassages([]);
+      setEvidenceMeta([]);
       return;
     }
     const t = window.setTimeout(async () => {
-      const passages = await getRelevantPassages(plainText, 5);
+      const ev = await getRelevantEvidence(plainText, 5);
+      const passages = ev.content.map((c) => c.passage);
       setContextPassages(passagesToContextStrings(passages));
+      setEvidenceMeta(candidatesToMeta(ev.content, 'content'));
       // ContextPack estruturado disponível para Fase 4/5 ( BE/TH separado ):
       void buildContextPack(
         {
@@ -251,6 +255,7 @@ export function App() {
           activeBlock={activeBlock}
           onInsertTextIntoSpeech={handleInsertTextFromCopilot}
           contextPassages={contextPassages}
+          evidenceMeta={evidenceMeta}
         />
       </main>
 

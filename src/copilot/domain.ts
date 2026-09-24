@@ -51,6 +51,10 @@ export interface EvidenceSource {
   page?: number;
   language?: string;
   whyRelevant?: string;
+  /** Fase 3 (§13): relevância de recuperação em [0,1] — não é certeza factual. */
+  score?: number;
+  matchedTerms?: string[];
+  foundBy?: string[];
 }
 
 export interface ContextPack {
