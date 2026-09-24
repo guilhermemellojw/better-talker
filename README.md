@@ -1,148 +1,110 @@
 # Better Talker 🎙️
 
-> **O Editor de Texto e Copilot de IA para Oradores, Palestrantes e Criadores de Discursos.**  
-> Suporte completo para **Web e Android** com arquitetura **100% Offline-First** e **Estilização de Texto em Tempo Real**.
+> **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, teleprompter e métricas de fala.**
+> Dois clientes neste repositório: **Web** (React + Vite, instalável como PWA ou empacotado via Capacitor) e **Android nativo** (Kotlin + Compose).
+
+O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no teleprompter → exportar.
 
 ---
 
-## 🌟 Principais Recursos
+## 🌟 O que o app faz
 
-### 1. ✍️ Editor de Oratória com Blocos de Tempo
-- **Blocos Temporais:** O editor organiza o discurso em abas por blocos de tempo (ex: `2 min`, `8 min`, `12 min`). Cada bloco tem métricas independentes.
-- **Importar Esboço:** Upload de `.docx`, `.rtf`, `.pdf` ou `.jwpub` — parser extrai automaticamente a estrutura por blocos.
-- **Marca-Texto de Entonação Vocal:**
-  - 🟡 **Amarelo:** Ênfase e Atenção Normal.
-  - 🟢 **Verde:** Storytelling, Conexão e Cadência Calma.
-  - 🔴 **Vermelho:** Clímax, Ponto Alto e Impacto Dramático.
-  - 🟣 **Roxo:** Perguntas Retóricas e Metáforas.
-- **Badges de Palco Inline:** Marcadores clicáveis inseridos diretamente no fluxo do texto.
+### 1. ✍️ Editor de discursos com blocos de tempo
+- **Blocos temporais:** o discurso é organizado em abas/blocos com duração própria (ex: `(3 min)`, `(10 min)`). Cada bloco tem título, conteúdo e métricas.
+- **Importar esboço:** o diálogo de importação aceita arquivos `.docx`, `.rtf`, `.pdf` e `.jwpub`, mas o parser web **lê o buffer como texto** e fatia pelos marcadores `(N min)` — funciona bem com texto puro; `.docx` binário e `.jwpub` **não** são extraídos de verdade no web (a dependência `mammoth` está no `package.json`, mas não é usada pelo código atual; extração real de JWPUB/DOC existe só no app nativo).
+- **Formatação rica:** negrito/itálico/sublinhado, listas, títulos, **realce em 4 cores** (ênfase, storytelling, clímax, perguntas/metáforas) e **badges de palco inline** (pausas de 2s/3s/5s, ênfase, olhar para a plateia, sussurro, aplausos, gestos, acelerar/desacelerar ritmo). As pausas entram no cálculo de tempo.
+- **Autosave local** com debounce (~400 ms) em IndexedDB, com backup em `localStorage`.
 
-### 2. ⏱️ Telemetria & Métricas de Fala ao Vivo
-- **Tempo Estimado de Discurso:** Calculado em tempo real com base no ritmo em palavras por minuto (PPM/WPM) somado ao tempo exato de todas as pausas de palco.
-- **Seletor de Ritmo:**
-  - Calmo (110 PPM - solene / reflexivo)
-  - Normal (130 PPM - padrão palestras TED)
-  - Enérgico (160 PPM - pitch de vendas dinâmico)
-- **Detector de Vícios Orais:** Identifica palavras de preenchimento ("tipo", "né", "literalmente", "basicamente", etc.).
-- **Alerta de Respiração:** Detecta períodos longos demais para evitar falta de ar no palco.
+### 2. ⏱️ Métricas de fala em tempo real
+- **Tempo estimado** = palavras ÷ ritmo (PPM) + duração exata das pausas de palco inseridas.
+- **Seletor de ritmo:** Calmo (110 PPM), Normal (130 PPM), Enérgico (160 PPM).
+- **Detector de vícios orais** em PT-BR ("tipo", "né", "basicamente", etc.), alerta de frases longas (respiração) e indicador de legibilidade.
 
-### 3. 🤖 Copilot de Oratória (Híbrido Offline / Gemini AI)
-- **Modo 100% Offline Embutido:** Regras de retórica clássica, ganchos provocativos, tricolon e diagnóstico de oratória sem depender de internet.
-- **Ajustador de Tom:** TED/Inspirador, Pitch de Vendas, Motivacional, Humorístico e Corporativo.
-- **Ações Rápidas de IA:**
-  - 🎣 Criar Ganchos de Abertura (primeiros 30 segundos)
-  - 🎭 Reescrever Trecho com foco em Cadência Oral
-  - 🔍 Raio-X de Palco (Crítica construtiva)
-  - ⚡ Inserção Automática de Marcadores de Palco
-- **Google Gemini API:** Suporte para inclusão da chave de API no menu de configurações com armazenamento local seguro.
+### 3. 🤖 Copilot de oratória (Web)
+- **Sem chave de API:** motor 100% offline com regras de retórica (ganchos, tricolon, analogias, alertas de cadência) e dicas contextuais geradas das métricas do bloco.
+- **Com chave Gemini** (inserida nas Configurações, guardada só no IndexedDB local): ganchos de abertura, reescrita de tom (TED, pitch, motivacional, descontraído, corporativo), raio-X de palco e inserção de marcadores — via `gemini-2.5-flash`, com fallback automático para o motor offline em caso de erro.
+- **Fundamentação no acervo:** o app busca trechos do acervo local relacionados ao bloco ativo e os injeta no prompt (o painel mostra quantos trechos estão fundamentando a resposta). O prompt do sistema proíbe inventar citações e manda informar quando o conteúdo não está no acervo.
+- **Arquitetura em evolução (`src/copilot/`):** abstração `LlmProvider` (implementado: `GeminiProvider`; `QwenProvider` é stub ainda não configurado), `ContextPack` (separa fontes de conteúdo de fontes de treinamento BE/TH), tipos `Claim`/`Evidence` e um `verifier` conservador (sem evidência → `UNVERIFIED`). A busca atual é simples (substring sobre texto normalizado); busca híbrida com ranking está planejada, não implementada.
 
-### 4. 🎭 Modo Palco (Teleprompter em Tela Cheia)
-- Modo de ensaio para Web e smartphones Android.
-- Rolagem automática suave ajustada pelo ritmo (WPM).
-- Controle por toque ou barra de espaço.
-- Ajuste dinâmico de tamanho de fonte para leitura à distância.
-- **Modo Espelho (Mirror Flip)** para púlpitos com hardware físico de vidro de teleprompter.
-- Barra de progresso e cronômetro de palco.
+### 4. 📚 Acervo local de publicações (BYOD)
+- Importação de **`.epub` e `.pdf`** (arquivos que o próprio usuário possui) via `JSZip`/`pdfjs-dist`: até 200 seções EPUB e 500 páginas PDF por arquivo, fatiados em trechos de 3 frases com sobreposição.
+- Cada trecho guarda **rastreabilidade**: símbolo detectado do nome do arquivo, seção/título, página (PDF), nº de parágrafo e referência (`símbolo + seção/página + §`).
+- Arquivos **`be`/`th` são classificados como metodologia de oratória** (`speech_training`), separados do conteúdo das demais publicações — a UI mostra o selo 🎓 Treinamento e a contagem de trechos por publicação.
+- Persistência em **Dexie/IndexedDB (v3)**. O conteúdo das publicações **nunca** sai do dispositivo (ver sync abaixo).
+- **Detector de citações:** regex identifica referências no texto e gera links para o localizador do jw.org; o status permanece `missing` — **não há verificação automática** de que o conteúdo citado existe no acervo.
 
-### 5. 🖨️ Fichas de Palco (Cue Cards)
-- Geração e impressão de fichas pautadas de bolso divididas por seções para levar ao púlpito.
-- Exportação em arquivos Markdown (.md) e Texto Puro (.txt).
+### 5. 🎭 Teleprompter (modo palco)
+- Tela cheia com rolagem automática ajustada pelo ritmo, controle por toque/teclado, tamanho de fonte configurável, **modo espelho** para vidro de teleprompter, barra de progresso e cronômetro.
+
+### 6. 🖨️ Exportação
+- Download em **Markdown (`.md`)**, impressão (fichas de palco/cue cards) e cópia para a área de transferência. Não há exportação para `.txt`, `.docx` ou PDF direto — apenas via impressão do navegador.
+
+### 7. 🔥 Sync em nuvem opcional (só metadados — BYOD)
+- Via Firebase (auth anônima + Realtime Database), sincroniza **apenas metadados** (títulos, blocos, durações, tags, preferências sem a chave de API) — nunca texto integral nem binários de publicações (há validação que bloqueia o sync nesses casos).
+- Sem `.env.local` configurado, o app roda normalmente 100% offline; o sync é ignorado silenciosamente.
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## 📱 App Android nativo (`android/`)
 
-- **Frontend:** [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/), [Vite](https://vite.dev/)
-- **Ícones:** [Lucide React](https://lucide.dev/)
-- **Estilização:** Vanilla CSS Design System (Dark theme de alta performance, sem dependências de frameworks pesados)
-- **Persistência:** [Dexie.js](https://dexie.org/) (IndexedDB v2) com fallback resiliente (100% Offline-First)
-- **Parser:** [mammoth](https://mammoth.js.org/) (.docx), [pdfjs-dist](https://mozilla.github.io/pdf.js/) (.pdf), [JSZip](https://stuk.github.io/jszip/) (.epub)
-- **Multiplataforma:**
-  - **PWA:** Service Worker e Web Manifest para instalação instantânea no Android e desktop
-  - **Capacitor:** Configuração pronta para empacotamento nativo Android (`@capacitor/android`)
+Projeto Gradle/Kotlin com Jetpack Compose, **além** do wrapper Capacitor. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta e modelo de IA.
 
-> **Pré-requisito:** Node.js versão **22** ou superior (necessário para `pdfjs-dist`).
+- **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
+- **Publicações:** extrator próprio de **JWPUB**, extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
+- **IA on-device:** infraestrutura MediaPipe (`LlmService`) para rodar um **Qwen2.5-1.5B quantizado** (`.task`) baixado para o aparelho — porém a **URL de download ainda não está configurada** (`LlmModelConfig.DOWNLOAD_URL` vazia), então na prática o chat usa o motor determinístico local até que um modelo seja hospedado.
+- **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
+
+> Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
 
 ---
 
-## 🚀 Como Executar Localmente
+## 🛠️ Tecnologias
 
-### Pré-requisitos
-- [Node.js](https://nodejs.org/) (versão 22 ou superior)
-- Git
+**Web (`src/`):** React 19, TypeScript, Vite · Dexie.js (IndexedDB v3) · `jszip` + `pdfjs-dist` (acervo) · Firebase (opcional) · Lucide Icons · CSS próprio (tema escuro, sem framework) · PWA (Service Worker + manifest) · Capacitor 8 (`com.bettertalker.app`).
 
-### Instalação
+**Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, MediaPipe LLM Inference, DownloadManager.
 
-1. Clone o repositório:
+> **Pré-requisito web:** Node.js **22+** (exigido pelo `pdfjs-dist`).
+
+---
+
+## 🚀 Executando o Web
+
 ```bash
 git clone https://github.com/SEU-USUARIO/better-talker.git
 cd better-talker
-```
-
-2. Instale as dependências:
-```bash
 npm install
+npm run dev        # http://localhost:5173/
+npm run build      # gera dist/
+npm run lint       # oxlint
 ```
 
-3. Inicie o servidor de desenvolvimento:
-```bash
-npm run dev
-```
+### Como PWA (sem compilar)
+1. PC e celular na mesma rede Wi-Fi; abra o endereço de rede do Vite (ex: `http://192.168.1.X:5173/`) no Chrome Android.
+2. Menu ⋮ → **"Instalar aplicativo"** / "Adicionar à tela inicial".
 
-4. Abra no navegador:
-```
-http://localhost:5173/
-```
-
----
-
-## 📱 Executando no Android
-
-### Opção 1: Como PWA (Rápido e sem compilar)
-1. Conecte o smartphone Android na mesma rede Wi-Fi do computador.
-2. Acesse o endereço IP da rede local fornecido pelo Vite (ex: `http://192.168.1.X:5173/`).
-3. No menu do navegador (três pontinhos), toque em **"Instalar aplicativo"** ou **"Adicionar à tela inicial"**.
-4. O Better Talker passará a rodar em tela cheia como um aplicativo nativo, salvando tudo localmente.
-
-### Opção 2: Gerando APK Nativo com Capacitor & Android Studio
-1. Compile o projeto:
+### Como APK via Capacitor
 ```bash
 npm run build
-```
-
-2. Inicialize o projeto Android nativo:
-```bash
-npx cap add android
-```
-
-3. Sincronize os arquivos:
-```bash
-npx cap sync
-```
-
-4. Abra no Android Studio para rodar no emulador ou gerar o APK:
-```bash
+npx cap sync        # o projeto android/ já existe no repositório
 npx cap open android
 ```
 
-### 🔥 Vinculando ao Firebase (Cloud Sync de Metadados — BYOD)
+### App nativo (Gradle)
+```bash
+cd android
+./gradlew assembleDebug
+```
+ou abra `android/` no Android Studio.
 
-O Better Talker sincroniza **apenas metadados** (título, blocos, duração, categoria) para a nuvem — **nunca** o conteúdo de publicações (`publications/`). Isso respeita o modelo **BYOD**: a biblioteca de publicações é sempre local.
-
-**Passo a passo:**
-
-1. No [Firebase Console](https://console.firebase.google.com/), crie um projeto e adicione um app **Android** com o package `com.bettertalker.app`.
-2. Baixe o arquivo `google-services.json` e coloque em `android/app/google-services.json` (o template Capacitor já aplica o plugin `google-services` automaticamente quando o arquivo existe).
-3. Adicione um app **Web** ao mesmo projeto e copie as configurações para `.env.local` (veja `.env.example`):
-   - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
-4. Habilite o **Realtime Database** em *Build > Realtime Database*.
-5. Nas **regras do Realtime Database**, restrinja gravações (ex.: `"write": "auth != null"`).
-
-> O `google-services.json` está no `.gitignore` — nunca commite credenciais.
-> Sem o `.env.local`, o app roda normalmente 100% offline; o sync é ignorado silenciosamente.
+### Firebase (opcional — só metadados)
+1. Crie um projeto no [Firebase Console](https://console.firebase.google.com/) com um app **Android** (`com.bettertalker.app`) e um app **Web**.
+2. `google-services.json` → `android/app/google-services.json` (está no `.gitignore`).
+3. Copie `.env.example` para `.env.local` e preencha `VITE_FIREBASE_*` (+ `VITE_GEMINI_API_KEY`, opcional — a chave também pode ser digitada nas Configurações do app).
+4. Habilite o **Realtime Database** com escrita restrita (ex.: `"write": "auth != null"`).
 
 ---
 
 ## 📄 Licença
 
-Distribuído sob a licença MIT. Sinta-se livre para usar, aprimorar e compartilhar!
+Ainda **sem arquivo de licença** no repositório — antes dizia MIT, mas não há `LICENSE` commitado. Definir a licença (ex.: adicionar `LICENSE` MIT) antes de distribuir.
