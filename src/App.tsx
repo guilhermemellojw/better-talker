@@ -65,7 +65,11 @@ export function App() {
 
   useEffect(() => {
     async function initData() {
-      await initFirebaseSync();
+      // RC: sync nunca pode travar a abertura (offline => segue local).
+      await Promise.race([
+        initFirebaseSync(),
+        new Promise((resolve) => setTimeout(() => resolve(false), 10000)),
+      ]);
       const loadedSettings = await speechStorage.getSettings();
       setSettings(loadedSettings);
       const loadedSpeeches = await speechStorage.getAllSpeeches();

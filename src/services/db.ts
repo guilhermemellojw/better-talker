@@ -94,13 +94,40 @@ function toSpeechWithBlocks(speech: Speech): Speech {
   };
 }
 
+/**
+ * RC: nenhuma operação Dexie pode pendurar a UI para sempre (IndexedDB pode
+ * travar em perfil corrompido, pressão de armazenamento etc.). Expirado o
+ * prazo, a promise rejeita e os fallbacks locais existentes assumem.
+ */
+export const STORAGE_TIMEOUT_MS = 8000;
+
+export function withStorageTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs: number = STORAGE_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`[db] timeout em ${label}`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 export const speechStorage = {
   async getAllSpeeches(): Promise<Speech[]> {
     try {
-      const list = await db.speeches.orderBy('updatedAt').reverse().toArray();
+      const list = await withStorageTimeout(
+        db.speeches.orderBy('updatedAt').reverse().toArray(),
+        'getAllSpeeches',
+      );
       if (!list || list.length === 0) {
         await this.saveSpeech(INITIAL_DEMO_SPEECH);
-        const saved = await db.speeches.get(INITIAL_DEMO_SPEECH.id!);
+        const saved = await withStorageTimeout(
+          db.speeches.get(INITIAL_DEMO_SPEECH.id!),
+          'getAllSpeeches:seed',
+        );
         return saved ? [toSpeechWithBlocks(saved)] : [INITIAL_DEMO_SPEECH];
       }
       return list.map(toSpeechWithBlocks);
@@ -117,7 +144,7 @@ export const speechStorage = {
 
   async getSpeechById(id: string): Promise<Speech | null> {
     try {
-      const speech = await db.speeches.get(id);
+      const speech = await withStorageTimeout(db.speeches.get(id), 'getSpeechById');
       return speech ? toSpeechWithBlocks(speech) : null;
     } catch {
       const list = await this.getAllSpeeches();
@@ -128,9 +155,9 @@ export const speechStorage = {
   async saveSpeech(speech: Speech): Promise<void> {
     const item = { ...speech, updatedAt: Date.now() };
     try {
-      await db.speeches.put(item);
+      await withStorageTimeout(db.speeches.put(item), 'saveSpeech');
       if (item.blocks?.length) {
-        await db.blocks.bulkPut(item.blocks);
+        await withStorageTimeout(db.blocks.bulkPut(item.blocks), 'saveSpeech:blocks');
       }
       this.backupToLocalStorage(item);
     } catch (e) {
@@ -140,10 +167,13 @@ export const speechStorage = {
 
   async deleteSpeech(id: string): Promise<void> {
     try {
-      await db.transaction('rw', [db.speeches, db.blocks], async () => {
-        await db.speeches.delete(id);
-        await db.blocks.where('speechId').equals(id).delete();
-      });
+      await withStorageTimeout(
+        db.transaction('rw', [db.speeches, db.blocks], async () => {
+          await db.speeches.delete(id);
+          await db.blocks.where('speechId').equals(id).delete();
+        }),
+        'deleteSpeech',
+      );
     } catch {
       const list = await this.getAllSpeeches();
       const filtered = list.filter((s) => s.id !== id);
@@ -152,36 +182,51 @@ export const speechStorage = {
   },
 
   async savePublication(publication: Publication): Promise<void> {
-    await db.publications.put(publication);
+    await withStorageTimeout(db.publications.put(publication), 'savePublication');
   },
 
   async deletePublication(id: string): Promise<void> {
-    await db.transaction('rw', [db.publications, db.passages], async () => {
-      await db.publications.delete(id);
-      await db.passages.where('pubId').equals(id).delete();
-    });
+    await withStorageTimeout(
+      db.transaction('rw', [db.publications, db.passages], async () => {
+        await db.publications.delete(id);
+        await db.passages.where('pubId').equals(id).delete();
+      }),
+      'deletePublication',
+    );
   },
 
   async getAllPublications(): Promise<Publication[]> {
-    return db.publications.orderBy('addedAt').reverse().toArray();
+    return withStorageTimeout(
+      db.publications.orderBy('addedAt').reverse().toArray(),
+      'getAllPublications',
+    );
   },
 
   async getPublicationById(id: string): Promise<Publication | undefined> {
-    return db.publications.get(id);
+    return withStorageTimeout(db.publications.get(id), 'getPublicationById');
   },
 
   async getPassagesByPubId(pubId: string): Promise<Passage[]> {
-    const list = await db.passages.where('pubId').equals(pubId).toArray();
+    const list = await withStorageTimeout(
+      db.passages.where('pubId').equals(pubId).toArray(),
+      'getPassagesByPubId',
+    );
     return list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   },
 
   async getAllPassages(limit = 2000): Promise<Passage[]> {
-    return db.passages.orderBy('id').reverse().limit(limit).toArray();
+    return withStorageTimeout(
+      db.passages.orderBy('id').reverse().limit(limit).toArray(),
+      'getAllPassages',
+    );
   },
 
   async getPassagesBySourceType(sourceType: string, limit = 200): Promise<Passage[]> {
     try {
-      return await db.passages.where('source_type').equals(sourceType).limit(limit).toArray();
+      return await withStorageTimeout(
+        db.passages.where('source_type').equals(sourceType).limit(limit).toArray(),
+        'getPassagesBySourceType',
+      );
     } catch {
       return [];
     }
@@ -200,7 +245,7 @@ export const speechStorage = {
 
   async getSettings(): Promise<AppSettings> {
     try {
-      const rec = await db.settings.get('app_settings');
+      const rec = await withStorageTimeout(db.settings.get('app_settings'), 'getSettings');
       const settings = rec?.value ?? DEFAULT_SETTINGS;
       if (!settings) return DEFAULT_SETTINGS;
       return settings;
@@ -212,7 +257,10 @@ export const speechStorage = {
 
   async saveSettings(settings: AppSettings): Promise<void> {
     try {
-      await db.settings.put({ key: 'app_settings', value: settings });
+      await withStorageTimeout(
+        db.settings.put({ key: 'app_settings', value: settings }),
+        'saveSettings',
+      );
       localStorage.setItem('better_talker_settings', JSON.stringify(settings));
     } catch {
       localStorage.setItem('better_talker_settings', JSON.stringify(settings));
