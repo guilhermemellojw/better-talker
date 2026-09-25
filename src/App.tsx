@@ -328,6 +328,7 @@ export function App() {
         wpm={activeSpeech.targetWpm || settings.defaultWpm}
         onWpmChange={(newWpm) => handleSpeechChange({ targetWpm: newWpm })}
         isSaving={isSaving}
+        blocks={activeSpeech.blocks}
       />
 
       <TeleprompterModal

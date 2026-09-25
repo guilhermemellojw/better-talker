@@ -1,5 +1,6 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import type { Speech, SpeechBlock, SpeechCategory, StageCueDefinition } from '../../types/speech';
+import { calculateBlockTiming, formatDelta, formatDuration, parseDurationInput } from '../../copilot/blockTiming';
 import { StageCueBar } from './StageCueBar';
 import { FloatingFormatToolbar } from './FloatingFormatToolbar';
 import { Clock, Tag, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
@@ -294,8 +295,114 @@ export const BlockEditorTabs = ({
         <div className="block-footer">
           <span>Bloco {activeIndex + 1} de {speech.blocks.length}</span>
           <span>{activeBlock.minutes} min</span>
+          <BlockTimingControl
+            key={`${activeBlock.id}-${activeBlock.targetDurationSeconds ?? 'none'}`}
+            block={activeBlock}
+            wpm={speech.targetWpm || 130}
+            onBlockChange={onBlockChange}
+          />
         </div>
       </div>
     </div>
   );
 };
+
+/**
+ * Fase 14: estimado + meta opcional por bloco. Estado local do input é
+ * remontado por bloco (key) para nunca vazar texto entre abas.
+ */
+function BlockTimingControl({
+  block,
+  wpm,
+  onBlockChange,
+}: {
+  block: SpeechBlock;
+  wpm: number;
+  onBlockChange: (blockId: string, patch: Partial<SpeechBlock>) => void;
+}) {
+  const timing = calculateBlockTiming(block, wpm, block.targetDurationSeconds);
+  const [draft, setDraft] = useState(
+    block.targetDurationSeconds !== undefined ? formatDuration(block.targetDurationSeconds) : '',
+  );
+  const [error, setError] = useState<string | null>(null);
+  // Remontado por key (id + meta): sem efeito de sincronização.
+
+  const commit = () => {
+    const parsed = parseDurationInput(draft);
+    if (!parsed.ok) {
+      // Campo vazio = limpar a meta; resto inválido = erro curto.
+      if (draft.trim() === '') {
+        setError(null);
+        onBlockChange(block.id, { targetDurationSeconds: undefined });
+      } else {
+        setError(parsed.error);
+      }
+      return;
+    }
+    setError(null);
+    onBlockChange(block.id, { targetDurationSeconds: parsed.seconds });
+    setDraft(formatDuration(parsed.seconds));
+  };
+
+  const clear = () => {
+    setDraft('');
+    setError(null);
+    onBlockChange(block.id, { targetDurationSeconds: undefined });
+  };
+
+  const statusText =
+    timing.status === 'no_target'
+      ? `Estimado ${formatDuration(timing.estimatedSeconds)}`
+      : timing.status === 'within_target'
+        ? `Meta ${formatDuration(timing.targetSeconds!)} • Estimado ${formatDuration(timing.estimatedSeconds)} • Dentro da meta`
+        : timing.status === 'over_target'
+          ? `Meta ${formatDuration(timing.targetSeconds!)} • Estimado ${formatDuration(timing.estimatedSeconds)} • Acima da meta: ${formatDelta(timing.deltaSeconds!)}`
+          : `Meta ${formatDuration(timing.targetSeconds!)} • Estimado ${formatDuration(timing.estimatedSeconds)} • Abaixo da meta: ${formatDelta(timing.deltaSeconds!)}`;
+
+  return (
+    <span className="block-timing" role="status" aria-label={statusText}>
+      <label htmlFor={`meta-${block.id}`} style={{ fontSize: '0.78rem', opacity: 0.85 }}>
+        Meta:
+      </label>
+      <input
+        id={`meta-${block.id}`}
+        className="block-target-input"
+        value={draft}
+        placeholder="mm:ss"
+        inputMode="numeric"
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setError(null);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          if (e.key === 'Escape') {
+            setDraft(block.targetDurationSeconds !== undefined ? formatDuration(block.targetDurationSeconds) : '');
+            setError(null);
+          }
+        }}
+        title="Duração-alvo do bloco em mm:ss (ex. 01:30). Vazio = sem meta."
+      />
+      {block.targetDurationSeconds !== undefined && (
+        <button
+          type="button"
+          className="block-target-clear"
+          onClick={clear}
+          title="Remover meta deste bloco"
+          aria-label="Remover meta deste bloco"
+        >
+          ×
+        </button>
+      )}
+      <span className="block-timing-status">{statusText}</span>
+      {error && (
+        <span className="block-timing-error" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}

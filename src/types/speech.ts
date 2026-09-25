@@ -42,6 +42,11 @@ export interface SpeechBlock {
   contentHtml: string;
   plainText: string;
   sourceExcerpt?: string;
+  /**
+   * Fase 14: duração-alvo opcional em segundos (planejamento do orador).
+   * Ausente = sem meta. Derivados (tempo estimado) nunca são persistidos.
+   */
+  targetDurationSeconds?: number;
 }
 
 export interface Speech {

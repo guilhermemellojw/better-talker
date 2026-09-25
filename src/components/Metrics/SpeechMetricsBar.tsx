@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { SpeechMetrics } from '../../types/speech';
+import type { SpeechBlock, SpeechMetrics } from '../../types/speech';
+import { summarizeSpeechTiming, formatDelta, formatDuration } from '../../copilot/blockTiming';
 import { Clock, MessageSquare, AlertTriangle, Activity, PauseCircle } from 'lucide-react';
 
 interface SpeechMetricsBarProps {
@@ -8,6 +9,7 @@ interface SpeechMetricsBarProps {
   wpm: number;
   onWpmChange: (newWpm: number) => void;
   isSaving: boolean;
+  blocks?: SpeechBlock[];
 }
 
 export const SpeechMetricsBar = ({
@@ -16,10 +18,13 @@ export const SpeechMetricsBar = ({
   wpm,
   onWpmChange,
   isSaving,
+  blocks = [],
 }: SpeechMetricsBarProps) => {
   const [showFillersDetail, setShowFillersDetail] = useState(false);
 
   const isOverTime = metrics.estimatedTimeSeconds > targetMinutes * 60;
+  const timingSummary = summarizeSpeechTiming(blocks, wpm);
+  const hasTargets = timingSummary.targetTotalSeconds !== undefined;
 
   return (
     <div className="metrics-bar">
@@ -60,6 +65,23 @@ export const SpeechMetricsBar = ({
             <option value={160}>Enérgico (160 ppm)</option>
           </select>
         </div>
+
+        {/* Resumo de metas por bloco (Fase 14): só aparece com metas. */}
+        {hasTargets && (
+          <div
+            className="metric-pill time-pill"
+            title="Soma dos tempos estimados vs soma das metas dos blocos que têm meta"
+          >
+            <Clock size={14} />
+            <span>
+              Total: {formatDuration(timingSummary.estimatedTotalSeconds)} • Metas:{' '}
+              {formatDuration(timingSummary.targetTotalSeconds!)}
+              {timingSummary.deltaSeconds !== undefined && timingSummary.deltaSeconds !== 0
+                ? ` (${formatDelta(timingSummary.deltaSeconds)})`
+                : ' (na meta)'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Right group: Fillers, Readability, Autosave indicator */}
