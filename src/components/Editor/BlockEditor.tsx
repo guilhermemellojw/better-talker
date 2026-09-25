@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import type { Speech, SpeechBlock, SpeechCategory, StageCueDefinition } from '../../types/speech';
 import { StageCueBar } from './StageCueBar';
 import { FloatingFormatToolbar } from './FloatingFormatToolbar';
-import { Clock, Tag, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, Tag, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 
 interface BlockEditorTabsProps {
   speech: Speech;
@@ -25,6 +25,33 @@ export const BlockEditorTabs = ({
 
   const activeBlock = speech.blocks.find((b) => b.id === activeBlockId) || speech.blocks[0];
   const activeIndex = speech.blocks.findIndex((b) => b.id === activeBlockId);
+
+  const handleAddBlock = () => {
+    const newBlock: SpeechBlock = {
+      id: `block-${Date.now()}`,
+      speechId: speech.id,
+      order: speech.blocks.length,
+      minutes: 5,
+      title: `Bloco ${speech.blocks.length + 1}`,
+      contentHtml: '',
+      plainText: '',
+    };
+    onActiveBlockChange(newBlock.id);
+    onSpeechChange({ blocks: [...speech.blocks, newBlock] });
+  };
+
+  const handleDeleteBlock = (blockId: string) => {
+    if (speech.blocks.length <= 1) return;
+    const target = speech.blocks.find((b) => b.id === blockId);
+    if (!window.confirm(`Excluir o bloco "${target?.title || 'sem título'}"?`)) return;
+    const remaining = speech.blocks
+      .filter((b) => b.id !== blockId)
+      .map((b, i) => ({ ...b, order: i }));
+    if (blockId === activeBlockId) {
+      onActiveBlockChange(remaining[0]?.id || '');
+    }
+    onSpeechChange({ blocks: remaining });
+  };
 
   // Sync editor content when active block changes
   useEffect(() => {
@@ -205,13 +232,45 @@ export const BlockEditorTabs = ({
               type="button"
               className={`block-tab ${block.id === activeBlockId ? 'active' : ''}`}
               onClick={() => onActiveBlockChange(block.id)}
+              title={block.title}
             >
               <span className="block-tab-minutes">{block.minutes} min</span>
               <span className="block-tab-title">{block.title}</span>
               {idx > 0 && <ChevronLeft size={12} />}
               {idx < speech.blocks.length - 1 && <ChevronRight size={12} />}
+              {speech.blocks.length > 1 && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Excluir bloco ${block.title}`}
+                  title="Excluir bloco"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteBlock(block.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDeleteBlock(block.id);
+                    }
+                  }}
+                  style={{ display: 'inline-flex', marginLeft: '0.25rem', opacity: 0.7 }}
+                >
+                  <X size={12} />
+                </span>
+              )}
             </button>
           ))}
+          <button
+            type="button"
+            className="block-tab block-tab-add"
+            onClick={handleAddBlock}
+            title="Adicionar novo bloco de 5 min"
+          >
+            <Plus size={14} />
+            <span className="block-tab-title">Adicionar</span>
+          </button>
         </div>
 
         <FloatingFormatToolbar
