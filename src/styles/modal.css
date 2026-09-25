@@ -182,7 +182,30 @@
 @media (max-width: 768px) {
   .app-header {
     height: 56px;
-    padding: 0 1rem;
+    padding: 0 0.75rem;
+    gap: 0.5rem;
+  }
+  .brand-title {
+    font-size: 1rem;
+  }
+  /* Fase 11: 10 ações cabem por rolagem horizontal, só ícones. */
+  .header-actions {
+    overflow-x: auto;
+    gap: 0.4rem;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .header-actions .hide-mobile {
+    display: none;
+  }
+  .header-actions .btn-secondary,
+  .header-actions .stage-mode-btn {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
 }
 

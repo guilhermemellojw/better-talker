@@ -140,7 +140,7 @@ export const TeleprompterModal = ({
           <Clock size={20} style={{ color: 'var(--primary)' }} />
           <span className="tele-timer">{formatTimer(elapsedSeconds)}</span>
           <span className="tele-pace-indicator">
-            {wpm} WPM • Meta: {speech.targetDurationMinutes} min
+            {wpm} ppm • Meta: {speech.targetDurationMinutes} min
           </span>
         </div>
 
@@ -173,7 +173,7 @@ export const TeleprompterModal = ({
               -
             </button>
             <span style={{ fontSize: '0.85rem', fontWeight: 700, minWidth: '60px', textAlign: 'center' }}>
-              {wpm} PPM
+              {wpm} ppm
             </span>
             <button
               type="button"
