@@ -1267,4 +1267,148 @@ S-34-T N.º 35 5/20
         // "gen 126" grudado não vale como cap 12 v 6 (sem fronteira não há match exato)
         assertFalse(f("texto gen 126 aqui", "gen", 12, 6))
     }
+
+    @Test
+    fun chapterOfParsesKindAndNumber() {
+        val c = RefDetector::chapterOf
+        assertEquals(RefDetector.ChapterRef("cap", 5), c("lff cap. 5"))
+        assertEquals(RefDetector.ChapterRef("licao", 3), c("th lição 3"))
+        assertEquals(RefDetector.ChapterRef("estudo", 27), c("estudo 27 da apostila"))
+        assertEquals(RefDetector.ChapterRef("paragrafo", 22), c("jr 27 § 22"))
+        assertNull(c("ideias gerais sobre fé"))
+        assertNull(c("w24.12"))
+    }
+
+    @Test
+    fun filterByChapterMatchesSection() {
+        val mk = { section: String ->
+            com.bettertalker.app.data.db.PassageEntity("p-$section", "a", "texto", "texto", section)
+        }
+        val all = listOf(mk("Capítulo 5"), mk("Capítulo 12"), mk("Lição 3"), mk(""))
+        fun f(ps: List<com.bettertalker.app.data.db.PassageEntity>, kind: String, n: Int) =
+            com.bettertalker.app.data.repo.filterByChapter(ps, kind, n)
+        assertEquals(listOf("Capítulo 5"), f(all, "cap", 5).map { it.section })
+        assertEquals(listOf("Lição 3"), f(all, "licao", 3).map { it.section })
+        assertTrue(f(all, "cap", 9).isEmpty())
+    }
+
+    private fun s34SecsForMatch() = listOf(
+        com.bettertalker.app.data.util.ChatIntent.SectionRef(
+            "FOMOS CRIADOS PARA VIVER PARA SEMPRE",
+            "Precisamos estar vivos para ter esperança e fazer planos para o futuro."
+        ),
+        com.bettertalker.app.data.util.ChatIntent.SectionRef(
+            "COMO A VIDA ETERNA FOI PERDIDA",
+            "Por conta própria, Adão e Eva escolheram desobedecer a Deus."
+        ),
+        com.bettertalker.app.data.util.ChatIntent.SectionRef(
+            "COMO É POSSÍVEL TER VIDA ETERNA",
+            "Jeová Deus providenciou a solução para o problema do pecado."
+        ),
+        com.bettertalker.app.data.util.ChatIntent.SectionRef(
+            "SERÁ QUE A VIDA ETERNA VAI SER AGRADÁVEL?",
+            "No futuro, Deus vai acabar com os problemas que tornam a vida difícil hoje."
+        ),
+        com.bettertalker.app.data.util.ChatIntent.SectionRef(
+            "VOCÊ VAI VIVER PARA SEMPRE?",
+            "Cada um deve escolher se vai aceitar o presente que é o resgate."
+        )
+    )
+
+    @Test
+    fun matchSectionPrefersBestTitleOverlap() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        // "vida eterna" aparece em 3 títulos; "agradável" desempata para a seção 4
+        assertEquals(
+            "SERÁ QUE A VIDA ETERNA VAI SER AGRADÁVEL?",
+            ci.matchSection("desenvolva a parte sobre a vida eterna agradável", s34SecsForMatch())
+        )
+    }
+
+    @Test
+    fun matchSectionFindsSubtopicWordInBody() {
+        val ci = com.bettertalker.app.data.util.ChatIntent
+        // "Adão e Eva" está só no corpo da seção 2 (subtópico)
+        assertEquals(
+            "COMO A VIDA ETERNA FOI PERDIDA",
+            ci.matchSection("fale sobre Adão e Eva", s34SecsForMatch())
+        )
+    }
+
+    @Test
+    fun queryTermsDropsStopwordsAndDedupes() {
+        val terms = com.bettertalker.app.data.repo.queryTerms(
+            "FOMOS CRIADOS PARA VIVER PARA SEMPRE",
+            "Precisamos estar vivos para ter esperança e fazer planos",
+            "desenvolva a introdução",
+            8
+        )
+        // sem stopwords (para, estar, ter, e, fazer), sem repetidos, título primeiro
+        assertEquals(
+            listOf("fomos", "criados", "viver", "sempre", "precisamos", "vivos", "esperanca", "planos"),
+            terms
+        )
+    }
+
+    @Test
+    fun childTitlesFindsDescendants() {
+        val secs = listOf(
+            com.bettertalker.app.data.util.OutlineSection("Pai", null, 0, "", 0),
+            com.bettertalker.app.data.util.OutlineSection("Filho 1", null, 1, "", 1),
+            com.bettertalker.app.data.util.OutlineSection("Neto", null, 2, "", 2),
+            com.bettertalker.app.data.util.OutlineSection("Outro pai", null, 3, "", 0)
+        )
+        assertEquals(
+            listOf("Filho 1", "Neto"),
+            com.bettertalker.app.data.repo.childTitles(secs, 0)
+        )
+        assertEquals(
+            listOf("Neto"),
+            com.bettertalker.app.data.repo.childTitles(secs, 1)
+        )
+        assertEquals(
+            emptyList<String>(),
+            com.bettertalker.app.data.repo.childTitles(secs, 3)
+        )
+    }
+
+    @Test
+    fun fieldBoostWeightsTitleBodyExtra() {
+        val boost = com.bettertalker.app.data.repo.fieldBoost(
+            "Vida Eterna Perdida",
+            "Adão e Eva desobedeceram",
+            "ideias gerais"
+        )
+        // título ×3 (bônus +2), corpo ×2 (bônus +1), extras só o ponto base
+        assertEquals(2, boost["vida"])
+        assertEquals(2, boost["eterna"])
+        assertEquals(1, boost["adao"])
+        assertEquals(1, boost["desobedeceram"])
+        assertNull(boost["ideias"])
+        assertNull(boost["para"])
+    }
+
+    @Test
+    fun rerankByOverlapPutsSectionLanguageFirst() {
+        val mkHit = { id: String, text: String ->
+            com.bettertalker.app.data.db.PassageEntity(id, "a", text, text.lowercase())
+        }
+        val generic = com.bettertalker.app.data.repo.ScopedHit(mkHit("g", "texto sobre fé e oração"), "Base")
+        val topical = com.bettertalker.app.data.repo.ScopedHit(mkHit("t", "Adão e Eva e o pecado no jardim"), "Revista")
+        // estável: empate mantém a ordem de entrada
+        assertEquals(
+            listOf("t", "g"),
+            com.bettertalker.app.data.repo.rerankByOverlap(
+                listOf(generic, topical),
+                setOf("adao", "eva", "pecado")
+            ).map { it.passage.id }
+        )
+        assertEquals(
+            listOf("g", "t"),
+            com.bettertalker.app.data.repo.rerankByOverlap(
+                listOf(generic, topical),
+                emptySet()
+            ).map { it.passage.id }
+        )
+    }
 }

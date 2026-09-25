@@ -12,6 +12,29 @@ fun normalizeText(raw: String): String {
         .replace("\\s+".toRegex(), " ").trim()
 }
 
+/**
+ * Palavras funcionais PT que não carregam tópico (artigos, preposições,
+ * pronomes, verbos genéricos). Usadas para não gastar o orçamento de
+ * palavras da busca nem viciar o casamento de seções.
+ */
+val STOPWORDS_PT = setOf(
+    "o", "a", "os", "as", "um", "uma", "uns", "umas",
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+    "por", "para", "com", "sem", "sob", "sobre", "entre", "ate",
+    "que", "se", "como", "ser", "foi", "for", "era", "sao",
+    "ter", "tem", "estar", "esta", "haver", "ha",
+    "ficar", "fica", "poder", "pode", "fazer", "faz",
+    "dizer", "diz", "ver", "dar",
+    "este", "esta", "isto", "esse", "essa", "isso",
+    "aquele", "aquela", "mais", "muito", "pouco",
+    "todo", "toda", "todos", "todas", "cada",
+    "qual", "quais", "quando", "onde", "porque", "pois", "mas",
+    "tambem", "nao", "sera", "serao", "vai", "vao",
+    "me", "te", "lhe", "vos", "mim", "ti",
+    "ele", "ela", "eles", "elas", "eu", "tu", "voce", "voces",
+    "meu", "minha", "seu", "sua"
+)
+
 fun splitSentences(normalized: String): List<String> =
     normalized.split(Regex("[.!?\\n]+"))
         .map { it.trim() }

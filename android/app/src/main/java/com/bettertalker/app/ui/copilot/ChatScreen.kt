@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.copilot
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,9 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -45,9 +48,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.ui.components.MdBlock
+import com.bettertalker.app.ui.components.inline
+import com.bettertalker.app.ui.components.parseBlocks
 import kotlinx.coroutines.launch
 
 /**
@@ -271,22 +278,82 @@ private fun MessageBubble(
     draft: List<DraftSection>,
     onOpenLibrary: () -> Unit
 ) {
-    val align = if (item.fromMe) Alignment.CenterEnd else Alignment.CenterStart
-    val container = if (item.fromMe) MaterialTheme.colorScheme.primaryContainer
-    else MaterialTheme.colorScheme.surfaceVariant
-    Box(Modifier.fillMaxWidth(), contentAlignment = align) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = container),
-            modifier = Modifier.fillMaxWidth(0.94f)
-        ) {
-            Column(Modifier.padding(12.dp)) {
-                when (item.kind) {
-                    "ideas" -> IdeasBody(item, vm, headings)
-                    "refs" -> RefsBody(vm, dl, ctx, scope, item.text, item.detectedJson)
-                    "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
-                    "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
-                    "draft" -> DraftBody(item, vm, draft, merges)
-                    else -> Text(item.text)
+    if (item.fromMe) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth(0.94f)
+            ) {
+                ChatMessageText(item.text, Modifier.padding(12.dp))
+            }
+        }
+        return
+    }
+    // assistente: texto corrido sem cartão, estilo ChatGPT
+    Column(Modifier.fillMaxWidth()) {
+        when (item.kind) {
+            "ideas" -> IdeasBody(item, vm, headings)
+            "refs" -> RefsBody(vm, dl, ctx, scope, item.text, item.detectedJson)
+            "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
+            "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
+            "draft" -> DraftBody(item, vm, draft, merges)
+            else -> ChatMessageText(item.text)
+        }
+    }
+}
+
+/** Texto formatado do assistente (markdown próprio, selecionável). */
+@Composable
+fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
+    if (md.isBlank()) return
+    val blocks = remember(md) { parseBlocks(md) }
+    SelectionContainer {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            blocks.forEach { block ->
+                when (block) {
+                    is MdBlock.Title -> Text(
+                        block.text,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 26.sp
+                    )
+                    is MdBlock.Quote -> Row {
+                        Box(
+                            Modifier
+                                .width(4.dp)
+                                .padding(vertical = 2.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.shapes.small
+                                )
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            inline(block.text),
+                            style = MaterialTheme.typography.bodyLarge,
+                            lineHeight = 24.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+                    is MdBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
+                        Text("•  ", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
+                    }
+                    is MdBlock.Check -> Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            if (block.done) "☑  " else "☐  ",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (block.done) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.secondary
+                        )
+                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
+                    }
+                    is MdBlock.Para -> Text(
+                        inline(block.text),
+                        style = MaterialTheme.typography.bodyLarge,
+                        lineHeight = 24.sp
+                    )
                 }
             }
         }
@@ -352,10 +419,10 @@ private fun SectionsBody(
                     )
                 }
             }
-            Button(
+            TextButton(
                 onClick = { vm.generateForSectionTitle(s.title) },
                 enabled = sectionBusy != s.title
-            ) { Text(if (sectionBusy == s.title) "…" else "Gerar") }
+            ) { Text(if (sectionBusy == s.title) "…" else "Gerar ideias") }
         }
         if (i < item.secItems.lastIndex) Spacer(Modifier.height(6.dp))
     }
@@ -482,7 +549,7 @@ private fun RefFullRow(
             }
             Spacer(Modifier.height(4.dp))
             Column {
-                Button(onClick = { dl.openPage(ctx, st.downloadUrl, onDownloaded) }) {
+                TextButton(onClick = { dl.openPage(ctx, st.downloadUrl, onDownloaded) }) {
                     Text(if (!st.exact && st.probePub == null && st.apiPub == null) "Procurar edição" else "Baixar no site")
                 }
                 if (st.apiPub != null || st.probePub != null) {

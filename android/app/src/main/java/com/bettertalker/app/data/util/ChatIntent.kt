@@ -149,26 +149,29 @@ object ChatIntent {
     }
 
     /**
-     * Casa texto com seção: título primeiro (regra do Ideas);
-     * depois corpo por overlap (trecho contido ou ≥2 palavras significativas).
+     * Casa seção por relevância: título integral contido vale ouro;
+     * senão, score = 2×overlap no título + overlap no corpo, e vence o maior.
+     * Palavras funcionais não contam (não viciam o match) e 1 palavra comum
+     * no corpo não basta — mas 1 palavra distintiva no corpo + nada no título
+     * ainda perde; por isso o mínimo é 2 no total.
+     * Puro/testável.
      */
     fun matchSection(raw: String, sections: List<SectionRef>): String? {
         val t = normalizeText(raw)
-        // 1) título
+        // 1) título integral contido na pergunta (sinal mais forte)
         sections.firstOrNull { s ->
             val ns = normalizeText(s.title)
-            ns.isNotEmpty() && (t.contains(ns) || ns.split(" ").filter { it.length > 3 }.any { t.contains(it) })
+            ns.isNotEmpty() && t.contains(ns)
         }?.let { return it.title }
-        // 2) corpo: trecho da pergunta contido no corpo, ou overlap de palavras
-        val words = t.split(" ").filter { it.length > 3 }.toSet()
+        // 2) melhor score entre todas (título pesa 2, corpo pesa 1)
+        val words = contentWords(t)
         if (words.isEmpty()) return null
         var best: String? = null
         var bestScore = 0
         for (s in sections) {
-            val nb = normalizeText(s.body)
-            if (nb.isEmpty()) continue
-            if (words.size <= 3 && nb.contains(t)) return s.title
-            val score = words.count { nb.contains(it) }
+            val titleWords = contentWords(normalizeText(s.title))
+            val bodyWords = contentWords(normalizeText(s.body))
+            val score = 2 * words.count { it in titleWords } + words.count { it in bodyWords }
             if (score > bestScore) {
                 bestScore = score
                 best = s.title
@@ -176,6 +179,10 @@ object ChatIntent {
         }
         return if (bestScore >= 2) best else null
     }
+
+    /** Palavras com conteúdo: len>=3 sem stopwords. Puro/testável. */
+    fun contentWords(normalized: String): Set<String> =
+        normalized.split(" ").filter { it.length >= 3 && it !in STOPWORDS_PT }.toSet()
 
     fun classify(raw: String, sections: List<SectionRef> = emptyList()): Intent {
         val t = normalizeText(raw)

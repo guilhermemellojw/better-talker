@@ -5,6 +5,7 @@ import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.STOPWORDS_PT
 import com.bettertalker.app.data.util.buildJwUrl
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.data.util.splitRawSentences
@@ -48,7 +49,9 @@ class CopilotRepository(private val db: AppDatabase) {
         maxWords: Int = 4,
         /** anexos das publicações citadas (id -> rótulo), mesmo sem vínculo */
         extraIds: List<String> = emptyList(),
-        extraLabels: Map<String, String> = emptyMap()
+        extraLabels: Map<String, String> = emptyMap(),
+        /** bônus de ranking por palavra (ex: título ×3 via +2) */
+        boost: Map<String, Int> = emptyMap()
     ): List<ScopedHit> {
         val words = normalizeText(query).split(" ")
             .filter { it.length > 2 }.take(maxWords)
@@ -79,7 +82,8 @@ class CopilotRepository(private val db: AppDatabase) {
                 sourceOf[id] = extraLabels[id] ?: "Biblioteca"
             }
         }
-        // consulta cada palavra e ordena por nº de acertos (ranking simples)
+        // consulta cada palavra e ordena por nº de acertos (ranking simples).
+        // boost soma pontos extras por palavra (título ×3, corpo ×2, extras ×1).
         suspend fun ranked(ids: List<String>, label: (String) -> String): List<ScopedHit> {
             val hits = mutableMapOf<String, ScopedHit>()
             val score = mutableMapOf<String, Int>()
@@ -91,7 +95,7 @@ class CopilotRepository(private val db: AppDatabase) {
                         val src = if (h.section.isNotEmpty()) "$base · ${h.section}" else base
                         hits[h.id] = ScopedHit(h, src)
                     }
-                    score[h.id] = (score[h.id] ?: 0) + 1
+                    score[h.id] = (score[h.id] ?: 0) + 1 + (boost[w] ?: 0)
                 }
             }
             return hits.values.sortedByDescending { score[it.passage.id] ?: 0 }.take(limit)
@@ -119,14 +123,29 @@ class CopilotRepository(private val db: AppDatabase) {
         query: String,
         noteId: String?,
         extraIds: List<String> = emptyList(),
-        extraLabels: Map<String, String> = emptyMap()
+        extraLabels: Map<String, String> = emptyMap(),
+        /** títulos de subseções filhas: entram na busca, não só no texto */
+        subtopics: List<String> = emptyList()
     ): List<IdeaCard> {
-        // o corpo da seção guia a busca: subtemas e refs do esboço original
-        val q = listOf(section.title, section.body.take(800), query)
-            .filter { it.isNotBlank() }.joinToString(" ")
-        val hits = askScoped(q.ifBlank { section.title }, noteId, 6, maxWords = 8, extraIds, extraLabels)
-        // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria
-        val content = contentHits(hits)
+        // o corpo da seção guia a busca: subtemas e refs do esboço original.
+        // queryTerms garante que os subtópicos cheguem à busca (sem stopwords,
+        // sem repetidos, título primeiro) em vez de morrer no corte de palavras.
+        val q = queryTerms(
+            section.title,
+            section.body.take(800),
+            (subtopics + query).joinToString(" "),
+            12
+        ).joinToString(" ")
+        val boost = fieldBoost(
+            section.title,
+            section.body.take(800),
+            (subtopics + query).joinToString(" ")
+        )
+        val hits = askScoped(q.ifBlank { section.title }, noteId, 6, maxWords = 12, extraIds, extraLabels, boost)
+        // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria.
+        // rerank aproxima o que fala a língua da seção (título/corpo/subtópicos).
+        val refWords = queryTerms(section.title, section.body.take(800), subtopics.joinToString(" "), 24).toSet()
+        val content = rerankByOverlap(contentHits(hits), refWords)
         if (content.isEmpty()) return emptyList()
         val t = { i: Int -> content.getOrNull(i) ?: content[0] }
         val time = section.minutes?.let { " (${it} min)" } ?: ""
@@ -181,13 +200,26 @@ class CopilotRepository(private val db: AppDatabase) {
         neighbors: List<String>,
         noteId: String?,
         extraIds: List<String> = emptyList(),
-        extraLabels: Map<String, String> = emptyMap()
+        extraLabels: Map<String, String> = emptyMap(),
+        /** títulos de subseções filhas: entram na busca, não só no texto */
+        subtopics: List<String> = emptyList()
     ): List<IdeaCard> {
-        val q = listOf(section.title, section.body.take(800))
-            .filter { it.isNotBlank() }.joinToString(" ")
-        val topical = askScoped(q.ifBlank { section.title }, noteId, 6, maxWords = 8, extraIds, extraLabels)
-        // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria
-        val content = contentHits(topical)
+        val q = queryTerms(
+            section.title,
+            section.body.take(800),
+            subtopics.joinToString(" "),
+            12
+        ).joinToString(" ")
+        val boost = fieldBoost(
+            section.title,
+            section.body.take(800),
+            subtopics.joinToString(" ")
+        )
+        val topical = askScoped(q.ifBlank { section.title }, noteId, 6, maxWords = 12, extraIds, extraLabels, boost)
+        // SÓ conteúdo (citadas): be/th instruem a estrutura, nunca são matéria.
+        // rerank aproxima o que fala a língua da seção (título/corpo/subtópicos).
+        val refWords = queryTerms(section.title, section.body.take(800), subtopics.joinToString(" "), 24).toSet()
+        val content = rerankByOverlap(contentHits(topical), refWords)
         if (content.isEmpty()) return emptyList()
         val k = kind ?: kindFor(isFirst, isLast, "")
         val guide = askScoped(guideQuery(k), noteId, 3, extraIds = extraIds, extraLabels = extraLabels)
@@ -285,6 +317,22 @@ class CopilotRepository(private val db: AppDatabase) {
         RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all())
 
     /**
+     * Texto exato da referência capitulada ("lff cap. 5"): casa o anexo e
+     * filtra pelo capítulo/lição da seção indexada. Vazio se não há match.
+     */
+    suspend fun refPassages(ref: RefDetector.DetectedRef, limit: Int = 2): List<ScopedHit> {
+        val ch = RefDetector.chapterOf(ref.raw) ?: return emptyList()
+        val hit = RefDetector.matchEdition(ref, db.attachmentDao().all()) ?: return emptyList()
+        val label = when (ref.kind) {
+            RefDetector.Kind.BOOK ->
+                com.bettertalker.app.data.util.PubCatalog.titleOf(ref.pubKey) ?: ref.label
+            RefDetector.Kind.MAGAZINE -> ref.label
+        }
+        return filterByChapter(db.passageDao().forAttachment(hit.id), ch.kind, ch.number)
+            .take(limit).map { ScopedHit(it, label) }
+    }
+
+    /**
      * Trechos do versículo na TNM indexada (best-effort: depende do formato
      * extraído). Vazio se a TNM não está baixada/indexada.
      */
@@ -363,6 +411,91 @@ class CopilotRepository(private val db: AppDatabase) {
 
 /** Trechos de conteúdo (citadas), sem o guia be/th. Puro/testável. */
 fun contentHits(hits: List<ScopedHit>): List<ScopedHit> = partitionGuideHits(hits).second
+
+/**
+ * Termos de busca: título + corpo + extras, sem stopwords, sem repetidos,
+ * título primeiro. Garante que subtópicos do corpo cheguem à busca em vez
+ * de morrer no corte de palavras. Puro/testável.
+ */
+fun queryTerms(title: String, body: String, extra: String, maxWords: Int): List<String> {
+    fun words(s: String) = normalizeText(s).split(" ")
+        .filter { it.length >= 3 && it !in STOPWORDS_PT }
+    val out = LinkedHashSet<String>()
+    for (w in words(title) + words(body) + words(extra)) {
+        if (out.size >= maxWords) break
+        out += w
+    }
+    return out.toList()
+}
+
+/**
+ * Bônus de ranking por campo: título +2 (total ×3), corpo +1 (total ×2),
+ * extras +0 (só o ponto base). Chaves já normalizadas, prontas para o
+ * parâmetro boost do askScoped. Puro/testável.
+ */
+fun fieldBoost(title: String, body: String, extra: String): Map<String, Int> {
+    fun words(s: String) = normalizeText(s).split(" ")
+        .filter { it.length >= 3 && it !in STOPWORDS_PT }
+    val out = mutableMapOf<String, Int>()
+    for (w in words(extra)) out.putIfAbsent(w, 0)
+    for (w in words(body)) out[w] = maxOf(out[w] ?: 0, 1)
+    for (w in words(title)) out[w] = maxOf(out[w] ?: 0, 2)
+    return out.filterValues { it > 0 }
+}
+
+/**
+ * Reordena trechos por overlap com os termos da seção (estável: empates
+ * mantêm a ordem do askScoped). Puro/testável.
+ */
+fun rerankByOverlap(hits: List<ScopedHit>, refWords: Set<String>): List<ScopedHit> {
+    if (refWords.isEmpty()) return hits
+    return hits.sortedByDescending { h ->
+        val pw = normalizeText(h.passage.text).split(" ").toSet()
+        refWords.count { it in pw }
+    }
+}
+
+/**
+ * Títulos das subseções filhas (nível maior que o da seção), até o próximo
+ * título de mesmo nível ou menor. Puro/testável.
+ */
+fun childTitles(
+    sections: List<com.bettertalker.app.data.util.OutlineSection>,
+    idx: Int
+): List<String> {
+    if (idx !in sections.indices) return emptyList()
+    val parentLevel = sections[idx].level
+    val out = mutableListOf<String>()
+    for (i in idx + 1 until sections.size) {
+        val s = sections[i]
+        if (s.level <= parentLevel) break
+        out += s.title
+    }
+    return out
+}
+
+/**
+ * Filtra trechos pelo capítulo/lição/estudo da seção indexada
+ * ("Capítulo 5", "Lição 3", "Estudo 27"). Puro/testável.
+ */
+fun filterByChapter(
+    passages: List<PassageEntity>,
+    kind: String,
+    number: Int
+): List<PassageEntity> {
+    val needles: List<String> = when (kind) {
+        "cap" -> listOf("capitulo $number", "cap $number")
+        "licao" -> listOf("licao $number")
+        "estudo" -> listOf("estudo $number")
+        else -> return passages.filter { p ->
+            Regex("""\b$number\b""").containsMatchIn(normalizeText(p.section))
+        }
+    }
+    return passages.filter { p ->
+        val s = normalizeText(p.section)
+        needles.any { s.contains(it) }
+    }
+}
 
 /**
  * Trecho normalizado contém livro + capítulo + versículo como números

@@ -12,15 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FormatClear
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -30,7 +30,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -46,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -229,55 +229,35 @@ fun IdeaCardRow(
     onInsert: (body: String, dest: String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var body by remember(card) { mutableStateOf(card.body) }
     var dest by remember(card) { mutableStateOf<String?>(card.sectionTitle.ifEmpty { null }) }
     var showDest by remember { mutableStateOf(false) }
     val destLabel = dest ?: "Fim da nota"
 
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        (if (number != null) "$number. " else "") + card.title,
-                        style = MaterialTheme.typography.titleSmall
-                    )
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            (if (number != null) "$number. " else "") + card.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
                     if (card.source.isNotEmpty()) {
                         ProvenanceLine(source = card.source, trainingCategory = card.trainingCategory)
                     }
-                    Text(
-                        "📍 ${if (dest == null) "Fim da nota" else "Sob “$destLabel”"}" +
-                            (if (card.placementReason.isNotEmpty() && dest == card.sectionTitle.ifEmpty { null }) " — ${card.placementReason}" else ""),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, "Detalhe")
-                }
-            }
-            if (expanded) {
-                Spacer(Modifier.height(4.dp))
-                if (!editing) {
-                    Text(body, style = MaterialTheme.typography.bodySmall)
-                } else {
-                    OutlinedTextField(
-                        value = body, onValueChange = { body = it },
-                        modifier = Modifier.fillMaxWidth().height(140.dp)
-                    )
-                }
-                if (card.snippet.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        "“${card.snippet}”",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
+                    if (!editing) {
+                        ChatMessageText(body)
+                    } else {
+                        OutlinedTextField(
+                            value = body, onValueChange = { body = it },
+                            modifier = Modifier.fillMaxWidth().height(140.dp)
+                        )
+                    }
+                    if (card.snippet.isNotBlank() && !body.contains(card.snippet.take(30))) {
+                        Spacer(Modifier.height(4.dp))
+                        ChatMessageText("> " + card.snippet)
+                    }
+            Spacer(Modifier.height(4.dp))
             if (!card.insertable) {
                 Text(
                     "Guia de estrutura — não vai para o discurso.",
@@ -286,9 +266,23 @@ fun IdeaCardRow(
                 )
                 Spacer(Modifier.height(4.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (card.insertable) {
-                    OutlinedButton(onClick = { showDest = true }) { Text("Destino") }
+                    TextButton(onClick = { onInsert(body, dest) }) {
+                        Icon(Icons.Default.Send, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Inserir")
+                    }
+                    IconButton(onClick = { editing = !editing }) {
+                        Icon(Icons.Default.Edit, if (editing) "Concluir edição" else "Editar")
+                    }
+                }
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Delete, "Descartar") }
+                Spacer(Modifier.weight(1f))
+                if (card.insertable) {
+                    TextButton(onClick = { showDest = true }) {
+                        Text("📍 " + destLabel.take(28), style = MaterialTheme.typography.labelSmall)
+                    }
                     DropdownMenu(expanded = showDest, onDismissRequest = { showDest = false }) {
                         DropdownMenuItem(
                             text = { Text("Fim da nota") },
@@ -301,18 +295,15 @@ fun IdeaCardRow(
                             )
                         }
                     }
-                    IconButton(onClick = { editing = !editing }) {
-                        Icon(Icons.Default.Edit, if (editing) "Concluir edição" else "Editar")
-                    }
-                }
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Delete, "Descartar") }
-                if (card.insertable) {
-                    Spacer(Modifier.weight(1f))
-                    Button(onClick = { onInsert(body, dest) }) { Text("Inserir") }
+                } else if (card.placementReason.isNotEmpty()) {
+                    Text(
+                        card.placementReason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
                 }
             }
         }
-    }
 }
 
 @Composable
@@ -328,12 +319,11 @@ fun DraftRow(
     onToggle: () -> Unit,
     onRemove: () -> Unit
 ) {
-    Card(
+    Column(
         Modifier.fillMaxWidth()
             .padding(start = (level * 12).dp)
     ) {
-        Column(Modifier.padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = included, onCheckedChange = { onToggle() })
                 Text("${index + 1}.", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.width(8.dp))
@@ -361,7 +351,6 @@ fun DraftRow(
                 modifier = Modifier.width(140.dp)
             )
         }
-    }
 }
 
 @Composable

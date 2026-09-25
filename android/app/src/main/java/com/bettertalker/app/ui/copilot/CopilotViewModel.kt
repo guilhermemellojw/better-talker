@@ -16,6 +16,7 @@ import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.repo.CopilotRepository
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.OutlineRepository
+import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
@@ -210,12 +211,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     /** Gera ideias para UMA seção (avulsa), substituindo as dela na lista. */
-    fun generateForSection(section: OutlineSection, neighbors: List<String>) = viewModelScope.launch {
+    fun generateForSection(
+        section: OutlineSection,
+        neighbors: List<String>,
+        subtopics: List<String> = emptyList()
+    ) = viewModelScope.launch {
         _sectionBusy.value = section.title
         try {
             val scope = refScope()
+            postSectionRefs(section)
             val cards = repo.ideasForSection(section, neighbors, _query.value, noteId,
-                scope.keys.toList(), scope)
+                scope.keys.toList(), scope, subtopics)
             _ideas.value = _ideas.value.filter { it.sectionTitle != section.title } + cards
             if (cards.isNotEmpty()) {
                 lastSection = section.title
@@ -239,7 +245,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
         val s = secs[idx]
         generateForSection(s, listOfNotNull(
-            secs.getOrNull(idx - 1)?.title, secs.getOrNull(idx + 1)?.title))
+            secs.getOrNull(idx - 1)?.title, secs.getOrNull(idx + 1)?.title),
+            childTitles(secs, idx))
     }
 
     fun dismissIdea(card: IdeaCard) {
@@ -740,6 +747,31 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())))
     }
 
+    /**
+     * Refs do corpo da seção na conversa: trechos exatos das capituladas
+     * ("Da referência") + mensagem com todas p/ baixar e citar.
+     * No máximo 1 bloco exato + 1 mensagem de refs por resposta.
+     */
+    private suspend fun postSectionRefs(target: OutlineSection) {
+        val refs = RefDetector.detect(target.title + "\n" + target.body)
+        if (refs.isEmpty()) return
+        for (ref in refs) {
+            if (RefDetector.chapterOf(ref.raw) == null) continue
+            val passages = repo.refPassages(ref, 2)
+            if (passages.isEmpty()) continue
+            val p = passages.first()
+            post(false, "text", ChatCodec.escMap(mapOf(
+                "text" to "Da referência (${ref.label}):\n“${p.passage.text.take(220)}” [${p.source}]")))
+            break
+        }
+        val statuses = repo.checkRefsList(refs)
+        if (statuses.isNotEmpty()) {
+            post(false, "refs", ChatCodec.escMap(mapOf(
+                "title" to "Referências de “${target.title}”",
+                "detected" to RefDetector.detectedToJson(statuses.map { it.ref }))))
+        }
+    }
+
     private suspend fun answerIdeas(sectionHint: String?, raw: String) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
@@ -769,8 +801,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val neighbors = listOfNotNull(
             secs.getOrNull(idx - 1)?.title, secs.getOrNull(idx + 1)?.title)
         val scope = refScope()
+        postSectionRefs(target)
         val cards = repo.ideasForSection(target, neighbors, sectionHint ?: raw, noteId,
-            scope.keys.toList(), scope)
+            scope.keys.toList(), scope, childTitles(secs, idx))
         if (cards.isEmpty()) {
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
@@ -824,8 +857,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             else -> null
         }
         val scope = refScope()
+        postSectionRefs(target)
         val cards = repo.exampleForSection(target, idx == 0, idx == secs.lastIndex, kind,
-            neighbors, noteId, scope.keys.toList(), scope)
+            neighbors, noteId, scope.keys.toList(), scope, childTitles(secs, idx))
         if (cards.isEmpty()) {
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
@@ -882,8 +916,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             secs.getOrNull(idx - 1)?.title, secs.getOrNull(idx + 1)?.title)
         val kind = exampleKindOf(ChatIntent.exampleKindHint(raw)?.takeIf { it != "any" })
         val scope = refScope()
+        postSectionRefs(target)
         val cards = repo.exampleForSection(target, idx == 0, idx == secs.lastIndex, kind,
-            neighbors, noteId, scope.keys.toList(), scope)
+            neighbors, noteId, scope.keys.toList(), scope, childTitles(secs, idx))
         if (cards.isEmpty()) {
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(

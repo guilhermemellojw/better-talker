@@ -542,7 +542,6 @@ object RefDetector {
 
     /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
     data class BibleRef(val bookNorm: String, val label: String, val chapter: Int, val verse: Int)
-
     /** Detecta menções a versículos (puro/testável). */
     fun detectBible(text: String): List<BibleRef> {
         val out = mutableListOf<BibleRef>()
@@ -556,6 +555,26 @@ object RefDetector {
             if (seen.add("$label|${ref.chapter}|${ref.verse}")) out += ref
         }
         return out
+    }
+
+    /** Capítulo/lição/estudo citado na menção (ex: "lff cap. 5" -> ("cap", 5)). Puro/testável. */
+    data class ChapterRef(val kind: String, val number: Int)
+
+    fun chapterOf(raw: String): ChapterRef? {
+        // "§" não sobrevive à normalização: trata no texto cru
+        Regex("""§\s*(\d{1,3})""").find(raw)?.let {
+            return ChapterRef("paragrafo", it.groupValues[1].toInt())
+        }
+        val t = normalizeText(raw)
+        val m = Regex("""\b(capitulo|cap|licao|estudo|paragrafo)\s*\.?\s*(\d{1,3})\b""").find(t)
+            ?: return null
+        val kind = when {
+            m.groupValues[1].startsWith("cap") -> "cap"
+            m.groupValues[1].startsWith("lic") -> "licao"
+            m.groupValues[1].startsWith("est") -> "estudo"
+            else -> "paragrafo"
+        }
+        return ChapterRef(kind, m.groupValues[2].toInt())
     }
     /** Resolve refs já detectadas (ex: salvas no esboço) contra os anexos atuais. */
     fun resolve(detected: List<DetectedRef>, attachments: List<AttachmentEntity>): List<RefStatus> {
