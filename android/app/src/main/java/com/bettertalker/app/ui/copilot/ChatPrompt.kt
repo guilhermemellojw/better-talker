@@ -39,15 +39,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.copilot.EvidenceMeta
+import com.bettertalker.app.data.copilot.QuickAction
+import com.bettertalker.app.data.copilot.glyph
+import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.ui.components.ByodNotice
 
 /** MIMEs aceitos para importar esboço (DOCX, PDF, JWPUB genérico). */
@@ -60,6 +73,10 @@ val OUTLINE_MIMES = arrayOf(
 /**
  * Barra de prompt única (estilo Gemini, box-less): campo sem contorno,
  * + e Ferramentas à esquerda, enviar em círculo à direita.
+ *
+ * Teclado: `ImeAction.Send` envia; a quebra de linha do usuário é preservada
+ * pelo campo multilinha (maxLines = 5). O botão de ação do IME substitui o
+ * Enter/Shift+Enter da web — é a equivalência mais natural do Android (§8 F15).
  */
 @Composable
 fun ChatPromptBar(
@@ -71,6 +88,8 @@ fun ChatPromptBar(
     onTools: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Vazio nunca envia; e o bloqueio some quando o turno termina — inclusive
+    // depois de erro (§24 F15).
     val canSend = input.isNotBlank() && !busy
     Surface(
         modifier = modifier.fillMaxWidth().imePadding(),
@@ -83,7 +102,7 @@ fun ChatPromptBar(
             TextField(
                 value = input,
                 onValueChange = onInput,
-                placeholder = { Text("Pergunte…") },
+                placeholder = { Text("Digite uma mensagem...") },
                 modifier = Modifier.fillMaxWidth(),
                 maxLines = 5,
                 colors = TextFieldDefaults.colors(
@@ -116,6 +135,93 @@ fun ChatPromptBar(
     }
 }
 
+/**
+ * "Fontes e apoio" — proveniência recolhível (§14 F15). Cabeçalho mostra só a
+ * contagem por trilho; os metadados vêm dos trechos reais, nunca inventados.
+ */
+@Composable
+fun ProvenanceDisclosure(
+    evidence: List<EvidenceMeta>,
+    summary: String,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier.fillMaxWidth()) {
+        TextButton(
+            onClick = { expanded = !expanded },
+            modifier = Modifier.semantics {
+                contentDescription = if (expanded)
+                    "Ocultar fontes e apoio" else "Mostrar fontes e apoio"
+            }
+        ) {
+            Text("Fontes e apoio ▸", style = MaterialTheme.typography.labelMedium)
+            Text(
+                " $summary",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
+        if (expanded) {
+            evidence.take(5).forEach { e ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Text(
+                        e.track.glyph(),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Column {
+                        Text(
+                            e.reference,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        // Categoria de técnica quando existir; nada inventado.
+                        e.category?.takeIf { it != TrainingCategory.UNKNOWN }?.let { c ->
+                            Text(
+                                "técnica: ${c.serial}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Erro do turno: texto humano já pronto, com "Fechar" e "Tentar novamente".
+ * Nada de HTTP, stack ou nome de exceção (§23 F15).
+ */
+@Composable
+fun ChatErrorRow(
+    message: String,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            // Erro é lido ao aparecer, sem sequestrar o foco do campo.
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text(
+            message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onRetry) { Text("Tentar novamente") }
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        }
+    }
+}
+
 /** Legenda discreta sob o prompt. */
 @Composable
 fun ChatCaption(modifier: Modifier = Modifier) {
@@ -127,39 +233,55 @@ fun ChatCaption(modifier: Modifier = Modifier) {
     )
 }
 
-/** Sugestões do olá: só até a primeira mensagem do usuário (somem ao conversar). */
+/**
+ * Ações locais do app (o roteador `ChatIntent` as executa). São diferentes dos
+ * atalhos da F15: aqui o texto é o comando, não uma pergunta ao Copilot.
+ */
+fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
+    listOf(
+        "Ideias para a introdução",
+        "Exemplo de introdução",
+        "Desenvolva a introdução",
+        "Resumir",
+        "Quais refs faltam?",
+        "Mostre as seções"
+    )
+} else {
+    listOf("Resumir", "Quais refs faltam?")
+}
+
+/**
+ * Atalhos da F15. Cada um vira uma mensagem de usuário e entra no MESMO
+ * pipeline do chat livre — não existe `quickAction -> prompt especial`.
+ * Somem depois da primeira mensagem do usuário.
+ */
 @Composable
-fun ChatSuggestions(
-    hasOutline: Boolean,
+fun ChatQuickActions(
+    quickActions: List<QuickAction>,
+    localActions: List<String>,
     onPick: (String) -> Unit,
     onAttach: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val texts = if (hasOutline) {
-        listOf(
-            "Ideias para a introdução",
-            "Exemplo de introdução",
-            "Desenvolva a introdução",
-            "Resumir",
-            "Quais refs faltam?",
-            "Mostre as seções"
-        )
-    } else {
-        listOf(
-            "Resumir",
-            "Quais refs faltam?"
-        )
-    }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (!hasOutline) {
-            item {
-                AssistChip(onClick = onAttach, label = { Text("Anexar esboço") })
-            }
+        if (localActions.isEmpty()) {
+            item { AssistChip(onClick = onAttach, label = { Text("Anexar esboço") }) }
         }
-        items(texts) { text ->
+        // Atalhos conversacionais primeiro: são o caminho principal da F15.
+        items(quickActions) { qa ->
+            AssistChip(
+                onClick = { onPick(qa.message) },
+                label = { Text(qa.label) },
+                // Rótulo só para leitor de tela: o clique envia a mensagem.
+                modifier = Modifier.semantics {
+                    contentDescription = qa.label + " — enviar mensagem"
+                }
+            )
+        }
+        items(localActions) { text ->
             AssistChip(onClick = { onPick(text) }, label = { Text(text) })
         }
     }

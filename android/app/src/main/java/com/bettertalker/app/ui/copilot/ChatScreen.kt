@@ -49,6 +49,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.OFFLINE_CHAT_NOTICE
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
@@ -72,6 +74,11 @@ fun ChatScreen(
 ) {
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
+    val runState by vm.runState.collectAsState()
+    val offline by vm.isOffline.collectAsState()
+    val evidence by vm.chatEvidence.collectAsState()
+    val evidenceSummary by vm.evidenceSummary.collectAsState()
+    val contextText by vm.contextLabelText.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
     val outlineInfo by vm.outlineInfo.collectAsState()
@@ -150,8 +157,11 @@ fun ChatScreen(
         bottomBar = {
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 if (showSuggestions) {
-                    ChatSuggestions(
-                        hasOutline = outlineInfo != null,
+                    // Atalhos da F15 + ações locais do app. Todos chamam o MESMO
+                    // doSend: nenhum atalho tem prompt próprio (§9 F15).
+                    ChatQuickActions(
+                        quickActions = vm.quickActions,
+                        localActions = localSuggestionTexts(outlineInfo != null),
                         onPick = { doSend(it) },
                         onAttach = { showAttach = true }
                     )
@@ -178,6 +188,16 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Rótulo de contexto: o bloco em foco, sem o usuário digitar id (§13).
+                if (messages.isNotEmpty()) {
+                    item(key = "ctx") {
+                        Text(
+                            "Contexto: $contextText",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
                 items(messages, key = { it.id }) { m ->
                     MessageBubble(
                         item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
@@ -187,14 +207,38 @@ fun ChatScreen(
                         onOpenLibrary = onOpenLibrary
                     )
                 }
-                if (busy) {
-                    item {
+                // Aviso offline: o app segue funcionando localmente (§22 F15).
+                if (offline) {
+                    item(key = "offline") {
+                        Text(
+                            OFFLINE_CHAT_NOTICE,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+                // Fontes e apoio: proveniência recolhível, discreta (§14).
+                if (evidence.isNotEmpty()) {
+                    item(key = "prov") {
+                        ProvenanceDisclosure(evidence, evidenceSummary)
+                    }
+                }
+                // Estados legíveis: nada de spinner mudo (§30 F15).
+                when (val s = runState) {
+                    is ChatRunState.Sending, is ChatRunState.Generating -> item {
                         Text(
                             "Copilot está escrevendo…",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
+                    is ChatRunState.Error -> item {
+                        ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                    }
+                    is ChatRunState.Cancelled -> item {
+                        ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                    }
+                    else -> Unit
                 }
             }
             if (unseenCount > 0 && !busy) {

@@ -10,6 +10,18 @@ import com.bettertalker.app.data.ai.RagPassage
 import com.bettertalker.app.data.ai.buildRagPrompt
 import com.bettertalker.app.data.ai.checkCitations
 import com.bettertalker.app.data.ai.hasRepetition
+import com.bettertalker.app.data.connectivity.ConnectivityObserver
+import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.EvidenceMeta
+import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
+import com.bettertalker.app.data.copilot.QUICK_ACTIONS
+import com.bettertalker.app.data.copilot.buildTurnContext
+import com.bettertalker.app.data.copilot.contextLabel
+import com.bettertalker.app.data.copilot.friendlyChatError
+import com.bettertalker.app.data.copilot.inferIntent
+import com.bettertalker.app.data.copilot.provenanceSummary
+import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
@@ -31,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -292,6 +305,76 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _noteText = MutableStateFlow("")
     private val _noteTitle = MutableStateFlow("")
 
+    // ---------- Fase 16: paridade com o chat da F15 ----------
+
+    /** Conectividade observada, sem polling (§22 F15). */
+    private val connectivity = ConnectivityObserver(app)
+    val isOffline = connectivity.online.let { flow ->
+        MutableStateFlow(false).also { mirror ->
+            viewModelScope.launch { flow.collect { mirror.value = !it } }
+        }
+    }.asStateFlow()
+
+    /**
+     * Estados de geração do turno. `Error` e `Cancelled` liberam o composer —
+     * é o bug que a F15 encontrou e corrigiu: o campo não pode ficar travado
+     * depois de uma falha.
+     */
+    private val _runState = MutableStateFlow<ChatRunState>(ChatRunState.Idle)
+    val runState = _runState.asStateFlow()
+
+    /** Mensagem que originou o turno atual, para "Tentar novamente". */
+    private var lastUserMessage: String? = null
+
+    /** Proveniência do último turno, para "Fontes e apoio" (§14 F15). */
+    private val _chatEvidence = MutableStateFlow<List<EvidenceMeta>>(emptyList())
+    val chatEvidence = _chatEvidence.asStateFlow()
+
+    val evidenceSummary: kotlinx.coroutines.flow.StateFlow<String> =
+        MutableStateFlow(provenanceSummary(emptyList())).also { s ->
+            viewModelScope.launch { _chatEvidence.collect { s.value = provenanceSummary(it) } }
+        }.asStateFlow()
+
+    /** Rótulo de contexto mostrado acima da conversa (§13 F15). */
+    val contextLabelText: kotlinx.coroutines.flow.StateFlow<String> =
+        MutableStateFlow(contextLabel(null, null)).also { s ->
+        viewModelScope.launch {
+            combine(_noteTitle, _activeBlockTitle) { title, block -> contextLabel(block, title) }
+                .collect { s.value = it }
+        }
+    }.asStateFlow()
+
+    private val _activeBlockTitle = MutableStateFlow<String?>(null)
+
+    /** Bloco em foco; o usuário nunca digita id de bloco. */
+    val activeBlockTitle = _activeBlockTitle.asStateFlow()
+
+    /** Prompt do último turno. Fica disponível para inspeção e teste. */
+    private val _lastPrompt = MutableStateFlow("")
+    val lastPrompt = _lastPrompt.asStateFlow()
+
+    /** Sugestões de continuação da F15, para reuso na UI. */
+    val followUps: List<String> = FOLLOW_UP_SUGGESTIONS
+
+    /** Atalhos da F15 — todos entram pelo mesmo `send()`. */
+    val quickActions = QUICK_ACTIONS
+
+    fun setActiveBlock(title: String?) {
+        _activeBlockTitle.value = title?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** Dispensa o erro e devolve o composer. */
+    fun dismissError() {
+        _runState.value = ChatRunState.Idle
+    }
+
+    /** Reenvia a última mensagem pelo mesmo pipeline. */
+    fun retry() {
+        val msg = lastUserMessage ?: return
+        dismissError()
+        send(msg)
+    }
+
     val messages = if (noteId != null) {
         db.chatDao().observe(noteId).map { list ->
             list.map { e ->
@@ -347,9 +430,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val outline = nid?.let { outlines.get(it) }
         val secs = if (outline != null) OutlineParser.fromJson(outline.sectionsJson) else emptyList()
         val missing = repo.missingBases().map { repo.baseTitle(it) }
-        val sb = StringBuilder("Olá! Vamos desenvolver “$title” juntos. Sou seu assistente de oratória (100% offline).")
+        // Abertura da F15: convite, não formulário. O usuário não escolhe
+        // intent, fonte nem provider — escreve e o pipeline resolve.
+        val sb = StringBuilder("Como posso ajudar com este discurso?\n\n")
+        sb.append("Escreva o que você quer. Eu cuido do contexto, das fontes e do bloco em foco.")
         if (secs.isNotEmpty()) {
-            sb.append("\n\nEsboço com ${secs.size} seções — peça ideias por seção ou pergunte sobre um tema.")
+            sb.append("\n\nEsboço com ${secs.size} seções — sigo a linha de raciocínio dele.")
         } else {
             sb.append("\n\nToque no + abaixo para importar ou colar o esboço — assim sigo a linha de raciocínio.")
         }
@@ -429,14 +515,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Últimos títulos da nota que geraram sugestão de sync (não repete). */
     private var syncSuggestKey: String? = null
 
+    /**
+     * Ponto de entrada ÚNICO da conversa (§4 F15): mensagem livre, quick action
+     * e sugestão de continuação entram todos por aqui, com o mesmo contexto.
+     * Não há caminho alternativo que monte prompt diferente.
+     */
     fun send(raw: String) {
-        val text = raw.trim()
-        if (text.isEmpty() || noteId == null) return
+        // Mensagem vazia nunca sai: mesmo gate do web.
+        val text = validateOutgoingMessage(raw) ?: return
+        if (noteId == null) return
         // mínimo anti rajada/toque duplo: a UI também desabilita o envio com chatBusy
         if (_chatBusy.value) return
+        lastUserMessage = text
         viewModelScope.launch {
+            _runState.value = ChatRunState.Sending
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
+            // A intenção é interna: escolhe a trilha de recuperação e o foco do
+            // prompt, e nunca é exibida ao usuário.
+            val intent = inferIntent(text, isFirstTurn())
+            val turnContext = buildTurnFor(text, intent.trainingCategory)
+            _lastPrompt.value = turnContext.prompt
+            _chatEvidence.value = turnContext.evidence
+            _runState.value = ChatRunState.Generating
             try {
                 sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -474,11 +575,70 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                             ChatCodec.escMap(mapOf("text" to "Por nada! Seguimos juntos no discurso. 🙌")))
                     }
                 }
-            } catch (_: Exception) {
-                postText("Algo falhou aqui no aparelho. Tente de novo em instantes.")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Cancelamento não é erro: o discurso fica intacto e o
+                // composer volta (§25 F15).
+                _runState.value = ChatRunState.Cancelled()
+                throw e
+            } catch (e: Exception) {
+                // Só texto humano. Nem HTTP, nem stack, nem nome de exceção.
+                val msg = friendlyChatError(e)
+                _runState.value = ChatRunState.Error(msg)
+                postText(msg)
             } finally {
+                // O composer SEMPRE destrava aqui — inclusive depois de erro.
                 _chatBusy.value = false
+                if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
+                    _runState.value = ChatRunState.Success
+                }
             }
+        }
+    }
+
+    /** Esta é a primeira mensagem do usuário? Decide a linha de continuidade. */
+    private suspend fun isFirstTurn(): Boolean {
+        val nid = noteId ?: return true
+        return db.chatDao().all(nid).none { it.fromMe }
+    }
+
+    /**
+     * Contexto do turno: bloco em foco, histórico e as trilhas separadas.
+     * CONTENT responde pelo "quê"; TRAINING só pelo "como apresentar" e nunca
+     * entra como fonte factual.
+     */
+    private suspend fun buildTurnFor(
+        text: String,
+        trainingCategory: com.bettertalker.app.data.domain.TrainingCategory?
+    ): com.bettertalker.app.data.copilot.ChatTurnContext {
+        val scope = refScope()
+        val hits = repo.askScoped(
+            _activeBlockTitle.value ?: text, noteId,
+            extraIds = scope.keys.toList(), extraLabels = scope
+        )
+        val (guide, content) = com.bettertalker.app.data.repo.partitionGuideHits(hits)
+        // Verificação factual pede CONTENT: treinamento fora, sempre.
+        val training = if (trainingCategory == null) emptyList() else guide
+        return buildTurnContext(
+            message = text,
+            history = conversationTurns(),
+            isFirstMessage = isFirstTurn(),
+            contentHits = content,
+            trainingHits = training,
+            blockTitle = _activeBlockTitle.value,
+            blockMinutes = null,
+            blockText = _activeBlockTitle.value ?: _noteText.value.take(2000)
+        )
+    }
+
+    /** Conversa anterior para continuidade, na janela da F15. */
+    private suspend fun conversationTurns(): List<ChatTurn> {
+        val nid = noteId ?: return emptyList()
+        return db.chatDao().all(nid).mapNotNull { e ->
+            val t = when (e.kind) {
+                "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
+                else -> e.kind
+            }
+            if (t.isBlank()) null else ChatTurn(e.fromMe, t)
         }
     }
 
