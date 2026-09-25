@@ -63,3 +63,16 @@ nenhum arquivo `android/` será alterado).
 2. `feat(ux): copilot quick actions first + first-use hint` (P1/P2).
 3. `feat(ux): add/remove speech blocks manually` (P1).
 4. `feat(ux): responsive header + teleprompter ppm microcopy` (P1/P2).
+
+## Resultados (pós-implementação)
+
+- Testes: 169/169 verdes; build verde; lint 0 erros (6 warnings pré-existentes,
+  um só mudou de linha pelo deslocamento do próprio fix).
+- Screenshots desktop 1440px e mobile 390px (Chrome headless, perfil limpo):
+  sem modal no boot; Tom + Ações rápidas logo após o contexto; hint visível;
+  header mobile com ações em rolagem só-ícones.
+- Android: nenhum arquivo `android/` alterado; sem impacto (coerência por
+  inspeção de diff).
+- Backlog pós-fase (não implementado): edição de título/minutos por bloco,
+  onboarding guiado, agrupamento semântico, diff por palavra, WPM avançado,
+  DOCX, analyzer Kotlin.
