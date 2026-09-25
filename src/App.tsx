@@ -7,6 +7,7 @@ import {
   extractPlainTextFromHtml,
 } from './services/rhetoricEngine';
 import { parseOutline } from './services/outlineParser';
+import { applyBlockPatch } from './services/speechBlocks';
 import { getRelevantEvidence, passagesToContextStrings, candidatesToMeta, type EvidenceMeta } from './copilot/retrieval';
 import { buildContextPack } from './copilot/contextPack';
 import { applyEditProposal } from './copilot/editProposal';
@@ -153,10 +154,10 @@ export function App() {
 
   const handleBlockChange = (blockId: string, patch: Partial<SpeechBlock>) => {
     if (!activeSpeech) return;
-    const updatedBlocks = activeSpeech.blocks.map((b) =>
-      b.id === blockId ? { ...b, ...patch } : b
-    );
-    handleSpeechChange({ blocks: updatedBlocks });
+    // P0 Fase 12: UMA única atualização (dois setState com base obsoleta
+    // anulavam os blocos no batch do React e a digitação nunca persistia).
+    const { blocks, contentHtml } = applyBlockPatch(activeSpeech, blockId, patch);
+    handleSpeechChange({ blocks, contentHtml });
   };
 
   const handleNewSpeech = async () => {

@@ -82,10 +82,9 @@ export const BlockEditorTabs = ({
     const newHtml = editorRef.current.innerHTML;
     lastHtmlRef.current = newHtml;
     const plainText = newHtml.replace(/<[^>]+>/g, '').replace(/\u00A0/g, ' ').trim();
+    // P0 Fase 12: UMA única atualização — o espelho speech-level é derivado
+    // em App.handleBlockChange (duas chamadas anulavam os blocos no batch).
     onBlockChange(activeBlock.id, { contentHtml: newHtml, plainText });
-    onSpeechChange({
-      contentHtml: speech.blocks.map((b) => b.id === activeBlock.id ? `<h2>${b.title}</h2><p>${b.plainText}</p>` : b.contentHtml).join('<hr/>'),
-    });
   };
 
   const handleFormat = (command: string, value: string = '') => {
