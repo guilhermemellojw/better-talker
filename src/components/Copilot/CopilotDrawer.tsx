@@ -69,6 +69,9 @@ export const CopilotDrawer = ({
   const [verification, setVerification] = useState<TextVerification | null>(null);
   const [verifiedHash, setVerifiedHash] = useState<string | null>(null);
   const [proposalVerification, setProposalVerification] = useState<TextVerification | null>(null);
+  // Fase 12: feedback visível quando verificação/análise falham (nunca silêncio).
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null);
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
   // Fase 9: análise estrutural local (sem nota global, sem juízo absoluto).
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<SpeechAnalysis | null>(null);
@@ -227,6 +230,7 @@ export const CopilotDrawer = ({
     const text = activeBlock?.plainText || '';
     if (!text.trim()) return;
     setVerifying(true);
+    setVerifyNotice(null);
     try {
       const scope = await buildScopeFromLibrary();
       const result = await verifyText({
@@ -239,6 +243,7 @@ export const CopilotDrawer = ({
       setVerifiedHash(hashText(text));
     } catch (err) {
       console.error(err);
+      setVerifyNotice('Não foi possível verificar agora (acervo indisponível). Tente novamente.');
     } finally {
       setVerifying(false);
     }
@@ -263,6 +268,7 @@ export const CopilotDrawer = ({
       setProposalVerification(result);
     } catch (err) {
       console.error(err);
+      setProposalNotice('Não foi possível verificar agora (acervo indisponível). Tente novamente.');
     } finally {
       setVerifying(false);
     }
@@ -276,10 +282,12 @@ export const CopilotDrawer = ({
   /** Fase 9: análise estrutural local do discurso inteiro (sem LLM). */
   const handleAnalyze = () => {
     setAnalyzing(true);
+    setAnalysisNotice(null);
     try {
       setAnalysis(analyzeSpeech(speech, { wpm: speech.targetWpm || 130 }));
     } catch (err) {
       console.error(err);
+      setAnalysisNotice('Não foi possível analisar agora. Tente novamente.');
     } finally {
       setAnalyzing(false);
     }
@@ -410,6 +418,11 @@ export const CopilotDrawer = ({
             <span className="btn-title">{verifying ? 'Verificando...' : 'Verificar fidelidade'}</span>
             <span className="btn-desc">Suporte nas fontes · sem juízo absoluto</span>
           </button>
+          {verifyNotice && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: '0.5rem' }}>
+              {verifyNotice}
+            </div>
+          )}
           {verification && (
             <div className="ai-result-box" style={{ marginTop: '0.5rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>
@@ -458,6 +471,11 @@ export const CopilotDrawer = ({
             <span className="btn-title">{analyzing ? 'Analisando...' : 'Análise do discurso'}</span>
             <span className="btn-desc">Estrutura e tempo · sem nota global</span>
           </button>
+          {analysisNotice && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: '0.5rem' }}>
+              {analysisNotice}
+            </div>
+          )}
           {analysis && (
             <div className="ai-result-box" style={{ marginTop: '0.5rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>

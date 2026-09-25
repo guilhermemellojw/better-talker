@@ -71,6 +71,16 @@ class BetterTalkerDB extends Dexie {
       passages: 'id, pubId, normalizedText, source_type, symbol, order',
       settings: 'key',
     });
+    // Fase 12 (UX-P0-02): getAllPublications ordena por addedAt — o índice
+    // não existia e o Dexie lançava SchemaError, quebrando Biblioteca,
+    // verificação e retrieval ambiente. Upgrade aditivo, sem perda.
+    this.version(4).stores({
+      speeches: 'id, updatedAt, sourceFileName',
+      blocks: 'id, speechId, order',
+      publications: 'id, fileName, indexed, symbol, source_type, addedAt',
+      passages: 'id, pubId, normalizedText, source_type, symbol, order',
+      settings: 'key',
+    });
   }
 }
 
