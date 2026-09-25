@@ -77,6 +77,8 @@ dependencies {
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 
     testImplementation "junit:junit:${rootProject.ext.junitVersion}"
+    // Fase 10: SQLite real na JVM para validar o SQL das migrations (sem Android).
+    testImplementation 'org.xerial:sqlite-jdbc:3.41.2.2'
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
 

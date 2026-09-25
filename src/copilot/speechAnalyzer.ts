@@ -131,6 +131,7 @@ export interface AnalysisCache {
   get(key: string): SpeechAnalysis | null;
   put(key: string, value: SpeechAnalysis): void;
   clear(): void;
+  size(): number;
 }
 
 function createCache(limit = 50): AnalysisCache {
@@ -145,6 +146,7 @@ function createCache(limit = 50): AnalysisCache {
       }
     },
     clear: () => map.clear(),
+    size: () => map.size,
   };
 }
 

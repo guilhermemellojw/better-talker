@@ -59,6 +59,11 @@ export function clearVerificationCache(): void {
   verifyCache.clear();
 }
 
+/** Hook de observabilidade para testes de limite (Fase 10). */
+export function verificationCacheSize(): number {
+  return verifyCache.size;
+}
+
 function toEvidence(claimId: string, hit: RetrievalCandidate, support: ClaimEvidence['support'], reason?: string): ClaimEvidence {
   const p = hit.passage;
   return {

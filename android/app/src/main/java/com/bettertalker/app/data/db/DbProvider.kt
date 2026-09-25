@@ -89,17 +89,7 @@ object DbProvider {
      */
     private val MIGRATION_9_10 = object : Migration(9, 10) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE attachments ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'content'")
-            db.execSQL("ALTER TABLE attachments ADD COLUMN symbol TEXT")
-            db.execSQL("ALTER TABLE passages ADD COLUMN ref TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE passages ADD COLUMN page INTEGER")
-            db.execSQL("ALTER TABLE passages ADD COLUMN paragraph INTEGER")
-            db.execSQL("ALTER TABLE passages ADD COLUMN ord INTEGER NOT NULL DEFAULT 0")
-            db.execSQL("ALTER TABLE passages ADD COLUMN trainingCategory TEXT")
-            db.execSQL("CREATE INDEX IF NOT EXISTS index_attachments_baseSlot ON attachments(baseSlot)")
-            db.execSQL("CREATE INDEX IF NOT EXISTS index_passages_attachmentId ON passages(attachmentId)")
-            db.execSQL("UPDATE attachments SET sourceType = 'training' WHERE baseSlot IN ('be', 'th')")
-            db.execSQL("UPDATE attachments SET sourceType = 'bible' WHERE baseSlot = 'nwt'")
+            for (sql in MigrationSql.MIGRATION_9_10) db.execSQL(sql)
         }
     }
 
