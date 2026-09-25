@@ -129,6 +129,29 @@
   padding: 0.8rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
+  order: 1;
+}
+
+/* Fase 11: fluxo principal primeiro (Tom → Ações), verificações depois.
+   Só apresentação: nenhuma lógica/JSX foi movida. */
+.copilot-section-actions {
+  order: 2;
+}
+
+.copilot-section-verify {
+  order: 3;
+}
+
+.copilot-section-analysis {
+  order: 4;
+}
+
+.copilot-section-edit {
+  order: 5;
+}
+
+.copilot-section-output {
+  order: 6;
 }
 
 .tone-picker-label {

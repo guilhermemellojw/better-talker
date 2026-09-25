@@ -390,8 +390,14 @@ export const CopilotDrawer = ({
             ))}
           </div>
         )}
+        <div
+          style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginBottom: '0.5rem' }}
+          title="Como usar o Copilot"
+        >
+          Escolha um tom e uma ação abaixo — nada muda no seu texto sem o seu Aceitar.
+        </div>
         {/* Verificação de fidelidade (Fase 6, sob demanda) */}
-        <div style={{ marginBottom: '0.5rem' }}>
+        <div className="copilot-section-verify" style={{ marginBottom: '0.5rem' }}>
           <button
             type="button"
             className="ai-action-btn"
@@ -439,7 +445,7 @@ export const CopilotDrawer = ({
           )}
         </div>
         {/* Análise do discurso (Fase 9, local) */}
-        <div style={{ marginBottom: '0.5rem' }}>
+        <div className="copilot-section-analysis" style={{ marginBottom: '0.5rem' }}>
           <button
             type="button"
             className="ai-action-btn"
@@ -540,7 +546,7 @@ export const CopilotDrawer = ({
         </div>
 
         {/* Quick Action Grid */}
-        <div>
+        <div className="copilot-section-actions">
           <span className="tone-picker-label" style={{ display: 'block', marginBottom: '0.4rem' }}>
             Ações Rápidas de Palco:
           </span>
@@ -592,7 +598,7 @@ export const CopilotDrawer = ({
         </div>
 
         {/* Edição assistida (Fase 5): o modelo propõe, o usuário decide */}
-        <div>
+        <div className="copilot-section-edit">
           <span className="tone-picker-label" style={{ display: 'block', marginBottom: '0.4rem' }}>
             Edição assistida — alvo: {activeBlock?.title || 'nenhum bloco'}
           </span>
@@ -702,6 +708,7 @@ export const CopilotDrawer = ({
         {/* Loading Indicator */}
         {isLoading && (
           <div
+            className="copilot-section-output"
             style={{
               padding: '1.5rem',
               textAlign: 'center',
@@ -728,7 +735,7 @@ export const CopilotDrawer = ({
 
         {/* AI Action Result Box */}
         {resultText && !isLoading && (
-          <div className="ai-result-box">
+          <div className="ai-result-box copilot-section-output">
             <div className="ai-result-header">
               <h4>{resultTitle}</h4>
               {resultMeta && (
@@ -758,7 +765,7 @@ export const CopilotDrawer = ({
         )}
 
         {/* Real-time Offline Suggestions Cards */}
-        <div>
+        <div className="copilot-section-output">
           <span className="tone-picker-label" style={{ display: 'block', marginBottom: '0.6rem' }}>
             Dicas Retóricas em Tempo Real ({offlineSuggestions.length}):
           </span>
