@@ -3,9 +3,9 @@
 // null = só conteúdo (ex: pedir base bíblica nunca toca BE/TH).
 
 import type { EditProposalMode, TrainingCategory } from './domain';
-import type { LlmAction } from './llmProvider';
+import type { ChatLlmAction } from './llmProvider';
 
-export function trainingCategoryForAction(action: LlmAction): TrainingCategory | null {
+export function trainingCategoryForAction(action: ChatLlmAction): TrainingCategory | null {
   switch (action) {
     case 'hook':
       return 'introduction';
@@ -17,6 +17,10 @@ export function trainingCategoryForAction(action: LlmAction): TrainingCategory |
       return 'delivery';
     case 'shorten':
       return 'clarity';
+    case 'chat':
+      // Fase 15: no chat, o trilho vem da intenção inferida (chatEngine),
+      // nunca desta função — retorna null para não tocar BE/TH sem critério.
+      return null;
   }
 }
 

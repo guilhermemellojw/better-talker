@@ -9,11 +9,12 @@ import {
   DEFAULT_LLM_MAX_ATTEMPTS,
   DEFAULT_LLM_TIMEOUT_MS,
   type LlmProvider,
+  type ChatLlmAction,
   type LlmRequest,
   type LlmResponse,
 } from './llmProvider';
 
-function getOfflineSimulatedResponse(action: string, text: string, tone: string): string {
+function getOfflineSimulatedResponse(action: ChatLlmAction, text: string, tone: string): string {
   switch (action) {
     case 'hook':
       return `### 🎙️ 3 Ganchos Sugeridos pelo Copilot (Modo Offline):\n\n1. **Provocação Direta:** "Se tudo o que você aprendeu sobre esse tema estivesse errado nos últimos 5 anos... por onde você recomeçaria?"\n2. **Paradoxo Humano:** "Nós vivemos na era com maior volume de comunicação da história da humanidade, mas nunca nos sentimos tão pouco escutados."\n3. **Ponto de Tensão:** "O maior erro não é falar em público. O maior erro é ter algo valioso a dizer e escolher o conforto do silêncio."`;
@@ -25,6 +26,9 @@ function getOfflineSimulatedResponse(action: string, text: string, tone: string)
       return `### 🎭 Sugestão com Marcadores de Palco Inseridos:\n\n"${text.slice(0, 80)} <span class="stage-cue-badge cue-pause" data-cue-type="pause-2s" contenteditable="false">⏸ 2s Pausa</span> ${text.slice(80, 160)} <span class="stage-cue-badge cue-emphasis" data-cue-type="emphasis" contenteditable="false">⚡ Ênfase Máxima</span> ${text.slice(160)} <span class="stage-cue-badge cue-eye" data-cue-type="eye-contact" contenteditable="false">👁 Olhar Plateia</span>"`;
     case 'shorten':
       return `### ⚡ Versão Concisa e Direta:\n\n"${text.split('. ')[0] || text}. Seja direto. Seja autêntico. A plateia agradece a objetividade."`;
+    case 'chat':
+      // Fase 15: offline local mantém resposta útil e honesta sobre a limitação.
+      return `Modo offline: não tenho acesso ao assistente remoto agora, mas posso ajudar localmente.\n\nSobre "${text.slice(0, 120)}${text.length > 120 ? '…' : ''}": uma técnica de apresentação que costuma ajudar é reescrever em frases curtas, com uma ideia por frase, e marcar onde fazer pausa. Use as Dicas Retóricas abaixo e a Análise do discurso — tudo funciona sem conexão.`;
     default:
       return `Texto analisado com sucesso pelo Copilot de Oratória.`;
   }
@@ -54,6 +58,28 @@ export class GeminiProvider implements LlmProvider {
 
     // Modo offline explícito: só quando NÃO há chave (§12).
     if (!this.apiKey || this.apiKey.trim() === '') {
+      // Fase 15: proposta de edição offline é determinística e honesta —
+      // reescrita com o texto preservado; conteúdo novo exige remoto.
+      if (request.responseFormat === 'edit-proposal' && request.editMode) {
+        if (request.editMode === 'insert') {
+          throw new ProviderError(
+            'unavailable',
+            'Sugestões de conteúdo novo precisam do assistente remoto. Configure a chave de IA nas Configurações.',
+            this.id,
+            0,
+          );
+        }
+        const safe = request.text.slice(0, 4000).replace(/\s+/g, ' ').trim();
+        const offlineProposalJson = JSON.stringify({
+          explanation: 'Modo offline: nenhuma nova versão foi criada — o texto atual é mantido como está. Configure a chave de IA para sugestões de reescrita.',
+          operations: [{ type: 'replace', content: `<p>${safe}</p>` }],
+        });
+        const offlineProposal = '```json\n' + offlineProposalJson + '\n```';
+        return {
+          text: offlineProposal,
+          meta: { providerId: this.id, model: `${this.model}+offline`, durationMs: Date.now() - started, attempts: 0, offline: true },
+        };
+      }
       return {
         text: getOfflineSimulatedResponse(request.action, request.text, tone),
         meta: { providerId: this.id, model: `${this.model}+offline`, durationMs: Date.now() - started, attempts: 0, offline: true },

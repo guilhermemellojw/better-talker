@@ -2,15 +2,15 @@
 // Respostas fixas por ação; falha injetável via constructor.
 
 import { ProviderError } from './llmErrors';
-import type { LlmAction, LlmProvider, LlmRequest, LlmResponse } from './llmProvider';
+import type { ChatLlmAction, LlmProvider, LlmRequest, LlmResponse } from './llmProvider';
 
 export class FakeLlmProvider implements LlmProvider {
   readonly id = 'fake';
   readonly model = 'fake-1';
-  private script: Partial<Record<LlmAction, string>>;
+  private script: Partial<Record<ChatLlmAction, string>>;
   private failWith?: ProviderError;
 
-  constructor(script: Partial<Record<LlmAction, string>> = {}, failWith?: ProviderError) {
+  constructor(script: Partial<Record<ChatLlmAction, string>> = {}, failWith?: ProviderError) {
     this.script = script;
     this.failWith = failWith;
   }

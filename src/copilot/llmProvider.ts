@@ -3,14 +3,23 @@
 // Permite trocar Qwen local/remoto, Gemini, ou fakes sem alterar domínio/UI.
 
 import type { ContextPack } from './domain';
+import type { ChatBrief } from './chatEngine';
 
 export type LlmAction = 'hook' | 'rewrite' | 'critique' | 'cues' | 'shorten';
+/** Fase 15: chat livre — roteado internamente por intent; UI nunca pede action. */
+export type ChatLlmAction = LlmAction | 'chat';
 
 export type LlmTone = 'ted' | 'pitch' | 'motivational' | 'academic' | 'humorous';
 
 export interface LlmRequest {
   text: string;
-  action: LlmAction;
+  action: ChatLlmAction;
+  /**
+   * Fase 15: contexto de conversa (histórico limitado + continuidade) do chat
+   * livre. Só relevante com action 'chat'; providers apenas o encaminham ao
+   * prompt builder compartilhado.
+   */
+  chat?: ChatBrief;
   tone?: LlmTone;
   contextPack?: ContextPack;
   /** Legado: lista plana de trechos. Preferir contextPack. */
