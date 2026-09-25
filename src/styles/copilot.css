@@ -1,4 +1,6 @@
-/* Copilot Sidebar & Mobile Drawer */
+/* Copilot Sidebar & Mobile Drawer — Fase 17: editor-first.
+   O painel é um overlay em TODAS as larguras: fechado, o editor ocupa a
+   tela inteira; aberto, ele desliza por cima sem remover o editor. */
 .copilot-panel {
   width: 380px;
   background: var(--bg-surface);
@@ -6,25 +8,72 @@
   display: flex;
   flex-direction: column;
   height: calc(100vh - 64px - 44px);
-  position: relative;
-  z-index: 30;
+  position: fixed;
+  right: 0;
+  top: 64px;
+  bottom: 44px;
+  z-index: 40;
+  box-shadow: var(--shadow-lg);
   transition: transform var(--transition-normal);
+  transform: translateX(100%);
 }
 
-@media (max-width: 900px) {
-  .copilot-panel {
-    position: fixed;
-    right: 0;
-    top: 64px;
-    bottom: 44px;
-    width: 100%;
-    max-width: 400px;
-    box-shadow: var(--shadow-lg);
-    transform: translateX(100%);
+.copilot-panel.open {
+  transform: translateX(0);
+}
+
+/* F17: botão flutuante do Copilot. Sempre acessível, discreto, não cobre
+   texto nem controles essenciais. É o principal ponto de entrada. */
+.copilot-fab {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 3.75rem;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-elevated);
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-fast);
+}
+
+.copilot-fab:hover {
+  background: var(--primary);
+  color: var(--text-inverse);
+  transform: translateY(-2px);
+}
+
+.copilot-fab:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+/* F17: teclado acessível — o botão é um <button> nativo, então Enter/Espaço
+   funcionam. Em telas estreitas o rótulo some e sobra só o ícone. */
+@media (max-width: 390px) {
+  .copilot-fab {
+    padding: 0.7rem;
+    right: 0.9rem;
+    bottom: 3.25rem;
   }
 
-  .copilot-panel.open {
-    transform: translateX(0);
+  .copilot-fab-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
   }
 }
 

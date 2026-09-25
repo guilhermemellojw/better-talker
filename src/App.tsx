@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { Sparkles } from 'lucide-react';
 import type { Speech, AppSettings, SpeechBlock } from './types/speech';
 import { speechStorage } from './services/db';
 import {
@@ -36,7 +37,7 @@ export function App() {
   });
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isCopilotOpen, setIsCopilotOpen] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [speechListOpen, setSpeechListOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -44,6 +45,8 @@ export function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [contextPassages, setContextPassages] = useState<string[]>([]);
   const [evidenceMeta, setEvidenceMeta] = useState<EvidenceMeta[]>([]);
+  // F17: texto selecionado no editor → contexto automático do Copilot.
+  const [selectedText, setSelectedText] = useState('');
   // Histórico de propostas aceitas do Copilot (Fase 5), um por discurso.
   const [histories] = useState(() => new Map<string, EditHistory>());
   // Re-render para atualizar canUndo/canRedo após push/undo/redo.
@@ -304,6 +307,7 @@ export function App() {
           onActiveBlockChange={setActiveBlockId}
           onBlockChange={handleBlockChange}
           onSpeechChange={handleSpeechChange}
+          onSelectionChange={setSelectedText}
         />
 
         <CopilotDrawer
@@ -319,8 +323,24 @@ export function App() {
           onSelectBlock={(id) => setActiveBlockId(id)}
           contextPassages={contextPassages}
           evidenceMeta={evidenceMeta}
+          selectedText={selectedText}
         />
       </main>
+
+        {/* F17: botão flutuante do Copilot — sempre acessível, discreto,
+             editor permanece utilizável sem ele. */}
+        {!isCopilotOpen && (
+          <button
+            type="button"
+            className="copilot-fab"
+            onClick={() => setIsCopilotOpen(true)}
+            aria-label="Abrir Copilot"
+            title="Copilot — ajuda contextual"
+          >
+            <Sparkles size={20} />
+            <span className="copilot-fab-label">Copilot</span>
+          </button>
+        )}
 
       <SpeechMetricsBar
         metrics={metrics}

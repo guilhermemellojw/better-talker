@@ -178,8 +178,18 @@ export const QUICK_ACTIONS: QuickAction[] = [
   { id: 'verify', label: 'Verificar', message: 'Confira se isso tem apoio nas fontes.' },
 ];
 
-/** Rótulo simples de contexto para a UI (§37): nada de ids técnicos. */
-export function contextLabel(blockTitle?: string, speechTitle?: string): string | null {
+/**
+ * Rótulo simples de contexto para a UI (§37): nada de ids técnicos.
+ * F17 (§11): prioridade seleção explícita > bloco ativo > contexto do
+ * discurso. Parâmetros antigos continuam funcionando (retrocompatível).
+ */
+export function contextLabel(
+  blockTitle?: string,
+  speechTitle?: string,
+  selectedText?: string,
+): string | null {
+  const sel = selectedText?.trim();
+  if (sel) return `Contexto: trecho selecionado`;
   if (blockTitle && blockTitle.trim()) return `Contexto: ${blockTitle.trim()}`;
   if (speechTitle && speechTitle.trim()) return `Contexto: ${speechTitle.trim()}`;
   return null;

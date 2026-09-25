@@ -11,6 +11,7 @@ interface BlockEditorTabsProps {
   onActiveBlockChange: (blockId: string) => void;
   onBlockChange: (blockId: string, patch: Partial<SpeechBlock>) => void;
   onSpeechChange: (patch: Partial<Speech>) => void;
+  onSelectionChange?: (selectedText: string) => void;
 }
 
 export const BlockEditorTabs = ({
@@ -19,6 +20,7 @@ export const BlockEditorTabs = ({
   onActiveBlockChange,
   onBlockChange,
   onSpeechChange,
+  onSelectionChange,
 }: BlockEditorTabsProps) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastHtmlRef = useRef<string>('');
@@ -67,6 +69,11 @@ export const BlockEditorTabs = ({
     const sel = window.getSelection();
     if (sel && sel.rangeCount > 0) {
       savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+    }
+    // F17: expor o texto selecionado para o Copilot usar como contexto.
+    if (onSelectionChange) {
+      const text = sel?.toString().trim() || '';
+      onSelectionChange(text);
     }
   };
 

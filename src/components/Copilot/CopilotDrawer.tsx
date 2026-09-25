@@ -48,6 +48,7 @@ interface CopilotDrawerProps {
   onSelectBlock?: (blockId: string) => void;
   contextPassages?: string[];
   evidenceMeta?: EvidenceMeta[];
+  selectedText?: string;
 }
 
 export const CopilotDrawer = ({
@@ -63,6 +64,7 @@ export const CopilotDrawer = ({
   onSelectBlock,
   contextPassages = [],
   evidenceMeta = [],
+  selectedText = '',
 }: CopilotDrawerProps) => {
   const [activeTone, setActiveTone] = useState<'ted' | 'pitch' | 'motivational' | 'academic' | 'humorous'>('ted');
   const [isLoading, setIsLoading] = useState(false);
@@ -497,10 +499,18 @@ export const CopilotDrawer = ({
           <Sparkles size={20} style={{ color: 'var(--primary)' }} />
           <div>
             <h3>Copilot de Oratória</h3>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-              {metrics.wordCount} palavras • {metrics.formattedEstimatedTime}
+            {/* F17: contexto automático — bloco ou trecho selecionado */}
+            <span style={{ fontSize: '0.72rem', color: 'var(--primary)' }}>
+              {selectedText
+                ? contextLabel(undefined, undefined, selectedText)
+                : activeBlock
+                  ? contextLabel(activeBlock.title)
+                  : ''}
             </span>
           </div>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+            {metrics.wordCount} palavras • {metrics.formattedEstimatedTime}
+          </span>
           <span className={`copilot-mode-badge ${hasApiKey ? 'gemini' : 'offline'}`}>
             {hasApiKey ? '✨ Gemini AI' : '⚡ Motor Offline'}
           </span>
