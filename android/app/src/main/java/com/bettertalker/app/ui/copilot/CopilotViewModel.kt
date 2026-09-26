@@ -335,6 +335,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             viewModelScope.launch { _chatEvidence.collect { s.value = provenanceSummary(it) } }
         }.asStateFlow()
 
+    private val _activeBlockTitle = MutableStateFlow<String?>(null)
+
+    /** Bloco em foco; o usuário nunca digita id de bloco. */
+    val activeBlockTitle = _activeBlockTitle.asStateFlow()
+
     /** Rótulo de contexto mostrado acima da conversa (§13 F15). */
     val contextLabelText: kotlinx.coroutines.flow.StateFlow<String> =
         MutableStateFlow(contextLabel(null, null)).also { s ->
@@ -343,11 +348,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 .collect { s.value = it }
         }
     }.asStateFlow()
-
-    private val _activeBlockTitle = MutableStateFlow<String?>(null)
-
-    /** Bloco em foco; o usuário nunca digita id de bloco. */
-    val activeBlockTitle = _activeBlockTitle.asStateFlow()
 
     /** Prompt do último turno. Fica disponível para inspeção e teste. */
     private val _lastPrompt = MutableStateFlow("")
