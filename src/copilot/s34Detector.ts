@@ -99,23 +99,37 @@ export function hasS34Marker(text: string): boolean {
   return MARKER_RE.test(text);
 }
 
-/** Versículos por extenso ("João 17:17"); chaves validadas na tabela. */
-export function detectBibleVerses(text: string): string[] {
-  const out: string[] = [];
+export interface S34VerseRef {
+  book: string;
+  label: string;
+  chapter: number;
+  verse: number;
+  raw: string;
+}
+
+/** Versículos por extenso com estrutura (o parser S-34 consome este). */
+export function detectBibleVerseRefs(text: string): S34VerseRef[] {
+  const out: S34VerseRef[] = [];
   const seen = new Set<string>();
   VERSE_SHAPE_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = VERSE_SHAPE_RE.exec(text)) !== null) {
-    const key = normalizeTokenText(m[1]).replace(/ /g, '');
-    const label = BIBLE_BOOKS_PT[key];
+    const book = normalizeTokenText(m[1]).replace(/ /g, '');
+    const label = BIBLE_BOOKS_PT[book];
     if (!label) continue;
-    const ref = `${label}|${m[2]}|${m[3]}`;
-    if (!seen.has(ref)) {
-      seen.add(ref);
-      out.push(ref);
-    }
+    const chapter = parseInt(m[2], 10);
+    const verse = parseInt(m[3], 10);
+    const key = `${label}|${chapter}|${verse}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ book, label, chapter, verse, raw: m[0] });
   }
   return out;
+}
+
+/** Versículos por extenso ("João 17:17"); chaves validadas na tabela. */
+export function detectBibleVerses(text: string): string[] {
+  return detectBibleVerseRefs(text).map((r) => `${r.label}|${r.chapter}|${r.verse}`);
 }
 
 export function s34Signals(text: string): Set<S34Signal> {
