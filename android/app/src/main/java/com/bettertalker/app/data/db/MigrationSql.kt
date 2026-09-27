@@ -40,8 +40,22 @@ object MigrationSql {
             "ON s34_references(sectionId)"
     )
 
-    /** Fase 8: v9 -> v10, proveniência + trilho. Aditiva, sem perda. */
-    val MIGRATION_9_10: List<String> = listOf(
+    /**
+     * Fase 19-B.4: v11 -> v12. As chaves de seção/subseção passaram a ser
+     * prefixadas com o id do outline (`<outlineId>:sec-N`) porque `sec-N` é
+     * determinística POR DOCUMENTO e dois S-34 colidiriam na chave primária.
+     * As tabelas s34_* são cache derivado (reconstruível do arquivo-fonte),
+     * então recriá-las é seguro e não perde dado do usuário. Dados antigos
+     * das demais tabelas ficam intactos.
+     */
+    val MIGRATION_11_12: List<String> = listOf(
+        "DROP TABLE IF EXISTS s34_references",
+        "DROP TABLE IF EXISTS s34_subsections",
+        "DROP TABLE IF EXISTS s34_sections",
+        "DROP TABLE IF EXISTS s34_outlines"
+    ) + MIGRATION_10_11
+
+    /** Fase 8: v9 -> v10, proveniência + trilho. Aditiva, sem perda. */    val MIGRATION_9_10: List<String> = listOf(
         "ALTER TABLE attachments ADD COLUMN sourceType TEXT NOT NULL DEFAULT 'content'",
         "ALTER TABLE attachments ADD COLUMN symbol TEXT",
         "ALTER TABLE passages ADD COLUMN ref TEXT NOT NULL DEFAULT ''",

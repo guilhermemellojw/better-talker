@@ -20,12 +20,25 @@ import com.bettertalker.app.data.util.RefDetector
  * aqui só mapeamento + idempotência + cascade. Sem retrieval, sem prompt.
  *
  * Depende só de S34Dao (não do AppDatabase inteiro): testável com fake.
+ *
+ * F19-B.4: as chaves de seção/subseção do parser ("sec-N", "sec-N-M") são
+ * determinísticas POR DOCUMENTO — dois S-34 diferentes colidiriam na chave
+ * primária. O armazenamento prefixa com o id do outline
+ * ("<outlineId>:sec-N") e o `rebuild` devolve o id de domínio intacto,
+ * preservando o contrato da B.2.
  */
 class S34OutlineRepository(private val dao: com.bettertalker.app.data.db.S34Dao) {
 
     companion object {
         /** Versão do formato persistido (bump se o mapeamento mudar). */
-        const val PARSER_VERSION = 1
+        const val PARSER_VERSION = 2
+
+        /** Chave de armazenamento: única entre documentos. */
+        fun storageKey(outlineId: String, localId: String): String = "$outlineId:$localId"
+
+        /** Id de domínio a partir da chave de armazenamento. */
+        fun localId(storageId: String, outlineId: String): String =
+            storageId.removePrefix("$outlineId:")
     }
 
     /**
@@ -51,17 +64,29 @@ class S34OutlineRepository(private val dao: com.bettertalker.app.data.db.S34Dao)
             )
         )
         dao.putSections(doc.sections.map { s ->
-            S34SectionEntity(s.id, doc.id, s.order, s.title, s.content, s.minutes, s.sourceLine)
+            S34SectionEntity(
+                storageKey(doc.id, s.id), doc.id, s.order, s.title, s.content, s.minutes, s.sourceLine
+            )
         })
         dao.putSubsections(doc.sections.flatMap { s ->
             s.subsections.map { sub ->
-                S34SubsectionEntity(sub.id, s.id, sub.order, sub.content, sub.sourceLine)
+                S34SubsectionEntity(
+                    storageKey(doc.id, sub.id), storageKey(doc.id, s.id),
+                    sub.order, sub.content, sub.sourceLine
+                )
             }
         })
         dao.putReferences(doc.sections.flatMap { s ->
-            s.references.map { r -> toEntity(doc.id, s.id, null, r) } +
+            s.references.map { r -> toEntity(doc.id, storageKey(doc.id, s.id), null, r) } +
                 s.subsections.flatMap { sub ->
-                    sub.references.map { r -> toEntity(doc.id, s.id, sub.id, r) }
+                    sub.references.map { r ->
+                        toEntity(
+                            doc.id,
+                            storageKey(doc.id, s.id),
+                            storageKey(doc.id, sub.id),
+                            r
+                        )
+                    }
                 }
         })
     }
@@ -117,14 +142,14 @@ class S34OutlineRepository(private val dao: com.bettertalker.app.data.db.S34Dao)
             headerLines = decodeStringList(headerLinesJson),
             sections = sections.map { s ->
                 S34Section(
-                    id = s.id,
+                    id = localId(s.id, outlineId),
                     order = s.order,
                     title = s.title,
                     minutes = s.minutes,
                     content = s.content,
                     subsections = (subsBySection[s.id] ?: emptyList()).map { sub ->
                         S34Subsection(
-                            id = sub.id,
+                            id = localId(sub.id, outlineId),
                             order = sub.order,
                             content = sub.content,
                             references = (refsBySub[sub.id] ?: emptyList()).map(::toDomain),

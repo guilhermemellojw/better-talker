@@ -275,6 +275,33 @@ describe('s34Persistence', () => {
     expect(await tdb.s34references.toCollection().count()).toBe(0);
   });
 
+  it('dois S-34 coexistem sem colisão de chaves (isolamento)', async () => {
+    const a = parseS34(
+      'S-34 A\n\nTema: A\n\nObjetivo:\nObjetivo A detalhado com palavras suficientes.\n\n' +
+        '1. CONFIANÇA (2 min)\n   Conteúdo A de confiança.\n\n' +
+        '2. ORAÇÃO (2 min)\n   Conteúdo A de oração.',
+    );
+    const b = parseS34(
+      'S-34 B\n\nTema: B\n\nObjetivo:\nObjetivo B detalhado com palavras suficientes.\n\n' +
+        '1. CONFIANÇA (2 min)\n   Conteúdo B de confiança.\n\n' +
+        '2. ESPERANÇA (2 min)\n   Conteúdo B de esperança.',
+    );
+    await saveS34Outline(tdb, a, 'att-A');
+    await saveS34Outline(tdb, b, 'att-B');
+    const ga = (await getS34BySource(tdb, 'att-A'))!;
+    const gb = (await getS34BySource(tdb, 'att-B'))!;
+    // Ambos mantêm os idS de domínio intactos e o conteúdo certo.
+    expect(ga.sections.map((s) => s.id)).toEqual(['sec-1', 'sec-2']);
+    expect(gb.sections.map((s) => s.id)).toEqual(['sec-1', 'sec-2']);
+    expect(ga.sections[1].content).toContain('oração');
+    expect(gb.sections[1].content).toContain('esperança');
+    expect(ga.sections[0].content).toContain('Conteúdo A de confiança');
+    expect(gb.sections[0].content).toContain('Conteúdo B de confiança');
+    // Leitura de A não traz nada de B.
+    const textA = ga.sections.flatMap((s) => [s.content, ...s.references.map((r) => r.rawText)]).join('\n');
+    expect(textA).not.toContain('Conteúdo B');
+  });
+
   // ---------- Web × Android (projeção equivalente) ----------
 
   it('projeção estrutural é igual entre plataformas (contrato)', async () => {

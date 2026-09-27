@@ -101,6 +101,39 @@ class S34MigrationTest {
     }
 
     @Test
+    fun migrateV11toV12ReancoraChavesESemPerda() {
+        // v11: s34_* com chaves locais (colidiam entre outlines).
+        conn.createStatement().use { st ->
+            for (sql in MigrationSql.MIGRATION_10_11) st.execute(sql)
+            st.execute(
+                "INSERT INTO s34_outlines VALUES " +
+                    "('s34-abc','a-w','S-34','Tema',NULL,'[]',1,2,1)"
+            )
+            st.execute("INSERT INTO s34_sections VALUES ('sec-1','s34-abc',1,'Ponto','corpo',NULL,10)")
+        }
+        assertEquals("sec-1", single("SELECT id FROM s34_sections WHERE outlineId='s34-abc'"))
+        // migration v11 -> v12 (recria o cache derivado)
+        conn.createStatement().use { st ->
+            for (sql in MigrationSql.MIGRATION_11_12) st.execute(sql)
+        }
+        // Dados do usuário intactos.
+        assertEquals("w.pdf", single("SELECT fileName FROM attachments WHERE id='a-w'"))
+        assertEquals("texto w", single("SELECT text FROM passages WHERE id='p1'"))
+        // Cache s34 vazio (reconstruível) e operante com chaves novas.
+        assertEquals(null, single("SELECT id FROM s34_sections WHERE outlineId='s34-abc'"))
+        conn.createStatement().use { st ->
+            st.execute(
+                "INSERT INTO s34_sections VALUES " +
+                    "('s34-new:sec-1','s34-new',1,'Ponto','corpo',NULL,10)"
+            )
+        }
+        assertEquals(
+            "s34-new:sec-1",
+            single("SELECT id FROM s34_sections WHERE outlineId='s34-new'")
+        )
+    }
+
+    @Test
     fun migrationIsIdempotent() {
         conn.createStatement().use { st ->
             for (sql in MigrationSql.MIGRATION_10_11) st.execute(sql)

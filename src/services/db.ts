@@ -104,6 +104,25 @@ export class BetterTalkerDB extends Dexie {
       s34subsections: 'id, sectionId, position',
       s34references: 'id, outlineId, sectionId, position',
     });
+    // Fase 19-B.4: chaves de seção/subseção passaram a ser prefixadas com o
+    // id do outline (evita colisão entre S-34 diferentes). s34_* é cache
+    // derivado (reconstruível), então o upgrade recria os stores.
+    this.version(6).stores({
+      speeches: 'id, updatedAt, sourceFileName',
+      blocks: 'id, speechId, order',
+      publications: 'id, fileName, indexed, symbol, source_type, addedAt',
+      passages: 'id, pubId, normalizedText, source_type, symbol, order',
+      settings: 'key',
+      s34outlines: 'id, sourceAttachmentId',
+      s34sections: 'id, outlineId, position',
+      s34subsections: 'id, sectionId, position',
+      s34references: 'id, outlineId, sectionId, position',
+    }).upgrade(async (tx) => {
+      await tx.table('s34references').clear();
+      await tx.table('s34subsections').clear();
+      await tx.table('s34sections').clear();
+      await tx.table('s34outlines').clear();
+    });
   }
 }
 

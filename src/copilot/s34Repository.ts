@@ -60,7 +60,23 @@ export interface S34ReferenceRow {
   editionKey: string | null;
 }
 
-export const S34_PARSER_VERSION = 1;
+export const S34_PARSER_VERSION = 2;
+
+/**
+ * F19-B.4: as chaves de seção/subseção do parser ("sec-N", "sec-N-M") são
+ * determinísticas POR DOCUMENTO — dois S-34 colidiriam no store. O
+ * armazenamento prefixa com o id do outline ("<outlineId>:sec-N") e o
+ * `rebuild` devolve o id de domínio intacto (contrato B.2 preservado).
+ */
+export function s34StorageKey(outlineId: string, localId: string): string {
+  return `${outlineId}:${localId}`;
+}
+
+export function s34LocalId(storageId: string, outlineId: string): string {
+  return storageId.startsWith(`${outlineId}:`)
+    ? storageId.slice(outlineId.length + 1)
+    : storageId;
+}
 
 /** Subconjunto do banco usado aqui (Pick do tipo real — sempre compatível). */
 export type S34Db = Pick<
@@ -156,7 +172,7 @@ function toRows(
     },
     sections: doc.sections.map(
       (s): S34SectionRow => ({
-        id: s.id,
+        id: s34StorageKey(doc.id, s.id),
         outlineId: doc.id,
         position: s.order,
         title: s.title,
@@ -168,8 +184,8 @@ function toRows(
     subsections: doc.sections.flatMap((s) =>
       s.subsections.map(
         (sub): S34SubsectionRow => ({
-          id: sub.id,
-          sectionId: s.id,
+          id: s34StorageKey(doc.id, sub.id),
+          sectionId: s34StorageKey(doc.id, s.id),
           position: sub.order,
           content: sub.content,
           sourceLine: sub.sourceLine,
@@ -184,8 +200,8 @@ function toRows(
       return {
         id: `${doc.id}-ref-${r.order}`,
         outlineId: doc.id,
-        sectionId: owner?.id ?? null,
-        subsectionId: sub?.id ?? null,
+        sectionId: owner ? s34StorageKey(doc.id, owner.id) : null,
+        subsectionId: sub ? s34StorageKey(doc.id, sub.id) : null,
         position: r.order,
         type: r.type,
         rawText: r.rawText,
@@ -234,7 +250,7 @@ async function rebuild(db: S34Db, o: S34OutlineRow): Promise<S34Document> {
     headerLines: o.headerLines,
     source: 'S34',
     sections: sections.map((s) => ({
-      id: s.id,
+      id: s34LocalId(s.id, o.id),
       order: s.position,
       title: s.title,
       minutes: s.minutes,
@@ -242,7 +258,7 @@ async function rebuild(db: S34Db, o: S34OutlineRow): Promise<S34Document> {
       sourceLine: s.sourceLine,
       source: 'S34' as const,
       subsections: (subsBySection.get(s.id) ?? []).map((sub) => ({
-        id: sub.id,
+        id: s34LocalId(sub.id, o.id),
         order: sub.position,
         content: sub.content,
         sourceLine: sub.sourceLine,
@@ -271,4 +287,31 @@ function toReference(r: S34ReferenceRow) {
       ? { publication: { raw: r.pubLabel ?? r.rawText } }
       : {}),
   };
+}
+
+/**
+ * F19-B.4 — retrieval estrutural sobre a persistência. Espelho de
+ * Android `S34StructuralRetriever`. Só orquestra: resolve o outline pela
+ * source e delega a lógica pura. Nunca devolve outro outline/seção.
+ */
+export type S34RetrievalResult =
+  | { kind: 'section-focus'; view: import('./s34StructuralRetrieval').S34ScopedView }
+  | {
+      kind: 'document-scope';
+      outlineId: string;
+      sections: import('./s34StructuralRetrieval').S34ScopedView[];
+    }
+  | { kind: 'no-outline' }
+  | { kind: 'unknown-section'; outlineId: string; requested: string }
+  | { kind: 'unmatched-section'; outlineId: string; hint: string };
+
+export async function retrieveS34Structural(
+  db: S34Db,
+  sourceAttachmentId: string,
+  opts: { sectionId?: string | null; sectionHint?: string | null; query?: string } = {},
+): Promise<S34RetrievalResult> {
+  const doc = await getS34BySource(db, sourceAttachmentId);
+  if (!doc) return { kind: 'no-outline' };
+  const { scopeS34 } = await import('./s34StructuralRetrieval');
+  return scopeS34(doc, opts) as S34RetrievalResult;
 }
