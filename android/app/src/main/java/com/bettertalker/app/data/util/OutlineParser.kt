@@ -24,7 +24,8 @@ data class ParsedOutline(
 
 /** Parser de esboços estruturados (PDF/DOCX com "(N min)"). */
 object OutlineParser {
-    private val MIN_RE = Regex("""[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]""", RegexOption.IGNORE_CASE)
+    /** Marcador de tempo de seção; internal para reuso pelo S34Detector (sem duplicar). */
+    internal val MIN_RE = Regex("""[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]""", RegexOption.IGNORE_CASE)
     private val ORPHAN_MIN_RE = Regex("""^[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]\s*$""", RegexOption.IGNORE_CASE)
     private val TOTAL_RE = Regex("""TEMPO\s*TOTAL\s*:\s*(\d+)\s*MINUTOS?""", RegexOption.IGNORE_CASE)
     private val NOISE_RE = Regex("""^(N\.º|©|\(|S-\d+)""")
