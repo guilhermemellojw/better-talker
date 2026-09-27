@@ -130,7 +130,9 @@ data class ChatTurnContext(
     val prompt: String,
     val evidence: List<EvidenceMeta>,
     /** F19-B.5: estrutura do S-34 quando há outline neste turno (null = legado). */
-    val structural: OutlineStructureContext? = null
+    val structural: OutlineStructureContext? = null,
+    /** F20-A: planejamento oratório derivado (null = legado). */
+    val oratory: OratoryStructure.Inferred? = null
 )
 
 /**
@@ -151,7 +153,8 @@ fun buildTurnContext(
     blockMinutes: Int? = null,
     blockText: String = "",
     legacyPassages: List<String> = emptyList(),
-    structural: OutlineStructureContext? = null
+    structural: OutlineStructureContext? = null,
+    oratory: OratoryStructure.Inferred? = null
 ): ChatTurnContext = buildTurnContextFromPack(
     message = message,
     history = history,
@@ -161,7 +164,8 @@ fun buildTurnContext(
     blockMinutes = blockMinutes,
     blockText = blockText,
     legacyPassages = legacyPassages,
-    structural = structural
+    structural = structural,
+    oratory = oratory
 )
 
 /**
@@ -178,7 +182,8 @@ fun buildTurnContextFromPack(
     blockMinutes: Int? = null,
     blockText: String = "",
     legacyPassages: List<String> = emptyList(),
-    structural: OutlineStructureContext? = null
+    structural: OutlineStructureContext? = null,
+    oratory: OratoryStructure.Inferred? = null
 ): ChatTurnContext {
     val prompt = buildChatPrompt(
         message = message,
@@ -189,7 +194,8 @@ fun buildTurnContextFromPack(
         blockMinutes = blockMinutes,
         blockText = blockText,
         legacyPassages = legacyPassages,
-        structural = structural
+        structural = structural,
+        oratory = oratory
     )
     // Contexto e treinamento entram na proveniência, na ordem em que aparecem.
     val evidence = pack.contentSources.map {
@@ -197,5 +203,5 @@ fun buildTurnContextFromPack(
     } + pack.trainingSources.map {
         EvidenceMeta(it.reference, it.score, EvidenceTrack.TRAINING, it.trainingCategory)
     }
-    return ChatTurnContext(pack, prompt, evidence, structural)
+    return ChatTurnContext(pack, prompt, evidence, structural, oratory)
 }

@@ -686,7 +686,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         )
         // F19-B.5: S-34 estrutural do attachment em foco (se houver).
         // Consome a B.4; NoOutline mantém o caminho legado intacto.
-        val structural = structuralFor(cited.keys.toList(), text)
+        val (structural, oratory) = structuralFor(cited.keys.toList(), text)
         return com.bettertalker.app.data.copilot.buildTurnContextFromPack(
             message = text,
             history = history,
@@ -695,7 +695,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             blockTitle = _activeBlockTitle.value,
             blockMinutes = null,
             blockText = blockText,
-            structural = structural
+            structural = structural,
+            oratory = oratory
         )
     }
 
@@ -706,7 +707,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun structuralFor(
         candidateIds: List<String>,
         text: String
-    ): com.bettertalker.app.data.copilot.OutlineStructureContext? {
+    ): Pair<
+        com.bettertalker.app.data.copilot.OutlineStructureContext?,
+        com.bettertalker.app.data.copilot.OratoryStructure.Inferred?
+        > {
         val retriever = com.bettertalker.app.data.repo.S34StructuralRetriever(
             com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
         )
@@ -719,10 +723,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
                 val doc = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
                     .getBySource(id)
-                return com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+                val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+                // F20-A: planejamento oratório derivado do MESMO documento.
+                val oratory = doc?.let { d ->
+                    (com.bettertalker.app.data.copilot.OratoryStructure.inferFrom(d, result)
+                        as? com.bettertalker.app.data.copilot.OratoryStructure.Result.Ok)?.structure
+                }
+                return structural to oratory
             }
         }
-        return null
+        return null to null
     }
 
     /**
@@ -774,7 +784,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     isFirstMessage = isFirst,
                     contextPack = turnContext.pack,
                     blockTitle = _activeBlockTitle.value,
-                    structural = turnContext.structural
+                    structural = turnContext.structural,
+                    oratory = turnContext.oratory
                 )
             )
         }

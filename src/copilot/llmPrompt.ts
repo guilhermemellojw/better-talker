@@ -12,6 +12,11 @@ import {
   S34_PROMPT_RULES,
   type S34StructureContext,
 } from './s34StructuralContext';
+import {
+  serializeOratoryStructure,
+  ORATORY_STRUCTURE_RULES,
+  type InferredOratoryStructure,
+} from './oratoryStructure';
 
 export const INSUFFICIENT_EVIDENCE_MESSAGE = 'Não encontrei suporte suficiente nas fontes disponíveis.';
 
@@ -45,6 +50,7 @@ function serializePack(
   pack: ContextPack,
   legacyPassages: string[],
   structural?: S34StructureContext | null,
+  oratory?: InferredOratoryStructure | null,
 ): string {
   const content = pack.content_sources.slice(0, 8);
   const training = pack.training_sources.slice(0, 4);
@@ -53,6 +59,8 @@ function serializePack(
   // F19-B.5: o S-34 vem PRIMEIRO e identificado — a estrutura não se perde
   // no meio de resultados de similaridade.
   let section = structural ? serializeStructuralContext(structural) : '';
+  // F20-A: planejamento oratório derivado, logo após a estrutura do S-34.
+  if (oratory) section += serializeOratoryStructure(oratory);
   if (content.length > 0 || legacy.length > 0) {
     const lines = [
       ...content.map((s, i) => `[Fonte ${i + 1}: ${s.reference}] ${s.text}`),
@@ -116,10 +124,11 @@ function chatPrompt(request: LlmRequest, context: string, block: string): string
       ? 'Foco: conferir se a informação tem apoio nas FONTES DE CONTEÚDO autorizadas. Não use orientações de oratória como prova factual.'
       : 'Foco: responder à mensagem do usuário usando o contexto e as fontes disponíveis. Orientações de oratória orientam o COMO apresentar; fontes de conteúdo, o O QUÊ.';
   const s34Rules = request.structural ? `\n${S34_PROMPT_RULES}\n` : '';
+  const oratoryRules = request.oratory ? `\n${ORATORY_STRUCTURE_RULES}\n` : '';
   return `${briefText}
 
 ${focus}
-${context}${block}${s34Rules}
+${context}${block}${s34Rules}${oratoryRules}
 Texto do bloco em foco:
 "${request.text}"
 
@@ -129,9 +138,10 @@ Responda de forma conversacional e direta: parágrafos curtos, sem rótulos inte
 export function buildLlmPrompt(request: LlmRequest): BuiltPrompt {
   const tone = request.tone ?? 'ted';
   const structural = request.structural ?? null;
+  const oratory = request.oratory ?? null;
   const context = request.contextPack
-    ? serializePack(request.contextPack, request.contextPassages ?? [], structural)
-    : serializePack(emptyContextPack(), request.contextPassages ?? [], structural);
+    ? serializePack(request.contextPack, request.contextPassages ?? [], structural, oratory)
+    : serializePack(emptyContextPack(), request.contextPassages ?? [], structural, oratory);
   const block = blockSection(request.blockTitle, request.blockMinutes);
   if (request.action === 'chat') {
     return {

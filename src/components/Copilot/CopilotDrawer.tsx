@@ -18,6 +18,10 @@ import {
   structuralContextFor,
   type S34StructureContext,
 } from '../../copilot/s34StructuralContext';
+import {
+  inferOratoryStructure,
+  type InferredOratoryStructure,
+} from '../../copilot/oratoryStructure';
 import type { EvidenceMeta } from '../../copilot/retrieval';
 import { analyzeSpeech, speechContentHash } from '../../copilot/speechAnalyzer';
 import type { SpeechAnalysis } from '../../copilot/speechAnalysis';
@@ -185,8 +189,8 @@ export const CopilotDrawer = ({
         activeBlock?.plainText || activeBlock?.title || message,
         intent.trainingCategory,
       );
-      // F19-B.5: estrutura do S-34 quando houver (senão caminho legado).
-      const structural = await fetchStructuralContext(
+      // F19-B.5/B.6: estrutura do S-34 quando houver (senão caminho legado).
+      const { structural, oratory } = await fetchStructuralContext(
         activeBlock?.title,
         message,
       );
@@ -198,6 +202,7 @@ export const CopilotDrawer = ({
         contextPassages,
         contextPack: pack,
         structural,
+        oratory,
         blockTitle: activeBlock?.title,
         blockMinutes: activeBlock?.minutes,
         chat: {
@@ -288,20 +293,29 @@ export const CopilotDrawer = ({
   const fetchStructuralContext = async (
     blockTitle: string | undefined,
     message: string,
-  ): Promise<S34StructureContext | null> => {
+  ): Promise<{
+    structural: S34StructureContext | null;
+    oratory: InferredOratoryStructure | null;
+  }> => {
     try {
       const rows = await db.s34outlines.toArray();
       const id = findS34OutlineIdForSpeech(rows, speech.title);
-      if (!id) return null;
+      if (!id) return { structural: null, oratory: null };
       const doc = await getS34Outline(db, id);
-      if (!doc) return null;
-      return structuralContextFor(doc, {
+      if (!doc) return { structural: null, oratory: null };
+      // O planejamento oratório deriva do MESMO documento e do MESMO foco:
+      // só há ponto atual quando a estrutura resolveu um (nunca inventado).
+      const structural = structuralContextFor(doc, {
         sectionHint: blockTitle ?? null,
         query: message,
       });
+      const currentSectionId =
+        structural?.focusState === 'section' ? structural.currentSection?.id ?? null : null;
+      const inferred = inferOratoryStructure(doc, currentSectionId);
+      return { structural, oratory: inferred.kind === 'ok' ? inferred.structure : null };
     } catch (err) {
       console.warn('Estrutura S-34 indisponível, seguindo sem ela:', err);
-      return null;
+      return { structural: null, oratory: null };
     }
   };
 

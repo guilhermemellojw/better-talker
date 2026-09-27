@@ -31,6 +31,11 @@ export interface LlmRequest {
    * Entra como bloco próprio no prompt, antes das fontes.
    */
   structural?: import('./s34StructuralContext').S34StructureContext | null;
+  /**
+   * F20-A: estrutura oratória derivada do S-34 (opcional). Planejamento
+   * estrutural — nunca texto oratório gerado.
+   */
+  oratory?: import('./oratoryStructure').InferredOratoryStructure | null;
   /** Cancelamento iniciado pela UI (AbortController). */
   signal?: AbortSignal;
   timeoutMs?: number;
