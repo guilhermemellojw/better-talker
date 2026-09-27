@@ -386,6 +386,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
     }.asStateFlow()
 
+    /**
+     * F20-D: última geração oratória da sessão (volátil por design).
+     * É a fonte que faz "Melhore." continuar na mesma parte.
+     */
+    private var lastOratory: com.bettertalker.app.data.copilot.OratorySession.LastGeneration? = null
+
+    /** Documento S-34 do turno corrente (para roteamento e geração). */
+    private var _lastS34Document: com.bettertalker.app.data.s34.S34Document? = null
+
     /** Prompt do último turno. Fica disponível para inspeção e teste. */
     private val _lastPrompt = MutableStateFlow("")
     val lastPrompt = _lastPrompt.asStateFlow()
@@ -582,6 +591,46 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _lastPrompt.value = turnContext.prompt
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
+            // F20-D: roteamento natural ANTES do chat — oratória, consulta
+            // estrutural, réplica de proposta ou chat geral.
+            val route = com.bettertalker.app.data.copilot.ChatRouter.route(
+                text,
+                _lastS34Document,
+                turnContext.structural?.currentSection?.id,
+                lastOratory
+            )
+            when (route) {
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.OutOfScope -> {
+                    postText(route.message)
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.NothingToRefine -> {
+                    postText(route.message)
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.ProposalReply -> {
+                    postText(
+                        if (route.accept) "Use o botão Aceitar no cartão da proposta."
+                        else "Use o botão Rejeitar no cartão da proposta."
+                    )
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory -> {
+                    lastOratory = com.bettertalker.app.data.copilot.OratorySession.LastGeneration(
+                        route.mode, route.sectionId
+                    )
+                    val apiKey = settings.llmApiKey.first()
+                    if (!ProviderFactory.useRemoteRoute(apiKey)) {
+                        postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+                        return@launch
+                    }
+                    generateOratory(route, text, apiKey)
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.General -> Unit
+            }
+
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).
             val apiKey = settings.llmApiKey.first()
@@ -724,6 +773,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val doc = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
                     .getBySource(id)
                 val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+                _lastS34Document = doc
                 // F20-A: planejamento oratório derivado do MESMO documento.
                 val oratory = doc?.let { d ->
                     (com.bettertalker.app.data.copilot.OratoryStructure.inferFrom(d, result)
@@ -733,6 +783,70 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             }
         }
         return null to null
+    }
+
+    /**
+     * F20-D: geração oratória pelo MESMO pipeline F5 — proposta, nunca
+     * editor. O alvo é o ponto resolvido pelo router (o modelo nunca escolhe).
+     */
+    private suspend fun generateOratory(
+        route: com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory,
+        message: String,
+        apiKey: String
+    ) {
+        val doc = _lastS34Document
+        if (doc == null) {
+            postText("Não tenho a estrutura deste discurso. Importe o S-34 para eu gerar com fidelidade.")
+            return
+        }
+        val view = route.sectionId?.let {
+            com.bettertalker.app.data.s34.S34StructuralRetrieval.scopeToSection(doc, it)
+        }
+        val spec = com.bettertalker.app.data.copilot.OratoryGeneration.spec(
+            route.mode, doc, view, route.action
+        )
+        if (spec is com.bettertalker.app.data.copilot.OratoryGeneration.Result.CannotGenerate) {
+            postText(spec.blocked.message)
+            return
+        }
+        val ready = (spec as com.bettertalker.app.data.copilot.OratoryGeneration.Result.Ready).spec
+        val focus = currentFocusText()
+        val targetId = "focus"
+        val mode = if (route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE) {
+            com.bettertalker.app.data.edit.EditProposalMode.IMPROVE
+        } else {
+            com.bettertalker.app.data.edit.EditProposalMode.INSERT
+        }
+        try {
+            val provider = ProviderFactory.createWithKey(apiKey)
+            val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                provider.generate(
+                    com.bettertalker.app.data.llm.LlmRequest(
+                        text = focus,
+                        action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                        message = message,
+                        responseFormat = ResponseFormat.EDIT_PROPOSAL,
+                        editMode = mode,
+                        oratorySpec = ready
+                    )
+                )
+            }
+            val blocks = listOf(com.bettertalker.app.data.edit.EditBlock(targetId, focus))
+            when (val r = com.bettertalker.app.data.edit.parseEditProposal(
+                res.text, blocks, targetId, mode
+            )) {
+                is com.bettertalker.app.data.edit.ParseResult.Ok ->
+                    _proposal.value = ProposalUi(r.proposal, focus)
+                is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
+                    "A resposta do modelo veio em formato inválido. Tente gerar novamente."
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            _runState.value = ChatRunState.Cancelled()
+            throw e
+        } catch (e: Exception) {
+            postText(friendlyChatError(e))
+        }
     }
 
     /**

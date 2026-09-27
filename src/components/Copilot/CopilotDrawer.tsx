@@ -12,6 +12,10 @@ import { retrieveTraining } from '../../copilot/trainingRetriever';
 import { trainingCategoryForAction, trainingCategoryForEditMode } from '../../copilot/trainingIntent';
 import { buildContextPackFromCandidates, type BuildInput } from '../../copilot/contextPack';
 import { db } from '../../services/db';
+import type { S34Document } from '../../copilot/s34Parser';
+import { scopeToS34Section } from '../../copilot/s34StructuralRetrieval';
+import { oratorySpec, type OratoryMode } from '../../copilot/oratoryGeneration';
+import { routeNaturalChat, type ChatRoute } from '../../copilot/chatRouter';
 import { getS34Outline } from '../../copilot/s34Repository';
 import {
   findS34OutlineIdForSpeech,
@@ -114,6 +118,8 @@ export const CopilotDrawer = ({
   const stickToBottomRef = useRef(true);
   const chatIdRef = useRef(0);
   const chatAbortRef = useRef<AbortController | null>(null);
+  // F20-D: última geração oratória da sessão (volátil, por design).
+  const lastOratoryRef = useRef<{ mode: OratoryMode; sectionId: string | null } | null>(null);
   const hasApiKey = Boolean(apiKey && apiKey.trim().length > 0);
 
   // Online/offline reativo (§30, §47): sem polling, sem rede extra.
@@ -149,6 +155,84 @@ export const CopilotDrawer = ({
 
   const handleCancel = () => {
     abortRef.current?.abort();
+  };
+
+  /**
+   * F20-D: geração oratória pelo MESMO pipeline F5 (proposta, nunca editor).
+   * Devolve `false` quando nada pôde ser gerado (estado explícito já exposto).
+   */
+  const handleOratoryGeneration = async (
+    route: Extract<ChatRoute, { type: 'oratory' }>,
+    message: string,
+    doc: S34Document,
+  ): Promise<boolean> => {
+    const view = route.sectionId ? scopeToS34Section(doc, route.sectionId) : null;
+    const spec = oratorySpec(route.mode, doc, view, route.action);
+    if (spec.kind !== 'ready') {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `chat-a-${chatIdRef.current}`,
+          role: 'assistant',
+          text: spec.blocked.message,
+          createdAt: Date.now(),
+        },
+      ]);
+      return true;
+    }
+    // Alvo da proposta: o ponto resolvido (nunca o modelo escolhe).
+    const ordered = [...doc.sections].sort((a, b) => a.order - b.order);
+    const targetSectionId =
+      route.mode === 'introduction'
+        ? ordered[0]?.id
+        : route.mode === 'conclusion'
+          ? ordered[ordered.length - 1]?.id
+          : route.sectionId;
+    const targetBlock = activeBlock ?? null;
+    if (!targetSectionId && !targetBlock) {
+      setProposalNotice('Preciso saber qual parte do discurso você quer alterar.');
+      return false;
+    }
+    try {
+      setProposal(null);
+      setProposalNotice(null);
+      setProposalVerification(null);
+      const provider = createCopilotProviderFromEnv(apiKey);
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const res = await provider.generate({
+        text: targetBlock?.plainText ?? doc.title,
+        action: 'chat',
+        // O prompt oratório usa chat.message como pedido do usuário.
+        chat: { message, history: [], isFirstMessage: false },
+        tone: activeTone,
+        responseFormat: 'edit-proposal',
+        // Modo do prompt vem do spec; editMode mantém o parser compatível.
+        editMode: route.action === 'replace' ? 'improve' : 'insert',
+        oratorySpec: spec.spec,
+        blockTitle: targetBlock?.title,
+        blockMinutes: targetBlock?.minutes,
+        signal: ctrl.signal,
+      });
+      const parsed = parseEditProposal(
+        res.text,
+        speech,
+        targetBlock?.id ?? targetSectionId!,
+        route.action === 'replace' ? 'improve' : 'insert',
+      );
+      if (!parsed.ok) {
+        setProposalNotice('A resposta do modelo veio em formato inválido. Tente gerar novamente.');
+        return false;
+      }
+      setProposal(parsed.proposal);
+      return true;
+    } catch (err) {
+      console.error(err);
+      setProposalNotice(
+        isProviderError(err) ? friendlyError(err.code) : 'Ocorreu um erro ao gerar a proposta. Tente novamente.',
+      );
+      return false;
+    }
   };
 
   const handleCancelChat = () => {
@@ -190,10 +274,51 @@ export const CopilotDrawer = ({
         intent.trainingCategory,
       );
       // F19-B.5/B.6: estrutura do S-34 quando houver (senão caminho legado).
-      const { structural, oratory } = await fetchStructuralContext(
+      const { structural, oratory, doc: s34doc } = await fetchStructuralContext(
         activeBlock?.title,
         message,
       );
+      // F20-D: roteamento natural ANTES do chat livre.
+      const route = routeNaturalChat(
+        message,
+        s34doc,
+        structural?.currentSection?.id ?? null,
+        lastOratoryRef.current,
+      );
+      if (route.type === 'out-of-scope') {
+        setChatMessages((prev) => [
+          ...prev,
+          { id: `chat-a-${chatIdRef.current}`, role: 'assistant', text: route.message, createdAt: Date.now() },
+        ]);
+        setChatError(null);
+        return;
+      }
+      if (route.type === 'nothing-to-refine') {
+        setChatMessages((prev) => [
+          ...prev,
+          { id: `chat-a-${chatIdRef.current}`, role: 'assistant', text: route.message, createdAt: Date.now() },
+        ]);
+        setChatError(null);
+        return;
+      }
+      if (route.type === 'oratory' && structural) {
+        // Geração oratória pelo MESMO pipeline F5 (proposta, nunca editor).
+        lastOratoryRef.current = { mode: route.mode, sectionId: route.sectionId };
+        const gen = await handleOratoryGeneration(route, message, s34doc!);
+        if (!gen) {
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: `chat-a-${chatIdRef.current}`,
+              role: 'assistant',
+              text: 'Não consegui gerar essa parte agora. Tente novamente.',
+              createdAt: Date.now(),
+            },
+          ]);
+        }
+        setChatError(null);
+        return;
+      }
       const provider = createCopilotProviderFromEnv(apiKey);
       const res = await provider.generate({
         action: 'chat',
@@ -296,13 +421,14 @@ export const CopilotDrawer = ({
   ): Promise<{
     structural: S34StructureContext | null;
     oratory: InferredOratoryStructure | null;
+    doc: S34Document | null;
   }> => {
     try {
       const rows = await db.s34outlines.toArray();
       const id = findS34OutlineIdForSpeech(rows, speech.title);
-      if (!id) return { structural: null, oratory: null };
+      if (!id) return { structural: null, oratory: null, doc: null };
       const doc = await getS34Outline(db, id);
-      if (!doc) return { structural: null, oratory: null };
+      if (!doc) return { structural: null, oratory: null, doc: null };
       // O planejamento oratório deriva do MESMO documento e do MESMO foco:
       // só há ponto atual quando a estrutura resolveu um (nunca inventado).
       const structural = structuralContextFor(doc, {
@@ -312,10 +438,10 @@ export const CopilotDrawer = ({
       const currentSectionId =
         structural?.focusState === 'section' ? structural.currentSection?.id ?? null : null;
       const inferred = inferOratoryStructure(doc, currentSectionId);
-      return { structural, oratory: inferred.kind === 'ok' ? inferred.structure : null };
+      return { structural, oratory: inferred.kind === 'ok' ? inferred.structure : null, doc };
     } catch (err) {
       console.warn('Estrutura S-34 indisponível, seguindo sem ela:', err);
-      return { structural: null, oratory: null };
+      return { structural: null, oratory: null, doc: null };
     }
   };
 
