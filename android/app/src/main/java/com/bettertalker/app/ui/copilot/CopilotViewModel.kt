@@ -20,11 +20,28 @@ import com.bettertalker.app.data.copilot.buildTurnContext
 import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.inferIntent
+import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
+import com.bettertalker.app.data.edit.CopilotEditProposal
+import com.bettertalker.app.data.edit.EditBlock
+import com.bettertalker.app.data.edit.EditOperation
+import com.bettertalker.app.data.edit.EditProposalMode
+import com.bettertalker.app.data.edit.applyEditProposal
+import com.bettertalker.app.data.edit.parseEditProposal
+import com.bettertalker.app.data.edit.renderAfterText
+import com.bettertalker.app.data.edit.stripHtmlToText
+import com.bettertalker.app.data.edit.validateEditProposal
+import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.ProviderFactory
+import com.bettertalker.app.data.llm.ResponseFormat
+import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.data.repo.NotesRepository
+import com.bettertalker.app.data.verify.TextVerification
+import com.bettertalker.app.data.verify.verifyText
 import com.bettertalker.app.data.repo.CopilotRepository
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.OutlineRepository
@@ -60,6 +77,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val app = ctx.applicationContext
     private val repo = CopilotRepository(db)
     private val outlines = OutlineRepository(app, db)
+    private val settings = SettingsStore(app)
+    private val notes = NotesRepository(app, db)
     private val llm = com.bettertalker.app.data.ai.LlmService(app)
 
     override fun onCleared() {
@@ -129,6 +148,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     if (n != null) {
                         _noteText.value = (n.title + "\n" + n.mdText)
                         _noteTitle.value = n.title
+                        // Corpo puro (sem título): foco de proposta/aceite. O título
+                        // vive em campo separado e nunca está no richHtml — se o
+                        // foco incluísse o título, o stale nunca bateria (§23).
+                        _noteBody.value = n.mdText
                         // título da nota é mestre: propaga ao esboço vinculado
                         val o = outlines.get(noteId)
                         if (o != null && n.title.isNotBlank() && o.title != n.title) {
@@ -304,6 +327,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     val chatBusy = _chatBusy.asStateFlow()
     private val _noteText = MutableStateFlow("")
     private val _noteTitle = MutableStateFlow("")
+    private val _noteBody = MutableStateFlow("")
 
     // ---------- Fase 16: paridade com o chat da F15 ----------
 
@@ -340,12 +364,25 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Bloco em foco; o usuário nunca digita id de bloco. */
     val activeBlockTitle = _activeBlockTitle.asStateFlow()
 
-    /** Rótulo de contexto mostrado acima da conversa (§13 F15). */
+    /**
+     * Fase 18 §17: trecho selecionado no editor. Prioridade máxima no
+     * contexto (seleção > bloco > discurso) — e o prompt recebe o MESMO
+     * texto do rótulo, nunca o bloco inteiro rotulado de "seleção" (§16).
+     */
+    private val _selection = MutableStateFlow("")
+    val selection = _selection.asStateFlow()
+
+    fun setSelection(text: String) {
+        _selection.value = text.trim().take(MAX_SELECTION_CHARS)
+    }
+
+    /** Rótulo de contexto mostrado acima da conversa (§13 F15, §16 F18). */
     val contextLabelText: kotlinx.coroutines.flow.StateFlow<String> =
         MutableStateFlow(contextLabel(null, null)).also { s ->
         viewModelScope.launch {
-            combine(_noteTitle, _activeBlockTitle) { title, block -> contextLabel(block, title) }
-                .collect { s.value = it }
+            combine(_noteTitle, _activeBlockTitle, _selection) { title, block, sel ->
+                contextLabel(block, title, sel)
+            }.collect { s.value = it }
         }
     }.asStateFlow()
 
@@ -529,17 +566,30 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         lastUserMessage = text
         viewModelScope.launch {
             _runState.value = ChatRunState.Sending
+            // Histórico e first ANTES do post: a pergunta atual não contamina
+            // a continuidade, e a primeira mensagem é detectada de verdade.
+            val historyBefore = conversationTurns()
+            val isFirst = historyBefore.none { it.fromMe }
+            // §16: seleção > bloco > discurso. O prompt recebe exatamente o
+            // que o rótulo anuncia — sem rotular bloco de "seleção".
+            val blockText = currentFocusText()
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
-            val intent = inferIntent(text, isFirstTurn())
-            val turnContext = buildTurnFor(text, intent.trainingCategory)
+            val intent = inferIntent(text, isFirst)
+            val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
             _lastPrompt.value = turnContext.prompt
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
+            // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
+            // Sem chave, o motor legado local continua (comportamento atual).
+            val apiKey = settings.llmApiKey.first()
             try {
-                sendMutex.withLock {
+                if (ProviderFactory.useRemoteRoute(apiKey)) {
+                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, apiKey)
+                } else {
+                    sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
                     if (resolveGuide(text)) {
                         pendingConfirm = null
@@ -575,6 +625,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                             ChatCodec.escMap(mapOf("text" to "Por nada! Seguimos juntos no discurso. 🙌")))
                     }
                 }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Cancelamento não é erro: o discurso fica intacto e o
                 // composer volta (§25 F15).
@@ -582,6 +633,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 throw e
             } catch (e: Exception) {
                 // Só texto humano. Nem HTTP, nem stack, nem nome de exceção.
+                // Log técnico (classe/código/tentativas, sem chave e sem conteúdo).
+                val code = (e as? com.bettertalker.app.data.llm.ProviderError)?.code
+                android.util.Log.e("CopilotLLM", "send failed " +
+                    e.javaClass.simpleName + " code=$code attempts=" +
+                    ((e as? com.bettertalker.app.data.llm.ProviderError)?.attempts))
                 val msg = friendlyChatError(e)
                 _runState.value = ChatRunState.Error(msg)
                 postText(msg)
@@ -595,39 +651,103 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
     }
 
-    /** Esta é a primeira mensagem do usuário? Decide a linha de continuidade. */
-    private suspend fun isFirstTurn(): Boolean {
-        val nid = noteId ?: return true
-        return db.chatDao().all(nid).none { it.fromMe }
-    }
-
     /**
      * Contexto do turno: bloco em foco, histórico e as trilhas separadas.
      * CONTENT responde pelo "quê"; TRAINING só pelo "como apresentar" e nunca
      * entra como fonte factual.
+     *
+     * [history]/[isFirst]/[blockText] chegam capturados ANTES do post da
+     * mensagem atual: o histórico nunca inclui a própria pergunta, e a
+     * primeira mensagem é detectada de verdade.
      */
     private suspend fun buildTurnFor(
         text: String,
-        trainingCategory: com.bettertalker.app.data.domain.TrainingCategory?
+        trainingCategory: com.bettertalker.app.data.domain.TrainingCategory?,
+        history: List<ChatTurn>,
+        isFirst: Boolean,
+        blockText: String
     ): com.bettertalker.app.data.copilot.ChatTurnContext {
-        val scope = refScope()
-        val hits = repo.askScoped(
-            _activeBlockTitle.value ?: text, noteId,
-            extraIds = scope.keys.toList(), extraLabels = scope
-        )
-        val (guide, content) = com.bettertalker.app.data.repo.partitionGuideHits(hits)
+        // RAG real (Fase 18 §9): RoomContextPackRepository + HybridRetrieval,
+        // escopo por discurso (bases prontas + vinculados + citados).
         // Verificação factual pede CONTENT: treinamento fora, sempre.
-        val training = if (trainingCategory == null) emptyList() else guide
-        return buildTurnContext(
+        val cited = refScope()
+        val scope = noteScope(cited.keys.toList())
+        val packRepo = com.bettertalker.app.data.repo.RoomContextPackRepository(
+            com.bettertalker.app.data.repo.RoomRetrievalRepository(
+                db.passageDao(), db.attachmentDao()),
+            com.bettertalker.app.data.repo.RoomTrainingRepository(
+                db.passageDao(), db.attachmentDao())
+        )
+        val pack = packRepo.buildPack(
+            query = (blockText + " " + text).take(2000),
+            scope = scope,
+            includeTraining = trainingCategory != null,
+            trainingCategory = trainingCategory
+        )
+        return com.bettertalker.app.data.copilot.buildTurnContextFromPack(
             message = text,
-            history = conversationTurns(),
-            isFirstMessage = isFirstTurn(),
-            contentHits = content,
-            trainingHits = training,
+            history = history,
+            isFirstMessage = isFirst,
+            pack = pack,
             blockTitle = _activeBlockTitle.value,
             blockMinutes = null,
-            blockText = _activeBlockTitle.value ?: _noteText.value.take(2000)
+            blockText = blockText
         )
+    }
+
+    /**
+     * Escopo por discurso (§9): bases prontas + anexos vinculados à nota +
+     * citados na nota/esboço — mesma composição do askScoped legado, mas
+     * particionado estruturalmente (sourceType) em vez de por título.
+     */
+    private suspend fun noteScope(extraIds: List<String>): com.bettertalker.app.data.domain.RetrievalScope {
+        val full = com.bettertalker.app.data.repo.RoomPublicationRepository(db.attachmentDao()).scope()
+        val allowed = mutableSetOf<String>()
+        for (pub in BASE_PUBS) {
+            db.attachmentDao().baseReady(pub.slot)?.let { allowed += it.id }
+        }
+        if (noteId != null) {
+            allowed += db.attachmentDao().all()
+                .filter { it.noteId == noteId && it.indexed }.map { it.id }
+        }
+        allowed += extraIds
+        return com.bettertalker.app.data.domain.RetrievalScope(
+            contentSourceIds = full.contentSourceIds.filter { it in allowed },
+            trainingSourceIds = full.trainingSourceIds.filter { it in allowed }
+        )
+    }
+
+    /**
+     * Rota nova (Fase 18): inferIntent → ContextPack → provider real.
+     * Sem fallback silencioso para o motor legado: se o provider falhar,
+     * o erro honesto sobe para o catch do send() (§5).
+     */
+    private suspend fun answerRemote(
+        text: String,
+        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+        history: List<ChatTurn>,
+        isFirst: Boolean,
+        blockText: String,
+        apiKey: String
+    ) {
+        val provider = com.bettertalker.app.data.llm.ProviderFactory.createWithKey(apiKey)
+        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
+        // genérico silencioso. Retrieval Room permanece onde está (provado
+        // em aparelho); só a rede desce para IO.
+        val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            provider.generate(
+                com.bettertalker.app.data.llm.LlmRequest(
+                    text = blockText,
+                    action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                    message = text,
+                    history = history,
+                    isFirstMessage = isFirst,
+                    contextPack = turnContext.pack,
+                    blockTitle = _activeBlockTitle.value
+                )
+            )
+        }
+        post(false, "text", ChatCodec.escMap(mapOf("text" to res.text)))
     }
 
     /** Conversa anterior para continuidade, na janela da F15. */
@@ -640,6 +760,275 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             }
             if (t.isBlank()) null else ChatTurn(e.fromMe, t)
         }
+    }
+
+    // ---------- Fase 18 BLOCO B: proposta / verificação / aceite ----------
+
+    /**
+     * Proposta em exibição: o que o modelo sugeriu, sobre qual foco, com
+     * verificação opcional e aviso de resultado. Nunca aplicada sem aceite.
+     */
+    data class ProposalUi(
+        val proposal: CopilotEditProposal,
+        val focusText: String,
+        val verification: TextVerification? = null,
+        val verifying: Boolean = false,
+        val notice: String? = null,
+        val applied: Boolean = false
+    )
+
+    private val _proposal = MutableStateFlow<ProposalUi?>(null)
+    val proposal = _proposal.asStateFlow()
+
+    /** Snapshots (html, md) para Desfazer após aceite. Volátil, cap 50. */
+    private val proposalUndo = ArrayDeque<Pair<String, String>>()
+
+    val canUndoProposal: Boolean get() = proposalUndo.isNotEmpty()
+
+    /** Texto em foco agora (seleção > bloco > discurso). Mesma regra do send(). */
+    private fun currentFocusText(): String {
+        val selection = _selection.value.trim()
+        return when {
+            selection.isNotEmpty() -> selection
+            _activeBlockTitle.value != null -> _activeBlockTitle.value!!
+            else -> _noteBody.value.take(2000)
+        }
+    }
+
+    /** Brief: mensagem do usuário anterior à resposta (ou a própria resposta). */
+    private suspend fun briefFor(messageId: String): String {
+        val nid = noteId ?: return ""
+        val all = db.chatDao().all(nid)
+        val idx = all.indexOfFirst { it.id == messageId }
+        if (idx <= 0) return ""
+        for (i in idx - 1 downTo 0) {
+            val e = all[i]
+            if (!e.fromMe) continue
+            val t = ChatCodec.unescMap(e.payload)["text"].orEmpty()
+            if (t.isNotBlank()) return t
+        }
+        return ""
+    }
+
+    /**
+     * Cria proposta a partir de uma resposta do chat (§21). Modo DELETE é
+     * local e determinístico (sem LLM); demais modos exigem chave BYOD.
+     * Nunca insere direto no editor.
+     */
+    fun createProposal(messageId: String, mode: EditProposalMode = EditProposalMode.IMPROVE) {
+        if (noteId == null || _chatBusy.value) return
+        viewModelScope.launch {
+            _chatBusy.value = true
+            try {
+                val focus = currentFocusText()
+                if (focus.isBlank()) {
+                    postText("Selecione um trecho ou abra um bloco para propor uma alteração.")
+                    return@launch
+                }
+                val blocks = listOf(EditBlock("focus", focus))
+                if (mode == EditProposalMode.DELETE) {
+                    when (val r = parseEditProposal("", blocks, "focus", mode)) {
+                        is com.bettertalker.app.data.edit.ParseResult.Ok ->
+                            _proposal.value = ProposalUi(r.proposal, focus)
+                        else -> postText("Não consegui montar a proposta agora. Tente novamente.")
+                    }
+                    return@launch
+                }
+                val apiKey = settings.llmApiKey.first()
+                if (!ProviderFactory.useRemoteRoute(apiKey)) {
+                    postText("Configure a chave de IA na tela Modelo IA para gerar propostas.")
+                    return@launch
+                }
+                val brief = briefFor(messageId)
+                val history = conversationTurns()
+                val turnContext = buildTurnFor(
+                    brief.ifBlank { focus }, inferIntent(brief.ifBlank { focus }, false).trainingCategory,
+                    history, history.none { it.fromMe }, focus)
+                _lastPrompt.value = turnContext.prompt
+                _chatEvidence.value = turnContext.evidence
+                android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
+                val provider = ProviderFactory.createWithKey(apiKey)
+                // HTTP fora da Main (§50), igual ao answerRemote.
+                val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    provider.generate(LlmRequest(
+                        text = focus,
+                        action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                        message = brief.ifBlank { focus },
+                        history = history,
+                        isFirstMessage = false,
+                        contextPack = turnContext.pack,
+                        blockTitle = _activeBlockTitle.value,
+                        responseFormat = ResponseFormat.EDIT_PROPOSAL,
+                        editMode = mode,
+                        brief = brief
+                    ))
+                }
+                android.util.Log.e("CopilotLLM", "proposal generated len=" + res.text.length +
+                    " offline=" + res.meta.offline)
+                when (val r = parseEditProposal(res.text, blocks, "focus", mode)) {
+                    is com.bettertalker.app.data.edit.ParseResult.Ok ->
+                        _proposal.value = ProposalUi(r.proposal, focus)
+                    is com.bettertalker.app.data.edit.ParseResult.Invalid -> {
+                        android.util.Log.e("CopilotLLM", "proposal parse invalid reason=" + r.reason)
+                        postText("A resposta do modelo veio em formato inválido. Tente gerar novamente.")
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _runState.value = ChatRunState.Cancelled()
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.e("CopilotLLM", "proposal failed " + e.javaClass.simpleName +
+                    " code=" + (e as? com.bettertalker.app.data.llm.ProviderError)?.code)
+                postText(friendlyChatError(e))
+            } finally {
+                _chatBusy.value = false
+            }
+        }
+    }
+
+    /** Retrieval para o verificador (Room, escopo por discurso). */
+    private suspend fun verifyRetrieve(
+        query: String,
+        training: Boolean
+    ): List<com.bettertalker.app.data.domain.RetrievalCandidate> {
+        val cited = refScope()
+        val scope = noteScope(cited.keys.toList())
+        return if (training) {
+            com.bettertalker.app.data.repo.RoomTrainingRepository(
+                db.passageDao(), db.attachmentDao())
+                .retrieveTraining(query, null, scope, 3).hits
+        } else {
+            com.bettertalker.app.data.repo.RoomRetrievalRepository(
+                db.passageDao(), db.attachmentDao())
+                .retrieve(query, scope, 5).hits
+        }
+    }
+
+    /** Verifica a proposta (F6): claims → evidência → 4 estados. */
+    fun verifyProposal() {
+        val ui = _proposal.value ?: return
+        if (ui.verifying) return
+        viewModelScope.launch {
+            _proposal.value = ui.copy(verifying = true, notice = null)
+            try {
+                val after = renderAfterText(ui.proposal, ui.focusText)
+                val v = verifyText(after, blockId = null, scopeKey = noteId ?: "",
+                    retrieve = ::verifyRetrieve)
+                _proposal.value = _proposal.value?.copy(verification = v, verifying = false)
+            } catch (_: Exception) {
+                _proposal.value = _proposal.value?.copy(verifying = false,
+                    notice = "Não foi possível verificar agora (acervo indisponível). Tente novamente.")
+            }
+        }
+    }
+
+    /**
+     * Aceita a proposta (§22-23): revalida contra a nota atual (stale
+     * bloqueia), aplica atomicamente nas strings, persiste via
+     * NotesRepository (o editor re-renderiza pela via externa) e guarda
+     * snapshot para Desfazer.
+     */
+    fun acceptProposal() {
+        val ui = _proposal.value ?: return
+        if (ui.applied) return
+        val nid = noteId ?: return
+        viewModelScope.launch {
+            val note = db.noteDao().get(nid) ?: run {
+                _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
+                return@launch
+            }
+            val curPlain = stripHtmlToText(note.richHtml)
+            // Stale: o foco não está mais no texto atual.
+            if (!curPlain.contains(ui.focusText)) {
+                _proposal.value = ui.copy(
+                    notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                return@launch
+            }
+            if (validateEditProposal(listOf(EditBlock("focus", ui.focusText)), ui.proposal)
+                !is com.bettertalker.app.data.edit.ValidationResult.Ok
+            ) {
+                _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
+                return@launch
+            }
+            val applied = applyToNote(note.richHtml, note.mdText, ui.focusText, ui.proposal)
+            if (applied == null) {
+                _proposal.value = ui.copy(
+                    notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                return@launch
+            }
+            proposalUndo.addLast(note.richHtml to note.mdText)
+            if (proposalUndo.size > 50) proposalUndo.removeFirst()
+            notes.save(nid, note.title, applied.second, applied.first,
+                note.folderId, note.colorArgb, note.pinned)
+            _proposal.value = ui.copy(notice = "Proposta aplicada.", applied = true)
+        }
+    }
+
+    /**
+     * Aplica as operações nas strings (html autoritativo, md acompanhando).
+     * null = âncora não encontrada (stale) — nunca aplica parcial.
+     *
+     * O html é decodificado antes do match: o editor persiste acentos como
+     * entidades e a âncora (texto puro) nunca bateria no cru (§23).
+     */
+    private fun applyToNote(
+        html: String,
+        md: String,
+        focus: String,
+        proposal: CopilotEditProposal
+    ): Pair<String, String>? {
+        var h = com.bettertalker.app.data.edit.unescapeHtmlEntities(html)
+        var m = md
+        for (op in proposal.operations) {
+            when (op) {
+                is EditOperation.Replace -> {
+                    if (!h.contains(focus) || !m.contains(focus)) return null
+                    h = h.replaceFirst(focus, op.contentHtml)
+                    m = m.replaceFirst(focus, stripHtmlToText(op.contentHtml))
+                }
+                is EditOperation.Insert -> {
+                    val anchor = h.indexOf(focus)
+                    if (anchor < 0 || !m.contains(focus)) return null
+                    val at = if (op.position ==
+                        com.bettertalker.app.data.edit.InsertPosition.BEFORE) anchor
+                    else anchor + focus.length
+                    h = h.substring(0, at) + op.contentHtml + h.substring(at)
+                    val mAnchor = m.indexOf(focus)
+                    val mAt = if (op.position ==
+                        com.bettertalker.app.data.edit.InsertPosition.BEFORE) mAnchor
+                    else mAnchor + focus.length
+                    val mdNew = stripHtmlToText(op.contentHtml)
+                    m = m.substring(0, mAt) + mdNew + m.substring(mAt)
+                }
+                is EditOperation.Delete -> {
+                    if (!h.contains(focus) || !m.contains(focus)) return null
+                    h = h.replaceFirst(focus, "")
+                    m = m.replaceFirst(focus, "")
+                }
+            }
+        }
+        return h to m
+    }
+
+    /** Desfaz o último aceite (snapshot pré-apply). */
+    fun undoProposal() {
+        val nid = noteId ?: return
+        val snap = proposalUndo.removeLastOrNull() ?: return
+        viewModelScope.launch {
+            val note = db.noteDao().get(nid) ?: return@launch
+            notes.save(nid, note.title, snap.second, snap.first,
+                note.folderId, note.colorArgb, note.pinned)
+            _proposal.value = _proposal.value?.copy(notice = "Proposta desfeita.", applied = false)
+        }
+    }
+
+    /** Rejeita: editor intacto, conversa continua. */
+    fun rejectProposal() {
+        _proposal.value = null
+    }
+
+    fun dismissProposalNotice() {
+        _proposal.value = _proposal.value?.copy(notice = null)
     }
 
     /**

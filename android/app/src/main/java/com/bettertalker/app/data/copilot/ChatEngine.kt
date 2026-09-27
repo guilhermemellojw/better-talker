@@ -20,6 +20,9 @@ const val MAX_HISTORY_MESSAGES = 6
 /** Caracteres máximos por mensagem ao serializar o histórico (§18 F15). */
 const val MAX_HISTORY_CHARS = 500
 
+/** Seleção máxima levada ao prompt (§17 F18): trecho, não o discurso. */
+const val MAX_SELECTION_CHARS = 2000
+
 /** Ações do copilot. Não confundir com [com.bettertalker.app.data.util.ChatIntent.Intent],
  * que é o roteador de ações locais do app (ex.: "resumir", "sync"). */
 enum class ChatAction { CHAT, CRITIQUE, HOOK, CUES, REWRITE, SHORTEN }
@@ -154,8 +157,12 @@ val FOLLOW_UP_SUGGESTIONS: List<String> = listOf("Mais natural", "Mais curta", "
 /**
  * Rótulo simples de contexto (§37 F15): bloco em foco, senão o discurso.
  * O usuário nunca digita id de bloco. Puro/testável.
+ *
+ * Fase 18 §16: seleção explícita tem prioridade sobre bloco e discurso.
  */
-fun contextLabel(blockTitle: String?, speechTitle: String?): String {
+fun contextLabel(blockTitle: String?, speechTitle: String?, selectedText: String? = null): String {
+    val sel = selectedText?.trim().orEmpty()
+    if (sel.isNotEmpty()) return "trecho selecionado"
     val b = blockTitle?.trim().orEmpty()
     if (b.isNotEmpty()) return b
     val s = speechTitle?.trim().orEmpty()

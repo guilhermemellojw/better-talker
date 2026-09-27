@@ -24,6 +24,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.ai.LlmConfig
@@ -123,6 +126,45 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
+            CopilotRemoteKeyCard(vm)
+        }
+    }
+}
+
+/**
+ * Fase 18 — chave BYOD do assistente remoto. Opcional, local, nunca em log.
+ * Com chave, o Copilot responde via Gemini; sem chave, segue o motor local.
+ */
+@Composable
+private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
+    val saved by vm.llmApiKey.collectAsState()
+    var draft by remember(saved) { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Assistente remoto (Gemini)", style = MaterialTheme.typography.titleSmall)
+            if (saved.isNotBlank()) {
+                Text("Chave configurada ✓ — o Copilot usa o assistente remoto.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary)
+                OutlinedButton(onClick = { vm.clearApiKey() }) { Text("Remover chave") }
+            } else {
+                Text("Cole sua chave do AI Studio. Fica só neste aparelho (DataStore local).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary)
+                androidx.compose.material3.OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Chave de API (AIzaSy…)") },
+                    singleLine = true,
+                    visualTransformation =
+                        androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+                Button(
+                    onClick = { vm.saveApiKey(draft); draft = "" },
+                    enabled = draft.isNotBlank()
+                ) { Text("Salvar chave") }
+            }
         }
     }
 }

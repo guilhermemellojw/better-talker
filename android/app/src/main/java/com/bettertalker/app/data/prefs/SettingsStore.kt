@@ -40,4 +40,14 @@ class SettingsStore(private val ctx: Context) {
     private val LAST_SYNC = androidx.datastore.preferences.core.longPreferencesKey("last_sync")
     val lastSync: Flow<Long> = ctx.store.data.map { it[LAST_SYNC] ?: 0L }
     suspend fun setLastSync(v: Long) { ctx.store.edit { it[LAST_SYNC] = v } }
+
+    /**
+     * Fase 18 — chave BYOD do Gemini (tela Modelo IA). Mesmo DataStore das
+     * demais settings: sem armazenamento paralelo. Opcional, local,
+     * nunca em log/erro/telemetry — só sai do aparelho no POST HTTPS.
+     */
+    private val LLM_API_KEY = stringPreferencesKey("llm_api_key")
+    val llmApiKey: Flow<String> = ctx.store.data.map { it[LLM_API_KEY].orEmpty() }
+    suspend fun setLlmApiKey(v: String) { ctx.store.edit { it[LLM_API_KEY] = v.trim() } }
+    suspend fun clearLlmApiKey() { ctx.store.edit { it.remove(LLM_API_KEY) } }
 }

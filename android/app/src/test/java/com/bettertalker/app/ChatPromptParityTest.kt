@@ -221,4 +221,29 @@ class ChatPromptParityTest {
         assertFalse(p.contains("Continuidade:"))
         assertFalse(p.contains("CONVERSA ANTERIOR"))
     }
+    // ---------- prompt de edit-proposal (Fase 18 §14) ----------
+
+    @Test
+    fun editProposalPromptTemGoalJsonEFoco() {
+        val p = com.bettertalker.app.data.copilot.buildEditProposalPrompt(
+            com.bettertalker.app.data.edit.EditProposalMode.IMPROVE,
+            "texto do bloco", pack = ContextPack(emptyList(), emptyList()),
+            brief = "deixe mais natural")
+        assertTrue(p.contains("PRESERVANDO"))
+        assertTrue(p.contains("```json"))
+        assertTrue(p.contains("deixe mais natural"))
+        assertTrue(p.contains("texto do bloco"))
+        // Fidelidade não cai no modo proposta.
+        assertTrue(p.contains("Nunca invente fatos"))
+    }
+
+    @Test
+    fun editProposalPromptRewriteEInsert() {
+        val rw = com.bettertalker.app.data.copilot.buildEditProposalPrompt(
+            com.bettertalker.app.data.edit.EditProposalMode.REWRITE, "x")
+        assertTrue(rw.contains("INTEGRALMENTE"))
+        val ins = com.bettertalker.app.data.copilot.buildEditProposalPrompt(
+            com.bettertalker.app.data.edit.EditProposalMode.INSERT, "x")
+        assertTrue(ins.contains("APÓS o bloco"))
+    }
 }

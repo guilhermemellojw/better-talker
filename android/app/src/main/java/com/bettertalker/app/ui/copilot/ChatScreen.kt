@@ -79,6 +79,7 @@ fun ChatScreen(
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
+    val proposal by vm.proposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
     val outlineInfo by vm.outlineInfo.collectAsState()
@@ -223,6 +224,13 @@ fun ChatScreen(
                         ProvenanceDisclosure(evidence, evidenceSummary)
                     }
                 }
+                // Fase 18 §21: proposta F5 — ANTES/DEPOIS, verificar, aceitar/rejeitar.
+                val prop = proposal
+                if (prop != null) {
+                    item(key = "proposal") {
+                        ProposalCard(prop, vm)
+                    }
+                }
                 // Estados legíveis: nada de spinner mudo (§30 F15).
                 when (val s = runState) {
                     is ChatRunState.Sending, is ChatRunState.Generating -> item {
@@ -341,7 +349,13 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> ChatMessageText(item.text)
+            else -> {
+                ChatMessageText(item.text)
+                // Fase 18 §21: sugestão conversacional vira proposta F5.
+                androidx.compose.material3.TextButton(
+                    onClick = { vm.createProposal(item.id) }
+                ) { Text("Criar proposta") }
+            }
         }
     }
 }

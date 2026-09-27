@@ -141,13 +141,16 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
-            // reusa o MESMO CopilotViewModel do editor (histórico compartilhado)
-            val copilotVm: CopilotViewModel = viewModel(
-                key = "cop-$noteId",
-                factory = CopilotViewModel.Factory(ctx, db, noteId)
-            )
             // EditorViewModel do editor (mesma store da rota editor p/ enfileirar inserções)
             val editorEntry = remember(back) { nav.getBackStackEntry(Routes.EDITOR) }
+            // Fase 18 §41: UMA instância de CopilotViewModel por nota, ancorada na
+            // rota do editor — proposta/verificação/estado sobrevivem ao
+            // editor↔chat. (Antes, cada rota tinha sua instância e o Voltar
+            // destruía a proposta em exibição.)
+            val copilotVm: CopilotViewModel = viewModel(
+                editorEntry, key = "cop-$noteId",
+                factory = CopilotViewModel.Factory(ctx, db, noteId)
+            )
             val editorVm: EditorViewModel = viewModel(
                 editorEntry, key = noteId,
                 factory = EditorViewModel.Factory(ctx, db, noteId)
@@ -177,6 +180,11 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
                 headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value)
             )
+            // Fase 18 §17: seleção viva do editor -> contexto do Copilot.
+            val liveSelection by editorVm.selectedText.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(liveSelection) {
+                copilotVm.setSelection(liveSelection)
+            }
         }
         composable(
             Routes.LIBRARY,

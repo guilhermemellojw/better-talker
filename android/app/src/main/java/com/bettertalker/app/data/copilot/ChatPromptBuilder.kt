@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.domain.TrainingCategory
+import com.bettertalker.app.data.edit.EditProposalMode
 
 /**
  * Fase 16 — paridade do chat nativo com a F15 (web).
@@ -159,4 +160,48 @@ fun buildChatPrompt(
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
         "ofereça um caminho criativo deixando claro que é sugestão sua."
+}
+
+/**
+ * Fase 18 — BLOCO B. Prompt de proposta de edição (porte de
+ * `editProposalPrompt` do web). O modelo responde SOMENTE JSON em cerca;
+ * o alvo vem do app, nunca do modelo. Puro/testável.
+ */
+fun buildEditProposalPrompt(
+    mode: EditProposalMode,
+    text: String,
+    tone: String = "ted",
+    pack: ContextPack = ContextPack(emptyList(), emptyList()),
+    blockTitle: String? = null,
+    blockMinutes: Int? = null,
+    brief: String = "",
+    legacyPassages: List<String> = emptyList()
+): String {
+    val goal = when (mode) {
+        EditProposalMode.REWRITE ->
+            "Reescreva INTEGRALMENTE o bloco a seguir com nova versão completa " +
+                "(mesma ideia central, forma renovada para palco)."
+        EditProposalMode.IMPROVE ->
+            "Melhore a clareza e a fluidez do bloco a seguir PRESERVANDO todas as " +
+                "ideias originais (sem acrescentar fatos novos)."
+        EditProposalMode.INSERT ->
+            "Crie um conteúdo NOVO (ilustração, aplicação ou transição, conforme o " +
+                "bloco pedir) para inserir APÓS o bloco atual, sem repetir o que já " +
+                "está nele. Tom: \"$tone\"."
+        EditProposalMode.DELETE ->
+            "Proponha a remoção do bloco a seguir (devolva JSON com operação delete)."
+        EditProposalMode.SUGGEST ->
+            "Sugira melhorias para o bloco a seguir como texto (sem operações de edição)."
+    }
+    val focus = if (brief.isNotBlank()) "Foco da tarefa (observação): $brief\n" else ""
+    val context = serializePack(pack, legacyPassages)
+    val block = blockSection(blockTitle, blockMinutes)
+    return "$goal\n${focus}Texto do bloco atual:\n\"$text\"\n$context$block\n" +
+        "Responda SOMENTE com este JSON em cerca ```json (sem texto fora dela):\n" +
+        "{\"explanation\": \"1 frase sobre o que foi proposto\", " +
+        "\"operations\": [{\"type\": \"replace\", \"content\": \"<p>...novo bloco integral...</p>\"}]}\n" +
+        "Para conteúdo novo use {\"type\": \"insert\", \"position\": \"after\", " +
+        "\"content\": \"<p>...</p>\"}. Use HTML simples (p, strong, em). " +
+        "Nunca invente fatos, citações ou referências. Se criar ilustração, pergunta " +
+        "ou transição, apresente como sugestão do modelo, sem atribuir à fonte."
 }

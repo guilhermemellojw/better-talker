@@ -394,3 +394,84 @@ fun ToolsSheet(
         }
     }
 }
+
+/**
+ * Fase 18 §21 — cartão de proposta F5: ANTES/DEPOIS, Verificar (F6),
+ * Aceitar/Rejeitar, Desfazer após aceite. Nunca insere direto.
+ */
+@Composable
+fun ProposalCard(
+    ui: CopilotViewModel.ProposalUi,
+    vm: CopilotViewModel,
+    modifier: Modifier = Modifier
+) {
+    val after = remember(ui.proposal, ui.focusText) {
+        com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
+    }
+    Column(
+        modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text("Proposta", style = MaterialTheme.typography.titleSmall)
+        ui.proposal.explanation?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("ANTES", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary)
+        Text(ui.focusText.take(600), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(4.dp))
+        Text("DEPOIS", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary)
+        Text(after.take(1200), style = MaterialTheme.typography.bodySmall)
+        ui.verification?.let { v ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "✓ ${v.summary.supported} · ⚠ ${v.summary.partial} · " +
+                    "? ${v.summary.insufficient} · 💡 ${v.summary.creative}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            var expanded by remember { mutableStateOf(false) }
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Ocultar detalhes" else "Ver detalhes")
+            }
+            if (expanded) {
+                v.claims.take(5).forEach { c ->
+                    val glyph = when (c.status) {
+                        com.bettertalker.app.data.verify.SupportStatus.SUPPORTED -> "✓"
+                        com.bettertalker.app.data.verify.SupportStatus.PARTIALLY_SUPPORTED -> "⚠"
+                        com.bettertalker.app.data.verify.SupportStatus.INSUFFICIENT -> "?"
+                        com.bettertalker.app.data.verify.SupportStatus.CREATIVE -> "💡"
+                    }
+                    Text(
+                        "$glyph “${c.claim.text.take(80)}” — ${c.reason}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+        ui.notice?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (!ui.applied) {
+                TextButton(
+                    onClick = { vm.verifyProposal() },
+                    enabled = !ui.verifying
+                ) { Text(if (ui.verifying) "Verificando..." else "Verificar") }
+                TextButton(onClick = { vm.acceptProposal() }) { Text("Aceitar") }
+                TextButton(onClick = { vm.rejectProposal() }) { Text("Rejeitar") }
+            } else {
+                if (vm.canUndoProposal) {
+                    TextButton(onClick = { vm.undoProposal() }) { Text("Desfazer") }
+                }
+                TextButton(onClick = { vm.rejectProposal() }) { Text("Fechar") }
+            }
+        }
+    }
+}

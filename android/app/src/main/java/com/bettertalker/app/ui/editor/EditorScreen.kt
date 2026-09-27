@@ -143,6 +143,21 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
             .debounce(400)
             .collect { vm.onContent(richState.toHtml(), richState.toMarkdown()) }
     }
+    // Fase 18 §17: seleção viva -> Copilot ("Contexto: trecho selecionado").
+    // Colapsada (só cursor) = sem seleção.
+    LaunchedEffect(richState) {
+        snapshotFlow { richState.selection }
+            .collect { sel ->
+                if (sel.collapsed) {
+                    vm.onSelection("")
+                } else {
+                    val full = richState.annotatedString.text
+                    val a = sel.start.coerceIn(0, full.length)
+                    val b = sel.end.coerceIn(0, full.length)
+                    vm.onSelection(if (b > a) full.substring(a, b) else "")
+                }
+            }
+    }
     // fila de inserções (Copilot, esboço): aplica na árvore viva, preserva estilos
     LaunchedEffect(pending) {
         if (pending.isEmpty()) return@LaunchedEffect

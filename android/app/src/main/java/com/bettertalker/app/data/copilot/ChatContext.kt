@@ -149,8 +149,32 @@ fun buildTurnContext(
     blockMinutes: Int? = null,
     blockText: String = "",
     legacyPassages: List<String> = emptyList()
+): ChatTurnContext = buildTurnContextFromPack(
+    message = message,
+    history = history,
+    isFirstMessage = isFirstMessage,
+    pack = packFor(contentHits, trainingHits),
+    blockTitle = blockTitle,
+    blockMinutes = blockMinutes,
+    blockText = blockText,
+    legacyPassages = legacyPassages
+)
+
+/**
+ * Variante para pack já montado (ex.: RoomContextPackRepository). Mesma
+ * montagem de prompt e proveniência — nenhum atalho tem prompt próprio.
+ * Puro/testável.
+ */
+fun buildTurnContextFromPack(
+    message: String,
+    history: List<ChatTurn>,
+    isFirstMessage: Boolean,
+    pack: ContextPack,
+    blockTitle: String? = null,
+    blockMinutes: Int? = null,
+    blockText: String = "",
+    legacyPassages: List<String> = emptyList()
 ): ChatTurnContext {
-    val pack = packFor(contentHits, trainingHits)
     val prompt = buildChatPrompt(
         message = message,
         history = history,

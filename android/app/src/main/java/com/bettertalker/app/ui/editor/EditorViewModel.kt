@@ -123,6 +123,18 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         _pending.value = _pending.value + PendingInsert(markdown, heading)
     }
 
+    /**
+     * Fase 18 §17: trecho selecionado no editor. Volátil (não persiste,
+     * não entra no autosave) — é contexto vivo para o Copilot.
+     */
+    private val _selectedText = MutableStateFlow("")
+    val selectedText = _selectedText.asStateFlow()
+
+    fun onSelection(text: String) {
+        val t = text.trim().take(2000)
+        if (t != _selectedText.value) _selectedText.value = t
+    }
+
     fun consumePending() {
         _pending.value = emptyList()
     }
