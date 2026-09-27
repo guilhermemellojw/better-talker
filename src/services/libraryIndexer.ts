@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { db } from './db';
 import { classifyTraining } from '../copilot/trainingClassifier';
+import { onDocumentExtracted } from '../copilot/s34ImportHook';
 import type { CorpusSourceType, Passage, Publication } from '../types/speech';
 
 const MAX_EPUB_FILES = 200;
@@ -60,12 +61,15 @@ export async function indexPublication(
   // Indexação aguardada (antes era fire-and-forget e a UI ficava presa em "Indexando...").
   try {
     onProgress?.('extraindo texto…');
-    const passages = await indexPassages(arrayBuffer, publication, kind, onProgress);
+    const { passages, rawText } = await indexPassages(arrayBuffer, publication, kind, onProgress);
     onProgress?.(`salvando ${passages.length} trechos…`);
     if (passages.length > 0) {
       await db.passages.bulkPut(passages);
     }
     await db.publications.update(id, { indexed: true, totalPassages: passages.length });
+    // F19-B.6: S-34 importado vira estrutura persistida automaticamente,
+    // ligada ao id da publicação. Documento comum não muda de fluxo.
+    await onDocumentExtracted(db, id, rawText);
     return { ...publication, indexed: true, totalPassages: passages.length };
   } catch (err) {
     console.warn('Failed to index passages:', err);
@@ -78,9 +82,15 @@ async function indexPassages(
   pub: Publication,
   kind: 'epub' | 'pdf',
   onProgress?: (stage: string) => void,
-): Promise<Passage[]> {
-  const units: Array<{ section?: string; page?: number; text: string; order: number }> =
-    kind === 'epub' ? await extractEpubUnits(buffer, onProgress) : await extractPdfUnits(buffer, onProgress);
+): Promise<{ passages: Passage[]; rawText: string }> {
+  const units: Array<{
+    section?: string;
+    page?: number;
+    text: string;
+    order: number;
+    /** F19-B.6: versão que preserva quebras de linha, só para o hook S-34. */
+    raw?: string;
+  }> = kind === 'epub' ? await extractEpubUnits(buffer, onProgress) : await extractPdfUnits(buffer, onProgress);
 
   const passages: Passage[] = [];
   let order = 0;
@@ -114,7 +124,10 @@ async function indexPassages(
       });
     }
   }
-  return passages;
+  // F19-B.6: texto bruto dos MESMOS units, para o detector de S-34 —
+  // sem reler o arquivo nem duplicar extração.
+  const rawText = units.map((u) => u.raw ?? u.text).join('\n').slice(0, 400_000);
+  return { passages, rawText };
 }
 
 function buildRef(symbol: string, section?: string, page?: number, paragraph?: number): string {
@@ -128,26 +141,28 @@ function buildRef(symbol: string, section?: string, page?: number, paragraph?: n
 async function extractEpubUnits(
   buffer: ArrayBuffer,
   onProgress?: (stage: string) => void,
-): Promise<Array<{ section?: string; text: string; order: number }>> {
+): Promise<Array<{ section?: string; text: string; order: number; raw?: string }>> {
   try {
     const zip = await JSZip.loadAsync(buffer);
     // content.xml (FB2-like) ou XHTML soltos — ordenados pelo nome como aproximação do spine.
     const contentFiles = zip.file(/.*\/?content\.xml$/i);
     if (contentFiles.length > 0) {
       const raw = await contentFiles[0].async('string');
-      return [{ text: stripHtmlTags(raw), order: 0 }];
+      return [{ text: stripHtmlTags(raw), order: 0, raw: stripHtmlToLines(raw) }];
     }
     const all = zip.file(/\.(x?html?|xml)$/i).filter((f) => !/toc|nav|ncx|opf|container/i.test(f.name));
     all.sort((a, b) => a.name.localeCompare(b.name));
     const picked = all.slice(0, MAX_EPUB_FILES);
-    const out: Array<{ section?: string; text: string; order: number }> = [];
+    const out: Array<{ section?: string; text: string; order: number; raw?: string }> = [];
     let order = 0;
     for (const [idx, f] of picked.entries()) {
       if (idx % 20 === 0) onProgress?.(`lendo seção ${idx + 1}/${picked.length}…`);
       const html: string = await f.async('string');
       const section = extractHeading(html) || f.name.split('/').pop()?.replace(/\.(x?html?|xml)$/i, '');
       const text = stripHtmlTags(html);
-      if (text.length > 20) out.push({ section, text, order: order++ });
+      // F19-B.6: o índice continua com o texto achatado; o hook recebe a
+      // versão com quebras de linha (o S-34 é orientado a linhas).
+      if (text.length > 20) out.push({ section, text, order: order++, raw: stripHtmlToLines(html) });
     }
     return out;
   } catch {
@@ -158,7 +173,7 @@ async function extractEpubUnits(
 async function extractPdfUnits(
   buffer: ArrayBuffer,
   onProgress?: (stage: string) => void,
-): Promise<Array<{ page: number; text: string; order: number }>> {
+): Promise<Array<{ page: number; text: string; order: number; raw?: string }>> {
   try {
     const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const pdf = await getDocument({ data: buffer }).promise;
@@ -182,6 +197,30 @@ function extractHeading(html: string): string | undefined {
   const m = html.match(/<(h1|h2|h3)[^>]*>([\s\S]{1,200}?)<\/\1>/i);
   if (!m) return undefined;
   return stripHtmlTags(m[2]).slice(0, 80) || undefined;
+}
+
+/**
+ * F19-B.6: como stripHtmlTags, mas converte tags de bloco em QUEBRA DE LINHA
+ * antes de achatar espaços. Usado somente como texto bruto do hook S-34 — o
+ * índice de passages continua com stripHtmlTags (nenhuma mudança de busca).
+ */
+function stripHtmlToLines(html: string): string {
+  return html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr|section|article)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#\d+;/g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/[ \t\f\r]+/g, ' ').trim())
+    .filter((l) => l.length > 0)
+    .join('\n');
 }
 
 function stripHtmlTags(html: string): string {

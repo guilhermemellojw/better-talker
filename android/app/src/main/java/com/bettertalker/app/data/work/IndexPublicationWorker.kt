@@ -49,6 +49,10 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                 db.attachmentDao().setStatus(id, false, "failed", "Não foi possível extrair texto (arquivo vazio ou protegido).")
                 return Result.success()
             }
+            // F19-B.6: S-34 importado vira estrutura persistida automaticamente.
+            // Documento comum não muda de fluxo; S-34 insuficiente não vira
+            // estrutura falsa (hook devolve o estado, nunca lança).
+            com.bettertalker.app.data.s34.S34ImportHook.onExtracted(db.s34Dao(), id, raw)
             // separa frases no texto CRU (normalizar apaga . ! ? \n) com seção
             val sentences = splitWithSections(raw).take(MAX_SENTENCES)
                 .mapNotNull { (s, section) ->
