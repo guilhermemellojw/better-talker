@@ -58,6 +58,8 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
         for (a in db.attachmentDao().all().filter { it.noteId == id }) {
             runCatching { File(a.appPath).delete() }
             db.passageDao().deleteForAttachment(a.id)
+            // Fase 19-B.3: outline estrutural órfão não permanece.
+            S34OutlineRepository(db.s34Dao()).deleteBySource(a.id)
             db.attachmentDao().delete(a.id)
             db.tombstoneDao().put(TombstoneEntity(a.id, "attachment", System.currentTimeMillis()))
         }

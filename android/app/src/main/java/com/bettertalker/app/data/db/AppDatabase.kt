@@ -210,8 +210,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class],
-    version = 10,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class],
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -222,6 +222,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tombstoneDao(): TombstoneDao
     abstract fun outlineDao(): OutlineDao
     abstract fun chatDao(): ChatDao
+    abstract fun s34Dao(): S34Dao
 }
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
@@ -274,4 +275,125 @@ interface OutlineDao {
     suspend fun deleteForNote(noteId: String)
     @Query("DELETE FROM outlines WHERE id = :id")
     suspend fun delete(id: String)
+}
+
+/**
+ * Fase 19-B.3 — persistência do S34Document (parser B.2).
+ * Tabelas normalizadas; `order` do domínio vira coluna `position`
+ * (`order` é palavra reservada do SQLite). Derivado do attachment:
+ * sem FK formal (convenção do projeto: deleção manual explícita).
+ */
+@Entity(
+    tableName = "s34_outlines",
+    indices = [Index("sourceAttachmentId")]
+)
+data class S34OutlineEntity(
+    @PrimaryKey val id: String,
+    val sourceAttachmentId: String,
+    val symbol: String,
+    val title: String,
+    val objective: String?,
+    /** Linhas órfãs pré-seção (JSON array de strings; texto não-estruturado). */
+    val headerLinesJson: String = "[]",
+    val createdAt: Long,
+    val updatedAt: Long,
+    val parserVersion: Int
+)
+
+@Entity(
+    tableName = "s34_sections",
+    indices = [Index("outlineId")]
+)
+data class S34SectionEntity(
+    @PrimaryKey val id: String,
+    val outlineId: String,
+    @androidx.room.ColumnInfo(name = "position") val order: Int,
+    val title: String,
+    val content: String,
+    val minutes: Int?,
+    val sourceLine: Int
+)
+
+@Entity(
+    tableName = "s34_subsections",
+    indices = [Index("sectionId")]
+)
+data class S34SubsectionEntity(
+    @PrimaryKey val id: String,
+    val sectionId: String,
+    @androidx.room.ColumnInfo(name = "position") val order: Int,
+    val content: String,
+    val sourceLine: Int
+)
+
+@Entity(
+    tableName = "s34_references",
+    indices = [Index("outlineId"), Index("sectionId")]
+)
+data class S34ReferenceEntity(
+    @PrimaryKey val id: String,
+    val outlineId: String,
+    /** Null = fora de seção (contrato B.2: sem associação inventada). */
+    val sectionId: String?,
+    val subsectionId: String?,
+    @androidx.room.ColumnInfo(name = "position") val order: Int,
+    /** BIBLE | PUBLICATION */
+    val type: String,
+    val rawText: String,
+    val normalizedReference: String,
+    val sourceLine: Int,
+    val book: String?,
+    val bookNorm: String?,
+    val chapter: Int?,
+    val verse: Int?,
+    /** MAGAZINE | BOOK (nome do enum; null quando não-publicação). */
+    val pubKind: String?,
+    val pubKey: String?,
+    val pubLabel: String?,
+    val editionKey: String?
+)
+
+@Dao
+interface S34Dao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putOutline(o: S34OutlineEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSections(list: List<S34SectionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putSubsections(list: List<S34SubsectionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putReferences(list: List<S34ReferenceEntity>)
+
+    @Query("SELECT * FROM s34_outlines WHERE id = :id LIMIT 1")
+    suspend fun outlineById(id: String): S34OutlineEntity?
+
+    @Query("SELECT * FROM s34_outlines WHERE sourceAttachmentId = :sourceId LIMIT 1")
+    suspend fun outlineBySource(sourceId: String): S34OutlineEntity?
+
+    @Query("SELECT * FROM s34_sections WHERE outlineId = :outlineId ORDER BY position ASC")
+    suspend fun sectionsOf(outlineId: String): List<S34SectionEntity>
+
+    @Query("SELECT * FROM s34_subsections WHERE sectionId IN (:sectionIds) ORDER BY sectionId ASC, position ASC")
+    suspend fun subsectionsOf(sectionIds: List<String>): List<S34SubsectionEntity>
+
+    @Query("SELECT * FROM s34_references WHERE outlineId = :outlineId ORDER BY position ASC")
+    suspend fun referencesOf(outlineId: String): List<S34ReferenceEntity>
+
+    @Query("DELETE FROM s34_references WHERE outlineId = :outlineId")
+    suspend fun deleteRefsOf(outlineId: String)
+
+    @Query("DELETE FROM s34_subsections WHERE sectionId IN (:sectionIds)")
+    suspend fun deleteSubsOf(sectionIds: List<String>)
+
+    @Query("DELETE FROM s34_sections WHERE outlineId = :outlineId")
+    suspend fun deleteSectionsOf(outlineId: String)
+
+    @Query("DELETE FROM s34_outlines WHERE id = :id")
+    suspend fun deleteOutline(id: String)
+
+    @Query("DELETE FROM s34_outlines WHERE sourceAttachmentId = :sourceId")
+    suspend fun deleteOutlineBySource(sourceId: String)
 }

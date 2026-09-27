@@ -1,5 +1,11 @@
 import Dexie, { type Table } from 'dexie';
 import type { Speech, AppSettings, SpeechBlock, Publication, Passage } from '../types/speech';
+import type {
+  S34OutlineRow,
+  S34SectionRow,
+  S34SubsectionRow,
+  S34ReferenceRow,
+} from '../copilot/s34Repository';
 
 const DEFAULT_SETTINGS: AppSettings = {
   geminiApiKey: '',
@@ -47,12 +53,16 @@ const INITIAL_DEMO_SPEECH: Speech = {
   blocks: [],
 };
 
-class BetterTalkerDB extends Dexie {
+export class BetterTalkerDB extends Dexie {
   speeches!: Table<Speech, string>;
   blocks!: Table<SpeechBlock, string>;
   publications!: Table<Publication, string>;
   passages!: Table<Passage, string>;
   settings!: Table<{ key: string; value: AppSettings }, string>;
+  s34outlines!: Table<S34OutlineRow, string>;
+  s34sections!: Table<S34SectionRow, string>;
+  s34subsections!: Table<S34SubsectionRow, string>;
+  s34references!: Table<S34ReferenceRow, string>;
 
   constructor() {
     super('BetterTalkerDB');
@@ -80,6 +90,19 @@ class BetterTalkerDB extends Dexie {
       publications: 'id, fileName, indexed, symbol, source_type, addedAt',
       passages: 'id, pubId, normalizedText, source_type, symbol, order',
       settings: 'key',
+    });
+    // Fase 19-B.3: tabelas do OutlineDocument (s34_*). Aditivo, sem perda;
+    // consultas sempre por chave indexada + ordenação em JS por `position`.
+    this.version(5).stores({
+      speeches: 'id, updatedAt, sourceFileName',
+      blocks: 'id, speechId, order',
+      publications: 'id, fileName, indexed, symbol, source_type, addedAt',
+      passages: 'id, pubId, normalizedText, source_type, symbol, order',
+      settings: 'key',
+      s34outlines: 'id, sourceAttachmentId',
+      s34sections: 'id, outlineId, position',
+      s34subsections: 'id, sectionId, position',
+      s34references: 'id, outlineId, sectionId, position',
     });
   }
 }
@@ -196,13 +219,7 @@ export const speechStorage = {
   },
 
   async deletePublication(id: string): Promise<void> {
-    await withStorageTimeout(
-      db.transaction('rw', [db.publications, db.passages], async () => {
-        await db.publications.delete(id);
-        await db.passages.where('pubId').equals(id).delete();
-      }),
-      'deletePublication',
-    );
+    await withStorageTimeout(deletePublicationCascade(db, id), 'deletePublication');
   },
 
   async getAllPublications(): Promise<Publication[]> {
@@ -279,3 +296,55 @@ export const speechStorage = {
 };
 
 export { db };
+
+/**
+ * Fase 19-B.3 — corpo do deletePublication extraído para ser testável com
+ * qualquer instância (produção usa o singleton via speechStorage).
+ * Transação única: publications + passages + s34_* (sem órfãos).
+ */
+export async function deletePublicationCascade(
+  database: Pick<
+    BetterTalkerDB,
+    | 'transaction'
+    | 'publications'
+    | 'passages'
+    | 's34outlines'
+    | 's34sections'
+    | 's34subsections'
+    | 's34references'
+  >,
+  id: string,
+): Promise<void> {
+  await database.transaction(
+    'rw',
+    [
+      database.publications,
+      database.passages,
+      database.s34outlines,
+      database.s34sections,
+      database.s34subsections,
+      database.s34references,
+    ],
+    async () => {
+      await database.publications.delete(id);
+      await database.passages.where('pubId').equals(id).delete();
+      // Outline estrutural órfão não permanece.
+      const outlined = await database.s34outlines
+        .where('sourceAttachmentId')
+        .equals(id)
+        .first();
+      if (outlined) {
+        await database.s34references.where('outlineId').equals(outlined.id).delete();
+        const secs = await database.s34sections.where('outlineId').equals(outlined.id).toArray();
+        if (secs.length > 0) {
+          await database.s34subsections
+            .where('sectionId')
+            .anyOf(secs.map((s) => s.id))
+            .delete();
+        }
+        await database.s34sections.where('outlineId').equals(outlined.id).delete();
+        await database.s34outlines.delete(outlined.id);
+      }
+    },
+  );
+}

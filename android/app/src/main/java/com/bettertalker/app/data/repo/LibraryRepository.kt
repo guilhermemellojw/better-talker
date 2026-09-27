@@ -240,6 +240,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         if (a != null) {
             runCatching { File(a.appPath).delete() }
             db.passageDao().deleteForAttachment(id)
+            // Fase 19-B.3: outline estrutural órfão não permanece.
+            S34OutlineRepository(db.s34Dao()).deleteBySource(id)
             db.attachmentDao().delete(id)
             db.tombstoneDao().put(TombstoneEntity(id, "attachment", System.currentTimeMillis()))
             SyncScheduler.requestSync(ctx)
