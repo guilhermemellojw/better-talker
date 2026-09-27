@@ -684,6 +684,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             includeTraining = trainingCategory != null,
             trainingCategory = trainingCategory
         )
+        // F19-B.5: S-34 estrutural do attachment em foco (se houver).
+        // Consome a B.4; NoOutline mantém o caminho legado intacto.
+        val structural = structuralFor(cited.keys.toList(), text)
         return com.bettertalker.app.data.copilot.buildTurnContextFromPack(
             message = text,
             history = history,
@@ -691,8 +694,35 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             pack = pack,
             blockTitle = _activeBlockTitle.value,
             blockMinutes = null,
-            blockText = blockText
+            blockText = blockText,
+            structural = structural
         )
+    }
+
+    /**
+     * Estrutura do S-34 para este turno (B.4 → B.5). O ponto atual é a
+     * seleção/bloco em foco; sem correspondência o estado é explícito.
+     */
+    private suspend fun structuralFor(
+        candidateIds: List<String>,
+        text: String
+    ): com.bettertalker.app.data.copilot.OutlineStructureContext? {
+        val retriever = com.bettertalker.app.data.repo.S34StructuralRetriever(
+            com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
+        )
+        for (id in candidateIds) {
+            val result = retriever.retrieve(
+                sourceAttachmentId = id,
+                sectionHint = _activeBlockTitle.value ?: _selection.value,
+                query = text
+            )
+            if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
+                val doc = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
+                    .getBySource(id)
+                return com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+            }
+        }
+        return null
     }
 
     /**
@@ -743,7 +773,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     history = history,
                     isFirstMessage = isFirst,
                     contextPack = turnContext.pack,
-                    blockTitle = _activeBlockTitle.value
+                    blockTitle = _activeBlockTitle.value,
+                    structural = turnContext.structural
                 )
             )
         }

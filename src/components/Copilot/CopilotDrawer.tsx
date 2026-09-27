@@ -11,6 +11,13 @@ import { buildScopeFromLibrary, dexiePassageStore } from '../../copilot/retrieva
 import { retrieveTraining } from '../../copilot/trainingRetriever';
 import { trainingCategoryForAction, trainingCategoryForEditMode } from '../../copilot/trainingIntent';
 import { buildContextPackFromCandidates, type BuildInput } from '../../copilot/contextPack';
+import { db } from '../../services/db';
+import { getS34Outline } from '../../copilot/s34Repository';
+import {
+  findS34OutlineIdForSpeech,
+  structuralContextFor,
+  type S34StructureContext,
+} from '../../copilot/s34StructuralContext';
 import type { EvidenceMeta } from '../../copilot/retrieval';
 import { analyzeSpeech, speechContentHash } from '../../copilot/speechAnalyzer';
 import type { SpeechAnalysis } from '../../copilot/speechAnalysis';
@@ -178,6 +185,11 @@ export const CopilotDrawer = ({
         activeBlock?.plainText || activeBlock?.title || message,
         intent.trainingCategory,
       );
+      // F19-B.5: estrutura do S-34 quando houver (senão caminho legado).
+      const structural = await fetchStructuralContext(
+        activeBlock?.title,
+        message,
+      );
       const provider = createCopilotProviderFromEnv(apiKey);
       const res = await provider.generate({
         action: 'chat',
@@ -185,6 +197,7 @@ export const CopilotDrawer = ({
         tone: activeTone,
         contextPassages,
         contextPack: pack,
+        structural,
         blockTitle: activeBlock?.title,
         blockMinutes: activeBlock?.minutes,
         chat: {
@@ -264,6 +277,31 @@ export const CopilotDrawer = ({
     } catch (err) {
       console.warn('Training retrieval indisponível, seguindo só com conteúdo:', err);
       return undefined;
+    }
+  };
+
+  /**
+   * F19-B.5: estrutura do S-34 quando existir para este discurso.
+   * Associação conservadora por título (o web não tem link
+   * discurso↔attachment); ambígua/ausente ⇒ null (caminho legado).
+   */
+  const fetchStructuralContext = async (
+    blockTitle: string | undefined,
+    message: string,
+  ): Promise<S34StructureContext | null> => {
+    try {
+      const rows = await db.s34outlines.toArray();
+      const id = findS34OutlineIdForSpeech(rows, speech.title);
+      if (!id) return null;
+      const doc = await getS34Outline(db, id);
+      if (!doc) return null;
+      return structuralContextFor(doc, {
+        sectionHint: blockTitle ?? null,
+        query: message,
+      });
+    } catch (err) {
+      console.warn('Estrutura S-34 indisponível, seguindo sem ela:', err);
+      return null;
     }
   };
 

@@ -26,6 +26,11 @@ export interface LlmRequest {
   contextPassages?: string[];
   blockTitle?: string;
   blockMinutes?: number;
+  /**
+   * F19-B.5: estrutura do S-34 (quando o discurso tem esboço persistido).
+   * Entra como bloco próprio no prompt, antes das fontes.
+   */
+  structural?: import('./s34StructuralContext').S34StructureContext | null;
   /** Cancelamento iniciado pela UI (AbortController). */
   signal?: AbortSignal;
   timeoutMs?: number;

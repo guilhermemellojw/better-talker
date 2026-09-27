@@ -34,6 +34,12 @@ data class LlmRequest(
     val contextPassages: List<String> = emptyList(),
     val blockTitle: String? = null,
     val blockMinutes: Int? = null,
+    /**
+     * F19-B.5: estrutura do S-34 (quando o discurso tem esboço persistido).
+     * Ajuste de contrato estritamente necessário para que a estrutura
+     * chegue ao prompt; opcional e retrocompatível.
+     */
+    val structural: com.bettertalker.app.data.copilot.OutlineStructureContext? = null,
     val timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     val maxAttempts: Int = DEFAULT_LLM_MAX_ATTEMPTS,
     /**

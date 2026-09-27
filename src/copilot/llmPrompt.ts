@@ -7,6 +7,11 @@ import type { LlmRequest, LlmTone } from './llmProvider';
 import type { ChatBrief } from './chatEngine';
 import { chatBriefToText } from './chatEngine';
 import { trainingCategoryOf } from './trainingClassifier';
+import {
+  serializeStructuralContext,
+  S34_PROMPT_RULES,
+  type S34StructureContext,
+} from './s34StructuralContext';
 
 export const INSUFFICIENT_EVIDENCE_MESSAGE = 'Não encontrei suporte suficiente nas fontes disponíveis.';
 
@@ -36,12 +41,18 @@ export interface BuiltPrompt {
   user: string;
 }
 
-function serializePack(pack: ContextPack, legacyPassages: string[]): string {
+function serializePack(
+  pack: ContextPack,
+  legacyPassages: string[],
+  structural?: S34StructureContext | null,
+): string {
   const content = pack.content_sources.slice(0, 8);
   const training = pack.training_sources.slice(0, 4);
   const legacy = legacyPassages.slice(0, 12 - content.length - training.length);
 
-  let section = '';
+  // F19-B.5: o S-34 vem PRIMEIRO e identificado — a estrutura não se perde
+  // no meio de resultados de similaridade.
+  let section = structural ? serializeStructuralContext(structural) : '';
   if (content.length > 0 || legacy.length > 0) {
     const lines = [
       ...content.map((s, i) => `[Fonte ${i + 1}: ${s.reference}] ${s.text}`),
@@ -104,10 +115,11 @@ function chatPrompt(request: LlmRequest, context: string, block: string): string
     /(verifi|confira|esta correta|esta certo|realmente|tem apoio|suporte|publica..o)/i.test(message)
       ? 'Foco: conferir se a informação tem apoio nas FONTES DE CONTEÚDO autorizadas. Não use orientações de oratória como prova factual.'
       : 'Foco: responder à mensagem do usuário usando o contexto e as fontes disponíveis. Orientações de oratória orientam o COMO apresentar; fontes de conteúdo, o O QUÊ.';
+  const s34Rules = request.structural ? `\n${S34_PROMPT_RULES}\n` : '';
   return `${briefText}
 
 ${focus}
-${context}${block}
+${context}${block}${s34Rules}
 Texto do bloco em foco:
 "${request.text}"
 
@@ -116,9 +128,10 @@ Responda de forma conversacional e direta: parágrafos curtos, sem rótulos inte
 
 export function buildLlmPrompt(request: LlmRequest): BuiltPrompt {
   const tone = request.tone ?? 'ted';
+  const structural = request.structural ?? null;
   const context = request.contextPack
-    ? serializePack(request.contextPack, request.contextPassages ?? [])
-    : serializePack(emptyContextPack(), request.contextPassages ?? []);
+    ? serializePack(request.contextPack, request.contextPassages ?? [], structural)
+    : serializePack(emptyContextPack(), request.contextPassages ?? [], structural);
   const block = blockSection(request.blockTitle, request.blockMinutes);
   if (request.action === 'chat') {
     return {

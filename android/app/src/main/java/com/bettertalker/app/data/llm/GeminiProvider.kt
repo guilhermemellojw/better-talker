@@ -67,7 +67,8 @@ class GeminiProvider(
             blockTitle = request.blockTitle,
             blockMinutes = request.blockMinutes,
             blockText = request.text,
-            legacyPassages = request.contextPassages
+            legacyPassages = request.contextPassages,
+            structural = request.structural
         )
         val body = requestBody(prompt)
         // Chave como query param (API Gemini); montada só aqui, nunca logada.
