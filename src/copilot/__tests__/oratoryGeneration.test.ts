@@ -143,9 +143,12 @@ describe('oratoryGeneration', () => {
     expect(vazio.kind).toBe('cannot-generate');
     if (vazio.kind === 'cannot-generate') expect(vazio.blocked.kind).toBe('no-structure');
 
+    // Transição do ponto 1 → 2 é válida (só o seguinte é obrigatório).
     const first = scopeToS34Section(doc, 'sec-1')!;
     const r1 = oratorySpec('transition', doc, first, 'insert');
-    expect(r1.kind === 'cannot-generate' && r1.blocked.kind).toBe('no-previous-section');
+    if (r1.kind !== 'ready') throw new Error('esperado ready');
+    expect(r1.spec.previousSectionId).toBeNull();
+    expect(r1.spec.next!.sectionId).toBe('sec-2');
     const last = scopeToS34Section(doc, 'sec-3')!;
     const r3 = oratorySpec('transition', doc, last, 'insert');
     expect(r3.kind === 'cannot-generate' && r3.blocked.kind).toBe('no-next-section');

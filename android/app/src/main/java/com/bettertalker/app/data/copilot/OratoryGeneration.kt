@@ -217,15 +217,15 @@ object OratoryGeneration {
         val current = if (currentId != null && idx >= 0) ordered[idx] else null
 
         if (mode == Mode.TRANSITION) {
-            val prev = ordered.getOrNull(idx - 1) ?: return Result.CannotGenerate(
-                Blocked.NoPreviousSection(currentId!!)
-            )
+            // Transição = ponto ATUAL → ponto SEGUINTE. Só o seguinte é
+            // obrigatório (do último ponto não há para onde ir); o anterior,
+            // quando existe, entra como posição.
             val nextSec = ordered.getOrNull(idx + 1) ?: return Result.CannotGenerate(
                 Blocked.NoNextSection(currentId!!)
             )
-            // A transição começa no ponto atual e vai para o próximo.
+            val prevSec = ordered.getOrNull(idx - 1)
             return Result.Ready(
-                buildSpec(mode, action, document, ordered, currentId, current, prev, nextSec, referenceTexts)
+                buildSpec(mode, action, document, ordered, currentId, current, prevSec, nextSec, referenceTexts)
             )
         }
 

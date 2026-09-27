@@ -204,17 +204,8 @@ export function oratorySpec(
   const current = idx >= 0 ? ordered[idx] : null;
 
   if (mode === 'transition') {
+    // Transição = ponto ATUAL → ponto SEGUINTE: só o seguinte é obrigatório.
     const prev = idx > 0 ? ordered[idx - 1] : null;
-    if (!prev) {
-      return {
-        kind: 'cannot-generate',
-        blocked: {
-          kind: 'no-previous-section',
-          sectionId: currentId!,
-          message: 'Este é o primeiro ponto do esboço — não há ponto anterior para a transição.',
-        },
-      };
-    }
     const next = idx < ordered.length - 1 ? ordered[idx + 1] : null;
     if (!next) {
       return {

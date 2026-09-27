@@ -188,11 +188,15 @@ class OratoryGenerationTest {
     }
 
     @Test
-    fun transitionNoPrimeiroPontoBloqueia() {
+    fun transitionNoPrimeiroPontoEvalida() {
+        // Transição = atual → seguinte: do ponto 1 para o 2 é válida.
         val v1 = S34StructuralRetrieval.scopeToSection(doc, "sec-1")!!
         val r = OratoryGeneration.spec(Mode.TRANSITION, doc, v1, Action.INSERT)
-        assertTrue(r is Result.CannotGenerate)
-        assertTrue((r as Result.CannotGenerate).blocked is Blocked.NoPreviousSection)
+        assertTrue(r is Result.Ready)
+        val s = (r as Result.Ready).spec
+        assertEquals("sec-1", s.current!!.sectionId)
+        assertEquals("sec-2", s.next!!.sectionId)
+        assertEquals(null, s.previousSectionId)
     }
 
     @Test
