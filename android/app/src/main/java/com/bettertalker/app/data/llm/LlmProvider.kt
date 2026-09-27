@@ -42,6 +42,11 @@ data class LlmRequest(
     val structural: com.bettertalker.app.data.copilot.OutlineStructureContext? = null,
     /** F20-A: estrutura oratória derivada do S-34 (opcional, retrocompatível). */
     val oratory: com.bettertalker.app.data.copilot.OratoryStructure.Inferred? = null,
+    /**
+     * F20-B: especificação de geração oratória. Quando presente, o provider
+     * usa o prompt especializado do modo em vez do prompt genérico de edição.
+     */
+    val oratorySpec: com.bettertalker.app.data.copilot.OratoryGeneration.Spec? = null,
     val timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     val maxAttempts: Int = DEFAULT_LLM_MAX_ATTEMPTS,
     /**

@@ -2,7 +2,8 @@
 // erros de domínio e observabilidade. Sem chave => motor offline explícito.
 // Erro remoto NÃO cai mais em fallback offline silencioso (§§4,12,19).
 
-import { buildLlmPrompt } from './llmPrompt';
+import { buildLlmPrompt, SYSTEM_PROMPT } from './llmPrompt';
+import { buildOratoryPrompt } from './oratoryGeneration';
 import { postJsonWithRetry } from './llmHttp';
 import { ProviderError } from './llmErrors';
 import {
@@ -86,7 +87,14 @@ export class GeminiProvider implements LlmProvider {
       };
     }
 
-    const prompt = buildLlmPrompt(request);
+    // F20-B: modo oratório usa prompt especializado próprio (estrutura +
+    // fontes + treinamento + instruções do modo), no mesmo pipeline F5.
+    const prompt = request.oratorySpec
+      ? {
+          system: SYSTEM_PROMPT,
+          user: buildOratoryPrompt(request.oratorySpec, request.chat?.message ?? request.brief ?? ''),
+        }
+      : buildLlmPrompt(request);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`;
     const { data, attempts } = await postJsonWithRetry(
       url,

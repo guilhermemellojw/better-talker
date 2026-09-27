@@ -36,6 +36,11 @@ export interface LlmRequest {
    * estrutural — nunca texto oratório gerado.
    */
   oratory?: import('./oratoryStructure').InferredOratoryStructure | null;
+  /**
+   * F20-B: especificação de geração oratória. Quando presente, o provider usa
+   * o prompt especializado do modo em vez do prompt genérico de edição.
+   */
+  oratorySpec?: import('./oratoryGeneration').OratorySpec | null;
   /** Cancelamento iniciado pela UI (AbortController). */
   signal?: AbortSignal;
   timeoutMs?: number;

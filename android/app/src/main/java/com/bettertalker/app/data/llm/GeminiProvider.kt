@@ -45,7 +45,14 @@ class GeminiProvider(
                     System.currentTimeMillis() - started, 0, offline = true)
             )
         }
-        val prompt = if (request.responseFormat == ResponseFormat.EDIT_PROPOSAL &&
+        // F20-B: modo oratório tem prompt especializado próprio (estrutura +
+        // fontes + treinamento + instruções do modo).
+        val prompt = if (request.oratorySpec != null) {
+            com.bettertalker.app.data.copilot.OratoryGeneration.buildPrompt(
+                request.oratorySpec,
+                request.message.ifBlank { request.brief }
+            )
+        } else if (request.responseFormat == ResponseFormat.EDIT_PROPOSAL &&
             request.editMode != null
         ) {
             buildEditProposalPrompt(

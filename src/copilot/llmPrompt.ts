@@ -20,7 +20,7 @@ import {
 
 export const INSUFFICIENT_EVIDENCE_MESSAGE = 'Não encontrei suporte suficiente nas fontes disponíveis.';
 
-const SYSTEM_PROMPT = `Você é o "Better Talker Copilot", preparador de oratória e discursos.
+export const SYSTEM_PROMPT = `Você é o "Better Talker Copilot", preparador de oratória e discursos.
 Sua função é sugerir melhorias de tom, perguntas de raciocínio, ilustrações e aplicações práticas.
 
 CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO:
