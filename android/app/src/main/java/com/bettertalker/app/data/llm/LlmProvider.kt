@@ -72,7 +72,18 @@ data class LlmResponseMeta(
     val durationMs: Long,
     val attempts: Int,
     /** true = motor offline determinístico (sem chave). */
-    val offline: Boolean
+    val offline: Boolean,
+    /** F20-F1 §37: tokens reais quando o endpoint informa (Groq/Qwen). */
+    val usage: LlmUsage? = null,
+    /** F20-F1 §37: headers de limite restantes, quando informados. */
+    val rateLimit: Map<String, String> = emptyMap()
+)
+
+/** Tokens observados de uma chamada real (nulos quando o endpoint omite). */
+data class LlmUsage(
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val totalTokens: Int
 )
 
 data class LlmResponse(val text: String, val meta: LlmResponseMeta)
@@ -107,8 +118,18 @@ const val RETRY_BACKOFF_MS: Long = 400L
  * os testes usam fake (sem rede na JVM).
  */
 interface LlmHttpClient {
-    data class HttpResult(val status: Int, val body: String)
+    data class HttpResult(
+        val status: Int,
+        val body: String,
+        /** F20-F1: headers de resposta (só rate-limit é capturado). */
+        val headers: Map<String, String> = emptyMap()
+    )
 
     @Throws(Exception::class)
-    suspend fun postJson(url: String, body: String, timeoutMs: Long): HttpResult
+    suspend fun postJson(
+        url: String,
+        body: String,
+        timeoutMs: Long,
+        headers: Map<String, String> = emptyMap()
+    ): HttpResult
 }

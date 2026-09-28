@@ -36,7 +36,10 @@ class LlmProviderTest {
         val urls = mutableListOf<String>()
         var calls = 0
 
-        override suspend fun postJson(url: String, body: String, timeoutMs: Long): LlmHttpClient.HttpResult {
+        override suspend fun postJson(
+            url: String, body: String, timeoutMs: Long,
+            headers: Map<String, String>
+        ): LlmHttpClient.HttpResult {
             calls++
             urls += url
             bodies += body

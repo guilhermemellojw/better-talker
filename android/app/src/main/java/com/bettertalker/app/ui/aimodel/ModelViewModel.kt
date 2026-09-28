@@ -28,8 +28,17 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
     val llmApiKey = settings.llmApiKey.stateIn(
         viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "")
 
+    /** F20-F1: chave BYOD do Groq/Qwen + provider selecionado. */
+    val groqApiKey = settings.groqApiKey.stateIn(
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "")
+    val llmProvider = settings.llmProvider.stateIn(
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "gemini")
+
     fun saveApiKey(v: String) = viewModelScope.launch { settings.setLlmApiKey(v) }
     fun clearApiKey() = viewModelScope.launch { settings.clearLlmApiKey() }
+    fun saveGroqApiKey(v: String) = viewModelScope.launch { settings.setGroqApiKey(v) }
+    fun clearGroqApiKey() = viewModelScope.launch { settings.clearGroqApiKey() }
+    fun selectProvider(v: String) = viewModelScope.launch { settings.setLlmProvider(v) }
 
     init {
         viewModelScope.launch {

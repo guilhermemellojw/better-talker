@@ -71,6 +71,35 @@ class OratoryFidelityTest {
 
     // ---------- §29: injeção em QUALQUER campo ----------
 
+    // ---------- F20-F1: vazamento do ponto seguinte é `leaked`, não `invented` ----------
+
+    @Test
+    fun referenciaDoPontoSeguinteEVazamentoNaoInvencao() {
+        // Reprodução pura do bug real exposto pela validação com o modelo:
+        // `belongsToOtherSection` comparava a chave normalizada com rótulos
+        // crus, então `leaked` era inalcançável e tudo virava invenção.
+        val trans = (OratoryGeneration.spec(
+            Mode.TRANSITION, doc, view2, Action.INSERT
+        ) as Result.Ready).spec
+        val r = OratoryFidelityCheck.check(
+            "Vamos de Tiago 2:17 para Hebreus 10:23.", trans
+        )
+        assertTrue(r.leakedReferences.contains("Hebreus 10:23"))
+        assertTrue(r.inventedReferences.isEmpty())
+    }
+
+    @Test
+    fun referenciaDesconhecidaContinuaInvencao() {
+        val trans = (OratoryGeneration.spec(
+            Mode.TRANSITION, doc, view2, Action.INSERT
+        ) as Result.Ready).spec
+        val r = OratoryFidelityCheck.check(
+            "Como diz Mateus 24:14, devemos pregar.", trans
+        )
+        assertTrue(r.inventedReferences.contains("Mateus 24:14"))
+        assertTrue(r.leakedReferences.isEmpty())
+    }
+
     private fun injectionText(kind: String): String = when (kind) {
         "subponto" -> S34Fixture.TEXT.replace(
             "   a) Estudar regularmente",
@@ -123,7 +152,10 @@ class OratoryFidelityTest {
     fun erroDeRedeContinuaErroHonesto() {
         // Sem chave e com falha de rede, o erro sobe como texto humano.
         val failing = object : com.bettertalker.app.data.llm.LlmHttpClient {
-            override suspend fun postJson(url: String, body: String, timeoutMs: Long) =
+            override suspend fun postJson(
+                url: String, body: String, timeoutMs: Long,
+                headers: Map<String, String>
+            ): com.bettertalker.app.data.llm.LlmHttpClient.HttpResult =
                 throw java.net.SocketTimeoutException("t")
         }
         val provider = GeminiProvider(apiKey = "k", http = failing, log = {}, maxAttempts = 1)

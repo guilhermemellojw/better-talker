@@ -127,6 +127,7 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.secondary
             )
             CopilotRemoteKeyCard(vm)
+            CopilotProviderCard(vm)
         }
     }
 }
@@ -164,6 +165,64 @@ private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
                     onClick = { vm.saveApiKey(draft); draft = "" },
                     enabled = draft.isNotBlank()
                 ) { Text("Salvar chave") }
+            }
+        }
+    }
+}
+
+/**
+ * F20-F1 — seleção do provider remoto + chave BYOD do Groq/Qwen.
+ * Default "gemini" (comportamento atual preservado). A chave Groq fica só
+ * neste aparelho (DataStore local), nunca em log — sai só no header
+ * Authorization do POST HTTPS.
+ */
+@Composable
+private fun CopilotProviderCard(vm: ModelViewModel) {
+    val provider by vm.llmProvider.collectAsState()
+    val groqSaved by vm.groqApiKey.collectAsState()
+    var groqDraft by remember(groqSaved) { mutableStateOf("") }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Provedor remoto", style = MaterialTheme.typography.titleSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.FilterChip(
+                    selected = provider != "qwen",
+                    onClick = { vm.selectProvider("gemini") },
+                    label = { Text("Gemini") }
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = provider == "qwen",
+                    onClick = { vm.selectProvider("qwen") },
+                    label = { Text("Qwen (Groq)") }
+                )
+            }
+            if (provider == "qwen") {
+                Text("Modelo qwen/qwen3.8-27b via Groq, com structured output estrito.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary)
+                if (groqSaved.isNotBlank()) {
+                    Text("Chave Groq configurada ✓ — o Copilot usa o Qwen.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary)
+                    OutlinedButton(onClick = { vm.clearGroqApiKey() }) { Text("Remover chave Groq") }
+                } else {
+                    Text("Cole sua chave do console Groq (gsk_…). Fica só neste aparelho.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary)
+                    androidx.compose.material3.OutlinedTextField(
+                        value = groqDraft,
+                        onValueChange = { groqDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Chave Groq (gsk_…)") },
+                        singleLine = true,
+                        visualTransformation =
+                            androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+                    Button(
+                        onClick = { vm.saveGroqApiKey(groqDraft); groqDraft = "" },
+                        enabled = groqDraft.isNotBlank()
+                    ) { Text("Salvar chave Groq") }
+                }
             }
         }
     }

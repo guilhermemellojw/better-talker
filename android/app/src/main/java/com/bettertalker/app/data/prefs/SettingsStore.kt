@@ -50,4 +50,25 @@ class SettingsStore(private val ctx: Context) {
     val llmApiKey: Flow<String> = ctx.store.data.map { it[LLM_API_KEY].orEmpty() }
     suspend fun setLlmApiKey(v: String) { ctx.store.edit { it[LLM_API_KEY] = v.trim() } }
     suspend fun clearLlmApiKey() { ctx.store.edit { it.remove(LLM_API_KEY) } }
+
+    /**
+     * F20-F1 — chave BYOD do Groq/Qwen (tela Modelo IA). Mesmas garantias da
+     * chave Gemini: DataStore local, nunca em log/erro, só no header
+     * Authorization do POST HTTPS. DEV-ONLY: chave embutida em APK debug
+     * pode ser extraída — nunca distribuir com segredo embutido.
+     */
+    private val GROQ_API_KEY = stringPreferencesKey("groq_api_key")
+    val groqApiKey: Flow<String> = ctx.store.data.map { it[GROQ_API_KEY].orEmpty() }
+    suspend fun setGroqApiKey(v: String) { ctx.store.edit { it[GROQ_API_KEY] = v.trim() } }
+    suspend fun clearGroqApiKey() { ctx.store.edit { it.remove(GROQ_API_KEY) } }
+
+    /**
+     * F20-F1 — provider remoto selecionado ("gemini"|"qwen"). Default
+     * "gemini": comportamento atual preservado; Qwen só com escolha explícita.
+     */
+    private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
+    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "gemini" }
+    suspend fun setLlmProvider(v: String) {
+        ctx.store.edit { it[LLM_PROVIDER] = if (v == "qwen") "qwen" else "gemini" }
+    }
 }

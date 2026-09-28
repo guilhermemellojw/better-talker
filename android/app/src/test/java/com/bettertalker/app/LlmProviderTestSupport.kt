@@ -7,7 +7,8 @@ object LlmProviderTestSupport {
     class CapturingHttp : LlmHttpClient {
         val bodies = mutableListOf<String>()
         override suspend fun postJson(
-            url: String, body: String, timeoutMs: Long
+            url: String, body: String, timeoutMs: Long,
+            headers: Map<String, String>
         ): LlmHttpClient.HttpResult {
             bodies += body
             return LlmHttpClient.HttpResult(

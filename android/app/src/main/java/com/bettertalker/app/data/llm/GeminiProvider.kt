@@ -224,7 +224,12 @@ private fun offlineChatText(request: LlmRequest): String {
 class UrlConnectionHttpClient : LlmHttpClient {
     private val lock = Mutex()
 
-    override suspend fun postJson(url: String, body: String, timeoutMs: Long): LlmHttpClient.HttpResult {
+    override suspend fun postJson(
+        url: String,
+        body: String,
+        timeoutMs: Long,
+        headers: Map<String, String>
+    ): LlmHttpClient.HttpResult {
         // Mutex: HttpURLConnection por chamada; serializa para evitar
         // entrelaçamento de streams em rajada (uma geração por vez de qualquer forma).
         return lock.withLock {
@@ -234,16 +239,38 @@ class UrlConnectionHttpClient : LlmHttpClient {
                 readTimeout = connectTimeout
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
+                // F20-F1: Authorization do Groq/Qwen via header (nunca em log).
+                for ((k, v) in headers) setRequestProperty(k, v)
             }
             try {
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val status = conn.responseCode
                 val stream = if (status in 200..299) conn.inputStream else conn.errorStream
                 val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                LlmHttpClient.HttpResult(status, text)
+                LlmHttpClient.HttpResult(status, text, rateLimitHeaders(conn.headerFields))
             } finally {
                 conn.disconnect()
             }
+        }
+    }
+
+    companion object {
+        private val RATE_LIMIT_HEADERS = setOf(
+            "x-ratelimit-remaining-requests",
+            "x-ratelimit-remaining-tokens",
+            "x-ratelimit-reset-requests",
+            "x-ratelimit-reset-tokens",
+            "retry-after"
+        )
+
+        /** Só headers de limite, chaves minúsculas — nunca Authorization. */
+        fun rateLimitHeaders(fields: Map<String?, List<String>>): Map<String, String> {
+            val out = mutableMapOf<String, String>()
+            for ((k, v) in fields) {
+                val name = k?.lowercase() ?: continue
+                if (name in RATE_LIMIT_HEADERS) v.firstOrNull()?.let { out[name] = it }
+            }
+            return out
         }
     }
 }

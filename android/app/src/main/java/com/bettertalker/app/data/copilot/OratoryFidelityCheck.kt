@@ -102,8 +102,12 @@ object OratoryFidelityCheck {
         // Sem o texto completo dos outros pontos no Spec, usamos o rótulo
         // conhecido das referências que a estrutura expõe: vazamento só é
         // detectável quando o ponto seguinte/traversal traz suas referências.
+        // F20-F1: os rótulos precisam da MESMA normalização da chave — antes
+        // eram comparados crus ("Leia Hebreus 10:23." nunca contém
+        // "hebreus1023"), o que tornava `leaked` inalcançável e classificava
+        // tudo como invenção. Reproduzido em teste puro, sem rede.
         val otherLabels = buildList {
-            spec.next?.references?.forEach { add(it.label) }
+            spec.next?.references?.forEach { add(normalizeRef(it.label)) }
         }
         return otherLabels.any { n -> n.contains(key) || key.contains(n) }
     }
