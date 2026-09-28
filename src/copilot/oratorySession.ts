@@ -73,6 +73,34 @@ export function triesToCreateStructure(text: string, existingPoints: number): nu
   return n > existingPoints ? n : null;
 }
 
+/**
+ * F20-E (§11/§13): a transição tem DOIS pontos. Ancorar no ponto de DESTINO
+ * ("transição para o ponto 3") quebrava a geração no fim do esboço e não
+ * seguia o contrato "2→3". Aqui a âncora é sempre a ORIGEM:
+ * - "do ponto 2 para o 3" / "transição do ponto 2" → sec-2;
+ * - "transição para o ponto 3" → sec-2 (o ponto imediatamente anterior);
+ * - sem ponto explícito → ponto atual da sessão (comportamento da F20-C).
+ */
+function transitionAnchor(
+  text: string,
+  ordered: S34Document['sections'],
+): { matched: boolean; sectionId: string | null } {
+  const t = ` ${normalizeTokenText(text)} `;
+  const pointWord = '(?:ponto|topico|secao|parte)';
+  const from = new RegExp(`(?:^|\\s)(?:do|de|desde)\\s+(?:o\\s+|a\\s+)?${pointWord}\\s*(\\d{1,2})`).exec(t);
+  if (from) {
+    const n = parseInt(from[1], 10);
+    return { matched: true, sectionId: ordered[n - 1]?.id ?? null };
+  }
+  const to = new RegExp(`(?:^|\\s)(?:para|ate|ao|a)\\s+(?:o\\s+|a\\s+)?${pointWord}\\s*(\\d{1,2})`).exec(t);
+  if (to) {
+    const n = parseInt(to[1], 10);
+    // Destino N: a transição sai do ponto N-1.
+    return { matched: true, sectionId: ordered[n - 2]?.id ?? null };
+  }
+  return { matched: false, sectionId: null };
+}
+
 function sectionFor(
   text: string,
   document: S34Document | null,
@@ -82,6 +110,10 @@ function sectionFor(
   if (!document) return currentSectionId;
   const ordered = [...document.sections].sort((a, b) => a.order - b.order);
   if (ordered.length === 0) return null;
+  if (mode === 'transition') {
+    const anchor = transitionAnchor(text, ordered);
+    if (anchor.matched) return anchor.sectionId;
+  }
   const n = requestedPoint(text);
   if (n != null && ordered[n - 1]) return ordered[n - 1].id;
   if (mode === 'introduction') return ordered[0].id;

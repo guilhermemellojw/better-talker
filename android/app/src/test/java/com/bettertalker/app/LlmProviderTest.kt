@@ -361,4 +361,15 @@ class LlmProviderTest {
         assertTrue(com.bettertalker.app.data.llm.DEFAULT_LLM_TIMEOUT_MS == 30_000L)
         assertTrue(com.bettertalker.app.data.llm.DEFAULT_LLM_MAX_ATTEMPTS == 2)
     }
+
+
+    // ---------- F20-E: teto de saída configurável ----------
+
+    @Test
+    fun tetoDeSaidaEconfiguravelNoCorpo() {
+        val oratorio = GeminiProvider.requestBody("prompt", 2048)
+        assertTrue(oratorio.contains("\"maxOutputTokens\":2048"))
+        val padrao = GeminiProvider.requestBody("prompt")
+        assertTrue(padrao.contains("\"maxOutputTokens\":1000"))
+    }
 }

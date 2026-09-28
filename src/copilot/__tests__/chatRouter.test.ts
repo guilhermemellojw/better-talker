@@ -51,7 +51,8 @@ describe('chatRouter', () => {
   it('transição explícita e natural', () => {
     const t3 = oratory(route('Faça uma transição para o ponto 3.'));
     expect(t3.mode).toBe('transition');
-    expect(t3.sectionId).toBe('sec-3');
+    // F20-E: a âncora da transição é a ORIGEM (2→3), nunca o destino.
+    expect(t3.sectionId).toBe('sec-2');
     const natural = oratory(route('Como passo para o próximo ponto?'));
     expect(natural.mode).toBe('transition');
     expect(natural.sectionId).toBe('sec-2');

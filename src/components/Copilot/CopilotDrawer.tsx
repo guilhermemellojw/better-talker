@@ -213,6 +213,8 @@ export const CopilotDrawer = ({
         blockTitle: targetBlock?.title,
         blockMinutes: targetBlock?.minutes,
         signal: ctrl.signal,
+        // F20-E: o teto de 1000 tokens truncava o JSON oratório.
+        maxOutputTokens: 2048,
       });
       const parsed = parseEditProposal(
         res.text,

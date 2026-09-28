@@ -187,6 +187,20 @@ class OratorySessionTest {
         assertTrue(prompt.contains("MODO: DESENVOLVIMENTO DO PONTO"))
     }
 
+    // ---------- F20-E: âncora da transição (2→3) ----------
+
+    @Test
+    fun destinoDaTransicaoAncoraNaOrigem() {
+        val destino = generated(OratorySession.decide("Faça uma transição para o ponto 3.", doc, "sec-1", null))
+        assertEquals(Mode.TRANSITION, destino.mode)
+        assertEquals("sec-2", destino.sectionId)
+        val origem = generated(OratorySession.decide("Crie uma transição do ponto 2 para o 3", doc, "sec-1", null))
+        assertEquals("sec-2", origem.sectionId)
+        // Destino sem origem possível (ponto 1) → âncora nula (bloqueio honesto).
+        val impossivel = generated(OratorySession.decide("Faça uma transição para o ponto 1", doc, "sec-3", null))
+        assertEquals(null, impossivel.sectionId)
+    }
+
     // ---------- Sequência completa (§44) ----------
 
     @Test

@@ -16,6 +16,25 @@ export interface HttpCallOptions {
 export interface HttpCallResult {
   data: unknown;
   attempts: number;
+  /** F20-E (§37): headers de rate-limit relevantes (só nomes conhecidos). */
+  rateLimit?: Record<string, string>;
+}
+
+const RATE_LIMIT_HEADERS = [
+  'x-ratelimit-remaining-requests',
+  'x-ratelimit-remaining-tokens',
+  'x-ratelimit-reset-requests',
+  'x-ratelimit-reset-tokens',
+  'retry-after',
+];
+
+function readRateLimitHeaders(headers: Headers): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const name of RATE_LIMIT_HEADERS) {
+    const value = headers.get(name);
+    if (value != null) out[name] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function isAbortError(e: unknown): boolean {
@@ -114,7 +133,7 @@ export async function postJsonWithRetry(
         try {
           const data: unknown = await response.json();
           logProviderCall(providerId, model, attempts, Date.now() - started, 'ok');
-          return { data, attempts };
+          return { data, attempts, rateLimit: readRateLimitHeaders(response.headers) };
         } catch {
           logProviderCall(providerId, model, attempts, Date.now() - started, 'invalid_response');
           throw fail('invalid_response', 'Resposta do provedor em formato inesperado.', response.status);

@@ -78,7 +78,7 @@ class GeminiProvider(
             structural = request.structural,
             oratory = request.oratory
         )
-        val body = requestBody(prompt)
+        val body = requestBody(prompt, request.maxOutputTokens)
         // Chave como query param (API Gemini); montada só aqui, nunca logada.
         val url = "$GEMINI_ENDPOINT/models/$model:generateContent?key=$apiKey"
         var attempts = 0
@@ -149,9 +149,9 @@ class GeminiProvider(
         const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta"
 
         /** Corpo da requisição generateContent. Puro/testável. */
-        fun requestBody(prompt: String): String =
+        fun requestBody(prompt: String, maxOutputTokens: Int = DEFAULT_LLM_MAX_OUTPUT_TOKENS): String =
             "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + jsonEscape(prompt) + "}]}]," +
-                "\"generationConfig\":{\"temperature\":0.2,\"maxOutputTokens\":1000}}"
+                "\"generationConfig\":{\"temperature\":0.2,\"maxOutputTokens\":" + maxOutputTokens + "}}"
 
         /**
          * Extrai candidates[0].content.parts[0].text; null se ausente/vazio.

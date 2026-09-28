@@ -120,6 +120,21 @@ describe('GeminiProvider', () => {
     expect(contentSection).not.toContain('be Ilustrações');
   });
 
+  it('F20-E: teto de saída é configurável; oratório pede 2048', async () => {
+    let capturedBody = '';
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      capturedBody = String(init.body);
+      return geminiOk('ok');
+    }));
+    await new GeminiProvider('key').generate({ ...BASE_REQ, maxOutputTokens: 2048 });
+    const oratorio = JSON.parse(capturedBody) as { generationConfig: { maxOutputTokens: number } };
+    expect(oratorio.generationConfig.maxOutputTokens).toBe(2048);
+
+    await new GeminiProvider('key').generate({ ...BASE_REQ });
+    const padrao = JSON.parse(capturedBody) as { generationConfig: { maxOutputTokens: number } };
+    expect(padrao.generationConfig.maxOutputTokens).toBe(1000);
+  });
+
   it('sem evidência o prompt registra ausência de fontes', async () => {
     let capturedBody = '';
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {

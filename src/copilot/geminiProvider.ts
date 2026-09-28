@@ -8,6 +8,7 @@ import { postJsonWithRetry } from './llmHttp';
 import { ProviderError } from './llmErrors';
 import {
   DEFAULT_LLM_MAX_ATTEMPTS,
+  DEFAULT_LLM_MAX_OUTPUT_TOKENS,
   DEFAULT_LLM_TIMEOUT_MS,
   type LlmProvider,
   type ChatLlmAction,
@@ -100,7 +101,7 @@ export class GeminiProvider implements LlmProvider {
       url,
       {
         contents: [{ role: 'user', parts: [{ text: `${prompt.system}\n\n${prompt.user}` }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 1000 },
+        generationConfig: { temperature: 0.2, maxOutputTokens: request.maxOutputTokens ?? DEFAULT_LLM_MAX_OUTPUT_TOKENS },
       },
       {
         providerId: this.id,

@@ -59,7 +59,8 @@ class ChatRouterTest {
     fun comandoDeTransicaoParaOPonto3() {
         val r = oratory(route("Faça uma transição para o ponto 3."))
         assertEquals(Mode.TRANSITION, r.mode)
-        assertEquals("sec-3", r.sectionId)
+        // F20-E: a âncora da transição é a ORIGEM (2→3), nunca o destino.
+        assertEquals("sec-2", r.sectionId)
     }
 
     @Test

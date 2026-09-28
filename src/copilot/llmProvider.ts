@@ -46,6 +46,12 @@ export interface LlmRequest {
   timeoutMs?: number;
   maxAttempts?: number;
   /**
+   * F20-E: teto de tokens de SAÍDA. O default histórico (1000) truncava
+   * respostas oratórias no meio do JSON; a validação real comprovou a
+   * truncagem. Só o pipeline oratório aumenta o teto.
+   */
+  maxOutputTokens?: number;
+  /**
    * Fase 5: 'edit-proposal' pede ao modelo JSON em cerca para virar
    * CopilotEditProposal (parse + validação locais). Default 'text'.
    */
@@ -63,6 +69,10 @@ export interface LlmResponseMeta {
   attempts: number;
   /** true = motor offline determinístico (sem chave ou sem rede remota). */
   offline: boolean;
+  /** F20-E (§37): tokens reais quando o endpoint informar. */
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  /** F20-E (§37): headers de limite restantes, quando informados. */
+  rateLimit?: Record<string, string>;
 }
 
 export interface LlmResponse {
@@ -79,3 +89,5 @@ export interface LlmProvider {
 /** Padrões quando o chamador não especifica (§15: centralizados, não espalhados). */
 export const DEFAULT_LLM_TIMEOUT_MS = 30_000;
 export const DEFAULT_LLM_MAX_ATTEMPTS = 2;
+/** F20-E: teto default de tokens de saída (mesmo valor do app nativo). */
+export const DEFAULT_LLM_MAX_OUTPUT_TOKENS = 1000;

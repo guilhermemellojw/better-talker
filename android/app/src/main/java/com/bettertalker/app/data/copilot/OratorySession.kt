@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.s34.S34Document
+import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.util.normalizeText
 
 /**
@@ -132,6 +133,33 @@ object OratorySession {
      * Ponto do pedido: número explícito ("ponto 3") tem precedência; senão o
      * ponto atual; introdução/conclusão usam as pontas do esboço.
      */
+    /**
+     * F20-E (§11/§13): a transição tem DOIS pontos. Ancorar no ponto de
+     * DESTINO ("transição para o ponto 3") quebrava a geração no fim do
+     * esboço e não seguia o contrato "2→3". A âncora é sempre a ORIGEM:
+     * - "do ponto 2 para o 3" / "transição do ponto 2" → sec-2;
+     * - "transição para o ponto 3" → sec-2 (o ponto imediatamente anterior);
+     * - sem ponto explícito → ponto atual da sessão (comportamento F20-C).
+     */
+    private fun transitionAnchor(text: String, ordered: List<S34Section>): Pair<Boolean, String?> {
+        val t = " ${normalizeText(text)} "
+        val pointWord = "(?:ponto|topico|secao|parte)"
+        val from = Regex("(?:^|\\s)(?:do|de|desde)\\s+(?:o\\s+|a\\s+)?$pointWord\\s*(\\d{1,2})")
+            .find(t)
+        if (from != null) {
+            val n = from.groupValues[1].toInt()
+            return true to ordered.getOrNull(n - 1)?.id
+        }
+        val to = Regex("(?:^|\\s)(?:para|ate|ao|a)\\s+(?:o\\s+|a\\s+)?$pointWord\\s*(\\d{1,2})")
+            .find(t)
+        if (to != null) {
+            val n = to.groupValues[1].toInt()
+            // Destino N: a transição sai do ponto N-1.
+            return true to ordered.getOrNull(n - 2)?.id
+        }
+        return false to null
+    }
+
     private fun sectionFor(
         text: String,
         document: S34Document?,
@@ -140,6 +168,10 @@ object OratorySession {
     ): String? {
         val ordered = document?.sections?.sortedBy { it.order } ?: return currentSectionId
         if (ordered.isEmpty()) return null
+        if (mode == OratoryGeneration.Mode.TRANSITION) {
+            val (matched, anchor) = transitionAnchor(text, ordered)
+            if (matched) return anchor
+        }
         requestedPoint(text)?.let { n ->
             ordered.getOrNull(n - 1)?.let { return it.id }
         }

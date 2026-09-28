@@ -827,7 +827,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         message = message,
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
-                        oratorySpec = ready
+                        oratorySpec = ready,
+                        // F20-E: o teto de 1000 tokens truncava o JSON oratório.
+                        maxOutputTokens = 2048
                     )
                 )
             }

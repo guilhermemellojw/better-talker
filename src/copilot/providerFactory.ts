@@ -17,6 +17,10 @@ export interface CopilotProviderConfig {
   qwenEndpoint?: string;
   qwenModel?: string;
   qwenApiKey?: string;
+  /** F20-E: esforço de raciocínio do transporte Groq/Qwen. */
+  qwenReasoningEffort?: 'low' | 'medium' | 'high';
+  /** F20-E: formato do raciocínio do Qwen3 no Groq. */
+  qwenReasoningFormat?: 'parsed' | 'raw' | 'hidden';
 }
 
 function readEnv(name: string): string | undefined {
@@ -37,6 +41,16 @@ export function providerConfigFromEnv(apiKey?: string): CopilotProviderConfig {
     qwenEndpoint: readEnv('VITE_QWEN_ENDPOINT'),
     qwenModel: readEnv('VITE_QWEN_MODEL'),
     qwenApiKey: readEnv('VITE_QWEN_API_KEY'),
+    qwenReasoningEffort: readEnv('VITE_QWEN_REASONING_EFFORT') as
+      | 'low'
+      | 'medium'
+      | 'high'
+      | undefined,
+    qwenReasoningFormat: readEnv('VITE_QWEN_REASONING_FORMAT') as
+      | 'parsed'
+      | 'raw'
+      | 'hidden'
+      | undefined,
   };
 }
 
@@ -46,6 +60,9 @@ export function createCopilotProvider(config: CopilotProviderConfig): LlmProvide
       endpoint: config.qwenEndpoint,
       model: config.qwenModel,
       apiKey: config.qwenApiKey,
+      // F20-E §10: começar em low controla tokens no plano gratuito.
+      reasoningEffort: config.qwenReasoningEffort ?? 'low',
+      reasoningFormat: config.qwenReasoningFormat,
     });
   }
   return new GeminiProvider(config.apiKey ?? '');

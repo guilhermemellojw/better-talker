@@ -50,6 +50,11 @@ data class LlmRequest(
     val timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     val maxAttempts: Int = DEFAULT_LLM_MAX_ATTEMPTS,
     /**
+     * F20-E: teto de tokens de SAÍDA. O default histórico (1000) truncava
+     * respostas oratórias no meio do JSON (comprovado na validação real).
+     */
+    val maxOutputTokens: Int = DEFAULT_LLM_MAX_OUTPUT_TOKENS,
+    /**
      * Fase 5 (BLOCO B): 'edit-proposal' pede JSON em cerca para virar
      * proposta (parse + validação locais). Default 'text'.
      */
@@ -92,6 +97,7 @@ interface LlmProvider {
 /** Padrões centralizados, mesmos valores do web (§15 F15). */
 const val DEFAULT_LLM_TIMEOUT_MS: Long = 30_000L
 const val DEFAULT_LLM_MAX_ATTEMPTS: Int = 2
+const val DEFAULT_LLM_MAX_OUTPUT_TOKENS: Int = 1000
 
 /** Backoff entre tentativas transitórias: 400ms × tentativa (mesmo do web). */
 const val RETRY_BACKOFF_MS: Long = 400L
