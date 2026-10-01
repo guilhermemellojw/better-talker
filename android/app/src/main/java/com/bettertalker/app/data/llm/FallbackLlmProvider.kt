@@ -77,6 +77,13 @@ class FallbackLlmProvider internal constructor(
                     }
                 }
             } catch (e: Exception) {
+                // Diagnóstico: hoje a exceção podia ser sem mensagem (ex.:
+                // NetworkOnMainThreadException) e o motivo ficava oculto.
+                android.util.Log.w(
+                    "CopilotLLM",
+                    "fallback: ${e::class.qualifiedName}: ${e.message}\n" +
+                        e.stackTraceToString().take(2000),
+                )
                 circuitBreaker.recordFailure(provider.id)
                 lastError = ProviderError(
                     code = ProviderErrorCode.NETWORK,

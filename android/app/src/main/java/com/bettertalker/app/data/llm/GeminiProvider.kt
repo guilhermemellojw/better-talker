@@ -3,9 +3,11 @@ package com.bettertalker.app.data.llm
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.copilot.buildChatPrompt
 import com.bettertalker.app.data.copilot.buildEditProposalPrompt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Fase 18 — BLOCO A. Provider remoto Gemini.
@@ -234,24 +236,28 @@ class UrlConnectionHttpClient : LlmHttpClient {
     ): LlmHttpClient.HttpResult {
         // Mutex: HttpURLConnection por chamada; serializa para evitar
         // entrelaçamento de streams em rajada (uma geração por vez de qualquer forma).
-        return lock.withLock {
-            val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = timeoutMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                readTimeout = connectTimeout
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                // F20-F1: Authorization do Groq/Qwen via header (nunca em log).
-                for ((k, v) in headers) setRequestProperty(k, v)
-            }
-            try {
-                conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-                val status = conn.responseCode
-                val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                LlmHttpClient.HttpResult(status, text, rateLimitHeaders(conn.headerFields))
-            } finally {
-                conn.disconnect()
+        // IO: HTTP NUNCA na Main — sem isto, chamadas vindas do editor
+        // (draft/esboço) lançam NetworkOnMainThreadException (sem mensagem).
+        return withContext(Dispatchers.IO) {
+            lock.withLock {
+                val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = timeoutMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    readTimeout = connectTimeout
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    // F20-F1: Authorization do Groq/Qwen via header (nunca em log).
+                    for ((k, v) in headers) setRequestProperty(k, v)
+                }
+                try {
+                    conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    val status = conn.responseCode
+                    val stream = if (status in 200..299) conn.inputStream else conn.errorStream
+                    val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    LlmHttpClient.HttpResult(status, text, rateLimitHeaders(conn.headerFields))
+                } finally {
+                    conn.disconnect()
+                }
             }
         }
     }
