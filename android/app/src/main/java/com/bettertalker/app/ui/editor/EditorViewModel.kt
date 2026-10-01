@@ -440,20 +440,20 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     }
 
     /**
-     * Desfaz o último aceite, restaurando o HTML anterior. Só age em
-     * [DraftUiState.Accepted].
+     * Desfaz o último aceite, restaurando [DraftUiState.Accepted.previousHtml].
      *
-     * Se o conteúdo atual do alvo divergiu do que aplicamos (usuário
-     * editou depois do aceite), descarta o undo silenciosamente — nunca
-     * sobrescreve edição do usuário.
+     * Sem comparação de conteúdo: o [DraftSheet] é um `ModalBottomSheet`,
+     * então enquanto `Accepted` está ativo o usuário não consegue editar o
+     * alvo — o scrim bloqueia. Assim que fecha o sheet, `dismissDraft()`
+     * leva a `Idle` e o undo some. Logo, a única janela em que este método
+     * é chamável é sem edição possível.
+     *
+     * Se o sheet deixar de ser modal no futuro, reintroduzir a validação
+     * de conteúdo (o write-back normalizado do editor exige comparação
+     * por conteúdo, não por HTML bruto).
      */
     fun undoDraft() {
         val accepted = _draftState.value as? DraftUiState.Accepted ?: return
-        val current = readTargetHtml(accepted.target)
-        if (current == null || !undoStillValid(accepted.appliedHtml, current)) {
-            _draftState.value = DraftUiState.Idle
-            return
-        }
         when (val target = accepted.target) {
             is DraftTarget.SubPoint -> onSubPointContent(target.subPointId, accepted.previousHtml)
             is DraftTarget.Section -> onSectionContent(target.sectionId, accepted.previousHtml)

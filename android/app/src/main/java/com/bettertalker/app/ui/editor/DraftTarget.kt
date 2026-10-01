@@ -28,7 +28,7 @@ sealed interface DraftUiState {
 
     /**
      * Rascunho foi aplicado. Guarda o HTML anterior ([previousHtml]) para
-     * undo e o aplicado ([appliedHtml]) para validar que nada mudou.
+     * undo e o aplicado ([appliedHtml]) como registro do que foi aplicado.
      */
     data class Accepted(
         val target: DraftTarget,
@@ -73,13 +73,3 @@ fun stripHtml(html: String): String =
     html.replace(Regex("<[^>]+>"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
-
-/**
- * Retorna true se o undo ainda é válido — ou seja, se o conteúdo atual
- * do alvo ainda é o que aplicamos. Se o usuário editou depois do aceite,
- * retorna false (o undo deve ser descartado, não sobrescrever edição).
- *
- * Pura, testável.
- */
-internal fun undoStillValid(appliedHtml: String, currentHtml: String): Boolean =
-    appliedHtml == currentHtml

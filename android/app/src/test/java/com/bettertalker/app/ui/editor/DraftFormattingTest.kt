@@ -4,8 +4,6 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -63,15 +61,5 @@ class DraftFormattingTest {
             stripHtml("<p>texto com <strong>negrito</strong> aqui</p>"),
         )
         assertEquals("", stripHtml("<p></p>"))
-    }
-
-    @Test
-    fun undoStillValid_sameHtml_returnsTrue() {
-        assertTrue(undoStillValid("<p>x</p>", "<p>x</p>"))
-    }
-
-    @Test
-    fun undoStillValid_differentHtml_returnsFalse() {
-        assertFalse(undoStillValid("<p>x</p>", "<p>y</p>"))
     }
 }
