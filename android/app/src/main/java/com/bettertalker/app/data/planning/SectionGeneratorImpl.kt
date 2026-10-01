@@ -23,6 +23,7 @@ class SectionGeneratorImpl(
     private val llmProvider: LlmProvider,
     private val promptBuilder: DossierPromptBuilder = DefaultDossierPromptBuilder(),
     private val responseParser: SectionDraftParser = DefaultSectionDraftParser(),
+    private val log: (String) -> Unit = { android.util.Log.w("CopilotLLM", it) },
 ) : SectionGenerator {
 
     override suspend fun generate(dossier: Dossier): SectionDraft? {
@@ -39,7 +40,9 @@ class SectionGeneratorImpl(
             llmProvider.generate(llmRequest)
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // Diagnóstico interno; o usuário segue vendo só o texto do sheet.
+            log("draft falhou: ${e::class.simpleName}: ${e.message}")
             return null
         }
         if (response.text.isBlank()) return null
@@ -56,15 +59,18 @@ class SectionGeneratorImpl(
         )
     }
 
-    private companion object {
+    internal companion object {
         /**
          * Schema do draft. Envelope estrito (Groq) espelhando OUTLINE_SCHEMA.
+         * O modo estrito exige `additionalProperties:false` em TODO objeto,
+         * senão o Groq rejeita o request inteiro (HTTP 400).
          */
         const val SECTION_DRAFT_SCHEMA: String =
             "{\"name\":\"section_draft\",\"strict\":true,\"schema\":" +
                 "{\"type\":\"object\",\"properties\":" +
                 "{\"text\":{\"type\":\"string\"}," +
                 "\"usedSources\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}," +
-                "\"required\":[\"text\",\"usedSources\"]}}"
+                "\"required\":[\"text\",\"usedSources\"]," +
+                "\"additionalProperties\":false}}"
     }
 }

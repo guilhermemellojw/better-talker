@@ -25,6 +25,7 @@ class OutlineGeneratorImpl(
     private val llmProvider: LlmProvider,
     private val promptBuilder: OutlinePromptBuilder = DefaultOutlinePromptBuilder(),
     private val responseParser: OutlineResponseParser = DefaultOutlineResponseParser(),
+    private val log: (String) -> Unit = { android.util.Log.w("CopilotLLM", it) },
 ) : OutlineGenerator {
 
     override suspend fun generate(request: OutlineGenerationRequest): OutlineProposal? {
@@ -41,17 +42,21 @@ class OutlineGeneratorImpl(
             llmProvider.generate(llmRequest)
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // Diagnóstico interno; o usuário segue vendo só o texto genérico.
+            log("esboço falhou: ${e::class.simpleName}: ${e.message}")
             return null
         }
         if (response.text.isBlank()) return null
         return responseParser.parse(response.text, request)
     }
 
-    private companion object {
+    internal companion object {
         /**
          * JSON Schema do esboço (draft compatível com o modo estrito do Groq,
          * mesmo envelope de EDIT_PROPOSAL_SCHEMA do QwenProvider: name + strict).
+         * O modo estrito exige `additionalProperties:false` E `required` com
+         * TODAS as propriedades em cada objeto, senão o Groq devolve HTTP 400.
          */
         const val OUTLINE_SCHEMA: String =
             "{\"name\":\"outline\",\"strict\":true,\"schema\":" +
@@ -69,9 +74,13 @@ class OutlineGeneratorImpl(
                 "{\"symbol\":{\"type\":\"string\"}," +
                 "\"page\":{\"type\":\"integer\"}," +
                 "\"paragraph\":{\"type\":\"integer\"}}," +
-                "\"required\":[\"symbol\"]}}," +
+                "\"required\":[\"symbol\",\"page\",\"paragraph\"]," +
+                "\"additionalProperties\":false}}," +
                 "\"methodPrinciple\":{\"type\":\"string\"}}," +
-                "\"required\":[\"title\",\"minutes\",\"mainIdea\",\"bibleRefs\"]}}}," +
-                "\"required\":[\"title\",\"summary\",\"sections\"]}}"
+                "\"required\":[\"title\",\"minutes\",\"mainIdea\",\"bibleRefs\"," +
+                "\"publicationRefs\",\"methodPrinciple\"]," +
+                "\"additionalProperties\":false}}}," +
+                "\"required\":[\"title\",\"summary\",\"sections\"]," +
+                "\"additionalProperties\":false}}"
     }
 }

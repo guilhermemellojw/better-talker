@@ -90,7 +90,7 @@ class OutlineGeneratorImplTest {
 
     @Test
     fun genericException_returnsNull() = runBlocking {
-        val gen = OutlineGeneratorImpl(ThrowingLlm(RuntimeException("boom")))
+        val gen = OutlineGeneratorImpl(ThrowingLlm(RuntimeException("boom")), log = {})
         assertNull(gen.generate(request()))
     }
 

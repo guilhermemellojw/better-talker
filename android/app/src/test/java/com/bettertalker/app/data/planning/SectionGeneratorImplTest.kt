@@ -106,7 +106,7 @@ class SectionGeneratorImplTest {
 
     @Test
     fun generate_genericException_returnsNull() = runBlocking {
-        val gen = SectionGeneratorImpl(ThrowingLlm(RuntimeException("boom")))
+        val gen = SectionGeneratorImpl(ThrowingLlm(RuntimeException("boom")), log = {})
         assertNull(gen.generate(dossier()))
     }
 
