@@ -57,7 +57,72 @@ TEMPO TOTAL: 30 MINUTOS
         assertEquals(9, o.sections[2].minutes)
         assertEquals(30, o.totalMinutes)
         assertEquals(30, OutlineParser.sumMinutes(o.sections))
-        assertTrue(o.title.contains("viver para sempre", ignoreCase = true))
+        // 3.2.3d: assert exato — título é número + tema, nunca a NOTA.
+        assertEquals(
+            "N.º 35 — É possível viver para sempre? O que você precisa fazer?",
+            o.title
+        )
+    }
+
+    @Test
+    fun parse_s34Number35_titleIsNumberPlusTheme() {
+        val o = OutlineParser.parse(s34, "s34.docx")
+        assertEquals(
+            "N.º 35 — É possível viver para sempre? O que você precisa fazer?",
+            o.title
+        )
+    }
+
+    @Test
+    fun parse_s34OldNumber84_titleIsNumberPlusTheme() {
+        val raw = "N.° 84\t\tESCAPARÁ DO DESTINO DESTE MUNDO?\n" +
+            "NOTA: Incentive a assistência a escapar.\n" +
+            "POR QUE MUITOS TEMEM O FUTURO (5 min)\n" +
+            "Corpo do primeiro ponto.\n" +
+            "O MUNDO ESTÁ CONDENADO (4 min)\n" +
+            "Corpo do segundo ponto.\n"
+        val o = OutlineParser.parse(raw, "s84.docx")
+        assertEquals("N.º 84 — ESCAPARÁ DO DESTINO DESTE MUNDO?", o.title)
+    }
+
+    @Test
+    fun parse_coTk26Number26_titleIsNumberPlusTheme() {
+        val raw = "N.º 26\t\t\"Por que estão ansiosos?\"\n" +
+            "Este discurso inclui quatro vídeos.\n" +
+            "PAREM DE SE PREOCUPAR TANTO (2 min)\n" +
+            "Corpo do primeiro ponto.\n" +
+            "CONFIEM EM JEOVÁ (3 min)\n" +
+            "Corpo do segundo ponto.\n"
+        val o = OutlineParser.parse(raw, "co.docx")
+        assertEquals("N.º 26 — \"Por que estão ansiosos?\"", o.title)
+    }
+
+    @Test
+    fun parse_s31WithoutNumber_titleIsThemeOnly() {
+        val raw = "MOSTRE GRATIDÃO PELO QUE DEUS E CRISTO FIZERAM POR VOCÊ\n" +
+            "Cântico N.º 25 e oração inicial\n" +
+            "UMA OCASIÃO ESPECIAL (6 min)\n" +
+            "Corpo do primeiro ponto.\n" +
+            "CELEBREMOS COM GRATIDÃO (5 min)\n" +
+            "Corpo do segundo ponto.\n"
+        val o = OutlineParser.parse(raw, "s31.docx")
+        assertEquals(
+            "MOSTRE GRATIDÃO PELO QUE DEUS E CRISTO FIZERAM POR VOCÊ",
+            o.title
+        )
+    }
+
+    @Test
+    fun parse_preambleContainsOnlySpeakerNote() {
+        val o = OutlineParser.parse(s34, "s34.docx")
+        assertFalse(
+            "preamble não deve conter o tema",
+            o.preamble.contains("N.º 35")
+        )
+        assertTrue(
+            "preamble deve conter a NOTA",
+            o.preamble.contains("NOTA")
+        )
     }
 
     @Test
@@ -696,7 +761,8 @@ S-34-T N.º 35 5/20
         assertTrue(ci.classify("refs do esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.OutlineRefs)
         assertTrue(ci.classify("mostre as seções") is com.bettertalker.app.data.util.ChatIntent.Intent.Sections)
         assertTrue(ci.classify("qual a estrutura do esboço?") is com.bettertalker.app.data.util.ChatIntent.Intent.Sections)
-        assertTrue(ci.classify("reinserir esqueleto") is com.bettertalker.app.data.util.ChatIntent.Intent.Skeleton)
+        // 3.2.5d: skeleton removido — "reinserir esqueleto" cai em Ask (texto).
+        assertTrue(ci.classify("reinserir esqueleto") is com.bettertalker.app.data.util.ChatIntent.Intent.Ask)
         assertTrue(ci.classify("desvincule o esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.Unlink)
         assertTrue(ci.classify("remover o esboço") is com.bettertalker.app.data.util.ChatIntent.Intent.Unlink)
         assertTrue(ci.classify("baixar as bases") is com.bettertalker.app.data.util.ChatIntent.Intent.Bases)

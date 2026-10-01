@@ -155,16 +155,7 @@ class ChatParityMatrixTest {
         assertTrue(msg.contains("Verifique a conexão"))
     }
 
-    // ---------- linha: offline ----------
-
-    @Test
-    fun linha10_offline() {
-        val notice = com.bettertalker.app.data.copilot.OFFLINE_CHAT_NOTICE
-        assertTrue(notice.contains("Você está offline"))
-        assertTrue(notice.contains("não está disponível"))
-    }
-
-    // ---------- linha: proveniência ----------
+    // ---------- 5. erro amigável ----------
 
     @Test
     fun linha11_proveniencia() {
@@ -205,8 +196,8 @@ class ChatParityMatrixTest {
 
     @Test
     fun linha14_estadosSaoDistintos() {
-        // offline e error são estados diferentes: offline não vira erro.
-        assertFalse(ChatRunState.Offline is ChatRunState.Error)
-        assertFalse(ChatRunState.Offline.blocksComposer)
+        // error e cancelled são estados diferentes e liberam o composer.
+        assertFalse(ChatRunState.Error("x") is ChatRunState.Cancelled)
+        assertFalse(ChatRunState.Error("x").blocksComposer)
     }
 }

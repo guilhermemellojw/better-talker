@@ -45,7 +45,8 @@ class QwenProvider(
             system = prompts.first,
             user = prompts.second,
             maxOutputTokens = request.maxOutputTokens,
-            editProposal = wantProposal
+            editProposal = wantProposal,
+            jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
         )
         val url = "${endpoint.trimEnd('/')}/chat/completions"
         // Authorization via header (nunca na URL, nunca em log).
@@ -97,8 +98,10 @@ class QwenProvider(
                 lastError = ProviderError(ProviderErrorCode.NETWORK,
                     "Sem conexão com o provedor.", id, attempts)
             } catch (e: kotlinx.coroutines.CancellationException) {
-                throw ProviderError(ProviderErrorCode.CANCELLED,
-                    "Geração cancelada.", id, attempts)
+                // Structured concurrency: cancelamento deve propagar, não virar erro tipado.
+                // Alinhado ao padrão da Tarefa 1.3b (OutlineProposer) e de S34ImportHook.kt / LlmService.kt.
+                // O throw imediato também pula o delay e a próxima iteração do retry.
+                throw e
             }
             if (attempts < tries) delay(RETRY_BACKOFF_MS * attempts)
         }
@@ -121,7 +124,8 @@ class QwenProvider(
             system: String,
             user: String,
             maxOutputTokens: Int = DEFAULT_LLM_MAX_OUTPUT_TOKENS,
-            editProposal: Boolean = false
+            editProposal: Boolean = false,
+            jsonSchema: String? = null,
         ): String {
             val sb = StringBuilder("{\"model\":")
             sb.append(GeminiProvider.jsonEscape(GROQ_MODEL))
@@ -136,6 +140,10 @@ class QwenProvider(
             if (editProposal) {
                 sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
                 sb.append(EDIT_PROPOSAL_SCHEMA)
+                sb.append("}")
+            } else if (jsonSchema != null) {
+                sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
+                sb.append(jsonSchema)
                 sb.append("}")
             }
             sb.append("}")

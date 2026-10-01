@@ -128,8 +128,10 @@ class GeminiProvider(
                 lastError = ProviderError(ProviderErrorCode.NETWORK,
                     "Sem conexão com o provedor.", id, attempts)
             } catch (e: kotlinx.coroutines.CancellationException) {
-                throw ProviderError(ProviderErrorCode.CANCELLED,
-                    "Geração cancelada.", id, attempts)
+                // Structured concurrency: cancelamento deve propagar, não virar erro tipado.
+                // Alinhado ao padrão da Tarefa 1.3b (OutlineProposer) e de S34ImportHook.kt / LlmService.kt.
+                // O throw imediato também pula o delay e a próxima iteração do retry.
+                throw e
             }
             if (attempts < tries) delay(RETRY_BACKOFF_MS * attempts)
         }

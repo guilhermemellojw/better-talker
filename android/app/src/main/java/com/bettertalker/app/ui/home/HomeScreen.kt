@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
@@ -73,7 +74,9 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenAccount: () -> Unit,
-    settings: SettingsStore
+    settings: SettingsStore,
+    // SPIKE 3.2.1 — REMOVER
+    onOpenPrototype: () -> Unit = {},
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -208,6 +211,8 @@ fun HomeScreen(
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
                     IconButton(onClick = onOpenAccount) { Icon(Icons.Default.AccountCircle, "Conta") }
+                    // SPIKE 3.2.1 — REMOVER
+                    IconButton(onClick = onOpenPrototype) { Icon(Icons.Default.Build, "DEBUG") }
                 }
             )
         },

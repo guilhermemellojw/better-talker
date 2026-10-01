@@ -113,8 +113,7 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
                 updatedAt = now
             )
         )
-        // O esqueleto vai pela fila de inserção do editor (preserva estilos);
-        // aqui só persiste o esboço. Ver skeletonMarkdown().
+        // 3.2.5d: aqui só persiste o esboço (o skeleton programático foi removido).
         SyncScheduler.requestSync(ctx)
     }
 

@@ -30,6 +30,19 @@ object OutlineParser {
     private val TOTAL_RE = Regex("""TEMPO\s*TOTAL\s*:\s*(\d+)\s*MINUTOS?""", RegexOption.IGNORE_CASE)
     private val NOISE_RE = Regex("""^(N\.º|©|\(|S-\d+)""")
 
+    /** Número do esboço no heading: "N.º 35", "N.° 84", "N.º 26". */
+    private val OUTLINE_NUMBER_RE = Regex("""^N\.[º°]\s*(\d+)\b""", RegexOption.IGNORE_CASE)
+
+    /** Prefixo de NOTA ao orador: "NOTA:" ou "Nota ao orador:". */
+    private val SPEAKER_NOTE_RE = Regex("""^(?:NOTA|Nota ao orador)\s*:""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Filtro de "ruído" para a linha do TEMA (não confundir com NOISE_RE,
+     * que continua intacto por compatibilidade).
+     * AQUI NÃO inclui "N.º" — a linha do tema pode começar com "N.º 35".
+     */
+    private val TITLE_NOISE_RE = Regex("""^(©|\(|S-\d+)""")
+
     fun parse(text: String, fileName: String): ParsedOutline {
         // preserva recuo original (tab = 4, teto 8) para o corpo; matching usa texto limpo
         data class RLine(val indent: Int, val text: String)
@@ -120,16 +133,48 @@ object OutlineParser {
             prevLine = t0
             prevConsumed = false
         }
-        // título = primeira linha de conteúdo (ignora cabeçalhos tipo N.º/©)
-        title = lines.firstOrNull { l ->
-            l.text.length > 10 && !NOISE_RE.containsMatchIn(l.text) && MIN_RE.find(l.text) == null &&
-                TOTAL_RE.find(l.text) == null
-        }?.text ?: fileName.substringBeforeLast('.')
+        // Título = número (se houver) + tema (primeira linha não-NOTA/ruído).
+        // Formato: "N.º 35 — Tema completo" ou só "Tema completo" (S-31-T).
+        // Hotfix 3.2.3d: antes, NOISE_RE descartava a linha do tema (começa
+        // com "N.º") e sobrava a NOTA como título.
+        val themeLine = lines.firstOrNull { l ->
+            val t = l.text.trim()
+            t.length > 10 &&
+                !SPEAKER_NOTE_RE.containsMatchIn(t) &&
+                !TITLE_NOISE_RE.containsMatchIn(t) &&
+                MIN_RE.find(t) == null &&
+                TOTAL_RE.find(t) == null
+        }?.text?.trim() ?: fileName.substringBeforeLast('.')
+
+        val numberMatch = OUTLINE_NUMBER_RE.find(themeLine)
+        val number = numberMatch?.groupValues?.get(1)
+        val theme = if (numberMatch != null) {
+            themeLine.substring(numberMatch.range.last + 1)
+                .trimStart('\t', ' ', '—', '-', ':')
+                .trim()
+        } else {
+            themeLine
+        }
+
+        // Monta ANTES do take(140) — tema longo não perde o número.
+        val composed = if (number != null && theme.isNotBlank()) {
+            "N.º $number — $theme"
+        } else {
+            theme
+        }
+        title = composed.take(140)
+        // Preamble sem a linha do tema: só a NOTA (remove a primeira linha
+        // se for a themeLine; o tema nunca deve ir para a INTRO).
+        val preambleLines = preamble.toString().trim().lines().toMutableList()
+        if (preambleLines.isNotEmpty() && preambleLines.first().trim() == themeLine) {
+            preambleLines.removeAt(0)
+        }
+        val preambleText = preambleLines.joinToString("\n").trim()
         val final = sections.mapIndexed { i, s ->
             // trimEnd: preserva o recuo da primeira linha do corpo
             s.copy(order = i, body = bodies.getOrNull(i)?.toString()?.trimEnd().orEmpty())
         }
-        return ParsedOutline(title.take(140), total, final, preamble.toString().trim())
+        return ParsedOutline(title, total, final, preambleText)
     }
 
     /** Linha com cara de título de esboço: maioria maiúscula, sem pontuação final. */
@@ -264,6 +309,10 @@ object PastedOutlineAnalyzer {
     /**
      * Título inicial "Título (N min)" — só vale no começo do texto colado.
      * Retorna (título?, restante). Puro/testável.
+     *
+     * DÉBITO (3.2.3d): split do título no fluxo de colar. Tem lógica própria
+     * (depende de "(N min)" no início); NÃO passa pelo OutlineParser.parse,
+     * então não usa o formato "N.º N — Tema". Alinhar é débito de UX futura.
      */
     fun splitTitle(text: String): Pair<String?, String> {
         val m = Regex("""^(.{10,140}?\(\d+\s*min[^)]*\))[\s\n]+""").find(text.trimStart())
@@ -577,7 +626,11 @@ fun headingOffset(text: String, heading: String): Int? {
     return p.coerceAtMost(text.length)
 }
 
-/** Esqueleto markdown do esboço (pré-preenchimento / reinserção). Puro/testável. */
+/** Esqueleto markdown do esboço.
+ *
+ * 3.2.5d: não usado pela UI multi-seção (skeleton removido); mantido pelos
+ * testes e como helper puro (pode servir à 3.2.4c).
+ */
 fun skeletonMarkdown(sections: List<OutlineSection>, preamble: String = ""): String {
     val parts = mutableListOf<String>()
     if (preamble.isNotBlank()) parts += preamble

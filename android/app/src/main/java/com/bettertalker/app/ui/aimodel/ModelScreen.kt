@@ -126,15 +126,16 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
-            CopilotRemoteKeyCard(vm)
             CopilotProviderCard(vm)
+            CopilotRemoteKeyCard(vm)
         }
     }
 }
 
 /**
- * Fase 18 — chave BYOD do assistente remoto. Opcional, local, nunca em log.
- * Com chave, o Copilot responde via Gemini; sem chave, segue o motor local.
+ * Fase 18 — chave BYOD do assistente remoto (Gemini — alternativa/fallback).
+ * Opcional, local, nunca em log.
+ * Com chave, o Copilot pode responder via Gemini; sem chave, segue o motor local.
  */
 @Composable
 private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
@@ -142,7 +143,7 @@ private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
     var draft by remember(saved) { mutableStateOf("") }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Assistente remoto (Gemini)", style = MaterialTheme.typography.titleSmall)
+            Text("Assistente remoto (Gemini) — alternativa", style = MaterialTheme.typography.titleSmall)
             if (saved.isNotBlank()) {
                 Text("Chave configurada ✓ — o Copilot usa o assistente remoto.",
                     style = MaterialTheme.typography.bodySmall,
@@ -171,10 +172,10 @@ private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
 }
 
 /**
- * F20-F1 — seleção do provider remoto + chave BYOD do Groq/Qwen.
- * Default "gemini" (comportamento atual preservado). A chave Groq fica só
- * neste aparelho (DataStore local), nunca em log — sai só no header
- * Authorization do POST HTTPS.
+ * F20-F1 / 3.5e.3a — card do provedor remoto.
+ * Default "qwen" (Groq/Qwen recomendado). Gemini é alternativa/fallback.
+ * A chave Groq fica só neste aparelho (DataStore local), nunca em log —
+ * sai só no header Authorization do POST HTTPS.
  */
 @Composable
 private fun CopilotProviderCard(vm: ModelViewModel) {
@@ -186,14 +187,14 @@ private fun CopilotProviderCard(vm: ModelViewModel) {
             Text("Provedor remoto", style = MaterialTheme.typography.titleSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.FilterChip(
-                    selected = provider != "qwen",
-                    onClick = { vm.selectProvider("gemini") },
-                    label = { Text("Gemini") }
-                )
-                androidx.compose.material3.FilterChip(
                     selected = provider == "qwen",
                     onClick = { vm.selectProvider("qwen") },
-                    label = { Text("Qwen (Groq)") }
+                    label = { Text("Qwen (Groq) — padrão") }
+                )
+                androidx.compose.material3.FilterChip(
+                    selected = provider != "qwen",
+                    onClick = { vm.selectProvider("gemini") },
+                    label = { Text("Gemini — alternativa") }
                 )
             }
             if (provider == "qwen") {

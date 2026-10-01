@@ -63,12 +63,15 @@ class SettingsStore(private val ctx: Context) {
     suspend fun clearGroqApiKey() { ctx.store.edit { it.remove(GROQ_API_KEY) } }
 
     /**
-     * F20-F1 — provider remoto selecionado ("gemini"|"qwen"). Default
-     * "gemini": comportamento atual preservado; Qwen só com escolha explícita.
+     * F20-F1 / 3.5e.3a — provider remoto selecionado ("gemini"|"qwen").
+     * Default "qwen": Groq/Qwen é o padrão recomendado; Gemini é
+     * alternativa/fallback. O runtime de geração (ProviderFactory.createFallback)
+     * já tenta Qwen primeiro independentemente desta seleção — este default
+     * alinha a UI e o `resolveRemote`.
      */
     private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
-    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "gemini" }
+    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "qwen" }
     suspend fun setLlmProvider(v: String) {
-        ctx.store.edit { it[LLM_PROVIDER] = if (v == "qwen") "qwen" else "gemini" }
+        ctx.store.edit { it[LLM_PROVIDER] = if (v == "gemini") "gemini" else "qwen" }
     }
 }

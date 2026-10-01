@@ -2,7 +2,9 @@ package com.bettertalker.app.data.db
 
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Delete
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -10,6 +12,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.Upsert
+import com.bettertalker.app.domain.speech.DiscourseType
 import kotlinx.coroutines.flow.Flow
 
 // ---------- Entities ----------
@@ -35,7 +39,9 @@ data class NoteEntity(
     val createdAt: Long,
     val updatedAt: Long,
     /** Verdade visual (cores, highlight, S/T...); mdText é derivado p/ Copilot. */
-    val richHtml: String = ""
+    val richHtml: String = "",
+    /** Tipo de discurso ([DiscourseType.name]); desconhecido lê como S34_DISCOURSE. */
+    val discourseType: String = DiscourseType.S34_DISCOURSE.name
 )
 
 @Entity(tableName = "attachments", indices = [Index("baseSlot")])
@@ -131,7 +137,10 @@ interface NoteDao {
     suspend fun get(id: String): NoteEntity?
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<NoteEntity?>
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert (INSERT; no conflito de unicidade → UPDATE), NUNCA REPLACE: o
+    // REPLACE apaga a linha pai e o ON DELETE CASCADE derruba
+    // speech_sections/sub_points da nota.
+    @Upsert
     suspend fun upsert(note: NoteEntity)
     @Query("UPDATE notes SET trashed = 1, updatedAt = :now WHERE id = :id")
     suspend fun trash(id: String, now: Long)
@@ -204,14 +213,16 @@ interface PassageDao {
     suspend fun searchLikeIn(ids: List<String>, norm: String, limit: Int): List<PassageEntity>
     @Query("SELECT DISTINCT attachmentId FROM passages")
     suspend fun indexedAttachmentIds(): List<String>
+    @Query("SELECT * FROM passages WHERE ref = :ref LIMIT 1")
+    suspend fun findByRef(ref: String): PassageEntity?
     // Fase 8: carga restrita ao escopo (ordenada para determinismo).
     @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC")
     suspend fun forAttachments(ids: List<String>): List<PassageEntity>
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class],
-    version = 12,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -223,7 +234,74 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun outlineDao(): OutlineDao
     abstract fun chatDao(): ChatDao
     abstract fun s34Dao(): S34Dao
+    abstract fun speechSectionDao(): SpeechSectionDao
+    abstract fun subPointDao(): SubPointDao
 }
+
+@Entity(
+    tableName = "speech_sections",
+    foreignKeys = [ForeignKey(
+        entity = NoteEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["noteId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [
+        Index("noteId"),
+        Index(value = ["noteId", "order"], unique = true),
+    ],
+)
+data class SpeechSectionEntity(
+    @PrimaryKey val id: String,
+    val noteId: String,
+    val order: Int,
+    /** SectionRole.name (INTRO/BODY/CONCLUSION). */
+    val role: String,
+    val title: String,
+    val minutes: Int,
+    val contentHtml: String,
+    /** JSON array de strings (codec de S34OutlineRepository). */
+    val bibleRefsJson: String,
+    /** JSON array de objetos {symbol[,page,paragraph]}. */
+    val publicationRefsJson: String,
+    val methodPrinciple: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/**
+ * Sub-ponto de uma seção BODY (FK → speech_sections, CASCADE).
+ *
+ * Convenção: BODY usa sub-pontos; INTRO/CONCLUSION usam `contentHtml`.
+ * `developedHtml` pode ser vazio (rascunho); `outlineText` é a âncora.
+ */
+@Entity(
+    tableName = "sub_points",
+    foreignKeys = [ForeignKey(
+        entity = SpeechSectionEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["sectionId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [
+        Index("sectionId"),
+        Index(value = ["sectionId", "order"], unique = true),
+    ],
+)
+data class SubPointEntity(
+    @PrimaryKey val id: String,
+    val sectionId: String,
+    val order: Int,
+    val outlineText: String,
+    /** JSON array de strings (codec de S34OutlineRepository). */
+    val bibleRefsJson: String,
+    /** JSON array de objetos {symbol[,page,paragraph]}. */
+    val publicationRefsJson: String,
+    val instruction: String?,
+    val developedHtml: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
 @Entity(tableName = "chat_messages")
@@ -249,6 +327,62 @@ interface ChatDao {
     suspend fun clear(noteId: String)
     @Query("DELETE FROM chat_messages WHERE id = :id")
     suspend fun delete(id: String)
+}
+
+@Dao
+interface SpeechSectionDao {
+    @Query("SELECT * FROM speech_sections WHERE noteId = :noteId ORDER BY `order`")
+    suspend fun forNote(noteId: String): List<SpeechSectionEntity>
+
+    /** 3.2.5a: observa as seções da nota (Flow) — consumido pelo SectionsController. */
+    @Query("SELECT * FROM speech_sections WHERE noteId = :noteId ORDER BY `order`")
+    fun observeForNote(noteId: String): Flow<List<SpeechSectionEntity>>
+
+    @Query("SELECT * FROM speech_sections WHERE id = :id")
+    suspend fun get(id: String): SpeechSectionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(section: SpeechSectionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(sections: List<SpeechSectionEntity>)
+
+    @Delete
+    suspend fun delete(section: SpeechSectionEntity)
+
+    @Query("DELETE FROM speech_sections WHERE noteId = :noteId")
+    suspend fun deleteForNote(noteId: String)
+}
+
+@Dao
+interface SubPointDao {
+    @Query("SELECT * FROM sub_points WHERE sectionId = :sectionId ORDER BY `order`")
+    suspend fun forSection(sectionId: String): List<SubPointEntity>
+
+    @Query("SELECT * FROM sub_points WHERE id = :id")
+    suspend fun get(id: String): SubPointEntity?
+
+    @Query("SELECT * FROM sub_points WHERE sectionId IN (:sectionIds) ORDER BY sectionId, `order`")
+    suspend fun forSections(sectionIds: List<String>): List<SubPointEntity>
+
+    /**
+     * 3.2.5a: observa sub-pontos de N seções (Flow) — consumido pelo
+     * SectionsController. NÃO chamar com lista vazia (guard no collector).
+     */
+    @Query("SELECT * FROM sub_points WHERE sectionId IN (:sectionIds) ORDER BY sectionId, `order`")
+    fun observeForSections(sectionIds: List<String>): Flow<List<SubPointEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(subPoint: SubPointEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(subPoints: List<SubPointEntity>)
+
+    @Delete
+    suspend fun delete(subPoint: SubPointEntity)
+
+    @Query("DELETE FROM sub_points WHERE sectionId = :sectionId")
+    suspend fun deleteForSection(sectionId: String)
 }
 
 @Dao

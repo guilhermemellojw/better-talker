@@ -7,10 +7,12 @@ import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.domain.TrainingClassifier
+import com.bettertalker.app.data.s34.NwtEpubParser
 import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.detectKind
+import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.normalizeText
-import com.bettertalker.app.data.util.splitWithSections
 import java.io.File
 
 class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
@@ -53,35 +55,44 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
             // Documento comum não muda de fluxo; S-34 insuficiente não vira
             // estrutura falsa (hook devolve o estado, nunca lança).
             com.bettertalker.app.data.s34.S34ImportHook.onExtracted(db.s34Dao(), id, raw)
-            // separa frases no texto CRU (normalizar apaga . ! ? \n) com seção
-            val sentences = splitWithSections(raw).take(MAX_SENTENCES)
-                .mapNotNull { (s, section) ->
-                    val norm = normalizeText(s)
-                    if (norm.length > 5) Triple(
-                        s.replace(Regex("\\s+"), " ").trim().take(500),
-                        norm.take(500),
-                        section
-                    ) else null
+            // Fase 8: trilho via slot (legado ou recém-detectado); categoria
+            // só para training (demais trilhos: null, sem inferência).
+            val slot = att.baseSlot ?: matchBaseSlot(att.fileName)
+            val sourceType = SourceType.fromBaseSlot(slot)
+            // buildPassages preserva filtro/caps/ord do fluxo anterior e popula
+            // ref no formato web ("symbol section §n").
+            val symbol = detectSymbol(att.fileName)
+            // TNM em EPUB: versículo-a-versículo com ref canônico (2.6b).
+            // Ordem preservada: DocExtractors.extract já rodou acima (S34Hook).
+            var passages = if (symbol == "nwt" && att.kind == "epub") {
+                NwtEpubParser.extractVerses(File(att.appPath)).mapIndexed { i, v ->
+                    PassageEntity(
+                        id = "$id-p$i",
+                        attachmentId = id,
+                        text = v.text,
+                        normalized = normalizeText(v.text),
+                        section = v.section,
+                        ref = v.canonicalRef,
+                        ord = i,
+                        trainingCategory = null,
+                    )
                 }
-            if (sentences.isEmpty()) {
+            } else {
+                buildPassages(id, symbol, raw, null,
+                    maxSentences = MAX_SENTENCES)
+            }
+            if (sourceType == SourceType.TRAINING) {
+                // Categoria varia por frase (seção/texto) — refino preservando o comportamento anterior.
+                passages = passages.map {
+                    it.copy(trainingCategory = TrainingClassifier.classify(it.section, att.fileName, it.text).serial)
+                }
+            }
+            if (passages.isEmpty()) {
                 db.attachmentDao().setStatus(id, false, "failed", "Texto sem trechos aproveitáveis.")
                 return Result.success()
             }
-            val rows = sentences.mapIndexed { i, (text, norm, section) ->
-                // Fase 8: trilho via slot (legado ou recém-detectado); categoria
-                // só para training (demais trilhos: null, sem inferência).
-                val slot = att.baseSlot ?: matchBaseSlot(att.fileName)
-                val sourceType = SourceType.fromBaseSlot(slot)
-                val category = if (sourceType == SourceType.TRAINING) {
-                    TrainingClassifier.classify(section, att.fileName, text).serial
-                } else null
-                PassageEntity(
-                    id = "$id-p$i", attachmentId = id, text = text, normalized = norm,
-                    section = section, ord = i, trainingCategory = category
-                )
-            }
             db.passageDao().deleteForAttachment(id)
-            db.passageDao().insertAll(rows)
+            db.passageDao().insertAll(passages)
             // Fase 8: persiste trilho/símbolo do anexo (símbolo = slot quando conhecido).
             val finalSlot = att.baseSlot ?: matchBaseSlot(att.fileName)
             db.attachmentDao().setSourceMeta(id, SourceType.fromBaseSlot(finalSlot).serial, finalSlot)

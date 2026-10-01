@@ -32,7 +32,7 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
     val groqApiKey = settings.groqApiKey.stateIn(
         viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "")
     val llmProvider = settings.llmProvider.stateIn(
-        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "gemini")
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "qwen")
 
     fun saveApiKey(v: String) = viewModelScope.launch { settings.setLlmApiKey(v) }
     fun clearApiKey() = viewModelScope.launch { settings.clearLlmApiKey() }

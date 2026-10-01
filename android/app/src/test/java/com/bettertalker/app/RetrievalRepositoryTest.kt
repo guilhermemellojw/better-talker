@@ -31,6 +31,8 @@ private class FakePassageDao(var rows: List<PassageEntity> = emptyList()) : Pass
         return rows.filter { it.attachmentId in ids && it.normalized.contains(norm) }.take(limit)
     }
     override suspend fun indexedAttachmentIds(): List<String> = rows.map { it.attachmentId }.distinct()
+    override suspend fun findByRef(ref: String): PassageEntity? =
+        rows.firstOrNull { it.ref == ref }
     override suspend fun forAttachments(ids: List<String>): List<PassageEntity> {
         scopedCalls++
         return rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))

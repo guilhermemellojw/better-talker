@@ -133,16 +133,16 @@ class LlmProviderTest {
     // ---------- 7. cancelamento ----------
 
     @Test
-    fun cancelamentoViraCancelledSemRetry() = runBlocking {
-        val http = FakeHttp(mutableListOf(kotlinx.coroutines.CancellationException()))
+    fun cancelamentoPropagaSemRetry() = runBlocking {
+        val http = FakeHttp(mutableListOf<Any>(kotlinx.coroutines.CancellationException("cancelled")))
         val p = GeminiProvider(apiKey = "k", http = http)
         try {
             p.generate(req())
             fail("deveria lançar")
-        } catch (e: ProviderError) {
-            assertEquals(ProviderErrorCode.CANCELLED, e.code)
-            assertEquals(1, http.calls)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // esperado — cancelamento propaga, não vira ProviderError
         }
+        assertEquals(1, http.calls)
     }
 
     // ---------- 8. retry transitório ----------

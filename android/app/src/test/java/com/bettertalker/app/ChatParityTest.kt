@@ -6,7 +6,6 @@ import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.MAX_HISTORY_CHARS
 import com.bettertalker.app.data.copilot.MAX_HISTORY_MESSAGES
-import com.bettertalker.app.data.copilot.OFFLINE_CHAT_NOTICE
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.chatBriefToText
@@ -182,16 +181,6 @@ class ChatEngineParityTest {
         }
     }
 
-    // ---------- 5. offline ----------
-
-    @Test
-    fun avisoOfflineNaoInventaRespostaRemota() {
-        assertTrue(OFFLINE_CHAT_NOTICE.contains("offline"))
-        assertTrue(OFFLINE_CHAT_NOTICE.contains("não está disponível"))
-        // Diz que os recursos locais continuam: offline-first, sem travamento.
-        assertTrue(OFFLINE_CHAT_NOTICE.contains("locais continuam funcionando"))
-    }
-
     // ---------- 6. erro amigável nunca vaza técnica ----------
 
     @Test
@@ -238,7 +227,6 @@ class ChatEngineParityTest {
         // Este é o bug que a F15 encontrou e corrigiu.
         assertFalse(ChatRunState.Error("falhou").blocksComposer)
         assertFalse(ChatRunState.Cancelled().blocksComposer)
-        assertFalse(ChatRunState.Offline.blocksComposer)
     }
 
     @Test
@@ -253,10 +241,10 @@ class ChatEngineParityTest {
     fun todosOsEstadosTtemTextoOuSaoConhecidos() {
         val states: List<ChatRunState> = listOf(
             ChatRunState.Idle, ChatRunState.Sending, ChatRunState.Generating,
-            ChatRunState.Success, ChatRunState.Error("x"), ChatRunState.Offline,
+            ChatRunState.Success, ChatRunState.Error("x"),
             ChatRunState.Cancelled()
         )
-        assertEquals(7, states.size)
+        assertEquals(6, states.size)
         for (s in states) {
             if (s is ChatRunState.Error) assertTrue(s.message.isNotBlank())
         }

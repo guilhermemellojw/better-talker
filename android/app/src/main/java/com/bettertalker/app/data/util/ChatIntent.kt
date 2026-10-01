@@ -19,8 +19,6 @@ object ChatIntent {
         object Sections : Intent
         /** "sincronizar esboço" -> atualiza o vínculo pelo texto da nota. */
         object Sync : Intent
-        /** "reinserir esqueleto" -> reinsere o esqueleto na nota. */
-        object Skeleton : Intent
         /** "desvincular esboço" -> desvincula o esboço da nota. */
         object Unlink : Intent
         /** "baixar as bases" -> mostra as bases faltantes. */
@@ -224,7 +222,8 @@ object ChatIntent {
         if (has("desvincul") || ((has("remov") || has("exclu") || has("apag") || has("tir")) && has("esboc"))) {
             return Intent.Unlink
         }
-        if (has("esqueleto")) return Intent.Skeleton
+        // 3.2.5d: "esqueleto" não é mais um intent (skeleton removido);
+        // cai em Ask para o Copilot responder em texto.
         if (has("secao") || has("secoes") || has("sumario") || has("estrutura")) return Intent.Sections
         if ((has("sincroniz", "sincroniza", "atualiz") ) && has("esboc")) return Intent.Sync
         if (has("base") && has("baix", "download", "falt", "quais", "verific")) return Intent.Bases

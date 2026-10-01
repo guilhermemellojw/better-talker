@@ -50,10 +50,13 @@ object PubCatalog {
         "hp" to Entry("hp", "Felicidade", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/hp"),
         "hs" to Entry("hs", "Espírito Santo", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/hs"),
         "hu" to Entry("hu", "Fracasso dos Planos Humanos", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fracasso-dos-planos-humanos-hu"),
-        "ia" to Entry("ia", "Imite", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ia"),
+        "ia" to Entry("ia", "Imite a Sua Fé", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ia"),
         "ie" to Entry("ie", "Quando Morremos", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/quando-morremos-ie"),
         "ip-1" to Entry("ip-1", "Profecia de Isaías I", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-1"),
         "ip-2" to Entry("ip-2", "Profecia de Isaías II", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-2"),
+        "it-1" to Entry("it-1", "Estudo Perspicaz das Escrituras, Volume 1", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-1"),
+        "it-2" to Entry("it-2", "Estudo Perspicaz das Escrituras, Volume 2", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-2"),
+        "it-3" to Entry("it-3", "Estudo Perspicaz das Escrituras, Volume 3", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-3"),
         "jd" to Entry("jd", "Dia de Jeová", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jd"),
         "je" to Entry("je", "Fazer Mundialmente a Vontade de Deus", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fazer-mundialmente-a-vontade-de-deus-je"),
         "jl" to Entry("jl", "Vontade de Jeová", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jl"),
@@ -85,6 +88,7 @@ object PubCatalog {
         "mb" to Entry("mb", "Minhas Lições da Bíblia", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/minhas-lições-da-bíblia-mb"),
         "mbs" to Entry("mbs", "Programação de leitura da Bíblia para a Celebração", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/mbs"),
         "ml" to Entry("ml", "Há Muito Mais Envolvido na Vida!", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/há-muito-mais-envolvido-na-vida-ml"),
+        "mrt" to Entry("mrt", "Outros Assuntos", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/mrt"),
         "mwb" to Entry("mwb", "Apostila Vida e Ministério", "workbook", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/apostilas"),
         "my" to Entry("my", "Histórias Bíblicas", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/my"),
         "na" to Entry("na", "Nome Divino", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/nome-divino-na"),
@@ -146,14 +150,42 @@ object PubCatalog {
     /** Siglas que colidem com palavras comuns e NÃO disparam detecção por código. */
     private val EXCLUDED = setOf("na") // "na página/lição" é preposição
 
-    fun isSymbol(s: String): Boolean {
-        val k = s.lowercase()
-        return k !in EXCLUDED && MAP.containsKey(k)
+    /**
+     * Aliases para símbolos não oficiais que aparecem em esboços.
+     * Mapeiam para o símbolo canônico da WOL.
+     *
+     * - "ifi" → "ia": esboços (ex: S-34-T N.º 131) usam "ifi" (abreviação
+     *   não oficial); a WOL usa "ia".
+     *
+     * Nota: `it-3` NÃO é alias — é símbolo válido (edição antiga em 3
+     * volumes, 1990-1992).
+     */
+    private val ALIASES: Map<String, String> = mapOf(
+        "ifi" to "ia",
+    )
+
+    /**
+     * Resolve um símbolo para o canônico. Se é alias, retorna o canônico;
+     * se é símbolo válido, retorna ele mesmo; senão, null.
+     */
+    fun resolveSymbol(symbol: String): String? {
+        val lower = symbol.lowercase()
+        return ALIASES[lower]?.takeIf { MAP.containsKey(it) }
+            ?: lower.takeIf { MAP.containsKey(it) }
     }
 
-    fun titleOf(symbol: String): String? = MAP[symbol.lowercase()]?.title
+    fun isSymbol(s: String): Boolean {
+        val k = s.lowercase()
+        if (k in EXCLUDED) return false
+        return resolveSymbol(k) != null
+    }
 
-    fun entryOf(symbol: String): Entry? = MAP[symbol.lowercase()]
+    fun titleOf(symbol: String): String? = entryOf(symbol)?.title
+
+    fun entryOf(symbol: String): Entry? {
+        val canonical = resolveSymbol(symbol) ?: return null
+        return MAP[canonical]
+    }
 
     /**
      * Títulos normalizados de livros/brochuras (título -> sigla),

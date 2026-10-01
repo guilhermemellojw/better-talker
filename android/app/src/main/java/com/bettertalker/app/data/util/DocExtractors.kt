@@ -76,14 +76,23 @@ object DocExtractors {
                     if (name == "word/document.xml" || name == "word/footnotes.xml" || name == "word/endnotes.xml") {
                         val bytes = zin.readBytes()
                         if (bytes.size in 1..500_000) {
-                            // w:t contém o texto; parágrafos, quebras, células e linhas
-                            // de tabela (abertura E fechamento) viram quebra de linha
+                            // w:t contém o texto; parágrafos e tabelas viram quebra de
+                            // linha; <w:br> (soft break) e <w:tab> viram ESPAÇO — não
+                            // podem virar linha, senão o body do esboço fragmenta em
+                            // sub-pontos (3.2.3a-fix4c).
                             var xml = String(bytes, Charsets.UTF_8)
                             // runs adjacentes colam sem espaço (podem partir palavra no meio,
                             // inclusive com <w:r> entre eles: </w:t></w:r><w:r><w:t>)
                             xml = xml.replace(Regex("</w:t>\\s*(</w:r>\\s*<w:r[^>]*>)?\\s*<w:t[^>]*>"), "")
-                            xml = xml.replace(Regex("</w:(p|tc|tr|tbl)[^>]*>"), "\n")
-                            xml = xml.replace(Regex("<w:(p|br|tab|tc|tr)[^>]*/?>"), "\n")
+                            // Fronteiras de bloco: viram parágrafo (\n). O nome exato
+                            // (">" no fechamento; lookahead [\s/>] na abertura) evita
+                            // casar tags de PROPRIEDADES (<w:pPr>, <w:pStyle>, <w:trPr>…)
+                            // — cada uma gerava um "\n" fantasma que fatiava o body em
+                            // sub-pontos (3.2.3a-fix4c; no device: 89 → ~30).
+                            xml = xml.replace(Regex("</w:(p|tc|tr|tbl)>"), "\n")
+                            xml = xml.replace(Regex("<w:(p|tc|tr)(?=[\\s/>])[^>]*>"), "\n")
+                            // Elementos inline: viram espaço (preserva o texto dentro do parágrafo)
+                            xml = xml.replace(Regex("<w:(br|tab)(?=[\\s/>])[^>]*>"), " ")
                             sb.append(stripXml(xml)).append('\n')
                         }
                     }

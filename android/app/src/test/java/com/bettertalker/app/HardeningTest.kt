@@ -40,6 +40,8 @@ class HardeningTest {
             scopedCalls++
             return rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         }
+        override suspend fun findByRef(ref: String): PassageEntity? =
+            rows.firstOrNull { it.ref == ref }
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

@@ -1,0 +1,59 @@
+package com.bettertalker.app.data.work
+
+import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.util.buildRef
+import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.data.util.splitWithSections
+
+/**
+ * Constrói PassageEntity a partir do texto bruto de uma publicação.
+ *
+ * Puro, determinístico, testável em JVM.
+ *
+ * Preserva o comportamento do IndexPublicationWorker:
+ * - cap de [maxSentences] frases
+ * - filtro de frases com normalizado <= [minNormalizedLength]
+ * - cap de texto/normalizado em [maxTextLength] chars
+ * - `ord` contado DEPOIS do filtro (sequencial de zero)
+ *
+ * @param attachmentId id do attachment pai
+ * @param symbol símbolo editorial (via detectSymbol)
+ * @param raw texto bruto extraído
+ * @param trainingCategory categoria be/th, se aplicável (uniforme; o worker
+ *   refina por frase para o trilho training — ver IndexPublicationWorker)
+ * @param maxSentences cap de frases (default 2500, igual ao worker)
+ * @param minNormalizedLength comprimento mínimo do normalizado (default 5)
+ * @param maxTextLength cap de texto/normalizado (default 500)
+ */
+internal fun buildPassages(
+    attachmentId: String,
+    symbol: String,
+    raw: String,
+    trainingCategory: String?,
+    maxSentences: Int = 2500,
+    minNormalizedLength: Int = 5,
+    maxTextLength: Int = 500,
+): List<PassageEntity> {
+    val pairs = splitWithSections(raw).take(maxSentences)
+    val result = mutableListOf<PassageEntity>()
+    var ord = 0
+    for ((s, section) in pairs) {
+        val norm = normalizeText(s)
+        if (norm.length <= minNormalizedLength) continue
+        val text = s.replace(Regex("\\s+"), " ").trim().take(maxTextLength)
+        result.add(
+            PassageEntity(
+                id = "$attachmentId-p$ord",
+                attachmentId = attachmentId,
+                text = text,
+                normalized = norm.take(maxTextLength),
+                section = section,
+                ref = buildRef(symbol, section, ord + 1),
+                ord = ord,
+                trainingCategory = trainingCategory,
+            )
+        )
+        ord++
+    }
+    return result
+}

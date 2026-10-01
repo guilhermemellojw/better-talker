@@ -201,14 +201,13 @@ class QwenGroqProviderTest {
     // ---------- §12.12: cancelamento ----------
 
     @Test
-    fun cancelamentoViraCancelledSemRetry() = runBlocking {
-        val http = FakeHttp(mutableListOf(kotlinx.coroutines.CancellationException()))
+    fun cancelamentoPropagaSemRetry() = runBlocking {
+        val http = FakeHttp(mutableListOf<Any>(kotlinx.coroutines.CancellationException("cancelled")))
         try {
             provider(http).generate(req().copy(maxAttempts = 2))
             fail("deveria falhar")
-        } catch (e: com.bettertalker.app.data.llm.ProviderError) {
-            assertEquals(
-                com.bettertalker.app.data.copilot.ProviderErrorCode.CANCELLED, e.code)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // esperado — cancelamento propaga, não vira ProviderError
         }
         assertEquals(1, http.calls)
     }
@@ -272,5 +271,72 @@ class QwenGroqProviderTest {
             assertFalse((e.message ?: "").contains("gsk-secreta"))
             assertFalse(http.bodies.single().contains("gsk-secreta"))
         }
+    }
+
+    // ---------- F20-F1: S-34 vinculado entra nos candidatos ----------
+
+    @Test
+    fun candidatosS34CitadosPrimeiroVinculadosDepois() {
+        assertEquals(
+            listOf("a", "b"),
+            com.bettertalker.app.ui.copilot.s34CandidateIds(listOf("a"), listOf("b"))
+        )
+        assertEquals(
+            listOf("a", "b"),
+            com.bettertalker.app.ui.copilot.s34CandidateIds(listOf("a", "b"), listOf("b", "a"))
+        )
+        assertEquals(
+            emptyList<String>(),
+            com.bettertalker.app.ui.copilot.s34CandidateIds(emptyList(), emptyList())
+        )
+    }
+
+    // ---------- JSON_SCHEMA (Tarefa 2.2) ----------
+
+    @Test
+    fun jsonSchemaAnexadoQuandoInformado() = runBlocking {
+        val http = FakeHttp(mutableListOf(chatOk("{\"title\":\"t\"}")))
+        val schema = "{\"type\":\"object\"}"
+        provider(http).generate(
+            req().copy(
+                responseFormat = com.bettertalker.app.data.llm.ResponseFormat.JSON_SCHEMA,
+                jsonSchema = schema,
+            )
+        )
+        val body = http.bodies.single()
+        assertTrue(body.contains("\"response_format\""))
+        assertTrue(body.contains("\"json_schema\""))
+        assertTrue(body.contains(schema))
+    }
+
+    @Test
+    fun jsonSchemaAusenteNaoAnexaResponseFormat() = runBlocking {
+        val http = FakeHttp(mutableListOf(chatOk("{\"title\":\"t\"}")))
+        provider(http).generate(
+            req().copy(
+                responseFormat = com.bettertalker.app.data.llm.ResponseFormat.JSON_SCHEMA,
+                jsonSchema = null,
+            )
+        )
+        val body = http.bodies.single()
+        assertFalse(body.contains("response_format"))
+    }
+
+    @Test
+    fun textNaoAnexaResponseFormat() = runBlocking {
+        val http = FakeHttp(mutableListOf(chatOk("texto livre")))
+        provider(http).generate(
+            req().copy(responseFormat = com.bettertalker.app.data.llm.ResponseFormat.TEXT)
+        )
+        val body = http.bodies.single()
+        assertFalse(body.contains("response_format"))
+    }
+
+    @Test
+    fun editProposalMantemSchemaProprio() = runBlocking {
+        val http = FakeHttp(mutableListOf(chatOk("{\"explanation\":\"x\",\"operations\":[]}")))
+        provider(http).generate(req())
+        val body = http.bodies.single()
+        assertTrue(body.contains(QwenProvider.EDIT_PROPOSAL_SCHEMA))
     }
 }

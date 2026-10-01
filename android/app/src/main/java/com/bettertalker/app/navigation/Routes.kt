@@ -8,6 +8,8 @@ object Routes {
     const val ACCOUNT = "account"
     const val CHAT = "chat/{noteId}"
     const val MODEL = "model"
+    // SPIKE 3.2.1 — REMOVER
+    const val PROTOTYPE_SECTIONS = "prototype_sections"
     fun editor(noteId: String) = "editor/$noteId"
     fun chat(noteId: String) = "chat/$noteId"
     fun library(linkNote: String? = null) =

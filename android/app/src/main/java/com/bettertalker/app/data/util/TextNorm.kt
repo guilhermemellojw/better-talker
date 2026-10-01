@@ -114,6 +114,81 @@ fun matchBaseSlot(fileName: String): String? {
     return null
 }
 
+/**
+ * Detecta o símbolo editorial do arquivo (web-style).
+ *
+ * 1. Se for be/th via [matchBaseSlot], retorna o slot ("be" ou "th").
+ * 2. Revistas com edição no nome: "w19.03", "wp19.03", "g 6/07", "gn 1/24"
+ *    (ver [detectMagazineSymbol]).
+ * 3. Senão, extrai o prefixo do nome (1-4 letras + separador).
+ * 4. Fallback: primeiros 24 chars do nome base.
+ */
+fun detectSymbol(fileName: String): String {
+    matchBaseSlot(fileName)?.let { return it }
+    val base = fileName.substringBeforeLast('.').lowercase()
+    // Extensão 3.2.3a-fix2: revistas com edição no nome.
+    detectMagazineSymbol(base)?.let { return it }
+    val prefixMatch = Regex("""^([a-z]{1,4})[\s._-]""").find(base)
+    return prefixMatch?.groupValues?.get(1) ?: base.take(24)
+}
+
+/**
+ * Detecta símbolo editorial de revista no nome do arquivo (base, minúscula,
+ * sem extensão). Formatos suportados:
+ * - "w94 1/8" / "g93 8/1" / "w82 15.3" → "w94 1/8" / "g93 8/1" / "w82 15/3"
+ *   (quinzenal antigo, dia/mês normalizado com "/")
+ * - "w19.03" / "w2019.03" / "w24 12" → "w19.03" / "w2019.03" / "w24.12"
+ * - "wp19.03" / "wp_T_201909" → "wp19.03" / "wp19.09"
+ * - "g 6/07" / "g6/07" → "g 6/07" (espaço normalizado)
+ * - "gn 1/24" / "gn1/24" → "gn 1/24"
+ * Retorna null se não reconhecer (cai no fallback de [detectSymbol]).
+ *
+ * DÉBITO TÉCNICO (3.2.3a-fix2/fix3): nomes fora destes padrões caem no fallback
+ * take(24); mês fora de 1..12 é rejeitado de propósito (evita falso positivo);
+ * variante antiga "w70 106" (ano + página, sem mês/dia) não é reconhecida.
+ */
+private fun detectMagazineSymbol(base: String): String? {
+    // Formato quinzenal antigo: "w94 1/8" / "w82 15.3" / "g93 8/1" (dia/mês).
+    Regex("""^(w|g)\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})(?!\d)""").find(base)?.let { m ->
+        val day = m.groupValues[3].toIntOrNull() ?: return@let
+        val month = m.groupValues[4].toIntOrNull() ?: return@let
+        if (day !in 1..31 || month !in 1..12) return@let
+        return "${m.groupValues[1]}${m.groupValues[2]} $day/$month"
+    }
+    // w/wp: ano (YY ou YYYY) + mês. Separadores . / espaço ou hífen.
+    Regex("""^(wp?)[\s._-]*(\d{2,4})[./\s-](\d{1,2})(?!\d)""").find(base)?.let { m ->
+        val month = m.groupValues[3].toIntOrNull() ?: return@let
+        if (month !in 1..12) return@let
+        return "${m.groupValues[1]}${m.groupValues[2]}.${month.toString().padStart(2, '0')}"
+    }
+    // g/gn: mês + ano.
+    Regex("""^(gn?)[\s._-]*(\d{1,2})[./\s-](\d{2,4})(?!\d)""").find(base)?.let { m ->
+        val month = m.groupValues[2].toIntOrNull() ?: return@let
+        if (month !in 1..12) return@let
+        return "${m.groupValues[1]} $month/${m.groupValues[3].takeLast(2)}"
+    }
+    // Formato compacto do jw.org: "w_T_201909" / "wp_T_201909".
+    Regex("""^(wp?)[\s._-]*t[\s._-]*(\d{6})(?!\d)""").find(base)?.let { m ->
+        val yyyymm = m.groupValues[2]
+        val month = yyyymm.substring(4, 6).toIntOrNull() ?: return@let
+        if (month !in 1..12) return@let
+        return "${m.groupValues[1]}${yyyymm.substring(2, 4)}.${yyyymm.substring(4, 6)}"
+    }
+    return null
+}
+
+/**
+ * Monta o ref de um passage no formato do web: "symbol section §n".
+ * Se section em branco, omite a seção.
+ * Section é truncada em 60 chars.
+ */
+fun buildRef(symbol: String, section: String, paragraph: Int): String {
+    val parts = mutableListOf(symbol)
+    if (section.isNotBlank()) parts.add(section.take(60))
+    parts.add("§$paragraph")
+    return parts.joinToString(" ")
+}
+
 // ---------- Detecção de formato ----------
 
 enum class DocKind(val ext: String) { PDF("pdf"), EPUB("epub"), DOCX("docx"), RTF("rtf"), ZIP("zip"), TXT("txt"), JWPUB("jwpub"), UNSUPPORTED("bin") }

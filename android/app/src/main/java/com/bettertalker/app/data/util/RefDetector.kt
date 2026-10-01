@@ -7,6 +7,17 @@ import java.net.URLEncoder
  * Detecta referências a publicações no texto da nota (português natural)
  * e verifica se a EDIÇÃO EXATA está baixada localmente.
  * Textos bíblicos (Gên 1:26) são ignorados por decisão de escopo.
+ *
+ * Símbolos de livro reconhecidos (3.2.3a-fix4), validados contra
+ * [PubCatalog]: pe, rs, re, dp, dg, bh, jv, kj, it-1/2/3 (página/range),
+ * mrt (artigo N), ifi (lição N [ponto M]) — além das rotas legadas por
+ * palavra-guia e por título integral. Sentinela por nome ("Sentinela
+ * n.º X de YYYY", "Sentinela de <mês> de YYYY") e por data
+ * ("Sentinela 01/04/09", "Sentinela 01/20").
+ *
+ * DÉBITO (3.2.3a-fix4): publicações fora do PubCatalog só entram por
+ * título integral/busca; novos símbolos exigem entrada no catálogo.
+ * `chapterOf` cobre "cap./capítulo/lição/estudo/parágrafo/§/pág./página".
  */
 object RefDetector {
 
@@ -66,7 +77,10 @@ object RefDetector {
     // w24.12 | w 24/12 (estudo mensal moderna)
     private val W_CODE_RE = Regex("""\bw\s*(\d{2})[./](\d{1,2})\b""")
     // w99 1/5 | w99 15/5 (antiga dia/mês: dia 1º = pública, 15 = estudo)
-    private val W_DAY_RE = Regex("""\bw\s*(\d{2})\s+(\d{1,2})/(\d{1,2})\b""")
+    // Aceita também ponto como separador (w82 15.3) — 3.2.3a-fix3.
+    private val W_DAY_RE = Regex("""\bw\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})\b""")
+    // g93 8/1 | g82 22.3 (Despertai quinzenal antiga, dia/mês) — 3.2.3a-fix3
+    private val G_OLD_RE = Regex("""\bg\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})\b""")
     // wp24 N.º 1 | wp19.3 (pública por código)
     private val WP_CODE_RE = Regex("""\bwp\s*(\d{2})(?:[./](\d{1,2})|\s*(?:N\.?(?:º|o|°)?|n[úu]mero)\s*(\d{1,2}))?""")
     // g 1/24 | g1/24
@@ -74,7 +88,36 @@ object RefDetector {
     // citação por sigla do catálogo: lff cap. 5 | be pág. 52 | th lição 3
     // (sigla validada contra PubCatalog; "na" excluído por colidir com preposição)
     private val SYMBOL_REF_RE = Regex(
-        """\b([A-Za-z]{2,4}(?:-[12])?)\s+(cap\.?|capítulo|li[cç][aã]o|p[áa]g\.?|página|par[áa]g\.?|estudo|n\.?(?:º|o|°)?)""",
+        """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap\.?|capítulo|li[cç][aã]o|p[áa]g\.?|página|par[áa]g\.?|estudo|n\.?(?:º|o|°)?)""",
+        RegexOption.IGNORE_CASE
+    )
+    // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
+    // Roda antes das rotas legadas; cobre "(it-1 813)", "(kj 264-5)",
+    // "(it-2 1050)".
+    // 3.2.3a-fix4c: o `\b` após o grupo do número + `(?!\s*:)` rejeitam
+    // refs bíblicas cap:vers ("Re 15:3b"). Sem o `\b`, o regex engine recua
+    // para "1" e o lookahead passaria ("5:3b" não começa com ":") — phantom
+    // "Re 1". Com `\b`, "15" não recua para "1" (não há fronteira), então o
+    // lookahead é avaliado corretamente e rejeita.
+    private val STUDY_BOOK_RE = Regex(
+        """\b(it-[1-3]|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
+        RegexOption.IGNORE_CASE
+    )
+    // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
+    private val MRT_ARTICLE_RE = Regex(
+        """\bmrt\s+artigo\s+(\d+)""",
+        RegexOption.IGNORE_CASE
+    )
+    // 3.2.3a-fix4: ifi por lição/ponto ("ifi lição 24 ponto 3")
+    private val IFI_LESSON_RE = Regex(
+        """\bifi\s+li[çc][aã]o\s+(\d+)(?:\s+ponto\s+(\d+))?""",
+        RegexOption.IGNORE_CASE
+    )
+    // 3.2.3a-fix4: Sentinela nomeada com data (esboços S-31-T antigos):
+    // "Sentinela 01/04/09" (DD/MM/AA) e "Sentinela 01/20" (MM/AA).
+    // Disjunta de WATCHTOWER_RE (`/` vs ` de `).
+    private val SENTINELA_DATE_RE = Regex(
+        """(?:A\s+)?Sentinela\s+(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?""",
         RegexOption.IGNORE_CASE
     )
 
@@ -104,6 +147,23 @@ object RefDetector {
     private const val JW_SEARCH = "https://www.jw.org/pt/busca/?q="
 
     private fun fullYear(yy: Int): Int = if (yy >= 50) 1900 + yy else 2000 + yy
+
+    /** Ano de 2 dígitos expandido; anos de 3-4 dígitos passam direto. */
+    private fun expandYear(value: Int, digits: Int): Int =
+        if (digits >= 3) value else fullYear(value)
+
+    /** "pág. N[-M]" / "parág. N" logo após uma menção (vão para o rótulo). */
+    private fun sentinelaTail(text: String, lastIndex: Int): String {
+        val tail = text.substring(lastIndex + 1, (lastIndex + 41).coerceAtMost(text.length))
+        val pag = Regex("""p[áa]g\.?\s*(\d{1,4}(?:-\d{1,4})?)""", RegexOption.IGNORE_CASE)
+            .find(tail)?.groupValues?.get(1)
+        val par = Regex("""par[áa]g\.?\s*(\d{1,3}(?:-\d{1,3})?)""", RegexOption.IGNORE_CASE)
+            .find(tail)?.groupValues?.get(1)
+        return listOfNotNull(
+            pag?.let { "pág. $it" },
+            par?.let { "parág. $it" },
+        ).joinToString(" • ")
+    }
 
     fun detect(text: String): List<DetectedRef> {
         val out = mutableListOf<DetectedRef>()
@@ -158,6 +218,44 @@ object RefDetector {
                 )
             }
         }
+        // 3.2.3a-fix4: Sentinela nomeada por data (S-31-T antigo).
+        SENTINELA_DATE_RE.findAll(text).forEach { m ->
+            val a = m.groupValues[1].toInt()
+            val b = m.groupValues[2].toInt()
+            val yy = m.groupValues[3]
+            if (yy.isEmpty()) {
+                // MM/AA — estudo mensal moderna ("Sentinela 01/20" → w|2020|1)
+                if (a in 1..12) {
+                    val year = expandYear(b, 2)
+                    val tail = sentinelaTail(text, m.range.last)
+                    add(
+                        DetectedRef(
+                            m.value.trim(), Kind.MAGAZINE, "w",
+                            "w|$year|$a",
+                            "A Sentinela (estudo), ${PT_MONTHS[a - 1]} de $year" +
+                                (if (tail.isNotEmpty()) " • $tail" else "")
+                        )
+                    )
+                }
+            } else {
+                // DD/MM/AA(AA) — quinzenal antiga ("Sentinela 01/04/09")
+                val day = a
+                val month = b
+                val year = expandYear(yy.toInt(), yy.length)
+                if (month in 1..12 && day in 1..31) {
+                    val edition = if (day == 1) "pública" else "estudo"
+                    val tail = sentinelaTail(text, m.range.last)
+                    add(
+                        DetectedRef(
+                            m.value.trim(), Kind.MAGAZINE, "w",
+                            "w|$year|$month|$day",
+                            "A Sentinela, ${day}º de ${PT_MONTHS[month - 1]} de $year ($edition)" +
+                                (if (tail.isNotEmpty()) " • $tail" else "")
+                        )
+                    )
+                }
+            }
+        }
         W_DAY_RE.findAll(text).forEach { m ->
             // formato antigo dia/mês: w99 1/5 (pública, dia 1º), w99 15/5 (estudo, dia 15)
             val year = fullYear(m.groupValues[1].toInt())
@@ -195,6 +293,28 @@ object RefDetector {
                 )
             }
         }
+        G_OLD_RE.findAll(text).forEach { m ->
+            // Despertai quinzenal antiga: g93 8/1 = 8 de janeiro (dia/mês)
+            val year = fullYear(m.groupValues[1].toInt())
+            val day = m.groupValues[2].toInt()
+            val month = m.groupValues[3].toInt()
+            if (month in 1..12 && day in 1..31) {
+                val tail = text.substring(m.range.last + 1)
+                    .let { Regex("""^\s*(\d+)?\s*(§\s*\d+)?""").find(it) }
+                val extra = listOfNotNull(
+                    tail?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }?.let { "pág. $it" },
+                    tail?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
+                ).joinToString(" ").trim()
+                add(
+                    DetectedRef(
+                        m.value.trim(), Kind.MAGAZINE, "g",
+                        "g|$year|$month|$day",
+                        "Despertai! $day/$month/$year" +
+                            (if (extra.isNotEmpty()) " • $extra" else "")
+                    )
+                )
+            }
+        }
         W_CODE_RE.findAll(text).forEach { m ->
             val year = fullYear(m.groupValues[1].toInt())
             val num = m.groupValues[2].toInt()
@@ -221,14 +341,65 @@ object RefDetector {
         }
         val norm = normalizeText(text)
         val bookKeys = mutableSetOf<String>()
+        // 3.2.3a-fix4b: símbolos canônicos.
+        // Esboços podem usar formas não oficiais ("ifi") que são resolvidas via
+        // PubCatalog.resolveSymbol para o canônico ("ia"). Isso garante:
+        // - dedupe correto (book|ifi ≠ book|ia sem canonicalização)
+        // - link do finder correto (pub=ia funciona; pub=ifi daria 404)
+        // O `raw` preserva o símbolo como veio no esboço.
+        // it-1/2/3 são símbolos VÁLIDOS (edição em 3 volumes, 1990-1992).
+        STUDY_BOOK_RE.findAll(text).forEach { m ->
+            val sym = m.groupValues[1].lowercase()
+            val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            val page = m.groupValues[2]
+            val end = m.groupValues[3]
+            val pageLabel = if (end.isEmpty()) page else "$page-$end"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $pageLabel)"
+                )
+            )
+        }
+        // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
+        MRT_ARTICLE_RE.findAll(text).forEach { m ->
+            val canonical = PubCatalog.resolveSymbol("mrt") ?: "mrt"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} (artigo ${m.groupValues[1]})"
+                )
+            )
+        }
+        // 3.2.3a-fix4: ifi por lição/ponto ("ifi lição 24 ponto 3") —
+        // alias resolvido para "ia" (fix4b).
+        IFI_LESSON_RE.findAll(text).forEach { m ->
+            val li = m.groupValues[1]
+            val ponto = m.groupValues[2]
+            val canonical = PubCatalog.resolveSymbol("ifi") ?: "ifi"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} (lição $li" +
+                        (if (ponto.isNotEmpty()) " ponto $ponto" else "") + ")"
+                )
+            )
+        }
         SYMBOL_REF_RE.findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             if (PubCatalog.isSymbol(sym)) {
-                bookKeys += sym
+                val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+                bookKeys += canonical
                 add(
                     DetectedRef(
-                        m.value.trim(), Kind.BOOK, sym,
-                        "book|$sym", PubCatalog.titleOf(sym) ?: sym
+                        m.value.trim(), Kind.BOOK, canonical,
+                        "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical
                     )
                 )
             }
@@ -237,12 +408,13 @@ object RefDetector {
         Regex("""\b([a-z]{2,4})\s+(\d{1,3})\s*§\s*(\d{1,3})\b""").findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             if (PubCatalog.isSymbol(sym)) {
-                bookKeys += sym
+                val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+                bookKeys += canonical
                 add(
                     DetectedRef(
-                        m.value.trim(), Kind.BOOK, sym,
-                        "book|$sym",
-                        "${PubCatalog.titleOf(sym) ?: sym} (estudo ${m.groupValues[2]})"
+                        m.value.trim(), Kind.BOOK, canonical,
+                        "book|$canonical",
+                        "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})"
                     )
                 )
             }
@@ -257,12 +429,13 @@ object RefDetector {
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
             if (sym.length < 3 && !raw.startsWith("(")) return@forEach
             if (!PubCatalog.isSymbol(sym)) return@forEach
-            bookKeys += sym
+            val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            bookKeys += canonical
             add(
                 DetectedRef(
-                    raw, Kind.BOOK, sym,
-                    "book|$sym",
-                    "${PubCatalog.titleOf(sym) ?: sym} (estudo ${m.groupValues[2]})"
+                    raw, Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})"
                 )
             )
         }
@@ -287,11 +460,12 @@ object RefDetector {
                     ).containsMatchIn(after)
             }
             if (!cited) continue
-            bookKeys += sym
+            val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            bookKeys += canonical
             add(
                 DetectedRef(
-                    PubCatalog.titleOf(sym) ?: sym, Kind.BOOK, sym,
-                    "book|$sym", PubCatalog.titleOf(sym) ?: sym
+                    PubCatalog.titleOf(canonical) ?: canonical, Kind.BOOK, canonical,
+                    "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical
                 )
             )
         }
@@ -472,72 +646,84 @@ object RefDetector {
         return (a + b).filter { seen.add(it.editionKey) }
     }
 
-    /** Livro bíblico normalizado -> rótulo (para detecção de versículos). */
+    /**
+     * Livro bíblico normalizado -> rótulo (para detecção de versículos).
+     *
+     * Chaves incluem formas TNM 2015 (Pr, He, Tg, Ap, Na, Za, ...) além das
+     * formas longas (Provérbios, Hebreus, Tiago...). Adicionadas na 3.2.3a-fix.
+     * DÉBITO TÉCNICO (3.2.3a-fix): "Jó" e "João" colidem na chave normalizada
+     * "jo" (Jó resolve como João). Corrigir exige matcher sensível ao texto cru.
+     */
     private val BIBLE_BOOKS: Map<String, String> = mapOf(
         "gen" to "Gênesis", "genesis" to "Gênesis",
+        // 3.5a: abreviatura antiga de Gênesis usada em esboços ("Gê 3:6").
+        "ge" to "Gênesis",
         "ex" to "Êxodo", "exodo" to "Êxodo",
         "lev" to "Levítico", "levitico" to "Levítico",
         "num" to "Números", "numeros" to "Números",
         "deut" to "Deuteronômio", "deuteronomio" to "Deuteronômio",
         "jos" to "Josué", "josue" to "Josué",
         "jz" to "Juízes", "juizes" to "Juízes",
-        "rt" to "Rute", "rute" to "Rute",
-        "1sm" to "1 Samuel", "1samuel" to "1 Samuel",
-        "2sm" to "2 Samuel", "2samuel" to "2 Samuel",
+        "rt" to "Rute", "ru" to "Rute", "rute" to "Rute",
+        "1sm" to "1 Samuel", "1sa" to "1 Samuel", "1samuel" to "1 Samuel",
+        "2sm" to "2 Samuel", "2sa" to "2 Samuel", "2samuel" to "2 Samuel",
         "1rs" to "1 Reis", "1reis" to "1 Reis",
         "2rs" to "2 Reis", "2reis" to "2 Reis",
         "1cr" to "1 Crônicas", "1cronicas" to "1 Crônicas",
         "2cr" to "2 Crônicas", "2cronicas" to "2 Crônicas",
-        "ed" to "Esdras", "esdras" to "Esdras",
+        "ed" to "Esdras", "esd" to "Esdras", "esdras" to "Esdras",
         "ne" to "Neemias", "neemias" to "Neemias",
         "est" to "Ester", "ester" to "Ester",
         "jo" to "João", "joao" to "João",
         "sal" to "Salmos", "salmos" to "Salmos", "salmo" to "Salmos",
-        "pro" to "Provérbios", "proverbios" to "Provérbios",
-        "ecl" to "Eclesiastes", "eclesiastes" to "Eclesiastes",
-        "cant" to "Cânticos", "cantares" to "Cânticos",
-        "is" to "Isaías", "isaias" to "Isaías",
-        "jr" to "Jeremias", "jeremias" to "Jeremias",
-        "lam" to "Lamentações", "lamentacoes" to "Lamentações",
+        "pro" to "Provérbios", "pr" to "Provérbios", "proverbios" to "Provérbios",
+        "ecl" to "Eclesiastes", "ec" to "Eclesiastes", "eclesiastes" to "Eclesiastes",
+        "cant" to "Cânticos", "can" to "Cânticos", "cantares" to "Cânticos",
+        "is" to "Isaías", "isa" to "Isaías", "isaias" to "Isaías",
+        "jr" to "Jeremias", "je" to "Jeremias", "jeremias" to "Jeremias",
+        "lam" to "Lamentações", "la" to "Lamentações", "lamentacoes" to "Lamentações",
         "ez" to "Ezequiel", "ezequiel" to "Ezequiel",
-        "dn" to "Daniel", "daniel" to "Daniel",
+        "dn" to "Daniel", "da" to "Daniel", "daniel" to "Daniel",
         "os" to "Oseias", "oseias" to "Oseias",
         "jl" to "Joel", "joel" to "Joel",
         "am" to "Amós", "amos" to "Amós",
         "ob" to "Obadias", "obadias" to "Obadias",
-        "jn" to "Jonas", "jonas" to "Jonas",
-        "mq" to "Miqueias", "miqueias" to "Miqueias",
-        "hc" to "Habacuque", "habacuque" to "Habacuque",
+        "jn" to "Jonas", "jon" to "Jonas", "jonas" to "Jonas",
+        "mq" to "Miqueias", "miq" to "Miqueias", "miqueias" to "Miqueias",
+        "na" to "Naum", "nau" to "Naum", "naum" to "Naum",
+        "hc" to "Habacuque", "hab" to "Habacuque", "habacuque" to "Habacuque",
         "sof" to "Sofonias", "sofonias" to "Sofonias",
-        "ag" to "Ageu", "ageu" to "Ageu",
-        "zc" to "Zacarias", "zacarias" to "Zacarias",
-        "ml" to "Malaquias", "malaquias" to "Malaquias",
-        "mt" to "Mateus", "mateus" to "Mateus",
-        "mc" to "Marcos", "marcos" to "Marcos",
-        "lc" to "Lucas", "lucas" to "Lucas",
+        "ag" to "Ageu", "age" to "Ageu", "ageu" to "Ageu",
+        "zc" to "Zacarias", "za" to "Zacarias", "zacarias" to "Zacarias",
+        "ml" to "Malaquias", "mal" to "Malaquias", "malaquias" to "Malaquias",
+        "mt" to "Mateus", "mat" to "Mateus", "mateus" to "Mateus",
+        "mc" to "Marcos", "mar" to "Marcos", "marcos" to "Marcos",
+        "lc" to "Lucas", "luc" to "Lucas", "lucas" to "Lucas",
         "at" to "Atos", "atos" to "Atos",
-        "rm" to "Romanos", "romanos" to "Romanos",
+        "rm" to "Romanos", "rom" to "Romanos", "romanos" to "Romanos",
         "1co" to "1 Coríntios", "1corintios" to "1 Coríntios",
         "2co" to "2 Coríntios", "2corintios" to "2 Coríntios",
-        "gl" to "Gálatas", "galatas" to "Gálatas",
+        "gl" to "Gálatas", "gal" to "Gálatas", "galatas" to "Gálatas",
         "ef" to "Efésios", "efesios" to "Efésios",
-        "fp" to "Filipenses", "filipenses" to "Filipenses",
-        "cl" to "Colossenses", "colossenses" to "Colossenses",
-        "1ts" to "1 Tessalonicenses", "1tessalonicenses" to "1 Tessalonicenses",
-        "2ts" to "2 Tessalonicenses", "2tessalonicenses" to "2 Tessalonicenses",
-        "1tm" to "1 Timóteo", "1timoteo" to "1 Timóteo",
-        "2tm" to "2 Timóteo", "2timoteo" to "2 Timóteo",
-        "tt" to "Tito", "tito" to "Tito",
-        "fm" to "Filemom", "filemom" to "Filemom",
-        "hb" to "Hebreus", "hebreus" to "Hebreus",
+        "fp" to "Filipenses", "fil" to "Filipenses", "filipenses" to "Filipenses",
+        "cl" to "Colossenses", "col" to "Colossenses", "colossenses" to "Colossenses",
+        "1ts" to "1 Tessalonicenses", "1te" to "1 Tessalonicenses", "1tessalonicenses" to "1 Tessalonicenses",
+        "2ts" to "2 Tessalonicenses", "2te" to "2 Tessalonicenses", "2tessalonicenses" to "2 Tessalonicenses",
+        "1tm" to "1 Timóteo", "1ti" to "1 Timóteo", "1timoteo" to "1 Timóteo",
+        "2tm" to "2 Timóteo", "2ti" to "2 Timóteo", "2timoteo" to "2 Timóteo",
+        "tt" to "Tito", "tit" to "Tito", "tito" to "Tito",
+        "fm" to "Filemom", "flm" to "Filemom", "filemom" to "Filemom",
+        "hb" to "Hebreus", "he" to "Hebreus", "hebreus" to "Hebreus",
         "tg" to "Tiago", "tiago" to "Tiago",
         "1pe" to "1 Pedro", "1pedro" to "1 Pedro",
         "2pe" to "2 Pedro", "2pedro" to "2 Pedro",
         "1jo" to "1 João", "1joao" to "1 João",
         "2jo" to "2 João", "2joao" to "2 João",
         "3jo" to "3 João", "3joao" to "3 João",
-        "jd" to "Judas", "judas" to "Judas",
-        "ap" to "Apocalipse", "apocalipse" to "Apocalipse"
+        "jd" to "Judas", "ju" to "Judas", "judas" to "Judas",
+        "ap" to "Apocalipse", "apocalipse" to "Apocalipse",
+        // 3.2.3a-fix4c: esboços antigos usam "Re" (abreviação de Apocalipse)
+        "re" to "Apocalipse"
     )
 
     /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
@@ -546,7 +732,8 @@ object RefDetector {
     fun detectBible(text: String): List<BibleRef> {
         val out = mutableListOf<BibleRef>()
         val seen = mutableSetOf<String>()
-        val re = Regex("""\b((?:[1-3]\s+)?[a-zà-ÿ]+)\s+(\d{1,3})\s*:\s*(\d{1,3})\b""")
+        // 3.2.3a-fix4c: aceita sufixo de letra no versículo ("15:3b", "10:16a")
+        val re = Regex("""\b((?:[1-3]\s*)?[a-zà-ÿ]+)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:[a-z])?\b""")
         for (m in re.findAll(text.lowercase())) {
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
             val label = BIBLE_BOOKS[key] ?: continue
@@ -560,18 +747,24 @@ object RefDetector {
     /** Capítulo/lição/estudo citado na menção (ex: "lff cap. 5" -> ("cap", 5)). Puro/testável. */
     data class ChapterRef(val kind: String, val number: Int)
 
+    // 3.2.3a-fix4: inclui abreviações "pág."/"parág." (normalizadas p/ pag/parag)
+    private val CHAPTER_RE = Regex(
+        """\b(capitulo|cap|licao|estudo|paragrafo|parag|pagina|pag)\s*\.?\s*(\d{1,3})\b""",
+        RegexOption.IGNORE_CASE
+    )
+
     fun chapterOf(raw: String): ChapterRef? {
         // "§" não sobrevive à normalização: trata no texto cru
         Regex("""§\s*(\d{1,3})""").find(raw)?.let {
             return ChapterRef("paragrafo", it.groupValues[1].toInt())
         }
         val t = normalizeText(raw)
-        val m = Regex("""\b(capitulo|cap|licao|estudo|paragrafo)\s*\.?\s*(\d{1,3})\b""").find(t)
-            ?: return null
+        val m = CHAPTER_RE.find(t) ?: return null
         val kind = when {
             m.groupValues[1].startsWith("cap") -> "cap"
             m.groupValues[1].startsWith("lic") -> "licao"
             m.groupValues[1].startsWith("est") -> "estudo"
+            m.groupValues[1].startsWith("pag") -> "pagina"
             else -> "paragrafo"
         }
         return ChapterRef(kind, m.groupValues[2].toInt())

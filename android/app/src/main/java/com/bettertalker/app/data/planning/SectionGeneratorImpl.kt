@@ -1,0 +1,70 @@
+package com.bettertalker.app.data.planning
+
+import com.bettertalker.app.data.llm.LlmProvider
+import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.ResponseFormat
+import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.domain.planning.DossierFidelityCheck
+import com.bettertalker.app.domain.planning.SectionDraft
+import com.bettertalker.app.domain.planning.SectionGenerator
+import kotlinx.coroutines.CancellationException
+
+/**
+ * Implementação real: Dossier → prompt → LLM (JSON_SCHEMA) → parser →
+ * fidelity check → SectionDraft.
+ *
+ * Falhas tratáveis (rate limit, JSON inválido, texto vazio, exceção
+ * genérica) → null.
+ * CancellationException propaga (structured concurrency — padrão 1.3b).
+ *
+ * Modelo: OutlineGeneratorImpl (data/planning).
+ */
+class SectionGeneratorImpl(
+    private val llmProvider: LlmProvider,
+    private val promptBuilder: DossierPromptBuilder = DefaultDossierPromptBuilder(),
+    private val responseParser: SectionDraftParser = DefaultSectionDraftParser(),
+) : SectionGenerator {
+
+    override suspend fun generate(dossier: Dossier): SectionDraft? {
+        val prompt = promptBuilder.build(dossier)
+        val llmRequest = LlmRequest(
+            text = prompt,
+            responseFormat = ResponseFormat.JSON_SCHEMA,
+            jsonSchema = SECTION_DRAFT_SCHEMA,
+            maxAttempts = 1, // sem retry automático — evita queimar cota em 429
+            timeoutMs = 30_000L,
+            maxOutputTokens = 1000, // draft de ~250 palavras + JSON cabe
+        )
+        val response = try {
+            llmProvider.generate(llmRequest)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return null
+        }
+        if (response.text.isBlank()) return null
+        val parsed = responseParser.parse(response.text) ?: return null
+        val fidelity = DossierFidelityCheck.check(
+            textHtml = parsed.textHtml,
+            usedSources = parsed.usedSources,
+            dossier = dossier,
+        )
+        return SectionDraft(
+            textHtml = parsed.textHtml,
+            usedSources = parsed.usedSources,
+            validation = fidelity,
+        )
+    }
+
+    private companion object {
+        /**
+         * Schema do draft. Envelope estrito (Groq) espelhando OUTLINE_SCHEMA.
+         */
+        const val SECTION_DRAFT_SCHEMA: String =
+            "{\"name\":\"section_draft\",\"strict\":true,\"schema\":" +
+                "{\"type\":\"object\",\"properties\":" +
+                "{\"text\":{\"type\":\"string\"}," +
+                "\"usedSources\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}," +
+                "\"required\":[\"text\",\"usedSources\"]}}"
+    }
+}

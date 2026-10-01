@@ -113,10 +113,31 @@ object DbProvider {
         }
     }
 
+    /** Fase 3.1: tabela speech_sections (aditiva). */
+    private val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (sql in MigrationSql.MIGRATION_12_13) db.execSQL(sql)
+        }
+    }
+
+    /** Fase 3.2.2: tabela sub_points (aditiva). */
+    private val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (sql in MigrationSql.MIGRATION_13_14) db.execSQL(sql)
+        }
+    }
+
+    /** Fase 3.2.4a: coluna discourseType em notes (aditiva). */
+    private val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            for (sql in MigrationSql.MIGRATION_14_15) db.execSQL(sql)
+        }
+    }
+
     fun get(ctx: Context): AppDatabase =
         inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "better-talker.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

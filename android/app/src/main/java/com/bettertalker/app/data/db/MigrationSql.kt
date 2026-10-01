@@ -68,4 +68,55 @@ object MigrationSql {
         "UPDATE attachments SET sourceType = 'training' WHERE baseSlot IN ('be', 'th')",
         "UPDATE attachments SET sourceType = 'bible' WHERE baseSlot = 'nwt'"
     )
+
+    /** Fase 3.1 (v12 -> v13): tabela de seções de discurso. Aditiva, sem perda. */
+    val MIGRATION_12_13: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `speech_sections` (
+            `id` TEXT NOT NULL PRIMARY KEY,
+            `noteId` TEXT NOT NULL,
+            `order` INTEGER NOT NULL,
+            `role` TEXT NOT NULL,
+            `title` TEXT NOT NULL,
+            `minutes` INTEGER NOT NULL,
+            `contentHtml` TEXT NOT NULL,
+            `bibleRefsJson` TEXT NOT NULL,
+            `publicationRefsJson` TEXT NOT NULL,
+            `methodPrinciple` TEXT,
+            `createdAt` INTEGER NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            FOREIGN KEY(`noteId`) REFERENCES `notes`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_speech_sections_noteId` ON `speech_sections`(`noteId`)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_speech_sections_noteId_order` ON `speech_sections`(`noteId`, `order`)",
+    )
+
+    /** Fase 3.2.2 (v13 -> v14): tabela de sub-pontos de seções BODY. Aditiva, sem perda. */
+    val MIGRATION_13_14: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `sub_points` (
+            `id` TEXT NOT NULL PRIMARY KEY,
+            `sectionId` TEXT NOT NULL,
+            `order` INTEGER NOT NULL,
+            `outlineText` TEXT NOT NULL,
+            `bibleRefsJson` TEXT NOT NULL,
+            `publicationRefsJson` TEXT NOT NULL,
+            `instruction` TEXT,
+            `developedHtml` TEXT NOT NULL,
+            `createdAt` INTEGER NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            FOREIGN KEY(`sectionId`) REFERENCES `speech_sections`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_sub_points_sectionId` ON `sub_points`(`sectionId`)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_sub_points_sectionId_order` ON `sub_points`(`sectionId`, `order`)",
+    )
+
+    /** Fase 3.2.4a (v14 -> v15): tipo de discurso na nota. Aditiva, sem perda. */
+    val MIGRATION_14_15: List<String> = listOf(
+        "ALTER TABLE `notes` ADD COLUMN `discourseType` TEXT NOT NULL DEFAULT 'S34_DISCOURSE'",
+    )
 }

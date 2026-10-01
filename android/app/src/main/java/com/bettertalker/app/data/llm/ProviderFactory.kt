@@ -58,4 +58,26 @@ object ProviderFactory {
 
     /** Rota nova ativa? Só com chave configurada. Puro/testável. */
     fun useRemoteRoute(apiKey: String?): Boolean = !apiKey.isNullOrBlank()
+
+    /**
+     * Cria um FallbackLlmProvider lendo as duas chaves (Groq e Gemini).
+     *
+     * Ordem: Qwen (Groq) → Gemini.
+     * - Só Groq configurada: fallback com 1 provider (QwenProvider)
+     * - Só Gemini configurada: fallback com 1 provider (GeminiProvider)
+     * - Nenhuma: GeminiProvider offline (não quebra contrato)
+     */
+    suspend fun createFallback(settings: SettingsStore): LlmProvider {
+        val groqKey = settings.groqApiKey.first().orEmpty()
+        val geminiKey = settings.llmApiKey.first().orEmpty()
+        val providers = buildList {
+            if (groqKey.isNotBlank()) add(QwenProvider(apiKey = groqKey))
+            if (geminiKey.isNotBlank()) add(GeminiProvider(apiKey = geminiKey))
+        }
+        return if (providers.isEmpty()) {
+            GeminiProvider(apiKey = "")
+        } else {
+            FallbackLlmProvider(providers)
+        }
+    }
 }

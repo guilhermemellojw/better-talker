@@ -59,12 +59,18 @@ data class LlmRequest(
      * proposta (parse + validação locais). Default 'text'.
      */
     val responseFormat: ResponseFormat = ResponseFormat.TEXT,
+    /**
+     * Schema JSON (string) usado quando responseFormat == JSON_SCHEMA.
+     * Aditivo e retrocompatível: null = sem schema. Hoje só o QwenProvider
+     * o anexa ao body (response_format json_schema); o GeminiProvider o ignora.
+     */
+    val jsonSchema: String? = null,
     val editMode: com.bettertalker.app.data.edit.EditProposalMode? = null,
     /** Foco vindo do chat (mensagem do usuário) para a proposta. */
     val brief: String = ""
 )
 
-enum class ResponseFormat { TEXT, EDIT_PROPOSAL }
+enum class ResponseFormat { TEXT, EDIT_PROPOSAL, JSON_SCHEMA }
 
 data class LlmResponseMeta(
     val providerId: String,
