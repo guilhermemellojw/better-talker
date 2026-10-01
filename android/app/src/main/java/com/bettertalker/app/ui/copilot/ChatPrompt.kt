@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -391,6 +392,58 @@ fun ToolsSheet(
                 }
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * Onboarding F2a: banner de setup do Copilot (fora do scroll da conversa).
+ * Aparece quando a prontidão está incompleta; some quando completa ou
+ * dispensado (o dismiss é volátil — volta se o estado incompletar de novo).
+ */
+@Composable
+fun SetupBanner(
+    readiness: com.bettertalker.app.ui.editor.NoteReadiness,
+    onImportOutline: () -> Unit,
+    onPaste: () -> Unit,
+    onDownloadBases: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Prepare o Copilot",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, "Dispensar")
+                }
+            }
+            if (!readiness.hasOutline && !readiness.hasSections) {
+                Text(
+                    "Falta vincular o esboço do discurso.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onImportOutline) { Text("Importar esboço") }
+                    TextButton(onClick = onPaste) { Text("Colar texto") }
+                }
+            }
+            if (readiness.hasMissingBases) {
+                Text(
+                    "Faltam publicações de apoio para baixar.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                TextButton(onClick = onDownloadBases) { Text("Baixar publicações") }
+            }
         }
     }
 }

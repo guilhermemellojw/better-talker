@@ -10,7 +10,6 @@ import com.bettertalker.app.data.ai.RagPassage
 import com.bettertalker.app.data.ai.buildRagPrompt
 import com.bettertalker.app.data.ai.checkCitations
 import com.bettertalker.app.data.ai.hasRepetition
-import com.bettertalker.app.data.connectivity.ConnectivityObserver
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
@@ -26,6 +25,7 @@ import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
+import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.edit.CopilotEditProposal
 import com.bettertalker.app.data.edit.EditBlock
 import com.bettertalker.app.data.edit.EditOperation
@@ -45,6 +45,7 @@ import com.bettertalker.app.data.verify.verifyText
 import com.bettertalker.app.data.repo.CopilotRepository
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.OutlineRepository
+import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BasePub
@@ -52,13 +53,19 @@ import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
+import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
+import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.OutlineConversion
+import com.bettertalker.app.domain.speech.OutlineConverter
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -77,6 +84,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val app = ctx.applicationContext
     private val repo = CopilotRepository(db)
     private val outlines = OutlineRepository(app, db)
+    // 3.2.3c: persistência do esboço convertido (seções + sub-pontos).
+    private val outlineImportService = OutlineImportService(
+        transactionRunner = RoomTransactionRunner(db),
+        sectionDao = db.speechSectionDao(),
+        subPointDao = db.subPointDao(),
+    )
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val llm = com.bettertalker.app.data.ai.LlmService(app)
@@ -115,8 +128,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _draftTotal = MutableStateFlow<Int?>(null)
     private val _draftPreamble = MutableStateFlow("")
     private val _draft = MutableStateFlow<List<DraftSection>>(emptyList())
-    private val _draftError = MutableStateFlow("")
-    private val _draftBusy = MutableStateFlow(false)
     private val _dropped = MutableStateFlow(0)
     private val _merges = MutableStateFlow<List<PastedOutlineAnalyzer.MergeSuggestion>>(emptyList())
     /** pares dispensados (chave estável) para não ressugerir */
@@ -125,9 +136,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _previewRefsJson = MutableStateFlow("[]")
     private val _outlineRefs = MutableStateFlow<List<RefDetector.RefStatus>?>(null)
     private val _dlError = MutableStateFlow("")
-    /** Esqueleto markdown a inserir no editor (via fila, preserva estilos). */
-    private val _skeletonEvent = MutableStateFlow<String?>(null)
-    val skeletonEvent = _skeletonEvent.asStateFlow()
     val outlineRefs = _outlineRefs.asStateFlow()
     val dlError = _dlError.asStateFlow()
     val draftName = _draftName.asStateFlow()
@@ -135,8 +143,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     val draftTotal = _draftTotal.asStateFlow()
     val draftPreamble = _draftPreamble.asStateFlow()
     val draft = _draft.asStateFlow()
-    val draftError = _draftError.asStateFlow()
-    val draftBusy = _draftBusy.asStateFlow()
     val dropped = _dropped.asStateFlow()
     val merges = _merges.asStateFlow()
 
@@ -320,7 +326,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val slots: List<String> = emptyList(),
         val secItems: List<ChatCodec.SecItem> = emptyList(),
         val draftTitle: String = "",
-        val draftItems: List<ChatCodec.DraftItem> = emptyList()
+        val draftItems: List<ChatCodec.DraftItem> = emptyList(),
+        /** Origem da resposta (COPILOT default; LOCAL = retrieval/IA local). */
+        val origin: MessageOrigin = MessageOrigin.COPILOT,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -330,14 +338,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _noteBody = MutableStateFlow("")
 
     // ---------- Fase 16: paridade com o chat da F15 ----------
-
-    /** Conectividade observada, sem polling (§22 F15). */
-    private val connectivity = ConnectivityObserver(app)
-    val isOffline = connectivity.online.let { flow ->
-        MutableStateFlow(false).also { mirror ->
-            viewModelScope.launch { flow.collect { mirror.value = !it } }
-        }
-    }.asStateFlow()
 
     /**
      * Estados de geração do turno. `Error` e `Cancelled` liberam o composer —
@@ -376,6 +376,30 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _selection.value = text.trim().take(MAX_SELECTION_CHARS)
     }
 
+    /**
+     * Provider do dossiê da seção ativa. Injetado pelo MainActivity via
+     * `setDossierProvider(editorVm::buildDossier)`.
+     *
+     * Null quando o chat ainda não foi ligado a um editor.
+     */
+    private var dossierProvider: (suspend () -> Dossier?)? = null
+
+    /**
+     * Fase 3.5b.3: registra o provider do dossiê.
+     */
+    fun setDossierProvider(provider: suspend () -> Dossier?) {
+        dossierProvider = provider
+    }
+
+    /**
+     * Último dossiê construído (para inspeção/debug; o consumo real via
+     * prompt vem em 3.5d).
+     */
+    private var lastDossier: Dossier? = null
+
+    /** Último dossiê adquirido no `send()` (null se indisponível). */
+    fun lastBuiltDossier(): Dossier? = lastDossier
+
     /** Rótulo de contexto mostrado acima da conversa (§13 F15, §16 F18). */
     val contextLabelText: kotlinx.coroutines.flow.StateFlow<String> =
         MutableStateFlow(contextLabel(null, null)).also { s ->
@@ -395,19 +419,49 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Documento S-34 do turno corrente (para roteamento e geração). */
     private var _lastS34Document: com.bettertalker.app.data.s34.S34Document? = null
 
-    /** Prompt do último turno. Fica disponível para inspeção e teste. */
-    private val _lastPrompt = MutableStateFlow("")
-    val lastPrompt = _lastPrompt.asStateFlow()
-
     /** Sugestões de continuação da F15, para reuso na UI. */
     val followUps: List<String> = FOLLOW_UP_SUGGESTIONS
 
+    // ---------- Onboarding contextual F2a: prontidão + contexto empurrado ----------
+
+    private val _readiness =
+        MutableStateFlow<com.bettertalker.app.ui.editor.NoteReadiness?>(null)
+    val readiness: StateFlow<com.bettertalker.app.ui.editor.NoteReadiness?> =
+        _readiness.asStateFlow()
+
+    private val _setupBannerDismissed = MutableStateFlow(false)
+    val setupBannerDismissed: StateFlow<Boolean> = _setupBannerDismissed.asStateFlow()
+
+    /**
+     * Recebe o contexto empurrado pelo FAB do editor. A prontidão que
+     * vem junto pode estar levemente defasada — [refreshReadiness]
+     * confirma na entrada do chat.
+     */
+    fun setPushedContext(ctx: com.bettertalker.app.ui.editor.ChatContext?) {
+        _readiness.value = ctx?.readiness
+        // Nova entrada no chat → banner volta (se ainda incompleto).
+        _setupBannerDismissed.value = false
+    }
+
+    /**
+     * Relê a prontidão (após importar esboço, baixar bases, etc.).
+     * Se o estado voltou a incompleto, o banner reaparece.
+     */
+    suspend fun refreshReadiness() {
+        val nid = noteId ?: return
+        val fresh = repo.readNoteReadiness(
+            noteId = nid,
+            hasSections = db.speechSectionDao().forNote(nid).isNotEmpty(),
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+        )
+        if (fresh != _readiness.value) _setupBannerDismissed.value = false
+        _readiness.value = fresh
+    }
+
+    fun dismissSetupBanner() { _setupBannerDismissed.value = true }
+
     /** Atalhos da F15 — todos entram pelo mesmo `send()`. */
     val quickActions = QUICK_ACTIONS
-
-    fun setActiveBlock(title: String?) {
-        _activeBlockTitle.value = title?.trim()?.takeIf { it.isNotEmpty() }
-    }
 
     /** Dispensa o erro e devolve o composer. */
     fun dismissError() {
@@ -429,29 +483,36 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind,
                             section = m["section"].orEmpty(),
-                            cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()))
+                            cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()),
+                            origin = messageOriginOf(m))
                     }
                     "refs" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
-                            detectedJson = m["detected"].orEmpty())
+                            detectedJson = m["detected"].orEmpty(),
+                            origin = messageOriginOf(m))
                     }
                     "bases" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["text"].orEmpty(),
-                            slots = m["slots"].orEmpty().split(",").filter { it.isNotBlank() })
+                            slots = m["slots"].orEmpty().split(",").filter { it.isNotBlank() },
+                            origin = messageOriginOf(m))
                     }
                     "sections" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
-                            secItems = ChatCodec.sectionsFromJson(m["items"].orEmpty()))
+                            secItems = ChatCodec.sectionsFromJson(m["items"].orEmpty()),
+                            origin = messageOriginOf(m))
                     }
                     "draft" -> {
                         val (title, items) = ChatCodec.draftFromJson(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, draftTitle = title, draftItems = items)
                     }
-                    else -> ChatItem(e.id, e.fromMe, "text",
-                        text = ChatCodec.unescMap(e.payload)["text"].orEmpty())
+                    else -> {
+                        val m = ChatCodec.unescMap(e.payload)
+                        ChatItem(e.id, e.fromMe, "text",
+                            text = m["text"].orEmpty(), origin = messageOriginOf(m))
+                    }
                 }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -459,18 +520,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         MutableStateFlow(emptyList())
     }
 
-    private suspend fun post(fromMe: Boolean, kind: String, payload: String) {
+    private suspend fun post(
+        fromMe: Boolean,
+        kind: String,
+        payload: String,
+        origin: MessageOrigin = MessageOrigin.COPILOT,
+    ) {
         val nid = noteId ?: return
+        // Origem embutida no JSON do payload (sem migration; histórico
+        // antigo sem a chave decodifica como COPILOT).
+        val withOrigin = ChatCodec.unescMap(payload)
+            .toMutableMap().also { it["origin"] = origin.name }
         db.chatDao().put(
-            ChatEntity(newId("msg"), nid, fromMe, kind, payload, System.currentTimeMillis())
+            ChatEntity(newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin), System.currentTimeMillis())
         )
     }
 
-    private fun postText(t: String) = viewModelScope.launch {
-        post(false, "text", ChatCodec.escMap(mapOf("text" to t)))
+    private fun postText(t: String, origin: MessageOrigin = MessageOrigin.COPILOT) = viewModelScope.launch {
+        post(false, "text", ChatCodec.escMap(mapOf("text" to t)), origin)
     }
 
-    private suspend fun greetText(): String {
+    private suspend fun greetText(
+        readiness: com.bettertalker.app.ui.editor.NoteReadiness? = null,
+    ): String {
         val nid = noteId
         val title = nid?.let { db.noteDao().get(it)?.title }.orEmpty().ifBlank { "sua nota" }
         val outline = nid?.let { outlines.get(it) }
@@ -488,13 +560,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         if (missing.isNotEmpty()) {
             sb.append("\n\nFaltam as bases: ${missing.joinToString("; ")}.")
         }
+        // Onboarding F2a: menciona o que falta quando o setup está incompleto.
+        if (readiness != null && !readiness.isSetupComplete) {
+            sb.append("\n\nAinda não temos o material de apoio completo — o banner acima mostra o que falta.")
+        }
         return sb.toString()
     }
 
     private suspend fun ensureGreeting() {
         val nid = noteId ?: return
         if (db.chatDao().all(nid).isEmpty()) {
-            post(false, "text", ChatCodec.escMap(mapOf("text" to greetText())))
+            val readiness = runCatching {
+                repo.readNoteReadiness(
+                    noteId = nid,
+                    hasSections = db.speechSectionDao().forNote(nid).isNotEmpty(),
+                    outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+                )
+            }.getOrNull()
+            post(false, "text", ChatCodec.escMap(mapOf("text" to greetText(readiness))))
         }
     }
 
@@ -581,6 +664,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val isFirst = historyBefore.none { it.fromMe }
             // §16: seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
+            // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
+            // Adquirido e armazenado; a injeção no prompt vem em 3.5d.
+            val dossier = try {
+                dossierProvider?.invoke()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            lastDossier = dossier
             val blockText = currentFocusText()
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
@@ -588,7 +681,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
             val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
-            _lastPrompt.value = turnContext.prompt
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
             // F20-D: roteamento natural ANTES do chat — oratória, consulta
@@ -667,7 +759,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         ChatIntent.Intent.OutlineRefs -> answerOutlineRefs()
                         ChatIntent.Intent.Sections -> answerSections()
                         ChatIntent.Intent.Sync -> answerSync()
-                        ChatIntent.Intent.Skeleton -> answerSkeleton()
                         ChatIntent.Intent.Unlink -> answerUnlink()
                         ChatIntent.Intent.Bases -> answerBases()
                         is ChatIntent.Intent.Insert -> answerInsert(intent.index)
@@ -765,16 +856,25 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val retriever = com.bettertalker.app.data.repo.S34StructuralRetriever(
             com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
         )
-        for (id in candidateIds) {
+        // F20-F1: anexos vinculados à nota (Anexos da nota) também são
+        // candidatos — antes, só anexos CITADOS no texto alcançavam o chat
+        // (evidência física: S-34 vinculado respondia "Não tenho a estrutura").
+        // Citados primeiro (mais específicos), vinculados depois, sem duplicar.
+        val linkedIds = noteId?.let { nid ->
+            db.attachmentDao().all()
+                .filter { it.noteId == nid && it.indexed }
+                .map { it.id }
+        }.orEmpty()
+        for (id in s34CandidateIds(candidateIds, linkedIds)) {
             val result = retriever.retrieve(
                 sourceAttachmentId = id,
                 sectionHint = _activeBlockTitle.value ?: _selection.value,
                 query = text
             )
-            if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
+                if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
                 val doc = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
                     .getBySource(id)
-                val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+                        val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
                 _lastS34Document = doc
                 // F20-A: planejamento oratório derivado do MESMO documento.
                 val oratory = doc?.let { d ->
@@ -830,8 +930,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
                         oratorySpec = ready,
-                        // F20-E: o teto de 1000 tokens truncava o JSON oratório.
-                        maxOutputTokens = 2048
+                        // F20-E/F1: 1000 truncava o JSON; 2048 reserva ~1541 e
+                        // SEMPRE toma 429 no OTPM 1000/min do plano gratuito
+                        // (comprovado no aparelho). 1280 nunca truncou em 23
+                        // execuções reais (saídas observadas <= 1207).
+                        maxOutputTokens = 1280
                     )
                 )
             }
@@ -849,7 +952,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _runState.value = ChatRunState.Cancelled()
             throw e
         } catch (e: Exception) {
-            postText(friendlyChatError(e))
+                postText(friendlyChatError(e))
         }
     }
 
@@ -907,7 +1010,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 )
             )
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to res.text)))
+        post(false, "text", ChatCodec.escMap(mapOf("text" to res.text)), MessageOrigin.COPILOT)
     }
 
     /** Conversa anterior para continuidade, na janela da F15. */
@@ -1005,7 +1108,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val turnContext = buildTurnFor(
                     brief.ifBlank { focus }, inferIntent(brief.ifBlank { focus }, false).trainingCategory,
                     history, history.none { it.fromMe }, focus)
-                _lastPrompt.value = turnContext.prompt
                 _chatEvidence.value = turnContext.evidence
                 android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
                 val provider = ProviderFactory.createFor(remote)
@@ -1398,7 +1500,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private fun helpText(): String =
         "Posso: responder sobre um tema (com citações dos seus materiais), " +
             "gerar ideias por seção, resumir, verificar referências da nota e do esboço, " +
-            "mostrar as seções, (re)inserir o esqueleto, desvincular o esboço, " +
+            "mostrar as seções, desvincular o esboço, " +
             "mostrar as bases e inserir sugestões na nota. " +
             "Respondo continues: “a 2”, “mais”, “fala mais sobre fé”. " +
             "Com prévia ativa: “vincular”, “tópico 2 chama X”, “10 min no 3”, " +
@@ -1408,7 +1510,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun answerAsk(topic: String) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Para responder com base nos materiais, toque no + e vincule um esboço.")))
+                "text" to "Para responder com base nos materiais, toque no + e vincule um esboço.")),
+                MessageOrigin.LOCAL)
             return
         }
         lastTopic = topic
@@ -1419,12 +1522,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não encontrei trechos sobre “$topic” nos materiais baixados." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())))
+                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
+                MessageOrigin.LOCAL)
             val slots = repo.missingBases()
             if (slots.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
                     "text" to "Faltam estas bases:",
-                    "slots" to slots.joinToString(","))))
+                    "slots" to slots.joinToString(","))),
+                    MessageOrigin.LOCAL)
             }
             return
         }
@@ -1433,12 +1538,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         if (content.isEmpty()) {
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria). " +
-                    "Baixe no site a matéria citada no esboço para eu responder com ela.")))
+                    "Baixe no site a matéria citada no esboço para eu responder com ela.")),
+                MessageOrigin.LOCAL)
             val missing = repo.missingBases()
             if (missing.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
                     "text" to "Faltam estas bases:",
-                    "slots" to missing.joinToString(","))))
+                    "slots" to missing.joinToString(","))),
+                    MessageOrigin.LOCAL)
             }
             return
         }
@@ -1454,7 +1561,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             sb.append("\n${i + 1}. [${h.source}] ${h.passage.text.take(180)}\n")
         }
         sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
-        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())))
+        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL)
     }
 
     /**
@@ -1471,21 +1578,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             if (passages.isEmpty()) continue
             val p = passages.first()
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Da referência (${ref.label}):\n“${p.passage.text.take(220)}” [${p.source}]")))
+                "text" to "Da referência (${ref.label}):\n“${p.passage.text.take(220)}” [${p.source}]")),
+                MessageOrigin.LOCAL)
             break
         }
         val statuses = repo.checkRefsList(refs)
         if (statuses.isNotEmpty()) {
             post(false, "refs", ChatCodec.escMap(mapOf(
                 "title" to "Referências de “${target.title}”",
-                "detected" to RefDetector.detectedToJson(statuses.map { it.ref }))))
+                "detected" to RefDetector.detectedToJson(statuses.map { it.ref }))),
+                MessageOrigin.LOCAL)
         }
     }
 
     private suspend fun answerIdeas(sectionHint: String?, raw: String) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Vincule um esboço primeiro — assim gero ideias por seção, na ordem do raciocínio.")))
+                "text" to "Vincule um esboço primeiro — assim gero ideias por seção, na ordem do raciocínio.")),
+                MessageOrigin.LOCAL)
             return
         }
         val secs = outlineSections.value
@@ -1500,10 +1610,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val opts = secs.mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("\n")
                 pendingAsk = PendingAsk.Sections(secs.map { it.title })
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Para qual seção? Diga o número ou o nome:\n$opts")))
+                    "text" to "Para qual seção? Diga o número ou o nome:\n$opts")),
+                    MessageOrigin.LOCAL)
             } else {
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")))
+                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")),
+                    MessageOrigin.LOCAL)
             }
             return
         }
@@ -1518,7 +1630,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não achei trechos nos materiais para “${target.title}”." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())))
+                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
+                MessageOrigin.LOCAL)
             return
         }
         lastSection = target.title
@@ -1528,13 +1641,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _ideas.value = _ideas.value.filter { it.sectionTitle != target.title } + cards
         post(false, "ideas", ChatCodec.escMap(mapOf(
             "section" to target.title,
-            "cards" to ChatCodec.cardsToJson(cards))))
+            "cards" to ChatCodec.cardsToJson(cards))),
+            MessageOrigin.LOCAL)
     }
 
     private suspend fun answerExample(kindHint: String?, sectionHint: String?, raw: String) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Vincule um esboço primeiro — assim gero exemplos por seção. Toque no + para importar ou colar.")))
+                "text" to "Vincule um esboço primeiro — assim gero exemplos por seção. Toque no + para importar ou colar.")),
+                MessageOrigin.LOCAL)
             return
         }
         val secs = outlineSections.value
@@ -1549,10 +1664,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val opts = secs.mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("\n")
                 pendingAsk = PendingAsk.Sections(secs.map { it.title })
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Exemplo para qual seção? Diga o número ou o nome:\n$opts")))
+                    "text" to "Exemplo para qual seção? Diga o número ou o nome:\n$opts")),
+                    MessageOrigin.LOCAL)
             } else {
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")))
+                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")),
+                    MessageOrigin.LOCAL)
             }
             return
         }
@@ -1574,7 +1691,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não achei trechos nos materiais para “${target.title}”." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())))
+                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
+                MessageOrigin.LOCAL)
             return
         }
         lastSection = target.title
@@ -1584,7 +1702,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _ideas.value = _ideas.value.filter { it.sectionTitle != target.title } + cards
         post(false, "ideas", ChatCodec.escMap(mapOf(
             "section" to target.title,
-            "cards" to ChatCodec.cardsToJson(cards))))
+            "cards" to ChatCodec.cardsToJson(cards))),
+            MessageOrigin.LOCAL)
     }
 
     private fun exampleKindOf(hint: String?): com.bettertalker.app.data.repo.CopilotRepository.ExampleKind? =
@@ -1599,7 +1718,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun answerDevelop(sectionHint: String?, raw: String) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Vincule um esboço primeiro — assim desenvolvo cada parte. Toque no + para importar ou colar.")))
+                "text" to "Vincule um esboço primeiro — assim desenvolvo cada parte. Toque no + para importar ou colar.")),
+                MessageOrigin.LOCAL)
             return
         }
         val secs = outlineSections.value
@@ -1614,10 +1734,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val opts = secs.mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("\n")
                 pendingAsk = PendingAsk.Sections(secs.map { it.title })
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Desenvolver qual parte? Diga o número ou o nome:\n$opts")))
+                    "text" to "Desenvolver qual parte? Diga o número ou o nome:\n$opts")),
+                    MessageOrigin.LOCAL)
             } else {
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")))
+                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")),
+                    MessageOrigin.LOCAL)
             }
             return
         }
@@ -1633,7 +1755,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não achei trechos nos materiais para “${target.title}”." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())))
+                    (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
+                MessageOrigin.LOCAL)
             return
         }
         lastSection = target.title
@@ -1643,7 +1766,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _ideas.value = _ideas.value.filter { it.sectionTitle != target.title } + cards
         post(false, "ideas", ChatCodec.escMap(mapOf(
             "section" to target.title,
-            "cards" to ChatCodec.cardsToJson(cards))))
+            "cards" to ChatCodec.cardsToJson(cards))),
+            MessageOrigin.LOCAL)
     }
 
     /** Índice da seção atual no modo guiado (null = desligado). */
@@ -1713,8 +1837,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     /**
-     * Compõe com o modelo local via RAG estrito. Sem modelo/RAM, cai no
-     * rascunho determinístico com aviso. Retorna true se consumiu.
+     * Compõe com o modelo local via RAG estrito. Sem modelo/RAM ou em
+     * falha, responde mensagem honesta — NUNCA cai disfarçado em
+     * `answerDevelop` (retrieval não é geração).
      */
     private suspend fun answerCompose(sectionHint: String?, raw: String) {
         if (needOutline()) {
@@ -1734,17 +1859,19 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val opts = secs.mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("\n")
                 pendingAsk = PendingAsk.Sections(secs.map { it.title })
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Compor qual parte com a IA? Diga o número ou o nome:\n$opts")))
+                    "text" to "Compor qual parte com a IA? Diga o número ou o nome:\n$opts")),
+                    MessageOrigin.LOCAL)
             } else {
                 post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")))
+                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")),
+                    MessageOrigin.LOCAL)
             }
             return
         }
         if (!llm.isReady() || !com.bettertalker.app.data.ai.LlmConfig.ramOk(ramTotal())) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Modelo IA indisponível (veja a tela Modelo IA). Gerei o rascunho determinístico:")))
-            answerDevelop(target.title, raw)
+                "text" to "Para compor texto, configure uma chave em Modelo IA " +
+                    "ou baixe o modelo local (a tela Modelo IA mostra o tamanho).")))
             return
         }
         val idx = secs.indexOf(target)
@@ -1761,7 +1888,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val missing = missingMatterText()
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Sem matéria para compor “${target.title}”." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else ""))))
+                    (if (missing.isNotBlank()) "\n\n$missing" else ""))),
+                MessageOrigin.LOCAL)
             return
         }
         val guideHits = repo.askScoped(
@@ -1791,15 +1919,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             llm.generate(prompt)
         } catch (_: Exception) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "A IA falhou aqui no aparelho. Gerei o rascunho determinístico:")))
-            answerDevelop(target.title, raw)
+                "text" to "A IA local falhou. Tente novamente ou configure a chave em Modelo IA.")),
+                MessageOrigin.LOCAL)
             return
         }
         val text = res.getOrNull()
         if (text.isNullOrBlank() || hasRepetition(text)) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "A IA repetiu/travou — segue o rascunho determinístico:")))
-            answerDevelop(target.title, raw)
+                "text" to "A IA local não conseguiu compor. Tente novamente ou configure a chave em Modelo IA.")),
+                MessageOrigin.LOCAL)
             return
         }
         val check = checkCitations(text, content.take(5).map { it.passage.text })
@@ -1809,7 +1937,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         pendingAsk = null
         val warn = if (check.ok) "" else "\n\n⚠️ Revise: ${check.violations.first()}"
         post(false, "text", ChatCodec.escMap(mapOf(
-            "text" to "Redigido com IA local (revise):\n\n$text$warn")))
+            "text" to "Redigido com IA local (revise):\n\n$text$warn")),
+            MessageOrigin.LOCAL)
     }
 
     private fun ramTotal(): Long {
@@ -1844,7 +1973,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun answerSummarize() {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Vincule um esboço primeiro para eu resumir com contexto.")))
+                "text" to "Vincule um esboço primeiro para eu resumir com contexto.")),
+                MessageOrigin.LOCAL)
             return
         }
         // resume a NOTA (o chat não tem campo de busca; _query ficaria sempre vazio)
@@ -1853,7 +1983,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             extraIds = scope.keys.toList(), extraLabels = scope)
         val s = repo.summary(hits)
         _summary.value = s
-        post(false, "text", ChatCodec.escMap(mapOf("text" to s)))
+        post(false, "text", ChatCodec.escMap(mapOf("text" to s)), MessageOrigin.LOCAL)
     }
 
     private suspend fun answerCheckRefs() {
@@ -2003,16 +2133,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             "text" to "Adiciono “$next” como tópico? (sim/não)")))
     }
 
-    private suspend fun answerSkeleton() {
-        if (skeletonNow()) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Esqueleto enviado para a nota. ✔")))
-        } else {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Nenhum esboço vinculado. Toque no + para importar ou colar.")))
-        }
-    }
-
     private suspend fun answerUnlink() {
         val nid = noteId ?: return
         if (!repo.hasOutline(nid)) {
@@ -2046,7 +2166,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     fun clearDraft() {
         _draft.value = emptyList()
-        _draftError.value = ""
         _draftName.value = ""
         _draftTitle.value = ""
         _draftTotal.value = null
@@ -2078,8 +2197,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     fun importOutlineFile(uri: Uri) = viewModelScope.launch {
-        _draftBusy.value = true
-        _draftError.value = ""
         try {
             val preview = outlines.previewFile(uri)
             _draftName.value = preview.fileName
@@ -2089,22 +2206,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _draftPreamble.value = preview.parsed.preamble
             _previewRefsJson.value = preview.refsJson
             syncDraftMessage()
-        } catch (e: com.bettertalker.app.data.repo.ImportException) {
-            _draftError.value = e.message ?: "Falha ao importar."
         } catch (_: Exception) {
-            _draftError.value = "Falha ao importar o esboço."
+            // Sem consumidor de UI para erro de import: falha silenciosa.
         }
-        _draftBusy.value = false
     }
 
     fun pasteOutline(text: String) = viewModelScope.launch {
-        _draftBusy.value = true
-        _draftError.value = ""
         val (titled, rest) = PastedOutlineAnalyzer.splitTitle(text)
         val (cands, droppedCount) = PastedOutlineAnalyzer.candidates(rest.ifBlank { text })
         if (cands.isEmpty()) {
-            _draftError.value = "Não encontrei tópicos no texto colado."
-            _draftBusy.value = false
             return@launch
         }
         _candTexts.value = cands.map { it.text }
@@ -2120,7 +2230,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _draftTitle.value = titled ?: cands.firstOrNull()?.text?.take(60) ?: "Esboço"
         _draftTotal.value = null
         _previewRefsJson.value = RefDetector.detectedToJson(RefDetector.detect(text))
-        _draftBusy.value = false
         syncDraftMessage()
     }
 
@@ -2234,7 +2343,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val sections = _draft.value.filter { it.included && it.title.isNotBlank() }
             .mapIndexed { i, d -> OutlineSection(d.title.trim(), d.minutes, i, d.body, d.level) }
         if (sections.size < 2) {
-            _draftError.value = "Marque ao menos 2 tópicos para vincular."
             return@launch
         }
         try {
@@ -2243,14 +2351,34 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 _draftTotal.value, sections, _previewRefsJson.value, _draftPreamble.value
             )
         } catch (_: Exception) {
-            _draftError.value = "Falha ao vincular o esboço. Tente de novo."
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não consegui vincular o esboço. Tente de novo.")))
             return@launch
         }
-        _skeletonEvent.value = com.bettertalker.app.data.util.skeletonMarkdown(
-            sections, _draftPreamble.value
-        )
+
+        // 3.2.3c: converte e persiste seções + sub-pontos do esboço.
+        // Best-effort: falha aqui é silenciosa e não afeta o fluxo principal
+        // (link já concluído). Débito documentado em
+        // buildOutlineConversion.
+        try {
+            val conversion = buildOutlineConversion(
+                title = _draftTitle.value,
+                totalMinutes = _draftTotal.value,
+                sections = sections,
+                preamble = _draftPreamble.value,
+                noteId = nid,
+            )
+            // 3.2.5f-pre: validação informativa (não bloqueia); o EditorViewModel
+            // revalida ao observar as seções e mostra o aviso quando a nota abrir.
+            @Suppress("UNUSED_VARIABLE")
+            val validationResult = outlineImportService.persist(
+                conversion,
+                com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE,
+            )
+        } catch (_: Exception) {
+            // silencioso por design (apenas erros de persistência; validação não lança)
+        }
+
         val refsJson = _previewRefsJson.value
         val theme = _draftTitle.value.trim()
         clearDraft()
@@ -2262,7 +2390,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _titleEvent.value = theme
         }
         post(false, "text", ChatCodec.escMap(mapOf(
-            "text" to "Esboço vinculado ✓ (${sections.size} seções) — o esqueleto foi para a nota." +
+            "text" to "Esboço vinculado ✓ (${sections.size} seções)." +
                 (if (theme.isNotBlank()) "\nTítulo da nota: “$theme”." else "") +
                 " Peça ideias por seção ou pergunte sobre um tema.")))
         // auto-verificação: só anuncia se faltar ref (direciona ao download)
@@ -2274,29 +2402,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 "title" to "Referências do esboço",
                 "detected" to RefDetector.detectedToJson(missing.map { it.ref }))))
         }
+        // Onboarding F2a: o estado mudou (esboço vinculado) — revalida o banner.
+        viewModelScope.launch { refreshReadiness() }
     }
-
-    fun consumeSkeleton() { _skeletonEvent.value = null }
 
     /** Título da nota (tema do esboço manda): entregue ao editor via MainActivity. */
     private val _titleEvent = MutableStateFlow<String?>(null)
     val titleEvent = _titleEvent.asStateFlow()
     fun consumeTitle() { _titleEvent.value = null }
-
-    /** Reinsere o esqueleto do esboço vinculado (recupera após morte do processo etc.). */
-    fun reinsertSkeleton() = viewModelScope.launch { skeletonNow() }
-
-    /** Lógica compartilhada com o chat; retorna false se não há esboço. */
-    private suspend fun skeletonNow(): Boolean {
-        val nid = noteId ?: return false
-        val o = outlines.get(nid) ?: return false
-        val (preamble, sections) = OutlineParser.parseEnvelope(
-            o.sectionsJson.takeIf { it.isNotBlank() } ?: "[]"
-        )
-        if (sections.isEmpty()) return false
-        _skeletonEvent.value = com.bettertalker.app.data.util.skeletonMarkdown(sections, preamble)
-        return true
-    }
 
     fun unlinkOutline() = viewModelScope.launch { unlinkNow() }
 
@@ -2374,4 +2487,40 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = CopilotViewModel(ctx, db, noteId) as T
     }
+}
+
+/**
+ * F20-F1 — candidatos S-34 do turno: anexos citados no texto primeiro (mais
+ * específicos), depois os vinculados à nota, sem duplicar. Puro/testável.
+ */
+fun s34CandidateIds(citedIds: List<String>, linkedIds: List<String>): List<String> =
+    (citedIds + linkedIds).distinct()
+
+/**
+ * Monta o [OutlineConversion] a partir do draft para persistir via
+ * `OutlineImportService`. Pura, testável sem Context/Room.
+ *
+ * DÉBITO (3.2.3c):
+ * - Erros de conversão são silenciados no caller (try/catch que não
+ *   propaga); telemetria futura, se conveniente.
+ * - Draft sem seções (`size < 2`) não chega ao converter — herdado do fluxo.
+ * - Sync de seções/sub-pontos para a nuvem ainda não existe (roadmap; sync
+ *   hoje cobre só nota + OutlineEntity).
+ */
+internal fun buildOutlineConversion(
+    title: String,
+    totalMinutes: Int?,
+    sections: List<OutlineSection>,
+    preamble: String,
+    noteId: String,
+    discourseType: DiscourseType = DiscourseType.S34_DISCOURSE,
+    converter: OutlineConverter = OutlineConverter(),
+): OutlineConversion {
+    val parsed = ParsedOutline(
+        title = title,
+        totalMinutes = totalMinutes,
+        sections = sections,
+        preamble = preamble,
+    )
+    return converter.convert(parsed, noteId, discourseType)
 }

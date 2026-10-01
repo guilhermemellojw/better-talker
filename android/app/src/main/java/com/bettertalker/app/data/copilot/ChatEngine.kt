@@ -170,10 +170,6 @@ fun contextLabel(blockTitle: String?, speechTitle: String?, selectedText: String
     return "sem contexto"
 }
 
-/** Aviso offline. `\n` vira quebra de linha na UI. Puro/testável. */
-const val OFFLINE_CHAT_NOTICE =
-    "Você está offline.\nO Copilot remoto não está disponível, mas os recursos locais continuam funcionando."
-
 /** Códigos de erro do provider — espelha `ProviderErrorCode` do web. */
 enum class ProviderErrorCode {
     TIMEOUT, NETWORK, AUTHENTICATION, RATE_LIMIT, INVALID_REQUEST,
@@ -222,7 +218,6 @@ sealed interface ChatRunState {
     data object Success : ChatRunState
     /** [message] já é texto humano; [code] permite "Tentar novamente". */
     data class Error(val message: String, val code: ProviderErrorCode? = null) : ChatRunState
-    data object Offline : ChatRunState
     data class Cancelled(val message: String = friendlyChatError(ProviderErrorCode.CANCELLED)) : ChatRunState
 
     /** Só impede novo envio durante o turno em andamento. */

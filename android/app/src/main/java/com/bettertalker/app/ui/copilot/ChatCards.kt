@@ -151,6 +151,8 @@ class DownloadCtl internal constructor(
                     pageUrl = null
                     vm.refreshBases()
                     vm.refreshOutlineRefs()
+                    // Onboarding F2a: download pode ter completado — revalida o banner.
+                    scope.launch { vm.refreshReadiness() }
                     pendingDone?.let { done ->
                         pendingDone = null
                         done()

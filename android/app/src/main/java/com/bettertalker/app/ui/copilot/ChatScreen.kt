@@ -50,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
-import com.bettertalker.app.data.copilot.OFFLINE_CHAT_NOTICE
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
@@ -75,7 +74,10 @@ fun ChatScreen(
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
     val runState by vm.runState.collectAsState()
-    val offline by vm.isOffline.collectAsState()
+    // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
+    val readiness by vm.readiness.collectAsState()
+    val setupDismissed by vm.setupBannerDismissed.collectAsState()
+    LaunchedEffect(vm) { vm.refreshReadiness() }
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
@@ -184,69 +186,72 @@ fun ChatScreen(
         }
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Rótulo de contexto: o bloco em foco, sem o usuário digitar id (§13).
-                if (messages.isNotEmpty()) {
-                    item(key = "ctx") {
-                        Text(
-                            "Contexto: $contextText",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
-                items(messages, key = { it.id }) { m ->
-                    MessageBubble(
-                        item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
-                        headings = headings, sectionBusy = sectionBusy,
-                        liveSections = outlineSections,
-                        merges = merges, draft = draft,
-                        onOpenLibrary = onOpenLibrary
+            Column(Modifier.fillMaxSize()) {
+                // Onboarding F2a: banner de setup (fora do scroll da conversa).
+                val r = readiness
+                if (r != null && !r.isSetupComplete && !setupDismissed) {
+                    SetupBanner(
+                        readiness = r,
+                        onImportOutline = { showAttach = true },
+                        onPaste = { showAttach = true },
+                        onDownloadBases = { doSend("bases") },
+                        onDismiss = { vm.dismissSetupBanner() },
                     )
                 }
-                // Aviso offline: o app segue funcionando localmente (§22 F15).
-                if (offline) {
-                    item(key = "offline") {
-                        Text(
-                            OFFLINE_CHAT_NOTICE,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Rótulo de contexto: o bloco em foco, sem o usuário digitar id (§13).
+                    if (messages.isNotEmpty()) {
+                        item(key = "ctx") {
+                            Text(
+                                "Contexto: $contextText",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    items(messages, key = { it.id }) { m ->
+                        MessageBubble(
+                            item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
+                            headings = headings, sectionBusy = sectionBusy,
+                            liveSections = outlineSections,
+                            merges = merges, draft = draft,
+                            onOpenLibrary = onOpenLibrary
                         )
                     }
-                }
-                // Fontes e apoio: proveniência recolhível, discreta (§14).
-                if (evidence.isNotEmpty()) {
-                    item(key = "prov") {
-                        ProvenanceDisclosure(evidence, evidenceSummary)
+                    // Fontes e apoio: proveniência recolhível, discreta (§14).
+                    if (evidence.isNotEmpty()) {
+                        item(key = "prov") {
+                            ProvenanceDisclosure(evidence, evidenceSummary)
+                        }
                     }
-                }
-                // Fase 18 §21: proposta F5 — ANTES/DEPOIS, verificar, aceitar/rejeitar.
-                val prop = proposal
-                if (prop != null) {
-                    item(key = "proposal") {
-                        ProposalCard(prop, vm)
+                    // Fase 18 §21: proposta F5 — ANTES/DEPOIS, verificar, aceitar/rejeitar.
+                    val prop = proposal
+                    if (prop != null) {
+                        item(key = "proposal") {
+                            ProposalCard(prop, vm)
+                        }
                     }
-                }
-                // Estados legíveis: nada de spinner mudo (§30 F15).
-                when (val s = runState) {
-                    is ChatRunState.Sending, is ChatRunState.Generating -> item {
-                        Text(
-                            "Copilot está escrevendo…",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
+                    // Estados legíveis: nada de spinner mudo (§30 F15).
+                    when (val s = runState) {
+                        is ChatRunState.Sending, is ChatRunState.Generating -> item {
+                            Text(
+                                "Copilot está escrevendo…",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        is ChatRunState.Error -> item {
+                            ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                        }
+                        is ChatRunState.Cancelled -> item {
+                            ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                        }
+                        else -> Unit
                     }
-                    is ChatRunState.Error -> item {
-                        ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
-                    }
-                    is ChatRunState.Cancelled -> item {
-                        ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
-                    }
-                    else -> Unit
                 }
             }
             if (unseenCount > 0 && !busy) {
@@ -343,6 +348,14 @@ private fun MessageBubble(
     }
     // assistente: texto corrido sem cartão, estilo ChatGPT
     Column(Modifier.fillMaxWidth()) {
+        // Origem honesta: só marca quando NÃO veio do Copilot remoto.
+        if (item.origin == MessageOrigin.LOCAL) {
+            Text(
+                "Resposta local",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
         when (item.kind) {
             "ideas" -> IdeasBody(item, vm, headings)
             "refs" -> RefsBody(vm, dl, ctx, scope, item.text, item.detectedJson)
