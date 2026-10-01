@@ -29,6 +29,7 @@ import com.bettertalker.app.ui.home.TrashScreen
 import com.bettertalker.app.ui.library.LibraryScreen
 import com.bettertalker.app.ui.library.LibraryViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -79,7 +80,8 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             }
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            if (settings.needsIndexFormat(4)) libRepo.reindexAll()
+            // v5: Passage.ref populado (proveniência "symbol section §n").
+            if (settings.needsIndexFormat(5)) libRepo.reindexAll()
         }
     }
 
@@ -93,7 +95,9 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 onOpenLibrary = { nav.navigate(Routes.library()) },
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
-                settings = settings
+                settings = settings,
+                // SPIKE 3.2.1 — REMOVER
+                onOpenPrototype = { nav.navigate(Routes.PROTOTYPE_SECTIONS) },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -112,13 +116,21 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
             val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId))
-            val skeleton by copilotVm.skeletonEvent.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(skeleton) {
-                val sk = skeleton
-                if (!sk.isNullOrEmpty()) {
-                    vm.queueInsertMarkdown(sk, null)
-                    copilotVm.consumeSkeleton()
-                }
+            // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
+            androidx.compose.runtime.LaunchedEffect(vm) {
+                val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
+                val llmProvider = com.bettertalker.app.data.llm.ProviderFactory.createFallback(settings)
+                // 3.5e.3: canGenerate reflete QUALQUER chave (mesma lógica do
+                // createFallback). Não usar resolveRemote — ele só vê o provider
+                // selecionado e causaria falso "sem chave" quando a outra chave
+                // existe (Gemini-only com seletor qwen, ou Groq-only com gemini).
+                val canGenerate =
+                    !settings.llmApiKey.first().isNullOrBlank() ||
+                        !settings.groqApiKey.first().isNullOrBlank()
+                vm.setSectionGenerator(
+                    com.bettertalker.app.data.planning.SectionGeneratorImpl(llmProvider),
+                    canGenerate,
+                )
             }
             // tema do esboço vira título da nota
             val titleEv by copilotVm.titleEvent.collectAsState()
@@ -155,15 +167,6 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 editorEntry, key = noteId,
                 factory = EditorViewModel.Factory(ctx, db, noteId)
             )
-            // esqueleto vinculado pelo chat entrega na hora (não depende de voltar ao editor)
-            val chatSkeleton by copilotVm.skeletonEvent.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(chatSkeleton) {
-                val sk = chatSkeleton
-                if (!sk.isNullOrEmpty()) {
-                    editorVm.queueInsertMarkdown(sk, null)
-                    copilotVm.consumeSkeleton()
-                }
-            }
             // tema do esboço vira título da nota
             val chatTitleEv by copilotVm.titleEvent.collectAsState()
             androidx.compose.runtime.LaunchedEffect(chatTitleEv) {
@@ -185,6 +188,14 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             androidx.compose.runtime.LaunchedEffect(liveSelection) {
                 copilotVm.setSelection(liveSelection)
             }
+            // Fase 3.5b.3: dossiê da seção ativa sob demanda.
+            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+                copilotVm.setDossierProvider(editorVm::buildDossier)
+            }
+            // Onboarding F2a: contexto empurrado pelo FAB (seleção + prontidão).
+            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+                editorVm.pushedContext.collect { copilotVm.setPushedContext(it) }
+            }
         }
         composable(
             Routes.LIBRARY,
@@ -201,6 +212,10 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val vm: com.bettertalker.app.ui.aimodel.ModelViewModel =
                 viewModel(factory = com.bettertalker.app.ui.aimodel.ModelViewModel.Factory(ctx))
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
+        }
+        // DEMO 3.2.5b — REMOVER
+        composable(Routes.PROTOTYPE_SECTIONS) { _ ->
+            com.bettertalker.app.ui.editor.SectionCardEditorDemoScreen(onBack = { nav.popBackStack() })
         }
     }
 }

@@ -114,6 +114,37 @@ class CopilotRepository(private val db: AppDatabase) {
         noteId != null && db.outlineDao().getForNote(noteId) != null
 
     /**
+     * Estado de prontidão da nota para o onboarding contextual (F2a).
+     * On-demand: só Room, sem LLM, sem mutação.
+     *
+     * `hasSections` e `outlineRefsJson` vêm do chamador (o repo não tem
+     * acesso ao StateFlow do editor nem ao OutlineRepository, que exige
+     * Context): editor passa memória + `outlines.get()?.refsJson`;
+     * chat passa query + o mesmo.
+     */
+    suspend fun readNoteReadiness(
+        noteId: String,
+        hasSections: Boolean,
+        outlineRefsJson: String,
+    ): com.bettertalker.app.ui.editor.NoteReadiness {
+        val hasOutline = hasOutline(noteId)
+        val hasHistory = db.chatDao().all(noteId).isNotEmpty()
+        val hasMissingRefs = if (outlineRefsJson.isBlank()) {
+            false
+        } else {
+            outlineRefs(outlineRefsJson).any { !it.resolved }
+        }
+        val hasMissingBases = missingBases().isNotEmpty()
+        return com.bettertalker.app.ui.editor.NoteReadiness(
+            hasSections = hasSections,
+            hasOutline = hasOutline,
+            hasMissingRefs = hasMissingRefs,
+            hasMissingBases = hasMissingBases,
+            hasChatHistory = hasHistory,
+        )
+    }
+
+    /**
      * Ideias para UMA seção do esboço (geração avulsa).
      * A seção guia: consulta = título da seção + pergunta; vizinhas dão contexto.
      */
