@@ -9,52 +9,47 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FormatAlignCenter
-import androidx.compose.material.icons.filled.FormatAlignLeft
-import androidx.compose.material.icons.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
-import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.FormatItalic
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.FormatListNumbered
-import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Title
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -62,10 +57,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,18 +71,14 @@ import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.bettertalker.app.data.util.headingOffset
+import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.theme.NOTE_COLORS
-import com.mohamedrejeb.richeditor.model.rememberRichTextState
-import com.mohamedrejeb.richeditor.ui.BasicRichTextEditor
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.drop
+import com.mohamedrejeb.richeditor.model.RichTextState
 
 // Paleta de cores da fonte (estilo Word)
 private val FONT_COLORS = listOf(
@@ -100,14 +92,19 @@ private val HIGHLIGHT_COLORS = listOf(
     Color(0xFFFFB3BA), Color(0xFFFFE08A)
 )
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalLayoutApi::class)
+// 3.2.5g.2: tamanhos de fonte (slots da toolbar e picker).
+private val FONT_SIZE_S = 14.sp
+private val FONT_SIZE_M = 18.sp
+private val FONT_SIZE_G = 24.sp
+
+/** 3.2.5g.2: picker ativo abaixo da toolbar (substitui os booleans antigos). */
+private enum class PickerMode { FONT_COLOR, HIGHLIGHT, SIZE }
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, onOpenChat: () -> Unit) {
     val title by vm.title.collectAsState()
-    val html by vm.html.collectAsState()
-    val mdText by vm.mdText.collectAsState()
-    val mdRevision by vm.mdRevision.collectAsState()
-    val pending by vm.pendingInserts.collectAsState()
+    val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
     val saving by vm.saving.collectAsState()
     val color by vm.color.collectAsState()
     val attachments by vm.attachments.collectAsState(initial = emptyList())
@@ -115,72 +112,48 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
     val folders by vm.folders.collectAsState(initial = emptyList())
     val noteFolderId by vm.folderId.collectAsState()
     val notePinned by vm.pinned.collectAsState()
+    val sections by vm.sections.collectAsState()
+    val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
+    val draftState by vm.draftState.collectAsState()
+    val canGenerateDraft by vm.canGenerateDraft.collectAsState()
     var preview by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var showColors by remember { mutableStateOf(false) }
-    var showHighlight by remember { mutableStateOf(false) }
-    var showSize by remember { mutableStateOf(false) }
-    // teclado aberto -> esconde rodapé (anexos) p/ dar espaço ao texto
-    val imeVisible = WindowInsets.isImeVisible
+    // 3.2.5g.2: picker ativo abaixo da toolbar (substitui showColors/showHighlight/showSize).
+    var activePicker by remember { mutableStateOf<PickerMode?>(null) }
+    // Menus dos slots da toolbar.
+    var showStylePalette by remember { mutableStateOf(false) }
+    var showSizeMenu by remember { mutableStateOf(false) }
+    var showBlocksMenu by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
+    var showColorDialog by remember { mutableStateOf(false) }
+    var showAttachmentsSheet by remember { mutableStateOf(false) }
+    // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
+    val scope = rememberCoroutineScope()
+    var showOutlineDialog by remember { mutableStateOf(false) }
 
-    // Editor visual: HTML é a verdade; markdown é derivado p/ Copilot
-    val richState = rememberRichTextState()
+    // 3.2.5c: editor multi-seção. Duas noções independentes:
+    // - activeSectionId: destaque visual do card tocado
+    // - activeEditorState: editor focado (a toolbar opera nele; null = desabilitada)
+    // É o MESMO RichTextState vivo do mapa do SectionCardEditor — atualizado
+    // in-place quando o HTML externo muda (não precisa re-emitir).
+    var activeSectionId by remember { mutableStateOf<String?>(null) }
+    var activeEditorState by remember { mutableStateOf<RichTextState?>(null) }
 
-    // escrita externa (abertura, sync) -> renderiza; digitação local não reseta
-    LaunchedEffect(mdRevision) {
-        if (richState.toHtml() != html && html.isNotEmpty()) {
-            richState.setHtml(html)
-        } else if (html.isEmpty() && richState.annotatedString.text.isNotEmpty()) {
-            richState.setMarkdown("")
-        }
-    }
-    // digitação local -> exporta HTML + markdown com debounce
-    LaunchedEffect(richState) {
-        snapshotFlow { richState.annotatedString }
-            .drop(1)
-            .debounce(400)
-            .collect { vm.onContent(richState.toHtml(), richState.toMarkdown()) }
-    }
-    // Fase 18 §17: seleção viva -> Copilot ("Contexto: trecho selecionado").
-    // Colapsada (só cursor) = sem seleção.
-    LaunchedEffect(richState) {
-        snapshotFlow { richState.selection }
-            .collect { sel ->
-                if (sel.collapsed) {
-                    vm.onSelection("")
-                } else {
-                    val full = richState.annotatedString.text
-                    val a = sel.start.coerceIn(0, full.length)
-                    val b = sel.end.coerceIn(0, full.length)
-                    vm.onSelection(if (b > a) full.substring(a, b) else "")
-                }
-            }
-    }
-    // fila de inserções (Copilot, esboço): aplica na árvore viva, preserva estilos
-    LaunchedEffect(pending) {
-        if (pending.isEmpty()) return@LaunchedEffect
-        pending.forEach { ins ->
-            val current = richState.annotatedString.text
-            val at = ins.heading?.let { headingOffset(current, it) }
-            if (at != null) {
-                richState.insertMarkdown("\n\n" + ins.markdown.trim() + "\n", at)
-            } else {
-                richState.insertMarkdownAfterSelection(
-                    (if (current.isBlank()) "" else "\n\n") + ins.markdown.trim() + "\n"
-                )
-            }
-        }
-        vm.consumePending()
-    }
+    // 3.2.5g.2: preview esconde a toolbar — não deixar picker ativo vazar.
+    LaunchedEffect(preview) { if (preview) activePicker = null }
 
-    val curSpan = richState.currentSpanStyle
-    val curPara = richState.currentParagraphStyle
+    // 3.2.5e: inserts programáticos (Copilot/atalhos) são consumidos pelos
+    // cards via sectionPendingInserts; a fila legada foi removida do VM.
+
+    val curSpan = activeEditorState?.currentSpanStyle ?: SpanStyle()
     val isBold = (curSpan.fontWeight?.weight ?: 400) > 400
     val isItalic = curSpan.fontStyle == FontStyle.Italic
     val isUnderline = curSpan.textDecoration?.contains(TextDecoration.Underline) == true
     val isStrike = curSpan.textDecoration?.contains(TextDecoration.LineThrough) == true
+    val toolbarEnabled = activeEditorState != null
 
     if (showMove) {
         AlertDialog(
@@ -234,25 +207,104 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
         )
     }
 
+    // 3.2.5g.3: cor da nota (item do ⋮; fecha ao escolher).
+    if (showColorDialog) {
+        AlertDialog(
+            onDismissRequest = { showColorDialog = false },
+            title = { Text("Cor da nota") },
+            text = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NOTE_COLORS.forEach { c ->
+                        NoteColorDot(
+                            color = c,
+                            selected = color == c.value.toLong(),
+                            onClick = {
+                                vm.setColor(c.value.toLong())
+                                showColorDialog = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showColorDialog = false }) { Text("Fechar") }
+            },
+        )
+    }
+
+    // 3.2.5g.3: esboço vinculado (item do ⋮; só aparece se houver esboço).
+    outlineList.firstOrNull()?.let { o ->
+        if (showOutlineDialog) {
+            AlertDialog(
+                onDismissRequest = { showOutlineDialog = false },
+                title = { Text("Esboço vinculado") },
+                text = { Text(o.title) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.unlinkOutline()
+                        showOutlineDialog = false
+                    }) { Text("Desvincular") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showOutlineDialog = false }) { Text("Fechar") }
+                },
+            )
+        }
+    }
+
+    // Contador de palavras: vivo das seções; fallback no mdText (sem seções).
+    val wordCount = remember(sections, mdText) {
+        if (sections.isEmpty()) countWords(mdText) else countSectionWords(sections)
+    }
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = onOpenChat) {
+            FloatingActionButton(
+                onClick = {
+                    scope.launch { vm.pushContextForChat() }
+                    onOpenChat()
+                }
+            ) {
                 Icon(Icons.Default.AutoAwesome, "Conversar com o Copilot")
             }
         },
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar") } },
-                title = { Text(if (saving) "Salvando…" else "Salvo local") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
+                title = {
+                    Column {
+                        Text(
+                            if (saving) "Salvando…" else "Salvo local",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            "$wordCount palavras",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 actions = {
-                    IconButton(onClick = {
-                        if (!preview) vm.onContent(richState.toHtml(), richState.toMarkdown())
-                        preview = !preview
-                    }) {
+                    IconButton(onClick = { preview = !preview }) {
                         Icon(if (preview) Icons.Default.Edit else Icons.Default.Visibility, "Preview")
                     }
                     IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Cor da nota") },
+                            onClick = { showMenu = false; showColorDialog = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Anexos (${attachments.size})") },
+                            onClick = { showMenu = false; showAttachmentsSheet = true },
+                        )
+                        outlineList.firstOrNull()?.let { o ->
+                            DropdownMenuItem(
+                                text = { Text("Esboço: ${o.title}") },
+                                onClick = { showMenu = false; showOutlineDialog = true },
+                            )
+                        }
+                        HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Mover para pasta") },
                             onClick = { showMenu = false; showMove = true }
@@ -286,234 +338,396 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
-            // Seletor de cor da nota
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                NOTE_COLORS.forEach { c ->
-                    val selected = color == c.value.toLong()
-                    Box(
-                        Modifier
-                            .size(if (selected) 30.dp else 24.dp)
-                            .clip(CircleShape)
-                            .background(c)
-                            .then(
-                                if (selected) Modifier.border(
-                                    2.dp,
-                                    MaterialTheme.colorScheme.onSurface,
-                                    CircleShape
-                                ) else Modifier
-                            )
-                            .clickable { vm.setColor(c.value.toLong()) }
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            outlineList.firstOrNull()?.let { o ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "📋 ${o.title}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { vm.unlinkOutline() }) {
-                        Icon(Icons.Default.Close, "Desvincular esboço")
+            // 3.2.5f-pre: aviso estrutural não-bloqueante (dispensável; a
+            // próxima mudança republica se a estrutura seguir inválida).
+            val structureWarning by vm.structureWarning.collectAsState()
+            structureWarning?.let {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, "Aviso de estrutura")
+                        Text(
+                            text = "A estrutura deste discurso pode precisar de ajustes.",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                        )
+                        IconButton(onClick = { vm.dismissStructureWarning() }) {
+                            Icon(Icons.Default.Close, "Dispensar")
+                        }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
             }
+            // Contador de palavras agora vive na TopAppBar (subtitle).
+
             if (!preview) {
-                val wordCount = remember(mdText) {
-                    mdText.split(Regex("\\s+")).count { it.any(Char::isLetterOrDigit) }
+                // Toolbar Word-like fixa no topo (rolável p/ telas estreitas).
+                // 3.2.5c: opera o editor ATIVO (activeEditorState); sem foco = desabilitada.
+                // 3.2.5g.2: 8 slots (B I U S | 🎨 | 14 | ≡ | ⋯) + menus/pickers.
+                val sizeLabel = when (curSpan.fontSize) {
+                    FONT_SIZE_S -> "14"
+                    FONT_SIZE_M -> "18"
+                    FONT_SIZE_G -> "24"
+                    else -> "14"
                 }
-                // Toolbar Word-like fixa no topo (rolável p/ telas estreitas)
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(end = 8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     item {
-                        ToolBtn(Icons.Default.FormatBold, "Negrito", active = isBold) {
-                            richState.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                        ToolBtn(Icons.Default.FormatBold, "Negrito", active = isBold, enabled = toolbarEnabled) {
+                            activeEditorState?.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
                         }
                     }
                     item {
-                        ToolBtn(Icons.Default.FormatItalic, "Itálico", active = isItalic) {
-                            richState.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                        ToolBtn(Icons.Default.FormatItalic, "Itálico", active = isItalic, enabled = toolbarEnabled) {
+                            activeEditorState?.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
                         }
                     }
                     item {
-                        ToolBtn(Icons.Default.FormatUnderlined, "Sublinhado", active = isUnderline) {
-                            richState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
+                        ToolBtn(Icons.Default.FormatUnderlined, "Sublinhado", active = isUnderline, enabled = toolbarEnabled) {
+                            activeEditorState?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
                         }
                     }
                     item {
-                        ToolBtn(Icons.Default.FormatStrikethrough, "Tachado", active = isStrike) {
-                            richState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
+                        ToolBtn(Icons.Default.FormatStrikethrough, "Tachado", active = isStrike, enabled = toolbarEnabled) {
+                            activeEditorState?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
                         }
                     }
+                    // 🎨: cor de fonte / marca-texto / tamanho (abre o picker abaixo).
                     item {
-                        ToolBtn(
-                            Icons.Default.Palette, "Cor da fonte",
-                            active = showColors
-                        ) { showColors = !showColors; showHighlight = false; showSize = false }
-                    }
-                    item {
-                        ToolBtn(
-                            Icons.Default.FormatColorFill, "Marca-texto",
-                            active = showHighlight
-                        ) { showHighlight = !showHighlight; showColors = false; showSize = false }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatSize, "Tamanho", active = showSize) {
-                            showSize = !showSize; showColors = false; showHighlight = false
-                        }
-                    }
-                    item {
-                        ToolBtn(
-                            Icons.Default.FormatAlignLeft, "Alinhar",
-                            active = curPara.textAlign == TextAlign.Center ||
-                                curPara.textAlign == TextAlign.Right
-                        ) {
-                            val next = when (curPara.textAlign) {
-                                TextAlign.Left -> TextAlign.Center
-                                TextAlign.Center -> TextAlign.Right
-                                else -> TextAlign.Left
+                        Box {
+                            ToolBtn(Icons.Default.Palette, "Cor e tamanho", active = showStylePalette, enabled = toolbarEnabled) {
+                                showStylePalette = true
                             }
-                            richState.toggleParagraphStyle(ParagraphStyle(textAlign = next))
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.Title, "Título") {
-                            richState.insertMarkdownAfterSelection("\n# ")
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatListBulleted, "Lista") {
-                            richState.toggleUnorderedList()
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatListNumbered, "Numerada") {
-                            richState.toggleOrderedList()
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatClear, "Limpar formatação") {
-                            richState.toggleSpanStyle(
-                                SpanStyle(
-                                    color = Color.Unspecified,
-                                    background = Color.Unspecified,
-                                    fontWeight = FontWeight.Normal,
-                                    fontStyle = FontStyle.Normal,
-                                    textDecoration = TextDecoration.None,
-                                    fontSize = androidx.compose.ui.unit.TextUnit.Unspecified
+                            DropdownMenu(
+                                expanded = showStylePalette,
+                                onDismissRequest = { showStylePalette = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Cor de fonte") },
+                                    onClick = { showStylePalette = false; activePicker = PickerMode.FONT_COLOR },
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Marca-texto") },
+                                    onClick = { showStylePalette = false; activePicker = PickerMode.HIGHLIGHT },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Tamanho") },
+                                    onClick = { showStylePalette = false; activePicker = PickerMode.SIZE },
+                                )
+                            }
+                        }
+                    }
+                    // "14": mostra o tamanho vigente e aplica S/M/G direto.
+                    item {
+                        Box {
+                            TextButton(onClick = { showSizeMenu = true }, enabled = toolbarEnabled) {
+                                Text(sizeLabel, fontWeight = FontWeight.SemiBold)
+                            }
+                            DropdownMenu(
+                                expanded = showSizeMenu,
+                                onDismissRequest = { showSizeMenu = false },
+                            ) {
+                                listOf(
+                                    "Pequeno (14)" to FONT_SIZE_S,
+                                    "Médio (18)" to FONT_SIZE_M,
+                                    "Grande (24)" to FONT_SIZE_G,
+                                ).forEach { (label, size) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            showSizeMenu = false
+                                            activeEditorState?.toggleSpanStyle(SpanStyle(fontSize = size))
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    // ≡: título/listas/alinhamento (achatado, sem ciclo).
+                    item {
+                        Box {
+                            ToolBtn(
+                                Icons.AutoMirrored.Filled.FormatListBulleted, "Listas e alinhamento",
+                                active = showBlocksMenu, enabled = toolbarEnabled,
+                            ) { showBlocksMenu = true }
+                            DropdownMenu(
+                                expanded = showBlocksMenu,
+                                onDismissRequest = { showBlocksMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Título") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.insertMarkdownAfterSelection("\n# ")
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lista") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.toggleUnorderedList()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lista numerada") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.toggleOrderedList()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Alinhar à esquerda") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Left))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Centralizar") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Center))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Alinhar à direita") },
+                                    onClick = {
+                                        showBlocksMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Right))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    // ⋯: limpar formatação.
+                    item {
+                        Box {
+                            ToolBtn(Icons.Default.MoreVert, "Mais opções", active = showMoreMenu, enabled = toolbarEnabled) {
+                                showMoreMenu = true
+                            }
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Limpar formatação") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleSpanStyle(
+                                            SpanStyle(
+                                                color = Color.Unspecified,
+                                                background = Color.Unspecified,
+                                                fontWeight = FontWeight.Normal,
+                                                fontStyle = FontStyle.Normal,
+                                                textDecoration = TextDecoration.None,
+                                                fontSize = androidx.compose.ui.unit.TextUnit.Unspecified
+                                            )
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (toolbarEnabled) {
+                    when (activePicker) {
+                        PickerMode.FONT_COLOR -> {
+                            Spacer(Modifier.height(6.dp))
+                            ColorDots(
+                                colors = FONT_COLORS,
+                                current = curSpan.color,
+                                onPick = { activeEditorState?.toggleSpanStyle(SpanStyle(color = it)) }
+                            )
+                        }
+                        PickerMode.HIGHLIGHT -> {
+                            Spacer(Modifier.height(6.dp))
+                            ColorDots(
+                                colors = HIGHLIGHT_COLORS,
+                                current = curSpan.background,
+                                onPick = { activeEditorState?.toggleSpanStyle(SpanStyle(background = it)) }
+                            )
+                        }
+                        PickerMode.SIZE -> {
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("P" to FONT_SIZE_S, "M" to FONT_SIZE_M, "G" to FONT_SIZE_G).forEach { (label, size) ->
+                                    val active = curSpan.fontSize == size
+                                    TextButton(onClick = {
+                                        activeEditorState?.toggleSpanStyle(SpanStyle(fontSize = size))
+                                    }) {
+                                        Text(
+                                            label,
+                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (active) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        null -> Unit
+                    }
+                }
+            }
+
+            // 3.2.5c: corpo multi-seção (preview = readOnly em todos os cards).
+            if (sections.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Esta nota não tem seções.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (!preview) {
+                            Spacer(Modifier.height(12.dp))
+                            AddSectionButton(
+                                onAdd = { role -> vm.addSection(role, afterSectionId = null) },
+                                modifier = Modifier.padding(horizontal = 32.dp),
                             )
                         }
                     }
                 }
-                if (showColors) {
-                    Spacer(Modifier.height(6.dp))
-                    ColorDots(
-                        colors = FONT_COLORS,
-                        current = curSpan.color,
-                        onPick = { richState.toggleSpanStyle(SpanStyle(color = it)) }
-                    )
-                }
-                if (showHighlight) {
-                    Spacer(Modifier.height(6.dp))
-                    ColorDots(
-                        colors = HIGHLIGHT_COLORS,
-                        current = curSpan.background,
-                        onPick = { richState.toggleSpanStyle(SpanStyle(background = it)) }
-                    )
-                }
-                if (showSize) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("P" to 14.sp, "M" to 18.sp, "G" to 24.sp).forEach { (label, size) ->
-                            val active = curSpan.fontSize == size
-                            TextButton(onClick = {
-                                richState.toggleSpanStyle(SpanStyle(fontSize = size))
-                            }) {
-                                Text(
-                                    label,
-                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (active) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-                BasicRichTextEditor(
-                    state = richState,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    decorationBox = { inner ->
-                        Box(Modifier.fillMaxWidth()) {
-                            if (richState.annotatedString.isEmpty()) {
-                                Text(
-                                    "Escreva aqui…",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                            }
-                            inner()
-                        }
-                    }
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "$wordCount palavras",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
             } else {
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    MarkdownPreview(mdText)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .imePadding(),
+                ) {
+                    sections.forEachIndexed { index, sectionState ->
+                        // key(id): estado do card não migra no reorder (3.2.5f.2b).
+                        key(sectionState.section.id) {
+                            SectionCardEditor(
+                                state = sectionState,
+                                isActiveSection = sectionState.section.id == activeSectionId,
+                                readOnly = preview,
+                                isFirstSection = index == 0,
+                                isLastSection = index == sections.lastIndex,
+                                onActivate = { activeSectionId = sectionState.section.id },
+                                onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
+                                onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
+                                onContentChange = { vm.onSectionContent(sectionState.section.id, it) },
+                                onSubPointChange = { spId, html -> vm.onSubPointContent(spId, html) },
+                                onActiveEditorChange = { _, state ->
+                                    activeEditorState = state
+                                },
+                                onSelectionChange = { ctx -> vm.onSelectionChange(ctx) },
+                                sectionPendingInserts = sectionPendingInserts,
+                                onConsumeInsert = { vm.consumeInsert(it) },
+                                onAddSubPoint = { afterId ->
+                                    vm.addSubPoint(sectionState.section.id, afterId)
+                                },
+                                onRemoveSubPoint = { spId -> vm.removeSubPoint(spId) },
+                                onMoveSubPoint = { spId, dir -> vm.moveSubPoint(spId, dir) },
+                                onUpdateSubPointOutlineText = { spId, text ->
+                                    vm.updateSubPointOutlineText(spId, text)
+                                },
+                                onRoleChange = { role ->
+                                    vm.updateSectionRole(sectionState.section.id, role)
+                                },
+                                onMoveSectionUp = {
+                                    vm.moveSection(sectionState.section.id, MoveDirection.UP)
+                                },
+                                onMoveSectionDown = {
+                                    vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
+                                },
+                                onRemoveSection = { vm.removeSection(sectionState.section.id) },
+                                canGenerateDraft = canGenerateDraft,
+                                onGenerateDraft = vm::startDraft,
+                            )
+                        }
+                    }
+                    if (!preview) {
+                        AddSectionButton(
+                            onAdd = { role ->
+                                vm.addSection(role, afterSectionId = sections.lastOrNull()?.section?.id)
+                            },
+                        )
+                    }
                 }
             }
-            // com o teclado aberto, o rodapé some p/ dar espaço ao texto
-            if (!imeVisible) {
-                Spacer(Modifier.height(4.dp))
-                Row {
-                    TextButton(onClick = onAttach) {
-                        Icon(Icons.Default.AttachFile, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text("Anexos da nota (${attachments.size})")
-                    }
-                }
-                attachments.take(4).forEach { a ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "• ${a.fileName}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = { vm.unlinkAttachment(a.id) }) {
-                            Icon(Icons.Default.Close, "Desvincular")
-                        }
-                    }
-                }
-                if (attachments.size > 4) {
-                    Text(
-                        "+${attachments.size - 4} anexos (veja na Biblioteca)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
+        }
+    }
+
+    // Fase 3.5e.3: preview do rascunho gerado pelo Copilot (fora do Scaffold).
+    if (draftState !is DraftUiState.Idle) {
+        DraftSheet(
+            state = draftState,
+            sections = sections,
+            onAccept = vm::acceptDraft,
+            onDismiss = vm::dismissDraft,
+            onRetry = { (draftState as? DraftUiState.Error)?.target?.let(vm::startDraft) },
+            onUndo = vm::undoDraft,
+        )
+    }
+
+    // 3.2.5g.3: anexos da nota (substitui o rodapé fixo).
+    if (showAttachmentsSheet) {
+        AttachmentsSheet(
+            attachments = attachments,
+            onUnlink = { id -> vm.unlinkAttachment(id) },
+            onAttach = { showAttachmentsSheet = false; onAttach() },
+            onDismiss = { showAttachmentsSheet = false },
+        )
+    }
+}
+
+/** 3.2.5g.3: bolinha de cor da nota (dialog do ⋮; sem swatch de "limpar"). */
+@Composable
+private fun NoteColorDot(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(color)
+            .then(
+                if (selected) Modifier.border(
+                    2.dp,
+                    MaterialTheme.colorScheme.onSurface,
+                    CircleShape
+                ) else Modifier
+            )
+            .clickable { onClick() }
+    )
+}
+
+/**
+ * 3.2.5f.2b: botão "Adicionar seção" com dropdown de role
+ * (INTRO/BODY/CONCLUSION). Usado no fim da lista de seções e no empty
+ * state (reuso). O caller decide se aparece (fora do preview).
+ */
+@Composable
+private fun AddSectionButton(
+    onAdd: (SectionRole) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier = modifier.fillMaxWidth().padding(top = 8.dp)) {
+        OutlinedButton(
+            onClick = { menuOpen = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Add, "Adicionar seção")
+            Spacer(Modifier.width(4.dp))
+            Text("Adicionar seção")
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            SectionRole.values().forEach { role ->
+                DropdownMenuItem(
+                    text = { Text("Seção: ${role.name}") },
+                    onClick = { onAdd(role); menuOpen = false },
+                )
             }
         }
     }
@@ -524,9 +738,10 @@ private fun ToolBtn(
     icon: ImageVector,
     desc: String,
     active: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    IconButton(onClick = onClick) {
+    IconButton(onClick = onClick, enabled = enabled) {
         Icon(
             icon, desc,
             tint = if (active) MaterialTheme.colorScheme.primary
