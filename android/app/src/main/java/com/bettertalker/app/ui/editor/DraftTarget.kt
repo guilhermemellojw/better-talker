@@ -73,3 +73,33 @@ fun stripHtml(html: String): String =
     html.replace(Regex("<[^>]+>"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
+
+/**
+ * Parseia o `activeEditorKey` para DraftTarget.
+ * - "section-{id}" → Section(id)
+ * - "subpoint-{id}" → SubPoint(sectionId, id) — precisa resolver o
+ *   sectionId do sub-ponto
+ * - null / desconhecido → null (chat genérico)
+ *
+ * `resolveSectionFor` é injetado porque o helper não tem acesso à
+ * StateFlow de seções.
+ *
+ * Pura, testável.
+ */
+internal fun targetFromEditorKey(
+    key: String?,
+    resolveSectionFor: (subPointId: String) -> String?,
+): DraftTarget? {
+    if (key == null) return null
+    if (key.startsWith("section-")) {
+        val id = key.removePrefix("section-")
+        return if (id.isBlank()) null else DraftTarget.Section(id)
+    }
+    if (key.startsWith("subpoint-")) {
+        val id = key.removePrefix("subpoint-")
+        if (id.isBlank()) return null
+        val sectionId = resolveSectionFor(id) ?: return null
+        return DraftTarget.SubPoint(sectionId, id)
+    }
+    return null
+}

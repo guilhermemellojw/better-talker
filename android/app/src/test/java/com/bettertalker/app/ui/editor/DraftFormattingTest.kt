@@ -62,4 +62,30 @@ class DraftFormattingTest {
         )
         assertEquals("", stripHtml("<p></p>"))
     }
+
+    @Test
+    fun targetFromEditorKey_sectionKey_returnsSection() {
+        assertEquals(DraftTarget.Section("s1"), targetFromEditorKey("section-s1") { null })
+    }
+
+    @Test
+    fun targetFromEditorKey_subPointKey_resolvesSection() {
+        val target = targetFromEditorKey("subpoint-sp1") { if (it == "sp1") "s1" else null }
+        assertEquals(DraftTarget.SubPoint("s1", "sp1"), target)
+    }
+
+    @Test
+    fun targetFromEditorKey_nullKey_returnsNull() {
+        assertEquals(null, targetFromEditorKey(null) { "s1" })
+    }
+
+    @Test
+    fun targetFromEditorKey_unknownKey_returnsNull() {
+        assertEquals(null, targetFromEditorKey("toolbar-x") { "s1" })
+    }
+
+    @Test
+    fun targetFromEditorKey_subPointWithoutSection_returnsNull() {
+        assertEquals(null, targetFromEditorKey("subpoint-sp9") { null })
+    }
 }

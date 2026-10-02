@@ -125,6 +125,9 @@ fun SectionCardEditor(
     // Fase 3.5e.3: geração de rascunho pelo Copilot.
     canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
+    // F2c: conversa focada ("Conversar sobre…") — alvo explícito, sem
+    // depender da seleção viva.
+    onChatAbout: (DraftTarget) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     // Mapa persistente de RichTextStates (key → state). Criado uma vez por
@@ -168,6 +171,7 @@ fun SectionCardEditor(
                 onRemove = { confirmDelete = true },
                 canGenerateDraft = canGenerateDraft,
                 onGenerateDraft = onGenerateDraft,
+                onChatAbout = onChatAbout,
             )
             Spacer(Modifier.height(12.dp))
 
@@ -278,6 +282,7 @@ fun SectionCardEditor(
                                     },
                                     canGenerateDraft = canGenerateDraft,
                                     onGenerateDraft = onGenerateDraft,
+                                    onChatAbout = onChatAbout,
                                     onFocusChange = { isFocused ->
                                         if (isFocused) {
                                             focusedEditorKey = editorKey
@@ -345,6 +350,8 @@ private fun SectionHeader(
     onRemove: () -> Unit,
     canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
+    // F2c: conversa focada (ver SectionCardEditor).
+    onChatAbout: (DraftTarget) -> Unit = {},
 ) {
     var titleText by remember(state.section.id, state.section.title) {
         mutableStateOf(state.section.title)
@@ -443,6 +450,15 @@ private fun SectionHeader(
                     // Fase 3.5e.3: gerar rascunho para a seção (só quando
                     // não há sub-pontos — INTRO/CONCLUSION/BODY vazia; em
                     // BODY com sub-pontos o item vive no ⋮ de cada ponto).
+                    // F2c: conversa focada primeiro (fluxo principal),
+                    // one-shot depois (atalho).
+                    DropdownMenuItem(
+                        text = { Text("Conversar sobre esta seção") },
+                        onClick = {
+                            menuOpen = false
+                            onChatAbout(DraftTarget.Section(state.section.id))
+                        },
+                    )
                     if (state.subPoints.isEmpty()) {
                         DropdownMenuItem(
                             text = { Text("Gerar com Copilot") },
@@ -549,6 +565,8 @@ private fun SubPointEditor(
     onUpdateOutlineText: (String) -> Unit,
     canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
+    // F2c: conversa focada (ver SectionCardEditor).
+    onChatAbout: (DraftTarget) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editorKey = "subpoint-${subPoint.id}"
@@ -613,6 +631,15 @@ private fun SubPointEditor(
                             DropdownMenuItem(
                                 text = { Text("Excluir ponto") },
                                 onClick = { confirmDelete = true; menuOpen = false },
+                            )
+                            // F2c: conversa focada primeiro (fluxo principal),
+                            // one-shot depois (atalho).
+                            DropdownMenuItem(
+                                text = { Text("Conversar sobre este ponto") },
+                                onClick = {
+                                    menuOpen = false
+                                    onChatAbout(DraftTarget.SubPoint(sectionId, subPoint.id))
+                                },
                             )
                             // Fase 3.5e.3: gera rascunho para ESTE sub-ponto.
                             DropdownMenuItem(

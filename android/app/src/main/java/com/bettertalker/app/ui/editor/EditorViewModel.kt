@@ -539,11 +539,28 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * Lê a seleção atual + prontidão e empurra como contexto para o chat.
      * Chamado pelo FAB antes de navegar (~4 queries Room, on-demand).
      */
-    suspend fun pushContextForChat() {
-        val sel = selection.value
+    /**
+     * Empurra o contexto para o chat. [target] explícito:
+     * - SubPoint(sectionId, subPointId) → foco no sub-ponto
+     * - Section(sectionId) → foco na seção
+     * - null → chat genérico (sem foco)
+     *
+     * Chamado pelo FAB (target resolvido do [activeEditorKey]) ou pelo ⋮
+     * ("Conversar sobre este ponto").
+     *
+     * **Não usa `selection.value`** — a seleção viva é contaminada por
+     * emissões iniciais dos editores (sem `.drop(1)`, última seção vence
+     * a corrida). Fonte é o editor focado (FAB) ou o target explícito (⋮).
+     */
+    suspend fun pushContextForChat(target: DraftTarget?) {
+        val (sectionId, subPointId) = when (target) {
+            is DraftTarget.SubPoint -> target.sectionId to target.subPointId
+            is DraftTarget.Section -> target.sectionId to null
+            null -> null to null
+        }
         _pushedContext.value = ChatContext(
-            sectionId = sel?.sectionId,
-            subPointId = sel?.subPointId,
+            sectionId = sectionId,
+            subPointId = subPointId,
             readiness = readNoteReadiness(),
         )
     }

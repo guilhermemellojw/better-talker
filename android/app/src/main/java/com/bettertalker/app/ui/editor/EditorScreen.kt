@@ -141,6 +141,9 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
     // in-place quando o HTML externo muda (não precisa re-emitir).
     var activeSectionId by remember { mutableStateOf<String?>(null) }
     var activeEditorState by remember { mutableStateOf<RichTextState?>(null) }
+    // F2c: chave do editor focado (fonte do alvo do FAB). O RichTextState
+    // sozinho não diz a qual seção/sub-ponto pertence.
+    var activeEditorKey by remember { mutableStateOf<String?>(null) }
 
     // 3.2.5g.2: preview esconde a toolbar — não deixar picker ativo vazar.
     LaunchedEffect(preview) { if (preview) activePicker = null }
@@ -261,7 +264,15 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    scope.launch { vm.pushContextForChat() }
+                    scope.launch {
+                        vm.pushContextForChat(
+                            targetFromEditorKey(activeEditorKey) { subPointId ->
+                                sections.firstOrNull { s ->
+                                    s.subPoints.any { it.id == subPointId }
+                                }?.section?.id
+                            }
+                        )
+                    }
                     onOpenChat()
                 }
             ) {
@@ -615,7 +626,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
                                 onContentChange = { vm.onSectionContent(sectionState.section.id, it) },
                                 onSubPointChange = { spId, html -> vm.onSubPointContent(spId, html) },
-                                onActiveEditorChange = { _, state ->
+                                onActiveEditorChange = { key, state ->
+                                    activeEditorKey = key
                                     activeEditorState = state
                                 },
                                 onSelectionChange = { ctx -> vm.onSelectionChange(ctx) },
@@ -641,6 +653,10 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 onRemoveSection = { vm.removeSection(sectionState.section.id) },
                                 canGenerateDraft = canGenerateDraft,
                                 onGenerateDraft = vm::startDraft,
+                                onChatAbout = { target ->
+                                    scope.launch { vm.pushContextForChat(target) }
+                                    onOpenChat()
+                                },
                             )
                         }
                     }
