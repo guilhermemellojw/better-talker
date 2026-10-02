@@ -118,6 +118,14 @@ fun DraftSheet(
                     }
 
                     Spacer(Modifier.height(4.dp))
+                    // Aviso de truncamento (informativo — nunca bloqueia o aceite).
+                    if (state.draft.possiblyTruncated) {
+                        Text(
+                            "⚠ Pode estar incompleto (limite de tamanho)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Text(
                         stripHtml(state.draft.textHtml),
                         style = MaterialTheme.typography.bodyMedium,

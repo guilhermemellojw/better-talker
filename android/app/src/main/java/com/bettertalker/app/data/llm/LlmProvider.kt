@@ -82,7 +82,14 @@ data class LlmResponseMeta(
     /** F20-F1 §37: tokens reais quando o endpoint informa (Groq/Qwen). */
     val usage: LlmUsage? = null,
     /** F20-F1 §37: headers de limite restantes, quando informados. */
-    val rateLimit: Map<String, String> = emptyMap()
+    val rateLimit: Map<String, String> = emptyMap(),
+    /**
+     * Motivo de término do modelo (`finish_reason` do Groq =
+     * "stop"/"length"/…; `finishReason` do Gemini normalizado para o
+     * mesmo vocabulário: "MAX_TOKENS" vira "length").
+     * Null = endpoint não informou.
+     */
+    val finishReason: String? = null,
 )
 
 /** Tokens observados de uma chamada real (nulos quando o endpoint omite). */

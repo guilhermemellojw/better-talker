@@ -34,7 +34,7 @@ class SectionGeneratorImpl(
             jsonSchema = SECTION_DRAFT_SCHEMA,
             maxAttempts = 1, // sem retry automático — evita queimar cota em 429
             timeoutMs = 30_000L,
-            maxOutputTokens = 1000, // draft de ~250 palavras + JSON cabe
+            maxOutputTokens = 500, // alvo maior (BODY ~250 palavras) + JSON cabem; o teto é safety net
         )
         val response = try {
             llmProvider.generate(llmRequest)
@@ -46,7 +46,7 @@ class SectionGeneratorImpl(
             return null
         }
         if (response.text.isBlank()) return null
-        val parsed = responseParser.parse(response.text) ?: return null
+        val parsed = responseParser.parse(response.text, response.meta.finishReason) ?: return null
         val fidelity = DossierFidelityCheck.check(
             textHtml = parsed.textHtml,
             usedSources = parsed.usedSources,
@@ -56,6 +56,7 @@ class SectionGeneratorImpl(
             textHtml = parsed.textHtml,
             usedSources = parsed.usedSources,
             validation = fidelity,
+            possiblyTruncated = parsed.possiblyTruncated,
         )
     }
 

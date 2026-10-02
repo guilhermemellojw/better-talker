@@ -40,7 +40,7 @@ class DefaultDossierPromptBuilder(
             appendMethodPrinciples(dossier)
             appendTransition(dossier)
             appendUnresolved(dossier)
-            appendTask(dossier.currentSection.role)
+            appendTask(dossier)
             appendJsonFormat()
         }.trim()
     }
@@ -126,10 +126,14 @@ class DefaultDossierPromptBuilder(
         appendLine()
     }
 
-    private fun StringBuilder.appendTask(role: SectionRole) {
+    private fun StringBuilder.appendTask(d: Dossier) {
         appendLine("## TAREFA")
-        when (role) {
-            SectionRole.BODY -> appendLine(BODY_TASK.trimIndent())
+        val hasSubPoint = d.currentSubPoint != null
+        when (d.currentSection.role) {
+            SectionRole.BODY -> appendLine(
+                if (hasSubPoint) BODY_SUBPOINT_TASK.trimIndent()
+                else BODY_SECTION_TASK.trimIndent()
+            )
             SectionRole.INTRO -> appendLine(INTRO_TASK.trimIndent())
             SectionRole.CONCLUSION -> appendLine(CONCLUSION_TASK.trimIndent())
         }
@@ -159,12 +163,24 @@ class DefaultDossierPromptBuilder(
             referências ou doutrina. Use SOMENTE o material fornecido abaixo.
         """
 
-        val BODY_TASK = """
-            Desenvolva o sub-ponto acima em 2-3 parágrafos curtos (~150-250 palavras).
+        val BODY_SUBPOINT_TASK = """
+            Desenvolva o sub-ponto acima em 2-3 parágrafos curtos (100 a 200 palavras).
             - Use os textos bíblicos literalmente quando citar.
             - NÃO repita o outlineText literalmente; desenvolva a ideia.
             - Se um texto bíblico não foi fornecido, NÃO invente; escreva
               "[desenvolver com base em {ref}]".
+            - Se estiver se aproximando do limite, encerre a frase atual —
+              nunca deixe texto cortado no meio de uma palavra.
+        """
+
+        val BODY_SECTION_TASK = """
+            Desenvolva a seção acima em 2-3 parágrafos curtos (150 a 250 palavras).
+            - Use os textos bíblicos literalmente quando citar.
+            - NÃO repita o título literalmente; desenvolva a ideia.
+            - Se um texto bíblico não foi fornecido, NÃO invente; escreva
+              "[desenvolver com base em {ref}]".
+            - Se estiver se aproximando do limite, encerre a frase atual —
+              nunca deixe texto cortado no meio de uma palavra.
         """
 
         val INTRO_TASK = """
@@ -174,6 +190,8 @@ class DefaultDossierPromptBuilder(
             3. Transicione para o primeiro ponto.
             - Use os textos bíblicos literalmente se citar.
             - NÃO cubra argumentos dos pontos do corpo.
+            - Se estiver se aproximando do limite, encerre a frase atual —
+              nunca deixe texto cortado no meio de uma palavra.
         """
 
         val CONCLUSION_TASK = """
@@ -183,6 +201,8 @@ class DefaultDossierPromptBuilder(
             3. Termine com um convite ou chamada.
             - Use os textos bíblicos literalmente se citar.
             - NÃO introduza argumentos novos.
+            - Se estiver se aproximando do limite, encerre a frase atual —
+              nunca deixe texto cortado no meio de uma palavra.
         """
     }
 }

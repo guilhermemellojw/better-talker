@@ -44,4 +44,23 @@ class SectionDraftParserTest {
     fun parse_malformedJson_returnsNull() {
         assertNull(parser.parse("{\"text\": \"<p>sem fim\""))
     }
+
+    @Test
+    fun parse_lengthFinishReason_marksPossiblyTruncated() {
+        val json = """{"text":"<p>x</p>","usedSources":[]}"""
+        assertTrue(parser.parse(json, "length")?.possiblyTruncated == true)
+    }
+
+    @Test
+    fun parse_stopFinishReason_notTruncated() {
+        val json = """{"text":"<p>x</p>","usedSources":[]}"""
+        assertTrue(parser.parse(json, "stop")?.possiblyTruncated == false)
+    }
+
+    @Test
+    fun parse_nullFinishReason_notTruncated() {
+        val json = """{"text":"<p>x</p>","usedSources":[]}"""
+        val parsed = parser.parse(json)
+        assertTrue(parsed?.possiblyTruncated == false)
+    }
 }

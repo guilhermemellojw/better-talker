@@ -97,7 +97,8 @@ class GeminiProvider(
                             ?: throw ProviderError(ProviderErrorCode.INVALID_RESPONSE,
                                 "Resposta do Gemini em formato inesperado.", id, attempts)
                         return LlmResponse(text, LlmResponseMeta(id, model,
-                            System.currentTimeMillis() - started, attempts, offline = false))
+                            System.currentTimeMillis() - started, attempts, offline = false,
+                            finishReason = parseFinishReason(res.body)))
                     }
                     res.status == 429 -> {
                         log("gemini 429 attempt=$attempts")
@@ -166,6 +167,19 @@ class GeminiProvider(
             val m = Regex("\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(body)
                 ?: return null
             return jsonUnescape(m.groupValues[1]).ifBlank { null }
+        }
+
+        /**
+         * Motivo de término (`candidates[0].finishReason`: "STOP"/
+         * "MAX_TOKENS"/…). Normalizado para o vocabulário do Groq
+         * ("MAX_TOKENS" vira "length"); demais valores vão crus.
+         * Null quando ausente. Puro/testável.
+         */
+        fun parseFinishReason(body: String): String? {
+            val m = Regex("\"finishReason\"\\s*:\\s*\"([^\"]+)\"").find(body)
+                ?: return null
+            val raw = m.groupValues[1].ifBlank { return null }
+            return if (raw == "MAX_TOKENS") "length" else raw
         }
 
         /** Transitório = vale retry. Definitivo = falha imediata. Puro/testável. */

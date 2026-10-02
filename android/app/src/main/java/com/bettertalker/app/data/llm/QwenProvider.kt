@@ -66,7 +66,8 @@ class QwenProvider(
                                 "Resposta do Qwen em formato inesperado.", id, attempts)
                         return LlmResponse(text, LlmResponseMeta(id, model,
                             System.currentTimeMillis() - started, attempts, offline = false,
-                            usage = parseUsage(res.body), rateLimit = res.headers))
+                            usage = parseUsage(res.body), rateLimit = res.headers,
+                            finishReason = parseFinishReason(res.body)))
                     }
                     res.status == 429 -> {
                         log("qwen 429 attempt=$attempts")
@@ -188,6 +189,16 @@ class QwenProvider(
             val output = num("completion_tokens") ?: 0
             val total = num("total_tokens") ?: (input + output)
             return LlmUsage(input, output, total)
+        }
+
+        /**
+         * Motivo de término (`choices[0].finish_reason`: "stop"/"length"/…).
+         * Null quando ausente. Puro/testável.
+         */
+        fun parseFinishReason(body: String): String? {
+            val m = Regex("\"finish_reason\"\\s*:\\s*\"([^\"]+)\"").find(body)
+                ?: return null
+            return m.groupValues[1].ifBlank { null }
         }
 
         /** Transitório = vale retry. Definitivo = falha imediata. Puro/testável. */

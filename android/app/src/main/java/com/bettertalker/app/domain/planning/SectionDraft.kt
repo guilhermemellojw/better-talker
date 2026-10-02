@@ -7,11 +7,14 @@ package com.bettertalker.app.domain.planning
  *   `developedHtml`/`contentHtml`).
  * @param usedSources refs do dossiê efetivamente usadas pelo LLM.
  * @param validation resultado da verificação de fidelidade.
+ * @param possiblyTruncated true quando o modelo parou por limite de
+ *   tamanho (`finish_reason == "length"`) — o texto pode estar cortado.
  */
 data class SectionDraft(
     val textHtml: String,
     val usedSources: List<String>,
     val validation: DossierFidelityReport,
+    val possiblyTruncated: Boolean = false,
 )
 
 /**

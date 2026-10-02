@@ -48,10 +48,34 @@ class DossierPromptBuilderTest {
 
     private val builder = DefaultDossierPromptBuilder()
 
+    private fun subPoint() = SubPoint(
+        id = "sp1", sectionId = "s1", order = 0, outlineText = "ponto",
+        bibleRefs = emptyList(), publicationRefs = emptyList(), instruction = null,
+        developedHtml = "", createdAt = 0, updatedAt = 0,
+    )
+
     @Test
     fun build_body_containsBodyTaskInstruction() {
-        val prompt = builder.build(dossier(role = SectionRole.BODY))
+        val prompt = builder.build(dossier(role = SectionRole.BODY, subPoint = subPoint()))
         assertTrue(prompt.contains("Desenvolva o sub-ponto"))
+    }
+
+    @Test
+    fun build_bodySubPoint_targets100to200Words() {
+        val prompt = builder.build(dossier(role = SectionRole.BODY, subPoint = subPoint()))
+        assertTrue(prompt.contains("100 a 200"))
+    }
+
+    @Test
+    fun build_bodySection_targets150to250Words() {
+        val prompt = builder.build(dossier(role = SectionRole.BODY))
+        assertTrue(prompt.contains("150 a 250"))
+    }
+
+    @Test
+    fun build_tasks_askToFinishSentence() {
+        val prompt = builder.build(dossier(role = SectionRole.INTRO, subPoint = subPoint()))
+        assertTrue(prompt.contains("nunca deixe texto cortado"))
     }
 
     @Test

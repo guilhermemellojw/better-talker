@@ -6,10 +6,18 @@ import com.bettertalker.app.data.llm.GeminiProvider
 data class ParsedDraft(
     val textHtml: String,
     val usedSources: List<String>,
+    /** true quando o modelo parou por limite de tamanho (`finish_reason`). */
+    val possiblyTruncated: Boolean = false,
 )
 
 interface SectionDraftParser {
     fun parse(jsonText: String): ParsedDraft?
+
+    /**
+     * Overload aditiva: carrega o `finish_reason` do provider para o
+     * flag de truncamento. Default delega sem motivo (= não truncado).
+     */
+    fun parse(jsonText: String, finishReason: String?): ParsedDraft? = parse(jsonText)
 }
 
 /**
@@ -27,20 +35,22 @@ interface SectionDraftParser {
  */
 class DefaultSectionDraftParser : SectionDraftParser {
 
-    override fun parse(jsonText: String): ParsedDraft? {
+    override fun parse(jsonText: String): ParsedDraft? = parse(jsonText, null)
+
+    override fun parse(jsonText: String, finishReason: String?): ParsedDraft? {
         return try {
-            parseOrNull(jsonText)
+            parseOrNull(jsonText, finishReason)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun parseOrNull(jsonText: String): ParsedDraft? {
+    private fun parseOrNull(jsonText: String, finishReason: String?): ParsedDraft? {
         if (jsonText.contains("```")) return null
         val root = rootObject(jsonText) ?: return null
         val text = stringField(root, "text")?.takeIf { it.isNotBlank() } ?: return null
         val usedSources = stringArray(root, "usedSources") ?: emptyList()
-        return ParsedDraft(text, usedSources)
+        return ParsedDraft(text, usedSources, possiblyTruncated = finishReason == "length")
     }
 
     // ---------- helpers manuais (padrão do OutlineResponseParser) ----------
