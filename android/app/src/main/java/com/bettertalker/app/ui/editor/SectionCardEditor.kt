@@ -229,6 +229,34 @@ fun SectionCardEditor(
                 }
                 SectionRole.BODY -> {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // BODY sem sub-pontos: o conteúdo da seção (draft aceito
+                        // pelo menu da seção, import) é renderizado/editável
+                        // aqui — antes, ele era gravado mas ficava invisível.
+                        if (state.subPoints.isEmpty()) {
+                            val editorKey = "section-${state.section.id}"
+                            SectionContentEditor(
+                                editorKey = editorKey,
+                                initialHtml = state.section.contentHtml,
+                                sectionId = state.section.id,
+                                subPointId = null,
+                                editorStates = editorStates,
+                                readOnly = readOnly,
+                                onContentChange = onContentChange,
+                                onSelectionChange = onSelectionChange,
+                                onFocusChange = { isFocused ->
+                                    if (isFocused) {
+                                        focusedEditorKey = editorKey
+                                        onActiveEditorChange(editorKey, editorStates[editorKey])
+                                    } else if (focusedEditorKey == editorKey) {
+                                        focusedEditorKey = null
+                                        onActiveEditorChange(null, null)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 80.dp),
+                            )
+                        }
                         state.subPoints.forEachIndexed { index, subPoint ->
                             // key(id): estado de menu/edição não migra no reorder.
                             key(subPoint.id) {
