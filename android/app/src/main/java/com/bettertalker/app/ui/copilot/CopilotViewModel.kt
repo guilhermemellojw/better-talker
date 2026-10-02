@@ -782,6 +782,19 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
                     }
+                    // F2e: sem S-34 mas com esboço vinculado (seções
+                    // convertidas) → degrada para o chat normal, que já
+                    // tem dossiê injetado. Sem esboço nenhum, o
+                    // generateOratory mantém a mensagem "Importe o S-34".
+                    val outlineNid = noteId ?: return@launch
+                    if (shouldDegradeOratoryToChat(
+                            hasS34Document = _lastS34Document != null,
+                            hasLinkedOutline = outlines.get(outlineNid) != null,
+                        )
+                    ) {
+                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
+                        return@launch
+                    }
                     generateOratory(route, text, remote, contextBlock)
                     return@launch
                 }
@@ -2598,3 +2611,22 @@ internal fun buildOutlineConversion(
     )
     return converter.convert(parsed, noteId, discourseType)
 }
+
+/**
+ * Decide se a rota Oratory deve degradar para o chat normal.
+ *
+ * Motivo: esboços colados/importados que não passam pelo
+ * `S34ImportHook` nunca populam `s34_outlines` → `_lastS34Document`
+ * fica null → o usuário via "Importe o S-34" mesmo com esboço válido
+ * vinculado. Todo o resto do produto (dossiê, `buildContextBlock`,
+ * greeting) já é agnóstico ao tipo.
+ *
+ * Degrada **apenas** quando há esboço vinculado (seções convertidas
+ * disponíveis). Sem esboço nenhum, mantém a mensagem original.
+ *
+ * Pura, testável.
+ */
+internal fun shouldDegradeOratoryToChat(
+    hasS34Document: Boolean,
+    hasLinkedOutline: Boolean,
+): Boolean = !hasS34Document && hasLinkedOutline
