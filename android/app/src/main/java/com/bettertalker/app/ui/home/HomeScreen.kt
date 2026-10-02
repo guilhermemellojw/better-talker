@@ -27,15 +27,18 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,9 +77,8 @@ fun HomeScreen(
     onOpenLibrary: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenAccount: () -> Unit,
+    onOpenModel: () -> Unit,
     settings: SettingsStore,
-    // SPIKE 3.2.1 — REMOVER
-    onOpenPrototype: () -> Unit = {},
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -90,6 +92,8 @@ fun HomeScreen(
     var showNewFolder by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var confirmDelFolder by remember { mutableStateOf(false) }
+    // Dropdown de usuário (Conta/Aparência/Modelo IA).
+    var menuOpen by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val selectedFolder = folders.firstOrNull { it.id == folderId }
 
@@ -207,12 +211,36 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("Better Talker") },
                 actions = {
-                    IconButton(onClick = { showTheme = true }) { Icon(Icons.Default.Contrast, "Aparência") }
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
-                    IconButton(onClick = onOpenAccount) { Icon(Icons.Default.AccountCircle, "Conta") }
-                    // SPIKE 3.2.1 — REMOVER
-                    IconButton(onClick = onOpenPrototype) { Icon(Icons.Default.Build, "DEBUG") }
+
+                    // Dropdown de usuário (padrão do EditorScreen: Box ancora o menu).
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) {
+                            Icon(Icons.Default.AccountCircle, "Conta")
+                        }
+                        DropdownMenu(
+                            expanded = menuOpen,
+                            onDismissRequest = { menuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Conta") },
+                                onClick = { menuOpen = false; onOpenAccount() },
+                                leadingIcon = { Icon(Icons.Default.AccountCircle, null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Aparência") },
+                                onClick = { menuOpen = false; showTheme = true },
+                                leadingIcon = { Icon(Icons.Default.Contrast, null) },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Modelo IA") },
+                                onClick = { menuOpen = false; onOpenModel() },
+                                leadingIcon = { Icon(Icons.Default.SmartToy, null) },
+                            )
+                        }
+                    }
                 }
             )
         },

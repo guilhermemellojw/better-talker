@@ -95,9 +95,8 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 onOpenLibrary = { nav.navigate(Routes.library()) },
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
+                onOpenModel = { nav.navigate(Routes.MODEL) },
                 settings = settings,
-                // SPIKE 3.2.1 — REMOVER
-                onOpenPrototype = { nav.navigate(Routes.PROTOTYPE_SECTIONS) },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -212,10 +211,6 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val vm: com.bettertalker.app.ui.aimodel.ModelViewModel =
                 viewModel(factory = com.bettertalker.app.ui.aimodel.ModelViewModel.Factory(ctx))
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
-        }
-        // DEMO 3.2.5b — REMOVER
-        composable(Routes.PROTOTYPE_SECTIONS) { _ ->
-            com.bettertalker.app.ui.editor.SectionCardEditorDemoScreen(onBack = { nav.popBackStack() })
         }
     }
 }
