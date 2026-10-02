@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.editor
 
 import com.bettertalker.app.domain.planning.SectionDraft
+import com.bettertalker.app.domain.speech.SectionRole
 
 /**
  * Alvo explícito de um draft gerado pelo Copilot no editor.
@@ -61,6 +62,18 @@ fun alvoLabel(target: DraftTarget, sections: List<SectionUiState>): String {
             }
         }
     }
+}
+
+/**
+ * Sigla de 2 letras do role, para o chip compacto do cabeçalho de
+ * seção. Substitui o nome completo (que ocupava ~60-80dp de largura).
+ *
+ * Pura, testável.
+ */
+internal fun roleSigla(role: SectionRole): String = when (role) {
+    SectionRole.INTRO -> "IN"
+    SectionRole.BODY -> "BD"
+    SectionRole.CONCLUSION -> "CO"
 }
 
 /**

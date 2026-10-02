@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -98,6 +99,16 @@ import kotlinx.coroutines.flow.drop
  * `LaunchedEffect(initialHtml)` daqui o atualiza in-place — o caller não
  * precisa de novo callback (débito/explicação da decisão 4 da 3.2.5c).
  */
+/**
+ * Cor do chip por role. Suaves do tema, sem hardcode.
+ */
+@Composable
+internal fun roleChipColors(role: SectionRole): Color = when (role) {
+    SectionRole.INTRO -> MaterialTheme.colorScheme.primaryContainer
+    SectionRole.BODY -> MaterialTheme.colorScheme.secondaryContainer
+    SectionRole.CONCLUSION -> MaterialTheme.colorScheme.tertiaryContainer
+}
+
 @Composable
 fun SectionCardEditor(
     state: SectionUiState,
@@ -362,17 +373,25 @@ private fun SectionHeader(
     var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
     var menuOpen by remember(state.section.id) { mutableStateOf(false) }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // 1. Chip de role → dropdown para trocar (3.2.5f.2b).
+    // Linha 1: chip compacto de role → dropdown para trocar (3.2.5f.2b).
+    // Linha 2: título + minutos + ⋮ (título ganha a largura do chip).
+    Column(Modifier.fillMaxWidth()) {
         Box {
-            AssistChip(
+            Surface(
                 onClick = { if (!readOnly) roleMenuOpen = true },
                 enabled = !readOnly,
-                label = { Text(state.section.role.name) },
-            )
+                shape = RoundedCornerShape(4.dp),
+                color = roleChipColors(state.section.role),
+                modifier = Modifier.padding(bottom = 2.dp),
+            ) {
+                Text(
+                    roleSigla(state.section.role),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
             DropdownMenu(
                 expanded = roleMenuOpen,
                 onDismissRequest = { roleMenuOpen = false },
@@ -388,6 +407,10 @@ private fun SectionHeader(
                 }
             }
         }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         // 2. Título editável (mantido).
         TextField(
             value = titleText,
@@ -482,6 +505,7 @@ private fun SectionHeader(
                 }
             }
         }
+    }
     }
 }
 
