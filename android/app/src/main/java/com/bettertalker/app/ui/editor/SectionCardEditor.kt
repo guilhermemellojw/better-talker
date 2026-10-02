@@ -173,7 +173,7 @@ fun SectionCardEditor(
                 onGenerateDraft = onGenerateDraft,
                 onChatAbout = onChatAbout,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(6.dp))
 
             // 3.2.5e: aplica inserts pendentes direcionados a esta seção.
             // insertMarkdownAfterSelection usa o cursor do editor; se o editor
@@ -397,8 +397,18 @@ private fun SectionHeader(
                 onTitleChange(it)
             },
             singleLine = true,
-            placeholder = { Text("Título da seção") },
+            placeholder = {
+                Text(
+                    "Título da seção",
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                )
+            },
             modifier = Modifier.weight(1f),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                fontWeight = FontWeight.SemiBold
+            ),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
@@ -415,7 +425,7 @@ private fun SectionHeader(
                 filtered.toIntOrNull()?.let { onMinutesChange(it) }
             },
             singleLine = true,
-            modifier = Modifier.width(76.dp),
+            modifier = Modifier.width(60.dp),
             suffix = { Text("min") },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,

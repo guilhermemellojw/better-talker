@@ -333,12 +333,12 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
             )
         }
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad).padding(16.dp)) {
+        Column(Modifier.fillMaxSize().padding(pad).padding(12.dp)) {
             // Título estilo Notes: grande, sem borda
             androidx.compose.material3.TextField(
                 value = title, onValueChange = vm::onTitle,
-                placeholder = { Text("Título", style = MaterialTheme.typography.headlineSmall) },
-                textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                placeholder = { Text("Título", style = MaterialTheme.typography.titleLarge) },
+                textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 singleLine = true,
                 colors = androidx.compose.material3.TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
@@ -348,7 +348,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             // 3.2.5f-pre: aviso estrutural não-bloqueante (dispensável; a
             // próxima mudança republica se a estrutura seguir inválida).
             val structureWarning by vm.structureWarning.collectAsState()
