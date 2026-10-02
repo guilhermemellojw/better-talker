@@ -61,6 +61,7 @@ import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
 import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
 import kotlinx.coroutines.Job
@@ -458,6 +459,41 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
         _setupBannerDismissed.value = false
+        // Header "Conversando sobre": resolução assíncrona (1-2 queries
+        // Room); reset imediato evita rótulo stale da entrada anterior.
+        _conversationLabel.value = null
+        if (ctx != null) {
+            viewModelScope.launch {
+                _conversationLabel.value = resolveConversationLabel(ctx)
+            }
+        }
+    }
+
+    /** Rótulo do alvo empurrado ("Conversando sobre: …"). Null = sem header. */
+    private val _conversationLabel = MutableStateFlow<String?>(null)
+    val conversationLabel: StateFlow<String?> = _conversationLabel.asStateFlow()
+
+    /**
+     * Resolve o rótulo legível do alvo via DAOs (sem depender do editor).
+     * Null se os ids não existirem mais.
+     */
+    private suspend fun resolveConversationLabel(ctx: ChatContext): String? {
+        val sectionId = ctx.sectionId ?: return null
+        val section = db.speechSectionDao().get(sectionId) ?: return null
+        val roleLabel = when (section.role) {
+            SectionRole.INTRO.name -> "Introdução"
+            SectionRole.CONCLUSION.name -> "Conclusão"
+            else -> "Desenvolvimento"
+        }
+        val subPointId = ctx.subPointId
+        return if (subPointId != null) {
+            val subPoints = db.subPointDao().forSection(sectionId)
+            val subIndex = subPoints.indexOfFirst { it.id == subPointId }
+            if (subIndex < 0) return null
+            "Conversando sobre: Seção ${section.order + 1} · Sub-ponto ${subIndex + 1}"
+        } else {
+            "Conversando sobre: Seção ${section.order + 1} ($roleLabel)"
+        }
     }
 
     /**
@@ -759,7 +795,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val remote = ProviderFactory.resolveRemote(settings)
             try {
                 if (ProviderFactory.useRemoteRoute(remote.apiKey)) {
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
+                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -1022,6 +1058,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        // FOCO: com alvo empurrado, o dossiê é o contexto principal e o
+        // legado (nota inteira + RAG amplo) recua. Sem alvo, intacto.
+        hasTarget: Boolean = false,
     ) {
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote)
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
@@ -1030,13 +1069,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
-                    text = blockText,
+                    text = if (hasTarget) "" else blockText,
                     action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                     message = text,
                     history = history,
                     isFirstMessage = isFirst,
-                    contextPack = turnContext.pack,
-                    blockTitle = _activeBlockTitle.value,
+                    contextPack = if (hasTarget) null else turnContext.pack,
+                    blockTitle = if (hasTarget) null else _activeBlockTitle.value,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = contextBlock,

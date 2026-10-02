@@ -81,6 +81,8 @@ fun ChatScreen(
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
+    // FOCO: alvo empurrado ("Conversando sobre: …"), resolvido async na entrada.
+    val conversationLabel by vm.conversationLabel.collectAsState()
     val proposal by vm.proposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
@@ -153,7 +155,18 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
-                title = { Text("Copilot") }
+                title = {
+                    Column {
+                        Text("Copilot")
+                        conversationLabel?.let { label ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             )
         },
         snackbarHost = { SnackbarHost(snack) },
