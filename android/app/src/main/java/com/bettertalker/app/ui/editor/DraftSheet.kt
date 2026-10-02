@@ -121,7 +121,7 @@ fun DraftSheet(
                     // Aviso de truncamento (informativo — nunca bloqueia o aceite).
                     if (state.draft.possiblyTruncated) {
                         Text(
-                            "⚠ Pode estar incompleto (limite de tamanho)",
+                            "⚠ Resposta encurtada — o modelo parou antes do fim.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error,
                         )

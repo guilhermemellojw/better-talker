@@ -2,6 +2,7 @@ package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.llm.LlmProvider
 import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.LlmResponse
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DossierFidelityCheck
@@ -17,6 +18,12 @@ import kotlinx.coroutines.CancellationException
  * genérica) → null.
  * CancellationException propaga (structured concurrency — padrão 1.3b).
  *
+ * Corte do modelo: o `qwen/qwen3-8b` emite `stop` prematuro em
+ * structured output (~85 palavras, com folga no orçamento). Por isso
+ * há retry 1x com instrução reforçada quando [looksTruncated] detecta
+ * corte; se o retry também cortar, o texto é truncado até a última
+ * frase completa e marcado ([SectionDraft.possiblyTruncated]).
+ *
  * Modelo: OutlineGeneratorImpl (data/planning).
  */
 class SectionGeneratorImpl(
@@ -28,6 +35,36 @@ class SectionGeneratorImpl(
 
     override suspend fun generate(dossier: Dossier): SectionDraft? {
         val prompt = promptBuilder.build(dossier)
+        val first = callLlm(prompt) ?: return null
+        val firstParsed = parse(first) ?: return null
+        if (!looksTruncated(firstParsed.textHtml, first.meta.finishReason)) {
+            return draftOf(firstParsed, dossier, truncated = false)
+        }
+        // Retry 1x com instrução reforçada (nunca mais de 1 — cota).
+        val retryPrompt = prompt + "\n\n## ATENÇÃO\n" +
+            "A resposta anterior foi cortada antes do fim. Escreva o " +
+            "rascunho completo, encerrando com ponto final. Não pare no meio."
+        val second = callLlm(retryPrompt)
+            ?: return draftOf(firstParsed, dossier, truncated = true)
+        val secondParsed = parse(second)
+            ?: return draftOf(firstParsed, dossier, truncated = true)
+        if (!looksTruncated(secondParsed.textHtml, second.meta.finishReason)) {
+            return draftOf(secondParsed, dossier, truncated = false)
+        }
+        // Truncar até a última frase completa; sem pontuação, devolve
+        // como está (marcado).
+        val cut = secondParsed.textHtml.lastIndexOfAny(
+            charArrayOf('.', '!', '?', '…')
+        )
+        val clean = if (cut > 0) {
+            secondParsed.textHtml.substring(0, cut + 1)
+        } else {
+            secondParsed.textHtml
+        }
+        return draftOf(secondParsed.copy(textHtml = clean), dossier, truncated = true)
+    }
+
+    private suspend fun callLlm(prompt: String): LlmResponse? {
         val llmRequest = LlmRequest(
             text = prompt,
             responseFormat = ResponseFormat.JSON_SCHEMA,
@@ -36,17 +73,27 @@ class SectionGeneratorImpl(
             timeoutMs = 30_000L,
             maxOutputTokens = 500, // alvo maior (BODY ~250 palavras) + JSON cabem; o teto é safety net
         )
-        val response = try {
+        return try {
             llmProvider.generate(llmRequest)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             // Diagnóstico interno; o usuário segue vendo só o texto do sheet.
             log("draft falhou: ${e::class.simpleName}: ${e.message}")
-            return null
+            null
         }
+    }
+
+    private fun parse(response: LlmResponse): ParsedDraft? {
         if (response.text.isBlank()) return null
-        val parsed = responseParser.parse(response.text, response.meta.finishReason) ?: return null
+        return responseParser.parse(response.text, response.meta.finishReason)
+    }
+
+    private fun draftOf(
+        parsed: ParsedDraft,
+        dossier: Dossier,
+        truncated: Boolean,
+    ): SectionDraft {
         val fidelity = DossierFidelityCheck.check(
             textHtml = parsed.textHtml,
             usedSources = parsed.usedSources,
@@ -56,7 +103,7 @@ class SectionGeneratorImpl(
             textHtml = parsed.textHtml,
             usedSources = parsed.usedSources,
             validation = fidelity,
-            possiblyTruncated = parsed.possiblyTruncated,
+            possiblyTruncated = truncated,
         )
     }
 
