@@ -59,9 +59,15 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             val cur = local.firstOrNull { it.id == id }
             val cup = (data["updatedAt"] as? Long) ?: 0L
             if (cur == null) {
+                // Nova nota na nuvem: aceita como veio (inclusive trashed,
+                // pois não há local vivo para proteger).
                 db.noteDao().upsert(cloudNote(id, data))
             } else if (cup > cur.updatedAt) {
-                db.noteDao().upsert(cloudNote(id, data))
+                // Remoto mais novo: nunca lixa local vivo (filtro abaixo).
+                val remoteTrashed = (data["trashed"] as? Boolean) ?: false
+                if (remoteCanTrashLocal(cur.trashed, remoteTrashed)) {
+                    db.noteDao().upsert(cloudNote(id, data))
+                }
             }
         }
         // push
@@ -233,4 +239,30 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
     private suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T =
         AuthRepository.awaitTask { this.addOnCompleteListener(it) }
+}
+
+/**
+ * Filtro de segurança no pull: uma nota local VIVA nunca é lixada por
+ * um doc remoto com `trashed=true`, mesmo se `updatedAt` remoto for
+ * maior.
+ *
+ * Motivo: o pull aplicava `trashed=true` da nuvem com last-write-wins
+ * puro, e uma contaminação na nuvem (edição manual, bug de cliente,
+ * sync de outro device) propagava em lote para o local. Observado em
+ * 01/10 e 02/10/2026 sem ação do usuário.
+ *
+ * Trade-off: delete via sync não propaga entre devices. Trash continua
+ * sendo ação local explícita. Se um dia precisar propagar, revisitar.
+ *
+ * Nota: restauração (remoteTrashed=false em doc mais novo) continua
+ * aplicando — deslixar é seguro.
+ */
+internal fun remoteCanTrashLocal(
+    localTrashed: Boolean,
+    remoteTrashed: Boolean,
+): Boolean {
+    // Remoto não trasha → sempre aplica (update normal / restauração)
+    if (!remoteTrashed) return true
+    // Remoto trasha → só aplica se local JÁ estava trashed (idempotente)
+    return localTrashed
 }
