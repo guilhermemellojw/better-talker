@@ -67,7 +67,13 @@ data class LlmRequest(
     val jsonSchema: String? = null,
     val editMode: com.bettertalker.app.data.edit.EditProposalMode? = null,
     /** Foco vindo do chat (mensagem do usuário) para a proposta. */
-    val brief: String = ""
+    val brief: String = "",
+    /**
+     * F2b: contexto do dossiê da seção em foco (montado por
+     * `DossierPromptBuilder.buildContextBlock`), para injetar no prompt
+     * do chat. Null = sem dossiê (comportamento anterior).
+     */
+    val contextBlock: String? = null,
 )
 
 enum class ResponseFormat { TEXT, EDIT_PROPOSAL, JSON_SCHEMA }

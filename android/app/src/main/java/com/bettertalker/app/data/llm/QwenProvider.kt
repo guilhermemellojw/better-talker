@@ -215,14 +215,13 @@ private fun QwenProvider.promptsFor(request: LlmRequest): Pair<String, String> {
     // O system do web é o SYSTEM_PROMPT do Copilot; no Android o prompt de
     // chat já embute as instruções (buildChatPrompt). Para o oratório, o
     // buildPrompt do modo já contém as regras — system vazio evita duplicar.
-    if (request.oratorySpec != null) {
+    val base: Pair<String, String> = if (request.oratorySpec != null) {
         val user = com.bettertalker.app.data.copilot.OratoryGeneration.buildPrompt(
             request.oratorySpec,
             request.message.ifBlank { request.brief }
         )
-        return "" to user
-    }
-    if (request.responseFormat == ResponseFormat.EDIT_PROPOSAL && request.editMode != null) {
+        "" to user
+    } else if (request.responseFormat == ResponseFormat.EDIT_PROPOSAL && request.editMode != null) {
         val user = buildEditProposalPrompt(
             mode = request.editMode,
             text = request.text,
@@ -233,20 +232,24 @@ private fun QwenProvider.promptsFor(request: LlmRequest): Pair<String, String> {
             brief = request.brief,
             legacyPassages = request.contextPassages
         )
-        return "" to user
+        "" to user
+    } else {
+        val user = buildChatPrompt(
+            message = request.message.ifBlank { request.text },
+            history = request.history,
+            isFirstMessage = request.isFirstMessage,
+            pack = request.contextPack
+                ?: com.bettertalker.app.data.domain.ContextPack(emptyList(), emptyList()),
+            blockTitle = request.blockTitle,
+            blockMinutes = request.blockMinutes,
+            blockText = request.text,
+            legacyPassages = request.contextPassages,
+            structural = request.structural,
+            oratory = request.oratory
+        )
+        "" to user
     }
-    val user = buildChatPrompt(
-        message = request.message.ifBlank { request.text },
-        history = request.history,
-        isFirstMessage = request.isFirstMessage,
-        pack = request.contextPack
-            ?: com.bettertalker.app.data.domain.ContextPack(emptyList(), emptyList()),
-        blockTitle = request.blockTitle,
-        blockMinutes = request.blockMinutes,
-        blockText = request.text,
-        legacyPassages = request.contextPassages,
-        structural = request.structural,
-        oratory = request.oratory
-    )
-    return "" to user
+    // F2b: dossiê da seção em foco vai ANTES da pergunta/instruções.
+    val block = request.contextBlock?.takeIf { it.isNotBlank() } ?: return base
+    return base.first to ("## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$block\n\n" + base.second)
 }

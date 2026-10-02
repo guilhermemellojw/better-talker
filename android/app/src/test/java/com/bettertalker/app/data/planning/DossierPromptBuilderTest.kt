@@ -79,6 +79,40 @@ class DossierPromptBuilderTest {
     }
 
     @Test
+    fun buildContextBlock_bodyExcludesOtherSections() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                role = SectionRole.BODY,
+                subPoint = subPoint(),
+                overview = listOf(
+                    SectionMeta("s1", "Título teste", SectionRole.BODY, 0, 5),
+                    SectionMeta("s2", "Outra seção", SectionRole.BODY, 1, 5),
+                ),
+            )
+        )
+        assertTrue(prompt.contains("## SEÇÃO ATUAL"))
+        assertTrue(prompt.contains("Título teste"))
+        assertFalse(prompt.contains("Outra seção"))
+        assertFalse(prompt.contains("## TAREFA"))
+    }
+
+    @Test
+    fun buildContextBlock_introIncludesOverview() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                role = SectionRole.INTRO,
+                overview = listOf(
+                    SectionMeta("s1", "Introdução", SectionRole.INTRO, 0, 1),
+                    SectionMeta("s2", "Corpo", SectionRole.BODY, 1, 5),
+                ),
+            )
+        )
+        assertTrue(prompt.contains("## ESTRUTURA DO DISCURSO"))
+        assertTrue(prompt.contains("Corpo"))
+        assertFalse(prompt.contains("## TAREFA"))
+    }
+
+    @Test
     fun build_intro_containsIntroTaskInstruction() {
         val prompt = builder.build(dossier(role = SectionRole.INTRO))
         assertTrue(prompt.contains("Escreva uma abertura"))

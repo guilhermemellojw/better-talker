@@ -49,7 +49,7 @@ class GeminiProvider(
         }
         // F20-B: modo oratório tem prompt especializado próprio (estrutura +
         // fontes + treinamento + instruções do modo).
-        val prompt = if (request.oratorySpec != null) {
+        val basePrompt = if (request.oratorySpec != null) {
             com.bettertalker.app.data.copilot.OratoryGeneration.buildPrompt(
                 request.oratorySpec,
                 request.message.ifBlank { request.brief }
@@ -80,6 +80,11 @@ class GeminiProvider(
             structural = request.structural,
             oratory = request.oratory
         )
+        // F2b: dossiê da seção em foco vai ANTES da pergunta/instruções.
+        // requestBody fica intocado (testes o chamam direto).
+        val prompt = request.contextBlock?.takeIf { it.isNotBlank() }?.let { block ->
+            "## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$block\n\n$basePrompt"
+        } ?: basePrompt
         val body = requestBody(prompt, request.maxOutputTokens)
         // Chave como query param (API Gemini); montada só aqui, nunca logada.
         val url = "$GEMINI_ENDPOINT/models/$model:generateContent?key=$apiKey"

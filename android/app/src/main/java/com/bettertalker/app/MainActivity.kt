@@ -187,9 +187,9 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             androidx.compose.runtime.LaunchedEffect(liveSelection) {
                 copilotVm.setSelection(liveSelection)
             }
-            // Fase 3.5b.3: dossiê da seção ativa sob demanda.
+            // Fase 3.5b.3: dossiê da seção ativa sob demanda (F2b: com alvo explícito).
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-                copilotVm.setDossierProvider(editorVm::buildDossier)
+                copilotVm.setDossierProvider { target -> editorVm.buildDossierFor(target) }
             }
             // Onboarding F2a: contexto empurrado pelo FAB (seleção + prontidão).
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {

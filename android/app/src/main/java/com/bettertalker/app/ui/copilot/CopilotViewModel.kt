@@ -58,6 +58,8 @@ import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.ui.editor.ChatContext
+import com.bettertalker.app.ui.editor.DraftTarget
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
@@ -378,18 +380,23 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     /**
      * Provider do dossiê da seção ativa. Injetado pelo MainActivity via
-     * `setDossierProvider(editorVm::buildDossier)`.
+     * `setDossierProvider { target -> editorVm.buildDossierFor(target) }`.
      *
      * Null quando o chat ainda não foi ligado a um editor.
      */
-    private var dossierProvider: (suspend () -> Dossier?)? = null
+    private var dossierProvider: (suspend (DraftTarget?) -> Dossier?)? = null
 
     /**
-     * Fase 3.5b.3: registra o provider do dossiê.
+     * Fase 3.5b.3: registra o provider do dossiê. Recebe o alvo explícito
+     * (F2b); null = seleção viva do editor (comportamento anterior).
      */
-    fun setDossierProvider(provider: suspend () -> Dossier?) {
+    fun setDossierProvider(provider: suspend (DraftTarget?) -> Dossier?) {
         dossierProvider = provider
     }
+
+    /** Monta o bloco de contexto do dossiê para o prompt do chat (F2b). Puro. */
+    private val dossierPromptBuilder =
+        com.bettertalker.app.data.planning.DefaultDossierPromptBuilder()
 
     /**
      * Último dossiê construído (para inspeção/debug; o consumo real via
@@ -437,7 +444,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * vem junto pode estar levemente defasada — [refreshReadiness]
      * confirma na entrada do chat.
      */
-    fun setPushedContext(ctx: com.bettertalker.app.ui.editor.ChatContext?) {
+    /**
+     * F2b: alvo empurrado pelo FAB (F2a). Volátil (vive no VM, como o
+     * proposalUndo); `setPushedContext` é a única escrita. O `send()`
+     * monta o dossiê a partir dele (precedência: alvo explícito >
+     * seleção viva > nada). Fica até o próximo push; o VM é por nota,
+     * então trocar de nota já limpa.
+     */
+    private var _pushedContext: ChatContext? = null
+
+    fun setPushedContext(ctx: ChatContext?) {
+        _pushedContext = ctx
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
         _setupBannerDismissed.value = false
@@ -666,14 +683,26 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // que o rótulo anuncia — sem rotular bloco de "seleção".
             // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
             // Adquirido e armazenado; a injeção no prompt vem em 3.5d.
+            // F2b: alvo fixo do FAB (precedência: explícito > seleção viva > nada).
+            val target: DraftTarget? = _pushedContext?.let { ctx ->
+                val sectionId = ctx.sectionId
+                when {
+                    sectionId != null && ctx.subPointId != null ->
+                        DraftTarget.SubPoint(sectionId, ctx.subPointId)
+                    sectionId != null ->
+                        DraftTarget.Section(sectionId)
+                    else -> null
+                }
+            }
             val dossier = try {
-                dossierProvider?.invoke()
+                dossierProvider?.invoke(target)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null
             }
             lastDossier = dossier
+            val contextBlock = dossier?.let { dossierPromptBuilder.buildContextBlock(it) }
             val blockText = currentFocusText()
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
@@ -717,7 +746,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
                     }
-                    generateOratory(route, text, remote)
+                    generateOratory(route, text, remote, contextBlock)
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
@@ -730,7 +759,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val remote = ProviderFactory.resolveRemote(settings)
             try {
                 if (ProviderFactory.useRemoteRoute(remote.apiKey)) {
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote)
+                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -894,7 +923,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun generateOratory(
         route: com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory,
         message: String,
-        remote: ProviderFactory.RemoteConfig
+        remote: ProviderFactory.RemoteConfig,
+        contextBlock: String? = null,
     ) {
         val doc = _lastS34Document
         if (doc == null) {
@@ -934,7 +964,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         // SEMPRE toma 429 no OTPM 1000/min do plano gratuito
                         // (comprovado no aparelho). 1280 nunca truncou em 23
                         // execuções reais (saídas observadas <= 1207).
-                        maxOutputTokens = 1280
+                        maxOutputTokens = 1280,
+                        contextBlock = contextBlock,
                     )
                 )
             }
@@ -989,7 +1020,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         history: List<ChatTurn>,
         isFirst: Boolean,
         blockText: String,
-        remote: ProviderFactory.RemoteConfig
+        remote: ProviderFactory.RemoteConfig,
+        contextBlock: String? = null,
     ) {
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote)
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
@@ -1006,7 +1038,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     contextPack = turnContext.pack,
                     blockTitle = _activeBlockTitle.value,
                     structural = turnContext.structural,
-                    oratory = turnContext.oratory
+                    oratory = turnContext.oratory,
+                    contextBlock = contextBlock,
                 )
             )
         }
@@ -1123,7 +1156,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         blockTitle = _activeBlockTitle.value,
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
-                        brief = brief
+                        brief = brief,
+                        // F2b: dossiê do último send() (a proposta nasce do turno).
+                        contextBlock = lastDossier?.let { dossierPromptBuilder.buildContextBlock(it) },
                     ))
                 }
                 android.util.Log.e("CopilotLLM", "proposal generated len=" + res.text.length +

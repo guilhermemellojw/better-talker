@@ -473,7 +473,12 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     }
 
     /** Dossiê do alvo explícito (não depende de `selection`). */
-    private suspend fun buildDossierFor(target: DraftTarget): Dossier? {
+    /**
+     * Dossiê para um alvo explícito (F2b: chat com alvo fixo do FAB).
+     * Null = seleção viva (mesmo que [buildDossier]).
+     */
+    suspend fun buildDossierFor(target: DraftTarget?): Dossier? {
+        if (target == null) return buildDossier()
         val sectionsWithSubs = _sections.value.map {
             SectionWithSubPoints(section = it.section, subPoints = it.subPoints)
         }

@@ -16,6 +16,16 @@ import com.bettertalker.app.domain.speech.SectionRole
  */
 interface DossierPromptBuilder {
     fun build(dossier: Dossier): String
+
+    /**
+     * Monta SÓ o bloco de contexto (seção + refs + overview) do dossiê,
+     * para injetar no prompt do chat. Sem "## TAREFA" (no chat, a tarefa
+     * é a mensagem do usuário) e sem "## FORMATO DE SAÍDA".
+     *
+     * Enxuto por role (F2b): BODY vê só a seção alvo; INTRO/CONCLUSION
+     * veem o overview resumido de todas.
+     */
+    fun buildContextBlock(dossier: Dossier): String
 }
 
 /**
@@ -33,16 +43,26 @@ class DefaultDossierPromptBuilder(
         return buildString {
             appendLine(HEADER.trimIndent())
             appendLine()
-            appendSection(dossier)
-            appendOverview(dossier)
-            appendBibleTexts(dossier)
-            appendPublicationTexts(dossier)
-            appendMethodPrinciples(dossier)
-            appendTransition(dossier)
-            appendUnresolved(dossier)
+            appendContext(dossier)
             appendTask(dossier)
             appendJsonFormat()
         }.trim()
+    }
+
+    override fun buildContextBlock(dossier: Dossier): String {
+        return buildString {
+            appendContext(dossier)
+        }.trim()
+    }
+
+    private fun StringBuilder.appendContext(d: Dossier) {
+        appendSection(d)
+        appendOverview(d)
+        appendBibleTexts(d)
+        appendPublicationTexts(d)
+        appendMethodPrinciples(d)
+        appendTransition(d)
+        appendUnresolved(d)
     }
 
     // ---------- seções ----------
@@ -62,6 +82,9 @@ class DefaultDossierPromptBuilder(
     }
 
     private fun StringBuilder.appendOverview(d: Dossier) {
+        // Enxuto por role (F2b): BODY vê só a seção alvo (já detalhada em
+        // ## SEÇÃO ATUAL); INTRO/CONCLUSION veem o resumido de todas.
+        if (d.currentSection.role == SectionRole.BODY) return
         if (d.overview.isEmpty()) return
         appendLine("## ESTRUTURA DO DISCURSO")
         d.overview.sortedBy { it.order }.forEach { m ->
