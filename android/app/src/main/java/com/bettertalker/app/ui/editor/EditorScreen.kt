@@ -9,14 +9,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -257,7 +263,11 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
         if (sections.isEmpty()) countWords(mdText) else countSectionWords(sections)
     }
 
+    // Recolhe a TopAppBar no scroll down; volta em qualquer scroll up.
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
@@ -278,6 +288,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
         },
         topBar = {
             TopAppBar(
+                scrollBehavior = scrollBehavior,
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
                     Column {
@@ -330,47 +341,23 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
             )
         }
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad).padding(12.dp)) {
-            // Título estilo Notes: grande, sem borda
-            androidx.compose.material3.TextField(
-                value = title, onValueChange = vm::onTitle,
-                placeholder = { Text("Título", style = MaterialTheme.typography.titleLarge) },
-                textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                singleLine = true,
-                colors = androidx.compose.material3.TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(4.dp))
-            // 3.2.5f-pre: aviso estrutural não-bloqueante (dispensável; a
-            // próxima mudança republica se a estrutura seguir inválida).
-            val structureWarning by vm.structureWarning.collectAsState()
-            structureWarning?.let {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    shape = MaterialTheme.shapes.small,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Warning, "Aviso de estrutura")
-                        Text(
-                            text = "A estrutura deste discurso pode precisar de ajustes.",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        )
-                        IconButton(onClick = { vm.dismissStructureWarning() }) {
-                            Icon(Icons.Default.Close, "Dispensar")
-                        }
-                    }
-                }
-            }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(pad)
+                .consumeWindowInsets(pad)
+        ) {
             // Contador de palavras agora vive na TopAppBar (subtitle).
-
+            // Toolbar fixa (não rola): com a TopAppBar recolhida assume o
+            // topo, por isso o inset da status bar (consumido quando ela
+            // ainda está expandida).
             if (!preview) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 12.dp),
+            ) {
                 // Toolbar Word-like fixa no topo (rolável p/ telas estreitas).
                 // 3.2.5c: opera o editor ATIVO (activeEditorState); sem foco = desabilitada.
                 // 3.2.5g.2: 8 slots (B I U S | 🎨 | 14 | ≡ | ⋯) + menus/pickers.
@@ -583,10 +570,65 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                     }
                 }
             }
+            }
 
             // 3.2.5c: corpo multi-seção (preview = readOnly em todos os cards).
+            // Título + aviso + cards rolam juntos (título não fica fixo).
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .then(
+                        // Sem toolbar (preview), o topo recolhido precisa do
+                        // inset da status bar aqui.
+                        if (preview) Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                        else Modifier
+                    )
+                    .padding(12.dp),
+            ) {
+                // Título estilo Notes: grande, sem borda
+                androidx.compose.material3.TextField(
+                    value = title, onValueChange = vm::onTitle,
+                    placeholder = { Text("Título", style = MaterialTheme.typography.titleLarge) },
+                    textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    singleLine = true,
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(4.dp))
+                // 3.2.5f-pre: aviso estrutural não-bloqueante (dispensável; a
+                // próxima mudança republica se a estrutura seguir inválida).
+                val structureWarning by vm.structureWarning.collectAsState()
+                structureWarning?.let {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, "Aviso de estrutura")
+                            Text(
+                                text = "A estrutura deste discurso pode precisar de ajustes.",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                            )
+                            IconButton(onClick = { vm.dismissStructureWarning() }) {
+                                Icon(Icons.Default.Close, "Dispensar")
+                            }
+                        }
+                    }
+                }
+            // Contador de palavras agora vive na TopAppBar (subtitle).
+
             if (sections.isEmpty()) {
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             "Esta nota não tem seções.",
@@ -603,13 +645,6 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                     }
                 }
             } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .imePadding(),
-                ) {
                     sections.forEachIndexed { index, sectionState ->
                         // key(id): estado do card não migra no reorder (3.2.5f.2b).
                         key(sectionState.section.id) {
