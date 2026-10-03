@@ -57,6 +57,7 @@ import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
+import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
@@ -1095,7 +1096,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 )
             )
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to res.text)), MessageOrigin.COPILOT)
+        // Quirk do qwen3.8-27b: para no meio sem pontuação (finish_reason
+        // "stop" prematuro). Trunca até a última frase completa — nunca
+        // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
+        val text = truncateIfCut(res.text, res.meta.finishReason)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to text)), MessageOrigin.COPILOT)
     }
 
     /** Conversa anterior para continuidade, na janela da F15. */
