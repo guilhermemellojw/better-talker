@@ -4,6 +4,7 @@ package com.bettertalker.app.ui.editor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -413,6 +414,8 @@ fun SectionCardEditor(
                                     canGenerateDraft = canGenerateDraft,
                                     onGenerateDraft = onGenerateDraft,
                                     onChatAbout = onChatAbout,
+                                    showMenu = focusedEditorKey == editorKey,
+                                    onActivate = onActivate,
                                     onFocusChange = { isFocused ->
                                         if (isFocused) {
                                             focusedEditorKey = editorKey
@@ -687,6 +690,10 @@ private fun SubPointEditor(
     onGenerateDraft: (DraftTarget) -> Unit = {},
     // F2c: conversa focada (ver SectionCardEditor).
     onChatAbout: (DraftTarget) -> Unit = {},
+    // ⋮ contextual: só o ponto focado mostra o botão; long-press no tópico
+    // abre o menu mesmo com o botão oculto.
+    showMenu: Boolean = true,
+    onActivate: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editorKey = "subpoint-${subPoint.id}"
@@ -719,12 +726,21 @@ private fun SubPointEditor(
                     text = subPoint.outlineText.ifBlank { "(sem texto)" },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .combinedClickable(
+                            enabled = !readOnly,
+                            onLongClick = { menuOpen = true },
+                            onClick = { onActivate() },
+                        ),
                 )
                 if (!readOnly) {
                     Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.MoreVert, "Menu do ponto")
+                        // ⋮ só no ponto focado (ou via long-press no tópico).
+                        if (showMenu) {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, "Menu do ponto")
+                            }
                         }
                         DropdownMenu(
                             expanded = menuOpen,
