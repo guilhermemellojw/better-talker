@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -153,6 +154,11 @@ fun SectionCardEditor(
     // 3.2.5f.2b: confirmação local de exclusão; o header só abre o dialog.
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
 
+    // INTRO/CONCLUSION não têm título/minutos (o papel define ambos): nesses
+    // cards só o menu ⋮ aparece. BODY mantém o header.
+    val hideTitleAndMinutes = state.section.role == SectionRole.INTRO ||
+        state.section.role == SectionRole.CONCLUSION
+
         // Aba de role ACIMA do card (encostada na borda superior).
         // NOTA: offset negativo (y = -9.dp/-20.dp) foi tentado para a aba
         // sobreposta à borda, mas não desloca o desenho nesta árvore
@@ -208,28 +214,23 @@ fun SectionCardEditor(
                     .semantics { contentDescription = "Seção ${state.section.role.name}" }
                     .clickable(enabled = !isActiveSection) { onActivate() },
             ) {
+            Box {
             Column(
                 Modifier.padding(
-                    start = 12.dp, end = 12.dp,
-                    top = 8.dp, bottom = 12.dp,
+                    start = 4.dp, end = 4.dp,
+                    top = 4.dp, bottom = 10.dp,
                 )
             ) {
+            // INTRO/CONCLUSÃO não têm header; o ⋮ flutua no canto.
+            if (!hideTitleAndMinutes) {
             SectionHeader(
                 state = state,
                 readOnly = readOnly,
-                isFirst = isFirstSection,
-                isLast = isLastSection,
                 onTitleChange = onTitleChange,
                 onMinutesChange = onMinutesChange,
-                onRoleChange = onRoleChange,
-                onMoveUp = onMoveSectionUp,
-                onMoveDown = onMoveSectionDown,
-                onRemove = { confirmDelete = true },
-                canGenerateDraft = canGenerateDraft,
-                onGenerateDraft = onGenerateDraft,
-                onChatAbout = onChatAbout,
             )
             Spacer(Modifier.height(6.dp))
+            }
 
             // 3.2.5e: aplica inserts pendentes direcionados a esta seção.
             // insertMarkdownAfterSelection usa o cursor do editor; se o editor
@@ -369,6 +370,25 @@ fun SectionCardEditor(
                 }
             }
         }
+            // Menu ⋮ da seção flutuando no canto superior direito (não
+            // ocupa fluxo: o texto usa a área toda do card).
+            SectionMenuButton(
+                sectionId = state.section.id,
+                readOnly = readOnly,
+                isFirst = isFirstSection,
+                isLast = isLastSection,
+                hasSubPoints = state.subPoints.isNotEmpty(),
+                canGenerateDraft = canGenerateDraft,
+                onMoveUp = onMoveSectionUp,
+                onMoveDown = onMoveSectionDown,
+                onRemove = { confirmDelete = true },
+                onGenerateDraft = onGenerateDraft,
+                onChatAbout = onChatAbout,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(2.dp),
+            )
+    }
     }
     }
 
@@ -397,18 +417,8 @@ fun SectionCardEditor(
 private fun SectionHeader(
     state: SectionUiState,
     readOnly: Boolean,
-    isFirst: Boolean,
-    isLast: Boolean,
     onTitleChange: (String) -> Unit,
     onMinutesChange: (Int) -> Unit,
-    onRoleChange: (SectionRole) -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onRemove: () -> Unit,
-    canGenerateDraft: Boolean = false,
-    onGenerateDraft: (DraftTarget) -> Unit = {},
-    // F2c: conversa focada (ver SectionCardEditor).
-    onChatAbout: (DraftTarget) -> Unit = {},
 ) {
     var titleText by remember(state.section.id, state.section.title) {
         mutableStateOf(state.section.title)
@@ -416,21 +426,14 @@ private fun SectionHeader(
     var minutesText by remember(state.section.id, state.section.minutes) {
         mutableStateOf(state.section.minutes.toString())
     }
-    var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
-    var menuOpen by remember(state.section.id) { mutableStateOf(false) }
 
-    // INTRO/CONCLUSION não editam título/minutos: o papel já define ambos
-    // de forma fixa (ver SectionsController.defaultTitleFor). Nesses cards
-    // só o ⋮ permanece. BODY mantém os dois campos.
-    val hideTitleAndMinutes = state.section.role == SectionRole.INTRO ||
-        state.section.role == SectionRole.CONCLUSION
-
-    // Título + minutos + ⋮ (o chip de role mora na aba do card, fora daqui).
+    // Título + minutos (apenas para BODY). O ⋮ da seção flutua no canto do
+    // card (SectionMenuButton), por isso o respiro de 40dp à direita.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(end = 40.dp),
     ) {
-        if (!hideTitleAndMinutes) {
         // 2. Título editável (mantido).
         TextField(
             value = titleText,
@@ -476,57 +479,73 @@ private fun SectionHeader(
                 disabledContainerColor = Color.Transparent,
             ),
         )
-        } else {
-            // Mantém o ⋮ na borda direita mesmo sem título/minutos.
-            Spacer(Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SectionMenuButton(
+    sectionId: String,
+    readOnly: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
+    hasSubPoints: Boolean,
+    canGenerateDraft: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit,
+    onGenerateDraft: (DraftTarget) -> Unit,
+    onChatAbout: (DraftTarget) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (readOnly) return
+    var menuOpen by remember(sectionId) { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        IconButton(
+            onClick = { menuOpen = true },
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(
+                Icons.Default.MoreVert,
+                "Menu da seção",
+                modifier = Modifier.size(20.dp),
+            )
         }
-        // 4. Menu ⋮ da seção: mover/reordenar/excluir (escondido em readOnly).
-        if (!readOnly) {
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Default.MoreVert, "Menu da seção")
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Mover para cima") },
-                        enabled = !isFirst,
-                        onClick = { onMoveUp(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Mover para baixo") },
-                        enabled = !isLast,
-                        onClick = { onMoveDown(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Excluir seção") },
-                        onClick = { onRemove(); menuOpen = false },
-                    )
-                    // Fase 3.5e.3: gerar rascunho para a seção (só quando
-                    // não há sub-pontos — INTRO/CONCLUSION/BODY vazia; em
-                    // BODY com sub-pontos o item vive no ⋮ de cada ponto).
-                    // F2c: conversa focada primeiro (fluxo principal),
-                    // one-shot depois (atalho).
-                    DropdownMenuItem(
-                        text = { Text("Conversar sobre esta seção") },
-                        onClick = {
-                            menuOpen = false
-                            onChatAbout(DraftTarget.Section(state.section.id))
-                        },
-                    )
-                    if (state.subPoints.isEmpty()) {
-                        DropdownMenuItem(
-                            text = { Text("Gerar com Copilot") },
-                            enabled = canGenerateDraft,
-                            onClick = {
-                                menuOpen = false
-                                onGenerateDraft(DraftTarget.Section(state.section.id))
-                            },
-                        )
-                    }
-                }
+        DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("Mover para cima") },
+                enabled = !isFirst,
+                onClick = { onMoveUp(); menuOpen = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Mover para baixo") },
+                enabled = !isLast,
+                onClick = { onMoveDown(); menuOpen = false },
+            )
+            DropdownMenuItem(
+                text = { Text("Excluir seção") },
+                onClick = { onRemove(); menuOpen = false },
+            )
+            // Fase 3.5e.3: gerar rascunho para a seção (só quando não há
+            // sub-pontos). F2c: conversa focada primeiro, one-shot depois.
+            DropdownMenuItem(
+                text = { Text("Conversar sobre esta seção") },
+                onClick = {
+                    menuOpen = false
+                    onChatAbout(DraftTarget.Section(sectionId))
+                },
+            )
+            if (!hasSubPoints) {
+                DropdownMenuItem(
+                    text = { Text("Gerar com Copilot") },
+                    enabled = canGenerateDraft,
+                    onClick = {
+                        menuOpen = false
+                        onGenerateDraft(DraftTarget.Section(sectionId))
+                    },
+                )
             }
         }
     }
