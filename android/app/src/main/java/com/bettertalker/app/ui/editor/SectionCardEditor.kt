@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -154,20 +153,98 @@ fun SectionCardEditor(
     // 3.2.5f.2b: confirmação local de exclusão; o header só abre o dialog.
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
 
-    // INTRO/CONCLUSION não têm título/minutos (o papel define ambos): nesses
-    // cards só o menu ⋮ aparece. BODY mantém o header.
-    val hideTitleAndMinutes = state.section.role == SectionRole.INTRO ||
-        state.section.role == SectionRole.CONCLUSION
+    // BODY: o "tópico" mora ACIMA do card (como o badge dos demais) e o
+    // badge DESENVOLVIMENTO deixa de existir — card mais clean.
+    val isBody = state.section.role == SectionRole.BODY
 
-        // Aba de role ACIMA do card (encostada na borda superior).
+    // Título/minutos do BODY hoisted: a linha acima do card é editável.
+    var titleText by remember(state.section.id, state.section.title) {
+        mutableStateOf(state.section.title)
+    }
+    var minutesText by remember(state.section.id, state.section.minutes) {
+        mutableStateOf(state.section.minutes.toString())
+    }
+
+        // Aba acima do card: BODY = título + min + ⋮; INTRO/CONCLUSÃO = chip.
         // NOTA: offset negativo (y = -9.dp/-20.dp) foi tentado para a aba
         // sobreposta à borda, mas não desloca o desenho nesta árvore
         // (2 builds, medido no device) — fluxo normal aqui, sem overlap.
         var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
         Column {
             Row(
-                modifier = Modifier.padding(start = 20.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
+                    .then(
+                        if (isBody && !isActiveSection) {
+                            Modifier.clickable { onActivate() }
+                        } else Modifier
+                    ),
             ) {
+            if (isBody) {
+                // "Tópico" do desenvolvimento: mesmo TextField transparente
+                // de antes, agora acima do card.
+                TextField(
+                    value = titleText,
+                    enabled = !readOnly,
+                    onValueChange = {
+                        titleText = it
+                        onTitleChange(it)
+                    },
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            "Título da seção",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                    ),
+                )
+                TextField(
+                    value = minutesText,
+                    enabled = !readOnly,
+                    onValueChange = { input ->
+                        val filtered = input.filter { it.isDigit() }.take(2)
+                        minutesText = filtered
+                        filtered.toIntOrNull()?.let { onMinutesChange(it) }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.width(60.dp),
+                    suffix = { Text("min") },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                    ),
+                )
+                // Sem chip de role em BODY: a troca vive no ⋮ ("Alterar papel").
+                SectionMenuButton(
+                    sectionId = state.section.id,
+                    readOnly = readOnly,
+                    isFirst = isFirstSection,
+                    isLast = isLastSection,
+                    hasSubPoints = state.subPoints.isNotEmpty(),
+                    canGenerateDraft = canGenerateDraft,
+                    showRoleChange = true,
+                    onRoleChange = onRoleChange,
+                    onMoveUp = onMoveSectionUp,
+                    onMoveDown = onMoveSectionDown,
+                    onRemove = { confirmDelete = true },
+                    onGenerateDraft = onGenerateDraft,
+                    onChatAbout = onChatAbout,
+                )
+            } else {
             Box {
                 Surface(
                     onClick = { if (!readOnly) roleMenuOpen = true },
@@ -199,6 +276,7 @@ fun SectionCardEditor(
                 }
             }
             }
+            }
             Card(
                 modifier = modifier
                     .fillMaxWidth()
@@ -219,21 +297,11 @@ fun SectionCardEditor(
                 Modifier.padding(
                     start = 4.dp,
                     // INTRO/CONCLUSÃO: recuo à direita para o texto não
-                    // encostar no ⋮ flutuante. BODY tem header e não precisa.
-                    end = if (hideTitleAndMinutes) 32.dp else 4.dp,
+                    // encostar no ⋮ flutuante (BODY não tem overlay).
+                    end = if (isBody) 4.dp else 32.dp,
                     top = 4.dp, bottom = 10.dp,
                 )
             ) {
-            // INTRO/CONCLUSÃO não têm header; o ⋮ flutua no canto.
-            if (!hideTitleAndMinutes) {
-            SectionHeader(
-                state = state,
-                readOnly = readOnly,
-                onTitleChange = onTitleChange,
-                onMinutesChange = onMinutesChange,
-            )
-            Spacer(Modifier.height(6.dp))
-            }
 
             // 3.2.5e: aplica inserts pendentes direcionados a esta seção.
             // insertMarkdownAfterSelection usa o cursor do editor; se o editor
@@ -374,7 +442,10 @@ fun SectionCardEditor(
             }
         }
             // Menu ⋮ da seção flutuando no canto superior direito (não
-            // ocupa fluxo: o texto usa a área toda do card).
+            // ocupa fluxo: o texto usa a área toda do card). Em BODY ele
+            // vive acima do card, junto do título — sem colisão com o ⋮
+            // do sub-ponto.
+            if (!isBody) {
             SectionMenuButton(
                 sectionId = state.section.id,
                 readOnly = readOnly,
@@ -382,6 +453,8 @@ fun SectionCardEditor(
                 isLast = isLastSection,
                 hasSubPoints = state.subPoints.isNotEmpty(),
                 canGenerateDraft = canGenerateDraft,
+                showRoleChange = false,
+                onRoleChange = onRoleChange,
                 onMoveUp = onMoveSectionUp,
                 onMoveDown = onMoveSectionDown,
                 onRemove = { confirmDelete = true },
@@ -391,6 +464,7 @@ fun SectionCardEditor(
                     .align(Alignment.TopEnd)
                     .padding(2.dp),
             )
+            }
     }
     }
     }
@@ -417,75 +491,6 @@ fun SectionCardEditor(
 }
 
 @Composable
-private fun SectionHeader(
-    state: SectionUiState,
-    readOnly: Boolean,
-    onTitleChange: (String) -> Unit,
-    onMinutesChange: (Int) -> Unit,
-) {
-    var titleText by remember(state.section.id, state.section.title) {
-        mutableStateOf(state.section.title)
-    }
-    var minutesText by remember(state.section.id, state.section.minutes) {
-        mutableStateOf(state.section.minutes.toString())
-    }
-
-    // Título + minutos (apenas para BODY). O ⋮ da seção flutua no canto do
-    // card (SectionMenuButton), por isso o respiro de 40dp à direita.
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(end = 40.dp),
-    ) {
-        // 2. Título editável (mantido).
-        TextField(
-            value = titleText,
-            enabled = !readOnly,
-            onValueChange = {
-                titleText = it
-                onTitleChange(it)
-            },
-            singleLine = true,
-            placeholder = {
-                Text(
-                    "Título da seção",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                )
-            },
-            modifier = Modifier.weight(1f),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = FontWeight.SemiBold
-            ),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-            ),
-        )
-        // 3. Minutos editáveis (mantido).
-        TextField(
-            value = minutesText,
-            enabled = !readOnly,
-            onValueChange = { input ->
-                val filtered = input.filter { it.isDigit() }.take(2)
-                minutesText = filtered
-                filtered.toIntOrNull()?.let { onMinutesChange(it) }
-            },
-            singleLine = true,
-            modifier = Modifier.width(60.dp),
-            suffix = { Text("min") },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-            ),
-        )
-    }
-}
-
-@Composable
 private fun SectionMenuButton(
     sectionId: String,
     readOnly: Boolean,
@@ -493,6 +498,9 @@ private fun SectionMenuButton(
     isLast: Boolean,
     hasSubPoints: Boolean,
     canGenerateDraft: Boolean,
+    // BODY esconde o chip de role: a troca de papel vive aqui.
+    showRoleChange: Boolean = false,
+    onRoleChange: (SectionRole) -> Unit = {},
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
@@ -502,6 +510,7 @@ private fun SectionMenuButton(
 ) {
     if (readOnly) return
     var menuOpen by remember(sectionId) { mutableStateOf(false) }
+    var roleMenuOpen by remember(sectionId) { mutableStateOf(false) }
     Box(modifier = modifier) {
         IconButton(
             onClick = { menuOpen = true },
@@ -549,6 +558,32 @@ private fun SectionMenuButton(
                         onGenerateDraft(DraftTarget.Section(sectionId))
                     },
                 )
+            }
+            if (showRoleChange) {
+                DropdownMenuItem(
+                    text = { Text("Alterar papel") },
+                    onClick = {
+                        menuOpen = false
+                        roleMenuOpen = true
+                    },
+                )
+            }
+        }
+        // Submenu de papel (BODY): ancorado no mesmo botão.
+        if (showRoleChange) {
+            DropdownMenu(
+                expanded = roleMenuOpen,
+                onDismissRequest = { roleMenuOpen = false },
+            ) {
+                SectionRole.values().forEach { role ->
+                    DropdownMenuItem(
+                        text = { Text(roleLabel(role)) },
+                        onClick = {
+                            onRoleChange(role)
+                            roleMenuOpen = false
+                        },
+                    )
+                }
             }
         }
     }
