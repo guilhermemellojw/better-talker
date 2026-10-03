@@ -75,7 +75,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
@@ -92,10 +91,8 @@ private val HIGHLIGHT_COLORS = listOf(
     Color(0xFFFFB3BA), Color(0xFFFFE08A)
 )
 
-// 3.2.5g.2: tamanhos de fonte (slots da toolbar e picker).
-private val FONT_SIZE_S = 14.sp
-private val FONT_SIZE_M = 18.sp
-private val FONT_SIZE_G = 24.sp
+// 3.2.5g.2: tamanhos de fonte em EditorFontSizes.kt (compartilhados com o
+// SectionCardEditor, que aplica o tamanho padrão do corpo).
 
 /** 3.2.5g.2: picker ativo abaixo da toolbar (substitui os booleans antigos). */
 private enum class PickerMode { FONT_COLOR, HIGHLIGHT, SIZE }
@@ -381,7 +378,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                     FONT_SIZE_S -> "14"
                     FONT_SIZE_M -> "18"
                     FONT_SIZE_G -> "24"
-                    else -> "14"
+                    // Sem span explícito = corpo no tamanho padrão.
+                    else -> "18"
                 }
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),

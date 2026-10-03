@@ -622,6 +622,10 @@ private fun SectionContentEditor(
         BasicRichTextEditor(
             state = richState,
             enabled = !readOnly,
+            // Corpo do editor no tamanho padrão (texto sem span explícito).
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = FONT_SIZE_BODY_DEFAULT,
+            ),
             modifier = modifier.onFocusChanged { onFocusChange(it.isFocused) },
         )
     }
