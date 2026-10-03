@@ -217,7 +217,10 @@ fun SectionCardEditor(
             Box {
             Column(
                 Modifier.padding(
-                    start = 4.dp, end = 4.dp,
+                    start = 4.dp,
+                    // INTRO/CONCLUSÃO: recuo à direita para o texto não
+                    // encostar no ⋮ flutuante. BODY tem header e não precisa.
+                    end = if (hideTitleAndMinutes) 32.dp else 4.dp,
                     top = 4.dp, bottom = 10.dp,
                 )
             ) {
