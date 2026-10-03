@@ -295,7 +295,9 @@ fun SectionCardEditor(
             Box {
             Column(
                 Modifier.padding(
-                    start = 4.dp,
+                    // 12dp alinha o texto do card com o título/chip de cima
+                    // (8dp da margem do card + 12 = 20dp de tela).
+                    start = 12.dp,
                     // INTRO/CONCLUSÃO: recuo à direita para o texto não
                     // encostar no ⋮ flutuante (BODY não tem overlay).
                     end = if (isBody) 4.dp else 32.dp,
