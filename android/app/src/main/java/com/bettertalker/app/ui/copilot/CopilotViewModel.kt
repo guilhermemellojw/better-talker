@@ -61,8 +61,8 @@ import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
+import com.bettertalker.app.ui.editor.roleLabel
 import com.bettertalker.app.domain.speech.DiscourseType
-import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
 import kotlinx.coroutines.Job
@@ -481,11 +481,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun resolveConversationLabel(ctx: ChatContext): String? {
         val sectionId = ctx.sectionId ?: return null
         val section = db.speechSectionDao().get(sectionId) ?: return null
-        val roleLabel = when (section.role) {
-            SectionRole.INTRO.name -> "Introdução"
-            SectionRole.CONCLUSION.name -> "Conclusão"
-            else -> "Desenvolvimento"
-        }
+        val role = roleLabel(section.role)
         val subPointId = ctx.subPointId
         return if (subPointId != null) {
             val subPoints = db.subPointDao().forSection(sectionId)
@@ -493,7 +489,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             if (subIndex < 0) return null
             "Conversando sobre: Seção ${section.order + 1} · Sub-ponto ${subIndex + 1}"
         } else {
-            "Conversando sobre: Seção ${section.order + 1} ($roleLabel)"
+            "Conversando sobre: Seção ${section.order + 1} ($role)"
         }
     }
 

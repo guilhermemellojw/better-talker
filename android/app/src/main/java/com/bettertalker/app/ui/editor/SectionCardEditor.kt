@@ -153,22 +153,67 @@ fun SectionCardEditor(
     // 3.2.5f.2b: confirmação local de exclusão; o header só abre o dialog.
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 6.dp)
-            .animateContentSize()
-            .then(
-                if (isActiveSection) Modifier.border(
-                    width = 2.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(12.dp),
-                ) else Modifier
-            )
-            .semantics { contentDescription = "Seção ${state.section.role.name}" }
-            .clickable(enabled = !isActiveSection) { onActivate() },
-    ) {
-        Column(Modifier.padding(12.dp)) {
+        // Aba de role ACIMA do card (encostada na borda superior).
+        // NOTA: offset negativo (y = -9.dp/-20.dp) foi tentado para a aba
+        // sobreposta à borda, mas não desloca o desenho nesta árvore
+        // (2 builds, medido no device) — fluxo normal aqui, sem overlap.
+        var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
+        Column {
+            Row(
+                modifier = Modifier.padding(start = 20.dp, bottom = 2.dp),
+            ) {
+            Box {
+                Surface(
+                    onClick = { if (!readOnly) roleMenuOpen = true },
+                    enabled = !readOnly,
+                    shape = RoundedCornerShape(4.dp),
+                    color = roleChipColors(state.section.role),
+                ) {
+                    Text(
+                        roleLabel(state.section.role),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                        ),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = roleMenuOpen,
+                    onDismissRequest = { roleMenuOpen = false },
+                ) {
+                    SectionRole.values().forEach { role ->
+                        DropdownMenuItem(
+                            text = { Text(roleLabel(role)) },
+                            onClick = {
+                                onRoleChange(role)
+                                roleMenuOpen = false
+                            },
+                        )
+                    }
+                }
+            }
+            }
+            Card(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .animateContentSize()
+                    .then(
+                        if (isActiveSection) Modifier.border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(12.dp),
+                        ) else Modifier
+                    )
+                    .semantics { contentDescription = "Seção ${state.section.role.name}" }
+                    .clickable(enabled = !isActiveSection) { onActivate() },
+            ) {
+            Column(
+                Modifier.padding(
+                    start = 12.dp, end = 12.dp,
+                    top = 8.dp, bottom = 12.dp,
+                )
+            ) {
             SectionHeader(
                 state = state,
                 readOnly = readOnly,
@@ -325,6 +370,7 @@ fun SectionCardEditor(
             }
         }
     }
+    }
 
     // 3.2.5f.2b: confirmação com aviso de cascata (FK CASCADE no banco —
     // os sub-pontos da seção vão junto).
@@ -373,44 +419,18 @@ private fun SectionHeader(
     var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
     var menuOpen by remember(state.section.id) { mutableStateOf(false) }
 
-    // Linha 1: chip compacto de role → dropdown para trocar (3.2.5f.2b).
-    // Linha 2: título + minutos + ⋮ (título ganha a largura do chip).
-    Column(Modifier.fillMaxWidth()) {
-        Box {
-            Surface(
-                onClick = { if (!readOnly) roleMenuOpen = true },
-                enabled = !readOnly,
-                shape = RoundedCornerShape(4.dp),
-                color = roleChipColors(state.section.role),
-                modifier = Modifier.padding(bottom = 2.dp),
-            ) {
-                Text(
-                    roleSigla(state.section.role),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                    ),
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                )
-            }
-            DropdownMenu(
-                expanded = roleMenuOpen,
-                onDismissRequest = { roleMenuOpen = false },
-            ) {
-                SectionRole.values().forEach { role ->
-                    DropdownMenuItem(
-                        text = { Text(role.name) },
-                        onClick = {
-                            onRoleChange(role)
-                            roleMenuOpen = false
-                        },
-                    )
-                }
-            }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    // INTRO/CONCLUSION não editam título/minutos: o papel já define ambos
+    // de forma fixa (ver SectionsController.defaultTitleFor). Nesses cards
+    // só o ⋮ permanece. BODY mantém os dois campos.
+    val hideTitleAndMinutes = state.section.role == SectionRole.INTRO ||
+        state.section.role == SectionRole.CONCLUSION
+
+    // Título + minutos + ⋮ (o chip de role mora na aba do card, fora daqui).
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (!hideTitleAndMinutes) {
         // 2. Título editável (mantido).
         TextField(
             value = titleText,
@@ -456,6 +476,10 @@ private fun SectionHeader(
                 disabledContainerColor = Color.Transparent,
             ),
         )
+        } else {
+            // Mantém o ⋮ na borda direita mesmo sem título/minutos.
+            Spacer(Modifier.weight(1f))
+        }
         // 4. Menu ⋮ da seção: mover/reordenar/excluir (escondido em readOnly).
         if (!readOnly) {
             Box {
@@ -505,7 +529,6 @@ private fun SectionHeader(
                 }
             }
         }
-    }
     }
 }
 

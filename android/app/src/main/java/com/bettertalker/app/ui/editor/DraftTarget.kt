@@ -65,15 +65,27 @@ fun alvoLabel(target: DraftTarget, sections: List<SectionUiState>): String {
 }
 
 /**
- * Sigla de 2 letras do role, para o chip compacto do cabeçalho de
- * seção. Substitui o nome completo (que ocupava ~60-80dp de largura).
+ * Rótulo legível do role, em caixa alta (INTRODUÇÃO / DESENVOLVIMENTO /
+ * CONCLUSÃO). Usado no chip da aba, no dropdown de troca, no header do
+ * chat ("Conversando sobre") e onde mais for preciso — fonte única para
+ * não divergir.
  *
  * Pura, testável.
  */
-internal fun roleSigla(role: SectionRole): String = when (role) {
-    SectionRole.INTRO -> "IN"
-    SectionRole.BODY -> "BD"
-    SectionRole.CONCLUSION -> "CO"
+internal fun roleLabel(role: SectionRole): String = when (role) {
+    SectionRole.INTRO -> "INTRODUÇÃO"
+    SectionRole.BODY -> "DESENVOLVIMENTO"
+    SectionRole.CONCLUSION -> "CONCLUSÃO"
+}
+
+/**
+ * Overload para campos persistidos (a entidade guarda `role` como String).
+ * Nome desconhecido cai em DESENVOLVIMENTO (nunca quebra leitura).
+ */
+internal fun roleLabel(roleName: String): String = when (roleName) {
+    SectionRole.INTRO.name -> "INTRODUÇÃO"
+    SectionRole.CONCLUSION.name -> "CONCLUSÃO"
+    else -> "DESENVOLVIMENTO"
 }
 
 /**
