@@ -351,6 +351,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _runState = MutableStateFlow<ChatRunState>(ChatRunState.Idle)
     val runState = _runState.asStateFlow()
 
+    /**
+     * F2.1 — fases do provider on-device (só observa; o fluxo de send(),
+     * answerRemote e persistência seguem intactos).
+     */
+    val localPhase: kotlinx.coroutines.flow.StateFlow<com.bettertalker.app.data.llm.LocalPhase> =
+        com.bettertalker.app.data.llm.LocalProgress.phase
+    val localPartial: kotlinx.coroutines.flow.StateFlow<String> =
+        com.bettertalker.app.data.llm.LocalProgress.partialText
+
     /** Mensagem que originou o turno atual, para "Tentar novamente". */
     private var lastUserMessage: String? = null
 
@@ -739,9 +748,23 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val blockText = currentFocusText()
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
+            // F2.1-fix: o try cobre TUDO a partir daqui (intenção, RAG,
+            // roteamento e geração). Antes, os return@launch das rotas
+            // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
+            // do try e pulavam o finally — travando composer e runState.
+            try {
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
+            // F2.1 — marca a fase real de leitura das fontes (RAG Room) quando
+            // a rota é o Gemma local. Só observa; o fluxo segue intacto.
+            if (ProviderFactory.resolveRemote(settings).providerId ==
+                ProviderFactory.PROVIDER_LOCAL_GEMMA
+            ) {
+                com.bettertalker.app.data.llm.LocalProgress.set(
+                    com.bettertalker.app.data.llm.LocalPhase.ReadingSources
+                )
+            }
             val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
@@ -802,8 +825,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).
             // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
+            // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings)
-            try {
                 if (ProviderFactory.useRemoteRoute(remote)) {
                     answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
                 } else {

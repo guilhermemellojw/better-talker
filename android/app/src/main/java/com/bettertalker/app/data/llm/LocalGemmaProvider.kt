@@ -7,6 +7,8 @@ import kotlinx.coroutines.CancellationException
 
 /**
  * F2 — provider on-device (Gemma 4 E2B / LiteRT-LM).
+ * F2.1 — publica fases semânticas ([LocalProgress]), compacta o RAG
+ * ([LeanRag]) e reforça grounding, sem mudar o contrato.
  *
  * Reaproveita o MESMO [buildProviderPrompts] dos providers remotos (paridade
  * de contrato: mesmo LlmRequest ⇒ mesmo prompt) e aplica o
@@ -17,8 +19,10 @@ import kotlinx.coroutines.CancellationException
  * UNAVAILABLE (o chat decide o fallback; nunca há queda silenciosa para nuvem).
  */
 class LocalGemmaProvider(
-    private val context: Context,
-    private val engine: LitertGemmaEngine = LitertGemmaEngine.get(context),
+    private val context: Context?,
+    private val engine: GemmaEngine = LitertGemmaEngine.get(context!!),
+    private val modelPresent: () -> Boolean =
+        { context?.let { LitertGemmaEngine.isModelPresent(it) } ?: false },
     override val model: String = LitertGemmaEngine.MODEL_FILE,
     private val log: (String) -> Unit = { android.util.Log.w("CopilotLLM", it) },
 ) : LlmProvider {
@@ -27,30 +31,67 @@ class LocalGemmaProvider(
 
     override suspend fun generate(request: LlmRequest): LlmResponse {
         val started = System.currentTimeMillis()
-        if (!LitertGemmaEngine.isModelPresent(context)) {
+        LocalProgress.reset()
+        if (!modelPresent()) {
             throw ProviderError(
                 ProviderErrorCode.UNAVAILABLE,
                 "Modelo local ausente (files/models/${LitertGemmaEngine.MODEL_FILE}).",
                 id, 0,
             )
         }
-        val prompts = buildProviderPrompts(request)
-        val raw = try {
-            val sb = StringBuilder()
-            engine.generate(prompts.first, prompts.second, request.maxOutputTokens)
-                .collect { sb.append(it) }
-            sb.toString()
+        LocalProgress.set(LocalPhase.LoadingModel)
+        val tLoad0 = System.currentTimeMillis()
+        try {
+            engine.warmup()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log("gemma_local falhou: ${e.message}")
+            log("gemma_local falhou no load: ${e.message}")
+            throw ProviderError(ProviderErrorCode.UNAVAILABLE, "Gemma local indisponível.", id, 1)
+        }
+        val loadMs = System.currentTimeMillis() - tLoad0
+
+        LocalProgress.set(LocalPhase.ReadingSources)
+        val leanRequest = LeanRag.compact(request.contextPack)?.let { request.copy(contextPack = it) }
+            ?: request
+        val prompts = buildProviderPrompts(leanRequest)
+        val system = listOf(prompts.first, GEMMA_GROUNDING_BLOCK)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+        val ragTokens = estimateRagTokens(leanRequest)
+
+        LocalProgress.set(LocalPhase.Generating)
+        val raw: String
+        val ttftMs: Long
+        val genMs: Long
+        try {
+            val sb = StringBuilder()
+            var firstAt = -1L
+            val tGen0 = System.currentTimeMillis()
+            engine.generate(system, prompts.second, request.maxOutputTokens)
+                .collect { chunk ->
+                    if (firstAt < 0) firstAt = System.currentTimeMillis()
+                    sb.append(chunk)
+                    LocalProgress.appendPartial(chunk)
+                }
+            raw = sb.toString()
+            ttftMs = if (firstAt < 0) -1 else firstAt - tGen0
+            genMs = System.currentTimeMillis() - tGen0
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log("gemma_local falhou na geração: ${e.message}")
             throw ProviderError(ProviderErrorCode.UNAVAILABLE, "Gemma local indisponível.", id, 1)
         }
 
-        val verified = GroundednessVerifier.verify(raw, contentSources(request))
+        val verified = GroundednessVerifier.verify(raw, contentSources(leanRequest))
         if (verified.hasRemovals) {
             log("gemma_local verificador removeu ${verified.removed.size} trecho(s) sem apoio")
         }
+        LocalProgress.set(LocalPhase.Done)
+        val estTokens = LeanRag.estimateTokens(raw)
+        log("gemma_local ok load=${loadMs}ms ttft=${ttftMs}ms gen=${genMs}ms " +
+            "rag~${ragTokens}tok out~${estTokens}tok")
         return LlmResponse(
             verified.text,
             LlmResponseMeta(
@@ -69,5 +110,12 @@ class LocalGemmaProvider(
             ?.map { "${it.reference} ${it.text}" }
             .orEmpty()
         return content + request.contextPassages
+    }
+
+    private fun estimateRagTokens(request: LlmRequest): Int {
+        val pack = request.contextPack ?: return request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
+        return pack.contentSources.sumOf { LeanRag.sourceTokens(it) } +
+            pack.trainingSources.sumOf { LeanRag.sourceTokens(it) } +
+            request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
     }
 }

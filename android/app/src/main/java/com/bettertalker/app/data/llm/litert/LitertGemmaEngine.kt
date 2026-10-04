@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.llm.litert
 
 import android.content.Context
+import com.bettertalker.app.data.llm.GemmaEngine
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -32,7 +33,7 @@ import java.io.File
  *   tensor buffer").
  * - Conversa nova por chamada = contexto limpo; thinking desligado.
  */
-class LitertGemmaEngine private constructor(private val appContext: Context) {
+class LitertGemmaEngine private constructor(private val appContext: Context) : GemmaEngine {
 
     companion object {
         const val MODEL_FILE = "gemma-4-E2B-it.litertlm"
@@ -99,8 +100,11 @@ class LitertGemmaEngine private constructor(private val appContext: Context) {
         }
     }
 
+    /** Expõe o carregamento lazy para medição de fase (no-op se já está). */
+    override suspend fun warmup() = ensureLoaded()
+
     /** Gera texto com contexto limpo (conversa nova por chamada). */
-    fun generate(system: String, user: String, maxOutputTokens: Int): Flow<String> = flow {
+    override fun generate(system: String, user: String, maxOutputTokens: Int): Flow<String> = flow {
         ensureLoaded()
         val e = engine ?: error("engine LiteRT não carregado")
         e.createConversation(

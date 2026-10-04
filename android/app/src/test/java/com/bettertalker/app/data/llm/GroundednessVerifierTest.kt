@@ -77,4 +77,13 @@ class GroundednessVerifierTest {
         val r = GroundednessVerifier.verify(resposta, fontes)
         assertTrue(r.hasRemovals)
     }
+
+    @Test
+    fun criatividade_sem_citacao_nem_referencia_e_preservada() {
+        val resposta = "Uma ilustração possível seria comparar com um rio que nunca seca. " +
+            "Essa imagem pode ajudar a explicar a ideia com linguagem simples."
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertFalse(r.hasRemovals)
+        assertEquals(resposta, r.text)
+    }
 }

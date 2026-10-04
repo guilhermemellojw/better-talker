@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.llm.LocalPhase
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
@@ -74,6 +75,9 @@ fun ChatScreen(
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
     val runState by vm.runState.collectAsState()
+    // F2.1 — fases do Gemma local (só observa; remotos seguem o rótulo legado).
+    val localPhase by vm.localPhase.collectAsState()
+    val localPartial by vm.localPartial.collectAsState()
     // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
     val readiness by vm.readiness.collectAsState()
     val setupDismissed by vm.setupBannerDismissed.collectAsState()
@@ -249,13 +253,43 @@ fun ChatScreen(
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).
+                    // F2.1: com o Gemma local, o rótulo reflete a fase real
+                    // (load/RAG/geração); remotos mantêm o texto legado.
                     when (val s = runState) {
-                        is ChatRunState.Sending, is ChatRunState.Generating -> item {
-                            Text(
-                                "Copilot está escrevendo…",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
+                        is ChatRunState.Sending, is ChatRunState.Generating -> {
+                            item {
+                                Text(
+                                    when (localPhase) {
+                                        LocalPhase.LoadingModel -> "Carregando modelo…"
+                                        LocalPhase.ReadingSources -> "Lendo as fontes…"
+                                        LocalPhase.Generating -> "Gerando resposta…"
+                                        else -> "Copilot está escrevendo…"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
+                            // Texto parcial transitório (não persiste; some
+                            // quando a resposta final é postada).
+                            if (s is ChatRunState.Generating &&
+                                localPhase == LocalPhase.Generating &&
+                                localPartial.isNotBlank()
+                            ) {
+                                item {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            localPartial,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                         is ChatRunState.Error -> item {
                             ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
