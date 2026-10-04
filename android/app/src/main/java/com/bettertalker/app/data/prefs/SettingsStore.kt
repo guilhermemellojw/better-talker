@@ -72,6 +72,13 @@ class SettingsStore(private val ctx: Context) {
     private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
     val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "qwen" }
     suspend fun setLlmProvider(v: String) {
-        ctx.store.edit { it[LLM_PROVIDER] = if (v == "gemini") "gemini" else "qwen" }
+        ctx.store.edit {
+            it[LLM_PROVIDER] = when (v) {
+                "gemini" -> "gemini"
+                // F2: provider on-device (Gemma 4 E2B via LiteRT-LM)
+                "gemma_local" -> "gemma_local"
+                else -> "qwen"
+            }
+        }
     }
 }
