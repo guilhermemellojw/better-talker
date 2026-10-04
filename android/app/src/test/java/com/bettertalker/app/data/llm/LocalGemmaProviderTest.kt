@@ -136,4 +136,20 @@ class LocalGemmaProviderTest {
         assertEquals(LocalPhase.Done, LocalProgress.phase.value)
         assertEquals("ab", LocalProgress.partialText.value)
     }
+
+    @Test
+    fun dossier_quote_is_supported() = runBlocking {
+        // F2.2: citação fiel ao dossiê da seção em foco não pode ser removida.
+        val engine = FakeEngine(
+            chunks = listOf("Como diz o ponto: \"Precisamos estar vivos para ter esperança\". Fim.")
+        )
+        val dossier = "## DOSSIÊ\nPrecisamos estar vivos para ter esperança e fazer planos."
+        val (p, _, req) = provider(
+            engine,
+            request = LlmRequest(text = "b", contextBlock = dossier),
+        )
+        val res = p.generate(req)
+        assertTrue(res.text.contains("Precisamos estar vivos para ter esperança"))
+        assertTrue(!res.text.contains("removi uma frase"))
+    }
 }

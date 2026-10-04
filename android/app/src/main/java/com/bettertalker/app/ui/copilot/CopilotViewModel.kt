@@ -464,6 +464,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      */
     private var _pushedContext: ChatContext? = null
 
+    /**
+     * F2.2-fix: "alvo empurrado" = sectionId/subPointId presentes (não a
+     * mera presença do objeto — o FAB empurra contexto até em chat genérico).
+     * Sem alvo, o RAG amplo fica intacto (documentado no answerRemote).
+     */
+    private fun hasPushedTarget(): Boolean =
+        _pushedContext?.sectionId != null || _pushedContext?.subPointId != null
+
     fun setPushedContext(ctx: ChatContext?) {
         _pushedContext = ctx
         _readiness.value = ctx?.readiness
@@ -812,7 +820,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                             hasLinkedOutline = outlines.get(outlineNid) != null,
                         )
                     ) {
-                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
+                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
                         return@launch
                     }
                     generateOratory(route, text, remote, contextBlock)
@@ -828,7 +836,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings)
                 if (ProviderFactory.useRemoteRoute(remote)) {
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
+                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock

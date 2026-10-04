@@ -58,7 +58,6 @@ class LocalGemmaProvider(
         val system = listOf(prompts.first, GEMMA_GROUNDING_BLOCK)
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
-        val ragTokens = estimateRagTokens(leanRequest)
 
         LocalProgress.set(LocalPhase.Generating)
         val raw: String
@@ -90,8 +89,10 @@ class LocalGemmaProvider(
         }
         LocalProgress.set(LocalPhase.Done)
         val estTokens = LeanRag.estimateTokens(raw)
+        val packTokens = estimatePackTokens(leanRequest)
+        val dossierTokens = leanRequest.contextBlock?.let { LeanRag.estimateTokens(it) } ?: 0
         log("gemma_local ok load=${loadMs}ms ttft=${ttftMs}ms gen=${genMs}ms " +
-            "rag~${ragTokens}tok out~${estTokens}tok")
+            "rag~${packTokens}tok dossier~${dossierTokens}tok out~${estTokens}tok")
         return LlmResponse(
             verified.text,
             LlmResponseMeta(
@@ -104,18 +105,26 @@ class LocalGemmaProvider(
         )
     }
 
-    /** Corpus do verificador: fontes de conteúdo + trechos legados. */
+    /** Corpus do verificador: fontes de conteúdo + trechos legados + dossiê.
+     *
+     * F2.2: o dossiê (contexto da seção em foco) É material de fonte exibido
+     * ao modelo — sem ele aqui, uma citação fiel à seção seria removida
+     * injustamente. */
     private fun contentSources(request: LlmRequest): List<String> {
         val content = request.contextPack?.contentSources
             ?.map { "${it.reference} ${it.text}" }
             .orEmpty()
-        return content + request.contextPassages
+        val dossier = request.contextBlock?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty()
+        return content + request.contextPassages + dossier
     }
 
-    private fun estimateRagTokens(request: LlmRequest): Int {
-        val pack = request.contextPack ?: return request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
-        return pack.contentSources.sumOf { LeanRag.sourceTokens(it) } +
-            pack.trainingSources.sumOf { LeanRag.sourceTokens(it) } +
-            request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
+    /** Só RetrievalRepository + legados (sem dossiê) — medida honesta do RAG. */
+    private fun estimatePackTokens(request: LlmRequest): Int {
+        val pack = request.contextPack
+        val packTokens = pack?.let {
+            it.contentSources.sumOf { s -> LeanRag.sourceTokens(s) } +
+                it.trainingSources.sumOf { s -> LeanRag.sourceTokens(s) }
+        } ?: 0
+        return packTokens + request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
     }
 }
