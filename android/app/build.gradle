@@ -29,13 +29,20 @@ android {
     }
     kotlinOptions { jvmTarget = '17' }
     buildFeatures { compose true; buildConfig true }
-    packaging { resources { excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1'] } }
+    packaging {
+        // F2: os backends do LiteRT/ggml são carregados por caminho no dir de
+        // libs nativas — precisam estar extraídos.
+        jniLibs { useLegacyPackaging = true }
+        resources { excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1'] }
+    }
 }
 
 dependencies {
     // Compose BOM + Material3
     implementation platform("androidx.compose:compose-bom:${rootProject.ext.composeBomVersion}")
     implementation 'androidx.core:core-ktx:1.17.0'
+    // F2 — motor on-device (Gemma 4 E2B via LiteRT-LM)
+    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.17.1'
     implementation "androidx.activity:activity-compose:${rootProject.ext.androidxActivityVersion}"
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'
@@ -108,4 +115,10 @@ if (gsFile.exists() && gsFile.text.contains('project_id')) {
     logger.lifecycle('[BetterTalker] Firebase resources gerados do google-services.json (login + Firestore ativos).')
 } else {
     logger.lifecycle('[BetterTalker] google-services.json ausente: build 100% local, sem Firebase.')
+}
+
+// F2: o AAR do LiteRT pede kotlin-stdlib 2.4.x, mas o Room 2.8.5 (kapt) só
+// lê metadata Kotlin até 2.3.0 — força o stdlib do projeto (Kotlin 2.3.21).
+configurations.all {
+    resolutionStrategy.force 'org.jetbrains.kotlin:kotlin-stdlib:2.3.21'
 }

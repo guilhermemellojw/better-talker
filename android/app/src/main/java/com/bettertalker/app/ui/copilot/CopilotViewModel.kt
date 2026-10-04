@@ -775,7 +775,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     )
                     // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
                     val remote = ProviderFactory.resolveRemote(settings)
-                    if (!ProviderFactory.useRemoteRoute(remote.apiKey)) {
+                    if (!ProviderFactory.useRemoteRoute(remote)) {
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
                     }
@@ -804,7 +804,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
             val remote = ProviderFactory.resolveRemote(settings)
             try {
-                if (ProviderFactory.useRemoteRoute(remote.apiKey)) {
+                if (ProviderFactory.useRemoteRoute(remote)) {
                     answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, _pushedContext != null)
                 } else {
                     sendMutex.withLock {
@@ -996,7 +996,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             com.bettertalker.app.data.edit.EditProposalMode.INSERT
         }
         try {
-            val provider = ProviderFactory.createFor(remote)
+            val provider = ProviderFactory.createFor(remote, app)
             val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 provider.generate(
                     com.bettertalker.app.data.llm.LlmRequest(
@@ -1072,7 +1072,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // legado (nota inteira + RAG amplo) recua. Sem alvo, intacto.
         hasTarget: Boolean = false,
     ) {
-        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote)
+        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
@@ -1185,7 +1185,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 }
                 // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
                 val remote = ProviderFactory.resolveRemote(settings)
-                if (!ProviderFactory.useRemoteRoute(remote.apiKey)) {
+                if (!ProviderFactory.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar propostas.")
                     return@launch
                 }
@@ -1196,7 +1196,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     history, history.none { it.fromMe }, focus)
                 _chatEvidence.value = turnContext.evidence
                 android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
-                val provider = ProviderFactory.createFor(remote)
+                val provider = ProviderFactory.createFor(remote, app)
                 // HTTP fora da Main (§50), igual ao answerRemote.
                 val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     provider.generate(LlmRequest(

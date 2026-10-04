@@ -192,9 +192,28 @@ private fun CopilotProviderCard(vm: ModelViewModel) {
                     label = { Text("Qwen (Groq) — padrão") }
                 )
                 androidx.compose.material3.FilterChip(
-                    selected = provider != "qwen",
+                    selected = provider == "gemini",
                     onClick = { vm.selectProvider("gemini") },
                     label = { Text("Gemini — alternativa") }
+                )
+            }
+            androidx.compose.material3.FilterChip(
+                selected = provider == "gemma_local",
+                onClick = { vm.selectProvider("gemma_local") },
+                label = { Text("Gemma local — on-device") }
+            )
+            if (provider == "gemma_local") {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val present = com.bettertalker.app.data.llm.litert.LitertGemmaEngine.isModelPresent(ctx)
+                Text(
+                    if (present) {
+                        "Modelo local presente ✓ — Gemma 4 E2B via LiteRT-LM (GPU, contexto 4096)."
+                    } else {
+                        "Modelo ausente: coloque ${com.bettertalker.app.data.llm.litert.LitertGemmaEngine.MODEL_FILE} em files/models."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (present) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error,
                 )
             }
             if (provider == "qwen") {
