@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
@@ -37,7 +36,6 @@ import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
@@ -126,9 +124,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
     // 3.2.5g.2: picker ativo abaixo da toolbar (substitui showColors/showHighlight/showSize).
     var activePicker by remember { mutableStateOf<PickerMode?>(null) }
     // Menus dos slots da toolbar.
-    var showStylePalette by remember { mutableStateOf(false) }
     var showSizeMenu by remember { mutableStateOf(false) }
-    var showBlocksMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
     var showColorDialog by remember { mutableStateOf(false) }
@@ -393,31 +389,6 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                             activeEditorState?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
                         }
                     }
-                    // 🎨: cor de fonte / marca-texto / tamanho (abre o picker abaixo).
-                    item {
-                        Box {
-                            ToolBtn(Icons.Default.Palette, "Cor e tamanho", active = showStylePalette, enabled = toolbarEnabled) {
-                                showStylePalette = true
-                            }
-                            DropdownMenu(
-                                expanded = showStylePalette,
-                                onDismissRequest = { showStylePalette = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Cor de fonte") },
-                                    onClick = { showStylePalette = false; activePicker = PickerMode.FONT_COLOR },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Marca-texto") },
-                                    onClick = { showStylePalette = false; activePicker = PickerMode.HIGHLIGHT },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Tamanho") },
-                                    onClick = { showStylePalette = false; activePicker = PickerMode.SIZE },
-                                )
-                            }
-                        }
-                    }
                     // "14": mostra o tamanho vigente e aplica S/M/G direto.
                     item {
                         Box {
@@ -444,63 +415,9 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                             }
                         }
                     }
-                    // ≡: título/listas/alinhamento (achatado, sem ciclo).
-                    item {
-                        Box {
-                            ToolBtn(
-                                Icons.AutoMirrored.Filled.FormatListBulleted, "Listas e alinhamento",
-                                active = showBlocksMenu, enabled = toolbarEnabled,
-                            ) { showBlocksMenu = true }
-                            DropdownMenu(
-                                expanded = showBlocksMenu,
-                                onDismissRequest = { showBlocksMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Título") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.insertMarkdownAfterSelection("\n# ")
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Lista") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.toggleUnorderedList()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Lista numerada") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.toggleOrderedList()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Alinhar à esquerda") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Left))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Centralizar") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Center))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Alinhar à direita") },
-                                    onClick = {
-                                        showBlocksMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Right))
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    // ⋯: limpar formatação.
+                    // ⋯: formatação secundária (cor, marca-texto, listas,
+                    // alinhamento) + limpar. F3.1: toolbar enxuta (B I U S |
+                    // tamanho | ⋯) para caber em telas estreitas.
                     item {
                         Box {
                             ToolBtn(Icons.Default.MoreVert, "Mais opções", active = showMoreMenu, enabled = toolbarEnabled) {
@@ -510,6 +427,62 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
                             ) {
+                                DropdownMenuItem(
+                                    text = { Text("Cor de fonte") },
+                                    onClick = { showMoreMenu = false; activePicker = PickerMode.FONT_COLOR },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Marca-texto") },
+                                    onClick = { showMoreMenu = false; activePicker = PickerMode.HIGHLIGHT },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Tamanho") },
+                                    onClick = { showMoreMenu = false; activePicker = PickerMode.SIZE },
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Título") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.insertMarkdownAfterSelection("\n# ")
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lista") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleUnorderedList()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lista numerada") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleOrderedList()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Alinhar à esquerda") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Left))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Centralizar") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Center))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Alinhar à direita") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Right))
+                                    },
+                                )
+                                HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text("Limpar formatação") },
                                     onClick = {
@@ -606,7 +579,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                 // 3.2.5f-pre: aviso estrutural não-bloqueante (dispensável; a
                 // próxima mudança republica se a estrutura seguir inválida).
                 val structureWarning by vm.structureWarning.collectAsState()
-                structureWarning?.let {
+                structureWarning?.let { w ->
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -615,7 +588,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Warning, "Aviso de estrutura")
                             Text(
-                                text = "A estrutura deste discurso pode precisar de ajustes.",
+                                text = structureWarningMessage(w.errors)
+                                    ?: "A estrutura deste discurso pode precisar de ajustes.",
                                 style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                             )
@@ -631,12 +605,18 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                 Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "Esta nota não tem seções.",
-                            style = MaterialTheme.typography.bodyMedium,
+                            "Comece a montar seu discurso",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Adicione uma introdução, os tópicos de desenvolvimento e a conclusão.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
                         if (!preview) {
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(16.dp))
                             AddSectionButton(
                                 onAdd = { role -> vm.addSection(role, afterSectionId = null) },
                                 modifier = Modifier.padding(horizontal = 32.dp),
@@ -658,7 +638,6 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
                                 onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
                                 onContentChange = { vm.onSectionContent(sectionState.section.id, it) },
-                                onSubPointChange = { spId, html -> vm.onSubPointContent(spId, html) },
                                 onActiveEditorChange = { key, state ->
                                     activeEditorKey = key
                                     activeEditorState = state
@@ -769,14 +748,14 @@ private fun AddSectionButton(
             onClick = { menuOpen = true },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Default.Add, "Adicionar seção")
+            Icon(Icons.Default.Add, "Adicionar parte")
             Spacer(Modifier.width(4.dp))
-            Text("Adicionar seção")
+            Text("Adicionar parte")
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             SectionRole.values().forEach { role ->
                 DropdownMenuItem(
-                    text = { Text("Seção: ${role.name}") },
+                    text = { Text(friendlyRoleMenuLabel(role)) },
                     onClick = { onAdd(role); menuOpen = false },
                 )
             }

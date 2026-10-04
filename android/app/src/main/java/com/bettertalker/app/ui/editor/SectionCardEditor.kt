@@ -4,7 +4,6 @@ package com.bettertalker.app.ui.editor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,6 +55,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.domain.speech.SectionRole
@@ -64,46 +67,22 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 
 /**
- * Editor de UMA seção do discurso (tarefa 3.2.5b).
+ * F3.1 — o card do tópico comunica a hierarquia do produto:
  *
- * - INTRO/CONCLUSION: 1 editor rico (`contentHtml`)
- * - BODY: N sub-pontos, cada um com `outlineText` + refs + editor (`developedHtml`)
+ *   TÓPICO
+ *   ├── título + minutos
+ *   ├── objetivo
+ *   ├── linha de raciocínio (subtópicos numerados — estrutura, não redação)
+ *   ├── ação: conversar com o Copilot
+ *   ├── fontes e apoio (recolhível)
+ *   ├── abordagem acordada (recolhível)
+ *   └── mini discurso (o resultado)
  *
- * Não inclui toolbar (fica no EditorScreen — decisão A) e não acessa VM:
- * toda comunicação é por callback. O caller decide persistência/autosave.
- *
- * `BasicRichTextEditor` (não o `RichTextEditor` Material3 da lib): é o mesmo
- * componente usado pelo editor atual do app; evita decoração/medidas
- * Material3 que o projeto ainda não usa (ver resposta 1 da 3.2.5b).
- *
- * @param state estado da seção (modelo + sub-pontos + flags)
- * @param isActiveSection destaque visual (seção corrente)
- * @param readOnly modo preview: desabilita campos e editores (tudo só leitura)
- * @param onActivate clique no card (inativa a seção corrente)
- * @param onTitleChange novo título
- * @param onMinutesChange novos minutos
- * @param onContentChange HTML da seção (INTRO/CONCLUSION)
- * @param onSubPointChange (subPointId, html) para BODY
- * @param onActiveEditorChange editor focado: ("section-{id}" | "subpoint-{id}", state)
- *   ou (null, null) quando nenhum — a toolbar global (3.2.5c) opera esse state
- * @param onSelectionChange seleção viva com contexto (3.2.5e; o Copilot consome via VM)
- * @param sectionPendingInserts inserts direcionados a aplicar neste card (3.2.5e)
- * @param onConsumeInsert chamado após aplicar cada insert (3.2.5e)
- * @param isFirstSection true na primeira seção (desabilita "Mover para cima")
- * @param isLastSection true na última seção (desabilita "Mover para baixo")
- * @param onRoleChange troca o papel da seção (menu do chip, 3.2.5f.2b)
- * @param onMoveSectionUp move a seção para cima na ordem (3.2.5f.2b)
- * @param onMoveSectionDown move a seção para baixo na ordem (3.2.5f.2b)
- * @param onRemoveSection remove a seção após confirmação com cascata (3.2.5f.2b)
- *
- * O `RichTextState` exposto em `onActiveEditorChange` é o MESMO objeto vivo
- * guardado no mapa da seção: quando o HTML externo muda, o
- * `LaunchedEffect(initialHtml)` daqui o atualiza in-place — o caller não
- * precisa de novo callback (débito/explicação da decisão 4 da 3.2.5c).
+ * O sub-ponto deixou de ser um mini-editor: é uma linha da lista. O editor
+ * rico vive só no mini discurso (e em INTRO/CONCLUSÃO). O `developedHtml`
+ * legado continua no banco e é oferecido discretamente como "Nota antiga".
  */
-/**
- * Cor do chip por role. Suaves do tema, sem hardcode.
- */
+
 @Composable
 internal fun roleChipColors(role: SectionRole): Color = when (role) {
     SectionRole.INTRO -> MaterialTheme.colorScheme.primaryContainer
@@ -120,7 +99,6 @@ fun SectionCardEditor(
     onTitleChange: (String) -> Unit,
     onMinutesChange: (Int) -> Unit,
     onContentChange: (String) -> Unit,
-    onSubPointChange: (subPointId: String, html: String) -> Unit,
     onActiveEditorChange: (key: String?, richState: RichTextState?) -> Unit,
     onSelectionChange: (SelectionContext?) -> Unit,
     sectionPendingInserts: List<SectionAwareInsert> = emptyList(),
@@ -129,7 +107,6 @@ fun SectionCardEditor(
     onRemoveSubPoint: (subPointId: String) -> Unit = {},
     onMoveSubPoint: (subPointId: String, direction: MoveDirection) -> Unit = { _, _ -> },
     onUpdateSubPointOutlineText: (subPointId: String, newText: String) -> Unit = { _, _ -> },
-    // F2.3: objetivo do tópico + abordagem acordada (campos do card BODY).
     onObjectiveChange: (String) -> Unit = {},
     onApproachChange: (String) -> Unit = {},
     isFirstSection: Boolean = false,
@@ -138,58 +115,40 @@ fun SectionCardEditor(
     onMoveSectionUp: () -> Unit = {},
     onMoveSectionDown: () -> Unit = {},
     onRemoveSection: () -> Unit = {},
-    // Fase 3.5e.3: geração de rascunho pelo Copilot.
     canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
-    // F2c: conversa focada ("Conversar sobre…") — alvo explícito, sem
-    // depender da seleção viva.
     onChatAbout: (DraftTarget) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // Mapa persistente de RichTextStates (key → state). Criado uma vez por
-    // seção; nunca reusado entre seções (modelo C'1 do spike 3.2.1b).
     val editorStates = remember(state.section.id) {
         mutableStateMapOf<String, RichTextState>()
     }
-
-    // Guarda de foco (evita limpar a seleção quando o novo editor já assumiu).
     var focusedEditorKey by remember(state.section.id) { mutableStateOf<String?>(null) }
-
-    // 3.2.5f.2b: confirmação local de exclusão; o header só abre o dialog.
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
 
-    // BODY: o "tópico" mora ACIMA do card (como o badge dos demais) e o
-    // badge DESENVOLVIMENTO deixa de existir — card mais clean.
     val isBody = state.section.role == SectionRole.BODY
 
-    // Título/minutos do BODY hoisted: a linha acima do card é editável.
     var titleText by remember(state.section.id, state.section.title) {
         mutableStateOf(state.section.title)
     }
     var minutesText by remember(state.section.id, state.section.minutes) {
         mutableStateOf(state.section.minutes.toString())
     }
+    var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
 
-        // Aba acima do card: BODY = título + min + ⋮; INTRO/CONCLUSÃO = chip.
-        // NOTA: offset negativo (y = -9.dp/-20.dp) foi tentado para a aba
-        // sobreposta à borda, mas não desloca o desenho nesta árvore
-        // (2 builds, medido no device) — fluxo normal aqui, sem overlap.
-        var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
-        Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
-                    .then(
-                        if (isBody && !isActiveSection) {
-                            Modifier.clickable { onActivate() }
-                        } else Modifier
-                    ),
-            ) {
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
+                .then(
+                    if (isBody && !isActiveSection) {
+                        Modifier.clickable { onActivate() }
+                    } else Modifier
+                ),
+        ) {
             if (isBody) {
-                // "Tópico" do desenvolvimento: mesmo TextField transparente
-                // de antes, agora acima do card.
                 TextField(
                     value = titleText,
                     enabled = !readOnly,
@@ -200,7 +159,7 @@ fun SectionCardEditor(
                     singleLine = true,
                     placeholder = {
                         Text(
-                            "Título da seção",
+                            "Título do tópico",
                             style = MaterialTheme.typography.bodyLarge.copy(
                                 fontWeight = FontWeight.SemiBold
                             ),
@@ -233,15 +192,13 @@ fun SectionCardEditor(
                         disabledContainerColor = Color.Transparent,
                     ),
                 )
-                // Sem chip de role em BODY: a troca vive no ⋮ ("Alterar papel").
                 SectionMenuButton(
                     sectionId = state.section.id,
                     readOnly = readOnly,
                     isFirst = isFirstSection,
                     isLast = isLastSection,
-                    hasSubPoints = state.subPoints.isNotEmpty(),
-                    canGenerateDraft = canGenerateDraft,
                     showRoleChange = true,
+                    primaryActionsOnCard = true,
                     onRoleChange = onRoleChange,
                     onMoveUp = onMoveSectionUp,
                     onMoveDown = onMoveSectionDown,
@@ -250,265 +207,218 @@ fun SectionCardEditor(
                     onChatAbout = onChatAbout,
                 )
             } else {
-            Box {
-                Surface(
-                    onClick = { if (!readOnly) roleMenuOpen = true },
-                    enabled = !readOnly,
-                    shape = RoundedCornerShape(4.dp),
-                    color = roleChipColors(state.section.role),
-                ) {
-                    Text(
-                        roleLabel(state.section.role),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                    )
-                }
-                DropdownMenu(
-                    expanded = roleMenuOpen,
-                    onDismissRequest = { roleMenuOpen = false },
-                ) {
-                    SectionRole.values().forEach { role ->
-                        DropdownMenuItem(
-                            text = { Text(roleLabel(role)) },
-                            onClick = {
-                                onRoleChange(role)
-                                roleMenuOpen = false
-                            },
+                Box {
+                    Surface(
+                        onClick = { if (!readOnly) roleMenuOpen = true },
+                        enabled = !readOnly,
+                        shape = RoundedCornerShape(4.dp),
+                        color = roleChipColors(state.section.role),
+                    ) {
+                        Text(
+                            friendlyRoleName(state.section.role).uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                         )
                     }
-                }
-            }
-            }
-            }
-            Card(
-                modifier = modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                    .animateContentSize()
-                    .then(
-                        if (isActiveSection) Modifier.border(
-                            width = 2.dp,
-                            color = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(12.dp),
-                        ) else Modifier
-                    )
-                    .semantics { contentDescription = "Seção ${state.section.role.name}" }
-                    .clickable(enabled = !isActiveSection) { onActivate() },
-            ) {
-            Box {
-            Column(
-                Modifier.padding(
-                    // 12dp alinha o texto do card com o título/chip de cima
-                    // (8dp da margem do card + 12 = 20dp de tela).
-                    start = 12.dp,
-                    // INTRO/CONCLUSÃO: recuo à direita para o texto não
-                    // encostar no ⋮ flutuante (BODY não tem overlay).
-                    end = if (isBody) 4.dp else 32.dp,
-                    top = 4.dp, bottom = 10.dp,
-                )
-            ) {
-
-            // 3.2.5e: aplica inserts pendentes direcionados a esta seção.
-            // insertMarkdownAfterSelection usa o cursor do editor; se o editor
-            // não estiver focado, a inserção cai no fim do texto (débito
-            // documentado — a 3.2.5f pode focar o alvo antes de inserir).
-            LaunchedEffect(state.section.id, sectionPendingInserts) {
-                sectionPendingInserts
-                    .filter { it.sectionId == state.section.id }
-                    .forEach { insert ->
-                        val targetEditorKey = insert.subPointId?.let { "subpoint-$it" }
-                            ?: "section-${state.section.id}"
-                        val targetState = editorStates[targetEditorKey]
-                        if (targetState != null) {
-                            val current = targetState.annotatedString.text
-                            val at = insert.heading?.let { headingOffset(current, it) }
-                            if (at != null) {
-                                targetState.insertMarkdown(
-                                    "\n\n" + insert.markdown.trim() + "\n",
-                                    at,
-                                )
-                            } else {
-                                targetState.insertMarkdownAfterSelection(
-                                    (if (current.isBlank()) "" else "\n\n") +
-                                        insert.markdown.trim() + "\n"
-                                )
-                            }
-                            // F2.3-fix: persiste o insert imediatamente. Quando o
-                            // card compõe JÁ com o insert pendente (fluxo
-                            // chat → tópico), o coletor de snapshotFlow do editor
-                            // inicia depois e o `.drop(1)` descarta a mudança —
-                            // sem isto o texto aparecia no editor e não era
-                            // salvo (sumia ao rolar/reabrir).
-                            val insertedHtml = targetState.toHtml()
-                            if (insert.subPointId != null) {
-                                onSubPointChange(insert.subPointId, insertedHtml)
-                            } else {
-                                onContentChange(insertedHtml)
-                            }
-                        }
-                        onConsumeInsert(insert)
-                    }
-            }
-
-            when (state.section.role) {
-                SectionRole.INTRO, SectionRole.CONCLUSION -> {
-                    val editorKey = "section-${state.section.id}"
-                    SectionContentEditor(
-                        editorKey = editorKey,
-                        initialHtml = state.section.contentHtml,
-                        sectionId = state.section.id,
-                        subPointId = null,
-                        editorStates = editorStates,
-                        readOnly = readOnly,
-                        onContentChange = onContentChange,
-                        onSelectionChange = onSelectionChange,
-                        onFocusChange = { isFocused ->
-                            if (isFocused) {
-                                focusedEditorKey = editorKey
-                                onActiveEditorChange(editorKey, editorStates[editorKey])
-                            } else if (focusedEditorKey == editorKey) {
-                                focusedEditorKey = null
-                                onActiveEditorChange(null, null)
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 80.dp),
-                    )
-                }
-                SectionRole.BODY -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // F2.3: objetivo + abordagem acordada do tópico (o
-                        // mini discurso nasce daqui).
-                        if (!readOnly) {
-                            TopicMetaFields(
-                                sectionId = state.section.id,
-                                objective = state.section.objective,
-                                approach = state.section.agreedApproach,
-                                onObjectiveChange = onObjectiveChange,
-                                onApproachChange = onApproachChange,
+                    DropdownMenu(
+                        expanded = roleMenuOpen,
+                        onDismissRequest = { roleMenuOpen = false },
+                    ) {
+                        SectionRole.values().forEach { role ->
+                            DropdownMenuItem(
+                                text = { Text(friendlyRoleName(role)) },
+                                onClick = {
+                                    onRoleChange(role)
+                                    roleMenuOpen = false
+                                },
                             )
                         }
-                        state.subPoints.forEachIndexed { index, subPoint ->
-                            // key(id): estado de menu/edição não migra no reorder.
-                            key(subPoint.id) {
-                                val editorKey = "subpoint-${subPoint.id}"
-                                SubPointEditor(
-                                    subPoint = subPoint,
-                                    sectionId = state.section.id,
-                                    isFirst = index == 0,
-                                    isLast = index == state.subPoints.lastIndex,
-                                    editorStates = editorStates,
-                                    readOnly = readOnly,
-                                    onSubPointChange = onSubPointChange,
-                                    onSelectionChange = onSelectionChange,
-                                    onRemove = { onRemoveSubPoint(subPoint.id) },
-                                    onMoveUp = { onMoveSubPoint(subPoint.id, MoveDirection.UP) },
-                                    onMoveDown = { onMoveSubPoint(subPoint.id, MoveDirection.DOWN) },
-                                    onUpdateOutlineText = { newText ->
-                                        onUpdateSubPointOutlineText(subPoint.id, newText)
-                                    },
-                                    showMenu = focusedEditorKey == editorKey,
-                                    onActivate = onActivate,
-                                    onFocusChange = { isFocused ->
-                                        if (isFocused) {
-                                            focusedEditorKey = editorKey
-                                            onActiveEditorChange(editorKey, editorStates[editorKey])
-                                        } else if (focusedEditorKey == editorKey) {
-                                            focusedEditorKey = null
-                                            onActiveEditorChange(null, null)
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 60.dp),
-                                )
-                            }
-                        }
-                        // Só em BODY e fora do preview.
-                        if (!readOnly) {
-                            OutlinedButton(
-                                onClick = { onAddSubPoint(null) },
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            ) {
-                                Icon(Icons.Default.Add, "Adicionar ponto")
-                                Spacer(Modifier.width(4.dp))
-                                Text("Adicionar ponto")
-                            }
-                        }
-                        // F2.3: o mini discurso do tópico (contentHtml) é
-                        // sempre editável — com ou sem sub-pontos. A linha de
-                        // raciocínio acima orienta; o texto final é um só.
-                        Text(
-                            "Mini discurso do tópico",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        val miniKey = "section-${state.section.id}"
-                        SectionContentEditor(
-                            editorKey = miniKey,
-                            initialHtml = state.section.contentHtml,
-                            sectionId = state.section.id,
-                            subPointId = null,
-                            editorStates = editorStates,
-                            readOnly = readOnly,
-                            onContentChange = onContentChange,
-                            onSelectionChange = onSelectionChange,
-                            onFocusChange = { isFocused ->
-                                if (isFocused) {
-                                    focusedEditorKey = miniKey
-                                    onActiveEditorChange(miniKey, editorStates[miniKey])
-                                } else if (focusedEditorKey == miniKey) {
-                                    focusedEditorKey = null
-                                    onActiveEditorChange(null, null)
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 80.dp),
-                        )
                     }
                 }
             }
         }
-            // Menu ⋮ da seção flutuando no canto superior direito (não
-            // ocupa fluxo: o texto usa a área toda do card). Em BODY ele
-            // vive acima do card, junto do título — sem colisão com o ⋮
-            // do sub-ponto.
-            if (!isBody) {
-            SectionMenuButton(
-                sectionId = state.section.id,
-                readOnly = readOnly,
-                isFirst = isFirstSection,
-                isLast = isLastSection,
-                hasSubPoints = state.subPoints.isNotEmpty(),
-                canGenerateDraft = canGenerateDraft,
-                showRoleChange = false,
-                onRoleChange = onRoleChange,
-                onMoveUp = onMoveSectionUp,
-                onMoveDown = onMoveSectionDown,
-                onRemove = { confirmDelete = true },
-                onGenerateDraft = onGenerateDraft,
-                onChatAbout = onChatAbout,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(2.dp),
-            )
+
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+                .animateContentSize()
+                .then(
+                    if (isActiveSection) Modifier.border(
+                        width = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(12.dp),
+                    ) else Modifier
+                )
+                .semantics { contentDescription = "Seção ${state.section.role.name}" }
+                .clickable(enabled = !isActiveSection) { onActivate() },
+        ) {
+            Box {
+                Column(
+                    Modifier.padding(
+                        start = 12.dp,
+                        end = if (isBody) 4.dp else 32.dp,
+                        top = 8.dp, bottom = 10.dp,
+                    )
+                ) {
+                    // Inserts do chat → mini discurso do tópico (`section-{id}`).
+                    LaunchedEffect(state.section.id, sectionPendingInserts) {
+                        sectionPendingInserts
+                            .filter { it.sectionId == state.section.id }
+                            .forEach { insert ->
+                                val targetEditorKey = insert.subPointId?.let { "subpoint-$it" }
+                                    ?: "section-${state.section.id}"
+                                val targetState = editorStates[targetEditorKey]
+                                if (targetState != null) {
+                                    val current = targetState.annotatedString.text
+                                    val at = insert.heading?.let { headingOffset(current, it) }
+                                    if (at != null) {
+                                        targetState.insertMarkdown(
+                                            "\n\n" + insert.markdown.trim() + "\n",
+                                            at,
+                                        )
+                                    } else {
+                                        targetState.insertMarkdownAfterSelection(
+                                            (if (current.isBlank()) "" else "\n\n") +
+                                                insert.markdown.trim() + "\n"
+                                        )
+                                    }
+                                    // F2.3-fix: persiste imediatamente (o coletor
+                                    // snapshotFlow do editor inicia depois e o
+                                    // `.drop(1)` descarta a mudança).
+                                    onContentChange(targetState.toHtml())
+                                }
+                                onConsumeInsert(insert)
+                            }
+                    }
+
+                    when (state.section.role) {
+                        SectionRole.INTRO, SectionRole.CONCLUSION -> {
+                            val editorKey = "section-${state.section.id}"
+                            SectionContentEditor(
+                                editorKey = editorKey,
+                                initialHtml = state.section.contentHtml,
+                                sectionId = state.section.id,
+                                subPointId = null,
+                                editorStates = editorStates,
+                                readOnly = readOnly,
+                                onContentChange = onContentChange,
+                                onSelectionChange = onSelectionChange,
+                                onFocusChange = { isFocused ->
+                                    if (isFocused) {
+                                        focusedEditorKey = editorKey
+                                        onActiveEditorChange(editorKey, editorStates[editorKey])
+                                    } else if (focusedEditorKey == editorKey) {
+                                        focusedEditorKey = null
+                                        onActiveEditorChange(null, null)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 80.dp),
+                            )
+                        }
+
+                        SectionRole.BODY -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                TopicObjectiveField(
+                                    objective = state.section.objective,
+                                    readOnly = readOnly,
+                                    onObjectiveChange = onObjectiveChange,
+                                )
+
+                                ReasoningLine(
+                                    subPoints = state.subPoints,
+                                    readOnly = readOnly,
+                                    onUpdateOutlineText = onUpdateSubPointOutlineText,
+                                    onMoveSubPoint = onMoveSubPoint,
+                                    onRemoveSubPoint = onRemoveSubPoint,
+                                    onAddSubPoint = { onAddSubPoint(null) },
+                                )
+
+                                if (!readOnly) {
+                                    OutlinedButton(
+                                        onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome, null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Conversar sobre este tópico")
+                                    }
+                                }
+
+                                TopicSourcesBlock(
+                                    sectionId = state.section.id,
+                                    refs = topicSources(state.section, state.subPoints),
+                                )
+
+                                TopicApproachBlock(
+                                    sectionId = state.section.id,
+                                    approach = state.section.agreedApproach,
+                                    readOnly = readOnly,
+                                    onApproachChange = onApproachChange,
+                                )
+
+                                MiniSpeechBlock(
+                                    sectionId = state.section.id,
+                                    contentHtml = state.section.contentHtml,
+                                    readOnly = readOnly,
+                                    canGenerateDraft = canGenerateDraft,
+                                    editorStates = editorStates,
+                                    onContentChange = onContentChange,
+                                    onSelectionChange = onSelectionChange,
+                                    onFocusChange = { isFocused, key ->
+                                        if (isFocused) {
+                                            focusedEditorKey = key
+                                            onActiveEditorChange(key, editorStates[key])
+                                        } else if (focusedEditorKey == key) {
+                                            focusedEditorKey = null
+                                            onActiveEditorChange(null, null)
+                                        }
+                                    },
+                                    onGenerateDraft = {
+                                        onGenerateDraft(DraftTarget.Section(state.section.id))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!isBody) {
+                    SectionMenuButton(
+                        sectionId = state.section.id,
+                        readOnly = readOnly,
+                        isFirst = isFirstSection,
+                        isLast = isLastSection,
+                        showRoleChange = false,
+                        primaryActionsOnCard = false,
+                        onRoleChange = onRoleChange,
+                        onMoveUp = onMoveSectionUp,
+                        onMoveDown = onMoveSectionDown,
+                        onRemove = { confirmDelete = true },
+                        onGenerateDraft = onGenerateDraft,
+                        onChatAbout = onChatAbout,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(2.dp),
+                    )
+                }
             }
-    }
-    }
+        }
     }
 
-    // 3.2.5f.2b: confirmação com aviso de cascata (FK CASCADE no banco —
-    // os sub-pontos da seção vão junto).
     if (confirmDelete) {
         val extra = cascadeWarningMessage(state.subPoints.size)
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Excluir seção?") },
-            text = { Text("Esta seção será removida.$extra") },
+            title = { Text("Excluir tópico?") },
+            text = { Text("Esta parte será removida.$extra") },
             confirmButton = {
                 TextButton(onClick = {
                     onRemoveSection()
@@ -522,16 +432,403 @@ fun SectionCardEditor(
     }
 }
 
+/** Cabeçalho recolhível com seta (fontes/abordagem). */
+@Composable
+private fun CollapsibleHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 4.dp),
+    ) {
+        Icon(
+            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+        )
+    }
+}
+
+/** OBJETIVO — curto e distinto da abordagem. */
+@Composable
+private fun TopicObjectiveField(
+    objective: String?,
+    readOnly: Boolean,
+    onObjectiveChange: (String) -> Unit,
+) {
+    var obj by remember(objective) { mutableStateOf(objective.orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "OBJETIVO",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = obj,
+            onValueChange = {
+                obj = it
+                onObjectiveChange(it)
+            },
+            enabled = !readOnly,
+            placeholder = { Text("O que este tópico deve alcançar?") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+/** LINHA DE RACIOCÍNIO — subtópicos como lista numerada (estrutura). */
+@Composable
+private fun ReasoningLine(
+    subPoints: List<SubPoint>,
+    readOnly: Boolean,
+    onUpdateOutlineText: (String, String) -> Unit,
+    onMoveSubPoint: (String, MoveDirection) -> Unit,
+    onRemoveSubPoint: (String) -> Unit,
+    onAddSubPoint: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            "LINHA DE RACIOCÍNIO",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (subPoints.isEmpty()) {
+            Text(
+                "Adicione os subtópicos que orientam este tópico.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        } else {
+            subPoints.forEachIndexed { index, sp ->
+                key(sp.id) {
+                    SubPointRow(
+                        index = index,
+                        subPoint = sp,
+                        isFirst = index == 0,
+                        isLast = index == subPoints.lastIndex,
+                        readOnly = readOnly,
+                        onUpdateOutlineText = { onUpdateOutlineText(sp.id, it) },
+                        onMoveUp = { onMoveSubPoint(sp.id, MoveDirection.UP) },
+                        onMoveDown = { onMoveSubPoint(sp.id, MoveDirection.DOWN) },
+                        onRemove = { onRemoveSubPoint(sp.id) },
+                    )
+                }
+            }
+        }
+        if (!readOnly) {
+            TextButton(
+                onClick = onAddSubPoint,
+                modifier = Modifier.padding(start = 22.dp),
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Adicionar subtópico")
+            }
+        }
+    }
+}
+
+/** Uma linha da linha de raciocínio: número + texto + menu estrutural. */
+@Composable
+private fun SubPointRow(
+    index: Int,
+    subPoint: SubPoint,
+    isFirst: Boolean,
+    isLast: Boolean,
+    readOnly: Boolean,
+    onUpdateOutlineText: (String) -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    var editing by remember(subPoint.id) { mutableStateOf(false) }
+    var draft by remember(subPoint.id) { mutableStateOf(subPoint.outlineText) }
+    var menuOpen by remember(subPoint.id) { mutableStateOf(false) }
+    var confirmDelete by remember(subPoint.id) { mutableStateOf(false) }
+    var showOldNote by remember(subPoint.id) { mutableStateOf(false) }
+
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+    ) {
+        Text(
+            "${index + 1}.",
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.width(24.dp).padding(top = if (editing) 14.dp else 1.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            if (editing) {
+                TextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    placeholder = { Text("Subtítulo / ponto principal") },
+                )
+                Row {
+                    TextButton(onClick = {
+                        onUpdateOutlineText(draft)
+                        editing = false
+                    }) { Text("Salvar") }
+                    TextButton(onClick = {
+                        draft = subPoint.outlineText
+                        editing = false
+                    }) { Text("Cancelar") }
+                }
+            } else {
+                Text(
+                    text = subPoint.outlineText.ifBlank { "(sem texto)" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !readOnly) {
+                            draft = subPoint.outlineText
+                            editing = true
+                        }
+                        .padding(vertical = 3.dp),
+                )
+            }
+            subPoint.instruction?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (subPoint.developedHtml.isNotBlank()) {
+                TextButton(
+                    onClick = { showOldNote = !showOldNote },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                ) {
+                    Text(
+                        if (showOldNote) "Ocultar nota antiga" else "Nota antiga do subtópico",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                if (showOldNote) {
+                    Text(
+                        stripHtml(subPoint.developedHtml),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+            }
+        }
+        if (!readOnly) {
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.MoreVert, "Menu do subtópico",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Editar") },
+                        onClick = {
+                            draft = subPoint.outlineText
+                            editing = true
+                            menuOpen = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Mover para cima") },
+                        enabled = !isFirst,
+                        onClick = { onMoveUp(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Mover para baixo") },
+                        enabled = !isLast,
+                        onClick = { onMoveDown(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Excluir") },
+                        onClick = { confirmDelete = true; menuOpen = false },
+                    )
+                }
+            }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Excluir subtópico?") },
+            text = { Text("A linha de raciocínio perde este ponto. A nota antiga (se houver) não é apagada agora.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRemove()
+                    confirmDelete = false
+                }) { Text("Excluir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
+/** FONTES E APOIO — agregado do tópico (recolhível). */
+@Composable
+private fun TopicSourcesBlock(sectionId: String, refs: List<String>) {
+    var expanded by remember(sectionId) { mutableStateOf(false) }
+    Column {
+        CollapsibleHeader("Fontes e apoio", expanded) { expanded = !expanded }
+        if (expanded) {
+            Text(
+                if (refs.isEmpty()) "Nenhuma referência neste tópico."
+                else refs.joinToString("  ·  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 22.dp, top = 2.dp),
+            )
+        }
+    }
+}
+
+/** ABORDAGEM ACORDADA — recolhível; distinta do mini discurso. */
+@Composable
+private fun TopicApproachBlock(
+    sectionId: String,
+    approach: String?,
+    readOnly: Boolean,
+    onApproachChange: (String) -> Unit,
+) {
+    var expanded by remember(sectionId) { mutableStateOf(false) }
+    var app by remember(approach) { mutableStateOf(approach.orEmpty()) }
+    Column {
+        CollapsibleHeader("Abordagem acordada", expanded) { expanded = !expanded }
+        if (approach.isNullOrBlank()) {
+            Text(
+                "A abordagem será registrada quando você chegar a um acordo com o Copilot.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 22.dp),
+            )
+        }
+        if (expanded) {
+            if (readOnly) {
+                if (!approach.isNullOrBlank()) {
+                    Text(
+                        approach,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 22.dp, top = 2.dp),
+                    )
+                }
+            } else {
+                OutlinedTextField(
+                    value = app,
+                    onValueChange = {
+                        app = it
+                        onApproachChange(it)
+                    },
+                    placeholder = { Text("A decisão combinada com o Copilot") },
+                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, top = 4.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        } else if (!approach.isNullOrBlank()) {
+            Text(
+                approach,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 22.dp),
+            )
+        }
+    }
+}
+
+/** MINI DISCURSO — o resultado do tópico, visualmente distinto. */
+@Composable
+private fun MiniSpeechBlock(
+    sectionId: String,
+    contentHtml: String,
+    readOnly: Boolean,
+    canGenerateDraft: Boolean,
+    editorStates: MutableMap<String, RichTextState>,
+    onContentChange: (String) -> Unit,
+    onSelectionChange: (SelectionContext?) -> Unit,
+    onFocusChange: (Boolean, String) -> Unit,
+    onGenerateDraft: () -> Unit,
+) {
+    val hasText = contentHtml.isNotBlank()
+    val miniKey = "section-$sectionId"
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                "MINI DISCURSO",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (!hasText) {
+                Text(
+                    "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            SectionContentEditor(
+                editorKey = miniKey,
+                initialHtml = contentHtml,
+                sectionId = sectionId,
+                subPointId = null,
+                editorStates = editorStates,
+                readOnly = readOnly,
+                onContentChange = onContentChange,
+                onSelectionChange = onSelectionChange,
+                onFocusChange = { onFocusChange(it, miniKey) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 72.dp),
+            )
+            if (!readOnly) {
+                Button(
+                    onClick = onGenerateDraft,
+                    enabled = canGenerateDraft,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (hasText) "Atualizar mini discurso" else "Criar mini discurso")
+                }
+                if (!canGenerateDraft) {
+                    Text(
+                        "Configure um modelo de IA na tela Modelo IA para gerar.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SectionMenuButton(
     sectionId: String,
     readOnly: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
-    hasSubPoints: Boolean,
-    canGenerateDraft: Boolean,
-    // BODY esconde o chip de role: a troca de papel vive aqui.
     showRoleChange: Boolean = false,
+    // F3.1: em BODY as ações primárias vivem no card; o ⋮ fica só com o
+    // estrutural. Em INTRO/CONCLUSÃO o ⋮ ainda expõe conversar/gerar.
+    primaryActionsOnCard: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -568,34 +865,16 @@ private fun SectionMenuButton(
                 enabled = !isLast,
                 onClick = { onMoveDown(); menuOpen = false },
             )
-            DropdownMenuItem(
-                text = { Text("Excluir seção") },
-                onClick = { onRemove(); menuOpen = false },
-            )
-            // F2.3: no BODY (tópico) o mini discurso é a ação principal e
-            // existe com ou sem sub-pontos. Em INTRO/CONCLUSION mantém o
-            // one-shot clássico (só quando não há sub-pontos, que não existem lá).
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        if (showRoleChange) "Conversar sobre este tópico"
-                        else "Conversar sobre esta seção"
-                    )
-                },
-                onClick = {
-                    menuOpen = false
-                    onChatAbout(DraftTarget.Section(sectionId))
-                },
-            )
-            if (showRoleChange || !hasSubPoints) {
+            if (!primaryActionsOnCard) {
                 DropdownMenuItem(
-                    text = {
-                        Text(
-                            if (showRoleChange) "Criar mini discurso"
-                            else "Gerar com Copilot"
-                        )
+                    text = { Text("Conversar sobre esta parte") },
+                    onClick = {
+                        menuOpen = false
+                        onChatAbout(DraftTarget.Section(sectionId))
                     },
-                    enabled = canGenerateDraft,
+                )
+                DropdownMenuItem(
+                    text = { Text("Gerar com Copilot") },
                     onClick = {
                         menuOpen = false
                         onGenerateDraft(DraftTarget.Section(sectionId))
@@ -611,8 +890,11 @@ private fun SectionMenuButton(
                     },
                 )
             }
+            DropdownMenuItem(
+                text = { Text("Excluir", color = MaterialTheme.colorScheme.error) },
+                onClick = { onRemove(); menuOpen = false },
+            )
         }
-        // Submenu de papel (BODY): ancorado no mesmo botão.
         if (showRoleChange) {
             DropdownMenu(
                 expanded = roleMenuOpen,
@@ -620,7 +902,7 @@ private fun SectionMenuButton(
             ) {
                 SectionRole.values().forEach { role ->
                     DropdownMenuItem(
-                        text = { Text(roleLabel(role)) },
+                        text = { Text(friendlyRoleName(role)) },
                         onClick = {
                             onRoleChange(role)
                             roleMenuOpen = false
@@ -646,30 +928,25 @@ private fun SectionContentEditor(
     onSelectionChange: (SelectionContext?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // State por editor: criado uma vez e mantido no mapa da seção.
     val richState = remember(editorKey) {
         editorStates.getOrPut(editorKey) {
             RichTextState().apply { setHtml(initialHtml) }
         }
     }
 
-    // Reconciliação de escrita externa sem loop: só setHtml se divergir.
     LaunchedEffect(editorKey, initialHtml) {
         if (richState.toHtml() != initialHtml) {
             richState.setHtml(initialHtml)
         }
     }
 
-    // A lib não tem onTextChange: observa a árvore viva (padrão do editor atual).
     LaunchedEffect(editorKey) {
         snapshotFlow { richState.annotatedString }
-            .drop(1) // valor inicial
+            .drop(1)
             .debounce(400)
             .collect { onContentChange(richState.toHtml()) }
     }
 
-    // 3.2.5e: seleção viva com contexto (seção/sub-ponto). TextRange não tem
-    // `.text`: extrai de annotatedString via start/end (padrão do editor legado).
     LaunchedEffect(editorKey) {
         snapshotFlow { richState.selection }
             .debounce(200)
@@ -700,212 +977,10 @@ private fun SectionContentEditor(
         BasicRichTextEditor(
             state = richState,
             enabled = !readOnly,
-            // Corpo do editor no tamanho padrão (texto sem span explícito).
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 fontSize = FONT_SIZE_BODY_DEFAULT,
             ),
             modifier = modifier.onFocusChanged { onFocusChange(it.isFocused) },
-        )
-    }
-}
-
-/**
- * F2.3: campos de tópico do card BODY — objetivo e abordagem acordada.
- * Escrevem direto (autosave do controller); nada é preenchido sozinho pelo
- * Copilot aqui — a abordagem só é gravada por ação explícita do usuário.
- */
-@Composable
-private fun TopicMetaFields(
-    sectionId: String,
-    objective: String?,
-    approach: String?,
-    onObjectiveChange: (String) -> Unit,
-    onApproachChange: (String) -> Unit,
-) {
-    var obj by remember(sectionId, objective) { mutableStateOf(objective.orEmpty()) }
-    var app by remember(sectionId, approach) { mutableStateOf(approach.orEmpty()) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = obj,
-            onValueChange = {
-                obj = it
-                onObjectiveChange(it)
-            },
-            label = { Text("Objetivo do tópico") },
-            placeholder = { Text("O que este tópico deve alcançar?") },
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-        OutlinedTextField(
-            value = app,
-            onValueChange = {
-                app = it
-                onApproachChange(it)
-            },
-            label = { Text("Abordagem acordada") },
-            placeholder = { Text("A decisão combinada com o Copilot") },
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodyMedium,
-        )
-    }
-}
-
-@Composable
-private fun SubPointEditor(
-    subPoint: SubPoint,
-    sectionId: String,
-    isFirst: Boolean,
-    isLast: Boolean,
-    editorStates: MutableMap<String, RichTextState>,
-    readOnly: Boolean,
-    onSubPointChange: (String, String) -> Unit,
-    onFocusChange: (Boolean) -> Unit,
-    onSelectionChange: (SelectionContext?) -> Unit,
-    onRemove: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onUpdateOutlineText: (String) -> Unit,
-    // ⋮ contextual: só o ponto focado mostra o botão; long-press no tópico
-    // abre o menu mesmo com o botão oculto.
-    showMenu: Boolean = true,
-    onActivate: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    val editorKey = "subpoint-${subPoint.id}"
-    // Chave só no id (não no texto): o draft sobrevive ao autosave remoto.
-    var menuOpen by remember(subPoint.id) { mutableStateOf(false) }
-    var editingOutline by remember(subPoint.id) { mutableStateOf(false) }
-    var outlineDraft by remember(subPoint.id) { mutableStateOf(subPoint.outlineText) }
-    var confirmDelete by remember(subPoint.id) { mutableStateOf(false) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            if (editingOutline) {
-                TextField(
-                    value = outlineDraft,
-                    onValueChange = { outlineDraft = it },
-                    modifier = Modifier.weight(1f),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    placeholder = { Text("Ponto principal") },
-                )
-                IconButton(onClick = {
-                    onUpdateOutlineText(outlineDraft)
-                    editingOutline = false
-                }) { Icon(Icons.Default.Check, "Salvar") }
-                IconButton(onClick = {
-                    outlineDraft = subPoint.outlineText
-                    editingOutline = false
-                }) { Icon(Icons.Default.Close, "Cancelar") }
-            } else {
-                Text(
-                    text = subPoint.outlineText.ifBlank { "(sem texto)" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .weight(1f)
-                        .combinedClickable(
-                            enabled = !readOnly,
-                            onLongClick = { menuOpen = true },
-                            onClick = { onActivate() },
-                        ),
-                )
-                if (!readOnly) {
-                    Box {
-                        // ⋮ só no ponto focado (ou via long-press no tópico).
-                        if (showMenu) {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(Icons.Default.MoreVert, "Menu do ponto")
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Editar texto principal") },
-                                onClick = {
-                                    outlineDraft = subPoint.outlineText
-                                    editingOutline = true
-                                    menuOpen = false
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Mover para cima") },
-                                enabled = !isFirst,
-                                onClick = { onMoveUp(); menuOpen = false },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Mover para baixo") },
-                                enabled = !isLast,
-                                onClick = { onMoveDown(); menuOpen = false },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Excluir ponto") },
-                                onClick = { confirmDelete = true; menuOpen = false },
-                            )
-                            // F2.3 §17: a geração de IA saiu do sub-ponto. O
-                            // tópico é a unidade de redação; a conversa e o
-                            // mini discurso vivem no card do tópico.
-                        }
-                    }
-                }
-            }
-        }
-        if (subPoint.bibleRefs.isNotEmpty() || subPoint.publicationRefs.isNotEmpty()) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(vertical = 2.dp),
-            ) {
-                subPoint.bibleRefs.forEach { ref ->
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(ref, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-                subPoint.publicationRefs.forEach { ref ->
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(ref.symbol, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
-        }
-        subPoint.instruction?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                fontStyle = FontStyle.Italic,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        SectionContentEditor(
-            editorKey = editorKey,
-            initialHtml = subPoint.developedHtml,
-            sectionId = sectionId,
-            subPointId = subPoint.id,
-            editorStates = editorStates,
-            readOnly = readOnly,
-            onContentChange = { html -> onSubPointChange(subPoint.id, html) },
-            onFocusChange = onFocusChange,
-            onSelectionChange = onSelectionChange,
-            modifier = modifier,
-        )
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Excluir ponto?") },
-            text = { Text("O conteúdo desenvolvido será perdido.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onRemove()
-                    confirmDelete = false
-                }) { Text("Excluir") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") }
-            },
         )
     }
 }
