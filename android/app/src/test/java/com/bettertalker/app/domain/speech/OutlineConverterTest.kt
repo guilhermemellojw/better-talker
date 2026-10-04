@@ -45,27 +45,27 @@ class OutlineConverterTest {
     )
 
     @Test
-    fun convert_emptyOutline_producesIntroAndConclusionOnly() {
+    fun convert_emptyOutline_producesNoSections() {
         val conv = converter().convert(
             ParsedOutline(title = "Vazio", totalMinutes = null, preamble = "", sections = emptyList()),
             noteId = "n1",
         )
-        assertEquals(SectionRole.INTRO, conv.intro!!.role)
-        assertEquals(SectionRole.CONCLUSION, conv.conclusion!!.role)
+        assertEquals(null, conv.intro)
+        assertEquals(null, conv.conclusion)
         assertTrue(conv.bodies.isEmpty())
     }
 
     @Test
-    fun convert_singleSection_producesIntroBodyConclusion() {
+    fun convert_singleSection_producesSingleBody() {
         val conv = converter().convert(
             ParsedOutline(title = "T", totalMinutes = 5, sections = listOf(OutlineSection("A", 5, 0, "x"))),
             "n1",
         )
         assertEquals(1, conv.bodies.size)
         assertEquals(SectionRole.BODY, conv.bodies.single().section.role)
-        assertEquals(0, conv.intro!!.order)
-        assertEquals(1, conv.bodies.single().section.order)
-        assertEquals(2, conv.conclusion!!.order)
+        assertEquals(0, conv.bodies.single().section.order)
+        assertEquals(null, conv.intro)
+        assertEquals(null, conv.conclusion)
     }
 
     @Test
@@ -127,18 +127,16 @@ class OutlineConverterTest {
     }
 
     @Test
-    fun convert_preambleGoesToIntroContentHtml() {
+    fun convert_preambleGoesToSpeakerNotes() {
         val conv = converter().convert(snippetParsed(), "n1")
-        assertTrue(conv.intro!!.contentHtml.contains("NOTA: ajude a assistência a meditar."))
-        assertTrue(conv.intro!!.contentHtml.contains("Nota do esboço"))
+        assertTrue(conv.speakerNotes.contains("NOTA: ajude a assistência a meditar."))
+        assertEquals(null, conv.intro)
     }
 
     @Test
     fun convert_ordersAreContiguousAcrossAllLevels() {
         val conv = converter().convert(simpleParsed(), "n1")
-        assertEquals(0, conv.intro!!.order)
-        assertEquals(listOf(1, 2, 3), conv.bodies.map { it.section.order })
-        assertEquals(4, conv.conclusion!!.order)
+        assertEquals(listOf(0, 1, 2), conv.bodies.map { it.section.order })
         conv.bodies.forEach { body ->
             assertEquals(body.subPoints.indices.toList(), body.subPoints.map { it.order })
         }
@@ -148,9 +146,7 @@ class OutlineConverterTest {
     fun convert_idsAreUnique() {
         val conv = converter().convert(simpleParsed(), "n1")
         val ids = buildList {
-            add(conv.intro!!.id)
             conv.bodies.forEach { add(it.section.id); it.subPoints.forEach { sp -> add(sp.id) } }
-            add(conv.conclusion!!.id)
         }
         assertEquals(ids.size, ids.toSet().size)
     }
@@ -158,14 +154,12 @@ class OutlineConverterTest {
     @Test
     fun convert_idProviderIsUsed() {
         val conv = converter("id").convert(simpleParsed(), "n1")
-        assertEquals("id-0", conv.intro!!.id)
-        assertEquals("id-1", conv.bodies[0].section.id)
-        assertEquals("id-2", conv.bodies[0].subPoints[0].id)
-        assertEquals("id-3", conv.bodies[0].subPoints[1].id)
-        assertEquals("id-4", conv.bodies[1].section.id)
-        assertEquals("id-5", conv.bodies[2].section.id)
-        assertEquals("id-6", conv.bodies[2].subPoints[0].id)
-        assertEquals("id-7", conv.conclusion!!.id)
+        assertEquals("id-0", conv.bodies[0].section.id)
+        assertEquals("id-1", conv.bodies[0].subPoints[0].id)
+        assertEquals("id-2", conv.bodies[0].subPoints[1].id)
+        assertEquals("id-3", conv.bodies[1].section.id)
+        assertEquals("id-4", conv.bodies[2].section.id)
+        assertEquals("id-5", conv.bodies[2].subPoints[0].id)
     }
 
     @Test
@@ -196,11 +190,11 @@ class OutlineConverterTest {
     // ---------- 3.2.4b: conversão por tipo ----------
 
     @Test
-    fun convert_s34_unchanged() {
-        // Regressão: default continua S-34 com intro + bodies + conclusion.
+    fun convert_s34_noAutoIntroConclusion() {
+        // F3.x: o S-34 não sintetiza intro/conclusion a partir de preamble.
         val conv = converter().convert(simpleParsed(), "n1")
-        assertTrue(conv.intro != null)
-        assertTrue(conv.conclusion != null)
+        assertEquals(null, conv.intro)
+        assertEquals(null, conv.conclusion)
         assertEquals(3, conv.bodies.size)
         assertEquals(DiscourseType.S34_DISCOURSE, conv.discourseType)
     }
@@ -288,9 +282,9 @@ class OutlineConverterTest {
     }
 
     @Test
-    fun convert_s34_stillProducesPreambleInIntro() {
+    fun convert_s34_preambleGoesToSpeakerNotes() {
         val conv = converter().convert(snippetParsed(), "n1")
-        assertTrue(conv.intro!!.contentHtml.contains("NOTA: ajude a assistência a meditar."))
+        assertTrue(conv.speakerNotes.contains("NOTA: ajude a assistência a meditar."))
     }
 
     @Test

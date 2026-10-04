@@ -2,7 +2,6 @@ package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.domain.speech.DiscourseType
-import com.bettertalker.app.domain.speech.SectionRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -21,10 +20,10 @@ class BuildOutlineConversionTest {
         assertEquals("Tema", conv.noteTitle)
         assertEquals(15, conv.totalMinutes)
         assertEquals(2, conv.bodies.size)
-        assertEquals(SectionRole.INTRO, conv.intro!!.role)
-        assertEquals(SectionRole.CONCLUSION, conv.conclusion!!.role)
-        assertEquals(0, conv.intro!!.order)
-        assertEquals(3, conv.conclusion!!.order)
+        // F3.x: sem INTRO/CONCLUSION automáticas.
+        assertEquals(null, conv.intro)
+        assertEquals(null, conv.conclusion)
+        assertEquals(listOf(0, 1), conv.bodies.map { it.section.order })
     }
 
     @Test
@@ -34,9 +33,10 @@ class BuildOutlineConversionTest {
     }
 
     @Test
-    fun build_preambleGoesToIntro() {
+    fun build_preambleGoesToSpeakerNotes() {
         val conv = buildOutlineConversion("T", 10, sections(), "NOTA: teste", "n1")
-        assertTrue(conv.intro!!.contentHtml.contains("NOTA: teste"))
+        assertTrue(conv.speakerNotes.contains("NOTA: teste"))
+        assertEquals(null, conv.intro)
     }
 
     @Test
@@ -56,10 +56,10 @@ class BuildOutlineConversionTest {
     }
 
     @Test
-    fun build_s34_default_preservesCurrentBehavior() {
+    fun build_s34_noAutoIntroConclusion() {
         val conv = buildOutlineConversion("T", 10, sections(), "", "n1")
-        assertTrue(conv.intro != null)
-        assertTrue(conv.conclusion != null)
+        assertEquals(null, conv.intro)
+        assertEquals(null, conv.conclusion)
         assertEquals(2, conv.bodies.size)
     }
 

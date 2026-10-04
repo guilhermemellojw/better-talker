@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.FormatClear
 import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
@@ -601,6 +603,13 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                 }
             // Contador de palavras agora vive na TopAppBar (subtitle).
 
+            // F3.x: orientações gerais do orador (NOTA do esboço + fechamento).
+            // Distintas da introdução — material de apoio, recolhível.
+            val speakerNotes by vm.speakerNotes.collectAsState()
+            if (speakerNotes.isNotBlank()) {
+                SpeakerNotesBlock(speakerNotes)
+            }
+
             if (sections.isEmpty()) {
                 Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -730,6 +739,47 @@ private fun NoteColorDot(
             )
             .clickable { onClick() }
     )
+}
+
+/**
+ * F3.x: orientações gerais do orador — NOTA do esboço + fechamento. Não é
+ * introdução; é material de apoio, recolhível por padrão.
+ */
+@Composable
+private fun SpeakerNotesBlock(notes: String) {
+    var expanded by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            ) {
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "Orientações do orador",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                )
+            }
+            if (expanded) {
+                Text(
+                    notes,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, start = 22.dp),
+                )
+            }
+        }
+    }
 }
 
 /**

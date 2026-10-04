@@ -16,9 +16,11 @@ import java.util.UUID
  * @param noteTitle título do discurso (do esboço)
  * @param totalMinutes tempo total (do esboço ou soma das seções)
  * @param discourseType tipo que originou a conversão (lido pelo persist).
- * @param intro seção INTRO sintetizada (order 0) — null nos tipos curtos.
- * @param bodies seções BODY com sub-pontos (orders 1..N no S-34; order 0 único nos curtos)
- * @param conclusion seção CONCLUSION sintetizada (order N+1) — null nos tipos curtos.
+ * @param intro seção INTRO sintetizada — SEMPRE null: a introdução NÃO é
+ *   criada automaticamente a partir de texto antes do primeiro tópico.
+ * @param bodies seções BODY com sub-pontos (orders 0..N contíguos)
+ * @param conclusion seção CONCLUSION sintetizada — SEMPRE null (não inferida).
+ * @param speakerNotes orientações gerais do orador (NOTA inicial + fechamento).
  */
 data class OutlineConversion(
     val noteTitle: String,
@@ -27,6 +29,7 @@ data class OutlineConversion(
     val intro: SpeechSection?,
     val bodies: List<BodyConversion>,
     val conclusion: SpeechSection?,
+    val speakerNotes: String = "",
 )
 
 /**
@@ -97,49 +100,23 @@ class OutlineConverter(
             )
         }
 
-        val intro = SpeechSection(
-            id = idProvider(),
-            noteId = noteId,
-            order = 0,
-            role = SectionRole.INTRO,
-            title = "Introdução",
-            minutes = 1,
-            contentHtml = preambleHtml(parsed.preamble),
-            bibleRefs = emptyList(),
-            publicationRefs = emptyList(),
-            methodPrinciple = null,
-            createdAt = ts,
-            updatedAt = ts,
-        )
-
         val bodies = parsed.sections.mapIndexed { i, outline ->
             // Ordem por posição (contígua), não por outline.order — invariante.
-            val section = buildBodySection(outline, noteId, order = 1 + i, ts)
+            val section = buildBodySection(outline, noteId, order = i, ts)
             BodyConversion(section, extractSubPoints(outline.body, section.id, ts))
         }
 
-        val conclusion = SpeechSection(
-            id = idProvider(),
-            noteId = noteId,
-            order = parsed.sections.size + 1,
-            role = SectionRole.CONCLUSION,
-            title = "Conclusão",
-            minutes = 1,
-            contentHtml = "",
-            bibleRefs = emptyList(),
-            publicationRefs = emptyList(),
-            methodPrinciple = null,
-            createdAt = ts,
-            updatedAt = ts,
-        )
-
+        // F3.x: NÃO sintetiza INTRO/CONCLUSION. Texto antes do primeiro tópico
+        // é orientação do orador (`speakerNotes`), nunca introdução. A intro e
+        // a conclusão só existem quando o usuário as construir.
         return OutlineConversion(
             noteTitle = parsed.title,
             totalMinutes = total,
             discourseType = DiscourseType.S34_DISCOURSE,
-            intro = intro,
+            intro = null,
             bodies = bodies,
-            conclusion = conclusion,
+            conclusion = null,
+            speakerNotes = parsed.preamble.trim(),
         )
     }
 
@@ -291,14 +268,6 @@ class OutlineConverter(
      */
     private fun extractPageFromTail(tail: String): Int? =
         Regex("""^\s*(\d{1,4})""").find(tail)?.groupValues?.get(1)?.toIntOrNull()
-
-    private fun preambleHtml(preamble: String): String {
-        if (preamble.isBlank()) return ""
-        return "<p><em>Nota do esboço:</em> ${escapeHtml(preamble)}</p>"
-    }
-
-    private fun escapeHtml(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     private companion object {
         val MARKER_RE = Regex("""^\s*(?:\(?\d{1,2}\)?[.)]|[a-z][.)]|[-*•–])\s+""", RegexOption.IGNORE_CASE)

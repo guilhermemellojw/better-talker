@@ -18,7 +18,11 @@ data class ParsedOutline(
     val title: String,
     val totalMinutes: Int? = null,
     val sections: List<OutlineSection>,
-    /** Texto antes da primeira seção (cabeçalho, NOTA:). */
+    /**
+     * Orientações gerais do orador (F3.x): texto antes da primeira seção
+     * (NOTA:) + orientações finais (linhas `[...]` no fim do último tópico).
+     * NÃO é introdução — é material de apoio ao orador.
+     */
     val preamble: String = ""
 )
 
@@ -29,6 +33,13 @@ object OutlineParser {
     private val ORPHAN_MIN_RE = Regex("""^[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]\s*$""", RegexOption.IGNORE_CASE)
     private val TOTAL_RE = Regex("""TEMPO\s*TOTAL\s*:\s*(\d+)\s*MINUTOS?""", RegexOption.IGNORE_CASE)
     private val NOISE_RE = Regex("""^(N\.º|©|\(|S-\d+)""")
+
+    /** Rodapé/metadados do S-34 (© …, S-34-T …) — nunca viram conteúdo. */
+    private val FOOTER_RE = Regex("""^(©|S-\d)""")
+
+    /** Linha composta só de blocos `[...]` (instrução ao orador). */
+    private val BRACKET_ONLY_RE = Regex("""^(?:\s*\[[^\]]*\]\s*)+$""")
+    private val BRACKET_INNER_RE = Regex("""\[([^\]]*)\]""")
 
     /** Número do esboço no heading: "N.º 35", "N.° 84", "N.º 26". */
     private val OUTLINE_NUMBER_RE = Regex("""^N\.[º°]\s*(\d+)\b""", RegexOption.IGNORE_CASE)
@@ -128,6 +139,12 @@ object OutlineParser {
                     continue
                 }
             }
+            // Rodapé/metadados (© …, S-34-T …) nunca viram conteúdo.
+            if (FOOTER_RE.containsMatchIn(t0)) {
+                prevLine = t0
+                prevConsumed = true
+                continue
+            }
             // corpo integral: tudo entre um tópico e outro é preservado
             toBody(line)
             prevLine = t0
@@ -163,18 +180,49 @@ object OutlineParser {
             theme
         }
         title = composed.take(140)
-        // Preamble sem a linha do tema: só a NOTA (remove a primeira linha
-        // se for a themeLine; o tema nunca deve ir para a INTRO).
+        // Orientações do orador: NOTA inicial (sem a linha do tema) + as
+        // orientações finais (linhas `[...]` no fim do último tópico). Nunca
+        // vira INTRO — é material de apoio, não discurso.
         val preambleLines = preamble.toString().trim().lines().toMutableList()
         if (preambleLines.isNotEmpty() && preambleLines.first().trim() == themeLine) {
             preambleLines.removeAt(0)
         }
         val preambleText = preambleLines.joinToString("\n").trim()
-        val final = sections.mapIndexed { i, s ->
+        val assembled = sections.mapIndexed { i, s ->
             // trimEnd: preserva o recuo da primeira linha do corpo
             s.copy(order = i, body = bodies.getOrNull(i)?.toString()?.trimEnd().orEmpty())
         }
-        return ParsedOutline(title, total, final, preambleText)
+        val (final, trailing) = extractTrailingSpeakerNotes(assembled)
+        val speakerNotes = listOf(preambleText, trailing)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+        return ParsedOutline(title, total, final, speakerNotes)
+    }
+
+    /**
+     * Extrai as orientações finais do orador: linhas só-`[...]` no fim do
+     * ÚLTIMO corpo. Elas saem do tópico (deixam de ser sub-ponto) e viram
+     * nota ao orador. Instruções inline (`[Leia…]` na mesma linha do ponto)
+     * NÃO são afetadas — só blocos `[...]` sozinhos no fechamento.
+     *
+     * @return (sections com o último corpo aparado, texto das orientações)
+     */
+    private fun extractTrailingSpeakerNotes(
+        sections: List<OutlineSection>,
+    ): Pair<List<OutlineSection>, String> {
+        if (sections.isEmpty()) return sections to ""
+        val last = sections.last()
+        val lines = last.body.lines()
+        var end = lines.size
+        while (end > 0 && lines[end - 1].isBlank()) end--
+        var start = end
+        while (start > 0 && BRACKET_ONLY_RE.matches(lines[start - 1].trim())) start--
+        if (start >= end) return sections to ""
+        val trailing = lines.subList(start, end).joinToString("\n") { raw ->
+            BRACKET_INNER_RE.find(raw.trim())?.groupValues?.get(1)?.trim() ?: raw.trim()
+        }
+        val newBody = lines.subList(0, start).joinToString("\n").trimEnd()
+        return (sections.dropLast(1) + last.copy(body = newBody)) to trailing
     }
 
     /** Linha com cara de título de esboço: maioria maiúscula, sem pontuação final. */
@@ -252,6 +300,9 @@ object OutlineParser {
     }
 
     fun fromJson(json: String): List<OutlineSection> = parseEnvelope(json).second
+
+    /** Orientações do orador (preamble) do esboço persistido. */
+    fun preambleOf(json: String): String = parseEnvelope(json).first
 
     private fun parseArray(arr: String): List<OutlineSection> {
         return try {

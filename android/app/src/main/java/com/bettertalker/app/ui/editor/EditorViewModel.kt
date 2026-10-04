@@ -25,6 +25,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -544,6 +546,23 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     val outline: kotlinx.coroutines.flow.Flow<List<com.bettertalker.app.data.db.OutlineEntity>> by lazy {
         outlines.observe(noteId)
     }
+
+    /**
+     * F3.x: orientações gerais do orador (preamble do esboço vinculado).
+     * NUNCA é introdução — é material de apoio (NOTA inicial + fechamento).
+     * Vazio quando não há esboço ou o esboço não trouxe orientações.
+     */
+    val speakerNotes: StateFlow<String> = outlines.observe(noteId)
+        .map { list ->
+            list.firstOrNull()
+                ?.let { com.bettertalker.app.data.util.OutlineParser.preambleOf(it.sectionsJson) }
+                .orEmpty()
+        }
+        .stateIn(
+            viewModelScope,
+            kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+            "",
+        )
 
     fun unlinkOutline() = viewModelScope.launch { outlines.unlink(noteId) }
 
