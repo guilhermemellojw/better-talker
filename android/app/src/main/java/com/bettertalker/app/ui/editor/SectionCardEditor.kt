@@ -4,6 +4,7 @@ package com.bettertalker.app.ui.editor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -138,7 +141,7 @@ fun SectionCardEditor(
 
     Column {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
@@ -153,10 +156,14 @@ fun SectionCardEditor(
                     value = titleText,
                     enabled = !readOnly,
                     onValueChange = {
-                        titleText = it
-                        onTitleChange(it)
+                        // Título é uma linha lógica: quebra de linha vira espaço.
+                        val v = it.replace("\n", " ")
+                        titleText = v
+                        onTitleChange(v)
                     },
-                    singleLine = true,
+                    // Multi-linha para o usuário ler o tópico inteiro sem rolar.
+                    singleLine = false,
+                    maxLines = 3,
                     placeholder = {
                         Text(
                             "Título do tópico",
@@ -173,6 +180,9 @@ fun SectionCardEditor(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
                         disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
                     ),
                 )
                 TextField(
@@ -190,6 +200,9 @@ fun SectionCardEditor(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
                         disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
                     ),
                 )
                 SectionMenuButton(
@@ -432,23 +445,23 @@ fun SectionCardEditor(
     }
 }
 
-/** Cabeçalho recolhível com seta (fontes/abordagem). */
+/** Cabeçalho recolhível com seta à direita (título alinhado à base do card). */
 @Composable
 private fun CollapsibleHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 4.dp),
     ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.weight(1f),
+        )
         Icon(
             if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
             null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
         )
     }
 }
@@ -467,16 +480,28 @@ private fun TopicObjectiveField(
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
+        BasicTextField(
             value = obj,
             onValueChange = {
                 obj = it
                 onObjectiveChange(it)
             },
             enabled = !readOnly,
-            placeholder = { Text("O que este tópico deve alcançar?") },
             modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodyMedium,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            decorationBox = { innerTextField ->
+                if (obj.isBlank()) {
+                    Text(
+                        "O que este tópico deve alcançar?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                innerTextField()
+            },
         )
     }
 }
@@ -524,7 +549,7 @@ private fun ReasoningLine(
         if (!readOnly) {
             TextButton(
                 onClick = onAddSubPoint,
-                modifier = Modifier.padding(start = 22.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
             ) {
                 Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
@@ -555,7 +580,7 @@ private fun SubPointRow(
 
     Row(
         verticalAlignment = Alignment.Top,
-        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             "${index + 1}.",
@@ -689,7 +714,7 @@ private fun TopicSourcesBlock(sectionId: String, refs: List<String>) {
                 else refs.joinToString("  ·  "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 22.dp, top = 2.dp),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -712,7 +737,6 @@ private fun TopicApproachBlock(
                 "A abordagem será registrada quando você chegar a um acordo com o Copilot.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 22.dp),
             )
         }
         if (expanded) {
@@ -721,7 +745,7 @@ private fun TopicApproachBlock(
                     Text(
                         approach,
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 22.dp, top = 2.dp),
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             } else {
@@ -732,7 +756,7 @@ private fun TopicApproachBlock(
                         onApproachChange(it)
                     },
                     placeholder = { Text("A decisão combinada com o Copilot") },
-                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, top = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     textStyle = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -743,7 +767,6 @@ private fun TopicApproachBlock(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 22.dp),
             )
         }
     }
@@ -764,56 +787,51 @@ private fun MiniSpeechBlock(
 ) {
     val hasText = contentHtml.isNotBlank()
     val miniKey = "section-$sectionId"
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(10.dp),
-        modifier = Modifier.fillMaxWidth(),
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Text(
+            "MINI DISCURSO",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (!hasText) {
             Text(
-                "MINI DISCURSO",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary,
+                "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!hasText) {
+        }
+        SectionContentEditor(
+            editorKey = miniKey,
+            initialHtml = contentHtml,
+            sectionId = sectionId,
+            subPointId = null,
+            editorStates = editorStates,
+            readOnly = readOnly,
+            onContentChange = onContentChange,
+            onSelectionChange = onSelectionChange,
+            onFocusChange = { onFocusChange(it, miniKey) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 72.dp),
+        )
+        if (!readOnly) {
+            Button(
+                onClick = onGenerateDraft,
+                enabled = canGenerateDraft,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (hasText) "Atualizar mini discurso" else "Criar mini discurso")
+            }
+            if (!canGenerateDraft) {
                 Text(
-                    "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
-                    style = MaterialTheme.typography.bodySmall,
+                    "Configure um modelo de IA na tela Modelo IA para gerar.",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            SectionContentEditor(
-                editorKey = miniKey,
-                initialHtml = contentHtml,
-                sectionId = sectionId,
-                subPointId = null,
-                editorStates = editorStates,
-                readOnly = readOnly,
-                onContentChange = onContentChange,
-                onSelectionChange = onSelectionChange,
-                onFocusChange = { onFocusChange(it, miniKey) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 72.dp),
-            )
-            if (!readOnly) {
-                Button(
-                    onClick = onGenerateDraft,
-                    enabled = canGenerateDraft,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (hasText) "Atualizar mini discurso" else "Criar mini discurso")
-                }
-                if (!canGenerateDraft) {
-                    Text(
-                        "Configure um modelo de IA na tela Modelo IA para gerar.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
         }
     }
