@@ -310,6 +310,41 @@ class SectionsControllerTest {
     }
 
     @Test
+    fun aggregateHtml_bodyPrefersContentHtmlOverSubPoints() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("b", 0, "BODY", html = "<p>mini discurso do tópico</p>"))
+        }
+        val subs = FakeSubPoints().apply {
+            rows.value = listOf(subPoint("p1", "b", 0, "legado"))
+        }
+        val controller = SectionsController(nid, secs, subs, FakeTransactionRunner(), this, debounceMs = 0)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            // F2.3: o mini discurso do tópico vence os sub-pontos legados.
+            assertEquals("<p>mini discurso do tópico</p>", controller.aggregateHtml())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun aggregateHtml_bodyFallsBackToSubPointsWhenContentEmpty() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("b", 0, "BODY", html = ""))
+        }
+        val subs = FakeSubPoints().apply {
+            rows.value = listOf(subPoint("p1", "b", 0, "a"), subPoint("p2", "b", 1, "b"))
+        }
+        val controller = SectionsController(nid, secs, subs, FakeTransactionRunner(), this, debounceMs = 0)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            assertEquals("a\nb", controller.aggregateHtml())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun observeForSections_neverCalledWithEmptyList() = runBlocking {
         val secs = FakeSections().apply { rows.value = listOf(section("s1", 0)) }
         val subs = FakeSubPoints().apply { rows.value = listOf(subPoint("sp1", "s1", 0)) }

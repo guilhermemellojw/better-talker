@@ -26,6 +26,16 @@ interface DossierPromptBuilder {
      * veem o overview resumido de todas.
      */
     fun buildContextBlock(dossier: Dossier): String
+
+    /**
+     * F2.3: prompt de redação do mini discurso do tópico. Texto puro (sem
+     * JSON) — compatível com o Gemma local, que não segue schema. Usa o
+     * mesmo contexto do chat (objetivo, linha de raciocínio, abordagem
+     * acordada, fontes).
+     *
+     * Default: degrada para o bloco de contexto (implementações antigas).
+     */
+    fun buildMiniSpeech(dossier: Dossier): String = buildContextBlock(dossier)
 }
 
 /**
@@ -55,8 +65,28 @@ class DefaultDossierPromptBuilder(
         }.trim()
     }
 
+    /**
+     * F2.3: mini discurso do tópico — UM texto contínuo, em texto puro
+     * (o Gemma local não segue JSON schema). O objetivo, a linha de
+     * raciocínio e a abordagem acordada já entram no contexto.
+     */
+    override fun buildMiniSpeech(dossier: Dossier): String {
+        return buildString {
+            appendLine(MINI_HEADER.trimIndent())
+            appendLine()
+            appendContext(dossier)
+            appendLine("## TAREFA")
+            appendLine(MINI_TASK.trimIndent())
+            appendLine()
+            appendLine("## FORMATO")
+            appendLine("Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco.")
+            appendLine("Sem títulos, sem listas, sem JSON e sem markdown.")
+        }.trim()
+    }
+
     private fun StringBuilder.appendContext(d: Dossier) {
         appendSection(d)
+        appendAgreedApproach(d)
         appendOverview(d)
         appendBibleTexts(d)
         appendPublicationTexts(d)
@@ -72,12 +102,37 @@ class DefaultDossierPromptBuilder(
         appendLine("Título: ${d.currentSection.title}")
         appendLine("Role: ${d.currentSection.role.name}")
         appendLine("Minutos: ${d.currentSection.minutes}")
+        // F2.3: objetivo do tópico (quando houver)
+        d.currentSection.objective?.takeIf { it.isNotBlank() }?.let {
+            appendLine("Objetivo: $it")
+        }
         val subText = d.currentSubPoint?.outlineText?.takeIf { it.isNotBlank() }
             ?: "(cursor na seção)"
         appendLine("Sub-ponto: $subText")
         d.currentSubPoint?.instruction?.let {
             appendLine("Instrução: $it")
         }
+        // F2.3: a linha de raciocínio inteira do tópico (todos os sub-pontos).
+        val line = d.sectionSubPoints
+            .filter { it.outlineText.isNotBlank() }
+            .sortedBy { it.order }
+            .mapIndexed { i, sp -> "${i + 1}. ${sp.outlineText.trim()}" }
+        if (line.isNotEmpty()) {
+            appendLine("Linha de raciocínio do tópico (partes de UMA ideia — não trate como textos separados):")
+            line.forEach { appendLine(it) }
+        }
+        appendLine()
+    }
+
+    /**
+     * F2.3: abordagem acordada — instrução de alta prioridade para a redação
+     * do mini discurso. Só existe quando o usuário confirmou o consenso.
+     */
+    private fun StringBuilder.appendAgreedApproach(d: Dossier) {
+        val approach = d.currentSection.agreedApproach?.takeIf { it.isNotBlank() } ?: return
+        appendLine("## ABORDAGEM ACORDADA (instrução de ALTA PRIORIDADE)")
+        appendLine(approach)
+        appendLine("Siga esta abordagem — ela foi acordada com o usuário.")
         appendLine()
     }
 
@@ -89,6 +144,9 @@ class DefaultDossierPromptBuilder(
         appendLine("## ESTRUTURA DO DISCURSO")
         d.overview.sortedBy { it.order }.forEach { m ->
             appendLine("- [${m.role.name}] ${m.title} (${m.minutes} min)")
+            // F2.3: visão global — objetivo + recorte do que já foi desenvolvido.
+            m.objective?.let { appendLine("    objetivo: $it") }
+            m.snippet?.let { appendLine("    já desenvolvido: $it") }
         }
         appendLine()
     }
@@ -184,6 +242,25 @@ class DefaultDossierPromptBuilder(
             Você é um assistente de redação de discursos.
             Gere APENAS o texto da seção indicada. NÃO invente fatos, citações,
             referências ou doutrina. Use SOMENTE o material fornecido abaixo.
+        """
+
+        val MINI_HEADER = """
+            Você é um assistente de redação de discursos.
+            Escreva o MINI DISCURSO do tópico indicado. NÃO invente fatos,
+            citações, referências ou doutrina. Use SOMENTE o material fornecido
+            abaixo.
+        """
+
+        val MINI_TASK = """
+            Escreva UM texto único e contínuo para este tópico (um mini discurso).
+            - Trate os sub-pontos como partes de UMA linha de raciocínio; NÃO
+              escreva um texto separado por sub-ponto.
+            - Se houver "ABORDAGEM ACORDADA", siga-a como instrução principal.
+            - Se houver "Objetivo", o texto deve cumpri-lo.
+            - Use os textos bíblicos e trechos de publicações literalmente quando citar.
+            - Se um texto não foi fornecido, NÃO invente; escreva
+              "[desenvolver com base em {ref}]".
+            - Encerre com ponto final; nunca pare no meio de uma frase.
         """
 
         val BODY_SUBPOINT_TASK = """

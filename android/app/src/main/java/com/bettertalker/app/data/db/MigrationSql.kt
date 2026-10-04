@@ -119,4 +119,16 @@ object MigrationSql {
     val MIGRATION_14_15: List<String> = listOf(
         "ALTER TABLE `notes` ADD COLUMN `discourseType` TEXT NOT NULL DEFAULT 'S34_DISCOURSE'",
     )
+
+    /**
+     * F2.3 (v15 -> v16): objetivo e abordagem acordada do tópico, e escopo
+     * persistente da conversa do Copilot. Tudo aditivo e anulável — nenhum
+     * dado existente é alterado; mensagens antigas ficam com `sectionId` NULL
+     * (conversa global).
+     */
+    val MIGRATION_15_16: List<String> = listOf(
+        "ALTER TABLE `speech_sections` ADD COLUMN `objective` TEXT",
+        "ALTER TABLE `speech_sections` ADD COLUMN `agreedApproach` TEXT",
+        "ALTER TABLE `chat_messages` ADD COLUMN `sectionId` TEXT",
+    )
 }

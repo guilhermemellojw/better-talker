@@ -674,6 +674,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 onUpdateSubPointOutlineText = { spId, text ->
                                     vm.updateSubPointOutlineText(spId, text)
                                 },
+                                onObjectiveChange = { vm.onSectionObjective(sectionState.section.id, it) },
+                                onApproachChange = { vm.onSectionApproach(sectionState.section.id, it) },
                                 onRoleChange = { role ->
                                     vm.updateSectionRole(sectionState.section.id, role)
                                 },

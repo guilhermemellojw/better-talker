@@ -47,8 +47,15 @@ sealed interface DraftUiState {
 fun alvoLabel(target: DraftTarget, sections: List<SectionUiState>): String {
     val sectionIdx = sections.indexOfFirst { it.section.id == target.sectionId }
     return when (target) {
-        is DraftTarget.Section ->
-            if (sectionIdx >= 0) "Seção ${sectionIdx + 1}" else "Seção"
+        is DraftTarget.Section -> {
+            val role = if (sectionIdx >= 0) sections[sectionIdx].section.role else null
+            when {
+                // F2.3: o BODY é um tópico (unidade do mini discurso).
+                role == SectionRole.BODY -> "Tópico ${sectionIdx + 1}"
+                sectionIdx >= 0 -> "Seção ${sectionIdx + 1}"
+                else -> "Seção"
+            }
+        }
 
         is DraftTarget.SubPoint -> {
             val spIdx = if (sectionIdx >= 0) {

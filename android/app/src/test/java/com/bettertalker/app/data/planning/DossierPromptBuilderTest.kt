@@ -28,12 +28,16 @@ class DossierPromptBuilderTest {
         unresolvedRefs: List<String> = emptyList(),
         transitionContext: String? = null,
         overview: List<SectionMeta> = emptyList(),
+        objective: String? = null,
+        agreedApproach: String? = null,
+        sectionSubPoints: List<SubPoint> = emptyList(),
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
             title = "Título teste", minutes = 5, contentHtml = "",
             bibleRefs = emptyList(), publicationRefs = emptyList(),
-            methodPrinciple = null, createdAt = 0, updatedAt = 0,
+            methodPrinciple = null, objective = objective, agreedApproach = agreedApproach,
+            createdAt = 0, updatedAt = 0,
         ),
         currentSubPoint = subPoint,
         selectedText = null,
@@ -44,6 +48,7 @@ class DossierPromptBuilderTest {
         methodPrinciples = methodPrinciples,
         unresolvedRefs = unresolvedRefs,
         transitionContext = transitionContext,
+        sectionSubPoints = sectionSubPoints,
     )
 
     private val builder = DefaultDossierPromptBuilder()
@@ -229,5 +234,68 @@ class DossierPromptBuilderTest {
         val prompt = builder.build(dossier())
         assertTrue(prompt.contains("usedSources"))
         assertTrue(prompt.contains("JSON"))
+    }
+
+    // ---------- F2.3: tópico (objetivo, abordagem, linha de raciocínio) ----------
+
+    @Test
+    fun build_includesObjective() {
+        val prompt = builder.build(dossier(objective = "Levar o ouvinte à ação"))
+        assertTrue(prompt.contains("Objetivo: Levar o ouvinte à ação"))
+    }
+
+    @Test
+    fun build_includesAgreedApproachAsHighPriority() {
+        val prompt = builder.build(dossier(agreedApproach = "situação → princípio → aplicação"))
+        assertTrue(prompt.contains("ABORDAGEM ACORDADA"))
+        assertTrue(prompt.contains("situação → princípio → aplicação"))
+    }
+
+    @Test
+    fun build_includesWholeLineOfReasoning() {
+        val prompt = builder.build(
+            dossier(
+                sectionSubPoints = listOf(
+                    subPoint().copy(id = "a", order = 0, outlineText = "primeiro ponto"),
+                    subPoint().copy(id = "b", order = 1, outlineText = "segundo ponto"),
+                )
+            )
+        )
+        assertTrue(prompt.contains("Linha de raciocínio"))
+        assertTrue(prompt.contains("1. primeiro ponto"))
+        assertTrue(prompt.contains("2. segundo ponto"))
+    }
+
+    @Test
+    fun build_overview_includesObjectiveAndSnippet() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                role = SectionRole.INTRO,
+                overview = listOf(
+                    SectionMeta(
+                        "s2", "Corpo", SectionRole.BODY, 1, 5,
+                        objective = "Explicar a esperança",
+                        snippet = "texto já desenvolvido",
+                    ),
+                ),
+            )
+        )
+        assertTrue(prompt.contains("objetivo: Explicar a esperança"))
+        assertTrue(prompt.contains("já desenvolvido: texto já desenvolvido"))
+    }
+
+    @Test
+    fun buildMiniSpeech_asksForSingleContinuousText() {
+        val prompt = builder.buildMiniSpeech(
+            dossier(role = SectionRole.BODY, agreedApproach = "situação → princípio → aplicação")
+        )
+        // contexto do tópico entra
+        assertTrue(prompt.contains("ABORDAGEM ACORDADA"))
+        // tarefa de mini discurso, sem JSON
+        assertTrue(prompt.contains("MINI DISCURSO"))
+        assertTrue(prompt.contains("UM texto único e contínuo"))
+        assertTrue(prompt.contains("NÃO"))
+        assertTrue(prompt.contains("um texto separado por sub-ponto"))
+        assertFalse(prompt.contains("usedSources"))
     }
 }

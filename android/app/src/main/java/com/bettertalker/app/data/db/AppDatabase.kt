@@ -222,7 +222,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -265,6 +265,10 @@ data class SpeechSectionEntity(
     /** JSON array de objetos {symbol[,page,paragraph]}. */
     val publicationRefsJson: String,
     val methodPrinciple: String?,
+    /** F2.3: objetivo do tópico (do esboço importado ou aceito pelo usuário). */
+    val objective: String? = null,
+    /** F2.3: abordagem acordada do tópico (decisão consolidada do usuário). */
+    val agreedApproach: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )
@@ -312,7 +316,12 @@ data class ChatEntity(
     /** text | ideas | refs | outline_refs */
     val kind: String,
     val payload: String,
-    val createdAt: Long
+    val createdAt: Long,
+    /**
+     * F2.3: escopo da conversa (id da seção/tópico). null = conversa global
+     * da nota (mensagens antigas, sem migration de conteúdo).
+     */
+    val sectionId: String? = null,
 )
 
 @Dao
@@ -321,10 +330,18 @@ interface ChatDao {
     fun observe(noteId: String): Flow<List<ChatEntity>>
     @Query("SELECT * FROM chat_messages WHERE noteId = :noteId ORDER BY createdAt ASC")
     suspend fun all(noteId: String): List<ChatEntity>
+    /** F2.3: conversa de um tópico (ou a global, quando [sectionId] é null). */
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId ORDER BY createdAt ASC")
+    fun observeScoped(noteId: String, sectionId: String?): Flow<List<ChatEntity>>
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId ORDER BY createdAt ASC")
+    suspend fun allScoped(noteId: String, sectionId: String?): List<ChatEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(m: ChatEntity)
     @Query("DELETE FROM chat_messages WHERE noteId = :noteId")
     suspend fun clear(noteId: String)
+    /** F2.3: limpa só a conversa do escopo (tópico ou global). */
+    @Query("DELETE FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId")
+    suspend fun clearScoped(noteId: String, sectionId: String?)
     @Query("DELETE FROM chat_messages WHERE id = :id")
     suspend fun delete(id: String)
 }

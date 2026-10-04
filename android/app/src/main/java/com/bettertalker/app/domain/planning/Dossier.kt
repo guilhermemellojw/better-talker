@@ -39,16 +39,33 @@ data class Dossier(
      * Null também quando não há sub-pontos desenvolvidos no BODY alvo.
      */
     val transitionContext: String?,
+    /**
+     * F2.3: TODOS os sub-pontos da seção ativa (linha de raciocínio do
+     * tópico). Vazio em INTRO/CONCLUSION. O Copilot recebe a linha inteira,
+     * não um sub-ponto isolado.
+     */
+    val sectionSubPoints: List<SubPoint> = emptyList(),
 )
 
-/** Metadados de uma seção para o overview. Nunca inclui conteúdo. */
+/**
+ * Metadados de uma seção para o overview. Nunca inclui o conteúdo integral:
+ * [snippet] é um recorte curto (visão global para INTRO/CONCLUSION).
+ */
 data class SectionMeta(
     val id: String,
     val title: String,
     val role: SectionRole,
     val order: Int,
     val minutes: Int,
-)
+    /** F2.3: objetivo do tópico, quando houver. */
+    val objective: String? = null,
+    /** F2.3: recorte curto do texto já desenvolvido (≤ [SNIPPET_MAX]). */
+    val snippet: String? = null,
+) {
+    companion object {
+        const val SNIPPET_MAX = 280
+    }
+}
 
 /** Ref bíblica resolvida. */
 data class ResolvedBibleText(

@@ -29,7 +29,6 @@ import com.bettertalker.app.ui.home.TrashScreen
 import com.bettertalker.app.ui.library.LibraryScreen
 import com.bettertalker.app.ui.library.LibraryViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -118,18 +117,23 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
             androidx.compose.runtime.LaunchedEffect(vm) {
                 val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
-                val llmProvider = com.bettertalker.app.data.llm.ProviderFactory.createFallback(settings)
-                // 3.5e.3: canGenerate reflete QUALQUER chave (mesma lógica do
-                // createFallback). Não usar resolveRemote — ele só vê o provider
-                // selecionado e causaria falso "sem chave" quando a outra chave
-                // existe (Gemini-only com seletor qwen, ou Groq-only com gemini).
-                val canGenerate =
-                    !settings.llmApiKey.first().isNullOrBlank() ||
-                        !settings.groqApiKey.first().isNullOrBlank()
-                vm.setSectionGenerator(
-                    com.bettertalker.app.data.planning.SectionGeneratorImpl(llmProvider),
-                    canGenerate,
-                )
+                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings)
+                // F2.3: local não exige chave; remoto exige (comportamento antigo).
+                val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
+                val generator: com.bettertalker.app.domain.planning.SectionGenerator =
+                    if (remote.providerId ==
+                        com.bettertalker.app.data.llm.ProviderFactory.PROVIDER_LOCAL_GEMMA
+                    ) {
+                        // Mini discurso em texto puro — o Gemma local não segue JSON schema.
+                        com.bettertalker.app.data.planning.MiniSpeechGenerator(
+                            com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
+                        )
+                    } else {
+                        com.bettertalker.app.data.planning.SectionGeneratorImpl(
+                            com.bettertalker.app.data.llm.ProviderFactory.createFallback(settings)
+                        )
+                    }
+                vm.setSectionGenerator(generator, canGenerate)
             }
             // tema do esboço vira título da nota
             val titleEv by copilotVm.titleEvent.collectAsState()
@@ -178,7 +182,10 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             ChatScreen(
                 copilotVm,
                 onBack = { nav.popBackStack() },
-                onInsert = { text, heading -> editorVm.queueInsertMarkdown(text, heading) },
+                onInsert = { text, heading ->
+                    // F2.3: insere no tópico em foco; sem foco, comportamento legado.
+                    editorVm.queueInsertForTarget(copilotVm.currentTarget(), text, heading)
+                },
                 onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
                 headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value)
             )

@@ -31,6 +31,10 @@ data class SpeechSection(
     val bibleRefs: List<String>,
     val publicationRefs: List<PublicationRef>,
     val methodPrinciple: String?,
+    /** F2.3: objetivo do tópico (do esboço importado ou aceito pelo usuário). */
+    val objective: String? = null,
+    /** F2.3: abordagem acordada do tópico (decisão consolidada do usuário). */
+    val agreedApproach: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

@@ -4,6 +4,7 @@ import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,5 +52,25 @@ class SpeechSectionMapperTest {
     fun unknownRole_fallsBackToBody() {
         val entity = domain().toEntity().copy(role = "LEGADO")
         assertEquals(SectionRole.BODY, entity.toDomain().role)
+    }
+
+    // ---------- F2.3: objetivo + abordagem acordada ----------
+
+    @Test
+    fun topicObjectiveAndApproach_roundTrip() {
+        val d = domain().copy(
+            objective = "Levar o ouvinte a agir",
+            agreedApproach = "situação → princípio → aplicação",
+        )
+        val back = d.toEntity().toDomain()
+        assertEquals("Levar o ouvinte a agir", back.objective)
+        assertEquals("situação → princípio → aplicação", back.agreedApproach)
+    }
+
+    @Test
+    fun topicObjectiveAndApproach_defaultNull() {
+        val back = domain().toEntity().toDomain()
+        assertNull(back.objective)
+        assertNull(back.agreedApproach)
     }
 }

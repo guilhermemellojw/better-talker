@@ -71,7 +71,8 @@ class DefaultDossierBuilder(
             currentState.subPoints.firstOrNull { it.id == id }
         }
 
-        // overview: metadados de todas as seções (sem conteúdo, sem sub-pontos)
+        // overview: metadados de todas as seções (sem conteúdo integral;
+        // F2.3: recorte curto + objetivo para a visão global de INTRO/CONCLUSION)
         val overview = document.map { state ->
             SectionMeta(
                 id = state.section.id,
@@ -79,6 +80,8 @@ class DefaultDossierBuilder(
                 role = state.section.role,
                 order = state.section.order,
                 minutes = state.section.minutes,
+                objective = state.section.objective?.takeIf { it.isNotBlank() },
+                snippet = sectionSnippet(state),
             )
         }
 
@@ -139,7 +142,28 @@ class DefaultDossierBuilder(
             methodPrinciples = principles,
             unresolvedRefs = unresolved,
             transitionContext = transitionContext,
+            sectionSubPoints = currentState.subPoints,
         )
+    }
+
+    /**
+     * F2.3: recorte curto do texto já desenvolvido de uma seção, para a
+     * visão global de INTRO/CONCLUSION. BODY prefere `contentHtml` (mini
+     * discurso do tópico) e cai para os sub-pontos desenvolvidos (legado).
+     */
+    private fun sectionSnippet(state: SectionWithSubPoints): String? {
+        val raw = if (state.section.contentHtml.isNotBlank()) {
+            state.section.contentHtml
+        } else {
+            state.subPoints.sortedBy { it.order }
+                .map { it.developedHtml }
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+        }
+        val text = stripHtml(raw)
+        if (text.isBlank()) return null
+        return if (text.length <= SectionMeta.SNIPPET_MAX) text
+        else text.take(SectionMeta.SNIPPET_MAX).trimEnd() + "…"
     }
 
     private fun toResolvedBible(r: ResolvedReference) = ResolvedBibleText(

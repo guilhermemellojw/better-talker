@@ -22,6 +22,8 @@ fun SpeechSectionEntity.toDomain(): SpeechSection {
         bibleRefs = decodeStringList(bibleRefsJson),
         publicationRefs = decodePublicationRefList(publicationRefsJson),
         methodPrinciple = methodPrinciple,
+        objective = objective,
+        agreedApproach = agreedApproach,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -39,6 +41,8 @@ fun SpeechSection.toEntity(): SpeechSectionEntity {
         bibleRefsJson = encodeStringList(bibleRefs),
         publicationRefsJson = encodePublicationRefList(publicationRefs),
         methodPrinciple = methodPrinciple,
+        objective = objective,
+        agreedApproach = agreedApproach,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

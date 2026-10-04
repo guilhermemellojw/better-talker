@@ -223,6 +223,28 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     }
 
     /**
+     * F2.3: enfileira a inserção no alvo focado (tópico/intro/conclusão).
+     * Sem alvo (chat global), mantém o comportamento legado: primeira BODY
+     * (ou primeira seção). O conteúdo do mini discurso pertence ao tópico
+     * (`contentHtml`), nunca a um sub-ponto isolado.
+     */
+    fun queueInsertForTarget(target: DraftTarget?, markdown: String, heading: String? = null) {
+        val sectionId = target?.sectionId
+        if (sectionId == null || _sections.value.none { it.section.id == sectionId }) {
+            queueInsertMarkdown(markdown, heading)
+            return
+        }
+        sectionsController.queueInsert(
+            SectionAwareInsert(
+                sectionId = sectionId,
+                subPointId = null,
+                markdown = markdown,
+                heading = heading,
+            )
+        )
+    }
+
+    /**
      * Fase 18 §17: trecho selecionado no editor. Volátil (não persiste,
      * não entra no autosave) — é contexto vivo para o Copilot.
      */
@@ -239,6 +261,14 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     fun onSectionContent(sectionId: String, html: String) =
         sectionsController.onSectionContent(sectionId, html)
+
+    /** F2.3: objetivo do tópico (fachada p/ o SectionsController). */
+    fun onSectionObjective(sectionId: String, objective: String) =
+        sectionsController.onSectionObjective(sectionId, objective)
+
+    /** F2.3: abordagem acordada do tópico (fachada p/ o SectionsController). */
+    fun onSectionApproach(sectionId: String, approach: String) =
+        sectionsController.onSectionApproach(sectionId, approach)
 
     fun onSubPointContent(subPointId: String, html: String) =
         sectionsController.onSubPointContent(subPointId, html)

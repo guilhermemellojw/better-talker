@@ -87,6 +87,8 @@ fun ChatScreen(
     val contextText by vm.contextLabelText.collectAsState()
     // FOCO: alvo empurrado ("Conversando sobre: …"), resolvido async na entrada.
     val conversationLabel by vm.conversationLabel.collectAsState()
+    // F2.3: escopo da conversa (tópico vs. global).
+    val chatScope by vm.chatScope.collectAsState()
     val proposal by vm.proposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
@@ -230,12 +232,25 @@ fun ChatScreen(
                             )
                         }
                     }
+                    // F2.3: conversa por tópico ainda vazia — estado explícito.
+                    if (messages.isEmpty() && chatScope != null) {
+                        item(key = "topic-empty") {
+                            Text(
+                                "Conversa deste tópico. Converse com o Copilot para " +
+                                    "decidir a abordagem e depois toque em " +
+                                    "“Criar mini discurso” no card.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
                     items(messages, key = { it.id }) { m ->
                         MessageBubble(
                             item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
                             headings = headings, sectionBusy = sectionBusy,
                             liveSections = outlineSections,
                             merges = merges, draft = draft,
+                            hasScope = chatScope != null,
                             onOpenLibrary = onOpenLibrary
                         )
                     }
@@ -336,7 +351,7 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("Limpar conversa?") },
-            text = { Text("O histórico com o Copilot desta nota será apagado.") },
+            text = { Text("O histórico desta conversa será apagado.") },
             confirmButton = {
                 TextButton(onClick = { confirmClear = false; vm.clearChat() }) { Text("Limpar") }
             },
@@ -380,6 +395,7 @@ private fun MessageBubble(
     liveSections: List<OutlineSection>,
     merges: List<com.bettertalker.app.data.util.PastedOutlineAnalyzer.MergeSuggestion>,
     draft: List<DraftSection>,
+    hasScope: Boolean,
     onOpenLibrary: () -> Unit
 ) {
     if (item.fromMe) {
@@ -415,6 +431,13 @@ private fun MessageBubble(
                 androidx.compose.material3.TextButton(
                     onClick = { vm.createProposal(item.id) }
                 ) { Text("Criar proposta") }
+                // F2.3: manda a resposta para o tópico em foco (roteamento
+                // pelo alvo atual; sem foco, cai no comportamento legado).
+                if (hasScope) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { vm.insertTextIntoScope(item.text) }
+                    ) { Text("Inserir no tópico") }
+                }
             }
         }
     }

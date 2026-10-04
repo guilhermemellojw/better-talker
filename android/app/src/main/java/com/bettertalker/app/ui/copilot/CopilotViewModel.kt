@@ -73,6 +73,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -313,6 +314,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Fila de inserções: o slot único (_insert) perdia pedidos em rajada. */
     private val pendingInserts = ArrayDeque<InsertRequest>()
 
+    /**
+     * F2.3: manda um texto do chat para o tópico em foco. Entra na MESMA
+     * fila de inserção do editor — o roteamento (tópico vs. legado) fica
+     * no `queueInsertForTarget`.
+     */
+    fun insertTextIntoScope(text: String, heading: String? = null) {
+        if (text.isBlank()) return
+        pendingInserts += InsertRequest(text, heading)
+        pumpInserts()
+    }
+
     private fun pumpInserts() {
         if (_insert.value == null) _insert.value = pendingInserts.removeFirstOrNull()
     }
@@ -472,8 +484,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private fun hasPushedTarget(): Boolean =
         _pushedContext?.sectionId != null || _pushedContext?.subPointId != null
 
+    /**
+     * F2.3: escopo da conversa atual. `null` = conversa global da nota;
+     * caso contrário, o id da seção/tópico em foco. Mensagens de um tópico
+     * não vazam para o histórico de outro.
+     */
+    private val _chatScope = MutableStateFlow<String?>(null)
+    val chatScope: StateFlow<String?> = _chatScope.asStateFlow()
+
+    /**
+     * F2.3: alvo atual do chat, para rotear inserções para o tópico certo.
+     * null = chat global (mantém o comportamento legado de inserção).
+     */
+    fun currentTarget(): DraftTarget? {
+        val ctx = _pushedContext ?: return null
+        val sectionId = ctx.sectionId ?: return null
+        return if (ctx.subPointId != null) DraftTarget.SubPoint(sectionId, ctx.subPointId)
+        else DraftTarget.Section(sectionId)
+    }
+
     fun setPushedContext(ctx: ChatContext?) {
         _pushedContext = ctx
+        // F2.3: a conversa segue o foco (tópico vs. global).
+        _chatScope.value = ctx?.sectionId
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
         _setupBannerDismissed.value = false
@@ -542,8 +575,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         send(msg)
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val messages = if (noteId != null) {
-        db.chatDao().observe(noteId).map { list ->
+        _chatScope.flatMapLatest { scope ->
+            db.chatDao().observeScoped(noteId, scope)
+        }.map { list ->
             list.map { e ->
                 when (e.kind) {
                     "ideas" -> {
@@ -599,7 +635,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val withOrigin = ChatCodec.unescMap(payload)
             .toMutableMap().also { it["origin"] = origin.name }
         db.chatDao().put(
-            ChatEntity(newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin), System.currentTimeMillis())
+            ChatEntity(
+                newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin),
+                System.currentTimeMillis(),
+                // F2.3: a mensagem pertence ao escopo da conversa atual.
+                sectionId = _chatScope.value,
+            )
         )
     }
 
@@ -650,8 +691,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     fun clearChat() = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        db.chatDao().clear(nid)
-        ensureGreeting()
+        // F2.3: limpa só a conversa do escopo atual (tópico ou global).
+        db.chatDao().clearScoped(nid, _chatScope.value)
+        if (_chatScope.value == null) ensureGreeting()
     }
 
     /** Resolve refs salvas numa mensagem contra os anexos atuais (p/ renderizar). */
@@ -660,7 +702,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     private suspend fun lastIdeaCards(): List<IdeaCard> {
         val nid = noteId ?: return emptyList()
-        val last = db.chatDao().all(nid).lastOrNull { it.kind == "ideas" } ?: return emptyList()
+        val last = db.chatDao().allScoped(nid, _chatScope.value)
+            .lastOrNull { it.kind == "ideas" } ?: return emptyList()
         return ChatCodec.cardsFromJson(ChatCodec.unescMap(last.payload)["cards"].orEmpty())
     }
 
@@ -670,7 +713,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      */
     fun dismissIdeaCard(messageId: String, index: Int) = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        val e = db.chatDao().all(nid)
+        val e = db.chatDao().allScoped(nid, _chatScope.value)
             .firstOrNull { it.id == messageId && it.kind == "ideas" } ?: return@launch
         val m = ChatCodec.unescMap(e.payload)
         val cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()).toMutableList()
@@ -727,7 +770,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
-            val historyBefore = conversationTurns()
+            val historyBefore = conversationTurnsScoped()
             val isFirst = historyBefore.none { it.fromMe }
             // §16: seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
@@ -1115,7 +1158,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     message = text,
                     history = history,
                     isFirstMessage = isFirst,
-                    contextPack = if (hasTarget) null else turnContext.pack,
+                    // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
+                    // tópico e o ContextPack coexistem no mesmo prompt.
+                    contextPack = turnContext.pack,
                     blockTitle = if (hasTarget) null else _activeBlockTitle.value,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
@@ -1130,10 +1175,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         post(false, "text", ChatCodec.escMap(mapOf("text" to text)), MessageOrigin.COPILOT)
     }
 
-    /** Conversa anterior para continuidade, na janela da F15. */
-    private suspend fun conversationTurns(): List<ChatTurn> {
+    /**
+     * F2.3: histórico apenas do escopo atual (tópico ou global). Um tópico
+     * nunca vê as mensagens de outro.
+     */
+    private suspend fun conversationTurnsScoped(): List<ChatTurn> {
         val nid = noteId ?: return emptyList()
-        return db.chatDao().all(nid).mapNotNull { e ->
+        return db.chatDao().allScoped(nid, _chatScope.value).mapNotNull { e ->
             val t = when (e.kind) {
                 "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
                 else -> e.kind
@@ -1178,7 +1226,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Brief: mensagem do usuário anterior à resposta (ou a própria resposta). */
     private suspend fun briefFor(messageId: String): String {
         val nid = noteId ?: return ""
-        val all = db.chatDao().all(nid)
+        val all = db.chatDao().allScoped(nid, _chatScope.value)
         val idx = all.indexOfFirst { it.id == messageId }
         if (idx <= 0) return ""
         for (i in idx - 1 downTo 0) {
@@ -1221,7 +1269,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     return@launch
                 }
                 val brief = briefFor(messageId)
-                val history = conversationTurns()
+                val history = conversationTurnsScoped()
                 val turnContext = buildTurnFor(
                     brief.ifBlank { focus }, inferIntent(brief.ifBlank { focus }, false).trainingCategory,
                     history, history.none { it.fromMe }, focus)
@@ -2075,7 +2123,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private suspend fun recentHistory(): List<String> {
         return try {
             val nid = noteId ?: return emptyList()
-            db.chatDao().all(nid).takeLast(8).map { e ->
+            db.chatDao().allScoped(nid, _chatScope.value).takeLast(8).map { e ->
                 val who = if (e.fromMe) "você" else "copilot"
                 val t = when (e.kind) {
                     "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()

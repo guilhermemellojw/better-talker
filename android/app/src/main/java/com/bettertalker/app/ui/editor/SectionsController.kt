@@ -165,6 +165,32 @@ class SectionsController(
         }
     }
 
+    /**
+     * F2.3: objetivo do tópico. Aceita vazio (limpa o campo). Nunca é
+     * preenchido automaticamente por sugestão do Copilot — só pelo usuário.
+     */
+    fun onSectionObjective(sectionId: String, objective: String) {
+        update(sectionId) {
+            it.copy(section = it.section.copy(
+                objective = objective.trim().ifBlank { null },
+                updatedAt = clock(),
+            ))
+        }
+    }
+
+    /**
+     * F2.3: abordagem acordada do tópico. Gravada apenas quando o usuário
+     * confirma o consenso (a UI só chama isto no aceite explícito).
+     */
+    fun onSectionApproach(sectionId: String, approach: String) {
+        update(sectionId) {
+            it.copy(section = it.section.copy(
+                agreedApproach = approach.trim().ifBlank { null },
+                updatedAt = clock(),
+            ))
+        }
+    }
+
     /** Desenvolvimento de um sub-ponto (HTML); suja a seção pai (autosave dela). */
     fun onSubPointContent(subPointId: String, html: String) {
         val parent = _sections.value.firstOrNull { s -> s.subPoints.any { it.id == subPointId } }
@@ -503,7 +529,12 @@ class SectionsController(
     fun aggregateHtml(): String = _sections.value.joinToString("\n") { s ->
         when (s.section.role) {
             SectionRole.INTRO, SectionRole.CONCLUSION -> s.section.contentHtml
-            SectionRole.BODY -> s.subPoints.joinToString("\n") { it.developedHtml }
+            // F2.3: o mini discurso do tópico (`contentHtml`) é a verdade do
+            // BODY quando existe; os `developedHtml` dos sub-pontos são o
+            // legado (notas antigas, sem migração automática).
+            SectionRole.BODY ->
+                if (s.section.contentHtml.isNotBlank()) s.section.contentHtml
+                else s.subPoints.joinToString("\n") { it.developedHtml }
         }
     }
 

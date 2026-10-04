@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -128,6 +129,9 @@ fun SectionCardEditor(
     onRemoveSubPoint: (subPointId: String) -> Unit = {},
     onMoveSubPoint: (subPointId: String, direction: MoveDirection) -> Unit = { _, _ -> },
     onUpdateSubPointOutlineText: (subPointId: String, newText: String) -> Unit = { _, _ -> },
+    // F2.3: objetivo do tópico + abordagem acordada (campos do card BODY).
+    onObjectiveChange: (String) -> Unit = {},
+    onApproachChange: (String) -> Unit = {},
     isFirstSection: Boolean = false,
     isLastSection: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
@@ -364,32 +368,15 @@ fun SectionCardEditor(
                 }
                 SectionRole.BODY -> {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // BODY sem sub-pontos: o conteúdo da seção (draft aceito
-                        // pelo menu da seção, import) é renderizado/editável
-                        // aqui — antes, ele era gravado mas ficava invisível.
-                        if (state.subPoints.isEmpty()) {
-                            val editorKey = "section-${state.section.id}"
-                            SectionContentEditor(
-                                editorKey = editorKey,
-                                initialHtml = state.section.contentHtml,
+                        // F2.3: objetivo + abordagem acordada do tópico (o
+                        // mini discurso nasce daqui).
+                        if (!readOnly) {
+                            TopicMetaFields(
                                 sectionId = state.section.id,
-                                subPointId = null,
-                                editorStates = editorStates,
-                                readOnly = readOnly,
-                                onContentChange = onContentChange,
-                                onSelectionChange = onSelectionChange,
-                                onFocusChange = { isFocused ->
-                                    if (isFocused) {
-                                        focusedEditorKey = editorKey
-                                        onActiveEditorChange(editorKey, editorStates[editorKey])
-                                    } else if (focusedEditorKey == editorKey) {
-                                        focusedEditorKey = null
-                                        onActiveEditorChange(null, null)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 80.dp),
+                                objective = state.section.objective,
+                                approach = state.section.agreedApproach,
+                                onObjectiveChange = onObjectiveChange,
+                                onApproachChange = onApproachChange,
                             )
                         }
                         state.subPoints.forEachIndexed { index, subPoint ->
@@ -411,9 +398,6 @@ fun SectionCardEditor(
                                     onUpdateOutlineText = { newText ->
                                         onUpdateSubPointOutlineText(subPoint.id, newText)
                                     },
-                                    canGenerateDraft = canGenerateDraft,
-                                    onGenerateDraft = onGenerateDraft,
-                                    onChatAbout = onChatAbout,
                                     showMenu = focusedEditorKey == editorKey,
                                     onActivate = onActivate,
                                     onFocusChange = { isFocused ->
@@ -442,6 +426,37 @@ fun SectionCardEditor(
                                 Text("Adicionar ponto")
                             }
                         }
+                        // F2.3: o mini discurso do tópico (contentHtml) é
+                        // sempre editável — com ou sem sub-pontos. A linha de
+                        // raciocínio acima orienta; o texto final é um só.
+                        Text(
+                            "Mini discurso do tópico",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        val miniKey = "section-${state.section.id}"
+                        SectionContentEditor(
+                            editorKey = miniKey,
+                            initialHtml = state.section.contentHtml,
+                            sectionId = state.section.id,
+                            subPointId = null,
+                            editorStates = editorStates,
+                            readOnly = readOnly,
+                            onContentChange = onContentChange,
+                            onSelectionChange = onSelectionChange,
+                            onFocusChange = { isFocused ->
+                                if (isFocused) {
+                                    focusedEditorKey = miniKey
+                                    onActiveEditorChange(miniKey, editorStates[miniKey])
+                                } else if (focusedEditorKey == miniKey) {
+                                    focusedEditorKey = null
+                                    onActiveEditorChange(null, null)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp),
+                        )
                     }
                 }
             }
@@ -545,18 +560,29 @@ private fun SectionMenuButton(
                 text = { Text("Excluir seção") },
                 onClick = { onRemove(); menuOpen = false },
             )
-            // Fase 3.5e.3: gerar rascunho para a seção (só quando não há
-            // sub-pontos). F2c: conversa focada primeiro, one-shot depois.
+            // F2.3: no BODY (tópico) o mini discurso é a ação principal e
+            // existe com ou sem sub-pontos. Em INTRO/CONCLUSION mantém o
+            // one-shot clássico (só quando não há sub-pontos, que não existem lá).
             DropdownMenuItem(
-                text = { Text("Conversar sobre esta seção") },
+                text = {
+                    Text(
+                        if (showRoleChange) "Conversar sobre este tópico"
+                        else "Conversar sobre esta seção"
+                    )
+                },
                 onClick = {
                     menuOpen = false
                     onChatAbout(DraftTarget.Section(sectionId))
                 },
             )
-            if (!hasSubPoints) {
+            if (showRoleChange || !hasSubPoints) {
                 DropdownMenuItem(
-                    text = { Text("Gerar com Copilot") },
+                    text = {
+                        Text(
+                            if (showRoleChange) "Criar mini discurso"
+                            else "Gerar com Copilot"
+                        )
+                    },
                     enabled = canGenerateDraft,
                     onClick = {
                         menuOpen = false
@@ -671,6 +697,47 @@ private fun SectionContentEditor(
     }
 }
 
+/**
+ * F2.3: campos de tópico do card BODY — objetivo e abordagem acordada.
+ * Escrevem direto (autosave do controller); nada é preenchido sozinho pelo
+ * Copilot aqui — a abordagem só é gravada por ação explícita do usuário.
+ */
+@Composable
+private fun TopicMetaFields(
+    sectionId: String,
+    objective: String?,
+    approach: String?,
+    onObjectiveChange: (String) -> Unit,
+    onApproachChange: (String) -> Unit,
+) {
+    var obj by remember(sectionId, objective) { mutableStateOf(objective.orEmpty()) }
+    var app by remember(sectionId, approach) { mutableStateOf(approach.orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = obj,
+            onValueChange = {
+                obj = it
+                onObjectiveChange(it)
+            },
+            label = { Text("Objetivo do tópico") },
+            placeholder = { Text("O que este tópico deve alcançar?") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = MaterialTheme.typography.bodyMedium,
+        )
+        OutlinedTextField(
+            value = app,
+            onValueChange = {
+                app = it
+                onApproachChange(it)
+            },
+            label = { Text("Abordagem acordada") },
+            placeholder = { Text("A decisão combinada com o Copilot") },
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
 @Composable
 private fun SubPointEditor(
     subPoint: SubPoint,
@@ -686,10 +753,6 @@ private fun SubPointEditor(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onUpdateOutlineText: (String) -> Unit,
-    canGenerateDraft: Boolean = false,
-    onGenerateDraft: (DraftTarget) -> Unit = {},
-    // F2c: conversa focada (ver SectionCardEditor).
-    onChatAbout: (DraftTarget) -> Unit = {},
     // ⋮ contextual: só o ponto focado mostra o botão; long-press no tópico
     // abre o menu mesmo com o botão oculto.
     showMenu: Boolean = true,
@@ -768,24 +831,9 @@ private fun SubPointEditor(
                                 text = { Text("Excluir ponto") },
                                 onClick = { confirmDelete = true; menuOpen = false },
                             )
-                            // F2c: conversa focada primeiro (fluxo principal),
-                            // one-shot depois (atalho).
-                            DropdownMenuItem(
-                                text = { Text("Conversar sobre este ponto") },
-                                onClick = {
-                                    menuOpen = false
-                                    onChatAbout(DraftTarget.SubPoint(sectionId, subPoint.id))
-                                },
-                            )
-                            // Fase 3.5e.3: gera rascunho para ESTE sub-ponto.
-                            DropdownMenuItem(
-                                text = { Text("Gerar com Copilot") },
-                                enabled = canGenerateDraft,
-                                onClick = {
-                                    menuOpen = false
-                                    onGenerateDraft(DraftTarget.SubPoint(sectionId, subPoint.id))
-                                },
-                            )
+                            // F2.3 §17: a geração de IA saiu do sub-ponto. O
+                            // tópico é a unidade de redação; a conversa e o
+                            // mini discurso vivem no card do tópico.
                         }
                     }
                 }

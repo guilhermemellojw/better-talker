@@ -414,4 +414,52 @@ class DossierBuilderTest {
 
         assertEquals("conclusion", methods.lastCategory)
     }
+
+    // ---------- F2.3: linha de raciocínio + visão global ----------
+
+    @Test
+    fun build_sectionSubPoints_carriesWholeLine() = runBlocking {
+        val doc = listOf(
+            SectionWithSubPoints(
+                section("b", 0),
+                listOf(subPoint("sp1", "b", 0, "primeiro"), subPoint("sp2", "b", 1, "segundo")),
+            )
+        )
+        val d = builder().build(context("b", "sp1"), doc)
+
+        assertEquals(listOf("sp1", "sp2"), d.sectionSubPoints.map { it.id })
+    }
+
+    @Test
+    fun build_overview_carriesObjectiveAndSnippet() = runBlocking {
+        val body = section("b", 0).copy(
+            objective = "Explicar a esperança",
+            contentHtml = "<p>texto já escrito do tópico</p>",
+        )
+        val doc = listOf(
+            SectionWithSubPoints(section("i", 0, SectionRole.INTRO, "Introdução"), emptyList()),
+            SectionWithSubPoints(body, emptyList()),
+        )
+        val d = builder().build(context("i", null), doc)
+
+        val meta = d.overview.first { it.id == "b" }
+        assertEquals("Explicar a esperança", meta.objective)
+        assertTrue(meta.snippet!!.contains("texto já escrito"))
+    }
+
+    @Test
+    fun build_overview_snippetFallsBackToDevelopedSubPoints() = runBlocking {
+        val body = section("b", 0)
+        val doc = listOf(
+            SectionWithSubPoints(section("i", 0, SectionRole.INTRO, "Introdução"), emptyList()),
+            SectionWithSubPoints(
+                body,
+                listOf(developedSubPoint("sp1", "b", 0, "Âncora", "<p>legado desenvolvido</p>")),
+            ),
+        )
+        val d = builder().build(context("i", null), doc)
+
+        val meta = d.overview.first { it.id == "b" }
+        assertTrue(meta.snippet!!.contains("legado desenvolvido"))
+    }
 }
