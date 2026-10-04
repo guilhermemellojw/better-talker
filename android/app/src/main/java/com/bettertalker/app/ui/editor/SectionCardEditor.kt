@@ -335,6 +335,18 @@ fun SectionCardEditor(
                                         insert.markdown.trim() + "\n"
                                 )
                             }
+                            // F2.3-fix: persiste o insert imediatamente. Quando o
+                            // card compõe JÁ com o insert pendente (fluxo
+                            // chat → tópico), o coletor de snapshotFlow do editor
+                            // inicia depois e o `.drop(1)` descarta a mudança —
+                            // sem isto o texto aparecia no editor e não era
+                            // salvo (sumia ao rolar/reabrir).
+                            val insertedHtml = targetState.toHtml()
+                            if (insert.subPointId != null) {
+                                onSubPointChange(insert.subPointId, insertedHtml)
+                            } else {
+                                onContentChange(insertedHtml)
+                            }
                         }
                         onConsumeInsert(insert)
                     }
