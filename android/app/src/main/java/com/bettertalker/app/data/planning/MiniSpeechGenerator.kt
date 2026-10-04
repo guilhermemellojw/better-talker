@@ -36,7 +36,12 @@ class MiniSpeechGenerator(
         val res = try {
             llmProvider.generate(
                 LlmRequest(
-                    text = prompt,
+                    // F2.4: o prompt do mini discurso entra como MENSAGEM (nunca
+                    // truncada e contada UMA vez). Antes ia em `text`, o que o
+                    // duplicava como bloco em foco (message.ifBlank{text} +
+                    // blockText) e estourava o orçamento real do modelo.
+                    text = "",
+                    message = prompt,
                     action = LlmAction.CHAT,
                     responseFormat = ResponseFormat.TEXT,
                     maxAttempts = 1, // sem retry automático — evita queimar cota

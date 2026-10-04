@@ -52,9 +52,14 @@ class LocalGemmaProvider(
         val loadMs = System.currentTimeMillis() - tLoad0
 
         LocalProgress.set(LocalPhase.ReadingSources)
+        // F2.1: compacta o RAG (≤2k). F2.4: aplica o orçamento TOTAL —
+        // system + tópico + RAG + histórico + mensagem + margem de geração.
         val leanRequest = LeanRag.compact(request.contextPack)?.let { request.copy(contextPack = it) }
             ?: request
-        val prompts = buildProviderPrompts(leanRequest)
+        val budgeted = LocalContextBudget.apply(leanRequest)
+        val leanRequest2 = budgeted.request
+        val budget = budgeted.plan
+        val prompts = buildProviderPrompts(leanRequest2)
         val system = listOf(prompts.first, GEMMA_GROUNDING_BLOCK)
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
@@ -83,16 +88,24 @@ class LocalGemmaProvider(
             throw ProviderError(ProviderErrorCode.UNAVAILABLE, "Gemma local indisponível.", id, 1)
         }
 
-        val verified = GroundednessVerifier.verify(raw, contentSources(leanRequest))
+        val verified = GroundednessVerifier.verify(raw, contentSources(leanRequest2))
         if (verified.hasRemovals) {
             log("gemma_local verificador removeu ${verified.removed.size} trecho(s) sem apoio")
         }
         LocalProgress.set(LocalPhase.Done)
         val estTokens = LeanRag.estimateTokens(raw)
-        val packTokens = estimatePackTokens(leanRequest)
-        val dossierTokens = leanRequest.contextBlock?.let { LeanRag.estimateTokens(it) } ?: 0
+        val flags = buildString {
+            if (budget.trimmed.isNotEmpty()) append(" trimmed=${budget.trimmed.joinToString(",")}")
+            if (budget.userOverBudget) append(" userOver=1")
+        }
+        // F2.4: composição real (estimada) do prompt enviado ao modelo.
         log("gemma_local ok load=${loadMs}ms ttft=${ttftMs}ms gen=${genMs}ms " +
-            "rag~${packTokens}tok dossier~${dossierTokens}tok out~${estTokens}tok")
+            "budget~${LocalContextBudget.TOTAL_CONTEXT_TOKENS}tok " +
+            "system~${budget.system}tok topic~${budget.topic}tok global~${budget.global}tok " +
+            "rag~${budget.rag}tok history~${budget.history}tok text~${budget.blockText}tok " +
+            "user~${budget.user}tok overhead~${budget.overhead}tok " +
+            "inputTotal~${budget.inputTotal}tok outReserve~${budget.outputReserve}tok " +
+            "out~${estTokens}tok$flags")
         return LlmResponse(
             verified.text,
             LlmResponseMeta(
@@ -116,15 +129,5 @@ class LocalGemmaProvider(
             .orEmpty()
         val dossier = request.contextBlock?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty()
         return content + request.contextPassages + dossier
-    }
-
-    /** Só RetrievalRepository + legados (sem dossiê) — medida honesta do RAG. */
-    private fun estimatePackTokens(request: LlmRequest): Int {
-        val pack = request.contextPack
-        val packTokens = pack?.let {
-            it.contentSources.sumOf { s -> LeanRag.sourceTokens(s) } +
-                it.trainingSources.sumOf { s -> LeanRag.sourceTokens(s) }
-        } ?: 0
-        return packTokens + request.contextPassages.sumOf { LeanRag.estimateTokens(it) }
     }
 }

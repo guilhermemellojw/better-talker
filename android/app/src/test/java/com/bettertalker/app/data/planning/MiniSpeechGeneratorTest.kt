@@ -88,7 +88,7 @@ class MiniSpeechGeneratorTest {
         val gen = generator(provider)
         gen.generate(dossier(objective = "Objetivo X", approach = "Abordagem Y"))
 
-        val prompt = provider.lastRequest!!.text
+        val prompt = provider.lastRequest!!.message
         assertTrue(prompt.contains("Objetivo X"))
         assertTrue(prompt.contains("Abordagem Y"))
         assertTrue(prompt.contains("MINI DISCURSO"))
