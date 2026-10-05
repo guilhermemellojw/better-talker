@@ -64,10 +64,12 @@ import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.ui.components.ByodNotice
 
-/** MIMEs aceitos para importar esboço (DOCX, PDF, JWPUB genérico). */
+/** MIMEs aceitos para importar esboço (DOCX, PDF, RTF, JWPUB genérico). */
 val OUTLINE_MIMES = arrayOf(
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/pdf",
+    "application/rtf",
+    "text/rtf",
     "application/octet-stream"
 )
 
