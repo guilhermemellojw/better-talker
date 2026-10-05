@@ -56,7 +56,7 @@ Projeto Gradle/Kotlin com Jetpack Compose — o cliente Android ativo do produto
 
 - **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
 - **Publicações:** extrator próprio de **JWPUB**, extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
-- **IA on-device (dev-only):** provedor local **Gemma 4 E2B via LiteRT-LM** (GPU com fallback para CPU). O modelo `.litertlm` **não é baixado pelo app**: em desenvolvimento, ele é colocado no aparelho via `adb push` (`files/models`). Hospedagem e download para usuário final são pendência; o caminho legado MediaPipe/Qwen segue sem URL configurada (`LlmModelConfig.DOWNLOAD_URL` vazia).
+- **IA on-device (Gemma 4 E2B via LiteRT-LM):** provedor local com **download pelo próprio app** (Hugging Face oficial, ~2,59 GB, só Wi-Fi, verificação de integridade SHA-256, licença Apache-2.0 com aceite e atribuições na tela "Modelo IA"). O seletor de provedor tem o modo **Automático**: Gemma local se o modelo estiver presente → provedor remoto com chave → motor determinístico. Em desenvolvimento, o atalho `adb push` do `.litertlm` para `files/models` continua funcionando.
 - **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
@@ -67,7 +67,7 @@ Projeto Gradle/Kotlin com Jetpack Compose — o cliente Android ativo do produto
 
 **Web (`src/`):** React 19, TypeScript, Vite · Dexie.js (IndexedDB v3) · `jszip` + `pdfjs-dist` (acervo) · Firebase (opcional) · Lucide Icons · CSS próprio (tema escuro, sem framework) · PWA (Service Worker + manifest).
 
-**Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, MediaPipe LLM Inference, DownloadManager.
+**Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, LiteRT-LM (Gemma 4 E2B on-device), DownloadManager.
 
 > **Pré-requisito web:** Node.js **22+** (exigido pelo `pdfjs-dist`).
 
