@@ -4,8 +4,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -89,20 +91,25 @@ internal fun isJwUrl(url: String): Boolean {
 
 @Composable
 fun inline(text: String): androidx.compose.ui.text.AnnotatedString {
-    // Cor lida fora do remember (leitura composable não pode viver no lambda).
+    // Cores lidas fora do remember (leitura composable não pode viver no lambda).
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
-    return remember(text, codeBackground) { buildInline(text, codeBackground) }
+    val linkColor = MaterialTheme.colorScheme.tertiary
+    return remember(text, codeBackground, linkColor) {
+        buildInline(text, codeBackground, linkColor)
+    }
 }
 
 /**
  * T2/T3/T4 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico),
  * `código` em monoespaçado (com fundo [codeBackground]) e links markdown
  * `[texto](url)` (clicáveis apenas para jw.org; outros domínios ficam
- * sublinhados e inertes). Puro/testável.
+ * sublinhados e inertes). P1: links ganham cor explícita [linkColor] +
+ * sublinhado. Puro/testável.
  */
 fun buildInline(
     text: String,
-    codeBackground: Color = Color.Unspecified
+    codeBackground: Color = Color.Unspecified,
+    linkColor: Color = Color.Unspecified
 ): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     var i = 0
     var bold = false
@@ -138,10 +145,19 @@ fun buildInline(
                     val label = text.substring(i + 1, close)
                     val url = text.substring(paren + 1, urlEnd)
                     if (isJwUrl(url)) {
-                        withLink(LinkAnnotation.Url(url)) {
-                            withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
-                                append(label)
-                            }
+                        // P1: estilo explícito (cor + sublinhado) quando informado.
+                        val styles = if (linkColor.isSpecified) {
+                            TextLinkStyles(
+                                style = SpanStyle(
+                                    color = linkColor,
+                                    textDecoration = TextDecoration.Underline
+                                )
+                            )
+                        } else {
+                            null
+                        }
+                        withLink(LinkAnnotation.Url(url, styles)) {
+                            append(label)
                         }
                     } else {
                         // Domínio não oficial: sublinhado, porém não clicável.

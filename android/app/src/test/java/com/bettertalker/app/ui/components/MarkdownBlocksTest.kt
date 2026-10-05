@@ -9,6 +9,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,6 +99,23 @@ class MarkdownBlocksTest {
         assertEquals(1, links.size)
         assertEquals("https://www.jw.org/pt/", (links.first().item as LinkAnnotation.Url).url)
         assertEquals("Site oficial", a.text)
+    }
+
+    // ---------- P1: estilo explícito dos links ----------
+
+    @Test
+    fun linkJwTemCorExplicitaESublinhado() {
+        val a = buildInline("[x](https://jw.org/pt)", linkColor = Color(0xFF1A6FEB))
+        val link = a.getLinkAnnotations(0, a.length).first().item as LinkAnnotation.Url
+        assertEquals(Color(0xFF1A6FEB), link.styles?.style?.color)
+        assertEquals(TextDecoration.Underline, link.styles?.style?.textDecoration)
+    }
+
+    @Test
+    fun linkSemCorExplicitaMantemEstiloPadrao() {
+        val a = buildInline("[x](https://jw.org/pt)")
+        val link = a.getLinkAnnotations(0, a.length).first().item as LinkAnnotation.Url
+        assertNull(link.styles)
     }
 
     // ---------- T4: parcial puro (streaming) ----------

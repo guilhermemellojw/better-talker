@@ -15,6 +15,26 @@ val SamsungYellowDeep = Color(0xFFF6C90E)
 val SamsungYellowSoft = Color(0xFFFCE9A8)
 val SamsungInk = Color(0xFF1B1B1B)
 
+/** P1 — cor explícita dos links (contraste WCAG AA verificado em teste). */
+val LinkBlueLight = Color(0xFF1A6FEB)
+val LinkBlueDark = Color(0xFF8AB4F8)
+
+/** Luminância relativa WCAG (0..1). Pura/testável. */
+fun relativeLuminance(c: Color): Double {
+    fun lin(v: Float): Double {
+        val d = v.toDouble()
+        return if (d <= 0.03928) d / 12.92 else Math.pow((d + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * lin(c.red) + 0.7152 * lin(c.green) + 0.0722 * lin(c.blue)
+}
+
+/** Razão de contraste WCAG entre duas cores (1..21). Pura/testável. */
+fun contrastRatio(fg: Color, bg: Color): Double {
+    val a = relativeLuminance(fg)
+    val b = relativeLuminance(bg)
+    return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
+}
+
 private val LightColors = lightColorScheme(
     primary = SamsungYellowDeep,
     onPrimary = SamsungInk,
@@ -22,7 +42,7 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = SamsungInk,
     secondary = Color(0xFF5B6B7B),
     secondaryContainer = Color(0xFFE8EDF3),
-    tertiary = Color(0xFF1A6FEB),
+    tertiary = LinkBlueLight,
     surface = Color(0xFFFFFDF5),
     surfaceVariant = Color(0xFFFFF3C4),
     background = Color(0xFFFFFDF5),
@@ -35,7 +55,7 @@ private val DarkColors = darkColorScheme(
     primaryContainer = Color(0xFF3A2F10),
     onPrimaryContainer = SamsungYellowSoft,
     secondary = Color(0xFF9AA7B8),
-    tertiary = Color(0xFF8AB4F8),
+    tertiary = LinkBlueDark,
     surface = Color(0xFF1E1C15),
     surfaceVariant = Color(0xFF2A2618),
     background = Color(0xFF141310),
