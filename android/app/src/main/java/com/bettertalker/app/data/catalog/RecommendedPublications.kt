@@ -16,7 +16,15 @@ data class RecommendedPub(
 ) {
     val title: String get() = PubCatalog.titleOf(symbol) ?: symbol
 
-    /** Página oficial para o fluxo BYOD (WebView interna). */
+    /**
+     * Destino do botão **Baixar**: página do **jw.org** (finder por símbolo) —
+     * a WOL só permite leitura, não download. O finder resolve a publicação
+     * oficial e oferece os arquivos (mesma API `GETPUBMEDIALINKS`).
+     */
+    val downloadUrl: String
+        get() = "https://www.jw.org/finder?wtlocale=T&srcid=share&wfile=$symbol"
+
+    /** Página WOL (leitura/estudo) — secundária, nunca destino do Baixar. */
     val pageUrl: String get() = PubCatalog.entryOf(symbol)?.wol.orEmpty()
 
     /** Página de downloads/formatos (só as bases be/th têm URL de formatos). */

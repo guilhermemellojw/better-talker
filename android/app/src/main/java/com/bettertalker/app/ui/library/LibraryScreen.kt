@@ -191,7 +191,8 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                             match = match,
                             linkNoteId = linkNoteId,
                             onDownload = {
-                                jwUrl = pub.pageUrl.ifBlank { JW_FINDER_HOME }
+                                // T1: Baixar aponta para o jw.org (a WOL não baixa).
+                                jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
                                 showJw = true
                             },
                             onFormats = {
