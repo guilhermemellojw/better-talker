@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.llm
 
+import android.content.Context
+import com.bettertalker.app.data.llm.litert.LitertGemmaEngine
 import com.bettertalker.app.data.prefs.SettingsStore
 import kotlinx.coroutines.flow.first
 
@@ -19,6 +21,9 @@ object ProviderFactory {
 
     /** F2 — provider on-device (Gemma 4 E2B / LiteRT-LM). Sem chave. */
     const val PROVIDER_LOCAL_GEMMA = "gemma_local"
+
+    /** T3 — decisão automática: local (modelo presente) → remoto com chave → determinístico. */
+    const val PROVIDER_AUTO = "auto"
 
     /** Provider com a chave atual das Settings (pode estar vazia). */
     suspend fun create(settings: SettingsStore): LlmProvider =
@@ -44,15 +49,39 @@ object ProviderFactory {
     /** Config remota resolvida: qual provider + qual chave (para a ViewModel). */
     data class RemoteConfig(val providerId: String, val apiKey: String)
 
-    /** F20-F1 — resolve provider+chave das Settings numa leitura só. */
-    suspend fun resolveRemote(settings: SettingsStore): RemoteConfig {
+    /**
+     * F20-F1/T3 — resolve provider+chave das Settings numa leitura só.
+     * Com "auto", consulta a presença do modelo quando o [context] é dado
+     * (UI/roteamento); sem contexto, "auto" resolve só pela ordem de chaves.
+     */
+    suspend fun resolveRemote(settings: SettingsStore, context: Context? = null): RemoteConfig {
         val selected = settings.llmProvider.first()
-        return when (selected) {
-            PROVIDER_QWEN -> RemoteConfig(PROVIDER_QWEN, settings.groqApiKey.first().orEmpty())
-            // F2: local não tem chave; a rota vale mesmo com chave vazia.
-            PROVIDER_LOCAL_GEMMA -> RemoteConfig(PROVIDER_LOCAL_GEMMA, "")
-            else -> RemoteConfig(PROVIDER_GEMINI, settings.llmApiKey.first().orEmpty())
-        }
+        val geminiKey = settings.llmApiKey.first().orEmpty()
+        val groqKey = settings.groqApiKey.first().orEmpty()
+        val modelPresent = selected == PROVIDER_AUTO && context != null &&
+            LitertGemmaEngine.isModelPresent(context)
+        return resolveProvider(selected, modelPresent, geminiKey, groqKey)
+    }
+
+    /**
+     * T3 — resolução pura/testável. Ordem do "auto": Gemma local (modelo
+     * presente) → Gemini (chave) → Qwen (chave Groq) → determinístico
+     * (Gemini sem chave ⇒ `useRemoteRoute` falso). Providers explícitos
+     * mantêm o comportamento anterior.
+     */
+    fun resolveProvider(
+        selected: String,
+        modelPresent: Boolean,
+        geminiKey: String,
+        groqKey: String,
+    ): RemoteConfig = when {
+        selected == PROVIDER_QWEN -> RemoteConfig(PROVIDER_QWEN, groqKey)
+        // local não tem chave; a rota vale mesmo com chave vazia.
+        selected == PROVIDER_LOCAL_GEMMA -> RemoteConfig(PROVIDER_LOCAL_GEMMA, "")
+        selected == PROVIDER_AUTO && modelPresent -> RemoteConfig(PROVIDER_LOCAL_GEMMA, "")
+        selected == PROVIDER_AUTO && geminiKey.isNotBlank() -> RemoteConfig(PROVIDER_GEMINI, geminiKey)
+        selected == PROVIDER_AUTO && groqKey.isNotBlank() -> RemoteConfig(PROVIDER_QWEN, groqKey)
+        else -> RemoteConfig(PROVIDER_GEMINI, geminiKey)
     }
 
     /** Instancia o provider da config resolvida (puro/testável). */

@@ -63,20 +63,23 @@ class SettingsStore(private val ctx: Context) {
     suspend fun clearGroqApiKey() { ctx.store.edit { it.remove(GROQ_API_KEY) } }
 
     /**
-     * F20-F1 / 3.5e.3a — provider remoto selecionado ("gemini"|"qwen").
-     * Default "qwen": Groq/Qwen é o padrão recomendado; Gemini é
-     * alternativa/fallback. O runtime de geração (ProviderFactory.createFallback)
-     * já tenta Qwen primeiro independentemente desta seleção — este default
-     * alinha a UI e o `resolveRemote`.
+     * F20-F1 / T3 — provider de IA selecionado:
+     * "auto" (default) | "gemini" | "qwen" | "gemma_local".
+     *
+     * "auto" resolve em runtime: Gemma local se o modelo está presente →
+     * remoto com chave → determinístico. Valores explícitos são preservados —
+     * instalações existentes não mudam de comportamento.
      */
     private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
-    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "qwen" }
+    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "auto" }
     suspend fun setLlmProvider(v: String) {
         ctx.store.edit {
             it[LLM_PROVIDER] = when (v) {
                 "gemini" -> "gemini"
                 // F2: provider on-device (Gemma 4 E2B via LiteRT-LM)
                 "gemma_local" -> "gemma_local"
+                // T3: decisão automática local → remoto → determinístico
+                "auto" -> "auto"
                 else -> "qwen"
             }
         }

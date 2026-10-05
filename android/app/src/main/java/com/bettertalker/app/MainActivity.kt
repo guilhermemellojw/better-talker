@@ -117,7 +117,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
             androidx.compose.runtime.LaunchedEffect(vm) {
                 val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
-                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings)
+                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
                 // F2.3: local não exige chave; remoto exige (comportamento antigo).
                 val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
                 val generator: com.bettertalker.app.domain.planning.SectionGenerator =

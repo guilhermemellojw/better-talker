@@ -10,6 +10,8 @@ import com.bettertalker.app.data.ai.LlmModelConfig
 import com.bettertalker.app.data.ai.ModelDlState
 import com.bettertalker.app.data.ai.ModelDownloadManager
 import com.bettertalker.app.data.ai.downloadProgress
+import com.bettertalker.app.data.llm.litert.LitertGemmaEngine
+import com.bettertalker.app.data.prefs.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -18,7 +20,7 @@ import kotlinx.coroutines.launch
 class ModelViewModel(ctx: android.content.Context) : ViewModel() {
     private val app = ctx.applicationContext
     private val dl = ModelDownloadManager(app)
-    private val settings = com.bettertalker.app.data.prefs.SettingsStore(app)
+    private val settings = SettingsStore(app)
     val state = dl.state
 
     private val _totalRam = MutableStateFlow(0L)
@@ -31,14 +33,18 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
     /** F20-F1: chave BYOD do Groq/Qwen + provider selecionado. */
     val groqApiKey = settings.groqApiKey.stateIn(
         viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "")
+    /** T3: default "auto" (local → remoto → determinístico); explícitos preservados. */
     val llmProvider = settings.llmProvider.stateIn(
-        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "qwen")
+        viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), "auto")
 
     fun saveApiKey(v: String) = viewModelScope.launch { settings.setLlmApiKey(v) }
     fun clearApiKey() = viewModelScope.launch { settings.clearLlmApiKey() }
     fun saveGroqApiKey(v: String) = viewModelScope.launch { settings.setGroqApiKey(v) }
     fun clearGroqApiKey() = viewModelScope.launch { settings.clearGroqApiKey() }
     fun selectProvider(v: String) = viewModelScope.launch { settings.setLlmProvider(v) }
+
+    /** T3 — modelo presente (download concluído ou `adb push` em dev). */
+    fun isModelPresent(): Boolean = LitertGemmaEngine.isModelPresent(app)
 
     init {
         viewModelScope.launch {
