@@ -56,11 +56,57 @@
 - Durante a re-execução limpa da sonda, o ADB wireless caiu (`waiting for device`;
   `adb devices` vazio). **Validação interrompida conforme a regra** (sem tentar contornar).
 
-## Blocos
-- Bloco 1 (import/indexação): **não executado** (ADB caiu antes).
-- Blocos 2–7: **não executados** (chave DeepSeek inválida + queda do ADB). Nada foi simulado.
+## Resultados por bloco (sessão de 05/10, pós-correção)
+
+### Bloco 1 — Import e indexação: **PASSOU**
+- Import de `s34-35.docx` (S-34 real do aparelho) via chat → “Anexar esboço” → Importar.
+- Draft detectado: **5 seções** com minutos (5/4/9/8/4) e título correto.
+- “Esboço vinculado ✓ (5 seções)”; banco: `speech_sections` com INTRO + 5 BODY e **28 subpontos**.
+- Observação: **tabelas `s34_*` continuam vazias** (pipeline estruturado F19 não populado neste import) — impacta rota oratória/estrutural.
+- Tempo de indexação: < 5 s (draft criado ~3 s após a seleção). Nº de passages novos: 0 (S-34 vira outline; não é publicação indexada).
+
+### Bloco 2 — Chat DeepSeek (streaming): **PASSOU**
+- `llm_provider=deepseek`; streaming visível (parcial na tela a ~3 s).
+- Troca 2: usuário 1281.925 → resposta 1285.393 = **3,47 s** total; resposta coerente com o ponto 3 do esboço (qualidade 4/5).
+- Gate atuou: “⚠️ Revise: aspas sem fonte…” (14:27:06) e remoção de 2 trechos (14:30:20).
+- Falha intermitente: 14:38:03 `ProviderError INVALID_RESPONSE` (“Não consegui gerar”) — ver Bug #6.
+
+### Bloco 3 — Gate de alucinação: **PARCIAL**
+- Aviso visível on-device (aspas sem fonte) e remoção pelo verificador: **observados**.
+- Citação inventada (“Malaquias 99:99”): o **modelo recusou** inventar e ofereceu alternativas reais **dentro de `〈sugestão〉`**; sem aviso porque as refs têm apoio no acervo.
+- “📖 No acervo: <trecho>” **não observável**: com provedor ativo, o comando de referências vai ao modelo; os cards de refs só rodam no caminho determinístico (ver Obs #7).
+- Texto limpo: sem avisos (resposta da metáfora).
+
+### Bloco 4 — Modo Criação: **PASSOU (caso 1)**
+- “Invente uma metáfora…” → resposta com `〈sugestão〉…〈/sugestão〉`; UI exibiu **💡 Sugestão criativa** e escondeu as tags.
+- Casos 2/3 (número/versículo inventado dentro de criação): não exercitados no device (o modelo recusou inventar); cobertos por testes JVM (`SuggestionGateTest`).
+
+### Bloco 5 — Fallback (auto): **NÃO EXECUTADO**
+- Provider estava explícito (`deepseek`); o teste exige trocar para “Automático” + offline (automação de airplane-mode não executada nesta sessão).
+
+### Bloco 6 — Proposta F5 + Criação: **PARCIAL**
+- “Criar proposta” sem bloco em foco orienta corretamente (“Selecione um trecho ou abra um bloco…”).
+- Após focar um tópico no editor, o toque em “Criar proposta” **não gerou** o cartão (sem log de geração) — não concluído nesta sessão.
+
+### Bloco 7 — Estabilidade: **NÃO EXECUTADO**
+- App sobreviveu a toda a navegação da sessão sem crash/ANR; force-stop e as 10 interações não foram executados.
+
+### Bug #6 (DeepSeek, intermitente) — reasoning pode esvaziar a resposta
+- 14:38:03: `ProviderError INVALID_RESPONSE` com chave válida → “Não consegui gerar a resposta agora.”
+- A sonda “Testar conexão” usa `max_tokens=1` e **sempre** falha em modelo de raciocínio (content vazio) → rótulo “Erro de conexão” com chave válida.
+- Sugestão (não aplicada): orçamento mínimo na sonda (ex.: 32+) e/ou tratar `reasoning_content`/`finish_reason=length` sem content como falha explícita de orçamento.
+
+### Observação #7 — cards de referência inacessíveis com provedor ativo
+- Com rota remota/local ativa, comandos de referências são respondidos pelo modelo; o card com “📖 No acervo” só aparece no caminho determinístico.
+
+### Observação #8 — `s34_*` vazias após import
+- O import gerou outline/sections/subpoints, mas `s34_outlines/sections/subsections/references` = 0 — a rota estruturada/oratória fica degradada para esta nota.
+
+## Blocos (estado anterior)
+- (histórico) Blocos 1–7 não executados antes da correção do Bug #1.
 
 ## State
 - Bug #1 corrigido em `c80c3a6` (fora da validação) e verificado no device.
-- Bug #4 (chave inválida) registrado; aguarda ação do dono.
+- Bug #4 resolvido pelo dono (chave regenerada, `sk-`, HTTP 200).
+- Bugs #6 e Observações #7/#8 registrados; aguardam decisão.
 - Screenshots/logs de apoio em `/tmp/opencode/` (não versionados).
