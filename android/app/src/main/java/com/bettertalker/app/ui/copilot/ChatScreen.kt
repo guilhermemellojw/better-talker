@@ -278,25 +278,40 @@ fun ChatScreen(
                     }
                     messages.forEach { m ->
                         item(key = m.id) {
-                            MessageBubble(
-                                item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
-                                headings = headings, sectionBusy = sectionBusy,
-                                liveSections = outlineSections,
-                                merges = merges, draft = draft,
-                                onOpenLibrary = onOpenLibrary
-                            )
+                            // T5: entrada com fade sutil (~150ms) + placement.
+                            Box(
+                                Modifier.animateItem(
+                                    fadeInSpec = tween(150),
+                                    fadeOutSpec = tween(150)
+                                )
+                            ) {
+                                MessageBubble(
+                                    item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
+                                    headings = headings, sectionBusy = sectionBusy,
+                                    liveSections = outlineSections,
+                                    merges = merges, draft = draft,
+                                    onOpenLibrary = onOpenLibrary
+                                )
+                            }
                         }
                         // T2 (Bug #13): ações em item PRÓPRIO — nunca ficam
                         // cortadas/escondidas no fim de uma resposta longa.
                         if (hasMessageActions(m)) {
                             item(key = m.id + ":actions") {
-                                // T1: as ações são um item próprio do LazyColumn
-                                // (espaçamento 14dp); o offset mantém o par
-                                // mensagem+ações visualmente junto.
-                                MessageActions(
-                                    m, vm, hasScope = chatScope != null,
-                                    modifier = Modifier.offset(y = (-8).dp)
-                                )
+                                Box(
+                                    Modifier.animateItem(
+                                        fadeInSpec = tween(150),
+                                        fadeOutSpec = tween(150)
+                                    )
+                                ) {
+                                    // T1: as ações são um item próprio do LazyColumn
+                                    // (espaçamento 14dp); o offset mantém o par
+                                    // mensagem+ações visualmente junto.
+                                    MessageActions(
+                                        m, vm, hasScope = chatScope != null,
+                                        modifier = Modifier.offset(y = (-8).dp)
+                                    )
+                                }
                             }
                         }
                     }
