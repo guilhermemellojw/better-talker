@@ -76,7 +76,11 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
         }
     ) { pad ->
         Column(
-            Modifier.fillMaxSize().padding(pad).padding(16.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(pad)
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             GemmaModelCard(
