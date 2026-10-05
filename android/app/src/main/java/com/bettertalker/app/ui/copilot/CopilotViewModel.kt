@@ -21,7 +21,9 @@ import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
+import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.edit.CopilotEditProposal
+import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.edit.EditBlock
 import com.bettertalker.app.data.edit.EditOperation
 import com.bettertalker.app.data.edit.EditProposalMode
@@ -1137,6 +1139,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
         val ready = (spec as com.bettertalker.app.data.copilot.OratoryGeneration.Result.Ready).spec
         val focus = currentFocusText()
+        // T2 (Bug #14): foco por título de seção → proposta aplica na seção.
+        val section = sectionForFocus(focus)
+        val secId = section?.id
+        val secHash = section?.let {
+            hashText(sectionProposalBlock(it.title, it.contentHtml))
+        }
         val targetId = "focus"
         val mode = if (route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE) {
             com.bettertalker.app.data.edit.EditProposalMode.IMPROVE
@@ -1188,7 +1196,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                                 "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
                         )
                     }
-                    _proposal.value = ProposalUi(r.proposal, focus, notice = notice)
+                    _proposal.value = ProposalUi(
+                        r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
+                        notice = notice
+                    )
                 }
                 is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
                     "A resposta do modelo veio em formato inválido. Tente gerar novamente."
@@ -1311,6 +1322,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     data class ProposalUi(
         val proposal: CopilotEditProposal,
         val focusText: String,
+        /**
+         * T2 (Bug #14): quando o foco é o título de uma seção, a proposta é
+         * aplicada NA SEÇÃO (contentHtml) — o título nunca existe no richHtml
+         * da nota. Null = caminho legado (nota/seleção).
+         */
+        val sectionId: String? = null,
+        /** FNV-1a do bloco da seção na geração (stale real na aceitação). */
+        val sectionBaseHash: String? = null,
         val verification: TextVerification? = null,
         val verifying: Boolean = false,
         val notice: String? = null,
@@ -1320,8 +1339,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _proposal = MutableStateFlow<ProposalUi?>(null)
     val proposal = _proposal.asStateFlow()
 
-    /** Snapshots (html, md) para Desfazer após aceite. Volátil, cap 50. */
-    private val proposalUndo = ArrayDeque<Pair<String, String>>()
+    /** Snapshots para Desfazer após aceite (nota ou seção). Volátil, cap 50. */
+    private sealed interface ProposalSnapshot {
+        data class Note(val html: String, val md: String) : ProposalSnapshot
+        data class Section(val entity: SpeechSectionEntity) : ProposalSnapshot
+    }
+
+    private val proposalUndo = ArrayDeque<ProposalSnapshot>()
 
     val canUndoProposal: Boolean get() = proposalUndo.isNotEmpty()
 
@@ -1333,6 +1357,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _activeBlockTitle.value != null -> _activeBlockTitle.value!!
             else -> _noteBody.value.take(2000)
         }
+    }
+
+    /**
+     * T2 (Bug #14): seção cujo título é o foco atual (null = foco de
+     * nota/seleção). Só considera foco vindo de `_activeBlockTitle`.
+     */
+    private suspend fun sectionForFocus(focus: String): SpeechSectionEntity? {
+        val nid = noteId ?: return null
+        if (focus.isBlank() || focus != _activeBlockTitle.value) return null
+        return db.speechSectionDao().forNote(nid).firstOrNull { it.title == focus }
     }
 
     /** Brief: mensagem do usuário anterior à resposta (ou a própria resposta). */
@@ -1365,11 +1399,20 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     postText("Selecione um trecho ou abra um bloco para propor uma alteração.")
                     return@launch
                 }
+                // T2 (Bug #14): foco por título de seção → proposta aplica na
+                // seção; guarda o id + hash do bloco para o stale real.
+                val section = sectionForFocus(focus)
+                val secId = section?.id
+                val secHash = section?.let {
+                    hashText(sectionProposalBlock(it.title, it.contentHtml))
+                }
                 val blocks = listOf(EditBlock("focus", focus))
                 if (mode == EditProposalMode.DELETE) {
                     when (val r = parseEditProposal("", blocks, "focus", mode)) {
                         is com.bettertalker.app.data.edit.ParseResult.Ok ->
-                            _proposal.value = ProposalUi(r.proposal, focus)
+                            _proposal.value = ProposalUi(
+                                r.proposal, focus, sectionId = secId, sectionBaseHash = secHash
+                            )
                         else -> postText("Não consegui montar a proposta agora. Tente novamente.")
                     }
                     return@launch
@@ -1409,7 +1452,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     " offline=" + res.meta.offline)
                 when (val r = parseEditProposal(res.text, blocks, "focus", mode)) {
                     is com.bettertalker.app.data.edit.ParseResult.Ok ->
-                        _proposal.value = ProposalUi(r.proposal, focus)
+                        _proposal.value = ProposalUi(
+                            r.proposal, focus, sectionId = secId, sectionBaseHash = secHash
+                        )
                     is com.bettertalker.app.data.edit.ParseResult.Invalid -> {
                         android.util.Log.e("CopilotLLM", "proposal parse invalid reason=" + r.reason)
                         postText("A resposta do modelo veio em formato inválido. Tente gerar novamente.")
@@ -1465,16 +1510,56 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     /**
-     * Aceita a proposta (§22-23): revalida contra a nota atual (stale
-     * bloqueia), aplica atomicamente nas strings, persiste via
-     * NotesRepository (o editor re-renderiza pela via externa) e guarda
-     * snapshot para Desfazer.
+     * Aceita a proposta (§22-23): revalida contra o estado atual (stale
+     * bloqueia), aplica atomicamente e guarda snapshot para Desfazer.
+     *
+     * T2 (Bug #14): proposta nascida com foco em SEÇÃO (título) é aplicada na
+     * seção (contentHtml) — o título nunca está no richHtml da nota, então o
+     * caminho antigo caía em "Proposta obsoleta" para sempre. O stale continua
+     * via FNV-1a (hash do bloco da seção capturado na geração).
      */
     fun acceptProposal() {
         val ui = _proposal.value ?: return
         if (ui.applied) return
         val nid = noteId ?: return
         viewModelScope.launch {
+            // ---- T2 (#14): foco em seção → aplica na seção ----
+            if (ui.sectionId != null) {
+                val section = db.speechSectionDao().get(ui.sectionId)
+                if (section == null) {
+                    _proposal.value = ui.copy(
+                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                    return@launch
+                }
+                val block = sectionProposalBlock(section.title, section.contentHtml)
+                if (ui.sectionBaseHash != null && hashText(block) != ui.sectionBaseHash) {
+                    _proposal.value = ui.copy(
+                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                    return@launch
+                }
+                if (validateEditProposal(listOf(EditBlock("focus", ui.focusText)), ui.proposal)
+                    !is com.bettertalker.app.data.edit.ValidationResult.Ok
+                ) {
+                    _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
+                    return@launch
+                }
+                val newContent = applyProposalToSectionBlock(
+                    section.title, section.contentHtml, ui.focusText, ui.proposal
+                )
+                if (newContent == null) {
+                    _proposal.value = ui.copy(
+                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                    return@launch
+                }
+                proposalUndo.addLast(ProposalSnapshot.Section(section))
+                if (proposalUndo.size > 50) proposalUndo.removeFirst()
+                db.speechSectionDao().upsert(
+                    section.copy(contentHtml = newContent, updatedAt = System.currentTimeMillis())
+                )
+                _proposal.value = ui.copy(notice = "Proposta aplicada.", applied = true)
+                return@launch
+            }
+            // ---- caminho da nota (seleção/corpo) ----
             val note = db.noteDao().get(nid) ?: run {
                 _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
                 return@launch
@@ -1492,13 +1577,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
                 return@launch
             }
-            val applied = applyToNote(note.richHtml, note.mdText, ui.focusText, ui.proposal)
+            val applied = applyProposalOps(note.richHtml, note.mdText, ui.focusText, ui.proposal)
             if (applied == null) {
                 _proposal.value = ui.copy(
                     notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
                 return@launch
             }
-            proposalUndo.addLast(note.richHtml to note.mdText)
+            proposalUndo.addLast(ProposalSnapshot.Note(note.richHtml, note.mdText))
             if (proposalUndo.size > 50) proposalUndo.removeFirst()
             notes.save(nid, note.title, applied.second, applied.first,
                 note.folderId, note.colorArgb, note.pinned)
@@ -1506,60 +1591,22 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
     }
 
-    /**
-     * Aplica as operações nas strings (html autoritativo, md acompanhando).
-     * null = âncora não encontrada (stale) — nunca aplica parcial.
-     *
-     * O html é decodificado antes do match: o editor persiste acentos como
-     * entidades e a âncora (texto puro) nunca bateria no cru (§23).
-     */
-    private fun applyToNote(
-        html: String,
-        md: String,
-        focus: String,
-        proposal: CopilotEditProposal
-    ): Pair<String, String>? {
-        var h = com.bettertalker.app.data.edit.unescapeHtmlEntities(html)
-        var m = md
-        for (op in proposal.operations) {
-            when (op) {
-                is EditOperation.Replace -> {
-                    if (!h.contains(focus) || !m.contains(focus)) return null
-                    h = h.replaceFirst(focus, op.contentHtml)
-                    m = m.replaceFirst(focus, stripHtmlToText(op.contentHtml))
-                }
-                is EditOperation.Insert -> {
-                    val anchor = h.indexOf(focus)
-                    if (anchor < 0 || !m.contains(focus)) return null
-                    val at = if (op.position ==
-                        com.bettertalker.app.data.edit.InsertPosition.BEFORE) anchor
-                    else anchor + focus.length
-                    h = h.substring(0, at) + op.contentHtml + h.substring(at)
-                    val mAnchor = m.indexOf(focus)
-                    val mAt = if (op.position ==
-                        com.bettertalker.app.data.edit.InsertPosition.BEFORE) mAnchor
-                    else mAnchor + focus.length
-                    val mdNew = stripHtmlToText(op.contentHtml)
-                    m = m.substring(0, mAt) + mdNew + m.substring(mAt)
-                }
-                is EditOperation.Delete -> {
-                    if (!h.contains(focus) || !m.contains(focus)) return null
-                    h = h.replaceFirst(focus, "")
-                    m = m.replaceFirst(focus, "")
-                }
-            }
-        }
-        return h to m
-    }
-
-    /** Desfaz o último aceite (snapshot pré-apply). */
+    /** Desfaz o último aceite (snapshot pré-apply — nota ou seção). */
     fun undoProposal() {
         val nid = noteId ?: return
         val snap = proposalUndo.removeLastOrNull() ?: return
         viewModelScope.launch {
-            val note = db.noteDao().get(nid) ?: return@launch
-            notes.save(nid, note.title, snap.second, snap.first,
-                note.folderId, note.colorArgb, note.pinned)
+            when (snap) {
+                is ProposalSnapshot.Section -> {
+                    // T2 (#14): restaura o contentHtml da seção.
+                    db.speechSectionDao().upsert(snap.entity)
+                }
+                is ProposalSnapshot.Note -> {
+                    val note = db.noteDao().get(nid) ?: return@launch
+                    notes.save(nid, note.title, snap.md, snap.html,
+                        note.folderId, note.colorArgb, note.pinned)
+                }
+            }
             _proposal.value = _proposal.value?.copy(notice = "Proposta desfeita.", applied = false)
         }
     }
@@ -2837,3 +2884,73 @@ internal fun importFailureMessage(e: Throwable): String =
 /** T2 — S-34 detectado, mas sem estrutura extraível (parser não achou seções). */
 internal const val S34_PARSE_FAILURE_MESSAGE =
     "Detectei um esboço S-34, mas não consegui extrair as seções. Verifique o formato."
+
+/**
+ * Aplica as operações nas strings (html autoritativo, md acompanhando).
+ * null = âncora não encontrada (stale) — nunca aplica parcial. Puro/testável.
+ *
+ * O html é decodificado antes do match: o editor persiste acentos como
+ * entidades e a âncora (texto puro) nunca bateria no cru (§23).
+ */
+internal fun applyProposalOps(
+    html: String,
+    md: String,
+    focus: String,
+    proposal: CopilotEditProposal
+): Pair<String, String>? {
+    var h = com.bettertalker.app.data.edit.unescapeHtmlEntities(html)
+    var m = md
+    for (op in proposal.operations) {
+        when (op) {
+            is EditOperation.Replace -> {
+                if (!h.contains(focus) || !m.contains(focus)) return null
+                h = h.replaceFirst(focus, op.contentHtml)
+                m = m.replaceFirst(focus, stripHtmlToText(op.contentHtml))
+            }
+            is EditOperation.Insert -> {
+                val anchor = h.indexOf(focus)
+                if (anchor < 0 || !m.contains(focus)) return null
+                val at = if (op.position ==
+                    com.bettertalker.app.data.edit.InsertPosition.BEFORE) anchor
+                else anchor + focus.length
+                h = h.substring(0, at) + op.contentHtml + h.substring(at)
+                val mAnchor = m.indexOf(focus)
+                val mAt = if (op.position ==
+                    com.bettertalker.app.data.edit.InsertPosition.BEFORE) mAnchor
+                else mAnchor + focus.length
+                val mdNew = stripHtmlToText(op.contentHtml)
+                m = m.substring(0, mAt) + mdNew + m.substring(mAt)
+            }
+            is EditOperation.Delete -> {
+                if (!h.contains(focus) || !m.contains(focus)) return null
+                h = h.replaceFirst(focus, "")
+                m = m.replaceFirst(focus, "")
+            }
+        }
+    }
+    return h to m
+}
+
+/**
+ * T2 (Bug #14) — bloco textual da seção para o fluxo de proposta: título
+ * (âncora do foco) + conteúdo (alvo real; contentHtml cru preserva o HTML).
+ * Puro/testável.
+ */
+internal fun sectionProposalBlock(title: String, contentHtml: String): String =
+    if (contentHtml.isBlank()) title else "$title\n\n$contentHtml"
+
+/**
+ * T2 (Bug #14) — aplica a proposta ao bloco da seção e devolve o NOVO
+ * conteúdo (sem a linha do título). null = âncora ausente (stale). Puro/testável.
+ */
+internal fun applyProposalToSectionBlock(
+    title: String,
+    contentHtml: String,
+    focus: String,
+    proposal: CopilotEditProposal
+): String? {
+    val block = sectionProposalBlock(title, contentHtml)
+    if (!block.contains(focus)) return null
+    val applied = applyProposalOps(block, block, focus, proposal) ?: return null
+    return applied.first.removePrefix(title).trimStart('\n', ' ', '\t')
+}
