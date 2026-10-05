@@ -443,13 +443,44 @@ private fun MessageBubble(
     }
 }
 
+/** T3 — texto exibido após remover as tags de criação + flag do badge. */
+data class SuggestionText(val text: String, val hasSuggestion: Boolean)
+
+private val SUGGESTION_PAIR = Regex(
+    Regex.escape(com.bettertalker.app.data.llm.SUGGESTION_OPEN) + "(.*?)" +
+        Regex.escape(com.bettertalker.app.data.llm.SUGGESTION_CLOSE),
+    RegexOption.DOT_MATCHES_ALL,
+)
+
+/**
+ * T3 — remove as tags `〈sugestão〉…〈/sugestão〉` do texto exibido (elas são
+ * invisíveis ao usuário, que vê o badge 💡 Sugestão criativa) e sinaliza a
+ * presença de criação. Tags soltas (sem par) também somem. Puro/testável.
+ */
+fun stripSuggestionTags(md: String): SuggestionText {
+    if (md.isBlank()) return SuggestionText(md, false)
+    val has = md.contains(com.bettertalker.app.data.llm.SUGGESTION_OPEN)
+    val cleaned = SUGGESTION_PAIR.replace(md) { it.groupValues[1] }
+        .replace(com.bettertalker.app.data.llm.SUGGESTION_OPEN, "")
+        .replace(com.bettertalker.app.data.llm.SUGGESTION_CLOSE, "")
+    return SuggestionText(cleaned, has)
+}
+
 /** Texto formatado do assistente (markdown próprio, selecionável). */
 @Composable
 fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
     if (md.isBlank()) return
-    val blocks = remember(md) { parseBlocks(md) }
+    val suggested = remember(md) { stripSuggestionTags(md) }
+    val blocks = remember(suggested.text) { parseBlocks(suggested.text) }
     SelectionContainer {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (suggested.hasSuggestion) {
+                Text(
+                    "💡 Sugestão criativa",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
             blocks.forEach { block ->
                 when (block) {
                     is MdBlock.Title -> Text(

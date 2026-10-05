@@ -458,9 +458,12 @@ fun ProposalCard(
     vm: CopilotViewModel,
     modifier: Modifier = Modifier
 ) {
-    val after = remember(ui.proposal, ui.focusText) {
+    val afterFull = remember(ui.proposal, ui.focusText) {
         com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
     }
+    // T3 — tags 〈sugestão〉 somem do texto exibido; badge sinaliza criação.
+    val after = remember(afterFull) { stripSuggestionTags(afterFull) }
+    val before = remember(ui.focusText) { stripSuggestionTags(ui.focusText) }
     Column(
         modifier.fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -472,13 +475,19 @@ fun ProposalCard(
                 color = MaterialTheme.colorScheme.secondary)
         }
         Spacer(Modifier.height(4.dp))
-        Text("ANTES", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary)
-        Text(ui.focusText.take(600), style = MaterialTheme.typography.bodySmall)
+        Text(
+            "ANTES" + if (before.hasSuggestion) " · 💡 Sugestão criativa" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        Text(before.text.take(600), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(4.dp))
-        Text("DEPOIS", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary)
-        Text(after.take(1200), style = MaterialTheme.typography.bodySmall)
+        Text(
+            "DEPOIS" + if (after.hasSuggestion) " · 💡 Sugestão criativa" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        Text(after.text.take(1200), style = MaterialTheme.typography.bodySmall)
         ui.verification?.let { v ->
             Spacer(Modifier.height(4.dp))
             Text(

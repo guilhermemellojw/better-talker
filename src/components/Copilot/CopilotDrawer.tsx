@@ -50,6 +50,31 @@ const EDIT_MODES: Array<{ id: EditProposalMode; label: string; desc: string }> =
   { id: 'delete', label: 'Excluir', desc: 'Propor remoção do bloco' },
 ];
 
+// T3 — marcador de criação: as tags 〈sugestão〉…〈/sugestão〉 são invisíveis ao
+// usuário (que vê o badge 💡 Sugestão criativa); tags soltas também somem.
+const SUGGESTION_OPEN = '〈sugestão〉';
+const SUGGESTION_CLOSE = '〈/sugestão〉';
+
+function stripSuggestionTags(text: string): { text: string; hasSuggestion: boolean } {
+  const hasSuggestion = text.includes(SUGGESTION_OPEN);
+  const pair = new RegExp(`${SUGGESTION_OPEN}([\\s\\S]*?)${SUGGESTION_CLOSE}`, 'g');
+  const cleaned = text
+    .replace(pair, '$1')
+    .split(SUGGESTION_OPEN)
+    .join('')
+    .split(SUGGESTION_CLOSE)
+    .join('');
+  return { text: cleaned, hasSuggestion };
+}
+
+function SuggestionBadge() {
+  return (
+    <div style={{ fontSize: '0.72rem', color: 'var(--accent, #8b5cf6)', marginBottom: 4 }}>
+      💡 Sugestão criativa
+    </div>
+  );
+}
+
 interface CopilotDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -724,7 +749,15 @@ export const CopilotDrawer = ({
                     {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                   </div>
                   <div className="chat-message-bubble">
-                    <div className="chat-message-text">{m.text}</div>
+                    {(() => {
+                      const sug = stripSuggestionTags(m.text);
+                      return (
+                        <>
+                          {sug.hasSuggestion && <SuggestionBadge />}
+                          <div className="chat-message-text">{sug.text}</div>
+                        </>
+                      );
+                    })()}
                     {m.role === 'assistant' && (
                       <div className="chat-message-actions">
                         {(() => {
@@ -1102,27 +1135,36 @@ export const CopilotDrawer = ({
               )}
               {proposal.operations.map((op, i) => {
                 const target = speech.blocks.find((b) => b.id === op.targetId);
-                const before = target ? stripHtmlToText(target.contentHtml) : '(bloco não encontrado)';
+                const before = stripSuggestionTags(target ? stripHtmlToText(target.contentHtml) : '(bloco não encontrado)');
+                const inserted = op.type === 'delete'
+                  ? { text: '', hasSuggestion: false }
+                  : stripSuggestionTags(stripHtmlToText(op.contentHtml));
                 return (
                   <div key={i} className="ai-result-content" style={{ marginBottom: '0.5rem' }}>
                     {op.type === 'replace' && (
                       <>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>ANTES</div>
-                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.slice(0, 600)}</div>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginTop: '0.4rem' }}>DEPOIS</div>
-                        <div style={{ fontSize: '0.8rem' }}>{stripHtmlToText(op.contentHtml).slice(0, 1200)}</div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                          ANTES{before.hasSuggestion ? ' · 💡 Sugestão criativa' : ''}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.text.slice(0, 600)}</div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, marginTop: '0.4rem' }}>
+                          DEPOIS{inserted.hasSuggestion ? ' · 💡 Sugestão criativa' : ''}
+                        </div>
+                        <div style={{ fontSize: '0.8rem' }}>{inserted.text.slice(0, 1200)}</div>
                       </>
                     )}
                     {op.type === 'insert' && (
                       <>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>+ SERÁ INSERIDO {op.position === 'before' ? 'ANTES' : 'APÓS'} “{target?.title}”</div>
-                        <div style={{ fontSize: '0.8rem' }}>{stripHtmlToText(op.contentHtml).slice(0, 1200)}</div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                          + SERÁ INSERIDO {op.position === 'before' ? 'ANTES' : 'APÓS'} “{target?.title}”{inserted.hasSuggestion ? ' · 💡 Sugestão criativa' : ''}
+                        </div>
+                        <div style={{ fontSize: '0.8rem' }}>{inserted.text.slice(0, 1200)}</div>
                       </>
                     )}
                     {op.type === 'delete' && (
                       <>
                         <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>− SERÁ REMOVIDO</div>
-                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.slice(0, 600)}</div>
+                        <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>{before.text.slice(0, 600)}</div>
                       </>
                     )}
                   </div>
