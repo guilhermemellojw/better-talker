@@ -109,16 +109,18 @@ fun buildInline(text: String): androidx.compose.ui.text.AnnotatedString = buildA
     }
     while (i < text.length) {
         when {
-            // T3: link markdown [texto](url).
+            // T3: link markdown [texto](url) — tolera espaço entre ] e (.
             text[i] == '[' -> {
                 val close = text.indexOf(']', i + 1)
-                val urlEnd = if (close > 0 && close + 1 < text.length && text[close + 1] == '(') {
-                    text.indexOf(')', close + 2)
+                var paren = close + 1
+                while (close > 0 && paren < text.length && text[paren] == ' ') paren++
+                val urlEnd = if (close > 0 && paren < text.length && text[paren] == '(') {
+                    text.indexOf(')', paren + 1)
                 } else -1
-                if (close > 0 && urlEnd > close) {
+                if (close > 0 && urlEnd > paren) {
                     emit()
                     val label = text.substring(i + 1, close)
-                    val url = text.substring(close + 2, urlEnd)
+                    val url = text.substring(paren + 1, urlEnd)
                     if (isJwUrl(url)) {
                         withLink(LinkAnnotation.Url(url)) {
                             withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {

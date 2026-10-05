@@ -89,6 +89,16 @@ class MarkdownBlocksTest {
         assertFalse(isJwUrl("http://notjw.org"))
     }
 
+    @Test
+    fun linkComEspacoEntreColcheteEParentesesEhReconhecido() {
+        // O modelo às vezes emite "[texto] (url)" — toleramos o espaço.
+        val a = buildInline("[Site oficial] (https://www.jw.org/pt/)")
+        val links = a.getLinkAnnotations(0, a.length)
+        assertEquals(1, links.size)
+        assertEquals("https://www.jw.org/pt/", (links.first().item as LinkAnnotation.Url).url)
+        assertEquals("Site oficial", a.text)
+    }
+
     // ---------- T4: parcial puro (streaming) ----------
 
     @Test
