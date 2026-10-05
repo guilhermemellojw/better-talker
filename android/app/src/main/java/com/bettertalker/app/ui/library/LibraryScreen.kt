@@ -47,6 +47,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.catalog.RecommendedPub
+import com.bettertalker.app.data.catalog.RecommendedPublications
+import com.bettertalker.app.data.catalog.findInLibrary
+import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.JW_FINDER_HOME
 import com.bettertalker.app.ui.components.ByodNotice
@@ -167,10 +171,57 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                 }
             }
             Spacer(Modifier.height(12.dp))
-            if (items.isEmpty()) {
-                Text("Nenhuma publicação. Baixe você mesmo do site oficial e importe.", color = MaterialTheme.colorScheme.secondary)
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                // T2 — catálogo curado (BYOD): metadados + links oficiais.
+                item(key = "rec-title") {
+                    Text("Publicações recomendadas", style = MaterialTheme.typography.titleMedium)
+                }
+                RecommendedPublications.byCategory().forEach { (category, pubs) ->
+                    item(key = "rec-cat-$category") {
+                        Text(
+                            category,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    items(pubs, key = { "rec-${it.symbol}" }) { pub ->
+                        val match = findInLibrary(pub.symbol, items)
+                        RecommendedPubCard(
+                            pub = pub,
+                            match = match,
+                            linkNoteId = linkNoteId,
+                            onDownload = {
+                                jwUrl = pub.pageUrl.ifBlank { JW_FINDER_HOME }
+                                showJw = true
+                            },
+                            onFormats = {
+                                pub.formatsUrl?.let { u ->
+                                    ctx.startActivity(
+                                        android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(u)
+                                        )
+                                    )
+                                }
+                            },
+                            onLink = { attId ->
+                                vm.linkToNote(attId, linkNoteId.orEmpty())
+                                onBack()
+                            }
+                        )
+                    }
+                }
+                item(key = "lib-title") {
+                    Text("No acervo", style = MaterialTheme.typography.titleMedium)
+                }
+                if (items.isEmpty()) {
+                    item(key = "lib-empty") {
+                        Text(
+                            "Nenhuma publicação. Baixe você mesmo do site oficial e importe.",
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                } else {
                     items(items, key = { it.id }) { a ->
                         var menu by remember { mutableStateOf(false) }
                         val slotTitle = BASE_PUBS.firstOrNull { it.slot == a.baseSlot }?.title
@@ -235,6 +286,41 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** T2 — card do catálogo curado: badge de acervo + ações BYOD. */
+@Composable
+private fun RecommendedPubCard(
+    pub: RecommendedPub,
+    match: AttachmentEntity?,
+    linkNoteId: String?,
+    onDownload: () -> Unit,
+    onFormats: () -> Unit,
+    onLink: (String) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("${pub.title} (${pub.symbol})", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (match != null) "No acervo" else "Faltando",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (match != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.secondary
+                )
+            }
+            TextButton(onClick = onDownload) { Text("Baixar") }
+            if (pub.formatsUrl != null) {
+                TextButton(onClick = onFormats) { Text("Formatos") }
+            }
+            if (match != null && linkNoteId != null && match.noteId != linkNoteId) {
+                TextButton(onClick = { onLink(match.id) }) { Text("Vincular") }
             }
         }
     }
