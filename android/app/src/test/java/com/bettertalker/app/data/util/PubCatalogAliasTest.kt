@@ -57,4 +57,26 @@ class PubCatalogAliasTest {
         // ia corrigido no MAP
         assertEquals("Imite a Sua Fé", PubCatalog.titleOf("ia"))
     }
+
+    // ---------- catálogo curado: dx e nwt ----------
+
+    @Test
+    fun resolveSymbol_dx_returnsDx() {
+        assertEquals("dx", PubCatalog.resolveSymbol("dx"))
+        assertEquals("dx", PubCatalog.resolveSymbol("DX"))
+        val e = PubCatalog.entryOf("dx")
+        assertNotNull(e)
+        assertTrue(e!!.title.contains("Guia de Pesquisa"))
+        assertTrue(e.wol.startsWith("https://www.jw.org/finder"))
+    }
+
+    @Test
+    fun resolveSymbol_nwt_e_nwtsty_returnsEntradas() {
+        assertEquals("nwt", PubCatalog.resolveSymbol("nwt"))
+        assertEquals("nwtsty", PubCatalog.resolveSymbol("nwtsty"))
+        assertEquals("Tradução do Novo Mundo", PubCatalog.titleOf("nwt"))
+        assertEquals("Bíblia de Estudo", PubCatalog.titleOf("nwtsty"))
+        assertEquals("bible", PubCatalog.entryOf("nwtsty")?.kind)
+        assertTrue(PubCatalog.entryOf("nwtsty")!!.wol.contains("/nwtsty"))
+    }
 }
