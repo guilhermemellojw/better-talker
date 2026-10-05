@@ -932,6 +932,18 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings, app)
                 if (ProviderFactory.useRemoteRoute(remote)) {
+                    // T3 (Bug #7): comandos de referência são determinísticos e
+                    // precisam funcionar com provider ativo — postam o card
+                    // (📖 No acervo / ⚠️ sem fonte) em vez de irem ao modelo.
+                    val refsIntent = ChatIntent.classify(
+                        text,
+                        outlineSections.value.map { ChatIntent.SectionRef(it.title, it.body) }
+                    )
+                    if (isRefsCommand(refsIntent)) {
+                        if (refsIntent is ChatIntent.Intent.OutlineRefs) answerOutlineRefs()
+                        else answerCheckRefs()
+                        return@launch
+                    }
                     answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
                 } else {
                     sendMutex.withLock {
@@ -2712,6 +2724,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
  */
 fun s34CandidateIds(citedIds: List<String>, linkedIds: List<String>): List<String> =
     (citedIds + linkedIds).distinct()
+
+/**
+ * T3 (Bug #7) — comandos de referência são determinísticos: com provider
+ * ativo continuam postando o card (📖 No acervo / ⚠️ sem fonte) em vez de
+ * serem respondidos pelo modelo. Puro/testável.
+ */
+fun isRefsCommand(intent: ChatIntent.Intent): Boolean =
+    intent is ChatIntent.Intent.OutlineRefs || intent is ChatIntent.Intent.CheckRefs
 
 /**
  * Monta o [OutlineConversion] a partir do draft para persistir via
