@@ -2,11 +2,14 @@ package com.bettertalker.app.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 
 /** Blocos markdown (títulos, N/I, listas, checklist, citação). Compartilhado editor/chat. */
@@ -66,12 +69,25 @@ fun parseBlocks(md: String): List<MdBlock> {
     return out
 }
 
+/**
+ * T3 — só domínios oficiais (jw.org e subdomínios, ex.: wol.jw.org) são
+ * clicáveis. Puro/testável.
+ */
+internal fun isJwUrl(url: String): Boolean {
+    val host = url.trim().lowercase()
+        .removePrefix("https://").removePrefix("http://")
+        .substringBefore('/').substringBefore('?').substringBefore('#')
+        .substringBefore(':')
+    return host == "jw.org" || host.endsWith(".jw.org")
+}
+
 @Composable
 fun inline(text: String) = remember(text) { buildInline(text) }
 
 /**
- * T2 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico) e `código`
- * em monoespaçado. Puro/testável (a versão @Composable só memoriza).
+ * T2/T3 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico),
+ * `código` em monoespaçado e links markdown `[texto](url)` (clicáveis apenas
+ * para jw.org; outros domínios ficam sublinhados e inertes). Puro/testável.
  */
 fun buildInline(text: String): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     var i = 0
@@ -93,6 +109,33 @@ fun buildInline(text: String): androidx.compose.ui.text.AnnotatedString = buildA
     }
     while (i < text.length) {
         when {
+            // T3: link markdown [texto](url).
+            text[i] == '[' -> {
+                val close = text.indexOf(']', i + 1)
+                val urlEnd = if (close > 0 && close + 1 < text.length && text[close + 1] == '(') {
+                    text.indexOf(')', close + 2)
+                } else -1
+                if (close > 0 && urlEnd > close) {
+                    emit()
+                    val label = text.substring(i + 1, close)
+                    val url = text.substring(close + 2, urlEnd)
+                    if (isJwUrl(url)) {
+                        withLink(LinkAnnotation.Url(url)) {
+                            withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                                append(label)
+                            }
+                        }
+                    } else {
+                        // Domínio não oficial: sublinhado, porém não clicável.
+                        withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                            append(label)
+                        }
+                    }
+                    i = urlEnd + 1
+                } else {
+                    buf.append(text[i]); i += 1
+                }
+            }
             text.startsWith("**", i) -> { emit(); bold = !bold; i += 2 }
             text[i] == '*' || text[i] == '_' -> { emit(); italic = !italic; i += 1 }
             text[i] == '`' -> { emit(); mono = !mono; i += 1 }
