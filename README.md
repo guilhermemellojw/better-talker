@@ -56,8 +56,23 @@ Projeto Gradle/Kotlin com Jetpack Compose — o cliente Android ativo do produto
 
 - **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
 - **Publicações:** extrator próprio de **JWPUB**, extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
-- **IA on-device (Gemma 4 E2B via LiteRT-LM):** provedor local com **download pelo próprio app** (Hugging Face oficial, ~2,59 GB, só Wi-Fi, verificação de integridade SHA-256, licença Apache-2.0 com aceite e atribuições na tela "Modelo IA"). O seletor de provedor tem o modo **Automático**: Gemma local se o modelo estiver presente → provedor remoto com chave → motor determinístico. Em desenvolvimento, o atalho `adb push` do `.litertlm` para `files/models` continua funcionando.
+- **IA on-device (Gemma 4 E2B via LiteRT-LM):** provedor local com **download pelo próprio app** (Hugging Face oficial, ~2,59 GB, só Wi-Fi, verificação de integridade SHA-256, licença Apache-2.0 com aceite e atribuições na tela "Modelo IA"). O seletor de provedor tem o modo **Automático**: DeepSeek com chave e online → Gemini/Groq com chave → Gemma local (modelo presente) → motor determinístico. Em desenvolvimento, o atalho `adb push` do `.litertlm` para `files/models` continua funcionando.
 - **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
+
+### DeepSeek (BYOD — chat de raciocínio)
+
+Para o uso central do app — conversar tópico por tópico, avaliar trade-offs e manter a coerência do discurso — o chat remoto pode usar o **DeepSeek**, com streaming token a token:
+
+1. Crie uma chave em [platform.deepseek.com](https://platform.deepseek.com) (créditos pré-pagos).
+2. No app: **Modelo IA → DeepSeek** → cole a chave (fica só neste aparelho, no DataStore) → **Testar conexão**.
+3. Escolha o modelo: `deepseek-flash` (padrão, custo-benefício) ou `deepseek-v4-pro` (premium).
+
+- **Custo estimado:** ~US$ 0,50/mês para uso pessoal típico (BYOD: cada usuário usa a própria chave).
+- **Cache de contexto:** o prompt do DeepSeek é montado com **prefixo estável** (regras + S-34 + fontes ordenadas por id + bloco) e a parte volátil (histórico/mensagem) no fim — o cache persistente do provedor (TTL ~72h) reaproveita o prefixo entre turnos e reduz o custo. Campo volátil no prefixo destrói a economia (há teste JVM travando isso).
+- **Fallback automático:** no modo *Automático*, sem chave ou offline o app usa o **Gemma local** (se o modelo estiver baixado) ou o motor determinístico 100% offline.
+- **Uso pessoal + amigos:** a chave é pessoal; não há proxy nem chave central. Nunca comite sua chave de API.
+
+> **Contexto de uso:** projeto de uso pessoal (poucos amigos), distribuição por APK sideload — sem Play Store nesta fase.
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
 
