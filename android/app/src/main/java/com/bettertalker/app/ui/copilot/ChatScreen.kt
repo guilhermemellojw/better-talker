@@ -698,6 +698,21 @@ private fun RefFullRow(
                 }
             }
         }
+        // T3 — verificação de conteúdo (independente de "edição baixada").
+        st.snippet?.let { sn ->
+            Text(
+                "📖 No acervo: $sn",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        st.contentWarning?.let { w ->
+            Text(
+                w,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }
 

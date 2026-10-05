@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.util
 
 import com.bettertalker.app.data.db.AttachmentEntity
+import com.bettertalker.app.data.db.PassageEntity
 import java.net.URLEncoder
 
 /**
@@ -51,8 +52,31 @@ object RefDetector {
         val apiIssue: String? = null,
         /** numerada sem código derivável: sonda meses via API no toque */
         val probePub: String? = null,
-        val probeYear: Int? = null
+        val probeYear: Int? = null,
+        /**
+         * T3 — citação sustentada pelo corpus (≠ [resolved], que continua
+         * significando "edição baixada/indexada"). Default false: sem corpus
+         * pesquisado não há veredito.
+         */
+        val contentResolved: Boolean = false,
+        /** Trecho do corpus que sustenta a citação (quando [contentResolved]). */
+        val snippet: String? = null,
+        /** Aviso quando a citação não tem fonte no acervo pesquisado. */
+        val contentWarning: String? = null
     )
+
+    /**
+     * T3 — resultado da verificação de CONTEÚDO de uma citação contra o
+     * corpus recuperado. `corpusAvailable=false` = sem corpus: sem veredito
+     * (não acusa). Puro/testável.
+     */
+    data class ContentCheck(
+        val resolved: Boolean,
+        val snippet: String? = null,
+        val warning: String? = null
+    )
+
+    const val CONTENT_WARNING = "⚠️ citação sem fonte no acervo"
 
     // Despertai! 08/13 | Despertai!, 8/2013 (mensal antiga)
     private val AWAKE_RE = Regex(
@@ -782,6 +806,41 @@ object RefDetector {
                 RefStatus(ref, false, null, url, hint, exact, api?.first, api?.second,
                     probe?.first, probe?.second)
             }
+        }
+    }
+
+    /**
+     * T3 — verifica se a CITAÇÃO existe no corpus recuperado (trechos da
+     * edição/TNM), sem tocar em banco: recebe os passages já buscados.
+     *
+     * - [corpusAvailable] falso (nada baixado/indexado) => sem veredito:
+     *   não acusa nem resolve (não confundir "não baixado" com "inventado").
+     * - corpus presente + match em `ref`/`section`/texto => resolved + trecho.
+     * - corpus presente + sem match => aviso [CONTENT_WARNING].
+     *
+     * Não altera `resolved` (edição baixada). Puro/testável.
+     */
+    fun resolveContent(
+        ref: DetectedRef,
+        passages: List<PassageEntity>,
+        corpusAvailable: Boolean
+    ): ContentCheck {
+        if (!corpusAvailable) return ContentCheck(resolved = false)
+        val needles = listOf(ref.raw, ref.label)
+            .map { normalizeText(it) }
+            .filter { it.length >= 3 }
+        val hit = passages.firstOrNull { p ->
+            val refNorm = normalizeText(p.ref)
+            val refMatch = refNorm.length >= 3 &&
+                needles.any { n -> refNorm.contains(n) || n.contains(refNorm) }
+            if (refMatch) return@firstOrNull true
+            val textNorm = p.normalized.ifBlank { normalizeText(p.text) }
+            needles.any { n -> n.length >= 8 && textNorm.contains(n) }
+        }
+        return if (hit != null) {
+            ContentCheck(resolved = true, snippet = hit.text.take(200).trim(), warning = null)
+        } else {
+            ContentCheck(resolved = false, snippet = null, warning = CONTENT_WARNING)
         }
     }
 

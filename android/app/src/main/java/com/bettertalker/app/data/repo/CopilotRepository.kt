@@ -2,6 +2,7 @@ package com.bettertalker.app.data.repo
 
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
@@ -337,15 +338,63 @@ class CopilotRepository(private val db: AppDatabase) {
 
     /** Referências da nota: detecta, casa edição exata com anexos locais. */
     suspend fun checkRefs(noteText: String): List<RefDetector.RefStatus> =
-        RefDetector.checkAll(noteText, db.attachmentDao().all())
+        enrichContents(RefDetector.checkAll(noteText, db.attachmentDao().all()))
 
     /** Resolve lista já detectada (nota ∪ esboço) contra os anexos atuais. */
     suspend fun checkRefsList(refs: List<RefDetector.DetectedRef>): List<RefDetector.RefStatus> =
-        RefDetector.resolve(refs, db.attachmentDao().all())
+        enrichContents(RefDetector.resolve(refs, db.attachmentDao().all()))
 
     /** Referências citadas no esboço (guardadas no link): resolve contra anexos atuais. */
     suspend fun outlineRefs(refsJson: String): List<RefDetector.RefStatus> =
-        RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all())
+        enrichContents(RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all()))
+
+    /** T3 — candidatos de corpus por citação + se havia corpus para pesquisar. */
+    private data class ContentCandidates(val passages: List<PassageEntity>, val corpusAvailable: Boolean)
+
+    /**
+     * T3 — enriquece cada [RefDetector.RefStatus] com a verificação de CONTEÚDO
+     * da citação (campos novos), sem tocar em `resolved` (edição baixada) nem
+     * nos fluxos de download de edição.
+     */
+    private suspend fun enrichContents(
+        statuses: List<RefDetector.RefStatus>
+    ): List<RefDetector.RefStatus> {
+        if (statuses.isEmpty()) return statuses
+        return statuses.map { st ->
+            val candidates = contentCandidatesFor(st.ref)
+            val check = RefDetector.resolveContent(st.ref, candidates.passages, candidates.corpusAvailable)
+            st.copy(
+                contentResolved = check.resolved,
+                snippet = check.snippet,
+                contentWarning = check.warning
+            )
+        }
+    }
+
+    /**
+     * Trechos candidatos: Bíblia via `findByRef` canônica (mesma convenção do
+     * RoomReferenceResolver); publicações: trechos da edição casada e indexada
+     * (o match da citação é feito em memória pelo resolvedor puro).
+     *
+     * Sem corpus pesquisável (TNM/edição ausente ou não indexada) =>
+     * `corpusAvailable=false`: não acusa nem resolve.
+     */
+    private suspend fun contentCandidatesFor(ref: RefDetector.DetectedRef): ContentCandidates {
+        RefDetector.detectBible(ref.raw).firstOrNull()?.let { b ->
+            val abbrev = normalizeBibleBookName(b.label)
+                ?: return ContentCandidates(emptyList(), false)
+            val nwt = db.attachmentDao().baseReady("nwt")
+            val passage = db.passageDao().findByRef("$abbrev ${b.chapter}:${b.verse}")
+            return ContentCandidates(listOfNotNull(passage), corpusAvailable = nwt != null)
+        }
+        val hit = RefDetector.matchEdition(ref, db.attachmentDao().all())
+            ?: return ContentCandidates(emptyList(), false)
+        if (!hit.indexed) return ContentCandidates(emptyList(), false)
+        return ContentCandidates(
+            passages = db.passageDao().forAttachment(hit.id),
+            corpusAvailable = true
+        )
+    }
 
     /**
      * Texto exato da referência capitulada ("lff cap. 5"): casa o anexo e
