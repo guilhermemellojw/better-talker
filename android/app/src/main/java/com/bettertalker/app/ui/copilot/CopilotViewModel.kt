@@ -17,6 +17,7 @@ import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
@@ -42,15 +43,20 @@ import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.OutlineRepository
 import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.childTitles
+import com.bettertalker.app.data.s34.S34ImportHook
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
+import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.S34Detector
+import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.domain.planning.Dossier
@@ -1058,7 +1064,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // Citados primeiro (mais específicos), vinculados depois, sem duplicar.
         val linkedIds = noteId?.let { nid ->
             db.attachmentDao().all()
-                .filter { it.noteId == nid && it.indexed }
+                .filter { it.noteId == nid } // T1: inclui o S-34 importado (indexed=false)
                 .map { it.id }
         }.orEmpty()
         for (id in s34CandidateIds(candidateIds, linkedIds)) {
@@ -2358,9 +2364,68 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _draftPreamble.value = preview.parsed.preamble
             _previewRefsJson.value = preview.refsJson
             syncDraftMessage()
+            // T1 (Bug #8): S-34 importado precisa persistir na estrutura
+            // (s34_*), não só no draft legado. Nunca derruba o import.
+            persistS34FromImport(uri, preview.fileName)
         } catch (_: Exception) {
             // Sem consumidor de UI para erro de import: falha silenciosa.
         }
+    }
+
+    /**
+     * T1 (Bug #8) — roda o [S34ImportHook] no import via chat.
+     *
+     * O hook exige a identidade de um attachment; criamos/reutilizamos um
+     * vinculado à nota (indexed=false: o S-34 é estrutura, não publicação
+     * indexada) para que a busca estrutural (`structuralFor`) o encontre.
+     * O texto bruto é re-extraído do URI (o preview não o expõe).
+     */
+    private suspend fun persistS34FromImport(uri: Uri, fileName: String) {
+        val nid = noteId ?: return
+        val kind = try {
+            detectKind(fileName)
+        } catch (_: Exception) {
+            return
+        }
+        if (kind != DocKind.DOCX && kind != DocKind.PDF && kind != DocKind.JWPUB) return
+        val raw = try {
+            val tmp = java.io.File(app.cacheDir, "s34-${System.currentTimeMillis()}-$fileName")
+            val copied = app.contentResolver.openInputStream(uri)?.use { ins ->
+                tmp.outputStream().use { out -> ins.copyTo(out) }
+                true
+            } ?: false
+            if (!copied) return
+            try {
+                DocExtractors.extract(app, tmp, kind)
+            } finally {
+                tmp.delete()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        if (raw.isBlank() || !S34Detector.isS34(raw)) return
+        val existing = db.attachmentDao().all()
+            .firstOrNull { it.noteId == nid && it.fileName == fileName }
+        val attId = existing?.id ?: newId("att")
+        if (existing == null) {
+            db.attachmentDao().upsert(
+                AttachmentEntity(
+                    id = attId,
+                    noteId = nid,
+                    fileName = fileName,
+                    kind = kind.name.lowercase(),
+                    sizeBytes = raw.length.toLong(),
+                    appPath = "",
+                    indexed = false,
+                    addedAt = System.currentTimeMillis(),
+                    status = "ready",
+                )
+            )
+        }
+        val outcome = S34ImportHook.onExtracted(db.s34Dao(), attId, raw)
+        android.util.Log.i("S34Import", "chat import outcome=$outcome attachment=$attId")
     }
 
     fun pasteOutline(text: String) = viewModelScope.launch {
