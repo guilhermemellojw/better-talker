@@ -2,6 +2,7 @@ package com.bettertalker.app
 
 import com.bettertalker.app.data.ai.CitationCheck
 import com.bettertalker.app.data.ai.LlmConfig
+import com.bettertalker.app.data.ai.LlmModelConfig
 import com.bettertalker.app.data.ai.RagContext
 import com.bettertalker.app.data.ai.RagOrientation
 import com.bettertalker.app.data.ai.RagPassage
@@ -59,9 +60,20 @@ class AiTest {
         assertEquals(1, LlmConfig.TOP_K)
         assertTrue(LlmConfig.ramOk(8L * 1024 * 1024 * 1024))
         assertFalse(LlmConfig.ramOk(4L * 1024 * 1024 * 1024))
-        assertTrue(LlmConfig.sizeOk(1597913616L))
-        assertFalse(LlmConfig.sizeOk(3L * 1024 * 1024 * 1024))
+        assertTrue(LlmConfig.sizeOk(2_588_147_712L))
+        assertFalse(LlmConfig.sizeOk(4L * 1024 * 1024 * 1024))
         assertFalse(LlmConfig.sizeOk(0L))
+    }
+
+    @Test
+    fun gemmaModelConstantsArePinned() {
+        assertEquals("gemma-4-E2B-it.litertlm", LlmModelConfig.FILE_NAME)
+        assertEquals(2_588_147_712L, LlmModelConfig.EXPECTED_BYTES)
+        assertEquals(64, LlmModelConfig.SHA256.length)
+        assertTrue(LlmModelConfig.DOWNLOAD_URL.contains(LlmModelConfig.REVISION))
+        assertTrue(LlmModelConfig.DOWNLOAD_URL.endsWith(LlmModelConfig.FILE_NAME))
+        assertTrue(LlmModelConfig.configured())
+        assertEquals("Apache-2.0", LlmModelConfig.LICENSE_NAME)
     }
 
     @Test
@@ -109,11 +121,12 @@ class AiTest {
     }
 
     @Test
-    fun modelDownloadGuards() {        assertEquals(-1f, com.bettertalker.app.data.ai.downloadProgress(10L, -1L))
+    fun modelDownloadGuards() {
+        assertEquals(-1f, com.bettertalker.app.data.ai.downloadProgress(10L, -1L))
         assertEquals(0.5f, com.bettertalker.app.data.ai.downloadProgress(5L, 10L))
         assertEquals(1.0f, com.bettertalker.app.data.ai.downloadProgress(99L, 10L))
         assertTrue(com.bettertalker.app.data.ai.modelSizeAllowed(-1L))
-        assertTrue(com.bettertalker.app.data.ai.modelSizeAllowed(1597913616L))
-        assertFalse(com.bettertalker.app.data.ai.modelSizeAllowed(3L * 1024 * 1024 * 1024))
+        assertTrue(com.bettertalker.app.data.ai.modelSizeAllowed(2_588_147_712L))
+        assertFalse(com.bettertalker.app.data.ai.modelSizeAllowed(4L * 1024 * 1024 * 1024))
     }
 }
