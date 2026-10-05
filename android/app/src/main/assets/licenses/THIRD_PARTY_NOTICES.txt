@@ -1,0 +1,29 @@
+Better Talker — Licenças de terceiros
+=====================================
+
+Gemma 4 E2B (arquivo gemma-4-E2B-it.litertlm)
+---------------------------------------------
+- Modelo original: google/gemma-4-E2B-it (Google LLC) — Apache License 2.0.
+- Conversão para LiteRT-LM: projeto litert-community (Hugging Face).
+- Origem: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
+- Revisão usada no download: b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1
+- SHA-256: 181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c
+
+O arquivo é baixado pelo próprio aplicativo (com verificação de integridade)
+e permanece somente no dispositivo do usuário.
+
+Apache License 2.0
+------------------
+Este produto inclui software distribuído sob a Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). O texto completo da licença
+acompanha este aplicativo em assets/licenses/apache-2.0.txt.
+
+"Gemma" é marca registrada da Google LLC. O uso do nome tem finalidade
+apenas informativa (origem do modelo), sem sugerir endosso.
+
+Outros componentes de código aberto
+-----------------------------------
+As bibliotecas usadas pelo aplicativo (AndroidX, Jetpack Compose, Room,
+WorkManager, Firebase, LiteRT-LM, entre outras) são distribuídas sob suas
+próprias licenças de código aberto (Apache 2.0, BSD, MIT etc.), disponíveis
+nos respectivos repositórios.

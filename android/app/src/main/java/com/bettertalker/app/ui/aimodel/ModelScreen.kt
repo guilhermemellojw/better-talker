@@ -1,13 +1,19 @@
 package com.bettertalker.app.ui.aimodel
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -31,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -55,6 +62,7 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
     val modelPresent = vm.isModelPresent()
     val uri = LocalUriHandler.current
     var licenseAccepted by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -77,6 +85,7 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
                 licenseAccepted = licenseAccepted,
                 onAcceptLicense = { licenseAccepted = it },
                 onOpenLicense = { uri.openUri(LlmModelConfig.LICENSE_URL) },
+                onOpenLicenses = { showLicenses = true },
                 onDownload = { vm.start() },
                 onCancel = { vm.cancel() },
                 onDelete = { vm.delete() },
@@ -91,6 +100,9 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
             CopilotRemoteKeyCard(vm)
         }
     }
+    if (showLicenses) {
+        ThirdPartyLicensesDialog(onClose = { showLicenses = false })
+    }
 }
 
 @Composable
@@ -103,6 +115,7 @@ private fun GemmaModelCard(
     licenseAccepted: Boolean,
     onAcceptLicense: (Boolean) -> Unit,
     onOpenLicense: () -> Unit,
+    onOpenLicenses: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -185,6 +198,7 @@ private fun GemmaModelCard(
                     }
                 }
             }
+            TextButton(onClick = onOpenLicenses) { Text("Licenças de terceiros") }
         }
     }
 }
@@ -319,4 +333,27 @@ private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
             }
         }
     }
+}
+
+private fun assetText(ctx: Context, path: String): String =
+    runCatching { ctx.assets.open(path).bufferedReader().use { it.readText() } }.getOrDefault("")
+
+/** T5 — Apache-2.0 + atribuições do modelo, acessíveis pelo card. */
+@Composable
+private fun ThirdPartyLicensesDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val notices = remember { assetText(ctx, "licenses/THIRD_PARTY_NOTICES.txt") }
+    val apache = remember { assetText(ctx, "licenses/apache-2.0.txt") }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Licenças de terceiros") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(notices, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(8.dp))
+                Text(apache, style = MaterialTheme.typography.labelSmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Fechar") } }
+    )
 }
