@@ -58,10 +58,12 @@ object LocalContextBudget {
 
     /**
      * Custo fixo do boilerplate do prompt de chat (foco, rótulos, instruções
-     * de resposta, separadores) que não pertence a nenhum segmento. Calibrado
-     * por teste (`LocalContextBudgetTest.promptOverheadIsUpperBound`).
+     * de resposta, separadores, regra do marcador de criação) que não pertence
+     * a nenhum segmento. Calibrado por teste
+     * (`LocalContextBudgetTest.promptOverheadIsUpperBound`): 320 = overhead
+     * real (~284) + margem de ~36 tokens.
      */
-    const val PROMPT_OVERHEAD_TOKENS = 260
+    const val PROMPT_OVERHEAD_TOKENS = 320
 
     /** Marcador de corte visível (mesmo do LeanRag). */
     const val TRUNCATION_MARKER = " […]"

@@ -33,6 +33,17 @@ const val MAX_TOTAL_SOURCES = 12
 const val MAX_CONTEXT_PASSAGE_CHARS = 800
 
 /**
+ * T1 — marcador de criação: o modelo envolve ilustrações/metáforas/exemplos
+ * originais em 〈sugestão〉…〈/sugestão〉. O gate isenta a PROSA marcada, mas
+ * NUNCA número nem referência inventados.
+ */
+const val SUGGESTION_MARKER_RULE =
+    "MODO CRIAÇÃO: ao criar ilustração, metáfora, analogia ou exemplo original, envolva o " +
+        "trecho criado em 〈sugestão〉…〈/sugestão〉 para o sistema reconhecer a criação e não " +
+        "tratá-la como fato. O marcador isenta prosa criativa — números e referências " +
+        "continuam exigindo apoio real no acervo."
+
+/**
  * Regras de fidelidade. Idênticas em espírito e efeitos ao `SYSTEM_PROMPT` do
  * web e usadas tanto pelo chat quanto por proposta de edição — não duplicar nem
  * simplificar estas regras ao construir um prompt Android.
@@ -58,7 +69,7 @@ CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO:
   um ensinamento atribuído ao BE/TH. Ilustrações, perguntas ou transições CRIADAS por
   você devem ser apresentadas como sugestão do modelo ("Uma técnica/ilustração possível
   seria..."), nunca atribuídas à fonte.
-""".trimIndent()
+""".trimIndent() + "\n\n" + SUGGESTION_MARKER_RULE
 
 /** Bloco em foco. Vazio se não há bloco nem duração (§ F15 blockSection). */
 fun blockSection(blockTitle: String?, blockMinutes: Int?): String {
@@ -155,7 +166,7 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "nem mencionar intents ou trilhos. Se a melhor ajuda for sugerir um novo texto para o " +
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
-        "ofereça um caminho criativo deixando claro que é sugestão sua."
+        "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE
 
 /**
  * Prompt do chat. Ordem: brief (histórico + continuidade + mensagem), foco,
@@ -285,5 +296,6 @@ fun buildEditProposalPrompt(
         "Para conteúdo novo use {\"type\": \"insert\", \"position\": \"after\", " +
         "\"content\": \"<p>...</p>\"}. Use HTML simples (p, strong, em). " +
         "Nunca invente fatos, citações ou referências. Se criar ilustração, pergunta " +
-        "ou transição, apresente como sugestão do modelo, sem atribuir à fonte."
+        "ou transição, apresente como sugestão do modelo, sem atribuir à fonte. " +
+        SUGGESTION_MARKER_RULE
 }

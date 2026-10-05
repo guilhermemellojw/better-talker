@@ -39,7 +39,11 @@ CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO:
   orientação de treinamento, diga que não há orientação suficiente em vez de inventar
   um ensinamento atribuído ao BE/TH. Ilustrações, perguntas ou transições CRIADAS por
   você devem ser apresentadas como sugestão do modelo ("Uma técnica/ilustração possível
-  seria..."), nunca atribuídas à fonte.`;
+  seria..."), nunca atribuídas à fonte.
+- MODO CRIAÇÃO: ao criar ilustração, metáfora, analogia ou exemplo original, envolva
+  o trecho criado em 〈sugestão〉…〈/sugestão〉 para o sistema reconhecer a criação e
+  não tratá-la como fato. O marcador isenta prosa criativa — números e referências
+  continuam exigindo apoio real no acervo.`;
 
 export interface BuiltPrompt {
   system: string;
@@ -186,5 +190,5 @@ ${focus}Texto do bloco atual:
 ${context}${block}
 Responda SOMENTE com este JSON em cerca \`\`\`json (sem texto fora dela):
 {"explanation": "1 frase sobre o que foi proposto", "operations": [{"type": "replace", "content": "<p>...novo bloco integral...</p>"}]}
-Para conteúdo novo use {"type": "insert", "position": "after", "content": "<p>...</p>"}. Use HTML simples (p, strong, em). Nunca invente fatos, citações ou referências. Se criar ilustração, pergunta ou transição, apresente como sugestão do modelo, sem atribuir à fonte.`;
+Para conteúdo novo use {"type": "insert", "position": "after", "content": "<p>...</p>"}. Use HTML simples (p, strong, em). Nunca invente fatos, citações ou referências. Se criar ilustração, pergunta ou transição, apresente como sugestão do modelo, sem atribuir à fonte, e envolva o trecho criado em 〈sugestão〉…〈/sugestão〉.`;
 }

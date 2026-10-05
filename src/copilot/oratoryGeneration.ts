@@ -309,7 +309,9 @@ export const ORATORY_BASE_RULES = `REGRAS DE GERAÇÃO ORATÓRIA (valem para tod
    suporte realmente disponível. Se faltar suporte, diga exatamente:
    "${INSUFFICIENT_EVIDENCE_MESSAGE}"
 7. Criatividade é permitida para formulações, perguntas, conexões e ilustrações —
-   apresente o que for criação sua como sugestão, nunca como fato vindo das fontes.
+   apresente o que for criação sua como sugestão, nunca como fato vindo das fontes,
+   e envolva o trecho criado em 〈sugestão〉…〈/sugestão〉. Números e referências
+   continuam exigindo apoio real.
 8. Texto FALÁVEL: frases curtas, uma ideia por frase, linguagem oral, sem
    cabeçalhos dentro do texto final, sem jargão acadêmico.
 9. Não reproduza longos trechos de publicações; parafraseie com suas palavras.
