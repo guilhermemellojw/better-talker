@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -237,8 +238,8 @@ fun ChatScreen(
                 }
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Rótulo de contexto: o bloco em foco, sem o usuário digitar id (§13).
                     if (messages.isNotEmpty()) {
@@ -276,7 +277,13 @@ fun ChatScreen(
                         // cortadas/escondidas no fim de uma resposta longa.
                         if (hasMessageActions(m)) {
                             item(key = m.id + ":actions") {
-                                MessageActions(m, vm, hasScope = chatScope != null)
+                                // T1: as ações são um item próprio do LazyColumn
+                                // (espaçamento 14dp); o offset mantém o par
+                                // mensagem+ações visualmente junto.
+                                MessageActions(
+                                    m, vm, hasScope = chatScope != null,
+                                    modifier = Modifier.offset(y = (-8).dp)
+                                )
                             }
                         }
                     }
@@ -464,9 +471,10 @@ private fun MessageBubble(
 private fun MessageActions(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
-    hasScope: Boolean
+    hasScope: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    Column(Modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth()) {
         // Fase 18 §21: sugestão conversacional vira proposta F5.
         TextButton(
             onClick = { vm.createProposal(item.id) }
@@ -553,7 +561,7 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
     val suggested = remember(md) { stripSuggestionTags(md) }
     val blocks = remember(suggested.text) { parseBlocks(suggested.text) }
     SelectionContainer {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (suggested.hasSuggestion) {
                 Text(
                     "💡 Sugestão criativa",
