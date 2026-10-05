@@ -373,4 +373,57 @@ class S34ParserTest {
         }
         doc.headerLines.forEach { assertTrue(t.contains(it)) }
     }
+
+    // ---------- T1 (Bug #12): formato real (seções temporizadas sem número) ----------
+
+    private val timed = S34Parser.parseS34(S34Fixture.TIMED_TITLES)
+
+    @Test
+    fun formatoReal5SecoesComMinutos() {
+        assertEquals(5, timed.sections.size)
+        assertEquals(listOf(3, 5, 5, 15, 2), timed.sections.map { it.minutes })
+    }
+
+    @Test
+    fun formatoRealTitulosLimpos() {
+        assertEquals("A paciência se prova nas pequenas escolhas", timed.sections[0].title)
+        assertEquals("A paciência ajuda nos estudos", timed.sections[1].title)
+        assertEquals("Continue cultivando paciência", timed.sections[4].title)
+    }
+
+    @Test
+    fun formatoRealTemaEObjetivo() {
+        assertEquals("Como cultivar paciência", timed.title)
+        assertEquals(
+            "Mostrar por que a paciência ajuda nas decisões do dia a dia.",
+            timed.objective
+        )
+    }
+
+    @Test
+    fun formatoRealSubpontosEReferencias() {
+        assertEquals(2, timed.sections[1].subsections.size)
+        assertTrue(timed.sections.flatMap { it.references }.isNotEmpty())
+        assertTrue(
+            timed.sections.flatMap { s -> s.subsections.flatMap { it.references } }.isNotEmpty()
+        )
+    }
+
+    @Test
+    fun formatoRealCorpoNaoViraSecao() {
+        assertEquals(
+            "Ouvir com calma antes de opinar fortalece os vínculos.",
+            timed.sections[2].content.trim()
+        )
+    }
+
+    @Test
+    fun formatoRealComNbspNosMinutos() {
+        // Extração real (RTF/DOCX) traz NBSP: "(5\u00A0min)" — \s do Java não cobre.
+        val nbsp = S34Parser.parseS34(
+            S34Fixture.TIMED_TITLES.replace("(5 min)", "(5\u00A0min)")
+        )
+        assertEquals(5, nbsp.sections.size)
+        assertEquals(listOf(3, 5, 5, 15, 2), nbsp.sections.map { it.minutes })
+    }
 }

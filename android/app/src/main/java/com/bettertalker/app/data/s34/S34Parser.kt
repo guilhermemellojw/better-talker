@@ -31,6 +31,28 @@ object S34Parser {
     private val SUBPOINT_RE = Regex("""^\s*[a-z]\)\s*(.+)$""")
     private val TRAILING_MIN_RE = Regex("""\s*[\[(]\s*\d+\s*(min\.?|minutos?)\s*[\])]\s*$""", RegexOption.IGNORE_CASE)
 
+    /**
+     * T1 (Bug #12) — seção temporizada SEM numeração: linha inteira termina em
+     * `(N min)` e o restante é o título (formato real do S-34: título case,
+     * às vezes entre aspas/negrito). Espelha a heurística do OutlineParser.
+     */
+    private val SECTION_MIN_RE = Regex(
+        """^\s*(.+?)\s*[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Limpa aspas/negrito do título de seção ("“X” (3 min)" → "X"). */
+    private fun cleanSectionTitle(raw: String): String =
+        raw.trim().removeSurrounding("\"").removeSurrounding("“", "”")
+            .removeSurrounding("**").trim()
+
+    /**
+     * T1 (Bug #12) — espaços especiais vindos da extração real (NBSP etc.):
+     * RTF/DOCX trazem "(3\u00A0min)" e o `\s` do Java NÃO cobre U+00A0.
+     * Normalizar aqui vale para todos os regexes do parser (determinístico).
+     */
+    private val SPECIAL_SPACE_RE = Regex("[\u00A0\u2007\u202F]")
+
     private data class BodyLine(val lineNo: Int, val text: String)
     private data class MutableSub(val content: String, val sourceLine: Int)
     private data class MutableSection(
@@ -43,7 +65,7 @@ object S34Parser {
     )
 
     fun parseS34(rawText: String): S34Document {
-        val lines = rawText.split("\n")
+        val lines = rawText.replace("\uFEFF", "").replace(SPECIAL_SPACE_RE, " ").split("\n")
         var refOrder = 0
 
         fun scanRefs(text: String, lineNo: Int): List<S34Reference> {
@@ -114,6 +136,26 @@ object S34Parser {
                 sections += sec
                 current = sec
                 return@forEachIndexed
+            }
+            // T1 (Bug #12): seção temporizada sem numeração (formato real).
+            // Prioridade: ponto numerado (acima); subponto (a)/b)) nunca vira seção.
+            if (!SUBPOINT_RE.matches(line)) {
+                SECTION_MIN_RE.matchEntire(line)?.let { m ->
+                    val t = cleanSectionTitle(m.groupValues[1])
+                    if (t.isNotBlank()) {
+                        closeObjective()
+                        val order = sections.size + 1
+                        val sec = MutableSection(
+                            order = order,
+                            title = t,
+                            minutes = m.groupValues[2].toIntOrNull(),
+                            sourceLine = lineNo
+                        )
+                        sections += sec
+                        current = sec
+                        return@forEachIndexed
+                    }
+                }
             }
             if (inObjective) {
                 objectiveLines += line

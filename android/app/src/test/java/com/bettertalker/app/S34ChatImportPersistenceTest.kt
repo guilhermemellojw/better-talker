@@ -93,4 +93,16 @@ class S34ChatImportPersistenceTest {
         assertEquals(1, dao.outlines.size)
         assertEquals(3, dao.sections.size)
     }
+
+    @Test
+    fun importDoFormatoRealPersiste5Secoes() = runBlocking {
+        val dao = FakeS34Dao()
+        val out = S34ImportHook.onExtracted(
+            dao, "att-194", S34Fixture.TIMED_TITLES, { _, _ -> }, fileName = "S-34_T_194.rtf"
+        )
+        assertTrue("esperava Saved, veio $out", out is S34ImportHook.Outcome.Saved)
+        assertEquals(1, dao.outlines.size)
+        assertEquals(5, dao.sections.size)
+        assertTrue(dao.subs.size >= 2)
+    }
 }
