@@ -34,11 +34,33 @@
 ### Observação #3 — cosmético
 - O chip “deepseek-v4-pro” quebra em duas linhas na largura do A34. Sem impacto funcional.
 
+### Bug #4 (bloqueador do DeepSeek) — chave salva não é uma chave de API válida
+- **Sintoma:** “Testar conexão” no card DeepSeek retorna **Erro** (não “Online”).
+- **Evidência (API real, requisição no formato exato do app, com a chave do aparelho — valor nunca impresso):**
+  - `POST https://api.deepseek.com/v1/chat/completions` → **HTTP 401**
+    `Authentication Fails (auth header format should be Bearer sk-...)`
+  - Impressão digital do valor salvo: `len=38`, **não começa com `sk-`**, termina em `0d72`
+    (o próprio erro da API mascarou `****0d72`).
+- **Conclusão:** o valor salvo em `deepseek_api_key` não é uma chave da API DeepSeek
+  (chaves do platform começam com `sk-`). Provavelmente veio do app consumidor
+  (`com.deepseek.chat` está instalado no aparelho) ou foi colado incompleto.
+- **Ação para destravar:** gerar uma chave em `platform.deepseek.com` (com créditos) e
+  salvar de novo no card DeepSeek. Sem isso, os Blocos 2/3/5/6/7 (DeepSeek) não rodam.
+
+### Observação #5 — rótulo do status na sonda
+- A sonda exibiu “Erro de conexão” para um 401 de autenticação; o esperado pelo código é
+  “Erro de autenticação”. Reconfirmar na próxima sessão (a re-execução limpa foi interrompida
+  pela queda do ADB). Baixa severidade (UX do indicador).
+
+### Incidente — ADB caiu no meio
+- Durante a re-execução limpa da sonda, o ADB wireless caiu (`waiting for device`;
+  `adb devices` vazio). **Validação interrompida conforme a regra** (sem tentar contornar).
+
 ## Blocos
-- Bloco 1 (import/indexação): pode rodar sem a chave DeepSeek.
-- Blocos 2–7: **aguardam a chave DeepSeek ser salva no aparelho** (agora possível
-  pela UI corrigida). Nada foi simulado.
+- Bloco 1 (import/indexação): **não executado** (ADB caiu antes).
+- Blocos 2–7: **não executados** (chave DeepSeek inválida + queda do ADB). Nada foi simulado.
 
 ## State
 - Bug #1 corrigido em `c80c3a6` (fora da validação) e verificado no device.
+- Bug #4 (chave inválida) registrado; aguarda ação do dono.
 - Screenshots/logs de apoio em `/tmp/opencode/` (não versionados).
