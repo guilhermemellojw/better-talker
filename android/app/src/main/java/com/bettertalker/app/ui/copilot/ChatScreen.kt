@@ -565,9 +565,11 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                 when (block) {
                     is MdBlock.Title -> Text(
                         block.text,
-                        style = MaterialTheme.typography.titleLarge,
+                        // T2: ##/# = título grande; ### = subtítulo menor.
+                        style = if (block.level >= 3) MaterialTheme.typography.titleSmall
+                        else MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 26.sp
+                        lineHeight = if (block.level >= 3) 20.sp else 26.sp
                     )
                     is MdBlock.Quote -> Row {
                         Box(
@@ -589,7 +591,12 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                         )
                     }
                     is MdBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
-                        Text("•  ", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            // T2: lista ordenada preserva o número; bullet comum segue "•".
+                            block.number?.let { "$it.  " } ?: "•  ",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold
+                        )
                         Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 24.sp)
                     }
                     is MdBlock.Check -> Row(verticalAlignment = Alignment.Top) {
