@@ -64,24 +64,43 @@ class SettingsStore(private val ctx: Context) {
 
     /**
      * F20-F1 / T3 — provider de IA selecionado:
-     * "auto" (default) | "gemini" | "qwen" | "gemma_local".
+     * "auto" (default) | "deepseek" | "gemini" | "qwen" | "gemma_local".
      *
-     * "auto" resolve em runtime: Gemma local se o modelo está presente →
-     * remoto com chave → determinístico. Valores explícitos são preservados —
-     * instalações existentes não mudam de comportamento.
+     * "auto" resolve em runtime (T3 DeepSeek): DeepSeek com chave e online →
+     * outro remoto com chave e online (Gemini, Groq) → Gemma local (modelo
+     * presente) → determinístico. Valores explícitos são preservados.
      */
     private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
     val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "auto" }
     suspend fun setLlmProvider(v: String) {
         ctx.store.edit {
             it[LLM_PROVIDER] = when (v) {
+                "deepseek" -> "deepseek"
                 "gemini" -> "gemini"
                 // F2: provider on-device (Gemma 4 E2B via LiteRT-LM)
                 "gemma_local" -> "gemma_local"
-                // T3: decisão automática local → remoto → determinístico
+                // T3: decisão automática remoto → local → determinístico
                 "auto" -> "auto"
                 else -> "qwen"
             }
+        }
+    }
+
+    /**
+     * T3 (DeepSeek) — chave BYOD do DeepSeek. Mesmas garantias das demais:
+     * DataStore local, nunca em log/erro, só no header Authorization do POST.
+     */
+    private val DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
+    val deepseekApiKey: Flow<String> = ctx.store.data.map { it[DEEPSEEK_API_KEY].orEmpty() }
+    suspend fun setDeepseekApiKey(v: String) { ctx.store.edit { it[DEEPSEEK_API_KEY] = v.trim() } }
+    suspend fun clearDeepseekApiKey() { ctx.store.edit { it.remove(DEEPSEEK_API_KEY) } }
+
+    /** T3/T4 — modelo DeepSeek escolhido ("deepseek-flash" | "deepseek-v4-pro"). */
+    private val DEEPSEEK_MODEL = stringPreferencesKey("deepseek_model")
+    val deepseekModel: Flow<String> = ctx.store.data.map { it[DEEPSEEK_MODEL] ?: "deepseek-flash" }
+    suspend fun setDeepseekModel(v: String) {
+        ctx.store.edit {
+            it[DEEPSEEK_MODEL] = if (v == "deepseek-v4-pro") "deepseek-v4-pro" else "deepseek-flash"
         }
     }
 }
