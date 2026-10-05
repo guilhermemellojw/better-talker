@@ -1,18 +1,6 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
-    "speeches": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "publications": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    },
-    "settings": {
-      ".read": "auth != null",
-      ".write": "auth != null"
-    }
+    ".read": false,
+    ".write": false
   }
 }
