@@ -419,7 +419,9 @@ fun ChatScreen(
                 showAttach = false
                 outlinePicker.launch(OUTLINE_MIMES)
             },
-            onPaste = { showAttach = false; showPaste = true }
+            onPaste = { showAttach = false; showPaste = true },
+            // T3: atalho para o catálogo (Biblioteca abre com a seção no topo).
+            onPublications = { showAttach = false; onOpenLibrary() }
         )
     }
 
