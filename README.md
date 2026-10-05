@@ -1,7 +1,8 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, teleprompter e métricas de fala.**
-> Dois clientes neste repositório: **Web** (React + Vite, instalável como PWA ou empacotado via Capacitor) e **Android nativo** (Kotlin + Compose).
+> **Estágio: pré-release interno.**
+> Dois clientes neste repositório: **Web** (React + Vite, instalável como PWA) e **Android nativo** (Kotlin + Compose — cliente ativo).
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no teleprompter → exportar.
 
@@ -43,18 +44,19 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - Download em **Markdown (`.md`)**, impressão (fichas de palco/cue cards) e cópia para a área de transferência. Não há exportação para `.txt`, `.docx` ou PDF direto — apenas via impressão do navegador.
 
 ### 7. 🔥 Sync em nuvem opcional (só metadados — BYOD)
-- Via Firebase (auth anônima + Realtime Database), sincroniza **apenas metadados** (títulos, blocos, durações, tags, preferências sem a chave de API) — nunca texto integral nem binários de publicações (há validação que bloqueia o sync nesses casos).
-- Sem `.env.local` configurado, o app roda normalmente 100% offline; o sync é ignorado silenciosamente.
+- O **Android nativo** sincroniza **apenas metadados** via **Firestore** (`users/{uid}/...`, regras escopadas por usuário) — nunca texto integral nem binários de publicações.
+- O sync do **web** via Realtime Database está **desativado** por segurança (as regras antigas davam acesso irrestrito a qualquer cliente autenticado anonimamente). Migrar o web para `users/$uid` é débito técnico registrado.
+- Sem configuração de Firebase, os clientes rodam normalmente 100% offline.
 
 ---
 
 ## 📱 App Android nativo (`android/`)
 
-Projeto Gradle/Kotlin com Jetpack Compose, **além** do wrapper Capacitor. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta e modelo de IA.
+Projeto Gradle/Kotlin com Jetpack Compose — o cliente Android ativo do produto. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta e modelo de IA.
 
 - **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
 - **Publicações:** extrator próprio de **JWPUB**, extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
-- **IA on-device:** infraestrutura MediaPipe (`LlmService`) para rodar um **Qwen2.5-1.5B quantizado** (`.task`) baixado para o aparelho — porém a **URL de download ainda não está configurada** (`LlmModelConfig.DOWNLOAD_URL` vazia), então na prática o chat usa o motor determinístico local até que um modelo seja hospedado.
+- **IA on-device (dev-only):** provedor local **Gemma 4 E2B via LiteRT-LM** (GPU com fallback para CPU). O modelo `.litertlm` **não é baixado pelo app**: em desenvolvimento, ele é colocado no aparelho via `adb push` (`files/models`). Hospedagem e download para usuário final são pendência; o caminho legado MediaPipe/Qwen segue sem URL configurada (`LlmModelConfig.DOWNLOAD_URL` vazia).
 - **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
@@ -63,7 +65,7 @@ Projeto Gradle/Kotlin com Jetpack Compose, **além** do wrapper Capacitor. Telas
 
 ## 🛠️ Tecnologias
 
-**Web (`src/`):** React 19, TypeScript, Vite · Dexie.js (IndexedDB v3) · `jszip` + `pdfjs-dist` (acervo) · Firebase (opcional) · Lucide Icons · CSS próprio (tema escuro, sem framework) · PWA (Service Worker + manifest) · Capacitor 8 (`com.bettertalker.app`).
+**Web (`src/`):** React 19, TypeScript, Vite · Dexie.js (IndexedDB v3) · `jszip` + `pdfjs-dist` (acervo) · Firebase (opcional) · Lucide Icons · CSS próprio (tema escuro, sem framework) · PWA (Service Worker + manifest).
 
 **Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, MediaPipe LLM Inference, DownloadManager.
 
@@ -86,13 +88,6 @@ npm run lint       # oxlint
 1. PC e celular na mesma rede Wi-Fi; abra o endereço de rede do Vite (ex: `http://192.168.1.X:5173/`) no Chrome Android.
 2. Menu ⋮ → **"Instalar aplicativo"** / "Adicionar à tela inicial".
 
-### Como APK via Capacitor
-```bash
-npm run build
-npx cap sync        # o projeto android/ já existe no repositório
-npx cap open android
-```
-
 ### App nativo (Gradle)
 ```bash
 cd android
@@ -104,10 +99,10 @@ ou abra `android/` no Android Studio.
 1. Crie um projeto no [Firebase Console](https://console.firebase.google.com/) com um app **Android** (`com.bettertalker.app`) e um app **Web**.
 2. `google-services.json` → `android/app/google-services.json` (está no `.gitignore`).
 3. Copie `.env.example` para `.env.local` e preencha `VITE_FIREBASE_*` (+ `VITE_GEMINI_API_KEY`, opcional — a chave também pode ser digitada nas Configurações do app).
-4. Habilite o **Realtime Database** com escrita restrita (ex.: `"write": "auth != null"`).
+4. **Realtime Database:** permanece negado por segurança na versão atual; o sync do Android usa **Firestore** com regras por usuário (`firebase/firestore.rules`).
 
 ---
 
 ## 📄 Licença
 
-Ainda **sem arquivo de licença** no repositório — antes dizia MIT, mas não há `LICENSE` commitado. Definir a licença (ex.: adicionar `LICENSE` MIT) antes de distribuir.
+Distribuído sob a licença **MIT** — veja [LICENSE](LICENSE).
