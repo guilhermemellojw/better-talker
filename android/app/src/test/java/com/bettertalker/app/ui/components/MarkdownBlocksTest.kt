@@ -88,4 +88,23 @@ class MarkdownBlocksTest {
         assertFalse(isJwUrl("https://jw.org.evil.com/x"))
         assertFalse(isJwUrl("http://notjw.org"))
     }
+
+    // ---------- T4: parcial puro (streaming) ----------
+
+    @Test
+    fun parcialComNegritoIncompletoNaoQuebraNemPerdeTexto() {
+        // O parcial do streaming é renderizado como Text puro (sem parser);
+        // garantia defensiva: se um texto incompleto passar pelo parser/inline,
+        // nada explode e o conteúdo sobrevive (marcadores só somem no par fechado).
+        val parcial = "**negrito sem fechar e `code"
+        val blocks = parseBlocks(parcial)
+        assertEquals(parcial, (blocks.first() as MdBlock.Para).text)
+        assertEquals("negrito sem fechar e code", buildInline(parcial).text)
+    }
+
+    @Test
+    fun parcialComTituloPelaMetadeNaoQuebra() {
+        val blocks = parseBlocks("## ")
+        assertTrue(blocks.first() is MdBlock.Title)
+    }
 }
