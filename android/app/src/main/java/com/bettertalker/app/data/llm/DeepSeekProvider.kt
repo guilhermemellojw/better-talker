@@ -43,15 +43,11 @@ class DeepSeekProvider(
         }
         val prompts = deepSeekPromptsFor(request)
         val wantProposal = request.responseFormat == ResponseFormat.EDIT_PROPOSAL
-        val body = requestBody(
-            model = model,
-            system = prompts.first,
-            user = prompts.second,
-            maxOutputTokens = request.maxOutputTokens,
-            editProposal = wantProposal,
-            jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
-            reasoningEffort = reasoningEffort,
-        )
+        // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
+        // e devolver content vazio (finish_reason=length). Nesse caso o
+        // provider refaz UMA vez com orçamento maior antes de falhar.
+        var budget = request.maxOutputTokens
+        var budgetBumped = false
         val url = "${endpoint.trimEnd('/')}/chat/completions"
         // Autorização e negociação do stream via header (nunca na URL, nunca em log).
         val headers = mapOf(
@@ -68,6 +64,15 @@ class DeepSeekProvider(
             var usageJson: String? = null
             var finish: String? = null
             LocalProgress.reset()
+            val body = requestBody(
+                model = model,
+                system = prompts.first,
+                user = prompts.second,
+                maxOutputTokens = budget,
+                editProposal = wantProposal,
+                jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
+                reasoningEffort = reasoningEffort,
+            )
             try {
                 val res = withContext(Dispatchers.IO) {
                     stream.postStream(
@@ -100,10 +105,23 @@ class DeepSeekProvider(
                     res.status == 200 -> {
                         val text = sb.toString()
                         if (text.isBlank()) {
-                            throw ProviderError(
-                                ProviderErrorCode.INVALID_RESPONSE,
-                                "Resposta vazia do DeepSeek.", id, attempts
-                            )
+                            // T2: thinking consumiu o orçamento (length sem content).
+                            if (finish == "length" && !budgetBumped) {
+                                budgetBumped = true
+                                budget = (budget * 2).coerceAtMost(4096)
+                                log("deepseek vazio por length; retry com budget=$budget")
+                                lastError = ProviderError(
+                                    ProviderErrorCode.INVALID_RESPONSE,
+                                    "Orçamento de tokens esgotado antes da resposta.", id, attempts
+                                )
+                                continue
+                            }
+                            val msg = if (finish == "length") {
+                                "Orçamento de tokens esgotado antes da resposta."
+                            } else {
+                                "Resposta vazia do DeepSeek."
+                            }
+                            throw ProviderError(ProviderErrorCode.INVALID_RESPONSE, msg, id, attempts)
                         }
                         LocalProgress.set(LocalPhase.Done)
                         return LlmResponse(

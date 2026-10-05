@@ -85,9 +85,12 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
             DeepSeekProvider(apiKey = key, model = model).generate(
                 LlmRequest(
                     text = "",
-                    message = "ping",
-                    maxOutputTokens = 1,
-                    maxAttempts = 1,
+                    message = "Responda apenas: OK",
+                    // T2 — orçamento suficiente para o thinking + o content;
+                    // 2 tentativas porque o provider refaz uma vez se o
+                    // reasoning esvaziar a resposta (finish_reason=length).
+                    maxOutputTokens = 64,
+                    maxAttempts = 2,
                     timeoutMs = 10_000,
                 )
             )

@@ -238,6 +238,52 @@ class DeepSeekProviderTest {
         assertFalse(http.bodies.single().contains("\"model\":\"deepseek-flash\""))
     }
 
+    // ---------- T2: resposta vazia por reasoning ----------
+
+    @Test
+    fun vazioPorLengthRefazComOrcamentoMaior() = runBlocking {
+        val onlyLength = Scripted(
+            LlmHttpClient.HttpResult(200, ""),
+            lines = listOf("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}", "data: [DONE]"),
+        )
+        val http = FakeStream(mutableListOf(onlyLength, okStream("ok")))
+        val res = provider(http).generate(req())
+        assertEquals("ok", res.text)
+        assertEquals(2, res.meta.attempts)
+        assertTrue(http.bodies[0].contains("\"max_tokens\":1000"))
+        assertTrue(http.bodies[1].contains("\"max_tokens\":2000"))
+    }
+
+    @Test
+    fun vazioPorLengthSemTentativaExtraFalhaExplicita() = runBlocking {
+        val onlyLength = Scripted(
+            LlmHttpClient.HttpResult(200, ""),
+            lines = listOf("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}", "data: [DONE]"),
+        )
+        val http = FakeStream(mutableListOf(onlyLength))
+        try {
+            provider(http).generate(req(maxAttempts = 1))
+            fail("esperava ProviderError")
+        } catch (e: ProviderError) {
+            assertTrue(e.message!!.contains("Orçamento"))
+        }
+    }
+
+    @Test
+    fun vazioSemLengthFalhaExplicita() = runBlocking {
+        val emptyStop = Scripted(
+            LlmHttpClient.HttpResult(200, ""),
+            lines = listOf("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}", "data: [DONE]"),
+        )
+        val http = FakeStream(mutableListOf(emptyStop))
+        try {
+            provider(http).generate(req())
+            fail("esperava ProviderError")
+        } catch (e: ProviderError) {
+            assertTrue(e.message!!.contains("vazia"))
+        }
+    }
+
     // ---------- T2: prefixo estável (cache persistente) ----------
 
     private fun ev(id: String, reference: String) = EvidenceSource(
