@@ -4,12 +4,6 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.bettertalker.app.data.ai.RagContext
-import com.bettertalker.app.data.ai.RagOrientation
-import com.bettertalker.app.data.ai.RagPassage
-import com.bettertalker.app.data.ai.buildRagPrompt
-import com.bettertalker.app.data.ai.checkCitations
-import com.bettertalker.app.data.ai.hasRepetition
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
@@ -97,12 +91,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     )
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
-    private val llm = com.bettertalker.app.data.ai.LlmService(app)
-
-    override fun onCleared() {
-        super.onCleared()
-        llm.close()
-    }
     private val _query = MutableStateFlow("")
     private val _busy = MutableStateFlow(false)
     private val _summary = MutableStateFlow("")
@@ -809,7 +797,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val intent = inferIntent(text, isFirst)
             // F2.1 — marca a fase real de leitura das fontes (RAG Room) quando
             // a rota é o Gemma local. Só observa; o fluxo segue intacto.
-            if (ProviderFactory.resolveRemote(settings).providerId ==
+            if (ProviderFactory.resolveRemote(settings, app).providerId ==
                 ProviderFactory.PROVIDER_LOCAL_GEMMA
             ) {
                 com.bettertalker.app.data.llm.LocalProgress.set(
@@ -848,7 +836,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         route.mode, route.sectionId
                     )
                     // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
-                    val remote = ProviderFactory.resolveRemote(settings)
+                    val remote = ProviderFactory.resolveRemote(settings, app)
                     if (!ProviderFactory.useRemoteRoute(remote)) {
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
@@ -877,7 +865,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // Sem chave, o motor legado local continua (comportamento atual).
             // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
             // (try aberto acima cobre também as rotas com return@launch.)
-            val remote = ProviderFactory.resolveRemote(settings)
+            val remote = ProviderFactory.resolveRemote(settings, app)
                 if (ProviderFactory.useRemoteRoute(remote)) {
                     answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
                 } else {
@@ -900,7 +888,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         is ChatIntent.Intent.Ask -> answerAsk(intent.topic)
                         is ChatIntent.Intent.Ideas -> answerIdeas(intent.sectionHint, text)
                         is ChatIntent.Intent.Example -> answerExample(intent.kind, intent.sectionHint, text)
-                        is ChatIntent.Intent.Compose -> answerCompose(intent.sectionHint, text)
+                        is ChatIntent.Intent.Compose -> answerCompose()
                         ChatIntent.Intent.Guided -> startGuided()
                         is ChatIntent.Intent.Develop -> answerDevelop(intent.sectionHint, text)
                         ChatIntent.Intent.Summarize -> answerSummarize()
@@ -1263,7 +1251,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     return@launch
                 }
                 // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
-                val remote = ProviderFactory.resolveRemote(settings)
+                val remote = ProviderFactory.resolveRemote(settings, app)
                 if (!ProviderFactory.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar propostas.")
                     return@launch
@@ -2004,119 +1992,19 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     /**
-     * Compõe com o modelo local via RAG estrito. Sem modelo/RAM ou em
-     * falha, responde mensagem honesta — NUNCA cai disfarçado em
-     * `answerDevelop` (retrieval não é geração).
+     * T4 — composição local. O legado MediaPipe/Qwen foi removido; a geração
+     * local agora acontece pelo provider Gemma LiteRT (rota unificada). Sem
+     * provedor disponível, responde orientação honesta (determinístico).
      */
-    private suspend fun answerCompose(sectionHint: String?, raw: String) {
+    private suspend fun answerCompose() {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Vincule um esboço primeiro. Toque no + para importar ou colar.")))
             return
         }
-        val secs = outlineSections.value
-        val exact = sectionHint?.let { h -> secs.firstOrNull { it.title == h } }
-        val target = exact ?: when {
-            sectionHint != null -> null
-            secs.size == 1 -> secs.first()
-            else -> null
-        }
-        if (target == null) {
-            if (sectionHint == null && secs.size > 1) {
-                val opts = secs.mapIndexed { i, s -> "${i + 1}. ${s.title}" }.joinToString("\n")
-                pendingAsk = PendingAsk.Sections(secs.map { it.title })
-                post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Compor qual parte com a IA? Diga o número ou o nome:\n$opts")),
-                    MessageOrigin.LOCAL)
-            } else {
-                post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Não achei a seção. Diga o nome dela como está no esboço.")),
-                    MessageOrigin.LOCAL)
-            }
-            return
-        }
-        if (!llm.isReady() || !com.bettertalker.app.data.ai.LlmConfig.ramOk(ramTotal())) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Para compor texto, configure uma chave em Modelo IA " +
-                    "ou baixe o modelo local (a tela Modelo IA mostra o tamanho).")))
-            return
-        }
-        val idx = secs.indexOf(target)
-        val kindHint = ChatIntent.exampleKindHint(raw)?.takeIf { it != "any" }
-        val kind = exampleKindOf(kindHint)
-            ?: repo.kindFor(idx == 0, idx == secs.lastIndex, "")
-        val scope = refScope()
-        val q = listOf(target.title, target.body.take(800)).filter { it.isNotBlank() }.joinToString(" ")
-        val content = com.bettertalker.app.data.repo.contentHits(
-            repo.askScoped(q.ifBlank { target.title }, noteId, 6, maxWords = 8,
-                scope.keys.toList(), scope)
-        )
-        if (content.isEmpty()) {
-            val missing = missingMatterText()
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Sem matéria para compor “${target.title}”." +
-                    (if (missing.isNotBlank()) "\n\n$missing" else ""))),
-                MessageOrigin.LOCAL)
-            return
-        }
-        val guideHits = repo.askScoped(
-            repo.guideQuery(kind), noteId, 2,
-            extraIds = scope.keys.toList(), extraLabels = scope
-        )
-        val kindLabel = when (kind) {
-            com.bettertalker.app.data.repo.CopilotRepository.ExampleKind.INTRO -> "introdução"
-            com.bettertalker.app.data.repo.CopilotRepository.ExampleKind.ILLUSTRATION -> "ilustração"
-            com.bettertalker.app.data.repo.CopilotRepository.ExampleKind.CONCLUSION -> "conclusão"
-            else -> "pergunta inicial"
-        }
-        val ctx = RagContext(
-            sectionTitle = target.title,
-            minutes = target.minutes,
-            passages = content.take(5).mapIndexed { pi, h ->
-                RagPassage(pi + 1, h.passage.text.take(300), h.source)
-            },
-            orientation = guideHits.firstOrNull()?.let {
-                RagOrientation(it.source, kindLabel)
-            },
-            history = recentHistory(),
-            taskKind = kindLabel
-        )
-        val prompt = buildRagPrompt(ctx)
-        val res = try {
-            llm.generate(prompt)
-        } catch (_: Exception) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "A IA local falhou. Tente novamente ou configure a chave em Modelo IA.")),
-                MessageOrigin.LOCAL)
-            return
-        }
-        val text = res.getOrNull()
-        if (text.isNullOrBlank() || hasRepetition(text)) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "A IA local não conseguiu compor. Tente novamente ou configure a chave em Modelo IA.")),
-                MessageOrigin.LOCAL)
-            return
-        }
-        val check = checkCitations(text, content.take(5).map { it.passage.text })
-        lastSection = target.title
-        lastExampleKind = null
-        lastWasDevelop = true
-        pendingAsk = null
-        val warn = if (check.ok) "" else "\n\n⚠️ Revise: ${check.violations.first()}"
         post(false, "text", ChatCodec.escMap(mapOf(
-            "text" to "Redigido com IA local (revise):\n\n$text$warn")),
-            MessageOrigin.LOCAL)
-    }
-
-    private fun ramTotal(): Long {
-        return try {
-            val am = app.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            val info = android.app.ActivityManager.MemoryInfo()
-            am.getMemoryInfo(info)
-            info.totalMem
-        } catch (_: Exception) {
-            0L
-        }
+            "text" to "Para compor texto, selecione o modelo local (Gemma) na tela Modelo IA " +
+                "ou configure uma chave de IA.")))
     }
 
     /** Últimas trocas resumidas em 1 linha para o prompt RAG. */

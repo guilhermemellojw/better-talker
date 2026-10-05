@@ -100,7 +100,7 @@ class QwenProvider(
                     "Sem conexão com o provedor.", id, attempts)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Structured concurrency: cancelamento deve propagar, não virar erro tipado.
-                // Alinhado ao padrão da Tarefa 1.3b (OutlineProposer) e de S34ImportHook.kt / LlmService.kt.
+                // Alinhado ao padrão da Tarefa 1.3b (OutlineProposer) e de S34ImportHook.kt.
                 // O throw imediato também pula o delay e a próxima iteração do retry.
                 throw e
             }

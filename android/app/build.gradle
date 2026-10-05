@@ -69,9 +69,6 @@ dependencies {
     // Leitura local PDF (BYOD, 100% offline). EPUB lido via java.util.zip (sem dep).
     implementation "com.tom-roush:pdfbox-android:${rootProject.ext.pdfBoxVersion}"
 
-    // LLM on-device (MediaPipe). Modelo .task baixado à parte (Fase 1).
-    implementation 'com.google.mediapipe:tasks-genai:0.10.35'
-
     // Firebase (Auth + Firestore) — runtime só ativa com google-services.json
     implementation platform("com.google.firebase:firebase-bom:${rootProject.ext.firebaseBomVersion}")
     implementation 'com.google.firebase:firebase-auth'
