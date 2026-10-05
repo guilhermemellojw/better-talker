@@ -151,9 +151,14 @@ object GroundednessVerifier {
         return out
     }
 
-    /** Normaliza para comparação: caixa, espaços e acentos. */
+    /**
+     * Normaliza para comparação: caixa, espaços, acentos e marcas de markdown
+     * (`*`, `#`, `>`) — o modelo pode enfatizar/titular dentro da citação, e
+     * sem isso `**"citação"**` não casava com o corpus (falso-positivo).
+     */
     internal fun normalize(s: String): String = s
         .lowercase()
+        .replace(Regex("[*#>]"), "")
         .replace(Regex("\\s+"), " ")
         .replace('á', 'a').replace('à', 'a').replace('â', 'a').replace('ã', 'a')
         .replace('é', 'e').replace('ê', 'e')

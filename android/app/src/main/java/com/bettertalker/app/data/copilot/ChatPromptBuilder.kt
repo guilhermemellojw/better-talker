@@ -166,7 +166,10 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "nem mencionar intents ou trilhos. Se a melhor ajuda for sugerir um novo texto para o " +
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
-        "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE
+        "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE +
+        // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
+        "\nAbra com 1 frase; use ## para seções, -/1. para listas, ** em 1-3 termos por item; " +
+        "feche com o próximo passo. Sem código, tabelas ou HTML."
 
 /**
  * Prompt do chat. Ordem: brief (histórico + continuidade + mensagem), foco,

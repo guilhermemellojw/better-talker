@@ -200,4 +200,20 @@ class ChatParityMatrixTest {
         assertFalse(ChatRunState.Error("x") is ChatRunState.Cancelled)
         assertFalse(ChatRunState.Error("x").blocksComposer)
     }
+
+    // ---------- T1 (polimento visual): instrução de markdown na cauda ----------
+
+    @Test
+    fun linha15_instrucaoDeMarkdownNaCaudaDoChat() {
+        val p = buildChatPrompt(
+            message = "explique", history = emptyList(), isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null, blockMinutes = null, blockText = "x"
+        )
+        assertTrue(p.contains("use ## para seções"))
+        assertTrue(p.contains("-/1. para listas"))
+        assertTrue(p.contains("Sem código, tabelas ou HTML"))
+        // A cauda fecha o prompt: a instrução é a última coisa enviada.
+        assertTrue(p.trimEnd().endsWith("Sem código, tabelas ou HTML."))
+    }
 }

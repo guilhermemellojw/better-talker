@@ -56,6 +56,40 @@ class GroundednessVerifierTest {
         assertFalse(r.hasRemovals)
     }
 
+    // ---------- T1 (polimento visual): markdown no gate ----------
+
+    @Test
+    fun negrito_dentro_de_citacao_valida_e_mantido() {
+        // O modelo pode enfatizar DENTRO das aspas; o gate não pode podar.
+        val resposta =
+            "A fonte diz: \"**Deus criou os humanos para viver uma vida perfeita, eterna, na Terra.**\""
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertFalse(r.hasRemovals)
+        assertEquals(resposta, r.text)
+    }
+
+    @Test
+    fun negrito_em_citacao_inventada_e_removido() {
+        val resposta = "O texto promete: \"**Todos os justos herdarão a terra para sempre.**\" Fim."
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("herdarão a terra"))
+    }
+
+    @Test
+    fun normalize_remove_marcas_de_markdown() {
+        assertEquals("gen 1:26", GroundednessVerifier.normalize("**Gên 1:26**"))
+        assertEquals("titulo da secao", GroundednessVerifier.normalize("## Título da seção"))
+        assertEquals("citacao em bloco", GroundednessVerifier.normalize("> citação em bloco"))
+    }
+
+    @Test
+    fun negrito_no_versiculo_valido_nao_gera_falso_positivo() {
+        val resposta = "Como **Gên 1:26** mostra, fomos criados para viver para sempre."
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertFalse(r.hasRemovals)
+    }
+
     @Test
     fun sem_fontes_nao_altera() {
         val resposta = "\"Qualquer coisa inventada aqui\" fica como está."
