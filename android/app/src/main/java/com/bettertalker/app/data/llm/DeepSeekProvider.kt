@@ -43,6 +43,21 @@ class DeepSeekProvider(
         }
         val prompts = deepSeekPromptsFor(request)
         val wantProposal = request.responseFormat == ResponseFormat.EDIT_PROPOSAL
+        // T1 (P0): resposta estruturada (proposta/oratória) usa cascata
+        // json_schema → json_object → texto puro — o DeepSeek pode rejeitar
+        // `response_format` json_schema (400 "unavailable now").
+        val structured = wantProposal || request.responseFormat == ResponseFormat.JSON_SCHEMA
+        val modes = if (structured) {
+            listOf(
+                DeepSeekStructuredMode.SCHEMA,
+                DeepSeekStructuredMode.JSON_OBJECT,
+                DeepSeekStructuredMode.TEXT,
+            )
+        } else {
+            listOf(DeepSeekStructuredMode.TEXT)
+        }
+        // Memória de sessão: schema já rejeitado antes → começa no fallback.
+        var modeIndex = if (structured && jsonSchemaRejected) 1 else 0
         // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
         // e devolver content vazio (finish_reason=length). Nesse caso o
         // provider refaz UMA vez com orçamento maior antes de falhar.
@@ -64,14 +79,16 @@ class DeepSeekProvider(
             var usageJson: String? = null
             var finish: String? = null
             LocalProgress.reset()
+            val mode = modes[modeIndex]
             val body = requestBody(
                 model = model,
-                system = prompts.first,
+                system = prompts.first.withStructuredInstruction(mode),
                 user = prompts.second,
                 maxOutputTokens = budget,
                 editProposal = wantProposal,
                 jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
                 reasoningEffort = reasoningEffort,
+                structured = mode,
             )
             try {
                 val res = withContext(Dispatchers.IO) {
@@ -124,8 +141,15 @@ class DeepSeekProvider(
                             throw ProviderError(ProviderErrorCode.INVALID_RESPONSE, msg, id, attempts)
                         }
                         LocalProgress.set(LocalPhase.Done)
+                        // T1: no modo texto puro o modelo pode vir com prosa em
+                        // volta do JSON; extrai o primeiro objeto balanceado.
+                        val finalText = if (structured && mode == DeepSeekStructuredMode.TEXT) {
+                            extractFirstJsonObject(text) ?: text
+                        } else {
+                            text
+                        }
                         return LlmResponse(
-                            text,
+                            finalText,
                             LlmResponseMeta(
                                 providerId = id,
                                 model = model,
@@ -156,6 +180,20 @@ class DeepSeekProvider(
                         ProviderErrorCode.AUTHENTICATION, "Chave de API inválida.", id, attempts
                     )
                     else -> {
+                        // T1 (P0): só a rejeição ESPECÍFICA de response_format
+                        // cai no fallback; 400 genérico propaga normalmente.
+                        if (structured && modeIndex < modes.lastIndex &&
+                            isResponseFormatUnavailable(res.body)
+                        ) {
+                            if (mode == DeepSeekStructuredMode.SCHEMA) jsonSchemaRejected = true
+                            modeIndex++
+                            log(
+                                "deepseek 400 response_format indisponível; " +
+                                    "fallback=${modes[modeIndex].name}"
+                            )
+                            attempts-- // fallback não consome retry transitório
+                            continue
+                        }
                         log("deepseek ${res.status} attempt=$attempts body=${res.body.take(200)}")
                         throw ProviderError(
                             ProviderErrorCode.INVALID_REQUEST, "Requisição rejeitada.", id, attempts
@@ -222,6 +260,8 @@ class DeepSeekProvider(
             jsonSchema: String? = null,
             reasoningEffort: String = REASONING_EFFORT,
             stream: Boolean = true,
+            /** T1 (P0): modo do `response_format` na cascata de fallback. */
+            structured: DeepSeekStructuredMode = DeepSeekStructuredMode.SCHEMA,
         ): String {
             val sb = StringBuilder("{\"model\":")
             sb.append(GeminiProvider.jsonEscape(model))
@@ -236,14 +276,22 @@ class DeepSeekProvider(
             if (stream) {
                 sb.append(",\"stream\":true,\"stream_options\":{\"include_usage\":true}")
             }
-            if (editProposal) {
-                sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
-                sb.append(QwenProvider.EDIT_PROPOSAL_SCHEMA)
-                sb.append("}")
-            } else if (jsonSchema != null) {
-                sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
-                sb.append(jsonSchema)
-                sb.append("}")
+            when (structured) {
+                DeepSeekStructuredMode.SCHEMA -> {
+                    if (editProposal) {
+                        sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
+                        sb.append(QwenProvider.EDIT_PROPOSAL_SCHEMA)
+                        sb.append("}")
+                    } else if (jsonSchema != null) {
+                        sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
+                        sb.append(jsonSchema)
+                        sb.append("}")
+                    }
+                }
+                DeepSeekStructuredMode.JSON_OBJECT -> {
+                    sb.append(",\"response_format\":{\"type\":\"json_object\"}")
+                }
+                DeepSeekStructuredMode.TEXT -> Unit
             }
             sb.append("}")
             return sb.toString()
@@ -284,7 +332,76 @@ class DeepSeekProvider(
                 ?: return null
             return m.groupValues[1].ifBlank { null }
         }
+
+        /**
+         * T1 (P0) — memória de sessão: o endpoint já rejeitou `json_schema`?
+         * Depois da primeira rejeição a cascata começa em `json_object` (evita
+         * repetir a tentativa que sabidamente falha). In-memory de propósito:
+         * vale para o processo; reinicia ao abrir o app.
+         */
+        @Volatile
+        var jsonSchemaRejected: Boolean = false
+
+        /**
+         * T1 (P0) — rejeição ESPECÍFICA de `response_format` (nunca 400
+         * genérico). Corpo real observado em 05/10/2026:
+         * `This response_format type is unavailable now`.
+         */
+        fun isResponseFormatUnavailable(body: String): Boolean {
+            val b = body.lowercase()
+            if (!b.contains("response_format")) return false
+            return b.contains("unavailable") || b.contains("not available") ||
+                b.contains("unsupported") || b.contains("not supported")
+        }
+
+        /**
+         * T1 (P0) — primeiro objeto `{...}` balanceado do texto (parse
+         * tolerante do modo texto puro, quando o modelo vem com prosa).
+         * Puro/testável.
+         */
+        fun extractFirstJsonObject(text: String): String? {
+            val start = text.indexOf('{')
+            if (start < 0) return null
+            var depth = 0
+            var inStr = false
+            var esc = false
+            for (i in start until text.length) {
+                val c = text[i]
+                if (inStr) {
+                    if (esc) esc = false
+                    else if (c == '\\') esc = true
+                    else if (c == '"') inStr = false
+                    continue
+                }
+                when (c) {
+                    '"' -> inStr = true
+                    '{' -> depth++
+                    '}' -> {
+                        depth--
+                        if (depth == 0) return text.substring(start, i + 1)
+                    }
+                }
+            }
+            return null
+        }
     }
+}
+
+/** T1 (P0): modo de resposta estruturada na cascata de fallback do DeepSeek. */
+enum class DeepSeekStructuredMode { SCHEMA, JSON_OBJECT, TEXT }
+
+/**
+ * T1 (P0) — instrução por modo: `json_object` exige "JSON" no prompt (contrato
+ * OpenAI-compatible); no modo texto puro pede-se JSON sem markdown.
+ */
+private fun String.withStructuredInstruction(mode: DeepSeekStructuredMode): String {
+    val extra = when (mode) {
+        DeepSeekStructuredMode.SCHEMA -> null
+        DeepSeekStructuredMode.JSON_OBJECT -> "Sua resposta deve ser um objeto JSON válido."
+        DeepSeekStructuredMode.TEXT ->
+            "Responda APENAS com JSON válido. Não use markdown, não use cercas de código."
+    } ?: return this
+    return if (isBlank()) extra else "$this\n$extra"
 }
 
 /** Evento interpretado de uma linha SSE. */

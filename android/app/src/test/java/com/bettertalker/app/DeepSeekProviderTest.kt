@@ -14,11 +14,13 @@ import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.SseEvent
 import com.bettertalker.app.data.edit.EditProposalMode
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
 import java.net.SocketTimeoutException
 
@@ -325,6 +327,112 @@ class DeepSeekProviderTest {
         // A parte volátil (user) muda entre turnos.
         assertFalse(
             b1.substringAfter("\"role\":\"user\"") == b2.substringAfter("\"role\":\"user\"")
+        )
+    }
+
+    // ---------- T1 (P0): fallback json_schema → json_object → texto puro ----------
+
+    /** Corpo real do 400 observado em 05/10/2026 (sem "json_schema" no texto). */
+    private val schemaUnavailable = LlmHttpClient.HttpResult(
+        400,
+        "{\"error\":{\"message\":\"This response_format type is unavailable now " +
+            "(request_id: x)\",\"type\":\"invalid_request_error\",\"code\":\"invalid_request_error\"}}"
+    )
+
+    private fun proposalReq(maxAttempts: Int = 1) = LlmRequest(
+        text = "corpo do bloco",
+        message = "desenvolva",
+        responseFormat = ResponseFormat.EDIT_PROPOSAL,
+        editMode = EditProposalMode.IMPROVE,
+        maxAttempts = maxAttempts,
+    )
+
+    @Before
+    fun limpaCacheSchema() {
+        DeepSeekProvider.jsonSchemaRejected = false
+    }
+
+    @After
+    fun restauraCacheSchema() {
+        DeepSeekProvider.jsonSchemaRejected = false
+    }
+
+    @Test
+    fun schemaIndisponivelCaiParaJsonObject() = runBlocking {
+        val http = FakeStream(mutableListOf(schemaUnavailable, okStream("{\"ok\":true}")))
+        val res = provider(http).generate(proposalReq())
+        assertEquals("{\"ok\":true}", res.text)
+        assertEquals(2, http.calls)
+        assertTrue(http.bodies[0].contains("\"type\":\"json_schema\""))
+        assertTrue(http.bodies[1].contains("\"response_format\":{\"type\":\"json_object\"}"))
+        assertFalse(http.bodies[1].contains("json_schema"))
+        assertTrue(http.bodies[1].contains("objeto JSON válido"))
+        assertTrue(DeepSeekProvider.jsonSchemaRejected)
+    }
+
+    @Test
+    fun jsonObjectIndisponivelCaiParaTextoPuroEExtraiJson() = runBlocking {
+        val comProsa = "Claro! Segue a proposta:\n{\"explanation\":\"x\",\"operations\":[]}\nFim."
+        val http = FakeStream(
+            mutableListOf(schemaUnavailable, schemaUnavailable, okStream(comProsa))
+        )
+        val res = provider(http).generate(proposalReq())
+        assertEquals("{\"explanation\":\"x\",\"operations\":[]}", res.text)
+        assertEquals(3, http.calls)
+        assertFalse(http.bodies[2].contains("response_format"))
+        assertTrue(http.bodies[2].contains("Responda APENAS com JSON válido"))
+    }
+
+    @Test
+    fun cachePulaSchemaNaProximaChamada() = runBlocking {
+        DeepSeekProvider.jsonSchemaRejected = true
+        val http = FakeStream(mutableListOf(okStream("{\"ok\":true}")))
+        provider(http).generate(proposalReq())
+        assertEquals(1, http.calls)
+        assertTrue(http.bodies[0].contains("\"response_format\":{\"type\":\"json_object\"}"))
+        assertFalse(http.bodies[0].contains("json_schema"))
+    }
+
+    @Test
+    fun erro400GenericoPropagaSemFallback() = runBlocking {
+        val generico = LlmHttpClient.HttpResult(400, "{\"error\":{\"message\":\"Bad request\"}}")
+        val http = FakeStream(mutableListOf(generico))
+        try {
+            provider(http).generate(proposalReq())
+            fail("esperava ProviderError")
+        } catch (e: ProviderError) {
+            assertEquals(com.bettertalker.app.data.copilot.ProviderErrorCode.INVALID_REQUEST, e.code)
+        }
+        assertEquals(1, http.calls)
+        assertTrue(http.bodies[0].contains("json_schema"))
+    }
+
+    @Test
+    fun chatNaoEstruturadoNaoTemResponseFormat() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("oi")))
+        val res = provider(http).generate(req())
+        assertEquals("oi", res.text)
+        assertFalse(http.bodies[0].contains("response_format"))
+    }
+
+    @Test
+    fun deteccaoDeRejeicaoEExtracaoJsonPuras() {
+        assertTrue(DeepSeekProvider.isResponseFormatUnavailable(schemaUnavailable.body))
+        assertTrue(
+            DeepSeekProvider.isResponseFormatUnavailable(
+                "{\"error\":\"response_format not supported\"}"
+            )
+        )
+        assertFalse(
+            DeepSeekProvider.isResponseFormatUnavailable("{\"error\":{\"message\":\"Bad request\"}}")
+        )
+        assertFalse(
+            DeepSeekProvider.isResponseFormatUnavailable("{\"error\":{\"message\":\"Invalid key\"}}")
+        )
+        assertNull(DeepSeekProvider.extractFirstJsonObject("sem json"))
+        assertEquals(
+            "{\"a\":{\"b\":1}}",
+            DeepSeekProvider.extractFirstJsonObject("texto {\"a\":{\"b\":1}} fim")
         )
     }
 }
