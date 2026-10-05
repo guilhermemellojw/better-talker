@@ -101,6 +101,40 @@ fun verificationCorpus(
     }
 }.filter { it.isNotBlank() }
 
+/**
+ * T2 — aviso não bloqueante de citações (padrão "⚠️ Revise"). `null` quando ok.
+ * Consome o verificador existente [com.bettertalker.app.data.ai.checkCitations].
+ * Puro/testável.
+ */
+fun citationRevisionNotice(text: String, corpus: List<String>): String? {
+    val check = com.bettertalker.app.data.ai.checkCitations(text, corpus)
+    if (check.ok) return null
+    return "⚠️ Revise: " + check.violations.first()
+}
+
+/**
+ * T2 — aviso não bloqueante de fidelidade oratória. `null` quando ok.
+ * Consome o verificador existente
+ * [com.bettertalker.app.data.copilot.OratoryFidelityCheck]. Puro/testável.
+ */
+fun fidelityRevisionNotice(
+    report: com.bettertalker.app.data.copilot.OratoryFidelityCheck.Report
+): String? {
+    if (report.ok) return null
+    val parts = buildList {
+        if (report.inventedReferences.isNotEmpty()) {
+            add("referências sem apoio: " + report.inventedReferences.joinToString(", "))
+        }
+        if (report.leakedReferences.isNotEmpty()) {
+            add("referências de outro ponto: " + report.leakedReferences.joinToString(", "))
+        }
+        if (report.unsupportedNumbers.isNotEmpty()) {
+            add("números sem apoio: " + report.unsupportedNumbers.joinToString(", "))
+        }
+    }
+    return "⚠️ Revise: " + parts.joinToString("; ")
+}
+
 /** Tópico do draft em edição (mesmo formato persistido nas mensagens). */
 typealias DraftSection = ChatCodec.DraftItem
 
@@ -1106,8 +1140,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             when (val r = com.bettertalker.app.data.edit.parseEditProposal(
                 res.text, blocks, targetId, mode
             )) {
-                is com.bettertalker.app.data.edit.ParseResult.Ok ->
-                    _proposal.value = ProposalUi(r.proposal, focus)
+                is com.bettertalker.app.data.edit.ParseResult.Ok -> {
+                    // T2 — fidelidade oratória (não bloqueante): confere refs e
+                    // números do TEXTO GERADO contra o Spec; não olha o foco
+                    // do usuário para não acusar números que já eram dele.
+                    val generated = r.proposal.operations.joinToString("\n\n") { op ->
+                        when (op) {
+                            is EditOperation.Insert -> stripHtmlToText(op.contentHtml)
+                            is EditOperation.Replace -> stripHtmlToText(op.contentHtml)
+                            is EditOperation.Delete -> ""
+                        }
+                    }.trim().ifBlank { renderAfterText(r.proposal, focus) }
+                    val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
+                        .check(generated, ready)
+                    val notice = fidelityRevisionNotice(fidelity)
+                    if (notice != null) {
+                        android.util.Log.w(
+                            "CopilotLLM",
+                            "oratória: aviso de fidelidade (invented=${fidelity.inventedReferences.size} " +
+                                "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
+                        )
+                    }
+                    _proposal.value = ProposalUi(r.proposal, focus, notice = notice)
+                }
                 is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
                     "A resposta do modelo veio em formato inválido. Tente gerar novamente."
                 )
@@ -1188,14 +1243,21 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão.
-        val verified = GroundednessVerifier.verify(text, verificationCorpus(turnContext))
+        val corpus = verificationCorpus(turnContext)
+        val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
             android.util.Log.w(
                 "CopilotLLM",
                 "chat remoto: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
             )
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to verified.text)), MessageOrigin.COPILOT)
+        // T2 — aviso não bloqueante de citações (padrão "⚠️ Revise").
+        val revision = citationRevisionNotice(verified.text, corpus)
+        if (revision != null) {
+            android.util.Log.w("CopilotLLM", "chat remoto: aviso de citação exibido")
+        }
+        val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
+        post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT)
     }
 
     /**
