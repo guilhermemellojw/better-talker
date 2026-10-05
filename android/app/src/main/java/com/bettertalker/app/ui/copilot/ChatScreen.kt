@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -116,6 +115,22 @@ fun ChatScreen(
                 l.visibleItemsInfo.lastOrNull()?.index == l.totalItemsCount - 1
         }
     }
+    // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
+    // "para o fim" (garante os botões da última resposta visíveis).
+    val runStateItems = runStateItemCount(
+        runState,
+        runState is ChatRunState.Generating &&
+            localPhase == LocalPhase.Generating && localPartial.isNotBlank()
+    )
+    val lastItemIndex = chatLastItemIndex(
+        messageCount = messages.size,
+        actionsCount = messages.count { hasMessageActions(it) },
+        hasContext = messages.isNotEmpty(),
+        hasTopicEmpty = messages.isEmpty() && chatScope != null,
+        hasProvenance = evidence.isNotEmpty(),
+        hasProposal = proposal != null,
+        runStateItems = runStateItems
+    )
 
     val outlinePicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
@@ -135,7 +150,10 @@ fun ChatScreen(
             // sem layout ainda (abertura): rola; só acumula se o usuário subiu
             val last = l.visibleItemsInfo.lastOrNull()?.index
             if (last == null || last == l.totalItemsCount - 1 || l.totalItemsCount == 0) {
-                listState.animateScrollToItem(messages.size - 1)
+                // T2 (Bug #13): alvo = ÚLTIMO item real da lista (item de ações da
+                // última resposta), não o topo da última mensagem — com resposta
+                // longa o topo deixava os botões fora da tela.
+                listState.animateScrollToItem(lastItemIndex)
             } else {
                 unseenCount++
             }
@@ -244,15 +262,23 @@ fun ChatScreen(
                             )
                         }
                     }
-                    items(messages, key = { it.id }) { m ->
-                        MessageBubble(
-                            item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
-                            headings = headings, sectionBusy = sectionBusy,
-                            liveSections = outlineSections,
-                            merges = merges, draft = draft,
-                            hasScope = chatScope != null,
-                            onOpenLibrary = onOpenLibrary
-                        )
+                    messages.forEach { m ->
+                        item(key = m.id) {
+                            MessageBubble(
+                                item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
+                                headings = headings, sectionBusy = sectionBusy,
+                                liveSections = outlineSections,
+                                merges = merges, draft = draft,
+                                onOpenLibrary = onOpenLibrary
+                            )
+                        }
+                        // T2 (Bug #13): ações em item PRÓPRIO — nunca ficam
+                        // cortadas/escondidas no fim de uma resposta longa.
+                        if (hasMessageActions(m)) {
+                            item(key = m.id + ":actions") {
+                                MessageActions(m, vm, hasScope = chatScope != null)
+                            }
+                        }
                     }
                     // Fontes e apoio: proveniência recolhível, discreta (§14).
                     if (evidence.isNotEmpty()) {
@@ -320,7 +346,7 @@ fun ChatScreen(
                 androidx.compose.material3.FilledTonalButton(
                     onClick = {
                         unseenCount = 0
-                        scope.launch { listState.animateScrollToItem(messages.size - 1) }
+                        scope.launch { listState.animateScrollToItem(lastItemIndex) }
                     },
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
                 ) { Text(if (unseenCount == 1) "Nova mensagem ↓" else "$unseenCount novas ↓") }
@@ -395,7 +421,6 @@ private fun MessageBubble(
     liveSections: List<OutlineSection>,
     merges: List<com.bettertalker.app.data.util.PastedOutlineAnalyzer.MergeSuggestion>,
     draft: List<DraftSection>,
-    hasScope: Boolean,
     onOpenLibrary: () -> Unit
 ) {
     if (item.fromMe) {
@@ -425,22 +450,77 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> {
-                ChatMessageText(item.text)
-                // Fase 18 §21: sugestão conversacional vira proposta F5.
-                androidx.compose.material3.TextButton(
-                    onClick = { vm.createProposal(item.id) }
-                ) { Text("Criar proposta") }
-                // F2.3: manda a resposta para o tópico em foco (roteamento
-                // pelo alvo atual; sem foco, cai no comportamento legado).
-                if (hasScope) {
-                    androidx.compose.material3.TextButton(
-                        onClick = { vm.insertTextIntoScope(item.text) }
-                    ) { Text("Inserir no tópico") }
-                }
-            }
+            else -> ChatMessageText(item.text)
         }
     }
+}
+
+/**
+ * T2 (Bug #13): ações de uma resposta do Copilot em composable/item PRÓPRIO
+ * (fora do bubble) — resposta longa não consegue mais escondê-las no fim do
+ * item; o auto-scroll mira este item (último da lista).
+ */
+@Composable
+private fun MessageActions(
+    item: CopilotViewModel.ChatItem,
+    vm: CopilotViewModel,
+    hasScope: Boolean
+) {
+    Column(Modifier.fillMaxWidth()) {
+        // Fase 18 §21: sugestão conversacional vira proposta F5.
+        TextButton(
+            onClick = { vm.createProposal(item.id) }
+        ) { Text("Criar proposta") }
+        // F2.3: manda a resposta para o tópico em foco (roteamento
+        // pelo alvo atual; sem foco, cai no comportamento legado).
+        if (hasScope) {
+            TextButton(
+                onClick = { vm.insertTextIntoScope(item.text) }
+            ) { Text("Inserir no tópico") }
+        }
+    }
+}
+
+/** T2 (Bug #13): kinds sem ações (têm corpo próprio); só texto do Copilot tem. */
+private val ACTIONLESS_KINDS = setOf("ideas", "refs", "bases", "sections", "draft")
+
+/** T2 (Bug #13): resposta do Copilot de texto corrido → tem item de ações. */
+internal fun hasMessageActions(item: CopilotViewModel.ChatItem): Boolean =
+    !item.fromMe && item.kind !in ACTIONLESS_KINDS
+
+/**
+ * T2 (Bug #13): itens do estado de execução no fim da lista (espelha o
+ * `when (runState)` do LazyColumn). Puro/testável.
+ */
+internal fun runStateItemCount(runState: ChatRunState, partialVisible: Boolean): Int =
+    when (runState) {
+        is ChatRunState.Sending -> 1
+        is ChatRunState.Generating -> if (partialVisible) 2 else 1
+        is ChatRunState.Error, is ChatRunState.Cancelled -> 1
+        else -> 0
+    }
+
+/**
+ * T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll ao
+ * fim. Espelha a ordem real dos itens (contexto, mensagens+ações, fontes,
+ * proposta, estados). Puro/testável.
+ */
+internal fun chatLastItemIndex(
+    messageCount: Int,
+    actionsCount: Int,
+    hasContext: Boolean,
+    hasTopicEmpty: Boolean,
+    hasProvenance: Boolean,
+    hasProposal: Boolean,
+    runStateItems: Int
+): Int {
+    val total = (if (hasContext) 1 else 0) +
+        (if (hasTopicEmpty) 1 else 0) +
+        messageCount + actionsCount +
+        (if (hasProvenance) 1 else 0) +
+        (if (hasProposal) 1 else 0) +
+        runStateItems
+    return (total - 1).coerceAtLeast(0)
 }
 
 /** T3 — texto exibido após remover as tags de criação + flag do badge. */
