@@ -29,6 +29,7 @@ import com.bettertalker.app.data.edit.parseEditProposal
 import com.bettertalker.app.data.edit.renderAfterText
 import com.bettertalker.app.data.edit.stripHtmlToText
 import com.bettertalker.app.data.edit.validateEditProposal
+import com.bettertalker.app.data.llm.GroundednessVerifier
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.llm.ProviderFactory
 import com.bettertalker.app.data.llm.ResponseFormat
@@ -75,6 +76,30 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 data class InsertRequest(val text: String, val heading: String?, val nonce: Long = System.nanoTime())
+
+/**
+ * T1 — corpus efetivamente injetado no prompt do turno (CONTENT + TRAINING +
+ * estrutura do S-34: objetivo, conteúdo do ponto focado, subpontos e refs).
+ * É contra ele que o pós-filtro de alucinação do chat confere a resposta.
+ * Puro/testável.
+ */
+fun verificationCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext
+): List<String> = buildList {
+    turnContext.pack.contentSources.forEach { add(it.text) }
+    turnContext.pack.trainingSources.forEach { add(it.text) }
+    turnContext.structural?.let { s ->
+        s.objective?.let { add(it) }
+        s.currentSection?.let { sec ->
+            add(sec.content)
+            sec.subsections.forEach { sub ->
+                add(sub.content)
+                sub.references.forEach { add(it.rawText) }
+            }
+            sec.references.forEach { add(it.rawText) }
+        }
+    }
+}.filter { it.isNotBlank() }
 
 /** Tópico do draft em edição (mesmo formato persistido nas mensagens). */
 typealias DraftSection = ChatCodec.DraftItem
@@ -1160,7 +1185,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // "stop" prematuro). Trunca até a última frase completa — nunca
         // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
         val text = truncateIfCut(res.text, res.meta.finishReason)
-        post(false, "text", ChatCodec.escMap(mapOf("text" to text)), MessageOrigin.COPILOT)
+        // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
+        // confere citações/refs contra o corpus injetado. Não bloqueia: remove
+        // só frases claramente sem apoio e anexa o aviso padrão.
+        val verified = GroundednessVerifier.verify(text, verificationCorpus(turnContext))
+        if (verified.hasRemovals) {
+            android.util.Log.w(
+                "CopilotLLM",
+                "chat remoto: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+            )
+        }
+        post(false, "text", ChatCodec.escMap(mapOf("text" to verified.text)), MessageOrigin.COPILOT)
     }
 
     /**
