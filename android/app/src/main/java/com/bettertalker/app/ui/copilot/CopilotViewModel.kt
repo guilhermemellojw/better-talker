@@ -40,6 +40,7 @@ import com.bettertalker.app.data.verify.TextVerification
 import com.bettertalker.app.data.verify.verifyText
 import com.bettertalker.app.data.repo.CopilotRepository
 import com.bettertalker.app.data.repo.IdeaCard
+import com.bettertalker.app.data.repo.ImportException
 import com.bettertalker.app.data.repo.OutlineRepository
 import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.childTitles
@@ -2387,8 +2388,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // T1 (Bug #8): S-34 importado precisa persistir na estrutura
             // (s34_*), não só no draft legado. Nunca derruba o import.
             persistS34FromImport(uri, preview.fileName)
-        } catch (_: Exception) {
-            // Sem consumidor de UI para erro de import: falha silenciosa.
+        } catch (e: ImportException) {
+            // T2: falha de import visível (nada de silêncio).
+            android.util.Log.i("Import", "falha no import: reason=${e.reason}")
+            postText(importFailureMessage(e))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Import", "falha inesperada no import: ${e.javaClass.simpleName}")
+            postText(importFailureMessage(e))
         }
     }
 
@@ -2401,20 +2409,31 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * O texto bruto é re-extraído do URI (o preview não o expõe).
      */
     private suspend fun persistS34FromImport(uri: Uri, fileName: String) {
-        val nid = noteId ?: return
+        val nid = noteId
+        if (nid == null) {
+            android.util.Log.i("S34Import", "chat import: sem nota em foco; S-34 não persistido")
+            return
+        }
         val kind = try {
             detectKind(fileName)
         } catch (_: Exception) {
+            android.util.Log.i("S34Import", "chat import: kind não detectado ($fileName)")
             return
         }
-        if (!DocExtractors.supports(kind)) return
+        if (!DocExtractors.supports(kind)) {
+            android.util.Log.i("S34Import", "chat import: kind não suportado ($kind)")
+            return
+        }
         val raw = try {
             val tmp = java.io.File(app.cacheDir, "s34-${System.currentTimeMillis()}-$fileName")
             val copied = app.contentResolver.openInputStream(uri)?.use { ins ->
                 tmp.outputStream().use { out -> ins.copyTo(out) }
                 true
             } ?: false
-            if (!copied) return
+            if (!copied) {
+                android.util.Log.i("S34Import", "chat import: cópia falhou ($fileName)")
+                return
+            }
             try {
                 DocExtractors.extract(app, tmp, kind)
             } finally {
@@ -2422,10 +2441,18 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.i(
+                "S34Import",
+                "chat import: extração falhou (${e.javaClass.simpleName})"
+            )
             return
         }
-        if (raw.isBlank() || !S34Detector.isS34(raw, fileName)) return
+        if (raw.isBlank() || !S34Detector.isS34(raw, fileName)) {
+            // Normal para esboços que não são S-34: segue só com o draft legado.
+            android.util.Log.i("S34Import", "chat import: não é S-34 (segue só o draft)")
+            return
+        }
         val existing = db.attachmentDao().all()
             .firstOrNull { it.noteId == nid && it.fileName == fileName }
         val attId = existing?.id ?: newId("att")
@@ -2446,6 +2473,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
         val outcome = S34ImportHook.onExtracted(db.s34Dao(), attId, raw, fileName = fileName)
         android.util.Log.i("S34Import", "chat import outcome=$outcome attachment=$attId")
+        if (outcome is S34ImportHook.Outcome.ParseFailed) {
+            // T2: detectado como S-34 mas sem estrutura extraível — visível.
+            postText(S34_PARSE_FAILURE_MESSAGE)
+        }
     }
 
     fun pasteOutline(text: String) = viewModelScope.launch {
@@ -2792,3 +2823,17 @@ internal fun shouldDegradeOratoryToChat(
     hasS34Document: Boolean,
     hasLinkedOutline: Boolean,
 ): Boolean = !hasS34Document && hasLinkedOutline
+
+/**
+ * T2 — mensagem visível de falha de import (pura/testável). Usa o texto do
+ * [com.bettertalker.app.data.repo.ImportException] quando ele é humano
+ * (ex.: formato não suportado); senão, orientação genérica.
+ */
+internal fun importFailureMessage(e: Throwable): String =
+    (e as? com.bettertalker.app.data.repo.ImportException)
+        ?.message?.takeIf { it.isNotBlank() }
+        ?: "Não consegui importar o esboço. Tente converter para DOCX, PDF ou RTF."
+
+/** T2 — S-34 detectado, mas sem estrutura extraível (parser não achou seções). */
+internal const val S34_PARSE_FAILURE_MESSAGE =
+    "Detectei um esboço S-34, mas não consegui extrair as seções. Verifique o formato."
