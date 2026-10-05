@@ -1,6 +1,9 @@
 package com.bettertalker.app
 
+import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.domain.ContextPack
+import com.bettertalker.app.data.domain.EvidenceSource
+import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.llm.DeepSeekStreamClient
 import com.bettertalker.app.data.llm.GeminiProvider
@@ -233,5 +236,49 @@ class DeepSeekProviderTest {
         p.generate(req())
         assertTrue(http.bodies.single().contains("\"model\":\"deepseek-v4-pro\""))
         assertFalse(http.bodies.single().contains("\"model\":\"deepseek-flash\""))
+    }
+
+    // ---------- T2: prefixo estável (cache persistente) ----------
+
+    private fun ev(id: String, reference: String) = EvidenceSource(
+        id = id, reference = reference, text = "texto $id", sourceType = SourceType.CONTENT,
+        publication = null, section = null, paragraph = null, page = null
+    )
+
+    @Test
+    fun prefixoEstavelEntreTurnos() = runBlocking {
+        val packTurn1 = ContextPack(
+            contentSources = listOf(ev("b", "ref-b"), ev("a", "ref-a")),
+            trainingSources = emptyList()
+        )
+        val packTurn2 = ContextPack(
+            contentSources = listOf(ev("a", "ref-a"), ev("b", "ref-b")),
+            trainingSources = emptyList()
+        )
+        val http = FakeStream(mutableListOf(okStream("r1"), okStream("r2")))
+        val p = provider(http)
+        p.generate(
+            req(message = "primeira pergunta").copy(
+                contextPack = packTurn1, history = emptyList(), isFirstMessage = true
+            )
+        )
+        p.generate(
+            req(message = "segunda pergunta").copy(
+                contextPack = packTurn2,
+                history = listOf(ChatTurn(true, "primeira pergunta")),
+                isFirstMessage = false,
+            )
+        )
+        val b1 = http.bodies[0]
+        val b2 = http.bodies[1]
+        // Prefixo idêntico desde o token 0 (system) apesar do turno/histórico novos.
+        assertEquals(b1.substringBefore("\"role\":\"user\""), b2.substringBefore("\"role\":\"user\""))
+        // Fontes em ordem estável por id, independente da ordem de entrada.
+        assertTrue(b1.indexOf("ref-a") < b1.indexOf("ref-b"))
+        assertTrue(b2.indexOf("ref-a") < b2.indexOf("ref-b"))
+        // A parte volátil (user) muda entre turnos.
+        assertFalse(
+            b1.substringAfter("\"role\":\"user\"") == b2.substringAfter("\"role\":\"user\"")
+        )
     }
 }

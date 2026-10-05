@@ -359,7 +359,9 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
         )
         "" to user
     } else {
-        val user = com.bettertalker.app.data.copilot.buildChatPrompt(
+        // T2 — caminho de chat: prefixo estável (system) para o cache persistente;
+        // o dossiê entra no system (estável dentro do mesmo tópico).
+        val parts = com.bettertalker.app.data.copilot.buildDeepSeekPrompts(
             message = request.message.ifBlank { request.text },
             history = request.history,
             isFirstMessage = request.isFirstMessage,
@@ -370,9 +372,10 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             blockText = request.text,
             legacyPassages = request.contextPassages,
             structural = request.structural,
-            oratory = request.oratory
+            oratory = request.oratory,
+            contextBlock = request.contextBlock,
         )
-        "" to user
+        return parts.system to parts.user
     }
     val block = request.contextBlock?.takeIf { it.isNotBlank() } ?: return base
     return base.first to ("## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$block\n\n" + base.second)
