@@ -10,10 +10,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,6 +33,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -612,17 +616,26 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                         else FontWeight.Bold,
                         lineHeight = if (block.level >= 3) 22.sp else 26.sp
                     )
-                    is MdBlock.Quote -> Row {
+                    is MdBlock.Quote -> Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                MaterialTheme.shapes.small
+                            )
+                            .padding(vertical = 6.dp)
+                    ) {
                         Box(
                             Modifier
                                 .width(4.dp)
-                                .padding(vertical = 2.dp)
+                                .fillMaxHeight()
                                 .background(
                                     MaterialTheme.colorScheme.primary,
                                     MaterialTheme.shapes.small
                                 )
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             inline(block.text),
                             style = MaterialTheme.typography.bodyLarge,
@@ -631,12 +644,18 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                         )
                     }
+                    is MdBlock.Divider -> HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 2.dp),
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                    )
                     is MdBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
                         Text(
                             // T2: lista ordenada preserva o número; bullet comum segue "•".
                             block.number?.let { "$it.  " } ?: "•  ",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.widthIn(min = 26.dp)
                         )
                         Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp)
                     }
@@ -645,7 +664,8 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                             if (block.done) "☑  " else "☐  ",
                             style = MaterialTheme.typography.bodyLarge,
                             color = if (block.done) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.secondary
+                            else MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.widthIn(min = 26.dp)
                         )
                         Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp)
                     }

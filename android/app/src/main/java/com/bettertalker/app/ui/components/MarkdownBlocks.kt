@@ -1,7 +1,9 @@
 package com.bettertalker.app.ui.components
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -20,10 +22,13 @@ sealed interface MdBlock {
     data class Bullet(val text: String, val number: Int? = null) : MdBlock
     data class Check(val done: Boolean, val text: String) : MdBlock
     data class Para(val text: String) : MdBlock
+    /** T4 — `---` vira linha divisória (antes renderizava literal). */
+    data object Divider : MdBlock
 }
 
 private val CHECK_RE = Regex("^-[ \\t]*\\[([ xX])\\][ \\t]*(.*)$")
 private val ORDERED_RE = Regex("^(\\d{1,3})[.)]\\s+(.*)$")
+private val HR_RE = Regex("^-{3,}$")
 
 fun parseBlocks(md: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
@@ -43,6 +48,7 @@ fun parseBlocks(md: String): List<MdBlock> {
                 val level = t.takeWhile { it == '#' }.length.coerceIn(1, 3)
                 out += MdBlock.Title(level, t.drop(level).trim())
             }
+            HR_RE.matches(t) -> { flush(); out += MdBlock.Divider }
             t.startsWith(">") -> { flush(); out += MdBlock.Quote(t.drop(1).trim()) }
             CHECK_RE.matches(t) -> {
                 flush()
@@ -82,14 +88,22 @@ internal fun isJwUrl(url: String): Boolean {
 }
 
 @Composable
-fun inline(text: String) = remember(text) { buildInline(text) }
+fun inline(text: String): androidx.compose.ui.text.AnnotatedString {
+    // Cor lida fora do remember (leitura composable não pode viver no lambda).
+    val codeBackground = MaterialTheme.colorScheme.surfaceVariant
+    return remember(text, codeBackground) { buildInline(text, codeBackground) }
+}
 
 /**
- * T2/T3 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico),
- * `código` em monoespaçado e links markdown `[texto](url)` (clicáveis apenas
- * para jw.org; outros domínios ficam sublinhados e inertes). Puro/testável.
+ * T2/T3/T4 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico),
+ * `código` em monoespaçado (com fundo [codeBackground]) e links markdown
+ * `[texto](url)` (clicáveis apenas para jw.org; outros domínios ficam
+ * sublinhados e inertes). Puro/testável.
  */
-fun buildInline(text: String): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
+fun buildInline(
+    text: String,
+    codeBackground: Color = Color.Unspecified
+): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     var i = 0
     var bold = false
     var italic = false
@@ -100,7 +114,9 @@ fun buildInline(text: String): androidx.compose.ui.text.AnnotatedString = buildA
         val s = buf.toString()
         buf.clear()
         when {
-            mono -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(s) }
+            mono -> withStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
+            ) { append(s) }
             bold && italic -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(s) }
             bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(s) }
             italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(s) }

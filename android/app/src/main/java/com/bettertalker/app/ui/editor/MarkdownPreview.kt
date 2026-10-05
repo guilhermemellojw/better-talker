@@ -82,6 +82,11 @@ fun MarkdownPreview(md: String, modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(vertical = 2.dp)
                 )
+                is MdBlock.Divider -> androidx.compose.material3.HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                )
             }
             Spacer(Modifier.height(2.dp))
         }

@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.components
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -116,5 +117,35 @@ class MarkdownBlocksTest {
     fun parcialComTituloPelaMetadeNaoQuebra() {
         val blocks = parseBlocks("## ")
         assertTrue(blocks.first() is MdBlock.Title)
+    }
+
+    // ---------- T4: acabamento (divider, código com fundo) ----------
+
+    @Test
+    fun dividerEhReconhecidoENaoViraParagrafo() {
+        val blocks = parseBlocks("antes\n---\ndepois")
+        assertEquals(3, blocks.size)
+        assertEquals(MdBlock.Para("antes"), blocks[0])
+        assertEquals(MdBlock.Divider, blocks[1])
+        assertEquals(MdBlock.Para("depois"), blocks[2])
+        // Duas barras não são divider (evita falso-positivo).
+        assertTrue(parseBlocks("--").first() is MdBlock.Para)
+    }
+
+    @Test
+    fun codigoInlineTemFundo() {
+        val bg = Color(0xFF123456)
+        val a = buildInline("use `x` aqui", codeBackground = bg)
+        val span = a.spanStyles.firstOrNull { it.item.fontFamily == FontFamily.Monospace }
+        assertNotNull("esperava span mono", span)
+        assertEquals(bg, span!!.item.background)
+    }
+
+    @Test
+    fun codigoInlineSemFundoExplicitoContinuaMono() {
+        val a = buildInline("`y`")
+        val span = a.spanStyles.firstOrNull { it.item.fontFamily == FontFamily.Monospace }
+        assertNotNull("esperava span mono", span)
+        assertEquals(Color.Unspecified, span!!.item.background)
     }
 }
