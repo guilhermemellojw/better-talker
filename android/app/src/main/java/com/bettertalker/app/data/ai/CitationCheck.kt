@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.ai
 
+import com.bettertalker.app.data.llm.inSuggestion
+import com.bettertalker.app.data.llm.suggestionSpans
 import com.bettertalker.app.data.util.normalizeText
 
 /**
@@ -36,8 +38,12 @@ fun checkCitations(generated: String, passages: List<String>): CitationCheck {
         if (normPassages.none { it.contains(v) }) problems += "versículo fora dos trechos: ${m.value}"
     }
     // aspas longas precisam estar nos trechos (tolera pontuação; "" e “”)
+    // T2: em trecho marcado como criação (〈sugestão〉), a prosa é isenta;
+    // versículo e citação [n] continuam checados (linhas acima) — regra de ouro.
+    val spans = suggestionSpans(generated)
     val quoteRe = Regex("[\"“]([^\"”]{20,})[\"”]")
     for (m in quoteRe.findAll(generated)) {
+        if (inSuggestion(m.range.first, spans)) continue
         val q = normalizeText(m.groupValues[1])
         val words = q.split(" ").filter { it.length > 2 }
         if (words.size >= 8 && normPassages.none { p -> words.count { p.contains(it) } >= 6 }) {

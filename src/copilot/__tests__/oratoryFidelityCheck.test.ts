@@ -50,6 +50,29 @@ describe('oratoryFidelityCheck', () => {
     expect(rep.leakedReferences.some((x) => x.includes('Hebreus'))).toBe(true);
   });
 
+  // ---------- T2: marcador 〈sugestão〉 ----------
+
+  it('vazamento dentro de 〈sugestão〉 é ignorado (criação pode conectar pontos)', () => {
+    const v = scopeToS34Section(doc, 'sec-2')!;
+    const r = oratorySpec('transition', doc, v, 'insert');
+    if (r.kind !== 'ready') throw new Error('esperado ready');
+    const rep = checkOratoryFidelity('〈sugestão〉Depois veremos Hebreus 10:23.〈/sugestão〉', r.spec);
+    expect(rep.leakedReferences).toEqual([]);
+    expect(rep.inventedReferences).toEqual([]);
+  });
+
+  it('versículo inventado dentro de 〈sugestão〉 continua contado', () => {
+    const rep = checkOratoryFidelity('〈sugestão〉Como Mateus 24:14 diz, siga firme.〈/sugestão〉', spec());
+    expect(rep.inventedReferences.some((x) => x.includes('Mateus'))).toBe(true);
+    expect(rep.ok).toBe(false);
+  });
+
+  it('número sem apoio dentro de 〈sugestão〉 continua contado', () => {
+    const rep = checkOratoryFidelity('〈sugestão〉Cerca de 73% das pessoas concordam.〈/sugestão〉', spec());
+    expect(rep.unsupportedNumbers).toContain('73');
+    expect(rep.ok).toBe(false);
+  });
+
   // ---------- §39: números ----------
 
   it('número sem apoio é reportado', () => {

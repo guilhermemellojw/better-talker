@@ -18,6 +18,29 @@ data class VerificationResult(
     val hasRemovals: Boolean get() = removed.isNotEmpty()
 }
 
+// ---------- T2: marcador de criação (〈sugestão〉…〈/sugestão〉) ----------
+
+const val SUGGESTION_OPEN = "〈sugestão〉"
+const val SUGGESTION_CLOSE = "〈/sugestão〉"
+
+/** T2 — intervalos do CONTEÚDO dentro de 〈sugestão〉…〈/sugestão〉 (sem as tags). */
+fun suggestionSpans(text: String): List<IntRange> {
+    val out = mutableListOf<IntRange>()
+    var i = 0
+    while (true) {
+        val open = text.indexOf(SUGGESTION_OPEN, i)
+        if (open < 0) break
+        val close = text.indexOf(SUGGESTION_CLOSE, open + SUGGESTION_OPEN.length)
+        if (close < 0) break
+        out += (open + SUGGESTION_OPEN.length) until close
+        i = close + SUGGESTION_CLOSE.length
+    }
+    return out
+}
+
+/** T2 — posição dentro de algum trecho marcado como criação? Puro/testável. */
+fun inSuggestion(pos: Int, spans: List<IntRange>): Boolean = spans.any { pos in it }
+
 object GroundednessVerifier {
 
     /** Citações curtas são ruído (ex.: "sim"); só valem a partir daqui. */
@@ -31,22 +54,52 @@ object GroundednessVerifier {
         RegexOption.DOT_MATCHES_ALL,
     )
     private val REF = Regex("(?i)\\b(p[áa]gina|par[áa]grafo|cap[íi]tulo)\\s*(n[.ºo°]*\\s*)?(\\d+)")
+    /** T2 — versículo citado ("Gên 1:26"): nunca isento, nem em criação. */
+    private val VERSE = Regex("""\b((?:[1-3]\s+)?[A-Za-zÀ-ÿ]+)\s+(\d{1,3})\s*:\s*(\d{1,3})\b""")
+    /** T2 — número com 2+ dígitos: nunca isento, nem em criação. */
+    private val NUMBER = Regex("""\b(\d{1,4}(?:[.,]\d{1,2})?)\b""")
 
     fun verify(text: String, sources: List<String>): VerificationResult {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())
         val corpus = sources.map(::normalize).filter { it.isNotBlank() }
         if (corpus.isEmpty()) return VerificationResult(text, emptyList())
+        val spans = suggestionSpans(text)
 
         val ranges = mutableListOf<IntRange>()
         QUOTE.findAll(text).forEach { m ->
+            // T2: prosa criativa marcada é isenta; criação sem marcador continua gate normal.
+            if (inSuggestion(m.range.first, spans)) return@forEach
             val quote = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
             if (quote.length >= MIN_QUOTE_CHARS && corpus.none { it.contains(normalize(quote)) }) {
                 ranges += sentenceAround(text, m.range)
             }
         }
         REF.findAll(text).forEach { m ->
+            if (inSuggestion(m.range.first, spans)) return@forEach
             if (corpus.none { it.contains(normalize(m.value)) }) {
                 ranges += sentenceAround(text, m.range)
+            }
+        }
+        // T2 — dentro de 〈sugestão〉 a prosa é isenta, mas versículo e número NÃO:
+        // invenção de dado nunca passa por ser "criação".
+        for (span in spans) {
+            val slice = text.substring(span.first, span.last + 1)
+            val verseRanges = mutableListOf<IntRange>()
+            VERSE.findAll(slice).forEach { m ->
+                val g = (span.first + m.range.first)..(span.first + m.range.last)
+                verseRanges += g
+                if (corpus.none { it.contains(normalize(m.value)) }) {
+                    ranges += sentenceAround(text, g)
+                }
+            }
+            NUMBER.findAll(slice).forEach { m ->
+                val n = m.groupValues[1]
+                if (n.length <= 1) return@forEach
+                val g = (span.first + m.range.first)..(span.first + m.range.last)
+                if (verseRanges.any { g.first in it }) return@forEach
+                if (corpus.none { it.contains(normalize(n)) }) {
+                    ranges += sentenceAround(text, g)
+                }
             }
         }
         if (ranges.isEmpty()) return VerificationResult(text, emptyList())

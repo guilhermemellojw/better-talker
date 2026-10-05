@@ -8,6 +8,7 @@
 
 import type { S34RefType } from './s34Parser';
 import type { OratorySpec } from './oratoryGeneration';
+import { isInsideSuggestion, suggestionSpans } from './claimExtractor';
 
 export interface OratoryFidelityReport {
   /** Referências citadas que não pertencem ao contexto autorizado. */
@@ -36,15 +37,24 @@ export function checkOratoryFidelity(generatedText: string, spec: OratorySpec): 
   const invented: string[] = [];
   const leaked: string[] = [];
 
-  const collect = (cited: string) => {
+  // T2 — vazamento do ponto seguinte DENTRO de 〈sugestão〉 não é falha factual
+  // (criação pode conectar pontos), mas referência inventada e número sem
+  // apoio continuam contando (regra de ouro: prosa isenta, nunca dado/ref).
+  const spans = suggestionSpans(generatedText);
+
+  const collect = (cited: string, pos: number) => {
     const key = normalizeRef(cited);
     if (allowedLabels.some((l) => l.includes(key))) return;
-    if (otherLabels.some((l) => l.includes(key) || key.includes(l))) leaked.push(cited);
-    else invented.push(cited);
+    if (otherLabels.some((l) => l.includes(key) || key.includes(l))) {
+      if (isInsideSuggestion(pos, spans)) return;
+      leaked.push(cited);
+      return;
+    }
+    invented.push(cited);
   };
 
-  for (const m of generatedText.matchAll(VERSE_RE)) collect(m[0]);
-  for (const m of generatedText.matchAll(PUB_RE)) collect(m[0]);
+  for (const m of generatedText.matchAll(VERSE_RE)) collect(m[0], m.index ?? 0);
+  for (const m of generatedText.matchAll(PUB_RE)) collect(m[0], m.index ?? 0);
 
   const authorized = [
     spec.current?.content ?? '',

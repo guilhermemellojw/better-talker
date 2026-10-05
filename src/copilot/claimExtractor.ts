@@ -6,6 +6,29 @@ import type { ClaimType, ExtractedClaim } from './domain';
 
 export const MAX_CLAIMS_PER_TEXT = 20;
 
+/** T2 — intervalos do CONTEÚDO dentro de 〈sugestão〉…〈/sugestão〉 (sem as tags). */
+export function suggestionSpans(text: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const src = text || '';
+  const OPEN = '〈sugestão〉';
+  const CLOSE = '〈/sugestão〉';
+  let i = 0;
+  while (true) {
+    const open = src.indexOf(OPEN, i);
+    if (open < 0) break;
+    const close = src.indexOf(CLOSE, open + OPEN.length);
+    if (close < 0) break;
+    out.push([open + OPEN.length, close]);
+    i = close + CLOSE.length;
+  }
+  return out;
+}
+
+/** T2 — posição dentro de algum trecho marcado como criação? Puro. */
+export function isInsideSuggestion(pos: number, spans: Array<[number, number]>): boolean {
+  return spans.some(([a, b]) => pos >= a && pos < b);
+}
+
 const QUESTION_START = /^(quem|o que|qual|quais|como|quando|onde|por ?que|será|e se|acaso)\b/i;
 const IMAGINE = /^(imagine|considere|suponha|feche os olhos|pense em|visualize)\b/i;
 const APPLICATION = /(isso (pode )?nos ajud|podemos aplicar|devemos|que possamos|nos ajuda a|vamos aplicar|ponha em prática|coloque em prática)/i;
@@ -75,8 +98,23 @@ function splitCompound(sentence: string, base: number): Array<{ text: string; st
   return parts.length > 0 ? parts : [{ text: sentence, start: base }];
 }
 
-function classifyType(sentence: string): ClaimType {
+function classifyType(sentence: string, start: number, spans: Array<[number, number]>): ClaimType {
   const t = sentence.trim();
+  // T2 — criação marcada (〈sugestão〉): prosa vira 'creative' (isenta de
+  // retrieval), mas versículo e número continuam pelo gate normal — nunca
+  // são isentos por serem "criação". O teste é de sobreposição: a frase pode
+  // começar na própria tag de abertura.
+  const end = start + t.length;
+  const marked = spans.some(([a, b]) => start < b && end > a);
+  if (marked) {
+    try {
+      if (detectCitations(t, 'tmp').length > 0) return 'biblical';
+    } catch {
+      // detector indisponível: cai no critério de número abaixo.
+    }
+    if (hasNumber(t)) return 'factual';
+    return 'creative';
+  }
   if (/\?$/.test(t) || QUESTION_START.test(t)) return 'rhetorical';
   if (IMAGINE.test(t)) return 'creative';
   if (APPLICATION.test(t)) return 'application';
@@ -117,9 +155,10 @@ export function extractClaims(text: string, blockId?: string): ExtractedClaim[] 
     });
   };
 
+  const spans = suggestionSpans(text || '');
   for (const s of splitSentencesWithOffsets(text || '')) {
     for (const part of splitCompound(s.text, s.start)) {
-      const type = classifyType(part.text);
+      const type = classifyType(part.text, part.start, spans);
       push(part.text, part.start, type);
       // §18: aplicação com dado específico gera sub-claim factual do número.
       if (type === 'application' && hasNumber(part.text)) {

@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.llm.inSuggestion
+import com.bettertalker.app.data.llm.suggestionSpans
 import com.bettertalker.app.data.s34.S34RefType
 
 /**
@@ -52,18 +54,24 @@ object OratoryFidelityCheck {
 
         val invented = mutableListOf<String>()
         val leakedRefs = mutableListOf<String>()
+        // T2 — vazamento de referência do ponto seguinte DENTRO de 〈sugestão〉
+        // não é falha factual (criação pode citar a conexão), mas referência
+        // inventada e número sem apoio continuam contando (regra de ouro).
+        val spans = suggestionSpans(generatedText)
         for (m in VERSE_RE.findAll(generatedText)) {
             val key = normalizeRef(m.value)
             if (!allowedKeys.any { it.contains(key) }) {
-                // Se pertence a outro ponto do esboço, é vazamento; senão, invenção.
-                if (belongsToOtherSection(m.value, spec)) leakedRefs += m.value else invented += m.value
+                val other = belongsToOtherSection(m.value, spec)
+                if (other && inSuggestion(m.range.first, spans)) continue
+                if (other) leakedRefs += m.value else invented += m.value
             }
         }
         for (m in PUB_RE.findAll(generatedText)) {
             val key = normalizeRef(m.value)
             if (!allowedKeys.any { it.contains(key) }) {
-                if (belongsToOtherSection(m.value, spec)) leakedRefs += m.value
-                else invented += m.value
+                val other = belongsToOtherSection(m.value, spec)
+                if (other && inSuggestion(m.range.first, spans)) continue
+                if (other) leakedRefs += m.value else invented += m.value
             }
         }
 
