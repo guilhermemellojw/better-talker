@@ -27,6 +27,18 @@ object S34Detector {
     /** S-34, S34, S 34, s-34. */
     val MARKER_RE = Regex("""\bS[-\s]?34\b""", RegexOption.IGNORE_CASE)
 
+    /**
+     * T1 (Bug #9) — marcador no NOME do arquivo (ex.: `s34-35.docx`,
+     * `S-34_T_035.jwpub`). S-34 reais podem não trazer o literal no texto;
+     * o nome do arquivo é evidência legítima no caminho de import.
+     * Lookarounds (não `\b`): `_` é word char e quebraria `S-34_T…`.
+     */
+    val FILE_MARKER_RE = Regex("""(?i)(?<![A-Za-z0-9])S[-_ ]?34(?![0-9])""")
+
+    fun hasFileMarker(fileName: String?): Boolean =
+        !fileName.isNullOrBlank() &&
+            FILE_MARKER_RE.containsMatchIn(fileName.substringBeforeLast('.'))
+
     /** Pontos numerados ("1.", "2)") no início da linha. */
     val NUMBERED_RE = Regex("""(?m)^\s*\d{1,2}[.)]\s+\S""")
 
@@ -54,10 +66,12 @@ object S34Detector {
         return out
     }
 
-    /** Verdadeiro somente para esboço S-34 completo o bastante para analisar. */
-    fun isS34(text: String): Boolean {
+    /** Verdadeiro somente para esboço S-34 completo o bastante para analisar.
+     * [fileName] é sinal alternativo ao literal (T1/Bug #9): S-34 reais podem
+     * ser nomeados `s34*` sem conter "S-34" no texto. */
+    fun isS34(text: String, fileName: String? = null): Boolean {
         if (text.length < MIN_S34_CHARS) return false
-        if (!hasMarker(text)) return false
+        if (!hasMarker(text) && !hasFileMarker(fileName)) return false
         return signals(text).size >= 2
     }
 }

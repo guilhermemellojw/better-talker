@@ -28,6 +28,27 @@ class S34DetectorTest {
         assertTrue(S34Detector.isS34(glued))
     }
 
+    // ---------- T1 (Bug #9): filename como sinal ----------
+
+    @Test
+    fun filenameS34DesbloqueiaDeteccaoSemLiteralNoTexto() {
+        val semMarcador = S34Fixture.TEXT.replace(
+            "S-34 — TEXTO SINTÉTICO PARA TESTE (não é um esboço oficial)", "ESBOÇO PARA TESTE"
+        )
+        assertFalse(S34Detector.isS34(semMarcador))
+        assertTrue(S34Detector.isS34(semMarcador, "s34-35.docx"))
+        assertTrue(S34Detector.isS34(semMarcador, "S-34_T_035.jwpub"))
+    }
+
+    @Test
+    fun filenameComumNaoDesbloqueia() {
+        val semMarcador = S34Fixture.TEXT.replace(
+            "S-34 — TEXTO SINTÉTICO PARA TESTE (não é um esboço oficial)", "ESBOÇO PARA TESTE"
+        )
+        assertFalse(S34Detector.isS34(semMarcador, "discurso.docx"))
+        assertFalse(S34Detector.isS34(semMarcador, null))
+    }
+
     // ---------- Negativos (§11.3-7) ----------
 
     @Test

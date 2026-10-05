@@ -60,7 +60,7 @@ class S34ChatImportPersistenceTest {
     @Test
     fun importDeS34PersisteEstruturaCompleta() = runBlocking {
         val dao = FakeS34Dao()
-        val out = S34ImportHook.onExtracted(dao, "att-chat-import", S34Fixture.TEXT) { _, _ -> }
+        val out = S34ImportHook.onExtracted(dao, "att-chat-import", S34Fixture.TEXT, { _, _ -> })
         assertTrue("esperava Saved", out is S34ImportHook.Outcome.Saved)
         assertEquals(1, dao.outlines.size)
         assertEquals(3, dao.sections.size)
@@ -73,10 +73,24 @@ class S34ChatImportPersistenceTest {
     @Test
     fun reimporteSubstituiSemLixo() = runBlocking {
         val dao = FakeS34Dao()
-        S34ImportHook.onExtracted(dao, "att-1", S34Fixture.TEXT) { _, _ -> }
-        S34ImportHook.onExtracted(dao, "att-1", S34Fixture.TEXT) { _, _ -> }
+        S34ImportHook.onExtracted(dao, "att-1", S34Fixture.TEXT, { _, _ -> })
+        S34ImportHook.onExtracted(dao, "att-1", S34Fixture.TEXT, { _, _ -> })
         assertEquals(1, dao.outlines.size)
         assertEquals(3, dao.sections.size)
         assertEquals(2, dao.subs.size)
+    }
+
+    @Test
+    fun importComFilenameS34PersisteMesmoSemLiteralNoTexto() = runBlocking {
+        val dao = FakeS34Dao()
+        val semMarcador = S34Fixture.TEXT.replace(
+            "S-34 — TEXTO SINTÉTICO PARA TESTE (não é um esboço oficial)", "ESBOÇO PARA TESTE"
+        )
+        val out = S34ImportHook.onExtracted(
+            dao, "att-real", semMarcador, { _, _ -> }, fileName = "s34-35.docx"
+        )
+        assertTrue(out is S34ImportHook.Outcome.Saved)
+        assertEquals(1, dao.outlines.size)
+        assertEquals(3, dao.sections.size)
     }
 }

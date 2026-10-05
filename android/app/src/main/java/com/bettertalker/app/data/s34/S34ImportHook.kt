@@ -43,10 +43,11 @@ object S34ImportHook {
         dao: S34Dao,
         attachmentId: String,
         rawText: String,
-        log: (String, String) -> Unit = { level, msg -> logAndroid(level, msg) }
+        log: (String, String) -> Unit = { level, msg -> logAndroid(level, msg) },
+        fileName: String? = null,
     ): Outcome {
         return try {
-            if (!S34Detector.isS34(rawText)) return Outcome.NotS34
+            if (!S34Detector.isS34(rawText, fileName)) return Outcome.NotS34
             val doc = S34Parser.parseS34(rawText)
             if (doc.sections.isEmpty()) {
                 val reason = "sem pontos reconhecidos"

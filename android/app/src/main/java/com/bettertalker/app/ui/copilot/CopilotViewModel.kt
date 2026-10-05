@@ -2417,7 +2417,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         } catch (_: Exception) {
             return
         }
-        if (raw.isBlank() || !S34Detector.isS34(raw)) return
+        if (raw.isBlank() || !S34Detector.isS34(raw, fileName)) return
         val existing = db.attachmentDao().all()
             .firstOrNull { it.noteId == nid && it.fileName == fileName }
         val attId = existing?.id ?: newId("att")
@@ -2436,7 +2436,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 )
             )
         }
-        val outcome = S34ImportHook.onExtracted(db.s34Dao(), attId, raw)
+        val outcome = S34ImportHook.onExtracted(db.s34Dao(), attId, raw, fileName = fileName)
         android.util.Log.i("S34Import", "chat import outcome=$outcome attachment=$attId")
     }
 
