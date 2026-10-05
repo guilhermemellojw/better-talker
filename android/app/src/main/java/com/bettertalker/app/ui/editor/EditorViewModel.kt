@@ -58,6 +58,16 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     val color = _color.asStateFlow()
     val folderId = _folderId.asStateFlow()
     val pinned = _pinned.asStateFlow()
+
+    /**
+     * T2 (Bug #10) — título da seção ativa no editor: fonte do foco do
+     * Copilot para "Criar proposta" (antes, o foco nunca era setado).
+     */
+    private val _activeSectionTitle = MutableStateFlow<String?>(null)
+    val activeSectionTitle: StateFlow<String?> = _activeSectionTitle.asStateFlow()
+    fun setActiveSectionTitle(title: String?) {
+        _activeSectionTitle.value = title?.trim()?.takeIf { it.isNotBlank() }
+    }
     val attachments = repo.attachmentsFor(noteId)
     val folders = db.folderDao().observe()
 

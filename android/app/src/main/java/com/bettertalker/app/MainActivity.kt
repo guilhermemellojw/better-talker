@@ -144,6 +144,12 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                     copilotVm.consumeTitle()
                 }
             }
+            // T2 (Bug #10): seção ativa do editor vira foco do Copilot
+            // (fonte de "Criar proposta"; antes o foco nunca era setado).
+            val activeSectionTitle by vm.activeSectionTitle.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(activeSectionTitle) {
+                copilotVm.setActiveBlock(activeSectionTitle)
+            }
             EditorScreen(
                 vm,
                 onBack = { nav.popBackStack() },

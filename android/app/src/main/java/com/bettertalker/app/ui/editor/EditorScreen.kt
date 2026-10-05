@@ -643,7 +643,10 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 readOnly = preview,
                                 isFirstSection = index == 0,
                                 isLastSection = index == sections.lastIndex,
-                                onActivate = { activeSectionId = sectionState.section.id },
+                                onActivate = {
+                                    activeSectionId = sectionState.section.id
+                                    vm.setActiveSectionTitle(sectionState.section.title)
+                                },
                                 onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
                                 onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
                                 onContentChange = { vm.onSectionContent(sectionState.section.id, it) },

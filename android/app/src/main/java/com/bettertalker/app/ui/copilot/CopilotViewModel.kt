@@ -455,6 +455,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     /**
+     * T2 (Bug #10) — foco do editor (seção ativa) informado pela rota do
+     * editor. Sem isto, `currentFocusText()` caía no mdText (vazio nas notas
+     * por seções) e "Criar proposta" sempre pedia seleção.
+     */
+    fun setActiveBlock(title: String?) {
+        _activeBlockTitle.value = normalizeActiveBlockTitle(title)
+    }
+
+    /**
      * Provider do dossiê da seção ativa. Injetado pelo MainActivity via
      * `setDossierProvider { target -> editorVm.buildDossierFor(target) }`.
      *
@@ -2732,6 +2741,10 @@ fun s34CandidateIds(citedIds: List<String>, linkedIds: List<String>): List<Strin
  */
 fun isRefsCommand(intent: ChatIntent.Intent): Boolean =
     intent is ChatIntent.Intent.OutlineRefs || intent is ChatIntent.Intent.CheckRefs
+
+/** T2 (Bug #10) — normaliza o título do bloco ativo (branco → null). Puro/testável. */
+fun normalizeActiveBlockTitle(title: String?): String? =
+    title?.trim()?.takeIf { it.isNotBlank() }
 
 /**
  * Monta o [OutlineConversion] a partir do draft para persistir via
