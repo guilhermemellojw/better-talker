@@ -58,6 +58,10 @@ class DeepSeekProvider(
         }
         // Memória de sessão: schema já rejeitado antes → começa no fallback.
         var modeIndex = if (structured && jsonSchemaRejected) 1 else 0
+        // T1 (P0): resposta estruturada não usa thinking — o reasoning consome
+        // `max_tokens` e devolve content vazio (finish=length) em prompts
+        // longos (oratória/proposta). Chat mantém o esforço configurado.
+        val effort = if (structured) STRUCTURED_REASONING_EFFORT else reasoningEffort
         // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
         // e devolver content vazio (finish_reason=length). Nesse caso o
         // provider refaz UMA vez com orçamento maior antes de falhar.
@@ -87,7 +91,7 @@ class DeepSeekProvider(
                 maxOutputTokens = budget,
                 editProposal = wantProposal,
                 jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
-                reasoningEffort = reasoningEffort,
+                reasoningEffort = effort,
                 structured = mode,
             )
             try {
@@ -245,6 +249,13 @@ class DeepSeekProvider(
 
         /** Thinking desligado por padrão (fidelidade com pouco token). */
         const val REASONING_EFFORT = "low"
+
+        /**
+         * T1 (P0) — resposta estruturada (oratória/proposta): thinking desligado.
+         * O reasoning consome `max_tokens` antes do content e devolve resposta
+         * vazia (finish=length) em prompts longos; "none" devolve o JSON direto.
+         */
+        const val STRUCTURED_REASONING_EFFORT = "none"
 
         /**
          * Corpo chat/completions (puro/testável). `stream:true` + usage no fim;

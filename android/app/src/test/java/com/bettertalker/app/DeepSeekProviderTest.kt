@@ -435,4 +435,13 @@ class DeepSeekProviderTest {
             DeepSeekProvider.extractFirstJsonObject("texto {\"a\":{\"b\":1}} fim")
         )
     }
+
+    @Test
+    fun estruturadoSemThinkingChatComEsforcoConfigurado() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("{\"ok\":true}"), okStream("oi")))
+        provider(http).generate(proposalReq())
+        assertTrue(http.bodies[0].contains("\"reasoning_effort\":\"none\""))
+        provider(http).generate(req())
+        assertTrue(http.bodies[1].contains("\"reasoning_effort\":\"low\""))
+    }
 }
