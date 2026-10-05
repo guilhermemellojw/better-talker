@@ -444,4 +444,45 @@ class DeepSeekProviderTest {
         provider(http).generate(req())
         assertTrue(http.bodies[1].contains("\"reasoning_effort\":\"low\""))
     }
+
+    // ---------- T1 (Bug #15): instrução JSON só em requisições estruturadas ----------
+
+    @Test
+    fun chatComumNaoRecebeInstrucaoJson() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("resposta normal")))
+        val res = provider(http).generate(req())
+        assertEquals("resposta normal", res.text)
+        val body = http.bodies.single()
+        assertFalse(body.contains("Responda APENAS com JSON"))
+        assertFalse(body.contains("objeto JSON válido"))
+    }
+
+    @Test
+    fun estruturadoRecebeInstrucaoNoFallbackJsonObject() = runBlocking {
+        DeepSeekProvider.jsonSchemaRejected = true // cascata começa no json_object
+        val http = FakeStream(mutableListOf(okStream("{\"ok\":true}")))
+        provider(http).generate(proposalReq())
+        assertTrue(http.bodies[0].contains("objeto JSON válido"))
+    }
+
+    @Test
+    fun fallbackTextoDeEstruturadoRecebeInstrucaoJson() = runBlocking {
+        val http = FakeStream(
+            mutableListOf(schemaUnavailable, schemaUnavailable, okStream("{\"ok\":true}"))
+        )
+        provider(http).generate(proposalReq())
+        assertTrue(http.bodies[2].contains("Responda APENAS com JSON válido"))
+        assertFalse(http.bodies[2].contains("response_format"))
+    }
+
+    @Test
+    fun chatNuncaRecebeInstrucaoMesmoNoModoTexto() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("oi")))
+        provider(http).generate(req())
+        val body = http.bodies.single()
+        // System presente, mas sem nenhum sufixo de instrução JSON.
+        assertTrue(body.contains("\"role\":\"system\""))
+        assertFalse(body.contains("JSON válido"))
+        assertFalse(body.contains("cercas de código"))
+    }
 }

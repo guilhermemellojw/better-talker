@@ -84,9 +84,17 @@ class DeepSeekProvider(
             var finish: String? = null
             LocalProgress.reset()
             val mode = modes[modeIndex]
+            // T1 (Bug #15): a instrução JSON vale SÓ para requisições
+            // estruturadas — o enum TEXT é compartilhado com o 3º passo do
+            // fallback e vazava "Responda APENAS com JSON" para o chat comum.
+            val system = if (structured) {
+                prompts.first.withStructuredInstruction(mode)
+            } else {
+                prompts.first
+            }
             val body = requestBody(
                 model = model,
-                system = prompts.first.withStructuredInstruction(mode),
+                system = system,
                 user = prompts.second,
                 maxOutputTokens = budget,
                 editProposal = wantProposal,
