@@ -26,39 +26,59 @@
 - Log confirma o novo tratamento: `deepseek vazio por length; retry com
   budget=128` (a sonda com 64 tokens sofreu o esvaziamento e o retry resolveu).
 
-## Bloco C — Bug #7 (cards com provider ativo): PARCIAL
+## Bloco C — Bug #7 (cards com provider ativo): PASSOU
 - Com DeepSeek ativo, “Quais referências o esboço cita?” postou **mensagem
   `kind=refs`** (intercept funcionou).
-- **Card `⚠️ citação sem fonte no acervo` apareceu** (Despertai! 8/2013).
-- **Card `📖 No acervo` não observado** nesta rodada: nenhuma das refs do
-  esboço teve match positivo de conteúdo (uma resolvida sem aviso/snippet
-  por edição não indexada; outra com aviso). Mecanismo exercitado; falta um
-  caso positivo no corpus.
+- **Card `📖 No acervo` apareceu** na nota “Tenha o ponto de vista correto…”
+  (ref `jr 189 § 16`): “✅ Jeremias (estudo 189) / No arquivo: jr_T.epub /
+  📖 No acervo: Jeremias (jr-T)”.
+- **Card `⚠️ citação sem fonte no acervo` apareceu** na nota N.º 35
+  (Despertai! 8/2013).
+- Observação: uma resposta vazia do DeepSeek ainda ocorreu (“Não consegui
+  gerar”) — o retry com orçamento maior mitiga, mas não elimina.
 
-## Bloco D — Fallback (auto): PARCIAL
-- Caso 1 (DeepSeek disponível): **auto → resposta remota** (origin COPILOT,
-  sem fase local) ✓.
-- Caso 3 (offline): `cmd connectivity airplane-mode enable` **não derrubou o
-  Wi-Fi** (rede ativa) — o teste offline real exigiu `svc wifi disable`;
-  **ADB caiu logo depois** e o caso não foi concluído.
-- Casos 2 (sem chave) e 4 (restaurado): não executados.
+## Bloco D — Fallback (auto): PASSOU (3/4 casos)
+- Caso 1 (DeepSeek disponível): **auto → remoto** (origin COPILOT, sem fase
+  local) ✅.
+- Caso 2 (sem chave): **não executável** sem remover/recriar a chave do dono;
+  coberto por testes JVM e pelo caso 3 (caminho local comprovado).
+- Caso 3 (offline): modo avião + Wi-Fi off, ping “Network is unreachable” →
+  **Gemma local** (`gemma_local ok load=51415ms ttft=9210ms gen=9314ms`) ✅.
+- Caso 4 (restaurado): rede de volta → **DeepSeek** (nenhum log de
+  `gemma_local`; resposta em segundos) ✅.
 
-## Blocos E (proposta) e F (estabilidade)
-- **Não executados** (queda do ADB).
+## Bloco E — Proposta F5 + Criação: BLOQUEADO (Bug #10)
+- A resposta com criação marcada aparece com **💡 Sugestão criativa** no chat.
+- “Criar proposta” **sempre** responde “Selecione um trecho ou abra um bloco
+  para propor uma alteração.” mesmo com a nota aberta e a seção visível:
+  `_activeBlockTitle` é **campo morto** (nunca setado) e o fallback
+  `notes.mdText` é **apenas newlines** (notas por seções). Sem seleção manual,
+  o fluxo é inutilizável.
+- Badge 💡 no DEPOIS não observado (o caminho de criação INSERT/oratória
+  também depende do S-34 estruturado — Bug #9).
 
-## Incidente — ADB caiu; aparelho ficou em modo avião
-- Durante o caso offline, o ADB wireless caiu (`no devices`).
-- **Ação do teste deixou o aparelho em modo avião com Wi-Fi desligado**
-  (`airplane_mode_on=1`, `svc wifi disable`). **O dono precisa reativar**
-  manualmente (modo avião off + Wi-Fi on) quando retomar.
+## Bloco F — Estabilidade: PASSOU
+- `force-stop` + reabertura: app voltou (pid novo), **chave preservada**
+  (`sk-`, provider `auto`), **modelo Gemma preservado**, **conversa preservada**
+  (46 mensagens na nota N.º 35).
+- **10 interações** no chat: 10 enviadas / 11 respostas / **0 erros de provider**,
+  pid estável, **0 FATAL EXCEPTION / 0 ANR**.
 
 ## Bugs
 - **Bug #9 (novo, P0):** detector S-34 exige literal no texto; arquivo real
-  sem o literal não persiste `s34_*` (detalhado no Bloco A).
-- Bugs #6 e #7: correções confirmadas no device (B passou; C com evidência
-  positiva no aviso e mecanismo ativo).
+  sem o literal não persiste `s34_*` (Bloco A).
+- **Bug #10 (novo, P1):** foco do “Criar proposta” nunca é setado
+  (`_activeBlockTitle` morto + `mdText` whitespace) → proposta inutilizável em
+  notas por seções sem seleção manual (Bloco E; explica o Bloco 6 anterior).
+- **Observação #11 (P2):** resposta vazia do DeepSeek ainda ocorre
+  ocasionalmente mesmo com o retry de orçamento (1 caso hoje).
+- Bugs #6 e #7: correções **confirmadas no device** (B e C passaram).
+
+## Incidente — ADB caiu; retomada via USB
+- A sessão caiu no meio (ADB wireless). O aparelho ficou em **modo avião com
+  Wi-Fi desligado**; retomada via **USB** e rede restaurada.
 
 ## State
 - Nenhum código alterado durante a validação.
-- Re-validação **parcial**: A falhou (Bug #9), B passou, C/D parciais, E/F
-  não executados; ADB caiu.
+- Re-validação: **B, C, D (3/4) e F passaram**; A falhou (Bug #9); E bloqueado
+  (Bug #10).
