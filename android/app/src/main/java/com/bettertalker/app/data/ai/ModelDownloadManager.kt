@@ -5,10 +5,10 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.Environment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 
-/** Estado do download do modelo (.task). */
+/** Estado do download do modelo Gemma (`.litertlm`). */
 sealed interface ModelDlState {
     data object Idle : ModelDlState
     data object WaitingWifi : ModelDlState
@@ -32,47 +32,107 @@ sealed interface ModelDlState {
 fun downloadProgress(doneBytes: Long, totalBytes: Long): Float =
     if (totalBytes <= 0) -1f else (doneBytes.coerceAtMost(totalBytes).toFloat() / totalBytes)
 
-/** Teto de 2 GB (total desconhecido passa; o worker aborta se estourar). Puro/testável. */
+/** Teto de 3 GiB (Gemma ~2,59 GB); total desconhecido passa. Puro/testável. */
 fun modelSizeAllowed(totalBytes: Long): Boolean =
     totalBytes < 0 || totalBytes <= LlmConfig.MAX_MODEL_BYTES
 
+/** Espaço livre mínimo no volume externo do app (modelo + margem). Puro/testável. */
+const val MODEL_MIN_FREE_BYTES: Long = 3_200_000_000L
+
+/** Espaço livre suficiente para baixar o modelo com segurança. Puro/testável. */
+fun hasEnoughSpace(usableBytes: Long): Boolean = usableBytes >= MODEL_MIN_FREE_BYTES
+
+/** SHA-256 de um arquivo local, em hex minúsculo. Puro/testável. */
+fun sha256Hex(file: File): String {
+    val md = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { ins ->
+        val buf = ByteArray(256 * 1024)
+        while (true) {
+            val n = ins.read(buf)
+            if (n < 0) break
+            md.update(buf, 0, n)
+        }
+    }
+    return md.digest().joinToString("") { "%02x".format(it) }
+}
+
+/** Confere o hex esperado (case-insensitive). Hex vazio nunca confere. Puro/testável. */
+fun verifySha256(file: File, expectedHex: String): Boolean =
+    expectedHex.isNotBlank() && sha256Hex(file).equals(expectedHex, ignoreCase = true)
+
 /**
- * Baixa o .task via DownloadManager (só Wi-Fi), move para pasta privada,
- * confere SHA-256 e expõe progresso. Independe da indexação de publicações.
+ * Candidatos a arquivo do modelo, na ordem: interno (adb push/legado), externo
+ * (destino do download) e `.part` (download em andamento). Puro/testável.
+ */
+fun modelFileCandidates(
+    filesDir: File,
+    externalDir: File?,
+    fileName: String = LlmModelConfig.FILE_NAME,
+): List<File> = listOfNotNull(
+    File(File(filesDir, "models"), fileName),
+    externalDir?.let { File(it, fileName) },
+    externalDir?.let { File(it, "$fileName.part") },
+)
+
+/**
+ * T2 — baixa o `.litertlm` do Gemma via DownloadManager (só Wi-Fi) **direto**
+ * para o diretório externo privado do app (`getExternalFilesDir("models")`),
+ * o mesmo que `LitertGemmaEngine.modelFile()` já lê — sem cópia (pico 1×).
+ *
+ * Fluxo: `gemma-4-E2B-it.litertlm.part` → verificação SHA-256 → rename atômico
+ * para o nome final. Download em andamento sobrevive à morte do app; `start()`
+ * adota o registro ativo pelo título (resume do DownloadManager). Cancelar
+ * remove o download do sistema e o `.part`. O aceite de licença é passo de UI.
  */
 class ModelDownloadManager(private val ctx: Context) {
     private val _state = MutableStateFlow<ModelDlState>(ModelDlState.Idle)
     val state = _state.asStateFlow()
     private var job: Job? = null
+    private var dmId: Long? = null
 
-    fun modelFile(): File = File(File(ctx.filesDir, "models").apply { mkdirs() }, MODEL_FILE)
+    fun externalModelsDir(): File? = ctx.getExternalFilesDir("models")
 
-    fun isReady(): Boolean {
-        val f = modelFile()
-        return f.exists() && f.length() > 0
+    fun internalFile(): File =
+        File(File(ctx.filesDir, "models").apply { mkdirs() }, LlmModelConfig.FILE_NAME)
+
+    fun externalFile(): File? = externalModelsDir()?.let { File(it, LlmModelConfig.FILE_NAME) }
+
+    /** Arquivo final que o engine lê: externo (download) se presente; senão interno (adb push). */
+    fun modelFile(): File {
+        val ext = externalFile()
+        return if (ext != null && ext.isFile) ext else internalFile()
     }
+
+    fun isReady(): Boolean = modelFile().isFile && modelFile().length() > 0
 
     fun cancel() {
         job?.cancel()
         job = null
+        dmId?.let {
+            val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            runCatching { dm.remove(it) }
+        }
+        dmId = null
         _state.value = ModelDlState.Idle
     }
 
     suspend fun delete() = withContext(Dispatchers.IO) {
         cancel()
-        modelFile().delete()
+        modelFileCandidates(ctx.filesDir, externalModelsDir()).forEach { f ->
+            runCatching { f.delete() }
+        }
         _state.value = ModelDlState.Idle
     }
 
     /**
-     * Inicia o download. Retorna imediatamente; acompanhe [state].
+     * Inicia (ou adota) o download. Retorna imediatamente; acompanhe [state].
      * [sha256Hex] vazio pula a verificação (não recomendado).
      */
     fun start(
         scope: kotlinx.coroutines.CoroutineScope,
         url: String,
         sha256Hex: String,
-        expectedBytes: Long = -1L
+        expectedBytes: Long = -1L,
     ) {
         if (job?.isActive == true) return
         if (isReady()) {
@@ -86,68 +146,51 @@ class ModelDownloadManager(private val ctx: Context) {
                     return@launch
                 }
                 if (expectedBytes > 0 && !modelSizeAllowed(expectedBytes)) {
-                    _state.value = ModelDlState.Failed("Modelo acima do teto de 2 GB.")
+                    _state.value = ModelDlState.Failed("Modelo acima do teto de 3 GB.")
                     return@launch
                 }
-                if (ctx.filesDir.usableSpace < MIN_FREE_BYTES) {
-                    _state.value = ModelDlState.Failed("Sem espaço livre (mínimo 2,5 GB).")
+                val extDir = externalModelsDir()
+                if (extDir == null) {
+                    _state.value = ModelDlState.Failed("Armazenamento externo indisponível.")
+                    return@launch
+                }
+                if (!hasEnoughSpace(extDir.usableSpace)) {
+                    _state.value = ModelDlState.Failed("Sem espaço livre (mínimo 3,2 GB).")
                     return@launch
                 }
                 val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                val req = DownloadManager.Request(Uri.parse(url))
-                    .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
-                    .setAllowedOverRoaming(false)
-                    .setTitle("Better Talker — modelo IA")
-                    .setDescription("Download único (~1,6 GB), só no Wi-Fi")
-                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, TMP_NAME)
-                    .setNotificationVisibility(
-                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
-                    )
-                val dmId = dm.enqueue(req)
-                // acompanha (sem limite fixo: 1,6 GB leva tempo)
-                while (true) {
-                    ensureActive()
-                    val (status, done, total) = queryDm(dm, dmId)
-                    when (status) {
-                        DownloadManager.STATUS_SUCCESSFUL -> break
-                        DownloadManager.STATUS_FAILED -> {
-                            _state.value = ModelDlState.Failed("Download falhou. Tente de novo no Wi-Fi.")
-                            return@launch
-                        }
-                        else -> {
-                            if (total > 0 && !modelSizeAllowed(total)) {
-                                runCatching { dm.remove(dmId) }
-                                _state.value = ModelDlState.Failed("Modelo acima do teto de 2 GB.")
-                                return@launch
-                            }
-                            _state.value = ModelDlState.Downloading(done, total)
-                            delay(1000)
-                        }
-                    }
+                val part = File(extDir, "${LlmModelConfig.FILE_NAME}.part")
+                val existing = findDownload(dm)
+                val adoptCompleted =
+                    existing != null && existing.status == DownloadManager.STATUS_SUCCESSFUL && part.isFile
+                val id = if (adoptCompleted) {
+                    existing!!.id
+                } else {
+                    existing?.let { runCatching { dm.remove(it.id) } }
+                    enqueueNew(dm, url)
                 }
+                dmId = id
+                if (!adoptCompleted && !track(dm, id)) return@launch
                 _state.value = ModelDlState.Verifying
-                val uri = dm.getUriForDownloadedFile(dmId)
-                    ?: run {
-                        _state.value = ModelDlState.Failed("Arquivo indisponível. Baixe de novo.")
-                        return@launch
-                    }
-                val dst = modelFile()
-                ctx.contentResolver.openInputStream(uri)?.use { ins ->
-                    dst.outputStream().use { out -> ins.copyTo(out) }
-                } ?: run {
-                    _state.value = ModelDlState.Failed("Não foi possível ler o download.")
+                if (!part.isFile) {
+                    _state.value = ModelDlState.Failed("Arquivo do download não encontrado. Tente de novo.")
                     return@launch
                 }
-                runCatching { dm.remove(dmId) }
-                if (sha256Hex.isNotBlank()) {
-                    val actual = sha256Of(dst)
-                    if (!actual.equals(sha256Hex, ignoreCase = true)) {
-                        dst.delete()
-                        _state.value = ModelDlState.Failed("Checksum divergente. Baixe de novo.")
-                        return@launch
-                    }
+                if (!verifySha256(part, sha256Hex)) {
+                    part.delete()
+                    _state.value = ModelDlState.Failed("Checksum divergente. Baixe de novo.")
+                    return@launch
                 }
-                _state.value = ModelDlState.Ready(dst.absolutePath)
+                val fin = File(extDir, LlmModelConfig.FILE_NAME)
+                if (fin.exists()) fin.delete()
+                val moved = part.renameTo(fin)
+                if (!moved) {
+                    part.inputStream().use { ins -> fin.outputStream().use { out -> ins.copyTo(out) } }
+                    part.delete()
+                }
+                runCatching { dm.remove(id) }
+                dmId = null
+                _state.value = ModelDlState.Ready(fin.absolutePath)
             } catch (e: CancellationException) {
                 _state.value = ModelDlState.Idle
                 throw e
@@ -156,6 +199,68 @@ class ModelDownloadManager(private val ctx: Context) {
             }
         }
     }
+
+    /** Acompanha até terminar; `false` quando falhou (estado já publicado). */
+    private suspend fun track(dm: DownloadManager, id: Long): Boolean {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            val (status, done, total) = queryDm(dm, id)
+            when (status) {
+                DownloadManager.STATUS_SUCCESSFUL -> return true
+                DownloadManager.STATUS_FAILED -> {
+                    _state.value = ModelDlState.Failed("Download falhou. Tente de novo no Wi-Fi.")
+                    return false
+                }
+                else -> {
+                    if (total > 0 && !modelSizeAllowed(total)) {
+                        runCatching { dm.remove(id) }
+                        _state.value = ModelDlState.Failed("Modelo acima do teto de 3 GB.")
+                        return false
+                    }
+                    _state.value = ModelDlState.Downloading(done, total)
+                    delay(1000)
+                }
+            }
+        }
+    }
+
+    private fun enqueueNew(dm: DownloadManager, url: String): Long =
+        dm.enqueue(
+            DownloadManager.Request(Uri.parse(url))
+                .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
+                .setAllowedOverRoaming(false)
+                .setTitle(TITLE)
+                .setDescription("Download único (${LlmModelConfig.DISPLAY_SIZE}), só no Wi-Fi")
+                .setDestinationInExternalFilesDir(ctx, null, "models/${LlmModelConfig.FILE_NAME}.part")
+                .setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                )
+        )
+
+    private data class DmRef(val id: Long, val status: Int)
+
+    /** Registro do próprio app (pelo título): em andamento preferido; senão concluído. */
+    private fun findDownload(dm: DownloadManager): DmRef? = runCatching {
+        dm.query(DownloadManager.Query())?.use { c ->
+            val idCol = c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
+            val stCol = c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+            val titleCol = c.getColumnIndexOrThrow(DownloadManager.COLUMN_TITLE)
+            var running: DmRef? = null
+            var done: DmRef? = null
+            while (c.moveToNext()) {
+                if (c.getString(titleCol) != TITLE) continue
+                val st = c.getInt(stCol)
+                val id = c.getLong(idCol)
+                when (st) {
+                    DownloadManager.STATUS_PENDING, DownloadManager.STATUS_RUNNING ->
+                        if (running == null) running = DmRef(id, st)
+                    DownloadManager.STATUS_SUCCESSFUL ->
+                        if (done == null) done = DmRef(id, st)
+                }
+            }
+            running ?: done
+        }
+    }.getOrNull()
 
     private fun onWifi(): Boolean {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -177,22 +282,7 @@ class ModelDownloadManager(private val ctx: Context) {
         }
     }
 
-    private fun sha256Of(f: File): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        f.inputStream().use { ins ->
-            val buf = ByteArray(256 * 1024)
-            while (true) {
-                val n = ins.read(buf)
-                if (n < 0) break
-                md.update(buf, 0, n)
-            }
-        }
-        return md.digest().joinToString("") { "%02x".format(it) }
-    }
-
     companion object {
-        const val MODEL_FILE = "qwen15-q8.task"
-        const val TMP_NAME = "bettertalker-model.tmp"
-        const val MIN_FREE_BYTES = 2_500_000_000L
+        const val TITLE = "Better Talker — modelo IA (Gemma)"
     }
 }
