@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.ai.LlmModelConfig
 import com.bettertalker.app.data.ai.ModelDlState
@@ -97,6 +100,7 @@ fun ModelScreen(vm: ModelViewModel, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.secondary
             )
             CopilotProviderCard(vm, modelPresent)
+            DeepSeekCard(vm)
             CopilotRemoteKeyCard(vm)
         }
     }
@@ -225,17 +229,22 @@ private fun CopilotProviderCard(vm: ModelViewModel, modelPresent: Boolean) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
+                    selected = provider == "deepseek",
+                    onClick = { vm.selectProvider("deepseek") },
+                    label = { Text("DeepSeek") }
+                )
+                FilterChip(
                     selected = provider == "gemma_local",
                     onClick = { vm.selectProvider("gemma_local") },
                     label = { Text("Gemma local") }
                 )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = provider == "gemini",
                     onClick = { vm.selectProvider("gemini") },
                     label = { Text("Gemini") }
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = provider == "qwen",
                     onClick = { vm.selectProvider("qwen") },
@@ -244,9 +253,14 @@ private fun CopilotProviderCard(vm: ModelViewModel, modelPresent: Boolean) {
             }
             when (provider) {
                 "auto" -> Text(
-                    "Automático: Gemma local se o modelo estiver presente; senão o remoto com chave; " +
-                        "senão o motor determinístico." +
+                    "Automático: DeepSeek com chave e online; senão Gemini/Groq com chave; " +
+                        "senão Gemma local; senão o motor determinístico." +
                         (if (modelPresent) " Modelo local presente ✓." else ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                "deepseek" -> Text(
+                    "Chat de raciocínio via DeepSeek (chave BYOD). Configure no cartão DeepSeek abaixo.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -296,6 +310,95 @@ private fun CopilotProviderCard(vm: ModelViewModel, modelPresent: Boolean) {
             }
         }
     }
+}
+
+/**
+ * T4 — card DeepSeek (BYOD): chave mascarada com mostrar/ocultar, seletor de
+ * modelo (flash|v4-pro), status real (sonda de 1 token) e instruções.
+ */
+@Composable
+private fun DeepSeekCard(vm: ModelViewModel) {
+    val key by vm.deepseekApiKey.collectAsState()
+    val model by vm.deepseekModel.collectAsState()
+    val probe by vm.deepseekProbe.collectAsState()
+    val status = deepSeekUiStatus(key, probe)
+    var draft by remember(key) { mutableStateOf("") }
+    var visible by remember { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("DeepSeek — chat de raciocínio (BYOD)", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Para desenvolver tópico por tópico. Crie sua chave em platform.deepseek.com — " +
+                    "ela fica só neste aparelho (DataStore local).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Text(
+                "Status: ${deepSeekStatusLabel(status)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = when (status) {
+                    DeepSeekUiStatus.ONLINE -> MaterialTheme.colorScheme.primary
+                    DeepSeekUiStatus.AUTH_ERROR, DeepSeekUiStatus.ERROR ->
+                        MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.secondary
+                }
+            )
+            if (key.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { vm.clearDeepseekApiKey() }) { Text("Remover chave") }
+                    OutlinedButton(
+                        onClick = { vm.checkDeepSeek() },
+                        enabled = probe != "checking"
+                    ) { Text("Testar conexão") }
+                }
+            } else {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Chave DeepSeek (sk-…)") },
+                    singleLine = true,
+                    visualTransformation = if (visible) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { visible = !visible }) {
+                            Icon(
+                                imageVector = if (visible) Icons.Filled.VisibilityOff
+                                else Icons.Filled.Visibility,
+                                contentDescription = if (visible) "Ocultar chave" else "Mostrar chave"
+                            )
+                        }
+                    }
+                )
+                Button(
+                    onClick = { vm.saveDeepseekApiKey(draft); draft = "" },
+                    enabled = draft.isNotBlank()
+                ) { Text("Salvar chave") }
+            }
+            Text("Modelo:", style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = model == "deepseek-flash",
+                    onClick = { vm.selectDeepseekModel("deepseek-flash") },
+                    label = { Text("deepseek-flash (padrão)") }
+                )
+                FilterChip(
+                    selected = model == "deepseek-v4-pro",
+                    onClick = { vm.selectDeepseekModel("deepseek-v4-pro") },
+                    label = { Text("deepseek-v4-pro") }
+                )
+            }
+        }
+    }
+}
+
+private fun deepSeekStatusLabel(s: DeepSeekUiStatus): String = when (s) {
+    DeepSeekUiStatus.NO_KEY -> "Sem chave"
+    DeepSeekUiStatus.CONFIGURED -> "Chave salva (não verificada)"
+    DeepSeekUiStatus.CHECKING -> "Testando…"
+    DeepSeekUiStatus.ONLINE -> "Online"
+    DeepSeekUiStatus.AUTH_ERROR -> "Erro de autenticação"
+    DeepSeekUiStatus.ERROR -> "Erro de conexão"
 }
 
 /**
