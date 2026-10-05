@@ -49,7 +49,6 @@ import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
-import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
@@ -2408,7 +2407,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         } catch (_: Exception) {
             return
         }
-        if (kind != DocKind.DOCX && kind != DocKind.PDF && kind != DocKind.JWPUB) return
+        if (!DocExtractors.supports(kind)) return
         val raw = try {
             val tmp = java.io.File(app.cacheDir, "s34-${System.currentTimeMillis()}-$fileName")
             val copied = app.contentResolver.openInputStream(uri)?.use { ins ->

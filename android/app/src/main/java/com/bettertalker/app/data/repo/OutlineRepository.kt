@@ -8,7 +8,6 @@ import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.util.DocExtractors
-import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
@@ -36,10 +35,10 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
             throw ImportException(ImportException.Reason.IO, "Não foi possível ler o arquivo.")
         }
         val kind = detectKind(name)
-        if (kind != DocKind.DOCX && kind != DocKind.PDF && kind != DocKind.JWPUB) {
+        if (!DocExtractors.supports(kind)) {
             throw ImportException(
                 ImportException.Reason.UNSUPPORTED,
-                "Esboço precisa ser DOCX, PDF ou JWPUB (ou cole o texto)."
+                "Formato não suportado. Use DOCX, PDF, RTF ou JWPUB."
             )
         }
         val tmp = File(ctx.cacheDir, "out-${System.currentTimeMillis()}-$name")

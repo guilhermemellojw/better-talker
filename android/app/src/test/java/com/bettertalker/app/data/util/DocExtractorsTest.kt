@@ -106,4 +106,54 @@ class DocExtractorsTest {
             f.delete()
         }
     }
+
+    // ---------- T1: RTF no pipeline de import (end-to-end) ----------
+
+    @Test
+    fun supportsIncluiTodosOsFormatosExtraiveis() {
+        listOf(
+            DocKind.PDF, DocKind.EPUB, DocKind.DOCX, DocKind.RTF,
+            DocKind.ZIP, DocKind.TXT, DocKind.JWPUB
+        ).forEach { k ->
+            assertTrue("kind=$k deveria ser aceito", DocExtractors.supports(k))
+        }
+        assertFalse(DocExtractors.supports(DocKind.UNSUPPORTED))
+    }
+
+    @Test
+    fun rtfExtraiEParseiaSecoesTemporizadas() {
+        // Simula o pipeline real do previewFile para .rtf: readTxt → stripRtf
+        // → OutlineParser (o Context/Uri do SAF não existe na JVM).
+        val f = File.createTempFile("s34-rtf-test", ".rtf")
+        f.writeText(
+            "{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Arial;}}\\par\n" +
+                "Tema: Como cultivar paciência\\par\n" +
+                "\\par\n" +
+                "A paciência se prova nas pequenas escolhas (3 min)\\par\n" +
+                "Corpo da primeira seção.\\par\n" +
+                "\\par\n" +
+                "A paciência ajuda nos estudos (5 min)\\par\n" +
+                "Corpo da segunda seção.\\par\n" +
+                "}"
+        )
+        try {
+            val text = stripRtf(DocExtractors.readTxt(f))
+            assertTrue(
+                "extração perdeu o título: $text",
+                text.contains("A paciência se prova nas pequenas escolhas")
+            )
+            val parsed = OutlineParser.parse(text, "S-34_T_194.rtf")
+            assertEquals(2, parsed.sections.size)
+            assertEquals(listOf(3, 5), parsed.sections.map { it.minutes })
+        } finally {
+            f.delete()
+        }
+    }
+
+    @Test
+    fun docxEPdfContinuamAceitos() {
+        assertTrue(DocExtractors.supports(DocKind.DOCX))
+        assertTrue(DocExtractors.supports(DocKind.PDF))
+        assertTrue(DocExtractors.supports(DocKind.JWPUB))
+    }
 }

@@ -28,6 +28,17 @@ object DocExtractors {
         DocKind.UNSUPPORTED -> ""
     }
 
+    /**
+     * T1 (RTF end-to-end) — fonte única do que o import aceita: todo [DocKind]
+     * com extração implementada acima. Mantém `previewFile` e o hook S-34
+     * alinhados (evita selecionar um formato que o pipeline descarta).
+     */
+    fun supports(kind: DocKind): Boolean = when (kind) {
+        DocKind.PDF, DocKind.EPUB, DocKind.DOCX, DocKind.RTF,
+        DocKind.ZIP, DocKind.TXT, DocKind.JWPUB -> true
+        DocKind.UNSUPPORTED -> false
+    }
+
     fun readPdf(ctx: Context, f: File): String {
         return try {
             PDFBoxResourceLoader.init(ctx.applicationContext)
