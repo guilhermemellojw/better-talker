@@ -382,7 +382,6 @@ fun ChatScreen(
                                                 ) { append("▍") }
                                             },
                                             style = MaterialTheme.typography.bodyMedium,
-                                            lineHeight = 22.sp,
                                             modifier = Modifier.padding(12.dp)
                                         )
                                     }
@@ -623,13 +622,9 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                 when (block) {
                     is MdBlock.Title -> Text(
                         block.text,
-                        // T2: ##/# = título grande (Bold); ### = subtítulo
-                        // titleMedium 16sp SemiBold (antes titleSmall 14sp).
+                        // P1: pesos e lineHeights vêm da AppTypography.
                         style = if (block.level >= 3) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.titleLarge,
-                        fontWeight = if (block.level >= 3) FontWeight.SemiBold
-                        else FontWeight.Bold,
-                        lineHeight = if (block.level >= 3) 22.sp else 26.sp
+                        else MaterialTheme.typography.titleLarge
                     )
                     is MdBlock.Quote -> Row(
                         Modifier
@@ -654,7 +649,6 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                         Text(
                             inline(block.text),
                             style = MaterialTheme.typography.bodyLarge,
-                            lineHeight = 26.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                         )
@@ -672,7 +666,7 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
-                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp)
+                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge)
                     }
                     is MdBlock.Check -> Row(verticalAlignment = Alignment.Top) {
                         Text(
@@ -682,12 +676,11 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                             else MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
-                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge, lineHeight = 26.sp)
+                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge)
                     }
                     is MdBlock.Para -> Text(
                         inline(block.text),
-                        style = MaterialTheme.typography.bodyLarge,
-                        lineHeight = 26.sp
+                        style = MaterialTheme.typography.bodyLarge
                     )
                 }
             }

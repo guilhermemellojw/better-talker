@@ -72,6 +72,7 @@ fun BetterTalkerTheme(mode: ThemeMode = ThemeMode.AUTO, content: @Composable () 
     MaterialTheme(
         colorScheme = if (dark) DarkColors else LightColors,
         shapes = AppShapes,
+        typography = AppTypography,
         content = content
     )
 }
