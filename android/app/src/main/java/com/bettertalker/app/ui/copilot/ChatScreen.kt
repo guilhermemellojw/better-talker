@@ -1,5 +1,11 @@
 package com.bettertalker.app.ui.copilot
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,7 +52,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
@@ -324,6 +333,20 @@ fun ChatScreen(
                                 localPartial.isNotBlank()
                             ) {
                                 item {
+                                    // T3: cursor pulsante no fim do parcial —
+                                    // continua texto puro (sem parser); some
+                                    // quando a resposta final chega.
+                                    val cursorAlpha by rememberInfiniteTransition(label = "cursor")
+                                        .animateFloat(
+                                            initialValue = 0.2f,
+                                            targetValue = 1f,
+                                            animationSpec = infiniteRepeatable(
+                                                animation = tween(400, easing = LinearEasing),
+                                                repeatMode = RepeatMode.Reverse
+                                            ),
+                                            label = "cursorAlpha"
+                                        )
+                                    val cursorColor = MaterialTheme.colorScheme.onSurface
                                     Card(
                                         colors = CardDefaults.cardColors(
                                             containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -331,7 +354,14 @@ fun ChatScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
-                                            localPartial,
+                                            buildAnnotatedString {
+                                                append(localPartial)
+                                                withStyle(
+                                                    SpanStyle(
+                                                        color = cursorColor.copy(alpha = cursorAlpha)
+                                                    )
+                                                ) { append("▍") }
+                                            },
                                             style = MaterialTheme.typography.bodyMedium,
                                             lineHeight = 22.sp,
                                             modifier = Modifier.padding(12.dp)
