@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractClaims, suggestionSpans, isInsideSuggestion } from '../claimExtractor';
+import { SYSTEM_PROMPT, editProposalPrompt } from '../llmPrompt';
+import { ORATORY_BASE_RULES } from '../oratoryGeneration';
 
 /**
  * T2 — whitelist do marcador 〈sugestão〉 no gate (web).
@@ -35,5 +37,20 @@ describe('suggestionGate (web)', () => {
   it('fato sem marcador continua factual (regressão)', () => {
     const claims = extractClaims('A aldeia fica no vale ao norte.');
     expect(claims.some((c) => c.type === 'factual')).toBe(true);
+  });
+});
+
+/** T4 — paridade do marcador 〈sugestão〉 nos prompts (web). */
+describe('marcador no prompt (paridade web)', () => {
+  it('SYSTEM_PROMPT contém a instrução do marcador', () => {
+    expect(SYSTEM_PROMPT).toContain('〈sugestão〉');
+  });
+
+  it('editProposalPrompt contém a instrução do marcador', () => {
+    expect(editProposalPrompt('insert', 'bloco', 'ted', '', '')).toContain('〈sugestão〉');
+  });
+
+  it('regra 7 da oratória contém a instrução do marcador', () => {
+    expect(ORATORY_BASE_RULES).toContain('〈sugestão〉');
   });
 });

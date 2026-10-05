@@ -72,6 +72,17 @@ Para o uso central do app — conversar tópico por tópico, avaliar trade-offs 
 - **Fallback automático:** no modo *Automático*, sem chave ou offline o app usa o **Gemma local** (se o modelo estiver baixado) ou o motor determinístico 100% offline.
 - **Uso pessoal + amigos:** a chave é pessoal; não há proxy nem chave central. Nunca comite sua chave de API.
 
+### Modo criação (ilustrações e exemplos)
+
+O Copilot pode criar ilustrações, metáforas, analogias e exemplos originais. Quando cria, o modelo
+envolve o trecho em `〈sugestão〉…〈/sugestão〉`; o app mostra o badge **💡 Sugestão criativa** e esconde as tags.
+
+- **O gate isenta a prosa criativa** — a criação não é tratada como fato inventado.
+- **Versículo e número nunca são isentos:** se a criação citar uma referência bíblica ou um número
+  sem apoio no acervo, o gate avisa/bloqueia como faria com um fato.
+- Criação **sem** o marcador continua tratada como possível alucinação (gate normal).
+- No chat a sugestão aparece no balão; em propostas/inserts, ANTES/DEPOIS com aceite humano.
+
 > **Contexto de uso:** projeto de uso pessoal (poucos amigos), distribuição por APK sideload — sem Play Store nesta fase.
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
