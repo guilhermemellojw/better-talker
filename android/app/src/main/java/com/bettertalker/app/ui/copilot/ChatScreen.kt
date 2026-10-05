@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -506,8 +508,34 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> ChatMessageText(item.text)
+            else -> Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // P1: presença do Copilot nas respostas de texto.
+                AssistantAvatar()
+                ChatMessageText(item.text, Modifier.weight(1f))
+            }
         }
+    }
+}
+
+/** P1 — identidade do Copilot: monograma "BT" no círculo primário (24dp). */
+@Composable
+private fun AssistantAvatar() {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "BT",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     }
 }
 
