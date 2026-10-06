@@ -81,4 +81,34 @@ class WordCountTest {
         val sections = listOf(ui("BODY", contentHtml = "<p>duas palavras</p>"))
         assertEquals(2, countSectionWords(sections))
     }
+
+    // ---------- T2 (Mini Discurso): estimativa de tempo ----------
+
+    @Test
+    fun estimateMinutes_usesWordsPerMinute() {
+        assertEquals(0, estimateMinutes(""))
+        assertEquals(0, estimateMinutes("<p></p>"))
+        // 65 palavras → 0,5 min → arredonda para 1 (piso de 1 min por texto).
+        assertEquals(1, estimateMinutes("<p>${"palavra ".repeat(65)}</p>"))
+        // 260 palavras → 2 min.
+        assertEquals(2, estimateMinutes("<p>${"palavra ".repeat(260)}</p>"))
+        // 650 palavras → 5 min.
+        assertEquals(5, estimateMinutes("<p>${"palavra ".repeat(650)}</p>"))
+    }
+
+    @Test
+    fun miniSpeechTimeStatus_neutralWithinOneMinute() {
+        assertEquals(MiniSpeechTimeStatus.NEUTRAL, miniSpeechTimeStatus(3, 3))
+        assertEquals(MiniSpeechTimeStatus.NEUTRAL, miniSpeechTimeStatus(4, 3))
+        assertEquals(MiniSpeechTimeStatus.NEUTRAL, miniSpeechTimeStatus(2, 3))
+        assertEquals(MiniSpeechTimeStatus.LONG, miniSpeechTimeStatus(5, 3))
+        assertEquals(MiniSpeechTimeStatus.SHORT, miniSpeechTimeStatus(1, 3))
+    }
+
+    @Test
+    fun miniSpeechTimeLabel_addsMetaWhenOffTarget() {
+        assertEquals("≈ 3 min", miniSpeechTimeLabel(3, 3))
+        assertEquals("≈ 5 min (meta: 3)", miniSpeechTimeLabel(5, 3))
+        assertEquals("≈ 1 min (meta: 3)", miniSpeechTimeLabel(1, 3))
+    }
 }

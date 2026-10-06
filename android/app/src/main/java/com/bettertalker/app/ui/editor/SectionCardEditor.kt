@@ -380,6 +380,7 @@ fun SectionCardEditor(
                                 MiniSpeechBlock(
                                     sectionId = state.section.id,
                                     contentHtml = state.section.contentHtml,
+                                    targetMinutes = state.section.minutes,
                                     readOnly = readOnly,
                                     canGenerateDraft = canGenerateDraft,
                                     editorStates = editorStates,
@@ -777,6 +778,7 @@ private fun TopicApproachBlock(
 private fun MiniSpeechBlock(
     sectionId: String,
     contentHtml: String,
+    targetMinutes: Int,
     readOnly: Boolean,
     canGenerateDraft: Boolean,
     editorStates: MutableMap<String, RichTextState>,
@@ -792,11 +794,29 @@ private fun MiniSpeechBlock(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Text(
-            "MINI DISCURSO",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "MINI DISCURSO",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (hasText) {
+                // T2: estimativa de tempo (130 palavras/min) comparada à meta
+                // do tópico (minutos do esboço).
+                val estimate = estimateMinutes(contentHtml)
+                val status = miniSpeechTimeStatus(estimate, targetMinutes)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    miniSpeechTimeLabel(estimate, targetMinutes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (status) {
+                        MiniSpeechTimeStatus.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+                        MiniSpeechTimeStatus.LONG -> MaterialTheme.colorScheme.error
+                        MiniSpeechTimeStatus.SHORT -> MaterialTheme.colorScheme.outline
+                    },
+                )
+            }
+        }
         if (!hasText) {
             Text(
                 "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
