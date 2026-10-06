@@ -38,12 +38,31 @@
   *"Dica: você tem N publicação(ões) no acervo. Toque no + → Anexar do
   acervo."* — helper puro `contextualScopeTip` + fiação no `answerRemote`.
 
-## Validação no device — BLOQUEADA
-- **ADB/USB caiu** antes deste ciclo e permanece fora
-  (`no devices/emulators found`) — validação física **parada e reportada**.
-- Pendente: S-38-T na seção, sheet de acervo (busca/vincular/desvincular/
-  relink) e a dica contextual.
+## Validação no device — CONCLUÍDA (ADB wireless)
+- **T2 (Anexar do acervo) — validado por completo:**
+  - `+` mostra as 4 opções (com "Baixar publicações" renomeado) ✅
+  - Sheet abre com lista + busca funcional (filtro "lmd" → só `lmd_T.jwpub`) ✅
+  - Status visual: `it_T`/`rsg_T` = Falhou + "Tentar de novo"; `lmd_T`/`th_T` =
+    Indexado + Vincular ✅
+  - **Vincular**: mensagem "Vinculado ✓. Já posso citar." + DB com `noteId`
+    ✅; reabrir mostra "Indexado • Nesta nota" + **Desvincular** ✅
+  - **Desvincular**: mensagem "Desvinculado." + DB `noteId` vazio ✅
+  - **Relink**: `S-34_T_194.rtf` (vinculada a outra nota) → diálogo "Mover
+    para esta nota?"; **Cancelar preservou o vínculo antigo** ✅
+- **T1 (S-38-T) — validado:** categoria **"Instruções"** após Apostilas;
+  "Instruções para a Reunião Nossa Vida e Ministério Cristão (s38)" com badge
+  **"No acervo"** (reconheceu `S-38_T.jwpub`) ✅; **Baixar abriu a página
+  específica** ("Instruções para a reunião Nossa Vida e Ministério Cristão")
+  ✅.
+- **Links específicos:** o `rr` não foi alcançado no scroll da validação, mas
+  o **S-38-T provou o mecanismo no device** (página específica) e as 13 URLs
+  seguem verificadas por HTTP.
+- **T3 (dica contextual) — não reproduzida no device:** a nota atual tem
+  fontes vinculadas (`scopeEmpty` falso) e o modelo respondeu à pergunta
+  fora-de-escopo sem a frase de insuficiência; o helper puro está coberto por
+  testes (3).
 
 ## Estado
-- S-38-T + Anexar do acervo + dica: **fechados no código/testes**.
+- S-38-T + Anexar do acervo: **fechados** (código + testes + device).
+- Dica contextual: fechada no código/testes; gatilho físico não reproduzido.
 - `BASE_PUBS` inalterado; CI verde.
