@@ -18,13 +18,14 @@ import java.util.zip.ZipInputStream
  * Falha com mensagem específica quando o esquema não é suportado.
  */
 object JwpubExtractor {
-    const val MAX_DOCS = 5000
+    const val MAX_DOCS = 20_000
 
     /**
-     * Teto de texto extraído. 8M chars cobrem a maior publicação atual
-     * (Estudo Perspicaz unificado) sem estourar memória (~16MB de buffer).
+     * Teto de texto extraído. Medido no arquivo real: o Estudo Perspicaz
+     * unificado tem 12,43M chars em 5.023 docs — 16M dá folga para edições
+     * futuras (~32MB de buffer). O teto antigo (8M) cortava o it na letra M.
      */
-    const val MAX_TEXT = 8_000_000
+    const val MAX_TEXT = 16_000_000
 
     /**
      * Teto do conteúdo interno (zip externo + banco descomprimido). O antigo

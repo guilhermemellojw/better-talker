@@ -33,7 +33,8 @@ class JwpubStreamingTest {
         assertEquals(10L * 1024 * 1024, ImportLimits.OUTLINE_BYTES)
         assertEquals(400L * 1024 * 1024, ImportLimits.LIBRARY_BYTES)
         assertEquals(400L * 1024 * 1024, JwpubExtractor.MAX_DB_BYTES)
-        assertEquals(8_000_000, JwpubExtractor.MAX_TEXT)
+        assertEquals(16_000_000, JwpubExtractor.MAX_TEXT)
+        assertEquals(20_000, JwpubExtractor.MAX_DOCS)
     }
 
     @Test

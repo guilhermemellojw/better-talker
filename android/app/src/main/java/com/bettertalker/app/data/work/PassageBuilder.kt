@@ -28,8 +28,8 @@ import com.bettertalker.app.data.util.splitWithSections
 /** Piso do teto de frases (publicações pequenas). */
 internal const val MIN_PASSAGE_CAP = 2500
 
-/** Teto do teto de frases (Estudo Perspicaz unificado ~8M chars). */
-internal const val MAX_PASSAGE_CAP = 120_000
+/** Teto do teto de frases (Estudo Perspicaz unificado = 12,43M chars → ~124k frases). */
+internal const val MAX_PASSAGE_CAP = 300_000
 
 /**
  * T1b — teto de frases proporcional ao texto (≈1 frase a cada 40 chars):

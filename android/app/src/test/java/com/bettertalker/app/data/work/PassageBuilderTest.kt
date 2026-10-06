@@ -84,8 +84,9 @@ class PassageBuilderTest {
         assertEquals(2500, passageCapFor(0))
         assertEquals(2500, passageCapFor(50_000))        // 1250 → piso
         assertEquals(25_000, passageCapFor(1_000_000))   // 1M/40
-        assertEquals(120_000, passageCapFor(8_000_000))  // teto
-        assertEquals(120_000, passageCapFor(50_000_000))
+        assertEquals(200_000, passageCapFor(8_000_000))  // 8M/40
+        assertEquals(300_000, passageCapFor(12_430_000)) // it completo → teto
+        assertEquals(300_000, passageCapFor(50_000_000))
     }
 
     @Test
