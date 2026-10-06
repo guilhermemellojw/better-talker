@@ -20,6 +20,25 @@ import com.bettertalker.app.data.edit.EditProposalMode
 const val INSUFFICIENT_EVIDENCE_MESSAGE =
     "Não encontrei suporte suficiente nas fontes disponíveis."
 
+/**
+ * T3 — dica contextual: quando a resposta é a frase de insuficiência, o escopo
+ * está sem fontes de conteúdo e há publicações no acervo ainda não vinculadas,
+ * sugere vincular pelo "+". Puro/testável.
+ */
+fun contextualScopeTip(
+    responseText: String,
+    unlinkedPublications: Int,
+    scopeEmpty: Boolean,
+): String? =
+    if (scopeEmpty && unlinkedPublications > 0 &&
+        responseText.contains(INSUFFICIENT_EVIDENCE_MESSAGE)
+    ) {
+        "\n\nDica: você tem $unlinkedPublications publicação(ões) no acervo. " +
+            "Toque no + → Anexar do acervo."
+    } else {
+        null
+    }
+
 /** Fontes de conteúdo no prompt (§ F15 llmPrompt). */
 const val MAX_CONTENT_SOURCES = 8
 

@@ -1295,7 +1295,21 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             android.util.Log.w("CopilotLLM", "chat remoto: aviso de citação exibido")
         }
         val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
-        post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT)
+        // T3 — dica contextual: insuficiência + acervo com publicações soltas.
+        val tip = com.bettertalker.app.data.copilot.contextualScopeTip(
+            responseText = verified.text,
+            unlinkedPublications = if (verified.text.contains(
+                    com.bettertalker.app.data.copilot.INSUFFICIENT_EVIDENCE_MESSAGE
+                )
+            ) {
+                db.attachmentDao().all().count { it.noteId == null && it.status == "ready" }
+            } else {
+                0
+            },
+            scopeEmpty = turnContext.pack.contentSources.isEmpty(),
+        )
+        val withTip = if (tip == null) finalText else finalText + tip
+        post(false, "text", ChatCodec.escMap(mapOf("text" to withTip)), MessageOrigin.COPILOT)
     }
 
     /**
