@@ -13,10 +13,16 @@ fun countWords(text: String): Int =
         .split(Regex("\\s+"))
         .count { it.any(Char::isLetterOrDigit) }
 
-/** Conta palavras das seções: BODY soma os sub-pontos; as demais, contentHtml. */
+/**
+ * Conta palavras das seções: BODY usa o mini discurso (`contentHtml`, a
+ * verdade do tópico) quando preenchido; senão, os sub-pontos (legado).
+ * Espelha a regra do `SectionsController.aggregateHtml` — nunca soma os
+ * dois (o desenvolvimento legado fica invisível quando há mini discurso).
+ */
 fun countSectionWords(sections: List<SectionUiState>): Int = sections.sumOf { s ->
     if (s.section.role == SectionRole.BODY) {
-        s.subPoints.sumOf { countWords(it.developedHtml) }
+        if (s.section.contentHtml.isNotBlank()) countWords(s.section.contentHtml)
+        else s.subPoints.sumOf { countWords(it.developedHtml) }
     } else {
         countWords(s.section.contentHtml)
     }

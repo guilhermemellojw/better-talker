@@ -55,4 +55,30 @@ class WordCountTest {
     fun countSectionWords_emptyIsZero() {
         assertEquals(0, countSectionWords(emptyList()))
     }
+
+    // ---------- T1 (Mini Discurso): o BODY conta o mini discurso ----------
+
+    @Test
+    fun countSectionWords_bodyPrefersMiniSpeechOverSubPoints() {
+        val sections = listOf(
+            ui(
+                "BODY",
+                contentHtml = "<p>mini discurso com quatro palavras</p>", // 5
+                subPoints = listOf("<p>legado</p>"),                      // 1 (ignorado)
+            ),
+        )
+        assertEquals(5, countSectionWords(sections))
+    }
+
+    @Test
+    fun countSectionWords_bodyFallsBackToSubPointsWhenMiniSpeechEmpty() {
+        val sections = listOf(ui("BODY", subPoints = listOf("<p>a b</p>", "c")))
+        assertEquals(3, countSectionWords(sections))
+    }
+
+    @Test
+    fun countSectionWords_bodyMiniSpeechCounts() {
+        val sections = listOf(ui("BODY", contentHtml = "<p>duas palavras</p>"))
+        assertEquals(2, countSectionWords(sections))
+    }
 }
