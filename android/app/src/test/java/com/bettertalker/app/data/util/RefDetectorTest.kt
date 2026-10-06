@@ -53,6 +53,54 @@ class RefDetectorTest {
         assertEquals("Esdras", RefDetector.detectBible("Esd 1:1").single().label)
     }
 
+    // ---------- T1 (refs): ponto na abreviação, aliases e listas ----------
+
+    @Test
+    fun detectBible_aceitaPontoNaAbreviacao() {
+        val ref = RefDetector.detectBible("(Jer. 41:1)").single()
+        assertEquals("Jeremias", ref.label)
+        assertEquals(41, ref.chapter)
+        assertEquals(1, ref.verse)
+    }
+
+    @Test
+    fun detectBible_aliasJerECor() {
+        assertEquals("Jeremias", RefDetector.detectBible("Jer 41:1").single().label)
+        assertEquals("1 Coríntios", RefDetector.detectBible("(1 Cor. 15:3)").single().label)
+    }
+
+    @Test
+    fun detectBible_listaDeVersiculos() {
+        val refs = RefDetector.detectBible("(Jer. 41:1, 2; it qualquer coisa)")
+        assertEquals(listOf(1, 2), refs.map { it.verse })
+        assertEquals(listOf("Jeremias", "Jeremias"), refs.map { it.label })
+    }
+
+    @Test
+    fun detectBible_faixaDeVersiculos() {
+        val refs = RefDetector.detectBible("(Gên 3:6-8)")
+        assertEquals(listOf(6, 7, 8), refs.map { it.verse })
+    }
+
+    @Test
+    fun detectBible_listaNaoEngoleOutroLivro() {
+        // "41:1, 2 Reis 25:22" — o "2" pertence a outro livro, não é versículo.
+        val refs = RefDetector.detectBible("(Jer. 41:1, 2 Reis 25:22)")
+        assertEquals(2, refs.size)
+        assertEquals(1, refs.first { it.label == "Jeremias" }.verse)
+        assertEquals("2 Reis", refs.first { it.label == "2 Reis" }.label)
+    }
+
+    @Test
+    fun detectBible_linhaRealDoEsboco() {
+        // Exemplo do dono: Jer. 41:1, 2 + it "Gedalias" n.° 4 (o it é T2).
+        val refs = RefDetector.detectBible(
+            "Jeová não salvou a vida de Gedalias, embora ele fosse um homem que " +
+                "temia a Jeová. (Jer. 41:1, 2; it \"Gedalias\" n.° 4)"
+        )
+        assertEquals(listOf("Jeremias" to 1, "Jeremias" to 2), refs.map { it.label to it.verse })
+    }
+
     /**
      * DÉBITO TÉCNICO (3.2.3a-fix): "Jó" e "João" normalizam para a mesma
      * chave ("jo"), e o mapa resolve para João. Este teste documenta o

@@ -714,6 +714,8 @@ object RefDetector {
         "cant" to "Cânticos", "can" to "Cânticos", "cantares" to "Cânticos",
         "is" to "Isaías", "isa" to "Isaías", "isaias" to "Isaías",
         "jr" to "Jeremias", "je" to "Jeremias", "jeremias" to "Jeremias",
+        // T1 (refs): abreviações comuns de esboços antigos ("Jer.", "1 Cor.").
+        "jer" to "Jeremias",
         "lam" to "Lamentações", "la" to "Lamentações", "lamentacoes" to "Lamentações",
         "ez" to "Ezequiel", "ezequiel" to "Ezequiel",
         "dn" to "Daniel", "da" to "Daniel", "daniel" to "Daniel",
@@ -734,8 +736,8 @@ object RefDetector {
         "lc" to "Lucas", "luc" to "Lucas", "lucas" to "Lucas",
         "at" to "Atos", "atos" to "Atos",
         "rm" to "Romanos", "rom" to "Romanos", "romanos" to "Romanos",
-        "1co" to "1 Coríntios", "1corintios" to "1 Coríntios",
-        "2co" to "2 Coríntios", "2corintios" to "2 Coríntios",
+        "1co" to "1 Coríntios", "1corintios" to "1 Coríntios", "1cor" to "1 Coríntios",
+        "2co" to "2 Coríntios", "2corintios" to "2 Coríntios", "2cor" to "2 Coríntios",
         "gl" to "Gálatas", "gal" to "Gálatas", "galatas" to "Gálatas",
         "ef" to "Efésios", "efesios" to "Efésios",
         "fp" to "Filipenses", "fil" to "Filipenses", "filipenses" to "Filipenses",
@@ -746,7 +748,7 @@ object RefDetector {
         "2tm" to "2 Timóteo", "2ti" to "2 Timóteo", "2timoteo" to "2 Timóteo",
         "tt" to "Tito", "tit" to "Tito", "tito" to "Tito",
         "fm" to "Filemom", "flm" to "Filemom", "filemom" to "Filemom",
-        "hb" to "Hebreus", "he" to "Hebreus", "hebreus" to "Hebreus",
+        "hb" to "Hebreus", "he" to "Hebreus", "hebreus" to "Hebreus", "heb" to "Hebreus",
         "tg" to "Tiago", "tiago" to "Tiago",
         "1pe" to "1 Pedro", "1pedro" to "1 Pedro",
         "2pe" to "2 Pedro", "2pedro" to "2 Pedro",
@@ -765,14 +767,40 @@ object RefDetector {
     fun detectBible(text: String): List<BibleRef> {
         val out = mutableListOf<BibleRef>()
         val seen = mutableSetOf<String>()
+        val lower = text.lowercase()
         // 3.2.3a-fix4c: aceita sufixo de letra no versículo ("15:3b", "10:16a")
-        val re = Regex("""\b((?:[1-3]\s*)?[a-zà-ÿ]+)\s+(\d{1,3})\s*:\s*(\d{1,3})(?:[a-z])?\b""")
-        for (m in re.findAll(text.lowercase())) {
+        // T1 (refs): aceita ponto na abreviação ("Jer. 41:1", "1 Cor. 15:3").
+        val re = Regex("""\b((?:[1-3]\s*)?[a-zà-ÿ]+)\.?\s+(\d{1,3})\s*:\s*(\d{1,3})(?:[a-z])?\b""")
+        for (m in re.findAll(lower)) {
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
             val label = BIBLE_BOOKS[key] ?: continue
-            val ref = BibleRef(key, label, m.groupValues[2].toInt(), m.groupValues[3].toInt())
-            // "Jo 3:16" e "João 3:16" são a mesma menção
-            if (seen.add("$label|${ref.chapter}|${ref.verse}")) out += ref
+            val chapter = m.groupValues[2].toInt()
+            fun add(verse: Int) {
+                if (verse <= 0) return
+                if (seen.add("$label|$chapter|$verse")) out += BibleRef(key, label, chapter, verse)
+            }
+            val first = m.groupValues[3].toInt()
+            add(first)
+            // T1: continuação de lista/faixa ("41:1, 2" → vv. 1 e 2;
+            // "41:1-3" → 1..3). O lookahead rejeita "41:1, 2 Reis 25:22"
+            // (o "2" pertence a outro livro, não é versículo).
+            var last = first
+            var idx = m.range.last + 1
+            while (idx < lower.length) {
+                val sep = Regex("""^\s*([,;]|[–—-])\s*(\d{1,3})\b(?!\s*[a-zà-ÿ])""")
+                    .find(lower.substring(idx)) ?: break
+                val num = sep.groupValues[2].toInt()
+                if (num <= 0 || num > 200) break
+                val s = sep.groupValues[1]
+                if (s == "-" || s == "–" || s == "—") {
+                    if (num <= last || num - last > 50) break
+                    for (v in (last + 1)..num) add(v)
+                } else {
+                    add(num)
+                }
+                last = num
+                idx += sep.range.last + 1
+            }
         }
         return out
     }
