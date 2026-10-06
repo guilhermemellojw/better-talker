@@ -29,6 +29,7 @@ data class RecommendedPub(
 object RecommendedPublications {
     const val BIBLE = "Bíblia"
     const val AIDS = "Apostilas"
+    const val INSTRUCTIONS = "Instruções"
     const val RESEARCH = "Pesquisa"
     const val MAGAZINES = "Revistas"
     const val BOOKS = "Livros"
@@ -38,6 +39,7 @@ object RecommendedPublications {
     private const val TH = "https://www.jw.org/pt/biblioteca/brochuras/leitura-e-ensino/"
     private const val BE = "https://www.jw.org/pt/biblioteca/livros/Beneficie-se-da-Escola-do-Minist%C3%A9rio-Teocr%C3%A1tico/"
     private const val LMD = "https://www.jw.org/pt/biblioteca/brochuras/ame-pessoas-faca-discipulos/"
+    private const val S38 = "https://www.jw.org/pt/biblioteca/orientacoes/Instru%C3%A7%C3%B5es-para-a-Reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o/Instru%C3%A7%C3%B5es-para-a-reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o"
     private const val DX = "https://www.jw.org/pt/biblioteca/indices/"
     private const val IT = "https://www.jw.org/pt/biblioteca/livros/estudo-perspicaz-das-escrituras/"
     private const val MAG = "https://www.jw.org/pt/biblioteca/revistas/"
@@ -51,6 +53,7 @@ object RecommendedPublications {
         RecommendedPub("th", AIDS, TH),
         RecommendedPub("be", AIDS, BE),
         RecommendedPub("lmd", AIDS, LMD),
+        RecommendedPub("s38", INSTRUCTIONS, S38),
         RecommendedPub("dx", RESEARCH, DX),
         RecommendedPub("it-1", RESEARCH, IT),
         RecommendedPub("it-2", RESEARCH, IT),
@@ -64,7 +67,7 @@ object RecommendedPublications {
 
     /** Agrupado na ordem de declaração das categorias (sem grupos vazios). */
     fun byCategory(): List<Pair<String, List<RecommendedPub>>> =
-        listOf(BIBLE, AIDS, RESEARCH, MAGAZINES, BOOKS)
+        listOf(BIBLE, AIDS, INSTRUCTIONS, RESEARCH, MAGAZINES, BOOKS)
             .map { cat -> cat to ALL.filter { it.category == cat } }
             .filter { it.second.isNotEmpty() }
 }
@@ -84,6 +87,15 @@ internal fun attachmentMatchesSymbol(symbol: String, fileName: String): Boolean 
     }
     val detected = detectSymbol(fileName)
     if (detected == canonical) return true
+    // Variante compacta (S-38-T_194 → "s38t194"): símbolo sem separadores.
+    val compact = name.replace(Regex("[^a-z0-9]"), "")
+    val compactCanonical = canonical.replace(Regex("[^a-z0-9]"), "")
+    if (compactCanonical.length >= 3 && compact.startsWith(compactCanonical) &&
+        compact.length > compactCanonical.length &&
+        compact[compactCanonical.length].isLetterOrDigit()
+    ) {
+        return true
+    }
     // Edições (revistas/apostilas): "w19.03", "g 6/07", "mwb24.05".
     return detected.startsWith(canonical) && detected.length > canonical.length &&
         (detected[canonical.length].isDigit() || detected[canonical.length] == ' ')

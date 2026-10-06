@@ -79,4 +79,16 @@ class PubCatalogAliasTest {
         assertEquals("bible", PubCatalog.entryOf("nwtsty")?.kind)
         assertTrue(PubCatalog.entryOf("nwtsty")!!.wol.contains("/nwtsty"))
     }
+
+    @Test
+    fun resolveSymbol_s38_returnsS38() {
+        assertEquals("s-38", PubCatalog.resolveSymbol("s38"))
+        assertEquals("s-38", PubCatalog.resolveSymbol("S38"))
+        assertEquals("s-38", PubCatalog.resolveSymbol("s-38"))
+        val e = PubCatalog.entryOf("s38")
+        assertNotNull(e)
+        assertTrue(e!!.title.contains("Instruções para a Reunião"))
+        assertEquals("manual", e.kind)
+        assertTrue(e.wol.contains("S-38"))
+    }
 }

@@ -35,10 +35,26 @@ class RecommendedPublicationsTest {
     fun agrupamentoPorCategoriaSemGruposVazios() {
         val groups = RecommendedPublications.byCategory()
         assertEquals(
-            listOf("Bíblia", "Apostilas", "Pesquisa", "Revistas", "Livros"),
+            listOf("Bíblia", "Apostilas", "Instruções", "Pesquisa", "Revistas", "Livros"),
             groups.map { it.first }
         )
         groups.forEach { assertTrue(it.second.isNotEmpty()) }
+    }
+
+    @Test
+    fun s38NaCategoriaInstrucoes() {
+        val s38 = RecommendedPublications.ALL.first { it.symbol == "s38" }
+        assertEquals("Instruções", s38.category)
+        assertTrue(s38.title.contains("Instruções para a Reunião"))
+        assertTrue(s38.downloadUrl.contains("orientacoes"))
+        assertFalse(s38.downloadUrl.contains("wol.jw.org"))
+    }
+
+    @Test
+    fun acervoDetectaS38PorNomeCompacto() {
+        assertNotNull(findInLibrary("s38", listOf(att("S-38_T_194.docx"))))
+        assertNotNull(findInLibrary("s-38", listOf(att("S-38_T_035.jwpub"))))
+        assertNull(findInLibrary("s38", listOf(att("outro.docx"))))
     }
 
     @Test

@@ -111,6 +111,7 @@ object PubCatalog {
         "rq" to Entry("rq", "Deus Requer", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/rq"),
         "rr" to Entry("rr", "Adoração Pura", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/rr"),
         "rs" to Entry("rs", "Raciocínios", "book", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/livros/raciocínios-rs"),
+        "s-38" to Entry("s-38", "Instruções para a Reunião Nossa Vida e Ministério Cristão", "manual", "https://wol.jw.org/pt/wol/publication/r5/lp-t/S-38"),
         "scl" to Entry("scl", "Princípios Bíblicos para a Vida Cristã", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/scl"),
         "sg" to Entry("sg", "Manual da Escola", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/sg"),
         "sh" to Entry("sh", "Busca de Deus", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/sh"),
@@ -165,6 +166,8 @@ object PubCatalog {
      */
     private val ALIASES: Map<String, String> = mapOf(
         "ifi" to "ia",
+        // S-38-T aparece sem hífen em esboços/arquivos ("s38").
+        "s38" to "s-38",
     )
 
     /**
