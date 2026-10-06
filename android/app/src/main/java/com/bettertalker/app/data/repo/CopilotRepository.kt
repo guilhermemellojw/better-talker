@@ -408,7 +408,7 @@ class CopilotRepository(private val db: AppDatabase) {
                 com.bettertalker.app.data.util.PubCatalog.titleOf(ref.pubKey) ?: ref.label
             RefDetector.Kind.MAGAZINE -> ref.label
         }
-        return filterByChapter(db.passageDao().forAttachment(hit.id), ch.kind, ch.number)
+        return filterByChapter(db.passageDao().forAttachment(hit.id), ch.kind, ch.number, ref.pubKey)
             .take(limit).map { ScopedHit(it, label) }
     }
 
@@ -558,11 +558,36 @@ fun childTitles(
  * Filtra trechos pelo capítulo/lição/estudo da seção indexada
  * ("Capítulo 5", "Lição 3", "Estudo 27"). Puro/testável.
  */
+/**
+ * T3 — volume do Estudo Perspicaz (arquivo unificado): `it-1` = A–I,
+ * `it-2` = J–Z. Null = não é volume do unificado. Puro/testável.
+ */
+internal fun perspicazVolumeOf(pubKey: String?): Int? = when (pubKey?.lowercase()) {
+    "it-1" -> 1
+    "it-2" -> 2
+    else -> null
+}
+
+/** Primeira letra (a-z, sem acento) do título; null quando não começa com letra. */
+internal fun firstLetterOf(section: String): Char? =
+    normalizeText(section).firstOrNull()?.takeIf { it in 'a'..'z' }
+
 fun filterByChapter(
     passages: List<PassageEntity>,
     kind: String,
-    number: Int
+    number: Int,
+    pubKey: String? = null,
 ): List<PassageEntity> {
+    // T3: no Perspicaz unificado o volume sai da 1ª letra do artigo
+    // (A–I = vol. 1; J–Z = vol. 2). Se o range vier vazio, cai no filtro
+    // antigo (página/capítulo) — nunca regride.
+    perspicazVolumeOf(pubKey)?.let { vol ->
+        val inVolume = passages.filter { p ->
+            val c = firstLetterOf(p.section) ?: return@filter false
+            if (vol == 1) c <= 'i' else c >= 'j'
+        }
+        if (inVolume.isNotEmpty()) return inVolume
+    }
     val needles: List<String> = when (kind) {
         "cap" -> listOf("capitulo $number", "cap $number")
         "licao" -> listOf("licao $number")

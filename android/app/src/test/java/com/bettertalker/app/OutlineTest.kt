@@ -1358,6 +1358,45 @@ S-34-T N.º 35 5/20
         assertTrue(f(all, "cap", 9).isEmpty())
     }
 
+    // ---------- T3: escopo por volume no Perspicaz unificado (A–I / J–Z) ----------
+
+    @Test
+    fun perspicazVolumePelaPrimeiraLetra() {
+        assertEquals(1, com.bettertalker.app.data.repo.perspicazVolumeOf("it-1"))
+        assertEquals(2, com.bettertalker.app.data.repo.perspicazVolumeOf("IT-2"))
+        assertNull(com.bettertalker.app.data.repo.perspicazVolumeOf("it"))
+        assertNull(com.bettertalker.app.data.repo.perspicazVolumeOf("dx"))
+    }
+
+    @Test
+    fun primeiraLetraNormalizaAcentosENumeros() {
+        assertEquals('a', com.bettertalker.app.data.repo.firstLetterOf("# Abraão"))
+        assertEquals('j', com.bettertalker.app.data.repo.firstLetterOf("Jeová"))
+        assertEquals('b', com.bettertalker.app.data.repo.firstLetterOf("‘Boa Terra’"))
+        assertEquals('c', com.bettertalker.app.data.repo.firstLetterOf("Çedro"))
+        assertNull(com.bettertalker.app.data.repo.firstLetterOf("144.000"))
+        assertNull(com.bettertalker.app.data.repo.firstLetterOf(""))
+    }
+
+    @Test
+    fun filterByChapterEscopaVolumeDoPerspicaz() {
+        val mk = { section: String ->
+            com.bettertalker.app.data.db.PassageEntity("p-$section", "a", "texto", "texto", section)
+        }
+        val all = listOf(mk("Abraão"), mk("Isaías"), mk("Jeová"), mk("Zacarias"))
+        val v1 = com.bettertalker.app.data.repo.filterByChapter(all, "pagina", 813, "it-1")
+        assertEquals(listOf("Abraão", "Isaías"), v1.map { it.section })
+        val v2 = com.bettertalker.app.data.repo.filterByChapter(all, "pagina", 813, "it-2")
+        assertEquals(listOf("Jeová", "Zacarias"), v2.map { it.section })
+        // fallback: range vazio cai no filtro antigo (página no texto da seção)
+        val num = listOf(mk("x 813 y"), mk("outra"))
+        assertEquals(
+            listOf("x 813 y"),
+            com.bettertalker.app.data.repo.filterByChapter(num, "pagina", 813, "it-1")
+                .map { it.section }
+        )
+    }
+
     private fun s34SecsForMatch() = listOf(
         com.bettertalker.app.data.util.ChatIntent.SectionRef(
             "FOMOS CRIADOS PARA VIVER PARA SEMPRE",
