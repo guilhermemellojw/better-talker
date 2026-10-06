@@ -58,11 +58,24 @@ class RecommendedPublicationsTest {
         RecommendedPublications.ALL.forEach { p ->
             assertTrue(
                 "download fora do jw.org: ${p.symbol} -> ${p.downloadUrl}",
-                p.downloadUrl.startsWith("https://www.jw.org/finder")
+                p.downloadUrl.startsWith("https://www.jw.org/")
             )
-            assertTrue("sem wfile: ${p.symbol}", p.downloadUrl.contains("wfile=${p.symbol}"))
             assertFalse("WOL como download: ${p.symbol}", p.downloadUrl.contains("wol.jw.org"))
         }
+    }
+
+    @Test
+    fun paginasEspecificasPorPublicacao() {
+        // Páginas específicas (não a home/finder genérico).
+        val bySymbol = RecommendedPublications.ALL.associateBy { it.symbol }
+        assertTrue(bySymbol["nwtsty"]!!.downloadUrl.contains("biblia-de-estudo"))
+        assertTrue(bySymbol["th"]!!.downloadUrl.contains("leitura-e-ensino"))
+        assertTrue(bySymbol["be"]!!.downloadUrl.contains("Beneficie-se"))
+        assertTrue(bySymbol["lmd"]!!.downloadUrl.contains("ame-pessoas"))
+        assertTrue(bySymbol["dx"]!!.downloadUrl.contains("/indices/"))
+        assertTrue(bySymbol["it-1"]!!.downloadUrl.contains("estudo-perspicaz"))
+        assertTrue(bySymbol["rr"]!!.downloadUrl.contains("adoracao-pura"))
+        assertTrue(bySymbol["mwb"]!!.downloadUrl.contains("jw-apostila-do-mes"))
     }
 
     @Test

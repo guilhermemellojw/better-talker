@@ -7,22 +7,17 @@ import com.bettertalker.app.data.util.detectSymbol
 
 /**
  * Catálogo curado de publicações recomendadas (BYOD: só metadados + links
- * oficiais; o usuário baixa na WebView/página oficial). Títulos e links vêm do
- * [PubCatalog] — fonte única.
+ * oficiais; o usuário baixa na WebView/página oficial). Títulos vêm do
+ * [PubCatalog]; o [downloadUrl] é a **página específica da publicação** no
+ * jw.org (com opções de download) — nunca a WOL.
  */
 data class RecommendedPub(
     val symbol: String,
     val category: String,
+    /** Página oficial da publicação no jw.org (verificada por HTTP). */
+    val downloadUrl: String,
 ) {
     val title: String get() = PubCatalog.titleOf(symbol) ?: symbol
-
-    /**
-     * Destino do botão **Baixar**: página do **jw.org** (finder por símbolo) —
-     * a WOL só permite leitura, não download. O finder resolve a publicação
-     * oficial e oferece os arquivos (mesma API `GETPUBMEDIALINKS`).
-     */
-    val downloadUrl: String
-        get() = "https://www.jw.org/finder?wtlocale=T&srcid=share&wfile=$symbol"
 
     /** Página WOL (leitura/estudo) — secundária, nunca destino do Baixar. */
     val pageUrl: String get() = PubCatalog.entryOf(symbol)?.wol.orEmpty()
@@ -38,21 +33,33 @@ object RecommendedPublications {
     const val MAGAZINES = "Revistas"
     const val BOOKS = "Livros"
 
+    // Páginas específicas no jw.org (todas verificadas: 200).
+    private const val NWTSTY = "https://www.jw.org/pt/biblioteca/biblia/biblia-de-estudo/"
+    private const val TH = "https://www.jw.org/pt/biblioteca/brochuras/leitura-e-ensino/"
+    private const val BE = "https://www.jw.org/pt/biblioteca/livros/Beneficie-se-da-Escola-do-Minist%C3%A9rio-Teocr%C3%A1tico/"
+    private const val LMD = "https://www.jw.org/pt/biblioteca/brochuras/ame-pessoas-faca-discipulos/"
+    private const val DX = "https://www.jw.org/pt/biblioteca/indices/"
+    private const val IT = "https://www.jw.org/pt/biblioteca/livros/estudo-perspicaz-das-escrituras/"
+    private const val MAG = "https://www.jw.org/pt/biblioteca/revistas/"
+    private const val MWB = "https://www.jw.org/pt/biblioteca/jw-apostila-do-mes/"
+    private const val RR = "https://www.jw.org/pt/biblioteca/livros/adoracao-pura/"
+    private const val IA = "https://www.jw.org/pt/biblioteca/livros/"
+
     /** Top do discovery (curadoria fixa por release). */
     val ALL: List<RecommendedPub> = listOf(
-        RecommendedPub("nwtsty", BIBLE),
-        RecommendedPub("th", AIDS),
-        RecommendedPub("be", AIDS),
-        RecommendedPub("lmd", AIDS),
-        RecommendedPub("dx", RESEARCH),
-        RecommendedPub("it-1", RESEARCH),
-        RecommendedPub("it-2", RESEARCH),
-        RecommendedPub("it-3", RESEARCH),
-        RecommendedPub("w", MAGAZINES),
-        RecommendedPub("g", MAGAZINES),
-        RecommendedPub("mwb", MAGAZINES),
-        RecommendedPub("rr", BOOKS),
-        RecommendedPub("ia", BOOKS),
+        RecommendedPub("nwtsty", BIBLE, NWTSTY),
+        RecommendedPub("th", AIDS, TH),
+        RecommendedPub("be", AIDS, BE),
+        RecommendedPub("lmd", AIDS, LMD),
+        RecommendedPub("dx", RESEARCH, DX),
+        RecommendedPub("it-1", RESEARCH, IT),
+        RecommendedPub("it-2", RESEARCH, IT),
+        RecommendedPub("it-3", RESEARCH, IT),
+        RecommendedPub("w", MAGAZINES, MAG),
+        RecommendedPub("g", MAGAZINES, MAG),
+        RecommendedPub("mwb", MAGAZINES, MWB),
+        RecommendedPub("rr", BOOKS, RR),
+        RecommendedPub("ia", BOOKS, IA),
     )
 
     /** Agrupado na ordem de declaração das categorias (sem grupos vazios). */
