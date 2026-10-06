@@ -10,7 +10,7 @@ import java.net.URLEncoder
  * Textos bíblicos (Gên 1:26) são ignorados por decisão de escopo.
  *
  * Símbolos de livro reconhecidos (3.2.3a-fix4), validados contra
- * [PubCatalog]: pe, rs, re, dp, dg, bh, jv, kj, it-1/2/3 (página/range),
+ * [PubCatalog]: pe, rs, re, dp, dg, bh, jv, kj, it-1/it-2 (página/range),
  * mrt (artigo N), ifi (lição N [ponto M]) — além das rotas legadas por
  * palavra-guia e por título integral. Sentinela por nome ("Sentinela
  * n.º X de YYYY", "Sentinela de <mês> de YYYY") e por data
@@ -124,7 +124,7 @@ object RefDetector {
     // "Re 1". Com `\b`, "15" não recua para "1" (não há fronteira), então o
     // lookahead é avaliado corretamente e rejeita.
     private val STUDY_BOOK_RE = Regex(
-        """\b(it-[1-3]|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
+        """\b(it-[12]|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
@@ -371,7 +371,8 @@ object RefDetector {
         // - dedupe correto (book|ifi ≠ book|ia sem canonicalização)
         // - link do finder correto (pub=ia funciona; pub=ifi daria 404)
         // O `raw` preserva o símbolo como veio no esboço.
-        // it-1/2/3 são símbolos VÁLIDOS (edição em 3 volumes, 1990-1992).
+        // it-1/it-2 são volumes VÁLIDOS do Estudo Perspicaz (o site só oferece
+        // o arquivo unificado `it`; o matching resolve via PubCatalog.unifiedOf).
         STUDY_BOOK_RE.findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
@@ -526,22 +527,30 @@ object RefDetector {
 
     /** Casa anexo com a edição exata da referência. */
     fun matchEdition(ref: DetectedRef, attachments: List<AttachmentEntity>): AttachmentEntity? {        if (ref.kind == Kind.BOOK) {
+            // T2: símbolo canônico (aliases: dx→rsg) + edição unificada
+            // (it-1/it-2 → it; o site só oferece o arquivo unificado).
+            val keys = listOfNotNull(
+                PubCatalog.resolveSymbol(ref.pubKey),
+                PubCatalog.unifiedOf(ref.pubKey),
+            ).distinct()
             // slot base primeiro, depois título no nome do arquivo
-            attachments.firstOrNull { it.baseSlot == ref.pubKey && it.indexed }?.let { return it }
-            val normKey = normalizeText(ref.pubKey)
-            val titleNorm = PubCatalog.titleOf(ref.pubKey)?.let { normalizeText(it) }.orEmpty()
+            attachments.firstOrNull { it.baseSlot in keys && it.indexed }?.let { return it }
             return attachments.firstOrNull { a ->
                 if (!a.indexed) return@firstOrNull false
                 val nf = normalizeText(a.fileName)
                 val tokens = nf.split(" ").toSet()
-                // "Seja Feliz para Sempre.pdf" (sem sigla no nome)
-                val titleHit = titleNorm.length >= 4 &&
-                    (if (' ' in titleNorm) nf.contains(titleNorm) else tokens.contains(titleNorm))
-                tokens.contains(ref.pubKey) || // lff_T.pdf, bhs_T.epub…
-                    nf.contains(normKey) ||
-                    titleHit ||
-                    (ref.pubKey == "be" && matchBaseSlot(a.fileName) == "be") ||
-                    (ref.pubKey == "th" && matchBaseSlot(a.fileName) == "th")
+                keys.any { key ->
+                    val normKey = normalizeText(key)
+                    val titleNorm = PubCatalog.titleOf(key)?.let { normalizeText(it) }.orEmpty()
+                    // "Seja Feliz para Sempre.pdf" (sem sigla no nome)
+                    val titleHit = titleNorm.length >= 4 &&
+                        (if (' ' in titleNorm) nf.contains(titleNorm) else tokens.contains(titleNorm))
+                    tokens.contains(key) || // lff_T.pdf, bhs_T.epub…
+                        nf.contains(normKey) ||
+                        titleHit ||
+                        (key == "be" && matchBaseSlot(a.fileName) == "be") ||
+                        (key == "th" && matchBaseSlot(a.fileName) == "th")
+                }
             }
         }
         // revista: código + ano + número/mês (+ dia, se houver) no nome do arquivo

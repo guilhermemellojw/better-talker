@@ -30,10 +30,49 @@ class RefDetectorStudyBooksTest {
     }
 
     @Test
-    fun detect_it3_detectsIt3() {
-        val ref = single("(it-3 575)")
-        assertEquals("it-3", ref.pubKey)
-        assertTrue(ref.label.contains("Volume 3"))
+    fun detect_it2_detectsIt2() {
+        val ref = single("(it-2 575)")
+        assertEquals("it-2", ref.pubKey)
+        assertTrue(ref.label.contains("Volume 2"))
+    }
+
+    @Test
+    fun detect_rsg_detectsCurrentGuide() {
+        val ref = single("(rsg 120)")
+        assertEquals("rsg", ref.pubKey)
+        assertEquals("book|rsg", ref.editionKey)
+        assertTrue(ref.label.contains("Guia de Pesquisa"))
+    }
+
+    @Test
+    fun detect_it3_naoEhMaisReconhecido() {
+        // it-3 não existe (a WOL publica 2 volumes).
+        assertTrue(RefDetector.detect("(it-3 575)").isEmpty())
+    }
+
+    // ---------- T2: matching unificado (it-1/it-2 → it; dx → rsg) ----------
+
+    private fun att(name: String) = com.bettertalker.app.data.db.AttachmentEntity(
+        id = "a-$name", noteId = null, fileName = name, kind = "jwpub",
+        sizeBytes = 1, appPath = "/x", indexed = true, addedAt = 0
+    )
+
+    @Test
+    fun match_it1Volume_matchesUnifiedItAttachment() {
+        val ref = single("(it-1 813)")
+        assertEquals("a-it_T.jwpub", RefDetector.matchEdition(ref, listOf(att("it_T.jwpub")))?.id)
+    }
+
+    @Test
+    fun match_it2Volume_matchesUnifiedItAttachment() {
+        val ref = single("(it-2 1050)")
+        assertEquals("a-it_T.jwpub", RefDetector.matchEdition(ref, listOf(att("it_T.jwpub")))?.id)
+    }
+
+    @Test
+    fun match_dx_matchesRsgAttachment() {
+        val ref = RefDetector.DetectedRef("(dx 120)", RefDetector.Kind.BOOK, "dx", "book|dx", "x")
+        assertEquals("a-rsg_T.jwpub", RefDetector.matchEdition(ref, listOf(att("rsg_T.jwpub")))?.id)
     }
 
     @Test
@@ -117,12 +156,12 @@ class RefDetectorStudyBooksTest {
     }
 
     @Test
-    fun detect_it3Page_pubKeyIsIt3() {
-        // it-3 é símbolo válido — não muda com a canonicalização
-        val ref = single("(it-3 575)")
-        assertEquals("it-3", ref.pubKey)
-        assertEquals("book|it-3", ref.editionKey)
-        assertTrue(ref.label.contains("Estudo Perspicaz das Escrituras, Volume 3 (pág. 575)"))
+    fun detect_it2Page_pubKeyIsIt2() {
+        // it-2 é volume válido — não muda com a canonicalização.
+        val ref = single("(it-2 575)")
+        assertEquals("it-2", ref.pubKey)
+        assertEquals("book|it-2", ref.editionKey)
+        assertTrue(ref.label.contains("Estudo Perspicaz das Escrituras, Volume 2 (pág. 575)"))
     }
 
     @Test

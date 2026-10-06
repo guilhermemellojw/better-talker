@@ -55,9 +55,9 @@ object PubCatalog {
         "ie" to Entry("ie", "Quando Morremos", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/quando-morremos-ie"),
         "ip-1" to Entry("ip-1", "Profecia de Isaías I", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-1"),
         "ip-2" to Entry("ip-2", "Profecia de Isaías II", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ip-2"),
+        "it" to Entry("it", "Estudo Perspicaz das Escrituras", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it"),
         "it-1" to Entry("it-1", "Estudo Perspicaz das Escrituras, Volume 1", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-1"),
         "it-2" to Entry("it-2", "Estudo Perspicaz das Escrituras, Volume 2", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-2"),
-        "it-3" to Entry("it-3", "Estudo Perspicaz das Escrituras, Volume 3", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/it-3"),
         "jd" to Entry("jd", "Dia de Jeová", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jd"),
         "je" to Entry("je", "Fazer Mundialmente a Vontade de Deus", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fazer-mundialmente-a-vontade-de-deus-je"),
         "jl" to Entry("jl", "Vontade de Jeová", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jl"),
@@ -95,7 +95,6 @@ object PubCatalog {
         "na" to Entry("na", "Nome Divino", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/nome-divino-na"),
         "nc" to Entry("nc", "Todas as Nações", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/todas-as-nações-nc"),
         "nwt" to Entry("nwt", "Tradução do Novo Mundo", "bible", "https://wol.jw.org/pt/wol/publication/r5/lp-t/nwt"),
-        "nwtsty" to Entry("nwtsty", "Bíblia de Estudo", "bible", "https://wol.jw.org/pt/wol/publication/r5/lp-t/nwtsty"),
         "od" to Entry("od", "Organizados", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/od"),
         "og" to Entry("og", "Soberania de Deus", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/soberania-de-deus-og"),
         "ol" to Entry("ol", "Caminho para a Vida", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/ol"),
@@ -111,6 +110,7 @@ object PubCatalog {
         "rq" to Entry("rq", "Deus Requer", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/rq"),
         "rr" to Entry("rr", "Adoração Pura", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/rr"),
         "rs" to Entry("rs", "Raciocínios", "book", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/livros/raciocínios-rs"),
+        "rsg" to Entry("rsg", "Guia de Pesquisa", "book", "https://www.jw.org/pt/biblioteca/indices/guia-de-pesquisa/"),
         "s-38" to Entry("s-38", "Instruções para a Reunião Nossa Vida e Ministério Cristão", "manual", "https://wol.jw.org/pt/wol/publication/r5/lp-t/S-38"),
         "scl" to Entry("scl", "Princípios Bíblicos para a Vida Cristã", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/scl"),
         "sg" to Entry("sg", "Manual da Escola", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/sg"),
@@ -168,7 +168,21 @@ object PubCatalog {
         "ifi" to "ia",
         // S-38-T aparece sem hífen em esboços/arquivos ("s38").
         "s38" to "s-38",
+        // Guia de Pesquisa: `dx` é a edição antiga do `rsg` (atual).
+        "dx" to "rsg",
     )
+
+    /**
+     * Edições unificadas: volumes cujo arquivo real é o unificado.
+     * O site só oferece o `it` (Estudo Perspicaz); it-1/it-2 são rótulos.
+     */
+    private val UNIFIED: Map<String, String> = mapOf(
+        "it-1" to "it",
+        "it-2" to "it",
+    )
+
+    /** Símbolo unificado que contém [symbol] (null = não é volume de unificado). */
+    fun unifiedOf(symbol: String): String? = UNIFIED[symbol.lowercase()]
 
     /**
      * Resolve um símbolo para o canônico. Se é alias, retorna o canônico;

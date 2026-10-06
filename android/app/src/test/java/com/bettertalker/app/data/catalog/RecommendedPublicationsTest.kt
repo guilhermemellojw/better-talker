@@ -20,9 +20,12 @@ class RecommendedPublicationsTest {
     @Test
     fun curadoriaCobreTopEDerivaDoPubCatalog() {
         val symbols = RecommendedPublications.ALL.map { it.symbol }
-        listOf("nwtsty", "dx", "th", "be", "lmd", "it-1", "w", "g", "mwb", "rr", "ia")
+        listOf("nwt", "it", "rsg", "th", "be", "lmd", "s38", "w", "g", "mwb", "rr", "ia")
             .forEach { assertTrue("faltou $it", symbols.contains(it)) }
-        assertTrue(RecommendedPublications.ALL.size >= 10)
+        // nwtsty/it-1/it-2/it-3/dx não têm card próprio (não baixáveis ou unificados).
+        listOf("nwtsty", "it-1", "it-2", "it-3", "dx").forEach {
+            assertFalse("não deveria ter card: $it", symbols.contains(it))
+        }
         // Todos os símbolos existem no PubCatalog (título/links não vazios).
         RecommendedPublications.ALL.forEach { p ->
             assertNotNull("sem entrada: ${p.symbol}", PubCatalog.entryOf(p.symbol))
@@ -63,7 +66,9 @@ class RecommendedPublicationsTest {
         assertNotNull(findInLibrary("w", listOf(att("w19.03.pdf"))))
         assertNotNull(findInLibrary("g", listOf(att("g 6/07.pdf"))))
         assertNotNull(findInLibrary("mwb", listOf(att("mwb24.05.pdf"))))
-        assertNotNull(findInLibrary("it-1", listOf(att("it-1.pdf"))))
+        assertNotNull(findInLibrary("it", listOf(att("it_T.jwpub"))))
+        assertNotNull(findInLibrary("rsg", listOf(att("rsg_T.jwpub"))))
+        assertNotNull(findInLibrary("nwt", listOf(att("nwt_T.pdf"))))
         assertNull(findInLibrary("dx", listOf(att("outro.pdf"))))
     }
 
@@ -84,12 +89,12 @@ class RecommendedPublicationsTest {
     fun paginasEspecificasPorPublicacao() {
         // Páginas específicas (não a home/finder genérico).
         val bySymbol = RecommendedPublications.ALL.associateBy { it.symbol }
-        assertTrue(bySymbol["nwtsty"]!!.downloadUrl.contains("biblia-de-estudo"))
+        assertTrue(bySymbol["nwt"]!!.downloadUrl.contains("biblia/nwt"))
         assertTrue(bySymbol["th"]!!.downloadUrl.contains("leitura-e-ensino"))
         assertTrue(bySymbol["be"]!!.downloadUrl.contains("Beneficie-se"))
         assertTrue(bySymbol["lmd"]!!.downloadUrl.contains("ame-pessoas"))
-        assertTrue(bySymbol["dx"]!!.downloadUrl.contains("/indices/"))
-        assertTrue(bySymbol["it-1"]!!.downloadUrl.contains("estudo-perspicaz"))
+        assertTrue(bySymbol["it"]!!.downloadUrl.contains("estudo-perspicaz"))
+        assertTrue(bySymbol["rsg"]!!.downloadUrl.contains("guia-de-pesquisa"))
         assertTrue(bySymbol["rr"]!!.downloadUrl.contains("adoracao-pura"))
         assertTrue(bySymbol["mwb"]!!.downloadUrl.contains("jw-apostila-do-mes"))
     }
@@ -100,7 +105,7 @@ class RecommendedPublicationsTest {
         assertTrue(
             RecommendedPublications.ALL.first { it.symbol == "rr" }.pageUrl.contains("wol.jw.org")
         )
-        // dx não tem rota WOL de publicação (usa finder já no catálogo).
+        // rsg (e outros sem rota WOL de publicação) usam página própria.
         RecommendedPublications.ALL
             .filter { it.pageUrl.contains("wol.jw.org") }
             .forEach { p ->

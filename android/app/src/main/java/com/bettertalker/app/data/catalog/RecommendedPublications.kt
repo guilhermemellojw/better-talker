@@ -35,12 +35,12 @@ object RecommendedPublications {
     const val BOOKS = "Livros"
 
     // Páginas específicas no jw.org (todas verificadas: 200).
-    private const val NWTSTY = "https://www.jw.org/pt/biblioteca/biblia/biblia-de-estudo/"
+    private const val NWT = "https://www.jw.org/pt/biblioteca/biblia/nwt/"
     private const val TH = "https://www.jw.org/pt/biblioteca/brochuras/leitura-e-ensino/"
     private const val BE = "https://www.jw.org/pt/biblioteca/livros/Beneficie-se-da-Escola-do-Minist%C3%A9rio-Teocr%C3%A1tico/"
     private const val LMD = "https://www.jw.org/pt/biblioteca/brochuras/ame-pessoas-faca-discipulos/"
     private const val S38 = "https://www.jw.org/pt/biblioteca/orientacoes/Instru%C3%A7%C3%B5es-para-a-Reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o/Instru%C3%A7%C3%B5es-para-a-reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o"
-    private const val DX = "https://www.jw.org/pt/biblioteca/indices/"
+    private const val RSG = "https://www.jw.org/pt/biblioteca/indices/guia-de-pesquisa/"
     private const val IT = "https://www.jw.org/pt/biblioteca/livros/estudo-perspicaz-das-escrituras/"
     private const val MAG = "https://www.jw.org/pt/biblioteca/revistas/"
     private const val MWB = "https://www.jw.org/pt/biblioteca/jw-apostila-do-mes/"
@@ -49,15 +49,13 @@ object RecommendedPublications {
 
     /** Top do discovery (curadoria fixa por release). */
     val ALL: List<RecommendedPub> = listOf(
-        RecommendedPub("nwtsty", BIBLE, NWTSTY),
+        RecommendedPub("nwt", BIBLE, NWT),
         RecommendedPub("th", AIDS, TH),
         RecommendedPub("be", AIDS, BE),
         RecommendedPub("lmd", AIDS, LMD),
         RecommendedPub("s38", INSTRUCTIONS, S38),
-        RecommendedPub("dx", RESEARCH, DX),
-        RecommendedPub("it-1", RESEARCH, IT),
-        RecommendedPub("it-2", RESEARCH, IT),
-        RecommendedPub("it-3", RESEARCH, IT),
+        RecommendedPub("it", RESEARCH, IT),
+        RecommendedPub("rsg", RESEARCH, RSG),
         RecommendedPub("w", MAGAZINES, MAG),
         RecommendedPub("g", MAGAZINES, MAG),
         RecommendedPub("mwb", MAGAZINES, MWB),

@@ -26,11 +26,22 @@ class PubCatalogAliasTest {
     }
 
     @Test
-    fun resolveSymbol_it3_returnsIt3() {
-        // símbolo válido, não alias
-        assertEquals("it-3", PubCatalog.resolveSymbol("it-3"))
+    fun resolveSymbol_it1EIt2ValidosIt3Removido() {
         assertEquals("it-1", PubCatalog.resolveSymbol("it-1"))
         assertEquals("it-2", PubCatalog.resolveSymbol("it-2"))
+        // it-3 não existe (a WOL publica só 2 volumes).
+        assertNull(PubCatalog.resolveSymbol("it-3"))
+    }
+
+    @Test
+    fun resolveSymbol_itUnificadoEDxAliasDeRsg() {
+        assertEquals("it", PubCatalog.resolveSymbol("it"))
+        assertEquals("it", PubCatalog.unifiedOf("it-1"))
+        assertEquals("it", PubCatalog.unifiedOf("IT-2"))
+        assertNull(PubCatalog.unifiedOf("it"))
+        // dx é a edição antiga do Guia de Pesquisa (atual: rsg).
+        assertEquals("rsg", PubCatalog.resolveSymbol("dx"))
+        assertEquals("Guia de Pesquisa", PubCatalog.titleOf("rsg"))
     }
 
     @Test
@@ -61,23 +72,23 @@ class PubCatalogAliasTest {
     // ---------- catálogo curado: dx e nwt ----------
 
     @Test
-    fun resolveSymbol_dx_returnsDx() {
-        assertEquals("dx", PubCatalog.resolveSymbol("dx"))
-        assertEquals("dx", PubCatalog.resolveSymbol("DX"))
+    fun resolveSymbol_dx_aliasParaRsg() {
+        // dx é a edição antiga do Guia de Pesquisa; o atual é rsg.
+        assertEquals("rsg", PubCatalog.resolveSymbol("dx"))
+        assertEquals("rsg", PubCatalog.resolveSymbol("DX"))
         val e = PubCatalog.entryOf("dx")
         assertNotNull(e)
-        assertTrue(e!!.title.contains("Guia de Pesquisa"))
-        assertTrue(e.wol.startsWith("https://www.jw.org/finder"))
+        assertEquals("rsg", e!!.symbol)
+        assertTrue(e.title.contains("Guia de Pesquisa"))
+        assertTrue(e.wol.startsWith("https://www.jw.org/"))
     }
 
     @Test
-    fun resolveSymbol_nwt_e_nwtsty_returnsEntradas() {
+    fun resolveSymbol_nwt_validoENwtstyRemovido() {
         assertEquals("nwt", PubCatalog.resolveSymbol("nwt"))
-        assertEquals("nwtsty", PubCatalog.resolveSymbol("nwtsty"))
         assertEquals("Tradução do Novo Mundo", PubCatalog.titleOf("nwt"))
-        assertEquals("Bíblia de Estudo", PubCatalog.titleOf("nwtsty"))
-        assertEquals("bible", PubCatalog.entryOf("nwtsty")?.kind)
-        assertTrue(PubCatalog.entryOf("nwtsty")!!.wol.contains("/nwtsty"))
+        // nwtsty não é baixável em nenhum formato (só online/JW Library).
+        assertNull(PubCatalog.resolveSymbol("nwtsty"))
     }
 
     @Test
