@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Summarize
@@ -291,14 +292,15 @@ fun ChatQuickActions(
     }
 }
 
-/** Sheet do + : importar arquivo, colar texto ou abrir o catálogo de publicações. */
+/** Sheet do + : importar, colar, anexar do acervo ou baixar publicações. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttachSheet(
     onDismiss: () -> Unit,
     onImport: () -> Unit,
     onPaste: () -> Unit,
-    onPublications: () -> Unit
+    onPublications: () -> Unit,
+    onAttachFromLibrary: () -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -316,9 +318,15 @@ fun AttachSheet(
             )
             AttachOption(
                 icon = Icons.Default.MenuBook,
-                title = "Publicações recomendadas",
+                title = "Baixar publicações",
                 desc = "Baixe do site oficial (BYOD)",
                 onClick = onPublications
+            )
+            AttachOption(
+                icon = Icons.Default.LibraryBooks,
+                title = "Anexar do acervo",
+                desc = "Vincule uma publicação já importada",
+                onClick = onAttachFromLibrary
             )
             Spacer(Modifier.height(8.dp))
             ByodNotice()

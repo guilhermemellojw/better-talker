@@ -119,6 +119,7 @@ fun ChatScreen(
     var input by rememberSaveable { mutableStateOf("") }
     var showTools by remember { mutableStateOf(false) }
     var showAttach by remember { mutableStateOf(false) }
+    var showPublications by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var pasteText by rememberSaveable { mutableStateOf("") }
@@ -421,8 +422,14 @@ fun ChatScreen(
             },
             onPaste = { showAttach = false; showPaste = true },
             // T3: atalho para o catálogo (Biblioteca abre com a seção no topo).
-            onPublications = { showAttach = false; onOpenLibrary() }
+            onPublications = { showAttach = false; onOpenLibrary() },
+            // T2: vincular publicação do acervo sem sair do chat.
+            onAttachFromLibrary = { showAttach = false; showPublications = true }
         )
+    }
+
+    if (showPublications) {
+        PublicationPickerSheet(vm = vm, onDismiss = { showPublications = false })
     }
 
     if (showTools) {

@@ -1349,6 +1349,41 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     val canUndoProposal: Boolean get() = proposalUndo.isNotEmpty()
 
+    // ---------- T2 (Anexar do acervo): publicações no chat ----------
+
+    /** Publicações do acervo (todas; o sheet filtra por busca). */
+    val publications = db.attachmentDao().observe()
+
+    /** Nota atual (para o badge "Nesta nota" e o relink). */
+    val currentNoteId: String? get() = noteId
+
+    /**
+     * Vincula/desvincula uma publicação do acervo à nota atual.
+     * [targetNoteId] null = desvincular.
+     */
+    fun linkPublication(attachmentId: String, targetNoteId: String?) {
+        viewModelScope.launch {
+            try {
+                com.bettertalker.app.data.repo.LibraryRepository(app, db)
+                    .linkToNote(attachmentId, targetNoteId)
+                postText(if (targetNoteId != null) "Vinculado ✓. Já posso citar." else "Desvinculado.")
+            } catch (_: Exception) {
+                postText("Não consegui atualizar o vínculo agora.")
+            }
+        }
+    }
+
+    /** Retenta o registro de um download falho (sheet do acervo). */
+    fun retryRegisterPublication(attachmentId: String) {
+        viewModelScope.launch {
+            if (!com.bettertalker.app.data.repo.LibraryRepository(app, db)
+                    .retryRegister(attachmentId)
+            ) {
+                postText("Sem download para retentar. Baixe de novo pela Biblioteca.")
+            }
+        }
+    }
+
     /** Texto em foco agora (seleção > bloco > discurso). Mesma regra do send(). */
     private fun currentFocusText(): String {
         val selection = _selection.value.trim()
