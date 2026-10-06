@@ -36,6 +36,8 @@ class RoomReferenceResolverTest {
             rows.firstOrNull { it.ref == ref }
         override suspend fun forAttachments(ids: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
+        override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
+            forAttachments(ids).take(limit)
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

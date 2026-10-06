@@ -40,6 +40,10 @@ class HardeningTest {
             scopedCalls++
             return rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         }
+        override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> {
+            scopedCalls++
+            return forAttachments(ids).take(limit)
+        }
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
     }

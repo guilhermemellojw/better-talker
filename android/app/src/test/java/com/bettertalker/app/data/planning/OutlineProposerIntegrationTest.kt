@@ -37,6 +37,9 @@ private class IntFakePassageDao(var rows: List<PassageEntity> = emptyList()) : P
     override suspend fun forAttachments(ids: List<String>): List<PassageEntity> {
         return rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
     }
+    override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> {
+        return forAttachments(ids).take(limit)
+    }
 }
 
 private class IntFakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

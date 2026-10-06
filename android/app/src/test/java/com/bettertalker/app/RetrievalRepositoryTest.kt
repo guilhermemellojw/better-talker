@@ -37,6 +37,8 @@ private class FakePassageDao(var rows: List<PassageEntity> = emptyList()) : Pass
         scopedCalls++
         return rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
     }
+    override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
+        forAttachments(ids).take(limit)
 }
 
 private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {
@@ -127,5 +129,33 @@ class RetrievalRepositoryTest {
         val res = RoomRetrievalRepository(dao, atts)
             .retrieve("ilustrações simples", RetrievalScope(listOf("w"), listOf("be")))
         assertTrue(res.hits.none { it.passage.pubId == "be" })
+    }
+
+    // ---------- F20: corpus grande (it/rsg com 100k+ trechos) ----------
+
+    @Test
+    fun retrieveCobreCorpusGrandeAlemDoInicio() = runBlocking {
+        // 3.000 trechos neutros + 1 relevante no FIM (fora do antigo
+        // take(2000) por (attachmentId, ord)) — a busca por termo acha.
+        val rows = (1..3000).map { pass("n$it", "w", "texto neutro numero $it") } +
+            pass("alvo", "w", "Zafenate-Paneia serviu como governador do Egito.")
+        val dao = FakePassageDao(rows)
+        val atts = FakeAttachmentDao(listOf(att("w", "content", "it_T.jwpub")))
+        val res = RoomRetrievalRepository(dao, atts)
+            .retrieve("Zafenate-Paneia", RetrievalScope(listOf("w"), emptyList()))
+        assertEquals(RetrievalStatus.OK, res.status)
+        assertEquals("alvo", res.hits.first().passage.id)
+    }
+
+    @Test
+    fun retrieveSemMatchCaiNoTetoDoSqlSemEstourar() = runBlocking {
+        // Query sem nenhum match: fallback limitado no SQL (não materializa tudo).
+        val rows = (1..3000).map { pass("n$it", "w", "texto neutro numero $it") }
+        val dao = FakePassageDao(rows)
+        val atts = FakeAttachmentDao(listOf(att("w", "content", "it_T.jwpub")))
+        val res = RoomRetrievalRepository(dao, atts)
+            .retrieve("xyzabc quux", RetrievalScope(listOf("w"), emptyList()))
+        assertEquals(RetrievalStatus.OK, res.status)
+        assertTrue(res.hits.isEmpty())
     }
 }

@@ -218,6 +218,9 @@ interface PassageDao {
     // Fase 8: carga restrita ao escopo (ordenada para determinismo).
     @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC")
     suspend fun forAttachments(ids: List<String>): List<PassageEntity>
+    // F20: carga restrita com teto no SQL (publicações grandes têm 100k+ linhas).
+    @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC LIMIT :limit")
+    suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity>
 }
 
 @Database(

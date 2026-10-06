@@ -2,6 +2,7 @@ package com.bettertalker.app.data.repo
 
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
+import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.domain.ContextPacks
 import com.bettertalker.app.data.domain.HybridRetrieval
@@ -57,6 +58,16 @@ interface ContextPackRepository {
 /** Máximo de candidatos carregados do escopo (protege memória). */
 private const val MAX_CANDIDATES = 2000
 
+/**
+ * F20: teto por termo da busca guiada. Publicações grandes (it/rsg) têm
+ * 100k+ trechos — carregar só o "início" deixava o resto do alfabeto
+ * invisível para o retrieval.
+ */
+private const val TERM_CANDIDATES = 400
+
+/** F20: termos da query usados na seleção de candidatos. */
+private const val MAX_TERMS = 6
+
 private fun sourceTypeOf(a: AttachmentEntity): SourceType =
     if (a.sourceType.isNotBlank()) SourceType.fromSerial(a.sourceType)
     else SourceType.fromBaseSlot(a.baseSlot)
@@ -88,10 +99,24 @@ class RoomPublicationRepository(
 private suspend fun loadCandidates(
     passageDao: PassageDao,
     attachmentsById: Map<String, AttachmentEntity>,
-    ids: List<String>
+    ids: List<String>,
+    query: String
 ): Pair<List<com.bettertalker.app.data.domain.Passage>, Map<String, String?>> {
     if (ids.isEmpty()) return emptyList<com.bettertalker.app.data.domain.Passage>() to emptyMap()
-    val entities = passageDao.forAttachments(ids).take(MAX_CANDIDATES)
+    // F20: candidatos guiados pelos termos da query (LIKE no texto
+    // normalizado). Sem match (ou termos curtos), cai no teto do SQL — o
+    // corpus inteiro (it+rsg = 240k+ trechos) nunca é materializado.
+    val terms = HybridRetrieval.tokenize(query).distinct().take(MAX_TERMS)
+    val byId = LinkedHashMap<String, PassageEntity>()
+    for (t in terms) {
+        if (byId.size >= MAX_CANDIDATES) break
+        passageDao.searchLikeIn(ids, t, TERM_CANDIDATES).forEach { byId.putIfAbsent(it.id, it) }
+    }
+    val entities = if (byId.isNotEmpty()) {
+        byId.values.take(MAX_CANDIDATES)
+    } else {
+        passageDao.forAttachmentsLimited(ids, MAX_CANDIDATES)
+    }
     val passages = entities.map { e ->
         val att = attachmentsById[e.attachmentId]
         e.toPassage(
@@ -127,7 +152,7 @@ class RoomRetrievalRepository(
             return RetrievalResult(RetrievalStatus.INSUFFICIENT_SCOPE, emptyList())
         }
         val atts = attachmentDao.all().associateBy { it.id }
-        val (passages, titles) = loadCandidates(passageDao, atts, scope.contentSourceIds)
+        val (passages, titles) = loadCandidates(passageDao, atts, scope.contentSourceIds, query)
         if (passages.isEmpty()) return RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
         val hits = HybridRetrieval.rank(query, passages, titles, limit).map(::toCandidate)
         return RetrievalResult(RetrievalStatus.OK, hits)
@@ -149,7 +174,7 @@ class RoomTrainingRepository(
             return RetrievalResult(RetrievalStatus.INSUFFICIENT_SCOPE, emptyList())
         }
         val atts = attachmentDao.all().associateBy { it.id }
-        val (passages, titles) = loadCandidates(passageDao, atts, scope.trainingSourceIds)
+        val (passages, titles) = loadCandidates(passageDao, atts, scope.trainingSourceIds, query)
         if (passages.isEmpty()) return RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
         val ranked = HybridRetrieval.rank(query, passages, titles, maxOf(limit * 3, 6)).map(::toCandidate)
         if (category == null || category == TrainingCategory.UNKNOWN) {
