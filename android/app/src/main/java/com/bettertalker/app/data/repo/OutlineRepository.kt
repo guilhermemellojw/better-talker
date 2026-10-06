@@ -53,9 +53,9 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
                         val n = input.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > LibraryRepository.MAX_IMPORT_BYTES) {
+                        if (total > com.bettertalker.app.data.util.ImportLimits.OUTLINE_BYTES) {
                             tmp.delete()
-                            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 150 MB).")
+                            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 10 MB).")
                         }
                         out.write(buf, 0, n)
                     }

@@ -19,54 +19,101 @@ import java.util.zip.ZipInputStream
  */
 object JwpubExtractor {
     const val MAX_DOCS = 5000
-    const val MAX_TEXT = 400_000
-    const val MAX_DB_BYTES = 120L * 1024 * 1024
+
+    /**
+     * Teto de texto extraído. 8M chars cobrem a maior publicação atual
+     * (Estudo Perspicaz unificado) sem estourar memória (~16MB de buffer).
+     */
+    const val MAX_TEXT = 8_000_000
+
+    /**
+     * Teto do conteúdo interno (zip externo + banco descomprimido). O antigo
+     * 120MB bloqueava o `rsg` (>120MB de banco) e o `it` (>120MB de contents).
+     */
+    const val MAX_DB_BYTES = 400L * 1024 * 1024
 
     private const val XOR_CONST_HEX =
         "11cbb5587e32846d4c26790c633da289f66fe5842a3a585ce1bc3a294af5ada7"
 
     class JwpubException(msg: String) : Exception(msg)
 
-    fun extract(ctx: Context, file: File): String {
-        val outer: Map<String, ByteArray>
-        try {
-            outer = readOuter(file)
+    /** ZIP externo lido em streaming: manifest em memória, contents em arquivo. */
+    internal data class Outer(val manifestJson: String, val contentsFile: File)
+
+    fun extract(ctx: Context, file: File): String = extractTo(file, ctx.cacheDir)
+
+    /**
+     * Extrai o texto com o `contents` **em arquivo** (nunca em RAM): o zip
+     * interno descomprimido passa de 300MB no it — carregá-lo causaria OOM.
+     */
+    internal fun extractTo(file: File, cacheDir: File): String {
+        val outer = try {
+            readOuterTo(file, cacheDir)
+        } catch (e: JwpubException) {
+            throw e
         } catch (_: Exception) {
             throw JwpubException("Arquivo .jwpub inválido.")
         }
-        val manifestRaw = outer["manifest.json"]
-            ?: throw JwpubException("Arquivo .jwpub inválido (sem manifest).")
-        val dbName = manifestDbName(String(manifestRaw, Charsets.UTF_8))
-        val innerZip = outer["contents"]
-            ?: throw JwpubException("Arquivo .jwpub inválido (sem conteúdo).")
-        val dbFile = File(ctx.cacheDir, "jwpub-${System.currentTimeMillis()}.db")
+        val dbFile = File(cacheDir, "jwpub-${System.currentTimeMillis()}.db")
         try {
-            unzipDb(innerZip, dbName, dbFile)
-            return readDb(ctx, dbFile)
+            val dbName = manifestDbName(outer.manifestJson)
+            unzipDb(outer.contentsFile, dbName, dbFile)
+            return readDb(dbFile)
         } finally {
             runCatching { dbFile.delete() }
+            runCatching { outer.contentsFile.delete() }
         }
     }
 
-    private fun readOuter(file: File): Map<String, ByteArray> {
-        val out = mutableMapOf<String, ByteArray>()
+    /**
+     * Lê o ZIP externo em streaming: `manifest.json` (pequeno) para memória e
+     * `contents` para arquivo no cache, com teto [maxBytes] no total.
+     */
+    internal fun readOuterTo(
+        file: File,
+        cacheDir: File,
+        maxBytes: Long = MAX_DB_BYTES,
+    ): Outer {
+        var manifest: String? = null
+        var contents: File? = null
         ZipInputStream(file.inputStream().buffered()).use { zin ->
             var entry = zin.nextEntry
             var total = 0L
-            while (entry != null && out.size < 8) {
+            var entries = 0
+            while (entry != null && entries < 8) {
                 val name = entry.name.substringAfterLast('/')
                 if (!entry.isDirectory && (name == "manifest.json" || name == "contents")) {
-                    val bytes = zin.readBytes()
-                    total += bytes.size
-                    if (total > MAX_DB_BYTES) throw JwpubException("Arquivo .jwpub muito grande.")
-                    out[name] = bytes
+                    if (name == "manifest.json") {
+                        val bytes = zin.readBytes()
+                        total += bytes.size
+                        if (total > maxBytes) throw JwpubException("Arquivo .jwpub muito grande.")
+                        manifest = String(bytes, Charsets.UTF_8)
+                    } else {
+                        val dst = File(cacheDir, "jwpub-contents-${System.currentTimeMillis()}.zip")
+                        dst.outputStream().buffered().use { out ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = zin.read(buf)
+                                if (n < 0) break
+                                total += n
+                                if (total > maxBytes) {
+                                    dst.delete()
+                                    throw JwpubException("Arquivo .jwpub muito grande.")
+                                }
+                                out.write(buf, 0, n)
+                            }
+                        }
+                        contents = dst
+                    }
+                    entries++
                 }
                 zin.closeEntry()
                 entry = zin.nextEntry
             }
         }
-        if (out.isEmpty()) throw JwpubException("Arquivo .jwpub inválido.")
-        return out
+        val c = contents ?: throw JwpubException("Arquivo .jwpub inválido.")
+        val m = manifest ?: throw JwpubException("Arquivo .jwpub inválido (sem manifest).")
+        return Outer(m, c)
     }
 
     /** Nome do .db interno via manifest (fallback: primeiro *.db). */
@@ -76,9 +123,14 @@ object JwpubExtractor {
         return m?.groupValues?.get(1)?.substringAfterLast('/')
     }
 
-    private fun unzipDb(innerZip: ByteArray, dbName: String?, dst: File) {
+    internal fun unzipDb(
+        innerFile: File,
+        dbName: String?,
+        dst: File,
+        maxBytes: Long = MAX_DB_BYTES,
+    ) {
         var wrote = false
-        ZipInputStream(innerZip.inputStream().buffered()).use { zin ->
+        ZipInputStream(innerFile.inputStream().buffered()).use { zin ->
             var entry = zin.nextEntry
             var total = 0L
             while (entry != null && !wrote) {
@@ -98,7 +150,7 @@ object JwpubExtractor {
                             val n = zin.read(buf)
                             if (n < 0) break
                             total += n
-                            if (total > MAX_DB_BYTES) throw JwpubException("Banco interno muito grande.")
+                            if (total > maxBytes) throw JwpubException("Banco interno muito grande.")
                             out.write(buf, 0, n)
                         }
                     }
@@ -111,7 +163,7 @@ object JwpubExtractor {
         if (!wrote) throw JwpubException("Banco de dados não encontrado no .jwpub.")
     }
 
-    private fun readDb(ctx: Context, dbFile: File): String {
+    private fun readDb(dbFile: File): String {
         var db: SQLiteDatabase? = null
         try {
             db = SQLiteDatabase.openDatabase(

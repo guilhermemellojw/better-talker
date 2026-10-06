@@ -68,9 +68,9 @@ class RegisterDownloadWorker(ctx: Context, params: WorkerParameters) : Coroutine
                         val n = ins.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > LibraryRepository.MAX_IMPORT_BYTES) {
+                        if (total > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
                             tmp.delete()
-                            repo.failPlaceholder(placeholderId, "Arquivo muito grande (limite 150 MB).")
+                            repo.failPlaceholder(placeholderId, "Arquivo muito grande (limite 400 MB).")
                             return Result.success()
                         }
                         out.write(buf, 0, n)

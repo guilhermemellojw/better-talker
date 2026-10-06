@@ -39,7 +39,7 @@ fun filterUnregistered(
 
 class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     companion object {
-        const val MAX_IMPORT_BYTES = 150L * 1024 * 1024
+        // Tetos vivem em [com.bettertalker.app.data.util.ImportLimits].
     }
 
     fun observe(): Flow<List<AttachmentEntity>> = db.attachmentDao().observe()
@@ -116,9 +116,9 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                         val n = input.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > MAX_IMPORT_BYTES) {
+                        if (total > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
                             tmp.delete()
-                            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 150 MB).")
+                            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
                         }
                         out.write(buf, 0, n)
                     }
@@ -141,8 +141,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         if (kind == DocKind.UNSUPPORTED) {
             throw ImportException(ImportException.Reason.UNSUPPORTED, explicitMessage(displayName))
         }
-        if (src.length() > MAX_IMPORT_BYTES) {
-            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 150 MB).")
+        if (src.length() > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
+            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
         }
         try {
             val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
