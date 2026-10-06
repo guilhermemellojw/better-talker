@@ -68,6 +68,7 @@ import com.bettertalker.app.ui.editor.roleLabel
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
+import com.bettertalker.app.domain.speech.SectionRole
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -83,7 +84,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class InsertRequest(val text: String, val heading: String?, val nonce: Long = System.nanoTime())
+data class InsertRequest(
+    val text: String,
+    val heading: String?,
+    /** T5: tópico escolhido no seletor do card (null = alvo em foco/legado). */
+    val targetSectionId: String? = null,
+    val nonce: Long = System.nanoTime(),
+)
 
 /**
  * T1 — corpus efetivamente injetado no prompt do turno (CONTENT + TRAINING +
@@ -154,6 +161,33 @@ internal fun cleanForInsert(raw: String): String =
 /** T4: confirmação de inserção no tópico em foco (ou na nota, sem alvo). */
 internal fun insertConfirmation(topic: String?): String =
     if (topic != null) "Inserido no tópico “$topic”." else "Inserido na nota."
+
+/**
+ * T5 (Mini Discurso) — destino de uma ideia no editor: tópico (`sectionId`)
+ * ou âncora de heading (notas legadas, sem seções). Puro.
+ */
+data class InsertDestination(
+    val label: String,
+    val sectionId: String? = null,
+    val heading: String? = null,
+)
+
+/**
+ * T5 — destinos de inserção a partir das seções: só tópicos (BODY), na
+ * ordem da nota, com a duração planejada. Puro/testável.
+ */
+internal fun topicDestinations(sections: List<SpeechSectionEntity>): List<InsertDestination> =
+    sections.filter { it.role == SectionRole.BODY.name }
+        .sortedBy { it.order }
+        .map { InsertDestination(label = "${it.title} · ${it.minutes} min", sectionId = it.id) }
+
+/** T5 — tópicos primeiro; sem tópicos, cai nos headings legados (notas antigas). */
+internal fun insertionDestinations(
+    topics: List<InsertDestination>,
+    legacyHeadings: List<String>,
+): List<InsertDestination> =
+    if (topics.isNotEmpty()) topics
+    else legacyHeadings.map { InsertDestination(label = it, heading = it) }
 
 /** Tópico do draft em edição (mesmo formato persistido nas mensagens). */
 typealias DraftSection = ChatCodec.DraftItem
@@ -367,13 +401,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _ideas.value = _ideas.value.filter { it !== card }
     }
 
-    fun insert(card: IdeaCard, editedBody: String, heading: String?) {
+    fun insert(card: IdeaCard, editedBody: String, dest: InsertDestination?) {
         val body = cleanForInsert(editedBody.ifBlank { card.body })
         insertedTitles += com.bettertalker.app.data.util.normalizeText(card.title)
         pendingInserts += InsertRequest(
             "## ${card.title}\n\n$body\n\n> ${card.snippet}" +
                 (if (card.source.isNotEmpty()) "\n> Fonte: ${card.source}" else ""),
-            heading ?: card.sectionTitle.ifEmpty { null }
+            dest?.heading ?: card.sectionTitle.ifEmpty { null },
+            targetSectionId = dest?.sectionId,
         )
         pumpInserts()
     }
@@ -575,6 +610,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * null = chat global (mantém o comportamento legado de inserção).
      */
     fun currentTarget(): DraftTarget? {
+        // T5: destino explícito do seletor do card (tópico escolhido).
+        _insert.value?.targetSectionId?.let { return DraftTarget.Section(it) }
         val ctx = _pushedContext ?: return null
         val sectionId = ctx.sectionId ?: return null
         return if (ctx.subPointId != null) DraftTarget.SubPoint(sectionId, ctx.subPointId)
@@ -592,6 +629,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // Room); reset imediato evita rótulo stale da entrada anterior.
         _conversationLabel.value = null
         _topicName.value = null
+        // T5: destinos do seletor (tópicos da nota) — relê a cada entrada.
+        viewModelScope.launch { refreshInsertDestinations() }
         if (ctx != null) {
             viewModelScope.launch {
                 _conversationLabel.value = resolveConversationLabel(ctx)
@@ -608,6 +647,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** T4: nome do tópico em foco (confirmação da inserção no chat). */
     private val _topicName = MutableStateFlow<String?>(null)
     val topicName: StateFlow<String?> = _topicName.asStateFlow()
+
+    /** T5: destinos do seletor de inserção (tópicos da nota). */
+    private val _insertDestinations = MutableStateFlow<List<InsertDestination>>(emptyList())
+    val insertDestinations: StateFlow<List<InsertDestination>> = _insertDestinations.asStateFlow()
+
+    private suspend fun refreshInsertDestinations() {
+        val nid = noteId ?: return
+        _insertDestinations.value = topicDestinations(db.speechSectionDao().forNote(nid))
+    }
 
     /**
      * Resolve o rótulo legível do alvo via DAOs (sem depender do editor).

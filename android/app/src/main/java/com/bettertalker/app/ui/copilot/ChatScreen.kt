@@ -104,6 +104,11 @@ fun ChatScreen(
     val conversationLabel by vm.conversationLabel.collectAsState()
     // T4: nome do tópico em foco (confirmação da inserção).
     val topicName by vm.topicName.collectAsState()
+    // T5: destinos do seletor — tópicos (BODY) da nota; sem seções, headings legados.
+    val topicDests by vm.insertDestinations.collectAsState()
+    val destinations = remember(topicDests, headings) {
+        insertionDestinations(topicDests, headings)
+    }
     // F2.3: escopo da conversa (tópico vs. global).
     val chatScope by vm.chatScope.collectAsState()
     val proposal by vm.proposal.collectAsState()
@@ -293,7 +298,7 @@ fun ChatScreen(
                             ) {
                                 MessageBubble(
                                     item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
-                                    headings = headings, sectionBusy = sectionBusy,
+                                    destinations = destinations, sectionBusy = sectionBusy,
                                     liveSections = outlineSections,
                                     merges = merges, draft = draft,
                                     onOpenLibrary = onOpenLibrary
@@ -486,7 +491,7 @@ private fun MessageBubble(
     dl: DownloadCtl,
     ctx: android.content.Context,
     scope: kotlinx.coroutines.CoroutineScope,
-    headings: List<String>,
+    destinations: List<InsertDestination>,
     sectionBusy: String?,
     liveSections: List<OutlineSection>,
     merges: List<com.bettertalker.app.data.util.PastedOutlineAnalyzer.MergeSuggestion>,
@@ -515,7 +520,7 @@ private fun MessageBubble(
             )
         }
         when (item.kind) {
-            "ideas" -> IdeasBody(item, vm, headings)
+            "ideas" -> IdeasBody(item, vm, destinations)
             "refs" -> RefsBody(vm, dl, ctx, scope, item.text, item.detectedJson)
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
@@ -732,7 +737,7 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
 private fun IdeasBody(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
-    headings: List<String>
+    destinations: List<InsertDestination>
 ) {
     if (item.section.isNotBlank()) {
         Text(item.section, fontWeight = FontWeight.Bold)
@@ -743,7 +748,7 @@ private fun IdeasBody(
     item.cards.forEachIndexed { i, card ->
         IdeaCardRow(
             card = card,
-            headings = headings,
+            destinations = destinations,
             number = i + 1,
             onInsert = { body, dest -> vm.insert(card, body, dest) },
             onDismiss = { vm.dismissIdeaCard(item.id, i) }

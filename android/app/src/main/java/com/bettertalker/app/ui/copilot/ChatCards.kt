@@ -226,16 +226,24 @@ fun SectionRow(
 @Composable
 fun IdeaCardRow(
     card: IdeaCard,
-    headings: List<String>,
+    destinations: List<InsertDestination>,
     number: Int? = null,
-    onInsert: (body: String, dest: String?) -> Unit,
+    onInsert: (body: String, dest: InsertDestination?) -> Unit,
     onDismiss: () -> Unit
 ) {
     var editing by remember { mutableStateOf(false) }
     var body by remember(card) { mutableStateOf(card.body) }
-    var dest by remember(card) { mutableStateOf<String?>(card.sectionTitle.ifEmpty { null }) }
+    // T5: destino default = tópico do card (quando existe na lista); senão o
+    // heading legado do próprio card; senão "Fim da nota".
+    var dest by remember(card, destinations) {
+        mutableStateOf(
+            destinations.firstOrNull {
+                card.sectionTitle.isNotBlank() && it.label.startsWith(card.sectionTitle)
+            } ?: card.sectionTitle.ifEmpty { null }?.let { InsertDestination(it, heading = it) }
+        )
+    }
     var showDest by remember { mutableStateOf(false) }
-    val destLabel = dest ?: "Fim da nota"
+    val destLabel = dest?.label ?: "Fim da nota"
 
     Column(Modifier.fillMaxWidth()) {
         Text(
@@ -290,10 +298,10 @@ fun IdeaCardRow(
                             text = { Text("Fim da nota") },
                             onClick = { dest = null; showDest = false }
                         )
-                        headings.forEach { h ->
+                        destinations.forEach { d ->
                             DropdownMenuItem(
-                                text = { Text(h.take(40)) },
-                                onClick = { dest = h; showDest = false }
+                                text = { Text(d.label.take(48)) },
+                                onClick = { dest = d; showDest = false }
                             )
                         }
                     }
