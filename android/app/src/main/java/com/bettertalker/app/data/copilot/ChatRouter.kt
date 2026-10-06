@@ -82,6 +82,51 @@ object ChatRouter {
         return null
     }
 
+    // ---------- T3 (Mini Discurso): inserção em linguagem natural ----------
+
+    /** Verbos de inserção (texto normalizado, sem acento; "coloque"→coloqu). */
+    private val INSERT_VERB = Regex("\\b(insir|inser|coloc|coloqu|adicion|inclu)\\w*\\b")
+
+    /** Referência ao que já foi dito (a resposta anterior do Copilot). */
+    private val INSERT_ANAPHORA = Regex(
+        "\\b(isso|isto|esse texto|essa resposta|essa sugestao|esse trecho|essa parte|" +
+            "essa ideia|esse conteudo|essa mensagem|o texto|essa proposta)\\b"
+    )
+
+    /** Destino explícito e genérico (discurso/tópico/nota), sem número. */
+    private val INSERT_DESTINATION = Regex(
+        "\\b(no|ao|na|nas|nos|para o|pro)\\s+(mini discurso|mini|discurso|topico|texto|esboco|nota)\\b"
+    )
+
+    /** Objeto de criação NOVA: "insira uma ilustração…" não é inserir o que existe. */
+    private val CREATION_OBJECT = Regex(
+        "\\b(um|uma)\\s+(ilustracao|exemplo|pergunta|transicao|introducao|conclusao|aplicacao|" +
+            "historia|versiculo|paragrafo|frase|sugestao|ideia|piada|analogia|dado|estatistica|" +
+            "citacao|comentario|observacao|texto|trecho|titulo|topico|ponto)\\b"
+    )
+
+    /** Alvo numerado ("no ponto 2"): fora do escopo desta rodada — não sequestra. */
+    private val NUMBERED_TARGET = Regex("\\b(ponto|topico|secao)\\s+\\d{1,2}\\b")
+
+    /**
+     * T3 — comando de inserção no mini discurso/tópico em linguagem natural:
+     * "insira isso no mini discurso", "insira no tópico", "coloque no
+     * discurso", "adicione ao mini discurso", "insira esse texto".
+     * Determinístico (nunca vai ao LLM). Puro/testável.
+     *
+     * Exclui: criação nova ("insira uma ilustração no ponto 2"), alvo
+     * numerado ("insira isso no ponto 2"), esqueleto e cards ("insira a 2").
+     */
+    fun isInsertIntoSpeechCommand(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        if (t.contains("esqueleto")) return false
+        if (!INSERT_VERB.containsMatchIn(t)) return false
+        if (NUMBERED_TARGET.containsMatchIn(t)) return false
+        val anaphora = INSERT_ANAPHORA.containsMatchIn(t)
+        if (!anaphora && CREATION_OBJECT.containsMatchIn(t)) return false
+        return anaphora || INSERT_DESTINATION.containsMatchIn(t)
+    }
+
     // ---------- Réplica de proposta ----------
 
     private val ACCEPT_RE = Regex("^(aceitar|aceito|aplicar|aplique|confirmar|confirmo)\\b")

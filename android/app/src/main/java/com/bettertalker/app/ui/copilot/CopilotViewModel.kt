@@ -868,6 +868,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
             // do try e pulavam o finally — travando composer e runState.
             try {
+            // T3 (Mini Discurso): comando determinístico de inserção — nunca
+            // vai ao LLM (funciona com qualquer provider).
+            if (resolveInsertCommand(text)) return@launch
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -1688,6 +1691,47 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             }
             else -> false
         }
+    }
+
+    /**
+     * T3 (Mini Discurso) — "insira isso no mini discurso", "coloque no
+     * discurso" etc. Insere a última resposta de TEXTO do Copilot no tópico
+     * em foco (mesmo pipeline do botão "Inserir no tópico") e confirma.
+     * Determinístico: nunca vai ao LLM. Retorna true se consumiu a mensagem.
+     */
+    private suspend fun resolveInsertCommand(text: String): Boolean {
+        if (!com.bettertalker.app.data.copilot.ChatRouter.isInsertIntoSpeechCommand(text)) {
+            return false
+        }
+        val last = lastCopilotText()
+        if (last.isBlank()) {
+            postText("Não há uma resposta minha recente para inserir. Gere o texto e tente de novo.")
+            return true
+        }
+        insertTextIntoScope(last)
+        val topic = currentTopicName()
+        postText(
+            if (topic != null) "Inserido no tópico “$topic”. ✔"
+            else "Inserido na nota. ✔"
+        )
+        return true
+    }
+
+    /** Última resposta de texto do Copilot no escopo atual ("" se não houver). */
+    private suspend fun lastCopilotText(): String {
+        val nid = noteId ?: return ""
+        return db.chatDao().allScoped(nid, _chatScope.value)
+            .asReversed()
+            .firstOrNull { !it.fromMe && it.kind == "text" }
+            ?.let { ChatCodec.unescMap(it.payload)["text"].orEmpty() }
+            ?.trim()
+            .orEmpty()
+    }
+
+    /** Título do tópico em foco (null = conversa sem alvo). */
+    private suspend fun currentTopicName(): String? {
+        val sid = _pushedContext?.sectionId ?: return null
+        return db.speechSectionDao().get(sid)?.title?.takeIf { it.isNotBlank() }
     }
 
     /**

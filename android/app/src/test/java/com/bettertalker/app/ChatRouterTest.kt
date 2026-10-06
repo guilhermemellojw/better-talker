@@ -324,4 +324,49 @@ class ChatRouterTest {
         assertTrue(d.contains("section=sec-2"))
         assertFalse(d.contains(doc.objective.orEmpty()))
     }
+
+    // ---------- T3 (Mini Discurso): inserção em linguagem natural ----------
+
+    @Test
+    fun comandoDeInsercaoNoMiniDiscursoEhReconhecido() {
+        for (t in listOf(
+            "Insira isso no mini discurso.",
+            "Insira no tópico.",
+            "Coloque no discurso.",
+            "Adicione ao mini discurso.",
+            "Insira esse texto.",
+            "insira isto",
+            "coloque essa resposta na nota",
+            "Inclua isso no mini discurso",
+        )) {
+            assertTrue(t, ChatRouter.isInsertIntoSpeechCommand(t))
+        }
+    }
+
+    @Test
+    fun pedidoDeCriacaoNovaNaoEhComandoDeInsercao() {
+        for (t in listOf(
+            "Insira uma ilustração no ponto 2.",
+            "Adicione um exemplo sobre fé.",
+            "Crie uma transição para o ponto 3.",
+            "Insira isso no esqueleto.",
+            "adicione uma pergunta no discurso",
+        )) {
+            assertFalse(t, ChatRouter.isInsertIntoSpeechCommand(t))
+        }
+    }
+
+    @Test
+    fun insercaoDeCardOuAlvoNumeradoNaoEhComandoDeInsercao() {
+        for (t in listOf(
+            "insira a 2",
+            "insira o primeiro",
+            "coloque o 3",
+            "adicione",
+            "insira isso no ponto 2",
+            "coloque no tópico 3",
+        )) {
+            assertFalse(t, ChatRouter.isInsertIntoSpeechCommand(t))
+        }
+    }
 }
