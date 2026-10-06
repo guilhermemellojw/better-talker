@@ -25,6 +25,20 @@ import com.bettertalker.app.data.util.splitWithSections
  * @param minNormalizedLength comprimento mínimo do normalizado (default 5)
  * @param maxTextLength cap de texto/normalizado (default 500)
  */
+/** Piso do teto de frases (publicações pequenas). */
+internal const val MIN_PASSAGE_CAP = 2500
+
+/** Teto do teto de frases (Estudo Perspicaz unificado ~8M chars). */
+internal const val MAX_PASSAGE_CAP = 120_000
+
+/**
+ * T1b — teto de frases proporcional ao texto (≈1 frase a cada 40 chars):
+ * publicações grandes têm muito mais que 2500 frases e eram truncadas.
+ * Puro/testável.
+ */
+internal fun passageCapFor(textLength: Int): Int =
+    (textLength / 40).coerceIn(MIN_PASSAGE_CAP, MAX_PASSAGE_CAP)
+
 internal fun buildPassages(
     attachmentId: String,
     symbol: String,

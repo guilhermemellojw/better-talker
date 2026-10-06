@@ -76,4 +76,20 @@ class PassageBuilderTest {
         val result = buildPassages("att1", "nwt", rawSimple, null, maxSentences = 1)
         assertEquals(1, result.size)
     }
+
+    // ---------- T1b: teto proporcional ao texto (it unificado) ----------
+
+    @Test
+    fun capDeFrasesAcompanhaOTexto() {
+        assertEquals(2500, passageCapFor(0))
+        assertEquals(2500, passageCapFor(50_000))        // 1250 → piso
+        assertEquals(25_000, passageCapFor(1_000_000))   // 1M/40
+        assertEquals(120_000, passageCapFor(8_000_000))  // teto
+        assertEquals(120_000, passageCapFor(50_000_000))
+    }
+
+    @Test
+    fun publicacaoGrandeIndexaMuitoMaisQueOPiso() {
+        assertTrue(passageCapFor(8_000_000) > MIN_PASSAGE_CAP)
+    }
 }

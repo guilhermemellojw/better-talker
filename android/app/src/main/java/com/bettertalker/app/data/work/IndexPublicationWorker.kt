@@ -18,7 +18,6 @@ import java.io.File
 class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     companion object {
         const val KEY_ID = "attachmentId"
-        const val MAX_SENTENCES = 2500
     }
 
     override suspend fun doWork(): Result {
@@ -79,7 +78,7 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                 }
             } else {
                 buildPassages(id, symbol, raw, null,
-                    maxSentences = MAX_SENTENCES)
+                    maxSentences = passageCapFor(raw.length))
             }
             if (sourceType == SourceType.TRAINING) {
                 // Categoria varia por frase (seção/texto) — refino preservando o comportamento anterior.
