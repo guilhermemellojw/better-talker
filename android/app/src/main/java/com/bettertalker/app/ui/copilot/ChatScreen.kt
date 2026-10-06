@@ -102,6 +102,8 @@ fun ChatScreen(
     val contextText by vm.contextLabelText.collectAsState()
     // FOCO: alvo empurrado ("Conversando sobre: …"), resolvido async na entrada.
     val conversationLabel by vm.conversationLabel.collectAsState()
+    // T4: nome do tópico em foco (confirmação da inserção).
+    val topicName by vm.topicName.collectAsState()
     // F2.3: escopo da conversa (tópico vs. global).
     val chatScope by vm.chatScope.collectAsState()
     val proposal by vm.proposal.collectAsState()
@@ -158,7 +160,8 @@ fun ChatScreen(
         if (req != null) {
             onInsert(req.text, req.heading)
             vm.consumeInsert()
-            scope.launch { snack.showSnackbar("Inserido na nota") }
+            // T4: confirmação com o tópico em foco (sem foco: "na nota").
+            scope.launch { snack.showSnackbar(insertConfirmation(topicName)) }
         }
     }
     LaunchedEffect(messages.size, busy) {

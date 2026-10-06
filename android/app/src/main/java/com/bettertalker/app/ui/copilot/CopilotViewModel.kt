@@ -143,6 +143,18 @@ fun fidelityRevisionNotice(
     return "⚠️ Revise: " + parts.joinToString("; ")
 }
 
+/**
+ * T4 (Mini Discurso): texto pronto para inserir no editor — remove as tags
+ * `〈sugestão〉…〈/sugestão〉` (marcador interno do verificador, nunca conteúdo)
+ * e apara. Puro/testável.
+ */
+internal fun cleanForInsert(raw: String): String =
+    stripSuggestionTags(raw).text.trim()
+
+/** T4: confirmação de inserção no tópico em foco (ou na nota, sem alvo). */
+internal fun insertConfirmation(topic: String?): String =
+    if (topic != null) "Inserido no tópico “$topic”." else "Inserido na nota."
+
 /** Tópico do draft em edição (mesmo formato persistido nas mensagens). */
 typealias DraftSection = ChatCodec.DraftItem
 
@@ -356,7 +368,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     fun insert(card: IdeaCard, editedBody: String, heading: String?) {
-        val body = editedBody.ifBlank { card.body }
+        val body = cleanForInsert(editedBody.ifBlank { card.body })
         insertedTitles += com.bettertalker.app.data.util.normalizeText(card.title)
         pendingInserts += InsertRequest(
             "## ${card.title}\n\n$body\n\n> ${card.snippet}" +
@@ -375,8 +387,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * no `queueInsertForTarget`.
      */
     fun insertTextIntoScope(text: String, heading: String? = null) {
-        if (text.isBlank()) return
-        pendingInserts += InsertRequest(text, heading)
+        // T4: as tags 〈sugestão〉 são marcador interno — nunca vão para o editor.
+        val clean = cleanForInsert(text)
+        if (clean.isBlank()) return
+        pendingInserts += InsertRequest(clean, heading)
         pumpInserts()
     }
 
@@ -577,9 +591,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // Header "Conversando sobre": resolução assíncrona (1-2 queries
         // Room); reset imediato evita rótulo stale da entrada anterior.
         _conversationLabel.value = null
+        _topicName.value = null
         if (ctx != null) {
             viewModelScope.launch {
                 _conversationLabel.value = resolveConversationLabel(ctx)
+                // T4: nome do tópico para a confirmação da inserção.
+                _topicName.value = currentTopicName()
             }
         }
     }
@@ -587,6 +604,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Rótulo do alvo empurrado ("Conversando sobre: …"). Null = sem header. */
     private val _conversationLabel = MutableStateFlow<String?>(null)
     val conversationLabel: StateFlow<String?> = _conversationLabel.asStateFlow()
+
+    /** T4: nome do tópico em foco (confirmação da inserção no chat). */
+    private val _topicName = MutableStateFlow<String?>(null)
+    val topicName: StateFlow<String?> = _topicName.asStateFlow()
 
     /**
      * Resolve o rótulo legível do alvo via DAOs (sem depender do editor).
@@ -1710,10 +1731,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
         insertTextIntoScope(last)
         val topic = currentTopicName()
-        postText(
-            if (topic != null) "Inserido no tópico “$topic”. ✔"
-            else "Inserido na nota. ✔"
-        )
+        postText(insertConfirmation(topic) + " ✔")
         return true
     }
 
