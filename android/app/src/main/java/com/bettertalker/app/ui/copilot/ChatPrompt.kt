@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -28,11 +29,14 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -52,6 +56,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -64,6 +70,7 @@ import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.QuickAction
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
+import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.ByodNotice
 
 /** MIMEs aceitos para importar esboço (DOCX, PDF, RTF, JWPUB genérico). */
@@ -91,6 +98,12 @@ fun ChatPromptBar(
     onSend: () -> Unit,
     onAttach: () -> Unit,
     onTools: () -> Unit,
+    voiceState: VoiceInputState = VoiceInputState.Idle,
+    voiceSeconds: Int = 0,
+    onVoice: () -> Unit = {},
+    onVoiceFinish: () -> Unit = {},
+    onVoiceCancel: () -> Unit = {},
+    focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     // Vazio nunca envia; e o bloqueio some quando o turno termina — inclusive
@@ -108,7 +121,11 @@ fun ChatPromptBar(
                 value = input,
                 onValueChange = onInput,
                 placeholder = { Text("Digite uma mensagem...") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .then(
+                        if (focusRequester != null) Modifier.focusRequester(focusRequester)
+                        else Modifier
+                    ),
                 maxLines = 5,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
@@ -128,6 +145,45 @@ fun ChatPromptBar(
                     Icon(Icons.Default.Tune, "Ferramentas")
                 }
                 Spacer(Modifier.weight(1f))
+                // T3 (voz): microfone com tap-to-toggle. Primário quando o
+                // campo está vazio; secundário quando já há texto.
+                when (voiceState) {
+                    VoiceInputState.Listening -> {
+                        Text(
+                            voiceElapsedLabel(voiceSeconds),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.semantics {
+                                liveRegion = LiveRegionMode.Polite
+                            }
+                        )
+                        IconButton(onClick = onVoiceCancel) {
+                            Icon(Icons.Default.Close, "Cancelar gravação")
+                        }
+                        FilledIconButton(onClick = onVoiceFinish) {
+                            Icon(Icons.Default.Stop, "Concluir e transcrever")
+                        }
+                    }
+                    VoiceInputState.Processing -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                    }
+                    else -> {
+                        val desc = voiceMicDescription(voiceState)
+                        if (canSend) {
+                            IconButton(onClick = onVoice) {
+                                Icon(Icons.Default.Mic, desc)
+                            }
+                        } else {
+                            FilledIconButton(onClick = onVoice) {
+                                Icon(Icons.Default.Mic, desc)
+                            }
+                        }
+                    }
+                }
                 FilledIconButton(
                     onClick = onSend,
                     enabled = canSend,
@@ -138,6 +194,20 @@ fun ChatPromptBar(
             }
         }
     }
+}
+
+/** T3 (voz): rótulo do cronômetro da escuta ("Ouvindo… 0:07"). Puro/testável. */
+internal fun voiceElapsedLabel(seconds: Int): String {
+    val s = seconds.coerceAtLeast(0)
+    return "Ouvindo… ${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+}
+
+/** T3 (voz): descrição acessível do microfone por estado. Puro/testável. */
+internal fun voiceMicDescription(state: VoiceInputState): String = when (state) {
+    VoiceInputState.Idle -> "Falar"
+    VoiceInputState.Listening -> "Ouvindo — conclua ou cancele"
+    VoiceInputState.Processing -> "Transcrevendo"
+    is VoiceInputState.Result, is VoiceInputState.Error -> "Falar"
 }
 
 /**

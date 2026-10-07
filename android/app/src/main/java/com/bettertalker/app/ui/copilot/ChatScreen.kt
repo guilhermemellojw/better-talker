@@ -1,5 +1,9 @@
 package com.bettertalker.app.ui.copilot
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -48,6 +52,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -69,9 +76,11 @@ import com.bettertalker.app.data.llm.LocalPhase
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.MdBlock
 import com.bettertalker.app.ui.components.inline
 import com.bettertalker.app.ui.components.parseBlocks
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -130,6 +139,42 @@ fun ChatScreen(
     var showPaste by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     var pasteText by rememberSaveable { mutableStateOf("") }
+    // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
+    val voiceState by vm.voiceState.collectAsState()
+    var voiceSeconds by remember { mutableIntStateOf(0) }
+    val composerFocus = remember { FocusRequester() }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) vm.startVoiceInput() }
+    LaunchedEffect(voiceState) {
+        if (voiceState is VoiceInputState.Listening) {
+            voiceSeconds = 0
+            while (true) {
+                delay(1000)
+                voiceSeconds += 1
+            }
+        } else {
+            voiceSeconds = 0
+        }
+    }
+    LaunchedEffect(voiceState) {
+        when (val v = voiceState) {
+            is VoiceInputState.Result -> {
+                // Transcrição cai no composer, editável, com foco.
+                input = v.text
+                composerFocus.requestFocus()
+                vm.consumeVoiceResult()
+            }
+            is VoiceInputState.Error -> {
+                snack.showSnackbar(v.message)
+                vm.consumeVoiceResult()
+            }
+            else -> Unit
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { vm.cancelVoiceInput() }
+    }
     // auto-scroll só se já estiver no fim; senão acumula pílula "novas"
     var unseenCount by remember { mutableStateOf(0) }
     val atBottom by remember {
@@ -238,7 +283,21 @@ fun ChatScreen(
                     busy = busy,
                     onSend = { doSend(input) },
                     onAttach = { showAttach = true },
-                    onTools = { showTools = true }
+                    onTools = { showTools = true },
+                    voiceState = voiceState,
+                    voiceSeconds = voiceSeconds,
+                    onVoice = {
+                        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            vm.startVoiceInput()
+                        } else {
+                            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    onVoiceFinish = { vm.finishVoiceInput() },
+                    onVoiceCancel = { vm.cancelVoiceInput() },
+                    focusRequester = composerFocus,
                 )
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     ChatCaption()

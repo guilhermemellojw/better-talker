@@ -145,6 +145,18 @@ class SpeechRecognizerManager(private val context: Context) {
         _state.value = VoiceInputState.Idle
     }
 
+    /**
+     * Encerra a escuta pedindo o resultado (tap-to-toggle: quadrado-stop).
+     * O serviço responde com o que ouviu (onResults) ou onError.
+     */
+    fun finish() {
+        handler.removeCallbacks(timeoutRunnable)
+        if (_state.value is VoiceInputState.Listening) {
+            _state.value = VoiceInputState.Processing
+        }
+        runCatching { recognizer?.stopListening() }
+    }
+
     /** Para a escuta (lifecycle) sem deixar erro visível. */
     fun stop() {
         handler.removeCallbacks(timeoutRunnable)

@@ -2966,6 +2966,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Abre o microfone (a UI pede a permissão antes). */
     fun startVoiceInput() = speechRecognizer.start()
 
+    /** Conclui a escuta e pede a transcrição (quadrado-stop). */
+    fun finishVoiceInput() = speechRecognizer.finish()
+
     /** Cancela sem transcrever (botão X). */
     fun cancelVoiceInput() = speechRecognizer.cancel()
 
