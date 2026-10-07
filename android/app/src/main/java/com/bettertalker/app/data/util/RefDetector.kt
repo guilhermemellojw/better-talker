@@ -36,7 +36,15 @@ object RefDetector {
          * "wp|2019|3" (pública numerada), "book|be"
          */
         val editionKey: String,
-        val label: String
+        val label: String,
+        /** T2 (refs): artigo/verbete citado ("Gedalias") — estudo por nome. */
+        val article: String? = null,
+        /** T2 (refs): lição/capítulo/estudo citado ("lição 3", "cap. 5"). */
+        val chapter: String? = null,
+        /** T2 (refs): página citada ("pág. 52"). */
+        val page: Int? = null,
+        /** T2 (refs): parágrafo numerado da citação ("n.° 4" / "§ 4"). */
+        val paragraph: Int? = null,
     )
 
     data class RefStatus(
@@ -111,8 +119,11 @@ object RefDetector {
     private val G_CODE_RE = Regex("""\bg\s*(\d{1,2})/(\d{2,4})\b""")
     // citação por sigla do catálogo: lff cap. 5 | be pág. 52 | th lição 3
     // (sigla validada contra PubCatalog; "na" excluído por colidir com preposição)
+    // T2: captura o número da unidade (cap./lição/estudo/pág./parág./n.°) e o
+    // § que o segue ("lmd lição 3 § 4").
     private val SYMBOL_REF_RE = Regex(
-        """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap\.?|capítulo|li[cç][aã]o|p[áa]g\.?|página|par[áa]g\.?|estudo|n\.?(?:º|o|°)?)""",
+        """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap[íi]tulo|cap\.?|li[cç][aã]o|p[áa]gina|p[áa]g\.?|""" +
+            """par[áa]grafo|par[áa]g\.?|estudo|n[úu]mero|n\.?(?:º|o|°)?)\s*(\d{1,3})?(?:\s*§\s*(\d{1,3}))?""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
@@ -135,6 +146,15 @@ object RefDetector {
     // 3.2.3a-fix4: ifi por lição/ponto ("ifi lição 24 ponto 3")
     private val IFI_LESSON_RE = Regex(
         """\bifi\s+li[çc][aã]o\s+(\d+)(?:\s+ponto\s+(\d+))?""",
+        RegexOption.IGNORE_CASE
+    )
+    // T2 (refs): estudo por ARTIGO + parágrafo: it "Gedalias" n.° 4,
+    // rsg “Mispá, Mispé” § 5, it-1 ‘Gedalias’ n.º 4. Aspas opcionais
+    // (retas/curvas); aceita "n.°"/"n.º"/"número"/"§"/"parág.". O artigo
+    // começa com letra (não confunde com "bh 109-110 §§ 10-11").
+    private val ARTICLE_REF_RE = Regex(
+        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj)\s+["“'‘]?([A-Za-zÀ-ÿ][^"”'’\n()§]{1,69}?)["”'’]?\s*""" +
+            """(?:n\.\s*[ºo°]?|n[úu]mero|§§?|par[áa]g\.?|par[áa]grafo)\s*(\d{1,3})\b""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: Sentinela nomeada com data (esboços S-31-T antigos):
@@ -416,15 +436,47 @@ object RefDetector {
                 )
             )
         }
+        // T2 (refs): estudo por ARTIGO + parágrafo: it "Gedalias" n.° 4,
+        // rsg “Mispá, Mispé” § 5, it-1 ‘Gedalias’ n.º 4.
+        ARTICLE_REF_RE.findAll(text).forEach { m ->
+            val sym = m.groupValues[1].lowercase()
+            if (!PubCatalog.isSymbol(sym)) return@forEach
+            val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            val article = m.groupValues[2].trim().trim('"', '“', '”', '\'', '‘', '’', '.', ',').trim()
+            if (article.length < 2) return@forEach
+            val paragraph = m.groupValues[3].toInt()
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical|a:${normalizeText(article)}|$paragraph",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} — “$article” §$paragraph",
+                    article = article,
+                    paragraph = paragraph,
+                )
+            )
+        }
         SYMBOL_REF_RE.findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             if (PubCatalog.isSymbol(sym)) {
                 val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+                val keyword = m.groupValues[2].lowercase()
+                val k = normalizeText(keyword)
+                val num = m.groupValues[3].toIntOrNull()
+                val par = m.groupValues[4].toIntOrNull()
+                // T2: separa a unidade citada (capítulo/lição/estudo × página
+                // × parágrafo) para o resolvedor achar o trecho exato.
+                val chapter = if (num != null && (k.startsWith("cap") || k.startsWith("li") ||
+                        k.startsWith("est"))) "$keyword $num" else null
+                val page = if (num != null && k.startsWith("pag")) num else null
+                val paragraph = par ?: if (num != null && (k.startsWith("par") ||
+                        k.startsWith("n"))) num else null
                 bookKeys += canonical
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
-                        "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical
+                        "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical,
+                        chapter = chapter, page = page, paragraph = paragraph,
                     )
                 )
             }
@@ -439,7 +491,9 @@ object RefDetector {
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
                         "book|$canonical",
-                        "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})"
+                        "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})",
+                        chapter = "estudo ${m.groupValues[2]}",
+                        paragraph = m.groupValues[3].toInt(),
                     )
                 )
             }
@@ -471,7 +525,7 @@ object RefDetector {
         for ((normTitle, sym) in PubCatalog.titleIndex()) {
             if (sym in bookKeys) continue
             // qualquer ocorrência guiada/estudada vale
-            val cited = Regex("""\b$normTitle\b""").findAll(norm).any { m ->
+            val titleMatch = Regex("""\b$normTitle\b""").findAll(norm).firstOrNull { m ->
                 val before = norm.substring((m.range.first - 20).coerceAtLeast(0), m.range.first)
                 val after = norm.substring(
                     (m.range.last + 1).coerceAtMost(norm.length),
@@ -483,14 +537,24 @@ object RefDetector {
                     Regex(
                         """^\s*\(?(cap|licao|pag|parag|[0-9]+(?!\s*min))"""
                     ).containsMatchIn(after)
-            }
-            if (!cited) continue
+            } ?: continue
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
             bookKeys += canonical
+            // T2: unidade citada logo após o título ("... cap. 5 parág. 10-11").
+            val tail = norm.substring(
+                (titleMatch.range.last + 1).coerceAtMost(norm.length),
+                (titleMatch.range.last + 61).coerceAtMost(norm.length)
+            )
+            val chap = Regex("""\b(cap|capitulo|licao|estudo)\s*\.?\s*(\d{1,3})""").find(tail)
+            val pag = Regex("""\b(pag|pagina)\s*\.?\s*(\d{1,3})""").find(tail)
+            val par = Regex("""\b(parag|paragrafo)\s*\.?\s*(\d{1,3})""").find(tail)
             add(
                 DetectedRef(
                     PubCatalog.titleOf(canonical) ?: canonical, Kind.BOOK, canonical,
-                    "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical
+                    "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical,
+                    chapter = chap?.let { "${it.groupValues[1]} ${it.groupValues[2]}" },
+                    page = pag?.groupValues?.get(2)?.toIntOrNull(),
+                    paragraph = par?.groupValues?.get(2)?.toIntOrNull(),
                 )
             )
         }
@@ -736,6 +800,13 @@ object RefDetector {
         "lc" to "Lucas", "luc" to "Lucas", "lucas" to "Lucas",
         "at" to "Atos", "atos" to "Atos",
         "rm" to "Romanos", "rom" to "Romanos", "romanos" to "Romanos",
+        // T2 (refs): formas TNM curtas usadas em esboços ("Ro 5:19", "Jui 6:1").
+        "ro" to "Romanos", "jui" to "Juízes", "eze" to "Ezequiel", "dan" to "Daniel",
+        "ose" to "Oseias", "obad" to "Obadias", "zac" to "Zacarias", "efe" to "Efésios",
+        "1tes" to "1 Tessalonicenses", "2tes" to "2 Tessalonicenses",
+        "1tim" to "1 Timóteo", "2tim" to "2 Timóteo", "tia" to "Tiago",
+        "1ped" to "1 Pedro", "2ped" to "2 Pedro", "jud" to "Judas",
+        "apo" to "Apocalipse", "nee" to "Neemias",
         "1co" to "1 Coríntios", "1corintios" to "1 Coríntios", "1cor" to "1 Coríntios",
         "2co" to "2 Coríntios", "2corintios" to "2 Coríntios", "2cor" to "2 Coríntios",
         "gl" to "Gálatas", "gal" to "Gálatas", "galatas" to "Gálatas",
@@ -774,19 +845,29 @@ object RefDetector {
         for (m in re.findAll(lower)) {
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
             val label = BIBLE_BOOKS[key] ?: continue
-            val chapter = m.groupValues[2].toInt()
-            fun add(verse: Int) {
-                if (verse <= 0) return
-                if (seen.add("$label|$chapter|$verse")) out += BibleRef(key, label, chapter, verse)
+            fun add(ch: Int, verse: Int) {
+                if (ch <= 0 || verse <= 0) return
+                if (seen.add("$label|$ch|$verse")) out += BibleRef(key, label, ch, verse)
             }
-            val first = m.groupValues[3].toInt()
-            add(first)
-            // T1: continuação de lista/faixa ("41:1, 2" → vv. 1 e 2;
-            // "41:1-3" → 1..3). O lookahead rejeita "41:1, 2 Reis 25:22"
-            // (o "2" pertence a outro livro, não é versículo).
-            var last = first
+            var chapter = m.groupValues[2].toInt()
+            var last = m.groupValues[3].toInt()
+            add(chapter, last)
             var idx = m.range.last + 1
             while (idx < lower.length) {
+                // T1b: ";" + N:M é NOVO capítulo do mesmo livro
+                // ("Gên 3:19, 22, 23; 5:5").
+                val nextChap = Regex("""^\s*;\s*(\d{1,3})\s*:\s*(\d{1,3})(?:[a-z])?\b""")
+                    .find(lower.substring(idx))
+                if (nextChap != null) {
+                    chapter = nextChap.groupValues[1].toInt()
+                    last = nextChap.groupValues[2].toInt()
+                    add(chapter, last)
+                    idx += nextChap.range.last + 1
+                    continue
+                }
+                // T1: continuação de lista/faixa ("41:1, 2" → vv. 1 e 2;
+                // "41:1-3" → 1..3). O lookahead rejeita "41:1, 2 Reis 25:22"
+                // (o "2" pertence a outro livro, não é versículo).
                 val sep = Regex("""^\s*([,;]|[–—-])\s*(\d{1,3})\b(?!\s*[a-zà-ÿ])""")
                     .find(lower.substring(idx)) ?: break
                 val num = sep.groupValues[2].toInt()
@@ -794,9 +875,9 @@ object RefDetector {
                 val s = sep.groupValues[1]
                 if (s == "-" || s == "–" || s == "—") {
                     if (num <= last || num - last > 50) break
-                    for (v in (last + 1)..num) add(v)
+                    for (v in (last + 1)..num) add(chapter, v)
                 } else {
-                    add(num)
+                    add(chapter, num)
                 }
                 last = num
                 idx += sep.range.last + 1
@@ -817,6 +898,14 @@ object RefDetector {
     fun chapterOf(raw: String): ChapterRef? {
         // "§" não sobrevive à normalização: trata no texto cru
         Regex("""§\s*(\d{1,3})""").find(raw)?.let {
+            return ChapterRef("paragrafo", it.groupValues[1].toInt())
+        }
+        // T2: "n.° 4" / "n.º 4" / "n. 4" (parágrafo numerado do estudo).
+        Regex("""\bn\.\s*[ºo°]?\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE).find(raw)?.let {
+            return ChapterRef("paragrafo", it.groupValues[1].toInt())
+        }
+        // T2: "número 4".
+        Regex("""\bn[úu]mero\s+(\d{1,3})\b""", RegexOption.IGNORE_CASE).find(raw)?.let {
             return ChapterRef("paragrafo", it.groupValues[1].toInt())
         }
         val t = normalizeText(raw)
@@ -897,7 +986,9 @@ object RefDetector {
     fun detectedToJson(refs: List<DetectedRef>): String {
         return refs.joinToString(",", "[", "]") {
             "{\"r\":\"${esc(it.raw)}\",\"k\":\"${it.kind.name}\"," +
-                "\"p\":\"${esc(it.pubKey)}\",\"e\":\"${esc(it.editionKey)}\",\"l\":\"${esc(it.label)}\"}"
+                "\"p\":\"${esc(it.pubKey)}\",\"e\":\"${esc(it.editionKey)}\",\"l\":\"${esc(it.label)}\"," +
+                "\"a\":\"${esc(it.article.orEmpty())}\",\"c\":\"${esc(it.chapter.orEmpty())}\"," +
+                "\"pg\":${it.page ?: -1},\"g\":${it.paragraph ?: -1}}"
         }
     }
 
@@ -906,13 +997,21 @@ object RefDetector {
 
     fun detectedFromJson(json: String): List<DetectedRef> {
         return try {
-            val re = Regex("""\{"r":"((?:[^"\\]|\\.)*)","k":"(MAGAZINE|BOOK)","p":"((?:[^"\\]|\\.)*)","e":"((?:[^"\\]|\\.)*)","l":"((?:[^"\\]|\\.)*)"\}""")
+            val re = Regex(
+                """\{"r":"((?:[^"\\]|\\.)*)","k":"(MAGAZINE|BOOK)","p":"((?:[^"\\]|\\.)*)",""" +
+                    """"e":"((?:[^"\\]|\\.)*)","l":"((?:[^"\\]|\\.)*)"""" +
+                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+),"g":(-?\d+))?\}"""
+            )
             re.findAll(json).map { m ->
                 fun un(s: String) = s.replace("\\\"", "\"").replace("\\\\", "\\")
                 DetectedRef(
                     un(m.groupValues[1]),
                     Kind.valueOf(m.groupValues[2]),
-                    un(m.groupValues[3]), un(m.groupValues[4]), un(m.groupValues[5])
+                    un(m.groupValues[3]), un(m.groupValues[4]), un(m.groupValues[5]),
+                    article = un(m.groupValues[6]).ifBlank { null },
+                    chapter = un(m.groupValues[7]).ifBlank { null },
+                    page = m.groupValues[8].toIntOrNull()?.takeIf { it >= 0 },
+                    paragraph = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
                 )
             }.toList()
         } catch (_: Exception) {

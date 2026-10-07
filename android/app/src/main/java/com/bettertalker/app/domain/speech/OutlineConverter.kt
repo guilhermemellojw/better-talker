@@ -203,8 +203,10 @@ class OutlineConverter(
                 }
                 PublicationRef(
                     symbol = canonicalPublicationSymbol(ref.pubKey, ref.editionKey),
-                    page = page,
-                    paragraph = paragraph,
+                    page = ref.page ?: page,
+                    paragraph = ref.paragraph ?: paragraph,
+                    article = ref.article,
+                    chapter = ref.chapter,
                 )
             }
         }.distinct()

@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -101,6 +102,26 @@ class RefDetectorTest {
         assertEquals(listOf("Jeremias" to 1, "Jeremias" to 2), refs.map { it.label to it.verse })
     }
 
+    @Test
+    fun detectBible_novoCapituloNoMesmoLivro() {
+        // Formato real do S-34: "(Gên 3:19, 22, 23; 5:5)".
+        val refs = RefDetector.detectBible("(Gên 3:19, 22, 23; 5:5)")
+        assertEquals(
+            listOf(3 to 19, 3 to 22, 3 to 23, 5 to 5),
+            refs.map { it.chapter to it.verse },
+        )
+    }
+
+    @Test
+    fun detectBible_outroLivroNaoEhCapitulo() {
+        // "(Mt 20:28; Ro 5:19)" — "Ro 5:19" é outro livro, não capítulo de Mt.
+        val refs = RefDetector.detectBible("(Mt 20:28; Ro 5:19)")
+        assertEquals(
+            listOf("Mateus" to 20 to 28, "Romanos" to 5 to 19),
+            refs.map { it.label to it.chapter to it.verse },
+        )
+    }
+
     /**
      * DÉBITO TÉCNICO (3.2.3a-fix): "Jó" e "João" normalizam para a mesma
      * chave ("jo"), e o mapa resolve para João. Este teste documenta o
@@ -183,5 +204,84 @@ class RefDetectorTest {
     @Test
     fun detect_reMultiPage_stillDetected() {
         assertEquals("re", RefDetector.detect("(re 292, 300)").single().pubKey)
+    }
+
+    // ---------- T2 (refs): estudo por artigo + parágrafo ----------
+
+    @Test
+    fun detect_artigoComParagrafo_works() {
+        val ref = RefDetector.detect("(it \"Gedalias\" n.° 4)").single()
+        assertEquals("it", ref.pubKey)
+        assertEquals("Gedalias", ref.article)
+        assertEquals(4, ref.paragraph)
+        assertEquals("book|it", ref.editionKey.substringBefore("|a:"))
+    }
+
+    @Test
+    fun detect_artigo_variantesDeAspasENumero() {
+        assertEquals(4, RefDetector.detect("it “Gedalias” n.º 4").single().paragraph)
+        assertEquals(4, RefDetector.detect("it ‘Gedalias’ n.º 4").single().paragraph)
+        val noQuotes = RefDetector.detect("it Gedalias n.° 4").single()
+        assertEquals("Gedalias", noQuotes.article)
+        assertEquals(4, noQuotes.paragraph)
+        val rsg = RefDetector.detect("rsg \"Mispá, Mispé\" § 5").single()
+        assertEquals("rsg", rsg.pubKey)
+        assertEquals("Mispá, Mispé", rsg.article)
+        assertEquals(5, rsg.paragraph)
+    }
+
+    @Test
+    fun detect_licaoCapituloEstudo_comParagrafo() {
+        val lmd = RefDetector.detect("(lmd lição 3 § 4)").single()
+        assertEquals("lmd", lmd.pubKey)
+        assertEquals("lição 3", lmd.chapter)
+        assertEquals(4, lmd.paragraph)
+
+        val rr = RefDetector.detect("(rr cap. 5 § 2)").single()
+        assertEquals("cap. 5", rr.chapter)
+        assertEquals(2, rr.paragraph)
+
+        val jr = RefDetector.detect("(jr 27 § 22)").single()
+        assertEquals("estudo 27", jr.chapter)
+        assertEquals(22, jr.paragraph)
+    }
+
+    @Test
+    fun detect_pagina_works() {
+        val be = RefDetector.detect("(be pág. 52)").single()
+        assertEquals("be", be.pubKey)
+        assertEquals(52, be.page)
+    }
+
+    @Test
+    fun detect_artigo_naoDisparaEmTextoComum() {
+        assertEquals(emptyList<RefDetector.DetectedRef>(), RefDetector.detect("vamos fazer it agora mesmo"))
+    }
+
+    @Test
+    fun chapterOf_entendeNumeroDeParagrafo() {
+        assertEquals("paragrafo", RefDetector.chapterOf(" n.° 4")?.kind)
+        assertEquals(4, RefDetector.chapterOf(" n.° 4")?.number)
+        assertEquals(4, RefDetector.chapterOf(" n.º 4")?.number)
+        assertEquals(4, RefDetector.chapterOf("número 4")?.number)
+    }
+
+    @Test
+    fun detectedJson_roundTrip_comArtigoEParagrafo() {
+        val refs = RefDetector.detect("(it \"Gedalias\" n.° 4)")
+        val back = RefDetector.detectedFromJson(RefDetector.detectedToJson(refs))
+        assertEquals(1, back.size)
+        assertEquals("Gedalias", back.single().article)
+        assertEquals(4, back.single().paragraph)
+    }
+
+    @Test
+    fun detectedFromJson_aceitaFormatoAntigo() {
+        val old = """[{"r":"it 813","k":"BOOK","p":"it","e":"book|it","l":"Estudo Perspicaz (pág. 813)"}]"""
+        val back = RefDetector.detectedFromJson(old)
+        assertEquals(1, back.size)
+        assertEquals("it", back.single().pubKey)
+        assertNull(back.single().article)
+        assertNull(back.single().paragraph)
     }
 }
