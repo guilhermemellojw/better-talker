@@ -2972,8 +2972,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Limpa Result/Error depois de levar o texto ao composer. */
     fun consumeVoiceResult() = speechRecognizer.consume()
 
+    // ---------- T2 (voz): TTS nativo (TextToSpeech, pt-BR) ----------
+
+    private val textToSpeech: com.bettertalker.app.data.voice.TextToSpeechManager by lazy {
+        com.bettertalker.app.data.voice.TextToSpeechManager(app)
+    }
+
+    /** TTS pronto (voz pt-BR instalada no aparelho). */
+    val ttsReady: StateFlow<Boolean> = textToSpeech.ready
+
+    /** Leitura em andamento (botão ▶/⏸ do T4). */
+    val ttsSpeaking: StateFlow<Boolean> = textToSpeech.speaking
+
+    /** Lê uma resposta em voz alta — sempre o texto PÓS-GATE. */
+    fun speakMessage(text: String) {
+        textToSpeech.speak(com.bettertalker.app.data.voice.prepareForSpeech(text))
+    }
+
+    /** Para a leitura em andamento. */
+    fun stopSpeaking() = textToSpeech.stop()
+
     override fun onCleared() {
         speechRecognizer.destroy()
+        textToSpeech.shutdown()
         super.onCleared()
     }
 
