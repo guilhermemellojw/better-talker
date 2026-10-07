@@ -16,10 +16,10 @@ import java.util.UUID
  * @param noteTitle título do discurso (do esboço)
  * @param totalMinutes tempo total (do esboço ou soma das seções)
  * @param discourseType tipo que originou a conversão (lido pelo persist).
- * @param intro seção INTRO sintetizada — SEMPRE null: a introdução NÃO é
- *   criada automaticamente a partir de texto antes do primeiro tópico.
- * @param bodies seções BODY com sub-pontos (orders 0..N contíguos)
- * @param conclusion seção CONCLUSION sintetizada — SEMPRE null (não inferida).
+ * @param intro seção INTRO vazia sintetizada (T5: criada automaticamente no
+ *   caminho S-34; espaço para preencher depois)
+ * @param bodies seções BODY com sub-pontos (orders contíguos após a intro)
+ * @param conclusion seção CONCLUSION vazia sintetizada (T5: idem à intro).
  * @param speakerNotes orientações gerais do orador (NOTA inicial + fechamento).
  */
 data class OutlineConversion(
@@ -100,22 +100,51 @@ class OutlineConverter(
             )
         }
 
+        // Sem bodies (esboço vazio), nada a emoldurar: mantém o nulo antigo.
+        if (parsed.sections.isEmpty()) {
+            return OutlineConversion(
+                noteTitle = parsed.title,
+                totalMinutes = total,
+                discourseType = DiscourseType.S34_DISCOURSE,
+                intro = null,
+                bodies = emptyList(),
+                conclusion = null,
+                speakerNotes = parsed.preamble.trim(),
+            )
+        }
+        val intro = buildEdgeSection(
+            noteId = noteId,
+            role = SectionRole.INTRO,
+            title = "Introdução",
+            minutes = INTRO_MINUTES,
+            order = 0,
+            ts = ts,
+        )
         val bodies = parsed.sections.mapIndexed { i, outline ->
-            // Ordem por posição (contígua), não por outline.order — invariante.
-            val section = buildBodySection(outline, noteId, order = i, ts)
+            // Ordem por posição (contígua), após a intro — invariante.
+            val section = buildBodySection(outline, noteId, order = i + 1, ts)
             BodyConversion(section, extractSubPoints(outline.body, section.id, ts))
         }
+        val conclusion = buildEdgeSection(
+            noteId = noteId,
+            role = SectionRole.CONCLUSION,
+            title = "Conclusão",
+            minutes = CONCLUSION_MINUTES,
+            order = bodies.size + 1,
+            ts = ts,
+        )
 
-        // F3.x: NÃO sintetiza INTRO/CONCLUSION. Texto antes do primeiro tópico
-        // é orientação do orador (`speakerNotes`), nunca introdução. A intro e
-        // a conclusão só existem quando o usuário as construir.
+        // T5: INTRO/CONCLUSION vazias sintetizadas no caminho S-34 (espaços
+        // para preencher depois). F3.x segue valendo para o texto antes do
+        // primeiro tópico: continua sendo `speakerNotes`, nunca introdução.
+        // Tipos curtos (acima) mantêm intro/conclusion nulos.
         return OutlineConversion(
             noteTitle = parsed.title,
             totalMinutes = total,
             discourseType = DiscourseType.S34_DISCOURSE,
-            intro = null,
+            intro = intro,
             bodies = bodies,
-            conclusion = null,
+            conclusion = conclusion,
             speakerNotes = parsed.preamble.trim(),
         )
     }
@@ -143,6 +172,35 @@ class OutlineConverter(
             updatedAt = ts,
         )
     }
+
+    // ---------- Seções de borda (INTRO/CONCLUSION vazias) ----------
+
+    /**
+     * T5: card vazio de abertura/fechamento no caminho S-34. Mesmos valores
+     * do "Adicionar parte" manual (SectionsController): título e minutos
+     * default, sem conteúdo nem refs.
+     */
+    private fun buildEdgeSection(
+        noteId: String,
+        role: SectionRole,
+        title: String,
+        minutes: Int,
+        order: Int,
+        ts: Long,
+    ): SpeechSection = SpeechSection(
+        id = idProvider(),
+        noteId = noteId,
+        order = order,
+        role = role,
+        title = title,
+        minutes = minutes,
+        contentHtml = "",
+        bibleRefs = emptyList(),
+        publicationRefs = emptyList(),
+        methodPrinciple = null,
+        createdAt = ts,
+        updatedAt = ts,
+    )
 
     // ---------- Sub-pontos ----------
 
@@ -279,6 +337,10 @@ class OutlineConverter(
 
         /** Duração assumida para seções BODY sem tempo no esboço (3.2.3c). */
         const val FALLBACK_MINUTES = 5
+
+        /** T5: minutos default dos cards vazios (iguais ao "Adicionar parte"). */
+        const val INTRO_MINUTES = 1
+        const val CONCLUSION_MINUTES = 1
     }
 }
 

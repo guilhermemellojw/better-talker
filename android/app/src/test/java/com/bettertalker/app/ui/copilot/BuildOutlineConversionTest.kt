@@ -20,10 +20,10 @@ class BuildOutlineConversionTest {
         assertEquals("Tema", conv.noteTitle)
         assertEquals(15, conv.totalMinutes)
         assertEquals(2, conv.bodies.size)
-        // F3.x: sem INTRO/CONCLUSION automáticas.
-        assertEquals(null, conv.intro)
-        assertEquals(null, conv.conclusion)
-        assertEquals(listOf(0, 1), conv.bodies.map { it.section.order })
+        // T5: INTRO/CONCLUSION vazias emolduram os bodies.
+        assertEquals("Introdução", conv.intro?.title)
+        assertEquals("Conclusão", conv.conclusion?.title)
+        assertEquals(listOf(0, 1, 2, 3), listOf(conv.intro?.order) + conv.bodies.map { it.section.order } + listOf(conv.conclusion?.order))
     }
 
     @Test
@@ -36,7 +36,8 @@ class BuildOutlineConversionTest {
     fun build_preambleGoesToSpeakerNotes() {
         val conv = buildOutlineConversion("T", 10, sections(), "NOTA: teste", "n1")
         assertTrue(conv.speakerNotes.contains("NOTA: teste"))
-        assertEquals(null, conv.intro)
+        // T5: a NOTA não vaza para a intro (card vazio).
+        assertTrue(conv.intro?.contentHtml.isNullOrEmpty())
     }
 
     @Test
@@ -56,10 +57,13 @@ class BuildOutlineConversionTest {
     }
 
     @Test
-    fun build_s34_noAutoIntroConclusion() {
+    fun build_s34_synthesizesEmptyIntroConclusion() {
+        // T5: cards vazios de 1 min emolduram os bodies.
         val conv = buildOutlineConversion("T", 10, sections(), "", "n1")
-        assertEquals(null, conv.intro)
-        assertEquals(null, conv.conclusion)
+        assertEquals("Introdução", conv.intro?.title)
+        assertEquals(1, conv.intro?.minutes)
+        assertEquals("Conclusão", conv.conclusion?.title)
+        assertEquals(1, conv.conclusion?.minutes)
         assertEquals(2, conv.bodies.size)
     }
 

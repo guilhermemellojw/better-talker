@@ -3,6 +3,7 @@ package com.bettertalker.app.domain.speech
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -63,9 +64,10 @@ class OutlineConverterTest {
         )
         assertEquals(1, conv.bodies.size)
         assertEquals(SectionRole.BODY, conv.bodies.single().section.role)
-        assertEquals(0, conv.bodies.single().section.order)
-        assertEquals(null, conv.intro)
-        assertEquals(null, conv.conclusion)
+        assertEquals(1, conv.bodies.single().section.order)
+        // T5: cards vazios emolduram o body.
+        assertEquals(SectionRole.INTRO, conv.intro?.role)
+        assertEquals(SectionRole.CONCLUSION, conv.conclusion?.role)
     }
 
     @Test
@@ -155,13 +157,17 @@ class OutlineConverterTest {
     fun convert_preambleGoesToSpeakerNotes() {
         val conv = converter().convert(snippetParsed(), "n1")
         assertTrue(conv.speakerNotes.contains("NOTA: ajude a assistência a meditar."))
-        assertEquals(null, conv.intro)
+        // T5: a NOTA continua fora da intro (que é um card vazio).
+        assertTrue(conv.intro?.contentHtml.isNullOrEmpty())
+        assertFalse(conv.intro?.title?.contains("NOTA") == true)
     }
 
     @Test
     fun convert_ordersAreContiguousAcrossAllLevels() {
         val conv = converter().convert(simpleParsed(), "n1")
-        assertEquals(listOf(0, 1, 2), conv.bodies.map { it.section.order })
+        assertEquals(0, conv.intro?.order)
+        assertEquals(listOf(1, 2, 3), conv.bodies.map { it.section.order })
+        assertEquals(4, conv.conclusion?.order)
         conv.bodies.forEach { body ->
             assertEquals(body.subPoints.indices.toList(), body.subPoints.map { it.order })
         }
@@ -171,7 +177,9 @@ class OutlineConverterTest {
     fun convert_idsAreUnique() {
         val conv = converter().convert(simpleParsed(), "n1")
         val ids = buildList {
+            conv.intro?.let { add(it.id) }
             conv.bodies.forEach { add(it.section.id); it.subPoints.forEach { sp -> add(sp.id) } }
+            conv.conclusion?.let { add(it.id) }
         }
         assertEquals(ids.size, ids.toSet().size)
     }
@@ -179,12 +187,14 @@ class OutlineConverterTest {
     @Test
     fun convert_idProviderIsUsed() {
         val conv = converter("id").convert(simpleParsed(), "n1")
-        assertEquals("id-0", conv.bodies[0].section.id)
-        assertEquals("id-1", conv.bodies[0].subPoints[0].id)
-        assertEquals("id-2", conv.bodies[0].subPoints[1].id)
-        assertEquals("id-3", conv.bodies[1].section.id)
-        assertEquals("id-4", conv.bodies[2].section.id)
-        assertEquals("id-5", conv.bodies[2].subPoints[0].id)
+        assertEquals("id-0", conv.intro?.id)
+        assertEquals("id-1", conv.bodies[0].section.id)
+        assertEquals("id-2", conv.bodies[0].subPoints[0].id)
+        assertEquals("id-3", conv.bodies[0].subPoints[1].id)
+        assertEquals("id-4", conv.bodies[1].section.id)
+        assertEquals("id-5", conv.bodies[2].section.id)
+        assertEquals("id-6", conv.bodies[2].subPoints[0].id)
+        assertEquals("id-7", conv.conclusion?.id)
     }
 
     @Test
@@ -215,11 +225,15 @@ class OutlineConverterTest {
     // ---------- 3.2.4b: conversão por tipo ----------
 
     @Test
-    fun convert_s34_noAutoIntroConclusion() {
-        // F3.x: o S-34 não sintetiza intro/conclusion a partir de preamble.
+    fun convert_s34_synthesizesEmptyIntroConclusion() {
+        // T5: o S-34 ganha cards vazios de abertura/fechamento (1 min cada).
         val conv = converter().convert(simpleParsed(), "n1")
-        assertEquals(null, conv.intro)
-        assertEquals(null, conv.conclusion)
+        assertEquals("Introdução", conv.intro?.title)
+        assertEquals(1, conv.intro?.minutes)
+        assertTrue(conv.intro?.contentHtml.isNullOrEmpty())
+        assertEquals("Conclusão", conv.conclusion?.title)
+        assertEquals(1, conv.conclusion?.minutes)
+        assertTrue(conv.conclusion?.contentHtml.isNullOrEmpty())
         assertEquals(3, conv.bodies.size)
         assertEquals(DiscourseType.S34_DISCOURSE, conv.discourseType)
     }

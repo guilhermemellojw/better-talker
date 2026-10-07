@@ -36,7 +36,10 @@ class S34ImportModelingTest {
         """.trimIndent()
         val conv = convert(text)
 
-        assertNull("intro não pode ser criada automaticamente", conv.intro)
+        // T5: a NOTA continua fora da intro — que agora é um card vazio.
+        assertEquals("Introdução", conv.intro?.title)
+        assertTrue(conv.intro?.contentHtml.isNullOrEmpty())
+        assertFalse(conv.intro?.title?.contains("NOTA") == true)
         assertTrue(
             "speakerNotes deve conter a NOTA",
             conv.speakerNotes.contains("NOTA: Ajude a assistência a meditar"),
@@ -65,7 +68,8 @@ class S34ImportModelingTest {
         assertTrue(subs.any { it.instruction?.contains("Leia Eclesiastes 3:11.") == true })
         // o texto discursivo NÃO contém a instrução
         assertTrue(subs.none { it.outlineText.contains("[Leia") })
-        assertNull(conv.intro)
+        // T5: intro existe, mas vazia (instrução ficou no sub-ponto).
+        assertTrue(conv.intro?.contentHtml.isNullOrEmpty())
     }
 
     // ---------- Caso 3: imagem ----------
@@ -106,7 +110,8 @@ class S34ImportModelingTest {
         """.trimIndent()
         val conv = convert(text)
 
-        assertNull(conv.conclusion)
+        // T5: a orientação final continua fora da conclusion (card vazio).
+        assertTrue(conv.conclusion?.contentHtml.isNullOrEmpty())
         assertTrue(conv.speakerNotes.contains("Siga de perto o material do esboço"))
         // não virou sub-ponto do tópico
         assertTrue(conv.bodies.single().subPoints.none {
@@ -120,9 +125,11 @@ class S34ImportModelingTest {
     fun fullS34_correctTree() {
         val conv = convert(FULL_S34)
 
-        // Sem intro/conclusion automáticas.
-        assertNull(conv.intro)
-        assertNull(conv.conclusion)
+        // T5: cards vazios emolduram os 5 tópicos (orders 0..6).
+        assertEquals("Introdução", conv.intro?.title)
+        assertEquals(0, conv.intro?.order)
+        assertEquals("Conclusão", conv.conclusion?.title)
+        assertEquals(6, conv.conclusion?.order)
 
         // 5 tópicos principais, na ordem e com os tempos do documento.
         val titles = conv.bodies.map { it.section.title }
@@ -171,7 +178,8 @@ class S34ImportModelingTest {
         """.trimIndent()
         val conv = convert(text)
         assertTrue(conv.speakerNotes.isBlank())
-        assertNull(conv.intro)
+        // T5: mesmo sem NOTA, os cards vazios existem.
+        assertEquals("Introdução", conv.intro?.title)
         assertEquals(1, conv.bodies.size)
     }
 
