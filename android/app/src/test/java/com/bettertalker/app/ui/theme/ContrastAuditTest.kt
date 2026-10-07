@@ -76,4 +76,42 @@ class ContrastAuditTest {
         val r = contrastRatio(LightColors.primary, LightColors.surface)
         assertTrue("primário como texto: ${"%.2f".format(r)}", r < aa)
     }
+
+    // ---------- A11y: os 4 usos corrigidos (primary → secondary/onSurfaceVariant) ----------
+
+    @Test
+    fun a11y_fonteNoChat_passaAa() {
+        // "📖 Fonte" (ChatCards) fica sobre o fundo do chat (surface).
+        assertAa("claro", LightColors.secondary, LightColors.surface)
+        assertAa("escuro", DarkColors.secondary, DarkColors.surface)
+    }
+
+    @Test
+    fun a11y_fielAoDossie_passaAa() {
+        // "✓ Fiel ao dossiê" (DraftSheet) sobre o container do bottom sheet.
+        assertAa("claro", LightColors.secondary, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.secondary, DarkColors.surfaceContainerLow)
+    }
+
+    @Test
+    fun a11y_numeroDoSubPonto_passaAa() {
+        // Número do sub-ponto (SectionCardEditor) sobre o card preenchido.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerHighest)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerHighest)
+    }
+
+    @Test
+    fun a11y_miniDiscurso_passaAa() {
+        // Rótulo "MINI DISCURSO" sobre o card preenchido.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerHighest)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerHighest)
+    }
+
+    @Test
+    fun a11y_secondaryNaoBastaNoCardClaro() {
+        // Documenta a escolha: no card claro (surfaceContainerHighest) o
+        // secondary dá 4.23:1 — por isso esses dois usam onSurfaceVariant.
+        val r = contrastRatio(LightColors.secondary, LightColors.surfaceContainerHighest)
+        assertTrue("secondary no card claro: ${"%.2f".format(r)}", r < aa)
+    }
 }

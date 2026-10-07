@@ -186,7 +186,9 @@ fun ProvenanceLine(source: String, trainingCategory: String?) {
         Text(
             "📖 Fonte: $source",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary
+            // A11y: o amarelo primário dá 1.55:1 no tema claro; secondary
+            // passa AA sobre o fundo do chat (5.38 claro / 6.97 escuro).
+            color = MaterialTheme.colorScheme.secondary
         )
     }
 }

@@ -108,7 +108,9 @@ fun DraftSheet(
                         Text(
                             "✓ Fiel ao dossiê",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            // A11y: secondary passa AA sobre o sheet
+                            // (surfaceContainerLow: 4.97 claro / 6.99 escuro).
+                            color = MaterialTheme.colorScheme.secondary,
                         )
                     } else {
                         FidelityLine("Referências bíblicas inventadas:", v.inventedBibleRefs)

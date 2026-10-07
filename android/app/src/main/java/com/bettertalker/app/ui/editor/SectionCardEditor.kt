@@ -586,7 +586,9 @@ private fun SubPointRow(
         Text(
             "${index + 1}.",
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.primary,
+            // A11y: o amarelo primário dá 1.55:1 no tema claro; onSurfaceVariant
+            // passa AA sobre o card (surfaceContainerHighest: 7.21 / 7.20).
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(24.dp).padding(top = if (editing) 14.dp else 1.dp),
         )
         Column(Modifier.weight(1f)) {
@@ -798,7 +800,10 @@ private fun MiniSpeechBlock(
             Text(
                 "MINI DISCURSO",
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.primary,
+                // A11y: primary amarelo falha AA no claro; onSurfaceVariant
+                // passa sobre o card (surfaceContainerHighest) e alinha com
+                // os demais rótulos (OBJETIVO, LINHA DE RACIOCÍNIO).
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (hasText) {
                 // T2: estimativa de tempo (130 palavras/min) comparada à meta
