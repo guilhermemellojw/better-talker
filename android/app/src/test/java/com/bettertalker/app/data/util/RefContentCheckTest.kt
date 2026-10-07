@@ -92,4 +92,40 @@ class RefContentCheckTest {
         val check = RefDetector.resolveContent(it, listOf(p), corpusAvailable = true)
         assertTrue(check.resolved)
     }
+
+    // ---------- T1 (refs por página): aviso específico, UNRESOLVED mantido ----------
+
+    @Test
+    fun soPagina_recebeAvisoEspecifico() {
+        // "(it 813)": detectado com page, sem unidade — nunca trecho aleatório.
+        // (Sem parênteses, "it 813" sequer é detectado — gap pré-existente.)
+        val ref = RefDetector.detect("conforme (it 813) sobre o tema").single()
+        val p = passage("p1", "it verbete", "Texto qualquer do volume.")
+        val check = RefDetector.resolveContent(ref, listOf(p), corpusAvailable = true)
+        assertFalse(check.resolved)
+        assertNull(check.snippet)
+        assertEquals(RefDetector.PAGE_ONLY_WARNING, check.warning)
+    }
+
+    @Test
+    fun paginaComCapitulo_mantemAvisoGenerico() {
+        // Com unidade textual, a página é detalhe: vale o aviso genérico.
+        val ref = RefDetector.DetectedRef(
+            raw = "lmd lição 3 pág. 52", kind = RefDetector.Kind.BOOK,
+            pubKey = "lmd", editionKey = "book|lmd",
+            label = "Ame as Pessoas", chapter = "lição 3", page = 52,
+        )
+        val check = RefDetector.resolveContent(ref, emptyList(), corpusAvailable = true)
+        assertFalse(check.resolved)
+        assertEquals(RefDetector.CONTENT_WARNING, check.warning)
+    }
+
+    @Test
+    fun semCorpus_soPaginaNaoAcusa() {
+        // Sem corpus pesquisável, nem o aviso específico aparece.
+        val ref = RefDetector.detect("conforme (it 813) sobre o tema").single()
+        val check = RefDetector.resolveContent(ref, emptyList(), corpusAvailable = false)
+        assertFalse(check.resolved)
+        assertNull(check.warning)
+    }
 }

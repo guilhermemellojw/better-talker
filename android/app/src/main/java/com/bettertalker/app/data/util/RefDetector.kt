@@ -86,6 +86,15 @@ object RefDetector {
 
     const val CONTENT_WARNING = "⚠️ citação sem fonte no acervo"
 
+    /**
+     * T1 (refs por página) — aviso específico para citação SÓ por página
+     * (`page != null`, sem artigo/capítulo/lição/estudo): o acervo não tem
+     * paginação (JWPUB/EPUB são reflowable), então a página sozinha nunca
+     * resolve — mas o § ou capítulo junto resolve. UNRESOLVED continua.
+     */
+    const val PAGE_ONLY_WARNING =
+        "⚠️ refs por página não resolvem no acervo — cite o § ou capítulo junto"
+
     // Despertai! 08/13 | Despertai!, 8/2013 (mensal antiga)
     private val AWAKE_RE = Regex(
         """Despertai!?,?\s*(\d{1,2})/(\d{2,4})""",
@@ -128,14 +137,16 @@ object RefDetector {
     )
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
     // Roda antes das rotas legadas; cobre "(it-1 813)", "(kj 264-5)",
-    // "(it-2 1050)".
+    // "(it-2 1050)" e o volume unificado "(it 813)". O `it` nu vem DEPOIS
+    // de `it-[12]` (senão "it-1" casaria parcial); "it-3" segue vazio
+    // (exige \s+ após o símbolo, e "-" não casa).
     // 3.2.3a-fix4c: o `\b` após o grupo do número + `(?!\s*:)` rejeitam
     // refs bíblicas cap:vers ("Re 15:3b"). Sem o `\b`, o regex engine recua
     // para "1" e o lookahead passaria ("5:3b" não começa com ":") — phantom
     // "Re 1". Com `\b`, "15" não recua para "1" (não há fronteira), então o
     // lookahead é avaliado corretamente e rejeita.
     private val STUDY_BOOK_RE = Regex(
-        """\b(it-[12]|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
+        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
@@ -404,7 +415,10 @@ object RefDetector {
                 DetectedRef(
                     m.value.trim(), Kind.BOOK, canonical,
                     "book|$canonical",
-                    "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $pageLabel)"
+                    "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $pageLabel)",
+                    // T1 (refs por página): o número nu é página — expõe no
+                    // campo para o aviso específico (UNRESOLVED continua).
+                    page = page.toIntOrNull(),
                 )
             )
         }
@@ -968,7 +982,14 @@ object RefDetector {
         return if (hit != null) {
             ContentCheck(resolved = true, snippet = hit.text.take(200).trim(), warning = null)
         } else {
-            ContentCheck(resolved = false, snippet = null, warning = CONTENT_WARNING)
+            // T1 (refs por página): só-página não tem unidade textual para
+            // buscar — orienta a citar §/capítulo em vez do aviso genérico.
+            val pageOnly = ref.page != null && ref.article == null && ref.chapter == null
+            ContentCheck(
+                resolved = false,
+                snippet = null,
+                warning = if (pageOnly) PAGE_ONLY_WARNING else CONTENT_WARNING
+            )
         }
     }
 
