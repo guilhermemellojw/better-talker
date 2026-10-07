@@ -45,6 +45,9 @@ private class FakePassageDao(var rows: List<PassageEntity> = emptyList()) : Pass
     override suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity? =
         rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
             .minByOrNull { it.ord }
+    override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> =
+        rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
+            .sortedBy { it.ord }.take(limit)
 }
 
 private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

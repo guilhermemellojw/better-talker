@@ -48,6 +48,10 @@ private class IntFakePassageDao(var rows: List<PassageEntity> = emptyList()) : P
         return rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
             .minByOrNull { it.ord }
     }
+    override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> {
+        return rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
+            .sortedBy { it.ord }.take(limit)
+    }
 }
 
 private class IntFakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

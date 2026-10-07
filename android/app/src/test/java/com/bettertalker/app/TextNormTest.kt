@@ -134,4 +134,32 @@ class TextNormTest {
         assertEquals(listOf("lff.pdf"), out.map { it.name })
         assertTrue(com.bettertalker.app.data.repo.filterUnregistered(cands, setOf("wp19.pdf", "lff.pdf")).isEmpty())
     }
+
+    // ---------- T4 (refs): seções por título de JWPUB e capítulos ----------
+
+    @Test
+    fun splitWithSections_honraTituloDeJwpub() {
+        val raw = """
+            # Gedalias
+            GEDALIAS
+            Cantor levita que serviu no templo, com detalhes suficientes para passar de cento e vinte caracteres e virar parágrafo de verdade no índice local do aplicativo.
+            # Gederotaim
+            Outro verbete qualquer que também passa de cento e vinte caracteres para não depender do heurístico de linha curta e ficar no título correto do índice.
+        """.trimIndent()
+        val pairs = splitWithSections(raw)
+        // O corpo do primeiro verbete pertence a "Gedalias" (não ao anterior).
+        assertTrue(pairs.first().second.lowercase().contains("gedalias"))
+        assertTrue(pairs.any { it.second.lowercase().contains("gederotaim") })
+        assertTrue(pairs.none { it.first.contains("Outro verbete") && it.second.lowercase().contains("gedalias") })
+    }
+
+    @Test
+    fun canonicalSectionLine_capituloPorExtenso() {
+        assertEquals("Capítulo 1", com.bettertalker.app.data.util.canonicalSectionLine("CAPÍTULO UM"))
+        assertEquals("Capítulo 2", com.bettertalker.app.data.util.canonicalSectionLine("Capítulo dois"))
+        assertEquals("Capítulo 5", com.bettertalker.app.data.util.canonicalSectionLine("Capítulo 5"))
+        assertEquals("Lição 3", com.bettertalker.app.data.util.canonicalSectionLine("Lição 3"))
+        // Linha que não é lição/capítulo fica como veio.
+        assertEquals("Texto qualquer", com.bettertalker.app.data.util.canonicalSectionLine("Texto qualquer"))
+    }
 }

@@ -79,13 +79,14 @@ class RoomReferenceResolver(
         }
 
         // 2. Unidade citada (artigo ou lição/capítulo/estudo).
-        val needle = listOfNotNull(ref.article, ref.chapter)
+        val rawNeedle = listOfNotNull(ref.article, ref.chapter)
             .firstOrNull { it.isNotBlank() }
+        val needle = rawNeedle
             ?.let { normalizeText(it) }
             ?.takeIf { it.length >= 3 }
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
-        val slice = unitSlice(hit.id, needle)
+        val slice = unitSlice(hit.id, needle, rawNeedle)
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
@@ -117,12 +118,22 @@ class RoomReferenceResolver(
     }
 
     /**
-     * Fatia da unidade no anexo: acha a passagem-título do JWPUB
-     * ("# Título") que contém o alvo e vai até o próximo título. Funciona
-     * com o índice atual (sem reindexação); fontes sem marcador caem na
-     * seção indexada ou no título exato.
+     * Fatia da unidade no anexo: seção indexada (lição/capítulo/estudo), a
+     * passagem-título do JWPUB ("# Título") que contém o alvo — fatiada até
+     * o próximo título — ou o título exato. Funciona com o índice atual
+     * (sem reindexação).
      */
-    private suspend fun unitSlice(attachmentId: String, needleNorm: String): List<PassageEntity>? {
+    private suspend fun unitSlice(
+        attachmentId: String,
+        needleNorm: String,
+        rawNeedle: String,
+    ): List<PassageEntity>? {
+        // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
+        for (n in sectionNeedles(rawNeedle)) {
+            val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES)
+            if (bySection.isNotEmpty()) return bySection
+        }
+        // 2. Passagem-título ("# Título") contendo o alvo.
         val candidates = passageDao.searchLikeIn(listOf(attachmentId), needleNorm, UNIT_CANDIDATES)
         if (candidates.isEmpty()) return null
         val title = candidates.firstOrNull {
@@ -139,6 +150,28 @@ class RoomReferenceResolver(
         }
         if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
         return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+    }
+
+    /**
+     * T4: variantes do alvo para casar a abreviação com o rótulo indexado
+     * ("cap. 2" → "Capítulo 2"; "lição 3" mantém).
+     */
+    private fun sectionNeedles(raw: String): List<String> {
+        val out = mutableListOf(raw)
+        val m = Regex(
+            """^\s*(cap\.?|cap[íi]tulo|li[cç][aã]o|estudo)\s*(\d{1,3})\s*$""",
+            RegexOption.IGNORE_CASE
+        ).find(raw)
+        if (m != null) {
+            val n = m.groupValues[2]
+            val full = when {
+                m.groupValues[1].lowercase().startsWith("cap") -> "Capítulo"
+                m.groupValues[1].lowercase().startsWith("li") -> "Lição"
+                else -> "Estudo"
+            }
+            out += "$full $n"
+        }
+        return out.distinct()
     }
 
     private companion object {

@@ -59,12 +59,16 @@ object DocExtractors {
                 var count = 0
                 while (entry != null && count < MAX_EPUB_FILES && sb.length < MAX_TEXT) {
                     val name = entry.name.lowercase()
-                    if (name.endsWith(".xhtml") || name.endsWith(".html") ||
-                        name.endsWith(".xml") || name.endsWith(".opf")
-                    ) {
+                    val base = name.substringAfterLast('/')
+                    // T4: metadados/navegação não são conteúdo ("TORRE DE
+                    // VIGIA", UUID, sumário) — só xhtml/html de conteúdo.
+                    val isContent = (name.endsWith(".xhtml") || name.endsWith(".html")) &&
+                        !base.startsWith("nav") && !base.startsWith("toc") &&
+                        !base.contains("cover") && !base.startsWith("titlepage")
+                    if (isContent) {
                         val bytes = zin.readBytes()
                         if (bytes.size in 1..300_000) {
-                            sb.append(String(bytes, Charsets.UTF_8)).append(' ')
+                            sb.append(String(bytes, Charsets.UTF_8)).append("\n\n")
                             count++
                         }
                     }

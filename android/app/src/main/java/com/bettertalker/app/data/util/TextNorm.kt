@@ -296,8 +296,9 @@ fun splitRawSentences(raw: String): List<String> =
 
 /**
  * Divide em (frase, seção). Seção = último título detectado:
- * linha tipo "Lição 3", "Capítulo 5", ou linha curta sem pontuação
- * seguida de parágrafo longo. Marcadores === arquivo === resetam.
+ * linha tipo "Lição 3", "Capítulo 5", marcador "# Título" do extrator de
+ * JWPUB (T4), ou linha curta sem pontuação seguida de parágrafo longo.
+ * Marcadores === arquivo === resetam.
  */
 fun splitWithSections(raw: String): List<Pair<String, String>> {
     val out = mutableListOf<Pair<String, String>>()
@@ -305,20 +306,26 @@ fun splitWithSections(raw: String): List<Pair<String, String>> {
     // RTF/PDF usam \n simples entre parágrafos — trabalha linha a linha
     val lines = raw.split("\n").map { it.replace(Regex("\\s+"), " ").trim() }
         .filter { it.isNotEmpty() }
-    val lessonRe = Regex("^(li[cç][aã]o|cap[íi]tulo|estudo|parte|se[cç][aã]o)\\s+\\d+", RegexOption.IGNORE_CASE)
     val markerRe = Regex("^===.*===$")
     lines.forEachIndexed { idx, line ->
         if (markerRe.matches(line)) {
             section = ""
             return@forEachIndexed
         }
+        // T4: títulos do extrator de JWPUB ("# Gedalias") são fronteiras
+        // determinísticas de artigo/lição — antes, o heurístico errava a
+        // seção (o verbete "GEDALIAS" caía em "GEADA").
+        if (line.startsWith("# ") && line.length > 3) {
+            section = line.removePrefix("# ").take(120)
+            return@forEachIndexed
+        }
         val nextLen = lines.getOrNull(idx + 1)?.length ?: 0
-        val isLesson = lessonRe.containsMatchIn(line)
+        val isLesson = LESSON_RE.containsMatchIn(line)
         val isShortTitle = line.length in 4..80 &&
             line.last().let { it != '.' && it != '?' && it != '!' && it != ':' } &&
             nextLen > 120
         if (isLesson || isShortTitle) {
-            section = line.take(120)
+            section = canonicalSectionLine(line).take(120)
             return@forEachIndexed
         }
         line.split(Regex("[.!?]+"))
@@ -327,6 +334,34 @@ fun splitWithSections(raw: String): List<Pair<String, String>> {
             .forEach { out += it to section }
     }
     return out
+}
+
+/** Números por extenso usados em cabeçalhos de capítulo ("CAPÍTULO UM"). */
+private val CHAPTER_WORDS = mapOf(
+    "um" to 1, "dois" to 2, "tres" to 3, "quatro" to 4, "cinco" to 5,
+    "seis" to 6, "sete" to 7, "oito" to 8, "nove" to 9, "dez" to 10,
+    "onze" to 11, "doze" to 12, "treze" to 13, "catorze" to 14, "quatorze" to 14,
+    "quinze" to 15, "dezesseis" to 16, "dezessete" to 17, "dezoito" to 18,
+    "dezenove" to 19, "vinte" to 20,
+)
+
+/** T4: lição/capítulo/estudo/parte/seção com número (dígito ou por extenso). */
+private val LESSON_RE = Regex(
+    "^(li[cç][aã]o|cap[íi]tulo|estudo|parte|se[cç][aã]o)\\s+" +
+        "(\\d{1,3}|" + CHAPTER_WORDS.keys.joinToString("|") { if (it == "tres") "tr[eê]s" else it } + ")\\b",
+    RegexOption.IGNORE_CASE
+)
+
+/**
+ * T4: canonicaliza a linha de lição/capítulo. "CAPÍTULO UM" vira "Capítulo 1"
+ * (o número por extenso dos EPUBs não casaria com "jr cap. 2"). Puro/testável.
+ */
+internal fun canonicalSectionLine(line: String): String {
+    val m = LESSON_RE.find(line) ?: return line
+    val numRaw = m.groupValues[2]
+    val n = numRaw.toIntOrNull() ?: CHAPTER_WORDS[normalizeText(numRaw)] ?: return line
+    val word = m.groupValues[1].lowercase().replaceFirstChar { it.uppercase() }
+    return "$word $n"
 }
 
 /** Remove tags XML/HTML preservando quebras de linha (estrutura de parágrafos). */

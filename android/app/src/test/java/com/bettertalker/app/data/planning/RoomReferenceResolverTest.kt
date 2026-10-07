@@ -46,6 +46,9 @@ class RoomReferenceResolverTest {
         override suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity? =
             rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
                 .minByOrNull { it.ord }
+        override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
+                .sortedBy { it.ord }.take(limit)
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {
@@ -196,6 +199,38 @@ class RoomReferenceResolverTest {
         assertEquals(ReferenceStatus.RESOLVED, out.status)
         assertTrue(out.text!!.contains("Texto da lição três"))
         assertFalse(out.text!!.contains("Lição 4"))
+    }
+
+    @Test
+    fun resolvePublication_licao_resolvePorSecao() = runBlocking {
+        val atts = listOf(
+            attachment("lmd", null).copy(fileName = "lmd_T.jwpub", symbol = null, baseSlot = null)
+        )
+        val rows = listOf(
+            passage("l1", "lmd", "lmd §1", "Texto da lição três.", "texto da licao tres", section = "Lição 3", ord = 0, paragraph = 1),
+            passage("l2", "lmd", "lmd §2", "Mais da lição três.", "mais da licao tres", section = "Lição 3", ord = 1, paragraph = 2),
+            passage("l3", "lmd", "lmd §1", "Outra lição.", "outra licao", section = "Lição 4", ord = 2, paragraph = 1),
+        )
+        val out = resolver(rows, atts)
+            .resolvePublication(PublicationRef("lmd", chapter = "lição 3", paragraph = 1))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertTrue(out.text!!.contains("Texto da lição três"))
+        assertFalse(out.text!!.contains("Outra lição"))
+    }
+
+    @Test
+    fun resolvePublication_capituloAbreviado_casaComPalavraCheia() = runBlocking {
+        // "cap. 5" deve casar com a seção "Capítulo 5" (variante T4).
+        val atts = listOf(
+            attachment("rr", null).copy(fileName = "rr_T.jwpub", symbol = null, baseSlot = null)
+        )
+        val rows = listOf(
+            passage("r1", "rr", "rr §1", "Texto do capítulo cinco.", "texto do capitulo cinco", section = "Capítulo 5", ord = 0),
+        )
+        val out = resolver(rows, atts)
+            .resolvePublication(PublicationRef("rr", chapter = "cap. 5"))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("Texto do capítulo cinco"))
     }
 
     @Test

@@ -52,6 +52,10 @@ class HardeningTest {
             return rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
                 .minByOrNull { it.ord }
         }
+        override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> {
+            return rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
+                .sortedBy { it.ord }.take(limit)
+        }
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
     }

@@ -226,6 +226,9 @@ interface PassageDao {
     suspend fun betweenOrd(attachmentId: String, from: Int, to: Int, limit: Int): List<PassageEntity>
     @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND text LIKE '# %' AND ord > :ord ORDER BY ord LIMIT 1")
     suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity?
+    // T4 (refs): passagens de uma seção (unidade citada) pelo rótulo.
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND section LIKE '%' || :needle || '%' ORDER BY ord LIMIT :limit")
+    suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity>
 }
 
 @Database(
