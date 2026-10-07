@@ -61,4 +61,6 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- T1 (voz): STT nativo — áudio nunca persistido, só a transcrição. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

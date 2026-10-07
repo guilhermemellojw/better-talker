@@ -2953,6 +2953,30 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
     }
 
+    // ---------- T1 (voz): STT nativo (SpeechRecognizer, pt-BR) ----------
+
+    private val speechRecognizer: com.bettertalker.app.data.voice.SpeechRecognizerManager by lazy {
+        com.bettertalker.app.data.voice.SpeechRecognizerManager(app)
+    }
+
+    /** Estado da entrada por voz (Idle/Listening/Processing/Result/Error). */
+    val voiceState: StateFlow<com.bettertalker.app.data.voice.VoiceInputState> =
+        speechRecognizer.state
+
+    /** Abre o microfone (a UI pede a permissão antes). */
+    fun startVoiceInput() = speechRecognizer.start()
+
+    /** Cancela sem transcrever (botão X). */
+    fun cancelVoiceInput() = speechRecognizer.cancel()
+
+    /** Limpa Result/Error depois de levar o texto ao composer. */
+    fun consumeVoiceResult() = speechRecognizer.consume()
+
+    override fun onCleared() {
+        speechRecognizer.destroy()
+        super.onCleared()
+    }
+
     class Factory(
         private val ctx: android.content.Context,
         private val db: AppDatabase,
