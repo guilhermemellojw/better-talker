@@ -680,8 +680,13 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 canGenerateDraft = canGenerateDraft,
                                 onGenerateDraft = vm::startDraft,
                                 onChatAbout = { target ->
-                                    scope.launch { vm.pushContextForChat(target) }
-                                    onOpenChat()
+                                    // T3 — aguarda o push concluir antes de navegar:
+                                    // sem await, o chat podia abrir com o contexto
+                                    // ainda não empurrado (race do botão).
+                                    scope.launch {
+                                        vm.pushContextForChat(target)
+                                        onOpenChat()
+                                    }
                                 },
                             )
                         }
