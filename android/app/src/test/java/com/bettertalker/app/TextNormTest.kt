@@ -61,6 +61,15 @@ class TextNormTest {
     }
 
     @Test
+    fun matchBase_nwt_works() {
+        // T5: a Bíblia é base (corpus das refs bíblicas).
+        assertEquals("nwt", matchBaseSlot("nwt_T.epub"))
+        assertEquals("nwt", matchBaseSlot("nwt_T.pdf"))
+        assertEquals("nwt", matchBaseSlot("Tradução do Novo Mundo.epub"))
+        assertEquals("nwt", matchBaseSlot("Bíblia Sagrada.epub"))
+    }
+
+    @Test
     fun matchBaseRejectsLookalikes() {
         assertNull(matchBaseSlot("adobe_guide.pdf"))
         assertNull(matchBaseSlot("something.pdf"))

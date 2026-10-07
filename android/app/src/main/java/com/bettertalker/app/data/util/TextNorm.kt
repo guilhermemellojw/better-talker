@@ -98,6 +98,16 @@ val BASE_PUBS = listOf(
         landingUrl = "https://www.jw.org/pt/biblioteca/brochuras/leitura-e-ensino/",
         downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=th&fileformat=PDF%2CEPUB%2CJWPUB%2CRTF%2CTXT%2CBRL%2CBES%2CDAISY%2CUPDATEPKG&alllangs=0&langwritten=T&txtCMSLang=T",
         synonyms = listOf("melhore", "leitura e ensino", "leitura-e-ensino")
+    ),
+    // T5 (refs): a Bíblia vira base — habilita `baseReady("nwt")` (corpus
+    // para refs bíblicas no chat) e o download pelo fluxo de bases.
+    BasePub(
+        slot = "nwt",
+        title = "Tradução do Novo Mundo da Bíblia Sagrada",
+        code = "nwt_",
+        landingUrl = "https://www.jw.org/pt/biblioteca/biblia/nwt/",
+        downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=nwt&fileformat=EPUB%2CPDF&alllangs=0&langwritten=T&txtCMSLang=T",
+        synonyms = listOf("traducao do novo mundo", "biblia sagrada")
     )
 )
 
