@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -38,6 +40,12 @@ class RoomReferenceResolverTest {
             rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
             forAttachments(ids).take(limit)
+        override suspend fun betweenOrd(attachmentId: String, from: Int, to: Int, limit: Int): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.ord in from..to }
+                .sortedBy { it.ord }.take(limit)
+        override suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity? =
+            rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
+                .minByOrNull { it.ord }
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {
@@ -56,8 +64,19 @@ class RoomReferenceResolverTest {
         override suspend fun setSourceMeta(id: String, sourceType: String, symbol: String?) {}
     }
 
-    private fun passage(id: String, att: String, ref: String, text: String, normalized: String) =
-        PassageEntity(id, att, text, normalized, section = "", ref = ref, ord = 0)
+    private fun passage(
+        id: String,
+        att: String,
+        ref: String,
+        text: String,
+        normalized: String,
+        section: String = "",
+        ord: Int = 0,
+        paragraph: Int? = null,
+    ) = PassageEntity(
+        id, att, text, normalized, section = section, ref = ref,
+        paragraph = paragraph, ord = ord,
+    )
 
     private fun attachment(id: String, symbol: String?, indexed: Boolean = true) =
         AttachmentEntity(id, null, "$id.pdf", "pdf", 1L, "/x", indexed, 1L, baseSlot = symbol, symbol = symbol)
@@ -121,56 +140,94 @@ class RoomReferenceResolverTest {
         assertNull(out.canonicalRef)
     }
 
-    // ---------- Publication: PARTIAL / MISSING_CORPUS / UNRESOLVED ----------
+    // ---------- Publication: T3 (artigo/lição + parágrafo) ----------
+
+    private fun itAtt() = attachment("it", null)
+        .copy(fileName = "it_T.jwpub", symbol = null, baseSlot = null)
+
+    private fun itRows() = listOf(
+        passage("t1", "it", "# Gedalias", "# Gedalias", "gedalias", ord = 10),
+        passage("t2", "it", "GEDALIAS", "GEDALIAS", "gedalias", ord = 11),
+        passage("p1", "it", "it §1", "Cantor levita que serviu no templo.", "cantor levita", ord = 12, paragraph = 1),
+        passage("p4", "it", "it §4", "Filho de Aicão, filho de Safã.", "filho de aicao", ord = 15, paragraph = 4),
+        passage("t3", "it", "# Gederotaim", "# Gederotaim", "gederotaim", ord = 20),
+        passage("x1", "it", "it §1", "outro verbete qualquer", "outro verbete qualquer", ord = 21),
+    )
 
     @Test
-    fun resolvePublication_symbolFound_returnsPartial() = runBlocking {
-        val atts = listOf(attachment("w1", "w21.08"))
-        val pass = listOf(passage("p1", "w1", "w21.08 §13", "texto do paragrafo 13", "texto do paragrafo 13 da revista"))
-        val out = resolver(pass, atts).resolvePublication(PublicationRef("w21.08", 18, 13))
-        assertEquals(ReferenceStatus.PARTIAL, out.status)
-        assertEquals("texto do paragrafo 13", out.text)
-        assertEquals("p1", out.passageId)
+    fun resolvePublication_artigoComParagrafo_returnsResolved() = runBlocking {
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(PublicationRef("it", article = "Gedalias", paragraph = 4))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertEquals("Filho de Aicão, filho de Safã.", out.text)
+        assertEquals("it “Gedalias” §4", out.canonicalRef)
+        assertEquals("p4", out.passageId)
     }
 
     @Test
-    fun resolvePublication_noAttachmentForSymbol_returnsMissingCorpus() = runBlocking {
-        val out = resolver().resolvePublication(PublicationRef("w21.08", 18, 13))
+    fun resolvePublication_artigoSemParagrafoIndexado_returnsPartial() = runBlocking {
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(PublicationRef("it", article = "Gedalias"))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("Cantor levita"))
+        // A fatia termina no próximo título ("# Gederotaim").
+        assertFalse(out.text!!.contains("outro verbete"))
+    }
+
+    @Test
+    fun resolvePublication_it1_casaArquivoUnificado() = runBlocking {
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(PublicationRef("it-1", article = "Gedalias", paragraph = 4))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+    }
+
+    @Test
+    fun resolvePublication_licao_resolvePorTitulo() = runBlocking {
+        val atts = listOf(
+            attachment("lmd", null).copy(fileName = "lmd_T.jwpub", symbol = null, baseSlot = null)
+        )
+        val rows = listOf(
+            passage("l1", "lmd", "# Lição 3: Como estudar", "# Lição 3: Como estudar", "licao 3 como estudar", ord = 0),
+            passage("l2", "lmd", "lmd §1", "Texto da lição três.", "texto da licao tres", ord = 1, paragraph = 1),
+            passage("l3", "lmd", "# Lição 4: Outra", "# Lição 4: Outra", "licao 4 outra", ord = 2),
+        )
+        val out = resolver(rows, atts)
+            .resolvePublication(PublicationRef("lmd", chapter = "lição 3", paragraph = 1))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertTrue(out.text!!.contains("Texto da lição três"))
+        assertFalse(out.text!!.contains("Lição 4"))
+    }
+
+    @Test
+    fun resolvePublication_artigoInexistente_returnsUnresolved() = runBlocking {
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(PublicationRef("it", article = "NaoExiste"))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_soPagina_semUnidade_returnsUnresolved() = runBlocking {
+        // "it 813" (só página): sem unidade identificável — nunca trecho aleatório.
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(PublicationRef("it", page = 813))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_semAnexo_returnsMissingCorpus() = runBlocking {
+        val out = resolver()
+            .resolvePublication(PublicationRef("it", article = "Gedalias", paragraph = 4))
         assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
         assertNull(out.text)
     }
 
     @Test
-    fun resolvePublication_symbolFoundButNoText_returnsUnresolved() = runBlocking {
-        val atts = listOf(attachment("w1", "w21.08"))
-        val pass = listOf(passage("p1", "w1", "outro", "nada a ver aqui", "nada a ver aqui"))
-        val out = resolver(pass, atts).resolvePublication(PublicationRef("w21.08", 18, 13))
-        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
-    }
-
-    @Test
-    fun resolvePublication_symbolWithSpace_works() = runBlocking {
-        val atts = listOf(attachment("g1", "g 8/13"))
-        val pass = listOf(passage("p1", "g1", "g 8/13", "trecho da despertai", "trecho da despertai g 8 13"))
-        val out = resolver(pass, atts).resolvePublication(PublicationRef("g 8/13"))
-        assertEquals(ReferenceStatus.PARTIAL, out.status)
-        assertEquals("p1", out.passageId)
-    }
-
-    @Test
-    fun resolvePublication_oldFormatSymbol_works() = runBlocking {
-        val atts = listOf(attachment("w1", "w94 1/8"))
-        val pass = listOf(passage("p1", "w1", "w94 1/8", "trecho antigo", "trecho antigo w94 1 8"))
-        val out = resolver(pass, atts).resolvePublication(PublicationRef("w94 1/8"))
-        assertEquals(ReferenceStatus.PARTIAL, out.status)
-    }
-
-    @Test
-    fun resolvePublication_paragraphNull_stillResolves() = runBlocking {
-        val atts = listOf(attachment("w1", "w21.08"))
-        val pass = listOf(passage("p1", "w1", "w21.08", "texto da pag 18", "texto da pag 18"))
-        val out = resolver(pass, atts).resolvePublication(PublicationRef("w21.08", 18, null))
-        assertEquals(ReferenceStatus.PARTIAL, out.status)
-        assertEquals("p1", out.passageId)
+    fun resolvePublication_anexoNaoIndexado_returnsMissingCorpus() = runBlocking {
+        // Arquivo presente mas não indexado = sem corpus pesquisável.
+        val out = resolver(itRows(), listOf(itAtt().copy(indexed = false)))
+            .resolvePublication(PublicationRef("it", article = "Gedalias", paragraph = 4))
+        assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
     }
 }

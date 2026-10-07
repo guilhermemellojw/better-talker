@@ -221,6 +221,11 @@ interface PassageDao {
     // F20: carga restrita com teto no SQL (publicações grandes têm 100k+ linhas).
     @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC LIMIT :limit")
     suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity>
+    // T3 (refs): fatia da unidade citada (artigo/lição) por ord.
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND ord BETWEEN :from AND :to ORDER BY ord LIMIT :limit")
+    suspend fun betweenOrd(attachmentId: String, from: Int, to: Int, limit: Int): List<PassageEntity>
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND text LIKE '# %' AND ord > :ord ORDER BY ord LIMIT 1")
+    suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity?
 }
 
 @Database(

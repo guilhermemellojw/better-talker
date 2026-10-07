@@ -40,6 +40,14 @@ private class IntFakePassageDao(var rows: List<PassageEntity> = emptyList()) : P
     override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> {
         return forAttachments(ids).take(limit)
     }
+    override suspend fun betweenOrd(attachmentId: String, from: Int, to: Int, limit: Int): List<PassageEntity> {
+        return rows.filter { it.attachmentId == attachmentId && it.ord in from..to }
+            .sortedBy { it.ord }.take(limit)
+    }
+    override suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity? {
+        return rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
+            .minByOrNull { it.ord }
+    }
 }
 
 private class IntFakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

@@ -44,6 +44,14 @@ class HardeningTest {
             scopedCalls++
             return forAttachments(ids).take(limit)
         }
+        override suspend fun betweenOrd(attachmentId: String, from: Int, to: Int, limit: Int): List<PassageEntity> {
+            return rows.filter { it.attachmentId == attachmentId && it.ord in from..to }
+                .sortedBy { it.ord }.take(limit)
+        }
+        override suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity? {
+            return rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
+                .minByOrNull { it.ord }
+        }
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
     }

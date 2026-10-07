@@ -2,6 +2,7 @@ package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.db.AttachmentDao
 import com.bettertalker.app.data.db.PassageDao
+import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.normalizeText
@@ -49,36 +50,105 @@ class RoomReferenceResolver(
         }
     }
 
+    /**
+     * T3 — resolve a publicação no acervo REAL: casa o anexo como a UI
+     * (`matchEdition`: nome do arquivo/tokens/slot; it-1/it-2 → it) e
+     * transcreve a UNIDADE citada — artigo ("it "Gedalias" n.° 4") ou
+     * lição/capítulo ("lmd lição 3 § 4").
+     *
+     * Sem unidade identificável (ex.: só página "it 813") → UNRESOLVED:
+     * nunca devolve trecho aleatório (o antigo fallback textual por "§N"/
+     * símbolo virava lixo). Com parágrafo indexado (T4) → RESOLVED exato;
+     * senão → PARTIAL com o texto real da unidade.
+     */
     override suspend fun resolvePublication(ref: PublicationRef): ResolvedReference {
-        // 1. Attachments indexados com symbol compatível (igualdade exata;
-        // cobre "w21.08", "g 8/13" e "w94 1/8" — todos saem do detectSymbol).
-        val matching = attachmentDao.all().filter { it.indexed && it.symbol == ref.symbol }
-        if (matching.isEmpty()) {
-            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.MISSING_CORPUS)
+        // 1. Edição: a coluna `symbol` fica vazia em quase todo o acervo —
+        //    casa pelo mesmo caminho da UI (arquivo/tokens/baseSlot).
+        val editionRef = RefDetector.detect(ref.symbol).firstOrNull()
+            ?: RefDetector.DetectedRef(
+                raw = ref.symbol,
+                kind = RefDetector.Kind.BOOK,
+                pubKey = ref.symbol,
+                editionKey = "book|${ref.symbol}",
+                label = ref.symbol,
+            )
+        val hit = RefDetector.matchEdition(editionRef, attachmentDao.all())
+            ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.MISSING_CORPUS)
+        if (!hit.indexed) {
+            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
 
-        // 2. Aproximação: parágrafo primeiro, depois página, depois símbolo.
-        // page/paragraph não estão indexados — a query é textual (PARTIAL).
-        val ids = matching.map { it.id }
-        val queries = buildList {
-            if (ref.paragraph != null) add("§${ref.paragraph}")
-            if (ref.page != null) add("pág. ${ref.page}")
-            add(ref.symbol.lowercase())
-        }
-        for (q in queries) {
-            val hits = passageDao.searchLikeIn(ids, normalizeText(q), limit = 5)
-            if (hits.isNotEmpty()) {
-                val best = hits.first()
-                return ResolvedReference(
-                    original = ref.symbol,
-                    canonicalRef = best.ref.ifBlank { null },
-                    text = best.text,
-                    passageId = best.id,
-                    status = ReferenceStatus.PARTIAL,
-                )
-            }
-        }
+        // 2. Unidade citada (artigo ou lição/capítulo/estudo).
+        val needle = listOfNotNull(ref.article, ref.chapter)
+            .firstOrNull { it.isNotBlank() }
+            ?.let { normalizeText(it) }
+            ?.takeIf { it.length >= 3 }
+            ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
-        return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        val slice = unitSlice(hit.id, needle)
+            ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+
+        // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
+        //    unidade inteira (PARTIAL — texto real, recorte aproximado).
+        val paragraph = ref.paragraph
+        val exact = if (paragraph != null) slice.filter { it.paragraph == paragraph } else emptyList()
+        val chosen = exact.ifEmpty { slice }
+        val text = chosen.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        if (text.isBlank()) {
+            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        }
+        val label = buildString {
+            append(ref.symbol)
+            ref.article?.takeIf { it.isNotBlank() }?.let { append(" “$it”") }
+            ref.chapter?.takeIf { it.isNotBlank() }?.let { append(" $it") }
+            paragraph?.let { append(" §$it") }
+        }
+        return ResolvedReference(
+            original = ref.symbol,
+            canonicalRef = label,
+            text = text,
+            passageId = chosen.first().id,
+            status = if (paragraph != null && exact.isNotEmpty()) {
+                ReferenceStatus.RESOLVED
+            } else {
+                ReferenceStatus.PARTIAL
+            },
+        )
+    }
+
+    /**
+     * Fatia da unidade no anexo: acha a passagem-título do JWPUB
+     * ("# Título") que contém o alvo e vai até o próximo título. Funciona
+     * com o índice atual (sem reindexação); fontes sem marcador caem na
+     * seção indexada ou no título exato.
+     */
+    private suspend fun unitSlice(attachmentId: String, needleNorm: String): List<PassageEntity>? {
+        val candidates = passageDao.searchLikeIn(listOf(attachmentId), needleNorm, UNIT_CANDIDATES)
+        if (candidates.isEmpty()) return null
+        val title = candidates.firstOrNull {
+            it.text.startsWith("# ") &&
+                normalizeText(it.text.removePrefix("# ")).contains(needleNorm)
+        }
+        if (title != null) {
+            val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
+            val slice = passageDao.betweenOrd(attachmentId, title.ord, end - 1, UNIT_PASSAGES)
+            if (slice.isNotEmpty()) return slice
+        }
+        val bySection = candidates.filter {
+            it.section.isNotBlank() && normalizeText(it.section).contains(needleNorm)
+        }
+        if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
+        return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+    }
+
+    private companion object {
+        /** Teto de trechos por unidade citada (artigo/lição). */
+        const val UNIT_PASSAGES = 200
+
+        /** Candidatos da busca textual por unidade. */
+        const val UNIT_CANDIDATES = 400
+
+        /** Teto de texto devolvido (o prompt trunca de novo). */
+        const val MAX_UNIT_CHARS = 4000
     }
 }
