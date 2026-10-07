@@ -269,6 +269,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    // T1 — aguarda o push concluir antes de navegar (mesma
+                    // race residual do botão do card, corrigida no T3).
                     scope.launch {
                         vm.pushContextForChat(
                             targetFromEditorKey(activeEditorKey) { subPointId ->
@@ -277,8 +279,8 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                                 }?.section?.id
                             }
                         )
+                        onOpenChat()
                     }
-                    onOpenChat()
                 }
             ) {
                 Icon(Icons.Default.AutoAwesome, "Conversar com o Copilot")
