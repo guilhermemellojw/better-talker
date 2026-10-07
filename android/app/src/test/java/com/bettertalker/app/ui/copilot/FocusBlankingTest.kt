@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.copilot
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +39,67 @@ class FocusBlankingTest {
             shouldBlankFocusForTarget(
                 hasTarget = false,
                 contextBlock = "## SEÇÃO ATUAL\nTítulo: Fé",
+            )
+        )
+    }
+}
+
+class PushedFirstFocusTest {
+
+    @Test
+    fun foco_pushVenceSelecaoEBloco() {
+        // O caso do bug: push aponta o tópico certo, legados divergem.
+        assertEquals(
+            "Fé que age",
+            pushedFirstFocus(
+                pushedTitle = "Fé que age",
+                selection = "trecho selecionado",
+                activeBlockTitle = "Outro ponto",
+                noteBody = "nota inteira",
+            )
+        )
+    }
+
+    @Test
+    fun foco_semPush_mantemOrdemLegada() {
+        assertEquals(
+            "trecho selecionado",
+            pushedFirstFocus(
+                pushedTitle = null,
+                selection = "trecho selecionado",
+                activeBlockTitle = "Outro ponto",
+                noteBody = "nota inteira",
+            )
+        )
+        assertEquals(
+            "Outro ponto",
+            pushedFirstFocus(
+                pushedTitle = null,
+                selection = "",
+                activeBlockTitle = "Outro ponto",
+                noteBody = "nota inteira",
+            )
+        )
+        assertEquals(
+            "nota inteira",
+            pushedFirstFocus(
+                pushedTitle = null,
+                selection = "",
+                activeBlockTitle = null,
+                noteBody = "nota inteira",
+            )
+        )
+    }
+
+    @Test
+    fun foco_pushEmBranco_ignorado() {
+        assertEquals(
+            "trecho selecionado",
+            pushedFirstFocus(
+                pushedTitle = "  ",
+                selection = "trecho selecionado",
+                activeBlockTitle = null,
+                noteBody = "nota inteira",
             )
         )
     }

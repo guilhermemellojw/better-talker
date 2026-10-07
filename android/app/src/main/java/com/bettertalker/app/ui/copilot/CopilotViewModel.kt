@@ -905,7 +905,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // a continuidade, e a primeira mensagem é detectada de verdade.
             val historyBefore = conversationTurnsScoped()
             val isFirst = historyBefore.none { it.fromMe }
-            // §16: seleção > bloco > discurso. O prompt recebe exatamente o
+            // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
             // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
             // Adquirido e armazenado; a injeção no prompt vem em 3.5d.
@@ -1165,7 +1165,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         for (id in s34CandidateIds(candidateIds, linkedIds)) {
             val result = retriever.retrieve(
                 sourceAttachmentId = id,
-                sectionHint = _activeBlockTitle.value ?: _selection.value,
+                // T2 — foco unificado: o tópico empurrado manda sobre o bloco
+                // ativo/seleção (que podem apontar para outro tópico ou nada).
+                sectionHint = pushedSectionTitle() ?: _activeBlockTitle.value ?: _selection.value,
                 query = text
             )
                 if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
@@ -1484,14 +1486,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
     }
 
-    /** Texto em foco agora (seleção > bloco > discurso). Mesma regra do send(). */
-    private fun currentFocusText(): String {
-        val selection = _selection.value.trim()
-        return when {
-            selection.isNotEmpty() -> selection
-            _activeBlockTitle.value != null -> _activeBlockTitle.value!!
-            else -> _noteBody.value.take(2000)
-        }
+    /** Texto em foco agora (push > seleção > bloco > discurso). Mesma regra do send(). */
+    private suspend fun currentFocusText(): String {
+        return pushedFirstFocus(
+            pushedTitle = pushedSectionTitle(),
+            selection = _selection.value.trim(),
+            activeBlockTitle = _activeBlockTitle.value,
+            noteBody = _noteBody.value.take(2000),
+        )
+    }
+
+    /**
+     * Título da seção empurrada pelo editor (null = sem push ou seção
+     * removida). Usado para unificar o foco: push manda sobre os canais
+     * legados (seleção/bloco). Pura a consulta à parte do DAO.
+     */
+    private suspend fun pushedSectionTitle(): String? {
+        val sectionId = _pushedContext?.sectionId ?: return null
+        return db.speechSectionDao().get(sectionId)?.title?.takeIf { it.isNotBlank() }
     }
 
     /**
@@ -3108,6 +3120,24 @@ internal fun shouldBlankFocusForTarget(
     hasTarget: Boolean,
     contextBlock: String?,
 ): Boolean = hasTarget && !contextBlock.isNullOrBlank()
+
+/**
+ * T2 — prioridade unificada do foco: push > seleção > bloco > discurso.
+ *
+ * O alvo empurrado pelo editor vence os canais legados (que podem apontar
+ * para outro tópico ou nada). Sem push, vale a ordem antiga. Pura, testável.
+ */
+internal fun pushedFirstFocus(
+    pushedTitle: String?,
+    selection: String,
+    activeBlockTitle: String?,
+    noteBody: String,
+): String = when {
+    !pushedTitle.isNullOrBlank() -> pushedTitle
+    selection.isNotEmpty() -> selection
+    activeBlockTitle != null -> activeBlockTitle
+    else -> noteBody
+}
 
 /**
  * T2 — mensagem visível de falha de import (pura/testável). Usa o texto do
