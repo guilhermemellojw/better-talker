@@ -114,4 +114,55 @@ class ContrastAuditTest {
         val r = contrastRatio(LightColors.secondary, LightColors.surfaceContainerHighest)
         assertTrue("secondary no card claro: ${"%.2f".format(r)}", r < aa)
     }
+
+    // ---------- Follow-up: 7 usos em ModelScreen/LibraryScreen ----------
+
+    @Test
+    fun a11y_modeloPronto_passaAa() {
+        // "Modelo pronto ✓" sobre Card M3 padrão (surfaceContainerLow).
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+    }
+
+    @Test
+    fun a11y_modeloPresente_passaAa() {
+        // "Modelo presente ✓ (instalado)" sobre Card M3 padrão.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+    }
+
+    @Test
+    fun a11y_chaveGroq_passaAa() {
+        // "Chave Groq configurada ✓" sobre Card M3 padrão.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+    }
+
+    @Test
+    fun a11y_chaveGemini_passaAa() {
+        // "Chave configurada ✓" (Gemini) sobre Card M3 padrão.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+    }
+
+    @Test
+    fun a11y_dicaVincular_passaAa() {
+        // "Toque Vincular…" sobre o fundo da Biblioteca (surface).
+        assertAa("claro", LightColors.secondary, LightColors.surface)
+        assertAa("escuro", DarkColors.secondary, DarkColors.surface)
+    }
+
+    @Test
+    fun a11y_tituloCategoria_passaAa() {
+        // Título da categoria do catálogo sobre o fundo (surface).
+        assertAa("claro", LightColors.secondary, LightColors.surface)
+        assertAa("escuro", DarkColors.secondary, DarkColors.surface)
+    }
+
+    @Test
+    fun a11y_baseSlot_passaAa() {
+        // "Base: …" sobre Card M3 padrão do acervo.
+        assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+    }
 }

@@ -160,7 +160,7 @@ private fun GemmaModelCard(
                 }
                 is ModelDlState.Verifying -> Text("Verificando integridade (SHA-256)…")
                 is ModelDlState.Ready -> {
-                    Text("Modelo pronto ✓", color = MaterialTheme.colorScheme.primary)
+                    Text("Modelo pronto ✓", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(state.path, style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary)
                     OutlinedButton(onClick = onDelete) { Text("Excluir") }
@@ -180,7 +180,7 @@ private fun GemmaModelCard(
                 }
                 else -> {
                     if (modelPresent) {
-                        Text("Modelo presente ✓ (instalado)", color = MaterialTheme.colorScheme.primary)
+                        Text("Modelo presente ✓ (instalado)", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(onClick = onDelete) { Text("Excluir") }
                     } else {
                         Text(
@@ -288,7 +288,7 @@ private fun CopilotProviderCard(vm: ModelViewModel, modelPresent: Boolean) {
                         Text(
                             "Chave Groq configurada ✓ — o Copilot usa o modelo remoto.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         OutlinedButton(onClick = { vm.clearGroqApiKey() }) { Text("Remover chave Groq") }
                     } else {
@@ -419,7 +419,7 @@ private fun CopilotRemoteKeyCard(vm: ModelViewModel) {
             if (saved.isNotBlank()) {
                 Text("Chave configurada ✓ — o Copilot usa o assistente remoto.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedButton(onClick = { vm.clearApiKey() }) { Text("Remover chave") }
             } else {
                 Text("Cole sua chave do AI Studio. Fica só neste aparelho (DataStore local).",

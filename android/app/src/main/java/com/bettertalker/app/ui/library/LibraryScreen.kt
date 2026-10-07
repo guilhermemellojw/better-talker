@@ -112,7 +112,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                 Text(
                     "Toque Vincular para anexar à nota e voltar.",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
@@ -181,7 +181,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                         Text(
                             category,
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
                     items(pubs, key = { "rec-${it.symbol}" }) { pub ->
@@ -244,7 +244,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                         Text(
                                             "Base: $slotTitle",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
