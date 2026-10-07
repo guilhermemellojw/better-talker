@@ -11,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -232,27 +233,36 @@ fun ChatScreen(
             scope.launch { snack.showSnackbar(insertConfirmation(topicName)) }
         }
     }
+    // T3 (P2 estético): "seguir o fim" — o chat acompanha mensagens novas e o
+    // parcial do streaming; o usuário "solta" ao arrastar para cima e reata
+    // pelo botão "novas". Antes, a checagem de layout corria com a própria
+    // inserção do item e o fim do texto ficava abaixo do fold.
+    var followEnd by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { i ->
+            when (i) {
+                is DragInteraction.Stop, is DragInteraction.Cancel ->
+                    followEnd = !listState.canScrollForward
+                else -> Unit
+            }
+        }
+    }
     LaunchedEffect(messages.size, busy) {
         if (messages.isNotEmpty()) {
-            val l = listState.layoutInfo
-            // sem layout ainda (abertura): rola; só acumula se o usuário subiu
-            val last = l.visibleItemsInfo.lastOrNull()?.index
-            if (last == null || last == l.totalItemsCount - 1 || l.totalItemsCount == 0) {
-                // T2 (Bug #13): alvo = ÚLTIMO item real da lista (item de ações da
-                // última resposta), não o topo da última mensagem — com resposta
-                // longa o topo deixava os botões fora da tela.
+            if (followEnd) {
+                // T2 (Bug #13): alvo = ÚLTIMO item real da lista (item de ações
+                // da última resposta) — com resposta longa o topo deixava os
+                // botões fora da tela.
                 listState.animateScrollToItem(lastItemIndex)
             } else {
                 unseenCount++
             }
         }
     }
-    // T3 (P2 estético): o parcial do streaming cresce DENTRO do mesmo item —
-    // o efeito acima não dispara (messages.size não muda) e o fim do texto
-    // ficava abaixo do fold. Rola instantâneo junto com o parcial, alinhando
-    // o FIM do item (offset máximo) e só quando o usuário já está no fim.
+    // T3: o parcial do streaming cresce DENTRO do mesmo item — rola junto,
+    // instantâneo, alinhando o FIM do item (offset máximo).
     LaunchedEffect(localPartial) {
-        if (localPartial.isNotBlank() && atBottom) {
+        if (localPartial.isNotBlank() && followEnd) {
             listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
@@ -506,6 +516,7 @@ fun ChatScreen(
                 androidx.compose.material3.FilledTonalButton(
                     onClick = {
                         unseenCount = 0
+                        followEnd = true
                         scope.launch { listState.animateScrollToItem(lastItemIndex) }
                     },
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
