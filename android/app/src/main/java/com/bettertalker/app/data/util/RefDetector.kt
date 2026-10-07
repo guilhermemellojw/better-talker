@@ -952,7 +952,9 @@ object RefDetector {
         corpusAvailable: Boolean
     ): ContentCheck {
         if (!corpusAvailable) return ContentCheck(resolved = false)
-        val needles = listOf(ref.raw, ref.label)
+        // T6: o artigo/lição citados também são agulhas — sem eles, uma citação
+        // por nome ("it “Gedalias” n.° 4") nunca batia no corpus.
+        val needles = listOfNotNull(ref.raw, ref.label, ref.article, ref.chapter)
             .map { normalizeText(it) }
             .filter { it.length >= 3 }
         val hit = passages.firstOrNull { p ->
@@ -961,7 +963,7 @@ object RefDetector {
                 needles.any { n -> refNorm.contains(n) || n.contains(refNorm) }
             if (refMatch) return@firstOrNull true
             val textNorm = p.normalized.ifBlank { normalizeText(p.text) }
-            needles.any { n -> n.length >= 8 && textNorm.contains(n) }
+            needles.any { n -> n.length >= 6 && textNorm.contains(n) }
         }
         return if (hit != null) {
             ContentCheck(resolved = true, snippet = hit.text.take(200).trim(), warning = null)

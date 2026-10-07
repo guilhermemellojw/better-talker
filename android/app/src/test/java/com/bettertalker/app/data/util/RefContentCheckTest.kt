@@ -62,4 +62,34 @@ class RefContentCheckTest {
         assertTrue(check.resolved)
         assertTrue(check.snippet!!.contains("criou"))
     }
+
+    // ---------- T6: citação por artigo/lição ----------
+
+    @Test
+    fun artigoPorNomeResolveComTrecho() {
+        val it = RefDetector.DetectedRef(
+            raw = "it \"Gedalias\" n.° 4", kind = RefDetector.Kind.BOOK,
+            pubKey = "it", editionKey = "book|it|a:gedalias|4",
+            label = "Estudo Perspicaz das Escrituras — “Gedalias” §4",
+            article = "Gedalias", paragraph = 4,
+        )
+        // Passagem-título do JWPUB ("# Gedalias") — a agulha do artigo bate.
+        val title = passage("p1", "# Gedalias", "# Gedalias")
+        val check = RefDetector.resolveContent(it, listOf(title), corpusAvailable = true)
+        assertTrue(check.resolved)
+        assertTrue(check.snippet!!.contains("Gedalias"))
+    }
+
+    @Test
+    fun artigoComRefCanonicaDoIndice() {
+        val it = RefDetector.DetectedRef(
+            raw = "it \"Gedalias\" n.° 4", kind = RefDetector.Kind.BOOK,
+            pubKey = "it", editionKey = "book|it|a:gedalias|4",
+            label = "Estudo Perspicaz das Escrituras — “Gedalias” §4",
+            article = "Gedalias", paragraph = 4,
+        )
+        val p = passage("p4", "it Gedalias §4", "Filho de Aicão, filho de Safã.")
+        val check = RefDetector.resolveContent(it, listOf(p), corpusAvailable = true)
+        assertTrue(check.resolved)
+    }
 }

@@ -173,8 +173,9 @@ class DefaultDossierBuilder(
     )
 
     private fun toResolvedPublication(r: ResolvedReference) = ResolvedPublicationText(
-        // `original` = symbol para publicações (RoomReferenceResolver).
-        ref = PublicationRef(symbol = r.original, page = null, paragraph = null),
+        // T6: usa o rótulo resolvido ("it “Gedalias” §4") quando houver — o
+        // prompt mostra a citação específica, não só o símbolo.
+        ref = PublicationRef(symbol = r.canonicalRef ?: r.original, page = null, paragraph = null),
         text = r.text,
         status = r.status,
     )

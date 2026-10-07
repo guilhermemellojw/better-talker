@@ -86,7 +86,7 @@ class RoomReferenceResolver(
             ?.takeIf { it.length >= 3 }
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
-        val slice = unitSlice(hit.id, needle, rawNeedle)
+        val slice = unitSliceOf(passageDao, hit.id, needle, rawNeedle)
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
@@ -116,72 +116,72 @@ class RoomReferenceResolver(
             },
         )
     }
+}
 
-    /**
-     * Fatia da unidade no anexo: seção indexada (lição/capítulo/estudo), a
-     * passagem-título do JWPUB ("# Título") que contém o alvo — fatiada até
-     * o próximo título — ou o título exato. Funciona com o índice atual
-     * (sem reindexação).
-     */
-    private suspend fun unitSlice(
-        attachmentId: String,
-        needleNorm: String,
-        rawNeedle: String,
-    ): List<PassageEntity>? {
-        // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
-        for (n in sectionNeedles(rawNeedle)) {
-            val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES)
-            if (bySection.isNotEmpty()) return bySection
-        }
-        // 2. Passagem-título ("# Título") contendo o alvo.
-        val candidates = passageDao.searchLikeIn(listOf(attachmentId), needleNorm, UNIT_CANDIDATES)
-        if (candidates.isEmpty()) return null
-        val title = candidates.firstOrNull {
-            it.text.startsWith("# ") &&
-                normalizeText(it.text.removePrefix("# ")).contains(needleNorm)
-        }
-        if (title != null) {
-            val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
-            val slice = passageDao.betweenOrd(attachmentId, title.ord, end - 1, UNIT_PASSAGES)
-            if (slice.isNotEmpty()) return slice
-        }
-        val bySection = candidates.filter {
-            it.section.isNotBlank() && normalizeText(it.section).contains(needleNorm)
-        }
-        if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
-        return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+/** Teto de trechos por unidade citada (artigo/lição). */
+internal const val UNIT_PASSAGES = 200
+
+/** Candidatos da busca textual por unidade. */
+internal const val UNIT_CANDIDATES = 400
+
+/** Teto de texto devolvido (o prompt trunca de novo). */
+internal const val MAX_UNIT_CHARS = 4000
+
+/**
+ * T3/T6 — fatia da unidade citada (artigo/lição) no acervo: seção indexada
+ * (variantes de palavra cheia), passagem-título do JWPUB ("# Título") até o
+ * próximo título, ou título exato. Compartilhada com o chat (verificação de
+ * conteúdo) — antes o chat carregava o anexo inteiro (LIMIT 500) e dava
+ * falso aviso "sem fonte".
+ */
+internal suspend fun unitSliceOf(
+    passageDao: PassageDao,
+    attachmentId: String,
+    needleNorm: String,
+    rawNeedle: String,
+): List<PassageEntity>? {
+    // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
+    for (n in sectionNeedles(rawNeedle)) {
+        val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES)
+        if (bySection.isNotEmpty()) return bySection
     }
+    // 2. Passagem-título ("# Título") contendo o alvo.
+    val candidates = passageDao.searchLikeIn(listOf(attachmentId), needleNorm, UNIT_CANDIDATES)
+    if (candidates.isEmpty()) return null
+    val title = candidates.firstOrNull {
+        it.text.startsWith("# ") &&
+            normalizeText(it.text.removePrefix("# ")).contains(needleNorm)
+    }
+    if (title != null) {
+        val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
+        val slice = passageDao.betweenOrd(attachmentId, title.ord, end - 1, UNIT_PASSAGES)
+        if (slice.isNotEmpty()) return slice
+    }
+    val bySection = candidates.filter {
+        it.section.isNotBlank() && normalizeText(it.section).contains(needleNorm)
+    }
+    if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
+    return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+}
 
-    /**
-     * T4: variantes do alvo para casar a abreviação com o rótulo indexado
-     * ("cap. 2" → "Capítulo 2"; "lição 3" mantém).
-     */
-    private fun sectionNeedles(raw: String): List<String> {
-        val out = mutableListOf(raw)
-        val m = Regex(
-            """^\s*(cap\.?|cap[íi]tulo|li[cç][aã]o|estudo)\s*(\d{1,3})\s*$""",
-            RegexOption.IGNORE_CASE
-        ).find(raw)
-        if (m != null) {
-            val n = m.groupValues[2]
-            val full = when {
-                m.groupValues[1].lowercase().startsWith("cap") -> "Capítulo"
-                m.groupValues[1].lowercase().startsWith("li") -> "Lição"
-                else -> "Estudo"
-            }
-            out += "$full $n"
+/**
+ * T4: variantes do alvo para casar a abreviação com o rótulo indexado
+ * ("cap. 2" → "Capítulo 2"; "lição 3" mantém).
+ */
+internal fun sectionNeedles(raw: String): List<String> {
+    val out = mutableListOf(raw)
+    val m = Regex(
+        """^\s*(cap\.?|cap[íi]tulo|li[cç][aã]o|estudo)\s*(\d{1,3})\s*$""",
+        RegexOption.IGNORE_CASE
+    ).find(raw)
+    if (m != null) {
+        val n = m.groupValues[2]
+        val full = when {
+            m.groupValues[1].lowercase().startsWith("cap") -> "Capítulo"
+            m.groupValues[1].lowercase().startsWith("li") -> "Lição"
+            else -> "Estudo"
         }
-        return out.distinct()
+        out += "$full $n"
     }
-
-    private companion object {
-        /** Teto de trechos por unidade citada (artigo/lição). */
-        const val UNIT_PASSAGES = 200
-
-        /** Candidatos da busca textual por unidade. */
-        const val UNIT_CANDIDATES = 400
-
-        /** Teto de texto devolvido (o prompt trunca de novo). */
-        const val MAX_UNIT_CHARS = 4000
-    }
+    return out.distinct()
 }

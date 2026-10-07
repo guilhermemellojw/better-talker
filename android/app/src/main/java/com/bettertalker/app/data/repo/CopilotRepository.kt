@@ -390,6 +390,16 @@ class CopilotRepository(private val db: AppDatabase) {
         val hit = RefDetector.matchEdition(ref, db.attachmentDao().all())
             ?: return ContentCandidates(emptyList(), false)
         if (!hit.indexed) return ContentCandidates(emptyList(), false)
+        // T6: com unidade citada (artigo/lição), verifica só a unidade — antes
+        // carregava o anexo inteiro (LIMIT 500) e dava falso aviso "sem fonte".
+        val rawNeedle = listOfNotNull(ref.article, ref.chapter).firstOrNull { it.isNotBlank() }
+        if (rawNeedle != null) {
+            val needle = normalizeText(rawNeedle).takeIf { it.length >= 3 }
+            val slice = needle?.let {
+                com.bettertalker.app.data.planning.unitSliceOf(db.passageDao(), hit.id, it, rawNeedle)
+            }
+            if (!slice.isNullOrEmpty()) return ContentCandidates(slice, true)
+        }
         return ContentCandidates(
             passages = db.passageDao().forAttachment(hit.id),
             corpusAvailable = true

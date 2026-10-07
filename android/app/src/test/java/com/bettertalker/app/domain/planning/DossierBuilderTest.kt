@@ -162,6 +162,25 @@ class DossierBuilderTest {
     }
 
     @Test
+    fun build_publicationLabelCarregaOArtigo() = runBlocking {
+        // T6: o rótulo resolvido ("it “Gedalias” §4") vai ao prompt.
+        val sp = subPoint(
+            "sp1", "s1", 0,
+            pubRefs = listOf(PublicationRef("it", article = "Gedalias", paragraph = 4)),
+        )
+        val doc = listOf(SectionWithSubPoints(section("s1", 0), listOf(sp)))
+        val b = builder(
+            pubResults = mapOf(
+                "it" to ResolvedReference(
+                    "it", "it “Gedalias” §4", "texto do artigo", "p4", ReferenceStatus.RESOLVED
+                )
+            ),
+        )
+        val d = b.build(context("s1", "sp1"), doc)
+        assertEquals("it “Gedalias” §4", d.publicationTexts.single().ref.symbol)
+    }
+
+    @Test
     fun build_methodPrinciples_receivesOutlineText() = runBlocking {
         val methods = FakeMethodIndex(listOf("p1"))
         val b = DefaultDossierBuilder(FakeReferenceResolver(), methods)
