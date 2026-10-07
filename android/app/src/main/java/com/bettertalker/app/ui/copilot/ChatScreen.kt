@@ -173,7 +173,23 @@ fun ChatScreen(
         }
     }
     DisposableEffect(Unit) {
-        onDispose { vm.cancelVoiceInput() }
+        onDispose {
+            vm.cancelVoiceInput()
+            vm.stopSpeaking()
+        }
+    }
+    // T4 (voz): leitura em voz alta das respostas (TTS nativo).
+    val ttsReady by vm.ttsReady.collectAsState()
+    val ttsInitialized by vm.ttsInitialized.collectAsState()
+    val ttsSpeaking by vm.ttsSpeaking.collectAsState()
+    var speakingId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(ttsSpeaking) {
+        if (!ttsSpeaking) speakingId = null
+    }
+    LaunchedEffect(ttsInitialized, ttsReady) {
+        if (ttsInitialized && !ttsReady) {
+            snack.showSnackbar(com.bettertalker.app.data.voice.TTS_LANGUAGE_UNAVAILABLE)
+        }
     }
     // auto-scroll só se já estiver no fim; senão acumula pílula "novas"
     var unseenCount by remember { mutableStateOf(0) }
@@ -379,6 +395,13 @@ fun ChatScreen(
                                     // mensagem+ações visualmente junto.
                                     MessageActions(
                                         m, vm, hasScope = chatScope != null,
+                                        ttsReady = ttsReady,
+                                        speaking = speakingId == m.id,
+                                        onSpeak = {
+                                            speakingId = m.id
+                                            vm.speakMessage(m.text)
+                                        },
+                                        onStopSpeak = { vm.stopSpeaking() },
                                         modifier = Modifier.offset(y = (-8).dp)
                                     )
                                 }
@@ -625,6 +648,10 @@ private fun MessageActions(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
     hasScope: Boolean,
+    ttsReady: Boolean = false,
+    speaking: Boolean = false,
+    onSpeak: () -> Unit = {},
+    onStopSpeak: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -639,7 +666,23 @@ private fun MessageActions(
                 onClick = { vm.insertTextIntoScope(item.text) }
             ) { Text("Inserir no tópico") }
         }
+        // T4 (voz): lê a resposta em voz alta (texto pós-gate).
+        TextButton(
+            onClick = { if (speaking) onStopSpeak() else onSpeak() },
+            enabled = ttsReady,
+        ) { Text(speakButtonLabel(speaking)) }
     }
+}
+
+/** T4 (voz): rótulo do botão de leitura. Puro/testável. */
+internal fun speakButtonLabel(speaking: Boolean): String =
+    if (speaking) "⏸ Parar" else "▶ Ouvir"
+
+/** T4 (voz): descrição acessível do botão de leitura. Puro/testável. */
+internal fun speakButtonDescription(speaking: Boolean, ready: Boolean): String = when {
+    !ready -> "Leitura em voz alta indisponível"
+    speaking -> "Parar leitura"
+    else -> "Ouvir a resposta em voz alta"
 }
 
 /** T2 (Bug #13): kinds sem ações (têm corpo próprio); só texto do Copilot tem. */

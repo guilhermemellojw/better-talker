@@ -22,4 +22,25 @@ class VoiceComposerTest {
         assertEquals("Transcrevendo", voiceMicDescription(VoiceInputState.Processing))
         assertEquals("Falar", voiceMicDescription(VoiceInputState.Error("x")))
     }
+
+    // ---------- T4 (voz): botão "Ouvir" ----------
+
+    @Test
+    fun speakButtonLabel_alternaPlayEPause() {
+        assertEquals("▶ Ouvir", speakButtonLabel(speaking = false))
+        assertEquals("⏸ Parar", speakButtonLabel(speaking = true))
+    }
+
+    @Test
+    fun speakButtonDescription_porEstado() {
+        assertEquals(
+            "Ouvir a resposta em voz alta",
+            speakButtonDescription(speaking = false, ready = true)
+        )
+        assertEquals("Parar leitura", speakButtonDescription(speaking = true, ready = true))
+        assertEquals(
+            "Leitura em voz alta indisponível",
+            speakButtonDescription(speaking = false, ready = false)
+        )
+    }
 }

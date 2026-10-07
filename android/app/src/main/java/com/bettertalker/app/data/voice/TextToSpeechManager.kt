@@ -87,6 +87,11 @@ class TextToSpeechManager(context: Context) {
     private val _ready = MutableStateFlow(false)
     val ready: StateFlow<Boolean> = _ready.asStateFlow()
 
+    private val _initialized = MutableStateFlow(false)
+
+    /** A inicialização do motor terminou (independente de a voz pt-BR existir). */
+    val initialized: StateFlow<Boolean> = _initialized.asStateFlow()
+
     private val _speaking = MutableStateFlow(false)
     val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
 
@@ -120,6 +125,7 @@ class TextToSpeechManager(context: Context) {
                 languageOk = false
                 _ready.value = false
             }
+            _initialized.value = true
         }
     }
 
@@ -154,6 +160,7 @@ class TextToSpeechManager(context: Context) {
         runCatching { tts?.shutdown() }
         tts = null
         _ready.value = false
+        _initialized.value = false
         _speaking.value = false
     }
 }

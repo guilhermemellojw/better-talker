@@ -2984,6 +2984,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** TTS pronto (voz pt-BR instalada no aparelho). */
     val ttsReady: StateFlow<Boolean> = textToSpeech.ready
 
+    /** Inicialização do TTS terminou (para o aviso único de voz ausente). */
+    val ttsInitialized: StateFlow<Boolean> = textToSpeech.initialized
+
     /** Leitura em andamento (botão ▶/⏸ do T4). */
     val ttsSpeaking: StateFlow<Boolean> = textToSpeech.speaking
 
