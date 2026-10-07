@@ -310,16 +310,32 @@ fun splitRawSentences(raw: String): List<String> =
  * JWPUB (T4), ou linha curta sem pontuação seguida de parágrafo longo.
  * Marcadores === arquivo === resetam.
  */
-fun splitWithSections(raw: String): List<Pair<String, String>> {
-    val out = mutableListOf<Pair<String, String>>()
+fun splitWithSections(raw: String): List<Pair<String, String>> =
+    splitWithSectionsAndParagraphs(raw).map { it.first to it.second }
+
+/**
+ * T4b: divide em (frase, seção, parágrafo). O marcador "§N" emitido pelo
+ * extrator de JWPUB (parágrafo numerado do artigo) vale para as frases
+ * seguintes até o próximo marcador ou nova seção (artigo/lição). Puro.
+ */
+fun splitWithSectionsAndParagraphs(raw: String): List<Triple<String, String, Int?>> {
+    val out = mutableListOf<Triple<String, String, Int?>>()
     var section = ""
+    var paragraph: Int? = null
     // RTF/PDF usam \n simples entre parágrafos — trabalha linha a linha
     val lines = raw.split("\n").map { it.replace(Regex("\\s+"), " ").trim() }
         .filter { it.isNotEmpty() }
     val markerRe = Regex("^===.*===$")
-    lines.forEachIndexed { idx, line ->
+    val parRe = Regex("^§(\\d{1,3})\\s+(.*)$")
+    lines.forEachIndexed { idx, rawLine ->
+        var line = rawLine
+        parRe.find(line)?.let {
+            paragraph = it.groupValues[1].toInt()
+            line = it.groupValues[2].trim()
+        }
         if (markerRe.matches(line)) {
             section = ""
+            paragraph = null
             return@forEachIndexed
         }
         // T4: títulos do extrator de JWPUB ("# Gedalias") são fronteiras
@@ -327,6 +343,7 @@ fun splitWithSections(raw: String): List<Pair<String, String>> {
         // seção (o verbete "GEDALIAS" caía em "GEADA").
         if (line.startsWith("# ") && line.length > 3) {
             section = line.removePrefix("# ").take(120)
+            paragraph = null
             return@forEachIndexed
         }
         val nextLen = lines.getOrNull(idx + 1)?.length ?: 0
@@ -336,12 +353,13 @@ fun splitWithSections(raw: String): List<Pair<String, String>> {
             nextLen > 120
         if (isLesson || isShortTitle) {
             section = canonicalSectionLine(line).take(120)
+            paragraph = null
             return@forEachIndexed
         }
         line.split(Regex("[.!?]+"))
             .map { it.trim() }
             .filter { it.length > 5 }
-            .forEach { out += it to section }
+            .forEach { out += Triple(it, section, paragraph) }
     }
     return out
 }

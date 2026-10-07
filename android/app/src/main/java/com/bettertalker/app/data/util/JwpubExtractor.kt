@@ -190,7 +190,7 @@ object JwpubExtractor {
                             ?: throw JwpubException(
                                 "Esquema de criptografia não suportado — baixe EPUB ou PDF no site."
                             )
-                        sb.append(stripXml(html)).append('\n')
+                        sb.append(markParagraphs(html)).append('\n')
                     }
                     count++
                 }
@@ -206,6 +206,25 @@ object JwpubExtractor {
             runCatching { db?.close() }
         }
     }
+
+    /**
+     * T4b — preserva o NÚMERO do parágrafo numerado do JWPUB como marcador
+     * `§N` no texto extraído. O HTML marca o número como primeiro filho do
+     * parágrafo (`<p ...><strong>4.</strong> …`); índices (`class="si"`) e
+     * subtítulos (`class="sn"`) ficam de fora (números de lista não são
+     * parágrafos do artigo). O index então guarda `paragraph` e a citação
+     * "it “Gedalias” n.° 4" resolve no parágrafo exato. Puro/testável.
+     */
+    internal fun markParagraphs(html: String): String =
+        stripXml(
+            NUMBERED_P_RE.replace(html) { m ->
+                m.groupValues[1] + "\n§" + m.groupValues[2] + " "
+            }
+        )
+
+    private val NUMBERED_P_RE = Regex(
+        """(<p\b(?![^>]*class="(?:si|sn)")[^>]*>)\s*<strong>(\d{1,3})\.</strong>"""
+    )
 
     private fun readCard(db: SQLiteDatabase): String {
         db.rawQuery(

@@ -62,5 +62,32 @@ class JwpubTest {
         assertTrue(true)
     }
 
+    // ---------- T4b: marcador de parágrafo numerado do JWPUB ----------
+
+    @Test
+    fun markParagraphs_numeradosDoArtigoViramMarcador() {
+        val html = """
+            <h1 id="p1"><strong>GEDALIAS</strong></h1>
+            <p id="p2" class="sn"><strong>1.</strong> Sub título com número</p>
+            <p id="p3" class="sb"><strong>1.</strong> Cantor levita.</p>
+            <p id="p4" class="sb"><strong>2.</strong> Avô de Sofonias.</p>
+            <p id="p5" class="si"><strong>1.</strong> Índice (não é parágrafo).</p>
+        """.trimIndent()
+        val out = JwpubExtractor.markParagraphs(html)
+        assertTrue(out, out.contains("§1 Cantor levita"))
+        assertTrue(out, out.contains("§2 Avô de Sofonias"))
+        // Subtítulo (sn) e índice (si) não recebem marcador.
+        assertTrue(out, !out.contains("§1 Sub título"))
+        assertTrue(out, !out.contains("§1 Índice"))
+    }
+
+    @Test
+    fun markParagraphs_semNumeracaoNaoMudaOTexto() {
+        val html = "<p class=\"sb\">Filho de Jaque e escritor do capítulo 30.</p>"
+        val out = JwpubExtractor.markParagraphs(html)
+        assertTrue(out, out.contains("Filho de Jaque"))
+        assertTrue(out, !out.contains("§"))
+    }
+
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }

@@ -3,7 +3,7 @@ package com.bettertalker.app.data.work
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.util.buildRef
 import com.bettertalker.app.data.util.normalizeText
-import com.bettertalker.app.data.util.splitWithSections
+import com.bettertalker.app.data.util.splitWithSectionsAndParagraphs
 
 /**
  * Constrói PassageEntity a partir do texto bruto de uma publicação.
@@ -48,10 +48,10 @@ internal fun buildPassages(
     minNormalizedLength: Int = 5,
     maxTextLength: Int = 500,
 ): List<PassageEntity> {
-    val pairs = splitWithSections(raw).take(maxSentences)
+    val triples = splitWithSectionsAndParagraphs(raw).take(maxSentences)
     val result = mutableListOf<PassageEntity>()
     var ord = 0
-    for ((s, section) in pairs) {
+    for ((s, section, paragraph) in triples) {
         val norm = normalizeText(s)
         if (norm.length <= minNormalizedLength) continue
         val text = s.replace(Regex("\\s+"), " ").trim().take(maxTextLength)
@@ -63,6 +63,8 @@ internal fun buildPassages(
                 normalized = norm.take(maxTextLength),
                 section = section,
                 ref = buildRef(symbol, section, ord + 1),
+                // T4b: parágrafo REAL do JWPUB (marcador §N do extrator).
+                paragraph = paragraph,
                 ord = ord,
                 trainingCategory = trainingCategory,
             )

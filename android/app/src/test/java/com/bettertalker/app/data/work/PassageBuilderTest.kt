@@ -93,4 +93,18 @@ class PassageBuilderTest {
     fun publicacaoGrandeIndexaMuitoMaisQueOPiso() {
         assertTrue(passageCapFor(8_000_000) > MIN_PASSAGE_CAP)
     }
+
+    // ---------- T4b: parágrafo real do JWPUB ----------
+
+    @Test
+    fun buildPassages_guardaParagrafoNumerado() {
+        val raw = """
+            # Gedalias
+            §4 Filho de Aicão, filho de Safã, foi designado governador de Judá depois da queda de Jerusalém.
+            §5 Outro parágrafo numerado do mesmo verbete, com texto suficiente para virar trecho.
+        """.trimIndent()
+        val result = buildPassages("att1", "it", raw, null)
+        assertEquals(listOf(4, 5), result.map { it.paragraph })
+        assertEquals(listOf("Gedalias", "Gedalias"), result.map { it.section })
+    }
 }

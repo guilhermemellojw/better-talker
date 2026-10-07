@@ -171,4 +171,22 @@ class TextNormTest {
         // Linha que não é lição/capítulo fica como veio.
         assertEquals("Texto qualquer", com.bettertalker.app.data.util.canonicalSectionLine("Texto qualquer"))
     }
+
+    // ---------- T4b: parágrafo numerado (§N) ----------
+
+    @Test
+    fun splitWithSectionsAndParagraphs_propagaMarcadorEResetaNaSecao() {
+        val raw = """
+            # Gedalias
+            §1 Cantor levita que serviu no templo.
+            §4 Filho de Aicão, filho de Safã.
+            # Gederotaim
+            Texto sem número nenhum.
+        """.trimIndent()
+        val triples = com.bettertalker.app.data.util.splitWithSectionsAndParagraphs(raw)
+        assertEquals(1, triples.first { it.first.contains("Cantor levita") }.third)
+        assertEquals(4, triples.first { it.first.contains("Filho de Aicão") }.third)
+        // Nova seção reseta o parágrafo corrente.
+        assertNull(triples.first { it.first.contains("Texto sem número") }.third)
+    }
 }
