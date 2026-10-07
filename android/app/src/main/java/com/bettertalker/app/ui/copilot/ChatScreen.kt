@@ -1050,7 +1050,9 @@ private fun RefFullRow(
             Text(
                 "📖 No acervo: $sn",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
+                // P2 (contraste): o amarelo primário dá 1.55:1 no tema claro;
+                // secondary passa AA nos dois temas (5.38 / 6.97).
+                color = MaterialTheme.colorScheme.secondary
             )
         }
         st.contentWarning?.let { w ->

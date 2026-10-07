@@ -154,7 +154,8 @@ fun ChatPromptBar(
                         Text(
                             voiceElapsedLabel(voiceSeconds),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            // P2 (contraste): secondary passa AA nos dois temas.
+                            color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.semantics {
                                 liveRegion = LiveRegionMode.Polite
                             }
@@ -627,7 +628,8 @@ fun ProposalCard(
         ui.notice?.let {
             Spacer(Modifier.height(4.dp))
             Text(it, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary)
+                // P2 (contraste): aviso legível (o amarelo primário falha no claro).
+                color = MaterialTheme.colorScheme.secondary)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!ui.applied) {

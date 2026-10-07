@@ -35,7 +35,8 @@ fun contrastRatio(fg: Color, bg: Color): Double {
     return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
 }
 
-private val LightColors = lightColorScheme(
+/** P2 — `internal` para o teste de contraste auditar o esquema REAL. */
+internal val LightColors = lightColorScheme(
     primary = SamsungYellowDeep,
     onPrimary = SamsungInk,
     primaryContainer = SamsungYellowSoft,
@@ -49,7 +50,8 @@ private val LightColors = lightColorScheme(
     outline = Color(0xFFE3D9B8),
     errorContainer = Color(0xFFFDE8E8)
 )
-private val DarkColors = darkColorScheme(
+/** P2 — `internal` para o teste de contraste auditar o esquema REAL. */
+internal val DarkColors = darkColorScheme(
     primary = SamsungYellow,
     onPrimary = SamsungInk,
     primaryContainer = Color(0xFF3A2F10),
