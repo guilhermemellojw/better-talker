@@ -1325,13 +1325,27 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         hasTarget: Boolean = false,
     ) {
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+        // T1 — anti-apagamento: sem dossiê, o alvo empurrado NÃO pode piorar a
+        // resposta. Só zeramos text/blockTitle quando o dossiê realmente chegou
+        // (contextBlock != null). Caso contrário, mantemos o comportamento legado
+        // (texto do bloco + título) e logamos para diagnóstico.
+        val dossierArrived = shouldBlankFocusForTarget(
+            hasTarget = hasTarget,
+            contextBlock = contextBlock,
+        )
+        if (hasTarget && !dossierArrived) {
+            android.util.Log.w(
+                "CopilotLLM",
+                "chat remoto: push sem dossiê — mantendo foco legado (text/blockTitle)"
+            )
+        }
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
-                    text = if (hasTarget) "" else blockText,
+                    text = if (hasTarget && dossierArrived) "" else blockText,
                     action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                     message = text,
                     history = history,
@@ -1339,7 +1353,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
-                    blockTitle = if (hasTarget) null else _activeBlockTitle.value,
+                    blockTitle = if (hasTarget && dossierArrived) null else _activeBlockTitle.value,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = contextBlock,
@@ -3080,6 +3094,20 @@ internal fun shouldDegradeOratoryToChat(
     hasS34Document: Boolean,
     hasLinkedOutline: Boolean,
 ): Boolean = !hasS34Document && hasLinkedOutline
+
+/**
+ * T1 — anti-apagamento do foco em `answerRemote`.
+ *
+ * Com alvo empurrado (`hasTarget=true`), `text`/`blockTitle` legados só são
+ * zerados quando o dossiê realmente chegou (`contextBlock != null`). Sem
+ * dossiê, o push NÃO pode piorar a resposta: mantém o foco legado.
+ *
+ * Pura, testável.
+ */
+internal fun shouldBlankFocusForTarget(
+    hasTarget: Boolean,
+    contextBlock: String?,
+): Boolean = hasTarget && !contextBlock.isNullOrBlank()
 
 /**
  * T2 — mensagem visível de falha de import (pura/testável). Usa o texto do
