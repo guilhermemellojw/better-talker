@@ -247,6 +247,15 @@ fun ChatScreen(
             }
         }
     }
+    // T3 (P2 estético): o parcial do streaming cresce DENTRO do mesmo item —
+    // o efeito acima não dispara (messages.size não muda) e o fim do texto
+    // ficava abaixo do fold. Rola instantâneo junto com o parcial, alinhando
+    // o FIM do item (offset máximo) e só quando o usuário já está no fim.
+    LaunchedEffect(localPartial) {
+        if (localPartial.isNotBlank() && atBottom) {
+            listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
+        }
+    }
     LaunchedEffect(atBottom) { if (atBottom) unseenCount = 0 }
     dl.host(scope)
 
