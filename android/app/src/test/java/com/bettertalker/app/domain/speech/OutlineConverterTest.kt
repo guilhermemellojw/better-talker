@@ -117,6 +117,31 @@ class OutlineConverterTest {
     }
 
     @Test
+    fun convert_linhaDoDono_guardaArtigoEParagrafo() {
+        // Linha real: "(Jer. 41:1, 2; it "Gedalias" n.° 4)".
+        val parsed = ParsedOutline(
+            title = "Teste", totalMinutes = 5, preamble = "",
+            sections = listOf(
+                OutlineSection(
+                    "TESTE", 5, 0,
+                    "Jeová não salvou a vida de Gedalias, embora ele fosse um homem que " +
+                        "temia a Jeová. (Jer. 41:1, 2; it \"Gedalias\" n.° 4)",
+                ),
+            ),
+        )
+        val conv = converter().convert(parsed, "n1")
+        val sub = conv.bodies.single().subPoints.single()
+        // A lista de versículos virou refs separadas ("Jer." + aliases T1).
+        assertEquals(listOf("Je 41:1", "Je 41:2"), sub.bibleRefs)
+        // O artigo + parágrafo do Estudo Perspicaz (T2).
+        val pub = sub.publicationRefs.single()
+        assertEquals("it", pub.symbol)
+        assertEquals("Gedalias", pub.article)
+        assertEquals(4, pub.paragraph)
+        assertEquals("Jeová não salvou a vida de Gedalias, embora ele fosse um homem que temia a Jeová.", sub.outlineText)
+    }
+
+    @Test
     fun convert_sectionWithInstruction_extractsToSubPoint() {
         val conv = converter().convert(snippetParsed(), "n1")
         val sub = conv.bodies[0].subPoints[1]
