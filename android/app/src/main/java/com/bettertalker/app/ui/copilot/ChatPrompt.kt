@@ -60,6 +60,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -338,17 +340,30 @@ fun ChatQuickActions(
     onAttach: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // T1 (P2 estético): háptica leve nos chips de ação.
+    val haptic = LocalHapticFeedback.current
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (localActions.isEmpty()) {
-            item { AssistChip(onClick = onAttach, label = { Text("Anexar esboço") }) }
+            item {
+                AssistChip(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        onAttach()
+                    },
+                    label = { Text("Anexar esboço") },
+                )
+            }
         }
         // Atalhos conversacionais primeiro: são o caminho principal da F15.
         items(quickActions) { qa ->
             AssistChip(
-                onClick = { onPick(qa.message) },
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    onPick(qa.message)
+                },
                 label = { Text(qa.label) },
                 // Rótulo só para leitor de tela: o clique envia a mensagem.
                 modifier = Modifier.semantics {
@@ -357,7 +372,13 @@ fun ChatQuickActions(
             )
         }
         items(localActions) { text ->
-            AssistChip(onClick = { onPick(text) }, label = { Text(text) })
+            AssistChip(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    onPick(text)
+                },
+                label = { Text(text) },
+            )
         }
     }
 }

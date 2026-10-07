@@ -64,7 +64,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -655,20 +657,31 @@ private fun MessageActions(
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth()) {
+        // T1 (P2 estético): háptica leve nos chips de ação.
+        val haptic = LocalHapticFeedback.current
         // Fase 18 §21: sugestão conversacional vira proposta F5.
         TextButton(
-            onClick = { vm.createProposal(item.id) }
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                vm.createProposal(item.id)
+            }
         ) { Text("Criar proposta") }
         // F2.3: manda a resposta para o tópico em foco (roteamento
         // pelo alvo atual; sem foco, cai no comportamento legado).
         if (hasScope) {
             TextButton(
-                onClick = { vm.insertTextIntoScope(item.text) }
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    vm.insertTextIntoScope(item.text)
+                }
             ) { Text("Inserir no tópico") }
         }
         // T4 (voz): lê a resposta em voz alta (texto pós-gate).
         TextButton(
-            onClick = { if (speaking) onStopSpeak() else onSpeak() },
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                if (speaking) onStopSpeak() else onSpeak()
+            },
             enabled = ttsReady,
         ) { Text(speakButtonLabel(speaking)) }
     }
