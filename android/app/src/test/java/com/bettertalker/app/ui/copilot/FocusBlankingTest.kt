@@ -104,3 +104,30 @@ class PushedFirstFocusTest {
         )
     }
 }
+
+class StructuralHintTest {
+
+    @Test
+    fun hint_pushVenceBlocoESelecao() {
+        assertEquals(
+            "Fé que age",
+            structuralHint(
+                pushedTitle = "Fé que age",
+                activeBlockTitle = "Outro ponto",
+                selection = "trecho",
+            )
+        )
+    }
+
+    @Test
+    fun hint_semPush_mantemLegado() {
+        assertEquals(
+            "Outro ponto",
+            structuralHint(pushedTitle = null, activeBlockTitle = "Outro ponto", selection = "trecho")
+        )
+        assertEquals(
+            "trecho",
+            structuralHint(pushedTitle = null, activeBlockTitle = null, selection = "trecho")
+        )
+    }
+}

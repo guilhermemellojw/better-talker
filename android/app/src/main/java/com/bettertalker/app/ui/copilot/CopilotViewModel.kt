@@ -1167,7 +1167,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 sourceAttachmentId = id,
                 // T2 — foco unificado: o tópico empurrado manda sobre o bloco
                 // ativo/seleção (que podem apontar para outro tópico ou nada).
-                sectionHint = pushedSectionTitle() ?: _activeBlockTitle.value ?: _selection.value,
+                sectionHint = structuralHint(
+                    pushedTitle = pushedSectionTitle(),
+                    activeBlockTitle = _activeBlockTitle.value,
+                    selection = _selection.value,
+                ),
                 query = text
             )
                 if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
@@ -3138,6 +3142,16 @@ internal fun pushedFirstFocus(
     activeBlockTitle != null -> activeBlockTitle
     else -> noteBody
 }
+
+/**
+ * T4 — hint estrutural do turno: o tópico empurrado manda sobre o bloco
+ * ativo/seleção. Sem push, vale o legado. Pura, testável.
+ */
+internal fun structuralHint(
+    pushedTitle: String?,
+    activeBlockTitle: String?,
+    selection: String,
+): String? = pushedTitle?.takeIf { it.isNotBlank() } ?: activeBlockTitle ?: selection
 
 /**
  * T2 — mensagem visível de falha de import (pura/testável). Usa o texto do
