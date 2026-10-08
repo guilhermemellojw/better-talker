@@ -72,23 +72,28 @@ class BibleQuestionPromptTest {
 
     @Test
     fun questionVerseLines_permitemCitarARefSemAvisoFalso() {
-        // Regressão do device: a ref injetada ("Je 29:11") precisa estar no
-        // corpus, senão o pós-check acusa "versículo fora dos trechos".
-        val lines = questionVerseLines(
-            listOf(hit("Je 29:11", "“Pois eu sei muito bem o que tenho em mente para vocês”"))
-        )
-        assertTrue(lines.single().startsWith("[Je 29:11] "))
+        // Regressão do device: a ref injetada precisa estar no corpus (senão o
+        // pós-check acusa "fora dos trechos") — inclusive na forma do usuário
+        // ("Jer. 29:11"), que o modelo repete.
+        val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem o que tenho em mente para vocês”"))
+        val lines = questionVerseLines(verses, "o que diz Jer. 29:11?")
+        assertTrue(lines.first().startsWith("[Je 29:11] "))
+        assertTrue(lines.last().contains("jer 29 11"))
 
-        val com = checkCitations(
-            "Veja Je 29:11: “Pois eu sei muito bem o que tenho em mente para vocês”.",
-            lines,
+        assertTrue(
+            checkCitations(
+                "Veja Je 29:11: “Pois eu sei muito bem o que tenho em mente para vocês”.",
+                lines,
+            ).ok
         )
-        assertTrue(com.ok)
+        assertTrue(checkCitations("Veja Jer. 29:11.", lines).ok)
 
-        val sem = checkCitations(
-            "Veja Je 29:11.",
-            listOf("“Pois eu sei muito bem o que tenho em mente para vocês”"),
+        // Sem a linha da ref (e sem o alias), o mesmo texto acusa.
+        assertFalse(
+            checkCitations(
+                "Veja Jer. 29:11.",
+                listOf("“Pois eu sei muito bem o que tenho em mente para vocês”"),
+            ).ok
         )
-        assertFalse(sem.ok)
     }
 }

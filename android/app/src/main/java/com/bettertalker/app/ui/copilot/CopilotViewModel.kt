@@ -140,11 +140,20 @@ fun verificationCorpus(
 
 /**
  * T3 (acesso bíblico) — linhas "ref + texto" para o CORPUS do gate: cobre a
- * ref citada ("Je 29:11" não gera aviso "fora dos trechos") e o texto para o
- * pós-filtro de citações. Puro/testável.
+ * ref citada e o texto para o pós-filtro de citações. [rawQuestion] adiciona
+ * os aliases usados na pergunta ("jer. 29:11"): o modelo repete a forma do
+ * usuário e o pós-check compara livro+cap+versos normalizados — sem isso, a
+ * forma escrita dispara o aviso falso "versículo fora dos trechos" mesmo com
+ * o versículo injetado. Puro/testável.
  */
-fun questionVerseLines(verses: List<ScopedHit>): List<String> =
-    verses.map { "[${it.passage.ref}] ${it.passage.text}" }
+fun questionVerseLines(verses: List<ScopedHit>, rawQuestion: String = ""): List<String> {
+    val lines = verses.map { "[${it.passage.ref}] ${it.passage.text}" }.toMutableList()
+    val aliases = RefDetector.detectBible(rawQuestion)
+        .map { "${it.bookNorm} ${it.chapter} ${it.verse}" }
+        .distinct()
+    if (aliases.isNotEmpty()) lines += aliases.joinToString(" ")
+    return lines
+}
 
 /**
  * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
@@ -1444,7 +1453,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // só frases claramente sem apoio e anexa o aviso padrão. T3: o corpus
         // inclui as linhas "ref + texto" dos versículos da pergunta (senão a
         // própria ref injetada dispara o aviso "fora dos trechos").
-        val corpus = verificationCorpus(turnContext, questionVerseLines(questionVerses))
+        val corpus = verificationCorpus(turnContext, questionVerseLines(questionVerses, text))
         val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
             android.util.Log.w(
