@@ -45,6 +45,7 @@ import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.ImportException
 import com.bettertalker.app.data.repo.OutlineRepository
 import com.bettertalker.app.data.repo.OutlineImportService
+import com.bettertalker.app.data.repo.ScopedHit
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.s34.S34ImportHook
 import com.bettertalker.app.data.util.BASE_PUBS
@@ -114,10 +115,12 @@ internal fun draftRequestFor(sectionId: String?, nonce: Long = 0L): DraftRequest
  * T1 — corpus efetivamente injetado no prompt do turno (CONTENT + TRAINING +
  * estrutura do S-34: objetivo, conteúdo do ponto focado, subpontos e refs).
  * É contra ele que o pós-filtro de alucinação do chat confere a resposta.
- * Puro/testável.
+ * [extra] — T3 (acesso bíblico): textos resolvidos FORA do pack (ex.:
+ * versículos citados na pergunta). Puro/testável.
  */
 fun verificationCorpus(
-    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    extra: List<String> = emptyList(),
 ): List<String> = buildList {
     turnContext.pack.contentSources.forEach { add(it.text) }
     turnContext.pack.trainingSources.forEach { add(it.text) }
@@ -132,7 +135,36 @@ fun verificationCorpus(
             sec.references.forEach { add(it.rawText) }
         }
     }
+    extra.forEach { add(it) }
 }.filter { it.isNotBlank() }
+
+/**
+ * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
+ * com o texto literal dos versículos citados NA MENSAGEM. Vazio = não injeta
+ * (P4: nunca varrer a Bíblia sem citação). Puro/testável.
+ */
+fun questionBibleBlock(verses: List<ScopedHit>): String {
+    if (verses.isEmpty()) return ""
+    val lines = verses.map { v ->
+        val ref = v.passage.ref.ifBlank { "?" }
+        "- $ref: \"${v.passage.text.take(MAX_QUESTION_VERSE_CHARS)}\""
+    }
+    return "## TEXTOS BÍBLICOS (referências da pergunta)\n" + lines.joinToString("\n")
+}
+
+/** Teto por versículo no bloco da pergunta (o prompt trunca de novo). */
+const val MAX_QUESTION_VERSE_CHARS = 600
+
+/**
+ * T3 — dossiê (contexto do tópico) + versículos da pergunta; null quando não
+ * há nada a injetar. Puro/testável.
+ */
+fun combineContextBlocks(dossierBlock: String?, verses: List<ScopedHit>): String? {
+    val bible = questionBibleBlock(verses).takeIf { it.isNotBlank() }
+    return listOfNotNull(dossierBlock?.takeIf { it.isNotBlank() }, bible)
+        .joinToString("\n\n")
+        .ifBlank { null }
+}
 
 /**
  * T2 — aviso não bloqueante de citações (padrão "⚠️ Revise"). `null` quando ok.
@@ -1363,6 +1395,18 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 "chat remoto: push sem dossiê — mantendo foco legado (text/blockTitle)"
             )
         }
+        // T3 (acesso bíblico): refs citadas NA PERGUNTA → texto literal da TNM
+        // por ref exata (findByRef). P4: só quando a pergunta cita uma ref —
+        // nunca varre a Bíblia por padrão. O bloco entra no prompt E no corpus
+        // do gate (citação legítima não é removida).
+        val questionVerses = if (text.isNotBlank()) repo.biblePassages(text, 4) else emptyList()
+        val effectiveContextBlock = combineContextBlocks(contextBlock, questionVerses)
+        if (questionVerses.isNotEmpty()) {
+            android.util.Log.i(
+                "CopilotLLM",
+                "chat remoto: ${questionVerses.size} versículo(s) da pergunta injetado(s)"
+            )
+        }
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
@@ -1380,7 +1424,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     blockTitle = if (hasTarget && dossierArrived) null else _activeBlockTitle.value,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
-                    contextBlock = contextBlock,
+                    contextBlock = effectiveContextBlock,
                 )
             )
         }
@@ -1391,7 +1435,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão.
-        val corpus = verificationCorpus(turnContext)
+        val corpus = verificationCorpus(turnContext, questionVerses.map { it.passage.text })
         val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
             android.util.Log.w(
