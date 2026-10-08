@@ -186,6 +186,11 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
         "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE +
+        // T1 (refinamento das sugestões): marcar ANTES das aspas — o gate
+        // isenta a prosa marcada; aspas sem marcador viram "aspas sem fonte".
+        "\nAo apresentar uma criação sua (ilustração, metáfora, exemplo), envolva-a em " +
+        "〈sugestão〉…〈/sugestão〉 ANTES de qualquer aspas, para que o sistema a reconheça " +
+        "como sugestão e não remova." +
         // T4 (acesso bíblico): o versículo resolvido é a única fonte autorizada.
         "\nSe a pergunta citar uma referência bíblica e o bloco TEXTOS BÍBLICOS existir, " +
         "cite o texto do bloco entre aspas, palavra por palavra; se não existir, diga que " +

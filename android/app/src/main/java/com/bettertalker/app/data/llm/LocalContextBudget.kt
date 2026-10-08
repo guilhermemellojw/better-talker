@@ -59,11 +59,12 @@ object LocalContextBudget {
     /**
      * Custo fixo do boilerplate do prompt de chat (foco, rótulos, instruções
      * de resposta, separadores, regra do marcador de criação, regra dos
-     * TEXTOS BÍBLICOS — T4) que não pertence a nenhum segmento. Calibrado por
-     * teste (`LocalContextBudgetTest.promptOverheadIsUpperBound`): 400 =
-     * overhead real (~357) + margem de ~43 tokens.
+     * TEXTOS BÍBLICOS — T4, regra dos TRECHOS DE PUBLICAÇÕES — T2, regra das
+     * sugestões antes das aspas — T1) que não pertence a nenhum segmento.
+     * Calibrado por teste (`LocalContextBudgetTest.promptOverheadIsUpperBound`):
+     * 480 = overhead real (~433) + margem de ~47 tokens.
      */
-    const val PROMPT_OVERHEAD_TOKENS = 400
+    const val PROMPT_OVERHEAD_TOKENS = 480
 
     /** Marcador de corte visível (mesmo do LeanRag). */
     const val TRUNCATION_MARKER = " […]"

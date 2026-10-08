@@ -69,4 +69,29 @@ class SuggestionGateTest {
         val r = GroundednessVerifier.verify(resp, fontes)
         assertTrue(r.hasRemovals)
     }
+
+    // ---------- 5. T1 (refinamento): marcar ANTES das aspas ----------
+
+    @Test
+    fun sugestaoMarcadaComAspasInternas_ePreservada() {
+        // A criação marcada com 〈sugestão〉 e com aspas DENTRO dos marcadores
+        // é isenta — o modelo deve marcar antes de usar aspas.
+        val resp = "Uma ideia minha: 〈sugestão〉“o rio que nunca seca” atravessa o deserto inteiro" +
+            "〈/sugestão〉. Depois disso, siga o texto."
+        val r = GroundednessVerifier.verify(resp, fontes)
+
+        assertFalse("prosa marcada não deve ser removida", r.hasRemovals)
+        assertTrue(checkCitations(resp, fontes).ok)
+    }
+
+    @Test
+    fun sugestaoSemMarcadorComAspas_eRemovida() {
+        // Mesma criação SEM o marcador: o gate trata como citação sem fonte
+        // (comportamento correto — a regressão é de aderência do prompt).
+        val resp = "Uma ideia minha: “o rio que nunca seca atravessa o deserto inteiro”. Depois siga."
+        val r = GroundednessVerifier.verify(resp, fontes)
+
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("nunca seca"))
+    }
 }
