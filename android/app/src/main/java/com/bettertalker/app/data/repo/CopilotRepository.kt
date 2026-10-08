@@ -3,6 +3,10 @@ package com.bettertalker.app.data.repo
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.planning.RoomReferenceResolver
+import com.bettertalker.app.domain.planning.PublicationRef
+import com.bettertalker.app.domain.planning.ReferenceStatus
+import com.bettertalker.app.domain.planning.ResolvedReference
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
@@ -438,6 +442,28 @@ class CopilotRepository(private val db: AppDatabase) {
     }
 
     /**
+     * T1 (expert em publicações) — trechos de PUBLICAÇÕES citadas no texto
+     * livre ("o que o Seja Feliz diz sobre o perdão?", "lff cap. 5"), pelo
+     * MESMO caminho do dossiê (`RoomReferenceResolver.resolvePublication`:
+     * casa a edição + transcreve a unidade citada). Espelho do
+     * [biblePassages]. `be`/`th` ficam de fora (P4: guias TRAINING, nunca
+     * CONTENT). Refs sem unidade/texto são puladas (nunca inventa).
+     */
+    suspend fun publicationPassages(text: String, limit: Int = 3): List<ScopedHit> {
+        if (limit <= 0) return emptyList()
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val out = mutableListOf<ScopedHit>()
+        for (detected in RefDetector.detect(text)) {
+            if (isGuidePubRef(detected)) continue
+            if (out.size >= limit) break
+            val resolved = resolver.resolvePublication(publicationRefOf(detected))
+            val label = resolved.canonicalRef ?: detected.label
+            publicationHitOf(resolved, label)?.let { out += it }
+        }
+        return out
+    }
+
+    /**
      * Anexos das publicações citadas (nota + esboço), mesmo sem vínculo à nota.
      * Retorna id -> rótulo (título real). be/th entram como guia, não conteúdo.
      */
@@ -528,6 +554,57 @@ internal suspend fun resolveBiblePassages(
         if (out.size >= limit) break
     }
     return out
+}
+
+/**
+ * T1 (expert em publicações) — `be`/`th` são guias de oratória (TRAINING),
+ * nunca matéria (P4): não entram no lookup de conteúdo da pergunta.
+ * Puro/testável.
+ */
+internal fun isGuidePubRef(ref: RefDetector.DetectedRef): Boolean =
+    ref.pubKey == "be" || ref.pubKey == "th"
+
+/**
+ * T1 — [DetectedRef] da pergunta → [PublicationRef] do resolvedor (mesma
+ * conversão do `OutlineConverter`: símbolo cru + unidade citada).
+ * Puro/testável.
+ */
+internal fun publicationRefOf(ref: RefDetector.DetectedRef): PublicationRef =
+    PublicationRef(
+        symbol = ref.raw,
+        page = ref.page,
+        paragraph = ref.paragraph,
+        article = ref.article,
+        chapter = ref.chapter,
+    )
+
+/** Teto por trecho de publicação no bloco da pergunta (o prompt trunca de novo). */
+internal const val MAX_QUESTION_PUB_CHARS = 600
+
+/**
+ * T1 — [ResolvedReference] → [ScopedHit] com passagem sintética (o texto já
+ * vem resolvido; o `ref` carrega o rótulo, ex. "lff cap. 5"). Null quando o
+ * status não é utilizável (só RESOLVED/PARTIAL entram) ou o texto é vazio.
+ * Puro/testável.
+ */
+internal fun publicationHitOf(resolved: ResolvedReference, source: String): ScopedHit? {
+    if (resolved.status != ReferenceStatus.RESOLVED &&
+        resolved.status != ReferenceStatus.PARTIAL
+    ) return null
+    val body = resolved.text?.take(MAX_QUESTION_PUB_CHARS)?.trim().orEmpty()
+    if (body.isBlank()) return null
+    val ref = resolved.canonicalRef ?: resolved.original
+    return ScopedHit(
+        PassageEntity(
+            id = resolved.passageId ?: "pubq-${ref.hashCode()}",
+            attachmentId = "",
+            text = body,
+            normalized = normalizeText(body),
+            section = source,
+            ref = ref,
+        ),
+        source,
+    )
 }
 
 /**

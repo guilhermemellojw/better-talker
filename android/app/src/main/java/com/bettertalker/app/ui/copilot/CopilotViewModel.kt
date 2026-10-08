@@ -173,12 +173,35 @@ fun questionBibleBlock(verses: List<ScopedHit>): String {
 const val MAX_QUESTION_VERSE_CHARS = 600
 
 /**
- * T3 — dossiê (contexto do tópico) + versículos da pergunta; null quando não
- * há nada a injetar. Puro/testável.
+ * T1 (expert em publicações) — bloco "## TRECHOS DE PUBLICAÇÕES (referências
+ * da pergunta)" com o texto literal dos trechos citados NA MENSAGEM. Espelho
+ * do bloco bíblico. Vazio = não injeta. Puro/testável.
  */
-fun combineContextBlocks(dossierBlock: String?, verses: List<ScopedHit>): String? {
+fun questionPublicationBlock(pubs: List<ScopedHit>): String {
+    if (pubs.isEmpty()) return ""
+    val lines = pubs.map { p ->
+        val ref = p.passage.ref.ifBlank { "?" }
+        "- $ref: \"${p.passage.text.take(MAX_QUESTION_PUB_CHARS)}\""
+    }
+    return "## TRECHOS DE PUBLICAÇÕES (referências da pergunta)\n" + lines.joinToString("\n")
+}
+
+/** Teto por trecho de publicação no bloco da pergunta (o prompt trunca de novo). */
+const val MAX_QUESTION_PUB_CHARS = 600
+
+/**
+ * T3 — dossiê (contexto do tópico) + versículos da pergunta; null quando não
+ * há nada a injetar. T1 (publicações): [pubs] entra depois da Bíblia.
+ * Puro/testável.
+ */
+fun combineContextBlocks(
+    dossierBlock: String?,
+    verses: List<ScopedHit>,
+    pubs: List<ScopedHit> = emptyList(),
+): String? {
     val bible = questionBibleBlock(verses).takeIf { it.isNotBlank() }
-    return listOfNotNull(dossierBlock?.takeIf { it.isNotBlank() }, bible)
+    val pubBlock = questionPublicationBlock(pubs).takeIf { it.isNotBlank() }
+    return listOfNotNull(dossierBlock?.takeIf { it.isNotBlank() }, bible, pubBlock)
         .joinToString("\n\n")
         .ifBlank { null }
 }
@@ -1417,11 +1440,20 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // nunca varre a Bíblia por padrão. O bloco entra no prompt E no corpus
         // do gate (citação legítima não é removida).
         val questionVerses = if (text.isNotBlank()) repo.biblePassages(text, 4) else emptyList()
-        val effectiveContextBlock = combineContextBlocks(contextBlock, questionVerses)
+        // T1 (expert em publicações): trechos de publicações citadas NA
+        // PERGUNTA (mesmo padrão dos versículos; P4: só com citação).
+        val questionPubs = if (text.isNotBlank()) repo.publicationPassages(text, 3) else emptyList()
+        val effectiveContextBlock = combineContextBlocks(contextBlock, questionVerses, questionPubs)
         if (questionVerses.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
                 "chat remoto: ${questionVerses.size} versículo(s) da pergunta injetado(s)"
+            )
+        }
+        if (questionPubs.isNotEmpty()) {
+            android.util.Log.i(
+                "CopilotLLM",
+                "chat remoto: ${questionPubs.size} trecho(s) de publicação da pergunta injetado(s)"
             )
         }        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
@@ -1452,8 +1484,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão. T3: o corpus
         // inclui as linhas "ref + texto" dos versículos da pergunta (senão a
-        // própria ref injetada dispara o aviso "fora dos trechos").
-        val corpus = verificationCorpus(turnContext, questionVerseLines(questionVerses, text))
+        // própria ref injetada dispara o aviso "fora dos trechos"). T1
+        // (publicações): o texto dos trechos injetados também entra.
+        val corpus = verificationCorpus(
+            turnContext,
+            questionVerseLines(questionVerses, text) + questionPubs.map { it.passage.text },
+        )
         val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
             android.util.Log.w(
