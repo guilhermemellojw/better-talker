@@ -1,5 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.data.ai.checkCitations
+import com.bettertalker.app.data.copilot.ChatTurnContext
 import com.bettertalker.app.data.copilot.buildDeepSeekPrompts
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
@@ -86,6 +88,12 @@ class BibleAccessFlowTest {
 
     private fun passage(id: String, ref: String, text: String, normalized: String = text) =
         PassageEntity(id, "nwt", text, normalized, section = ref.substringBefore(":"), ref = ref)
+
+    private fun turn() = ChatTurnContext(
+        pack = ContextPack(emptyList(), emptyList()),
+        prompt = "",
+        evidence = emptyList(),
+    )
 
     // ---------- T1: tópico (seção) resolve versículos dos sub-pontos ----------
 
@@ -198,5 +206,18 @@ class BibleAccessFlowTest {
 
         assertTrue("sem o versículo o gate remove a citação", semInjecao.hasRemovals)
         assertFalse("com o versículo injetado a citação é legítima", comInjecao.hasRemovals)
+    }
+
+    @Test
+    fun fluxoGate_refDoTopicoNoDossie_naoGeraAvisoFalso() {
+        // Device: resposta citando "Ec 3:11" (ref do PRÓPRIO dossiê injetado)
+        // era acusada porque o bloco do dossiê não entrava no corpus.
+        val dossier = "## TEXTOS BÍBLICOS (citação literal autorizada)\n" +
+            "- Ec 3:11: \"Ele fez tudo belo a seu tempo\""
+        val corpus = verificationCorpus(turn(), listOf(dossier))
+
+        assertTrue(checkCitations("Veja Ec 3:11 sobre isso.", corpus).ok)
+        // Sem o bloco, o aviso aparece (comportamento antigo).
+        assertFalse(checkCitations("Veja Ec 3:11 sobre isso.", listOf("outra fonte")).ok)
     }
 }

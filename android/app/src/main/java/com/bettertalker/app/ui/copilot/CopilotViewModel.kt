@@ -1482,13 +1482,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val text = truncateIfCut(res.text, res.meta.finishReason)
         // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
-        // só frases claramente sem apoio e anexa o aviso padrão. T3: o corpus
-        // inclui as linhas "ref + texto" dos versículos da pergunta (senão a
-        // própria ref injetada dispara o aviso "fora dos trechos"). T1
-        // (publicações): o texto dos trechos injetados também entra.
+        // só frases claramente sem apoio e anexa o aviso padrão. T1/T3: o
+        // corpus do gate cobre TUDO que o prompt injeta — o bloco do dossiê
+        // (refs do tópico com texto), os versículos da pergunta e os trechos
+        // de publicação da pergunta. Sem o dossiê, citar uma ref do PRÓPRIO
+        // tópico dispara o aviso falso "fora dos trechos" (visto no device
+        // com "ec 3:11").
         val corpus = verificationCorpus(
             turnContext,
-            questionVerseLines(questionVerses, text) + questionPubs.map { it.passage.text },
+            listOfNotNull(effectiveContextBlock) +
+                questionVerseLines(questionVerses, text) +
+                questionPubs.map { it.passage.text },
         )
         val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
