@@ -31,10 +31,11 @@ class DossierPromptBuilderTest {
         objective: String? = null,
         agreedApproach: String? = null,
         sectionSubPoints: List<SubPoint> = emptyList(),
+        minutes: Int = 5,
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
-            title = "Título teste", minutes = 5, contentHtml = "",
+            title = "Título teste", minutes = minutes, contentHtml = "",
             bibleRefs = emptyList(), publicationRefs = emptyList(),
             methodPrinciple = null, objective = objective, agreedApproach = agreedApproach,
             createdAt = 0, updatedAt = 0,
@@ -297,5 +298,40 @@ class DossierPromptBuilderTest {
         assertTrue(prompt.contains("NÃO"))
         assertTrue(prompt.contains("um texto separado por sub-ponto"))
         assertFalse(prompt.contains("usedSources"))
+    }
+
+    // ---------- T3 (Mini Discurso P2): meta proporcional ao tempo ----------
+
+    @Test
+    fun miniSpeechFormatLine_metaProporcionalAoMinutos() {
+        assertTrue(miniSpeechFormatLine(5).contains("650 palavras"))
+        assertTrue(miniSpeechFormatLine(5).contains("4 a 5 parágrafos"))
+        assertTrue(miniSpeechFormatLine(3).contains("390 palavras"))
+        assertTrue(miniSpeechFormatLine(1).contains("130 palavras"))
+    }
+
+    @Test
+    fun miniSpeechFormatLine_semMinutos_mantemFallback() {
+        val fallback =
+            "Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco."
+        assertEquals(fallback, miniSpeechFormatLine(null))
+        assertEquals(fallback, miniSpeechFormatLine(0))
+        assertEquals(fallback, miniSpeechFormatLine(-2))
+    }
+
+    @Test
+    fun miniSpeechFormatLine_valorExtremo_escalaSemQuebrar() {
+        val p = miniSpeechFormatLine(30)
+        assertTrue(p.contains("3900 palavras"))
+        assertTrue(p.contains("8 a 12 parágrafos"))
+    }
+
+    @Test
+    fun buildMiniSpeech_usaAMetaDoTopico() {
+        val prompt = builder.buildMiniSpeech(dossier(role = SectionRole.BODY, minutes = 3))
+        assertTrue(prompt.contains("390 palavras"))
+        // Regras de fidelidade permanecem.
+        assertTrue(prompt.contains("NÃO invente fatos"))
+        assertTrue(prompt.contains("MINI DISCURSO"))
     }
 }

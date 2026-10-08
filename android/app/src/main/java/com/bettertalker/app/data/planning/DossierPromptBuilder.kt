@@ -79,7 +79,8 @@ class DefaultDossierPromptBuilder(
             appendLine(MINI_TASK.trimIndent())
             appendLine()
             appendLine("## FORMATO")
-            appendLine("Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco.")
+            // T3 (Mini Discurso P2): meta proporcional ao tempo do tópico.
+            appendLine(miniSpeechFormatLine(dossier.currentSection.minutes))
             appendLine("Sem títulos, sem listas, sem JSON e sem markdown.")
         }.trim()
     }
@@ -305,4 +306,25 @@ class DefaultDossierPromptBuilder(
               nunca deixe texto cortado no meio de uma palavra.
         """
     }
+}
+
+/**
+ * T3 (Mini Discurso P2): meta de tamanho do mini discurso proporcional ao
+ * tempo do tópico (~130 palavras/min, ritmo de fala médio). Sem minutos
+ * (ou ≤ 0), mantém o fallback "3 a 5 parágrafos". Puro/testável.
+ */
+internal fun miniSpeechFormatLine(minutes: Int?): String {
+    if (minutes == null || minutes <= 0) {
+        return "Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco."
+    }
+    val words = minutes * 130
+    val paragraphs = when {
+        words <= 300 -> "2 a 3 parágrafos"
+        words <= 500 -> "3 a 4 parágrafos"
+        words <= 700 -> "4 a 5 parágrafos"
+        words <= 1000 -> "5 a 7 parágrafos"
+        else -> "8 a 12 parágrafos"
+    }
+    return "Texto corrido em português, cerca de $words palavras ($paragraphs), " +
+        "separados por linha em branco."
 }
