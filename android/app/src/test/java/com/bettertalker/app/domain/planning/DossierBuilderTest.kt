@@ -481,4 +481,138 @@ class DossierBuilderTest {
         val meta = d.overview.first { it.id == "b" }
         assertTrue(meta.snippet!!.contains("legado desenvolvido"))
     }
+
+    // ---------- T1 (acesso bíblico): refs dos sub-pontos no nível da seção ----------
+
+    @Test
+    fun build_sectionTarget_aggregatesSubPointBibleRefs() = runBlocking {
+        // Bug do dono: "Conversar sobre este tópico" empurra a SEÇÃO; as refs
+        // do S-34 vivem nos sub-pontos. Sem agregação, nada era resolvido.
+        val doc = listOf(
+            SectionWithSubPoints(
+                section("s1", 0),
+                listOf(
+                    subPoint("sp1", "s1", 0, bibleRefs = listOf("Ec 3:11")),
+                    subPoint("sp2", "s1", 1, bibleRefs = listOf("Gên 1:26", "Gên 1:31")),
+                ),
+            )
+        )
+        val b = builder(
+            bibleResults = mapOf(
+                "Ec 3:11" to ResolvedReference(
+                    "Ec 3:11", "Ec 3:11", "Ele fez tudo belo", "p1", ReferenceStatus.RESOLVED
+                ),
+                "Gên 1:26" to ResolvedReference(
+                    "Gên 1:26", "Gên 1:26", "façamos o homem", "p2", ReferenceStatus.RESOLVED
+                ),
+                "Gên 1:31" to ResolvedReference(
+                    "Gên 1:31", "Gên 1:31", "viu tudo o que fizera", "p3", ReferenceStatus.RESOLVED
+                ),
+            ),
+        )
+        val d = b.build(context("s1", null), doc)
+
+        assertNull(d.currentSubPoint)
+        assertEquals(listOf("Ec 3:11", "Gên 1:26", "Gên 1:31"), d.bibleTexts.map { it.ref })
+        assertEquals(3, d.bibleTexts.count { it.text != null })
+    }
+
+    @Test
+    fun build_sectionTarget_dedupesRefsFromSectionAndSubPoints() = runBlocking {
+        val sec = section("s1", 0, bibleRefs = listOf("Jo 3:16"))
+        val doc = listOf(
+            SectionWithSubPoints(
+                sec,
+                listOf(subPoint("sp1", "s1", 0, bibleRefs = listOf("Jo 3:16", "Jo 17:3"))),
+            )
+        )
+        val b = builder(
+            bibleResults = mapOf(
+                "Jo 3:16" to ResolvedReference(
+                    "Jo 3:16", "Jo 3:16", "Deus amou", "p1", ReferenceStatus.RESOLVED
+                ),
+                "Jo 17:3" to ResolvedReference(
+                    "Jo 17:3", "Jo 17:3", "vida eterna", "p2", ReferenceStatus.RESOLVED
+                ),
+            ),
+        )
+        val d = b.build(context("s1", null), doc)
+
+        // "Jo 3:16" aparece na seção E no sub-ponto: resolve UMA vez.
+        assertEquals(listOf("Jo 3:16", "Jo 17:3"), d.bibleTexts.map { it.ref })
+    }
+
+    @Test
+    fun build_sectionTarget_aggregatesPublicationRefs() = runBlocking {
+        val doc = listOf(
+            SectionWithSubPoints(
+                section("s1", 0),
+                listOf(
+                    subPoint("sp1", "s1", 0, pubRefs = listOf(PublicationRef("be", 52))),
+                    subPoint(
+                        "sp2", "s1", 1,
+                        pubRefs = listOf(PublicationRef("it", article = "Gedalias", paragraph = 4)),
+                    ),
+                ),
+            )
+        )
+        val b = builder(
+            pubResults = mapOf(
+                "be" to ResolvedReference("be", "be p. 52", "texto be", "p1", ReferenceStatus.RESOLVED),
+                "it" to ResolvedReference("it", "it “Gedalias” §4", "texto it", "p2", ReferenceStatus.RESOLVED),
+            ),
+        )
+        val d = b.build(context("s1", null), doc)
+
+        assertEquals(2, d.publicationTexts.size)
+        assertEquals(2, d.publicationTexts.count { it.text != null })
+    }
+
+    @Test
+    fun build_subPointTarget_keepsOnlyItsOwnRefs() = runBlocking {
+        // Guarda contra over-agregation: com foco em sub-ponto, as refs dos
+        // irmãos NÃO entram (o contrato do sub-ponto é específico).
+        val doc = listOf(
+            SectionWithSubPoints(
+                section("s1", 0),
+                listOf(
+                    subPoint("sp1", "s1", 0, bibleRefs = listOf("Ec 3:11")),
+                    subPoint("sp2", "s1", 1, bibleRefs = listOf("Gên 1:26")),
+                ),
+            )
+        )
+        val b = builder(
+            bibleResults = mapOf(
+                "Ec 3:11" to ResolvedReference("Ec 3:11", "Ec 3:11", "x", "p1", ReferenceStatus.RESOLVED),
+                "Gên 1:26" to ResolvedReference("Gên 1:26", "Gên 1:26", "y", "p2", ReferenceStatus.RESOLVED),
+            ),
+        )
+        val d = b.build(context("s1", "sp1"), doc)
+
+        assertEquals(listOf("Ec 3:11"), d.bibleTexts.map { it.ref })
+    }
+
+    @Test
+    fun build_sectionTarget_promptTemTextosBiblicos() = runBlocking {
+        // Critério de aceite: "## TEXTOS BÍBLICOS" aparece no prompt do tópico.
+        val doc = listOf(
+            SectionWithSubPoints(
+                section("s1", 0),
+                listOf(subPoint("sp1", "s1", 0, bibleRefs = listOf("Ec 3:11"))),
+            )
+        )
+        val b = builder(
+            bibleResults = mapOf(
+                "Ec 3:11" to ResolvedReference(
+                    "Ec 3:11", "Ec 3:11", "Ele fez tudo belo", "p1", ReferenceStatus.RESOLVED
+                ),
+            ),
+        )
+        val d = b.build(context("s1", null), doc)
+        val prompt = com.bettertalker.app.data.planning.DefaultDossierPromptBuilder()
+            .buildContextBlock(d)
+
+        assertTrue(prompt.contains("## TEXTOS BÍBLICOS"))
+        assertTrue(prompt.contains("Ele fez tudo belo"))
+    }
 }

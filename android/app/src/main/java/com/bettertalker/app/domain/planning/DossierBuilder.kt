@@ -85,9 +85,26 @@ class DefaultDossierBuilder(
             )
         }
 
-        // Refs: do sub-ponto (BODY) OU da seção (INTRO/CONCLUSION ou cursor no header)
-        val bibleRefs = currentSubPoint?.bibleRefs ?: currentSection.bibleRefs
-        val pubRefs = currentSubPoint?.publicationRefs ?: currentSection.publicationRefs
+        // Refs: do sub-ponto (BODY) OU da SEÇÃO INTEIRA. T1 (acesso bíblico):
+        // no nível da seção as refs do S-34 vivem nos sub-pontos — agregar
+        // todos (dedupe, ordem de aparição); sem isto, "Conversar sobre este
+        // tópico" resolvia zero versículos. Espelha a agregação da UI
+        // (`topicSources`), sem importar `ui/` (domain puro).
+        val bibleRefs: List<String>
+        val pubRefs: List<PublicationRef>
+        if (currentSubPoint != null) {
+            bibleRefs = currentSubPoint.bibleRefs
+            pubRefs = currentSubPoint.publicationRefs
+        } else {
+            val subs = currentState.subPoints.sortedBy { it.order }
+            bibleRefs = (currentSection.bibleRefs + subs.flatMap { it.bibleRefs })
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+            pubRefs = (currentSection.publicationRefs + subs.flatMap { it.publicationRefs })
+                .filter { it.symbol.isNotBlank() }
+                .distinct()
+        }
 
         // Resolve em paralelo
         val bibleTexts = coroutineScope {
