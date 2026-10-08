@@ -762,8 +762,11 @@ object RefDetector {
      *
      * Chaves incluem formas TNM 2015 (Pr, He, Tg, Ap, Na, Za, ...) além das
      * formas longas (Provérbios, Hebreus, Tiago...). Adicionadas na 3.2.3a-fix.
-     * DÉBITO TÉCNICO (3.2.3a-fix): "Jó" e "João" colidem na chave normalizada
-     * "jo" (Jó resolve como João). Corrigir exige matcher sensível ao texto cru.
+     *
+     * T5 (acesso bíblico): "Jó" (ACENTUADO) é o livro de Jó, distinguido de
+     * "Jo"/"João" pelo token CRU em [detectBible] — `normalizeText` apagaria
+     * o acento e colidiria na chave "jo". "Jo" SEM acento continua João (não
+     * há como distinguir de "Jó" sem acento).
      */
     private val BIBLE_BOOKS: Map<String, String> = mapOf(
         "gen" to "Gênesis", "genesis" to "Gênesis",
@@ -857,8 +860,11 @@ object RefDetector {
         // T1 (refs): aceita ponto na abreviação ("Jer. 41:1", "1 Cor. 15:3").
         val re = Regex("""\b((?:[1-3]\s*)?[a-zà-ÿ]+)\.?\s+(\d{1,3})\s*:\s*(\d{1,3})(?:[a-z])?\b""")
         for (m in re.findAll(lower)) {
+            // T5: "jó" (acentuado) é o livro de Jó; "jo" é João. A decisão usa
+            // o token cru (já minúsculo) ANTES da normalização sem acentos.
+            val rawKey = m.groupValues[1].trim()
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
-            val label = BIBLE_BOOKS[key] ?: continue
+            val label = if (rawKey == "jó") "Jó" else (BIBLE_BOOKS[key] ?: continue)
             fun add(ch: Int, verse: Int) {
                 if (ch <= 0 || verse <= 0) return
                 if (seen.add("$label|$ch|$verse")) out += BibleRef(key, label, ch, verse)

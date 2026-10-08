@@ -125,6 +125,26 @@ class RoomReferenceResolverTest {
         assertEquals("Ap 15:3", out.canonicalRef)
     }
 
+    @Test
+    fun resolveBible_jobAcentuado_resolveComoJo() = runBlocking {
+        // T5 (acesso bíblico): "Jó" acentuado não cai mais em João ("Jo") —
+        // canônico "Jó 33:24" acha o versículo (João só tem 21 capítulos).
+        val r = resolver(listOf(passage("p1", "nwt", "Jó 33:24", "texto de jó", "texto de jo")))
+        val out = r.resolveBible("Jó 33:24")
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertEquals("Jó 33:24", out.canonicalRef)
+        assertEquals("texto de jó", out.text)
+    }
+
+    @Test
+    fun resolveBible_jobSemAcento_vaiParaJoao() = runBlocking {
+        // Sem acento é indistinguível: "Jo 33:24" é João (inexistente).
+        val r = resolver(listOf(passage("p1", "nwt", "Jó 33:24", "texto", "texto")))
+        val out = r.resolveBible("Jo 33:24")
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertEquals("Jo 33:24", out.canonicalRef)
+    }
+
     // ---------- Bible: UNRESOLVED / MISSING_CORPUS ----------
 
     @Test

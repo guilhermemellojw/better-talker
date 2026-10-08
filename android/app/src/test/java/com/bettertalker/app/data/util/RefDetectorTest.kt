@@ -123,14 +123,31 @@ class RefDetectorTest {
     }
 
     /**
-     * DÉBITO TÉCNICO (3.2.3a-fix): "Jó" e "João" normalizam para a mesma
-     * chave ("jo"), e o mapa resolve para João. Este teste documenta o
-     * comportamento conhecido — corrigir exige matcher sensível ao texto cru.
+     * T5 (acesso bíblico): "Jó" (acentuado) é o livro de Jó; "Jo"/"João"
+     * seguem João. Sem acento não há como distinguir ("Jo 33:24" continua
+     * João) — documentado no teste abaixo.
      */
     @Test
-    fun detectBible_jobVsJohn_knownLimitation() {
-        val ref = RefDetector.detectBible("Jó 14:1").single()
-        assertEquals("João", ref.label)
+    fun detectBible_jobVsJohn_acentoDistingue() {
+        assertEquals("Jó", RefDetector.detectBible("Jó 14:1").single().label)
+        assertEquals("Jó", RefDetector.detectBible("Jó 33:24").single().label)
+        assertEquals("João", RefDetector.detectBible("Jo 3:16").single().label)
+        assertEquals("João", RefDetector.detectBible("João 3:16").single().label)
+    }
+
+    @Test
+    fun detectBible_job_listaViraDuasRefs() {
+        val refs = RefDetector.detectBible("(Jó 33:24, 25)")
+        assertEquals(listOf("Jó", "Jó"), refs.map { it.label })
+        assertEquals(listOf(33, 33), refs.map { it.chapter })
+        assertEquals(listOf(24, 25), refs.map { it.verse })
+    }
+
+    @Test
+    fun detectBible_jobSemAcento_continuaJoao() {
+        // Limitação honesta: "Jo" sem acento é João (21 capítulos); não há
+        // como distinguir de "Jó" sem acento pelo token.
+        assertEquals("João", RefDetector.detectBible("Jo 33:24").single().label)
     }
 
     @Test
