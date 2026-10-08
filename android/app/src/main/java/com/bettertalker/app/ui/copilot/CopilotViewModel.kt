@@ -93,6 +93,24 @@ data class InsertRequest(
 )
 
 /**
+ * T2 (Mini Discurso P2): pedido de geração do mini discurso do tópico em
+ * foco, emitido pelo chat e consumido pelo editor (mesmo padrão do
+ * [InsertRequest]).
+ */
+data class DraftRequest(
+    val sectionId: String,
+    val nonce: Long = System.nanoTime(),
+)
+
+/** T2: mensagem quando não há tópico em foco para gerar o mini discurso. */
+const val MINI_SPEECH_NO_SCOPE_MESSAGE =
+    "Abra um tópico no editor para gerar o mini discurso."
+
+/** T2: pedido de draft a partir do alvo em foco (null = sem escopo). Puro/testável. */
+internal fun draftRequestFor(sectionId: String?, nonce: Long = 0L): DraftRequest? =
+    sectionId?.takeIf { it.isNotBlank() }?.let { DraftRequest(it, nonce) }
+
+/**
  * T1 — corpus efetivamente injetado no prompt do turno (CONTENT + TRAINING +
  * estrutura do S-34: objetivo, conteúdo do ponto focado, subpontos e refs).
  * É contra ele que o pós-filtro de alucinação do chat confere a resposta.
@@ -3001,6 +3019,29 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     /** Cancela sem transcrever (botão X). */
     fun cancelVoiceInput() = speechRecognizer.cancel()
+
+    // ---------- T2 (Mini Discurso P2): gerar o mini discurso pelo chat ----------
+
+    private val _draftReq = MutableStateFlow<DraftRequest?>(null)
+    val draftReq: StateFlow<DraftRequest?> = _draftReq.asStateFlow()
+
+    /**
+     * Pede a geração do mini discurso do tópico em foco (o editor abre o
+     * mesmo DraftSheet). Sem escopo, orienta o usuário — o botão só aparece
+     * com escopo (defesa em profundidade).
+     */
+    fun requestMiniSpeech() {
+        val req = draftRequestFor(_pushedContext?.sectionId)
+        if (req == null) {
+            postText(MINI_SPEECH_NO_SCOPE_MESSAGE)
+            return
+        }
+        _draftReq.value = req
+    }
+
+    fun consumeDraftRequest() {
+        _draftReq.value = null
+    }
 
     /** Limpa Result/Error depois de levar o texto ao composer. */
     fun consumeVoiceResult() = speechRecognizer.consume()

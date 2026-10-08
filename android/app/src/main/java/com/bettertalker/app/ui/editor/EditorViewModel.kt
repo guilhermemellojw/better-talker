@@ -450,6 +450,16 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     }
 
     /**
+     * T2 (Mini Discurso P2): pedido vindo do chat — gera o mini discurso do
+     * tópico pelo MESMO pipeline (`startDraft` → DraftSheet com preview,
+     * fidelidade e aceitar/descartar/desfazer). Seção inexistente = no-op.
+     */
+    fun requestDraftForSection(sectionId: String) {
+        if (_sections.value.none { it.section.id == sectionId }) return
+        startDraft(DraftTarget.Section(sectionId))
+    }
+
+    /**
      * Fecha a sheet. Se ainda estiver carregando, cancela o job primeiro
      * (não deixa geração órfã).
      */

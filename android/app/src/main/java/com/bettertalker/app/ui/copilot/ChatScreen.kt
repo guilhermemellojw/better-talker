@@ -97,7 +97,16 @@ fun ChatScreen(
     onBack: () -> Unit,
     onInsert: (text: String, heading: String?) -> Unit,
     onOpenLibrary: () -> Unit,
-    headings: List<String> = emptyList()
+    headings: List<String> = emptyList(),
+    // T2 (Mini Discurso P2): o mesmo DraftSheet do editor, hospedado no chat
+    // para o fluxo "conversar → gerar" sem trocar de tela.
+    draftState: com.bettertalker.app.ui.editor.DraftUiState =
+        com.bettertalker.app.ui.editor.DraftUiState.Idle,
+    draftSections: List<com.bettertalker.app.ui.editor.SectionUiState> = emptyList(),
+    onDraftAccept: () -> Unit = {},
+    onDraftDismiss: () -> Unit = {},
+    onDraftUndo: () -> Unit = {},
+    onDraftRetry: () -> Unit = {},
 ) {
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
@@ -586,6 +595,19 @@ fun ChatScreen(
             dismissButton = { TextButton(onClick = { showPaste = false }) { Text("Cancelar") } }
         )
     }
+
+    // T2 (Mini Discurso P2): preview + fidelidade + aceitar/descartar/desfazer
+    // (o mesmo pipeline do editor — gate de alucinação incluído).
+    if (draftState !is com.bettertalker.app.ui.editor.DraftUiState.Idle) {
+        com.bettertalker.app.ui.editor.DraftSheet(
+            state = draftState,
+            sections = draftSections,
+            onAccept = onDraftAccept,
+            onDismiss = onDraftDismiss,
+            onRetry = onDraftRetry,
+            onUndo = onDraftUndo,
+        )
+    }
 }
 
 @Composable
@@ -704,6 +726,15 @@ private fun MessageActions(
             },
             enabled = ttsReady,
         ) { Text(speakButtonLabel(speaking)) }
+        // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
+        if (hasScope) {
+            TextButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    vm.requestMiniSpeech()
+                }
+            ) { Text("Gerar mini discurso") }
+        }
     }
 }
 

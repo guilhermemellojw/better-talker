@@ -185,6 +185,17 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                     copilotVm.consumeTitle()
                 }
             }
+            // T2 (Mini Discurso P2): pedido do chat → gera no editor (mesma sheet).
+            val draftState by editorVm.draftState.collectAsState()
+            val editorSections by editorVm.sections.collectAsState()
+            val draftReq by copilotVm.draftReq.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(draftReq) {
+                val req = draftReq
+                if (req != null) {
+                    editorVm.requestDraftForSection(req.sectionId)
+                    copilotVm.consumeDraftRequest()
+                }
+            }
             ChatScreen(
                 copilotVm,
                 onBack = { nav.popBackStack() },
@@ -193,7 +204,16 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                     editorVm.queueInsertForTarget(copilotVm.currentTarget(), text, heading)
                 },
                 onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
-                headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value)
+                headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value),
+                draftState = draftState,
+                draftSections = editorSections,
+                onDraftAccept = editorVm::acceptDraft,
+                onDraftDismiss = editorVm::dismissDraft,
+                onDraftUndo = editorVm::undoDraft,
+                onDraftRetry = {
+                    (draftState as? com.bettertalker.app.ui.editor.DraftUiState.Error)
+                        ?.target?.let(editorVm::startDraft)
+                },
             )
             // Fase 18 §17: seleção viva do editor -> contexto do Copilot.
             val liveSelection by editorVm.selectedText.collectAsState()
