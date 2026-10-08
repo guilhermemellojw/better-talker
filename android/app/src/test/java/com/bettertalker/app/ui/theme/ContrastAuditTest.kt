@@ -165,4 +165,25 @@ class ContrastAuditTest {
         assertAa("claro", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
         assertAa("escuro", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
     }
+
+    // ---------- 2 usos finais (ModelScreen) ----------
+
+    @Test
+    fun a11y_gemmaLocalDescricao_passaAa() {
+        // Descrição do Gemma local (ModelScreen) sobre Card M3 — onSurfaceVariant
+        // passa nos dois tokens possíveis de container (Low/Highest).
+        assertAa("claro/low", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("claro/highest", LightColors.onSurfaceVariant, LightColors.surfaceContainerHighest)
+        assertAa("escuro/low", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+        assertAa("escuro/highest", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerHighest)
+    }
+
+    @Test
+    fun a11y_deepSeekStatusOnline_passaAa() {
+        // "Status: ONLINE" (ModelScreen) sobre Card M3.
+        assertAa("claro/low", LightColors.onSurfaceVariant, LightColors.surfaceContainerLow)
+        assertAa("claro/highest", LightColors.onSurfaceVariant, LightColors.surfaceContainerHighest)
+        assertAa("escuro/low", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerLow)
+        assertAa("escuro/highest", DarkColors.onSurfaceVariant, DarkColors.surfaceContainerHighest)
+    }
 }

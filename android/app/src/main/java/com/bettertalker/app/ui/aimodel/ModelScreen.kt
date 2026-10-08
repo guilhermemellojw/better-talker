@@ -275,7 +275,9 @@ private fun CopilotProviderCard(vm: ModelViewModel, modelPresent: Boolean) {
                         "Modelo ausente: baixe acima (ou use adb push em dev)."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (modelPresent) MaterialTheme.colorScheme.primary
+                    // A11y: o amarelo primário falha AA no claro (1.55:1);
+                    // onSurfaceVariant passa sobre o card (7.63/7.20+).
+                    color = if (modelPresent) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.error
                 )
                 "qwen" -> {
@@ -341,7 +343,9 @@ private fun DeepSeekCard(vm: ModelViewModel) {
                 "Status: ${deepSeekStatusLabel(status)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = when (status) {
-                    DeepSeekUiStatus.ONLINE -> MaterialTheme.colorScheme.primary
+                    // A11y: amarelo primário falha AA no claro; onSurfaceVariant
+                    // passa sobre o card (7.63/7.20+).
+                    DeepSeekUiStatus.ONLINE -> MaterialTheme.colorScheme.onSurfaceVariant
                     DeepSeekUiStatus.AUTH_ERROR, DeepSeekUiStatus.ERROR ->
                         MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.secondary
