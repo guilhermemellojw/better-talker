@@ -190,6 +190,9 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "\nSe a pergunta citar uma referência bíblica e o bloco TEXTOS BÍBLICOS existir, " +
         "cite o texto do bloco entre aspas, palavra por palavra; se não existir, diga que " +
         "não há suporte." +
+        // T2 (expert em publicações): mesma regra para trechos de publicação.
+        "\nAo citar um trecho de TRECHOS DE PUBLICAÇÕES, use aspas palavra-por-palavra, " +
+        "como para versículos." +
         // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
         "\nAbra com 1 frase; use ## para seções, -/1. para listas, ** em 1-3 termos por item; " +
         "feche com o próximo passo. Sem código, tabelas ou HTML."

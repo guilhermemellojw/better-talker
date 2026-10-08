@@ -267,4 +267,23 @@ class ChatPromptParityTest {
         assertTrue(p.contains("sem rótulos internos"))
         assertTrue(p.contains("frase de insuficiência"))
     }
+
+    // ---------- T2 (expert em publicações): regra dos TRECHOS DE PUBLICAÇÕES ----------
+
+    @Test
+    fun promptDoChatOrientaCitarTrechoDePublicacao() {
+        val p = buildChatPrompt(
+            message = "o que o Seja Feliz diz sobre o perdão?",
+            history = emptyList(),
+            isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null, blockMinutes = null, blockText = "x",
+        )
+        // Complemento T2: mesma citação literal dos versículos.
+        assertTrue(p.contains("TRECHOS DE PUBLICAÇÕES"))
+        assertTrue(p.contains("palavra-por-palavra"))
+        // Regra do versículo intacta.
+        assertTrue(p.contains("bloco TEXTOS BÍBLICOS"))
+        assertTrue(p.contains("diga que não há suporte"))
+    }
 }
