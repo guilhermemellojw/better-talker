@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.repo
 
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
@@ -423,20 +424,17 @@ class CopilotRepository(private val db: AppDatabase) {
     }
 
     /**
-     * Trechos do versículo na TNM indexada (best-effort: depende do formato
-     * extraído). Vazio se a TNM não está baixada/indexada.
+     * Trechos de versículos na TNM indexada, por REF EXATA (T2 — acesso
+     * bíblico). Aceita ref livre ("Jer. 29:11", "Je 29:11-13"): o detector
+     * expande lista/range e cada versículo é buscado com `findByRef` — o
+     * LIKE textual antigo nunca casava (o `normalized` guarda o texto do
+     * versículo, não a ref). Vazio se a TNM não está baixada/indexada ou a
+     * ref não existe no índice.
      */
-    suspend fun biblePassages(
-        bookNorm: String,
-        chapter: Int,
-        verse: Int,
-        limit: Int = 2
-    ): List<ScopedHit> {
+    suspend fun biblePassages(ref: String, limit: Int = 4): List<ScopedHit> {
         val nwt = db.attachmentDao().baseReady("nwt") ?: return emptyList()
-        val found = db.passageDao().searchLikeIn(listOf(nwt.id), "$bookNorm $chapter", limit * 4)
         val label = baseTitle("nwt")
-        return found.filter { verseRefMatches(it.normalized, bookNorm, chapter, verse) }
-            .take(limit).map { ScopedHit(it, label) }
+        return resolveBiblePassages(db.passageDao(), ref, limit).map { ScopedHit(it, label) }
     }
 
     /**
@@ -501,6 +499,36 @@ class CopilotRepository(private val db: AppDatabase) {
 
 /** Trechos de conteúdo (citadas), sem o guia be/th. Puro/testável. */
 fun contentHits(hits: List<ScopedHit>): List<ScopedHit> = partitionGuideHits(hits).second
+
+/**
+ * T2 (acesso bíblico) — refs bíblicas canônicas TNM ("Je 29:11") de um texto
+ * livre, na ordem de aparição; ranges/listas são expandidos pelo detector
+ * ("Je 29:11-13" → 3; "Gên 1:26, 31" → 2). Puro/testável.
+ */
+internal fun canonicalBibleRefs(raw: String): List<String> =
+    RefDetector.detectBible(raw)
+        .mapNotNull { b -> normalizeBibleBookName(b.label)?.let { "$it ${b.chapter}:${b.verse}" } }
+        .distinct()
+
+/**
+ * T2 — versículos reais do índice, por REF EXATA (`findByRef`), na ordem
+ * pedida e com teto [limit]. Sem fallback textual: ref ausente não entra.
+ * Pura quanto ao DAO (fake em teste).
+ */
+internal suspend fun resolveBiblePassages(
+    passageDao: PassageDao,
+    raw: String,
+    limit: Int,
+): List<PassageEntity> {
+    if (limit <= 0) return emptyList()
+    val out = mutableListOf<PassageEntity>()
+    for (ref in canonicalBibleRefs(raw)) {
+        val p = passageDao.findByRef(ref) ?: continue
+        out += p
+        if (out.size >= limit) break
+    }
+    return out
+}
 
 /**
  * Termos de busca: título + corpo + extras, sem stopwords, sem repetidos,

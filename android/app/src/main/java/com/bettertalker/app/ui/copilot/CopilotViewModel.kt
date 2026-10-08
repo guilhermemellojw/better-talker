@@ -2085,7 +2085,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val sb = StringBuilder("Sobre “$topic”, nos seus materiais:\n")
         // versículos citados na pergunta, direto da TNM indexada
         for (b in RefDetector.detectBible(topic).take(2)) {
-            val verses = repo.biblePassages(b.bookNorm, b.chapter, b.verse, 2)
+            // T2: a ref vai por rótulo ("Jeremias 29:11") — biblePassages
+            // resolve por ref exata no índice (Je 29:11).
+            val verses = repo.biblePassages("${b.label} ${b.chapter}:${b.verse}", 2)
             for (v in verses) {
                 sb.append("\nDa Bíblia (TNM 2015) — ${b.label} ${b.chapter}:${b.verse}:\n“${v.passage.text.take(220)}”\n")
             }
