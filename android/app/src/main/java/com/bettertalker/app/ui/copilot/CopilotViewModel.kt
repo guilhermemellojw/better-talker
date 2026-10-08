@@ -139,6 +139,14 @@ fun verificationCorpus(
 }.filter { it.isNotBlank() }
 
 /**
+ * T3 (acesso bíblico) — linhas "ref + texto" para o CORPUS do gate: cobre a
+ * ref citada ("Je 29:11" não gera aviso "fora dos trechos") e o texto para o
+ * pós-filtro de citações. Puro/testável.
+ */
+fun questionVerseLines(verses: List<ScopedHit>): List<String> =
+    verses.map { "[${it.passage.ref}] ${it.passage.text}" }
+
+/**
  * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
  * com o texto literal dos versículos citados NA MENSAGEM. Vazio = não injeta
  * (P4: nunca varrer a Bíblia sem citação). Puro/testável.
@@ -1406,8 +1414,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 "CopilotLLM",
                 "chat remoto: ${questionVerses.size} versículo(s) da pergunta injetado(s)"
             )
-        }
-        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
+        }        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1434,8 +1441,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val text = truncateIfCut(res.text, res.meta.finishReason)
         // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
-        // só frases claramente sem apoio e anexa o aviso padrão.
-        val corpus = verificationCorpus(turnContext, questionVerses.map { it.passage.text })
+        // só frases claramente sem apoio e anexa o aviso padrão. T3: o corpus
+        // inclui as linhas "ref + texto" dos versículos da pergunta (senão a
+        // própria ref injetada dispara o aviso "fora dos trechos").
+        val corpus = verificationCorpus(turnContext, questionVerseLines(questionVerses))
         val verified = GroundednessVerifier.verify(text, corpus)
         if (verified.hasRemovals) {
             android.util.Log.w(

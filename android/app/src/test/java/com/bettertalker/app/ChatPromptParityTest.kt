@@ -261,6 +261,7 @@ class ChatPromptParityTest {
         // Regra T4: versículo resolvido é a fonte; sem bloco, sem suporte.
         assertTrue(p.contains("referência bíblica"))
         assertTrue(p.contains("## TEXTOS BÍBLICOS") || p.contains("bloco TEXTOS BÍBLICOS"))
+        assertTrue(p.contains("palavra por palavra"))
         assertTrue(p.contains("diga que não há suporte"))
         // Regras de fidelidade existentes permanecem.
         assertTrue(p.contains("sem rótulos internos"))

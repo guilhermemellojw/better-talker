@@ -1,10 +1,12 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.data.ai.checkCitations
 import com.bettertalker.app.data.copilot.ChatTurnContext
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.repo.ScopedHit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,7 +65,30 @@ class BibleQuestionPromptTest {
 
     @Test
     fun verificationCorpus_incluiVersiculoDaPergunta() {
-        val corpus = verificationCorpus(turn(), listOf("“Pois eu sei muito bem”"))
-        assertTrue(corpus.contains("“Pois eu sei muito bem”"))
+        val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem”"))
+        val corpus = verificationCorpus(turn(), questionVerseLines(verses))
+        assertTrue(corpus.contains("[Je 29:11] “Pois eu sei muito bem”"))
+    }
+
+    @Test
+    fun questionVerseLines_permitemCitarARefSemAvisoFalso() {
+        // Regressão do device: a ref injetada ("Je 29:11") precisa estar no
+        // corpus, senão o pós-check acusa "versículo fora dos trechos".
+        val lines = questionVerseLines(
+            listOf(hit("Je 29:11", "“Pois eu sei muito bem o que tenho em mente para vocês”"))
+        )
+        assertTrue(lines.single().startsWith("[Je 29:11] "))
+
+        val com = checkCitations(
+            "Veja Je 29:11: “Pois eu sei muito bem o que tenho em mente para vocês”.",
+            lines,
+        )
+        assertTrue(com.ok)
+
+        val sem = checkCitations(
+            "Veja Je 29:11.",
+            listOf("“Pois eu sei muito bem o que tenho em mente para vocês”"),
+        )
+        assertFalse(sem.ok)
     }
 }
