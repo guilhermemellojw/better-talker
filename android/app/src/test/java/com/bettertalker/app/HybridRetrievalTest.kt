@@ -5,7 +5,10 @@ import com.bettertalker.app.data.domain.Passage
 import com.bettertalker.app.data.domain.RetrievalCandidate
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.domain.TrainingCategory
+import com.bettertalker.app.data.domain.pubKeyOf
+import com.bettertalker.app.data.domain.titlePrefixHit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,5 +111,75 @@ class HybridRetrievalTest {
         ) { it.passage.trainingCategory }
         // 0.5+0.15=0.65 < 0.9: fora da categoria continua depois, não some.
         assertEquals(listOf("p-a", "p-b"), hits.map { it.passage.id })
+    }
+
+    // ---------- T2: boost por título no metadataScore ----------
+
+    private fun pubPassage(fileName: String, symbol: String? = null) =
+        passage(fileName, fileName, "conteudo generico do trecho").copy(symbol = symbol)
+
+    private fun metaOf(query: String, fileName: String, symbol: String? = null): Double {
+        val cands = listOf(pubPassage(fileName, symbol))
+        val hits = HybridRetrieval.rank(query, cands, mapOf(fileName to fileName), 5)
+        return hits.firstOrNull()?.metadataScore ?: 0.0
+    }
+
+    @Test
+    fun pubKeyOf_simboloOuArquivo() {
+        assertEquals("lff", pubKeyOf("lff", "lff_T.jwpub"))
+        assertEquals("lff", pubKeyOf(null, "lff_T.jwpub"))
+        assertEquals("it", pubKeyOf(null, "it_T.jwpub"))
+        assertEquals("rsg", pubKeyOf(null, "rsg_T.jwpub"))
+        // Revista fica fora do catálogo de títulos: sem chave (sem boost).
+        assertEquals(null, pubKeyOf(null, "wp_T_201909.jwpub"))
+        assertEquals(null, pubKeyOf(null, null))
+    }
+
+    @Test
+    fun titlePrefixHit_casosEArmadilhas() {
+        assertTrue(titlePrefixHit("o que seja feliz diz sobre o perdao", "Seja Feliz para Sempre!"))
+        assertTrue(titlePrefixHit("o que estudo perspicaz diz", "Estudo Perspicaz das Escrituras"))
+        assertTrue(titlePrefixHit("o que o guia de pesquisa diz", "Guia de Pesquisa"))
+        assertTrue(titlePrefixHit("guia de pesquisa", "Guia de Pesquisa"))
+        // Armadilha: "para sempre" é genérico e NÃO é prefixo do título.
+        assertFalse(titlePrefixHit("vida para sempre", "Seja Feliz para Sempre!"))
+        // 1 token só vale quando distintivo (≥8 chars): "melhore" (7) não.
+        assertFalse(titlePrefixHit("melhore este ponto", "Melhore"))
+    }
+
+    @Test
+    fun metadataScore_simboloOuTitulo_semDuplaContagem() {
+        // Só o símbolo: 0.45 (boost) + 0.20 (overlap do símbolo no nome).
+        assertEquals(0.65, metaOf("lff", "lff_T.jwpub"), 0.01)
+        // Só o título: 0.45.
+        assertEquals(0.45, metaOf("seja feliz", "lff_T.jwpub"), 0.01)
+        // Ambos juntos: UM único +0.45 (+ overlap 1/3) — não 0.90.
+        assertEquals(0.5167, metaOf("lff seja feliz", "lff_T.jwpub"), 0.01)
+    }
+
+    @Test
+    fun metadataScore_titulosCompletosEPartes() {
+        assertTrue(metaOf("o que o guia de pesquisa diz sobre isso?", "rsg_T.jwpub") >= 0.45)
+        assertTrue(metaOf("o que estudo perspicaz das escrituras diz?", "it_T.jwpub") >= 0.45)
+        assertTrue(metaOf("o que o livro ame as pessoas diz?", "lmd_T.jwpub") >= 0.45)
+        // Título não citado: sem boost de título.
+        assertEquals(0.0, metaOf("o que isso diz?", "lff_T.jwpub"), 0.0)
+    }
+
+    @Test
+    fun rank_tituloPriorizaAPublicacaoCerta() {
+        val cands = listOf(
+            pubPassage("lff_T.jwpub"),
+            pubPassage("wp_T_201909.jwpub"),
+        )
+        val hits = HybridRetrieval.rank(
+            "o que o Seja Feliz diz sobre o perdao?",
+            cands,
+            mapOf("lff_T.jwpub" to "lff_T.jwpub", "wp_T_201909.jwpub" to "wp_T_201909.jwpub"),
+            5,
+        )
+        assertEquals("lff_T.jwpub", hits.first().passage.id)
+        assertTrue(hits.first().metadataScore >= 0.45)
+        assertTrue(hits.first().foundBy.contains("metadata"))
     }
 }

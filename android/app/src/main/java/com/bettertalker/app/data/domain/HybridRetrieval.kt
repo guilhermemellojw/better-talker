@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.domain
 
+import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.normalizeText
 
 /**
@@ -117,8 +118,16 @@ object HybridRetrieval {
     ): Double {
         if (queryTerms.isEmpty()) return 0.0
         var score = 0.0
-        val symbol = (passage.symbol ?: "").lowercase()
-        if (symbol.isNotEmpty() && normalizedQuery.split(" ").contains(symbol)) score += 0.45
+        // T2 (boost por título): chave da publicação — símbolo explícito ou
+        // inferida do nome do arquivo ("lff_T.jwpub" → lff; a coluna `symbol`
+        // fica vazia em boa parte do acervo real). Símbolo OU título citado
+        // na pergunta vale +0.45, SEM dupla contagem.
+        val pubKey = pubKeyOf(passage.symbol, publicationTitle)
+        if (pubKey != null) {
+            val symbolHit = normalizedQuery.split(" ").contains(pubKey)
+            val titleHit = titlePrefixHit(normalizedQuery, PubCatalog.titleOf(pubKey).orEmpty())
+            if (symbolHit || titleHit) score += 0.45
+        }
         score += 0.20 * overlap(queryTerms, tokenize(publicationTitle.orEmpty()).distinct())
         score += 0.20 * overlap(queryTerms, tokenize(passage.section).distinct())
         val refTerms = tokenize(passage.ref).distinct()
@@ -194,4 +203,45 @@ object HybridRetrieval {
                 .thenBy { it.hit.passage.id }
         ).map { it.hit }
     }
+}
+
+/**
+ * T2 (boost por título) — chave da publicação de um trecho: símbolo
+ * explícito quando preenchido; senão inferida do NOME DO ARQUIVO pelo mesmo
+ * catálogo ("lff_T.jwpub" → lff; "it_T.jwpub" → it). Null = desconhecida
+ * (ex.: revistas, que ficam fora do [PubCatalog.titleIndex]). Puro/testável.
+ */
+internal fun pubKeyOf(symbol: String?, fileName: String?): String? {
+    val sym = symbol?.lowercase()?.trim().orEmpty()
+    if (sym.isNotEmpty()) return sym
+    val n = normalizeText(fileName.orEmpty())
+    if (n.isBlank()) return null
+    val tokens = n.split(" ").toSet()
+    return PubCatalog.titleIndex()
+        .map { it.second }
+        .distinct()
+        .firstOrNull { key -> tokens.contains(key) || n.contains(normalizeText(key)) }
+}
+
+/**
+ * T2 (boost por título) — o PREFIXO do título está citado na pergunta?
+ * "seja feliz" para "Seja Feliz para Sempre!"; "guia de" para "Guia de
+ * Pesquisa"; "estudo perspicaz" para "Estudo Perspicaz das Escrituras".
+ * Prefixos de 2+ tokens; 1 token só quando distintivo (≥8 chars — evita
+ * casar "melhore" genérico). Puro/testável.
+ */
+internal fun titlePrefixHit(normalizedQuery: String, title: String): Boolean {
+    val tokens = normalizeText(title).split(" ").filter { it.isNotBlank() }
+    if (tokens.isEmpty()) return false
+    val maxN = minOf(tokens.size, 3)
+    for (n in maxN downTo 1) {
+        val phrase = tokens.take(n).joinToString(" ")
+        val hit = if (n >= 2) {
+            normalizedQuery.contains(phrase)
+        } else {
+            phrase.length >= 8 && normalizedQuery.contains(phrase)
+        }
+        if (hit) return true
+    }
+    return false
 }
