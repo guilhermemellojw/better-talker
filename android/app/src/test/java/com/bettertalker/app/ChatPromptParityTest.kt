@@ -246,4 +246,24 @@ class ChatPromptParityTest {
             com.bettertalker.app.data.edit.EditProposalMode.INSERT, "x")
         assertTrue(ins.contains("APÓS o bloco"))
     }
+
+    // ---------- T4 (acesso bíblico): regra dos TEXTOS BÍBLICOS ----------
+
+    @Test
+    fun promptDoChatOrientaUsarTextosBiblicos() {
+        val p = buildChatPrompt(
+            message = "o que diz Jer. 29:11?",
+            history = emptyList(),
+            isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null, blockMinutes = null, blockText = "x",
+        )
+        // Regra T4: versículo resolvido é a fonte; sem bloco, sem suporte.
+        assertTrue(p.contains("referência bíblica"))
+        assertTrue(p.contains("## TEXTOS BÍBLICOS") || p.contains("bloco TEXTOS BÍBLICOS"))
+        assertTrue(p.contains("diga que não há suporte"))
+        // Regras de fidelidade existentes permanecem.
+        assertTrue(p.contains("sem rótulos internos"))
+        assertTrue(p.contains("frase de insuficiência"))
+    }
 }

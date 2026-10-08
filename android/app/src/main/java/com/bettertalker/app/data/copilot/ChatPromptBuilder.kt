@@ -186,6 +186,9 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
         "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE +
+        // T4 (acesso bíblico): o versículo resolvido é a única fonte autorizada.
+        "\nSe a pergunta citar uma referência bíblica e o bloco TEXTOS BÍBLICOS existir, " +
+        "responda com o texto literal dele; se não existir, diga que não há suporte." +
         // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
         "\nAbra com 1 frase; use ## para seções, -/1. para listas, ** em 1-3 termos por item; " +
         "feche com o próximo passo. Sem código, tabelas ou HTML."
