@@ -1524,7 +1524,20 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // T1 (expert em publicações): trechos de publicações citadas NA
         // PERGUNTA (mesmo padrão dos versículos; P4: só com citação).
         val questionPubs = if (text.isNotBlank()) repo.publicationPassages(text, 3) else emptyList()
-        val effectiveContextBlock = combineContextBlocks(contextBlock, questionVerses, questionPubs)
+        // T1 (Fase 2): memória da construção — resumo rolante do fio da
+        // conversa, antes do dossiê. Null em conversa curta sem decisões =
+        // prompt idêntico ao anterior (cache preservado).
+        val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
+            com.bettertalker.app.data.copilot.buildRollingSummary(
+                history,
+                pushedSectionTitle() ?: _activeBlockTitle.value.orEmpty(),
+            )
+        )
+        val effectiveContextBlock = combineContextBlocks(
+            listOfNotNull(memory, contextBlock).joinToString("\n\n").ifBlank { null },
+            questionVerses,
+            questionPubs,
+        )
         if (questionVerses.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
@@ -1602,7 +1615,32 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             scopeEmpty = turnContext.pack.contentSources.isEmpty(),
         )
         val withTip = if (tip == null) finalText else finalText + tip
+        // T1 (Fase 2): consenso automático — decisões da resposta (〈decisão〉
+        // ou pista explícita) viram agreedApproach do tópico em foco, sem
+        // duplicar. Best-effort: nunca quebra a resposta.
+        try {
+            recordConsensus(verified.text)
+        } catch (_: Exception) {
+        }
         post(false, "text", ChatCodec.escMap(mapOf("text" to withTip)), MessageOrigin.COPILOT)
+    }
+
+    /**
+     * T1 (Fase 2): persiste o consenso da resposta no tópico em foco.
+     * O editor observa o DAO e reflete sozinho; o dossiê seguinte já traz
+     * a abordagem acordada. Puro o merge ([mergeApproach]).
+     */
+    private suspend fun recordConsensus(responseText: String) {
+        val decisions =
+            com.bettertalker.app.data.copilot.extractDecisions(responseText)
+        if (decisions.isEmpty()) return
+        val sid = _pushedContext?.sectionId ?: return
+        val sec = db.speechSectionDao().get(sid) ?: return
+        val merged = com.bettertalker.app.data.copilot.mergeApproach(sec.agreedApproach, decisions)
+            ?: return
+        db.speechSectionDao().upsert(
+            sec.copy(agreedApproach = merged, updatedAt = System.currentTimeMillis())
+        )
     }
 
     /**

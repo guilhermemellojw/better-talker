@@ -127,8 +127,7 @@ fun recentHistory(turns: List<ChatTurn>, limit: Int = MAX_HISTORY_MESSAGES): Str
  * Sem histórico a vira só a mensagem, então a primeira pergunta não carrega
  * seções vazias no prompt. Puro/testável.
  */
-fun chatBriefToText(message: String, history: List<ChatTurn>, isFirstMessage: Boolean): String {
-    val parts = mutableListOf<String>()
+fun chatBriefToText(message: String, history: List<ChatTurn>, isFirstMessage: Boolean): String {    val parts = mutableListOf<String>()
     val historySection = recentHistory(history)
     if (historySection.isNotEmpty()) parts += historySection
     if (!isFirstMessage) {
@@ -138,6 +137,106 @@ fun chatBriefToText(message: String, history: List<ChatTurn>, isFirstMessage: Bo
     }
     parts += "Mensagem do usuário: \"$message\""
     return parts.joinToString("\n\n")
+}
+
+/** Marcador de consenso emitido pelo modelo (instruído na cauda do chat). */
+const val DECISION_OPEN = "〈decisão〉"
+const val DECISION_CLOSE = "〈/decisão〉"
+
+/**
+ * A partir de N turnos do usuário, a memória da construção é (re)gerada —
+ * in-place, sem acumular. Mantém o system estável entre turnos (cache).
+ */
+const val SUMMARY_EVERY_TURNS = 8
+
+/** Teto de decisões carregadas no bloco (fio recente, sem poluir). */
+const val SUMMARY_MAX_DECISIONS = 5
+
+/** Pistas de decisão do usuário (texto normalizado, sem acento). */
+private val DECISION_HINTS = Regex(
+    "\\b(decidido|decidimos|combinado|fechado|vamos fazer assim|pode ser assim|" +
+        "fica assim|anota|anote|registra isso)\\b"
+)
+
+/**
+ * Memória da construção em conjunto: o que foi decidido + próximo passo.
+ * Por conversa (o histórico já é escopado); sem persistência própria.
+ */
+data class RollingSummary(
+    val sectionTitle: String = "",
+    val decisions: List<String> = emptyList(),
+    val nextStep: String = "",
+    val userTurns: Int = 0,
+)
+
+/**
+ * Extrai decisões de um texto: tags 〈decisão〉 do modelo primeiro;
+ * sem tags, frases do usuário com pista explícita ("decidido", ...).
+ * Puro/testável.
+ */
+fun extractDecisions(text: String): List<String> {
+    val tagged = Regex(
+        Regex.escape(DECISION_OPEN) + "(.*?)" + Regex.escape(DECISION_CLOSE),
+        RegexOption.DOT_MATCHES_ALL,
+    ).findAll(text)
+        .map { it.groupValues[1].trim() }
+        .filter { it.isNotEmpty() }
+        .toList()
+    if (tagged.isNotEmpty()) return tagged
+    if (!DECISION_HINTS.containsMatchIn(" ${normalizeText(text)} ")) return emptyList()
+    return text.split(Regex("[.!?\\n]+"))
+        .map { it.trim() }
+        .filter { it.length > 12 }
+        .take(2)
+}
+
+/**
+ * (Re)gera o resumo a partir do histórico escopado: decisões das respostas
+ * + decisões do usuário, fio recente primeiro, teto aplicado. Puro/testável.
+ */
+fun buildRollingSummary(turns: List<ChatTurn>, sectionTitle: String): RollingSummary {
+    val userTurns = turns.count { it.fromMe && it.text.isNotBlank() }
+    val decisions = turns
+        .flatMap { extractDecisions(it.text) }
+        .takeLast(SUMMARY_MAX_DECISIONS)
+    val nextStep = turns.lastOrNull { it.fromMe }?.text?.trim()?.take(140).orEmpty()
+    return RollingSummary(sectionTitle.trim(), decisions, nextStep, userTurns)
+}
+
+/**
+ * Bloco ## MEMÓRIA DA CONSTRUÇÃO para o system (antes das 6 mensagens).
+ * Null quando não há o que lembrar (conversa curta sem decisões) — nesse
+ * caso o prompt segue idêntico ao anterior. Puro/testável.
+ */
+fun renderMemoryBlock(summary: RollingSummary): String? {
+    if (summary.decisions.isEmpty() && summary.userTurns < SUMMARY_EVERY_TURNS) return null
+    return buildString {
+        appendLine("## MEMÓRIA DA CONSTRUÇÃO (o que já foi decidido — continue daqui)")
+        if (summary.sectionTitle.isNotBlank()) appendLine("Seção atual: ${summary.sectionTitle}")
+        summary.decisions.forEach { appendLine("- Decisão: $it") }
+        if (summary.nextStep.isNotBlank()) appendLine("Próximo passo: ${summary.nextStep}")
+    }.trim()
+}
+
+/**
+ * Mescla decisões novas no agreedApproach da seção (sem duplicar,
+ * case-insensitive; teto de 500 chars). Null quando nada muda.
+ * Puro/testável.
+ */
+fun mergeApproach(current: String?, decisions: List<String>): String? {
+    val fresh = decisions.map { it.trim() }.filter { it.isNotEmpty() }
+    if (fresh.isEmpty()) return null
+    val base = current?.trim().orEmpty()
+    val seen = base.lowercase()
+    val sb = StringBuilder(base)
+    for (d in fresh) {
+        if (seen.contains(d.lowercase()) || sb.toString().lowercase().contains(d.lowercase())) continue
+        if (sb.isNotEmpty()) sb.append("\n")
+        sb.append("- ").append(d)
+    }
+    val merged = sb.toString().trim().take(500)
+    if (merged.isEmpty() || merged == base) return null
+    return merged
 }
 
 /** Atalho que vira mensagem de usuário e entra no MESMO pipeline do chat livre. */

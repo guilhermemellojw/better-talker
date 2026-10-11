@@ -220,6 +220,10 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // T2 (expert em publicações): mesma regra para trechos de publicação.
         "\nAo citar um trecho de TRECHOS DE PUBLICAÇÕES, use aspas palavra-por-palavra, " +
         "como para versículos." +
+        // T1 (Fase 2): ao registrar um consenso ou decisão com o usuário,
+        // marque com 〈decisão〉…〈/decisão〉 para o app lembrar e continuar daqui.
+        "\nAo registrar um consenso ou decisão com o usuário, marque com " +
+        "〈decisão〉…〈/decisão〉." +
         // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
         "\n" + CHAT_TAIL_FORMAT
 
