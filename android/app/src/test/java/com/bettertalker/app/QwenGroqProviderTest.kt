@@ -339,4 +339,24 @@ class QwenGroqProviderTest {
         val body = http.bodies.single()
         assertTrue(body.contains(QwenProvider.EDIT_PROPOSAL_SCHEMA))
     }
+
+    // ---------- T1 (modo colar e conversar): prompt minimalista ----------
+
+    @Test
+    fun colarEConversarUsaSystemMinimo() = runBlocking {
+        val http = FakeHttp(mutableListOf(chatOk("sugestão aqui")))
+        provider(http).generate(
+            req().copy(
+                message = "o que acha?",
+                minimalPaste = "Ponto 1: a fé. Ponto 2: a esperança."
+            )
+        )
+        val body = http.bodies.single()
+        assertTrue(body.contains("copiloto de oratória"))
+        assertTrue(body.contains("Ponto 1: a fé."))
+        assertTrue(body.contains("o que acha?"))
+        assertFalse(body.contains("Abra com 1 frase"))
+        assertFalse(body.contains("REGRAS DO S-34"))
+        assertFalse(body.contains("response_format"))
+    }
 }

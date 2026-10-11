@@ -42,7 +42,9 @@ class DeepSeekProvider(
             )
         }
         val prompts = deepSeekPromptsFor(request)
-        val wantProposal = request.responseFormat == ResponseFormat.EDIT_PROPOSAL
+        // T1 (modo colar e conversar): texto puro sempre — nunca schema.
+        val wantProposal = request.minimalPaste == null &&
+            request.responseFormat == ResponseFormat.EDIT_PROPOSAL
         // T1 (P0): resposta estruturada (proposta/oratória) usa cascata
         // json_schema → json_object → texto puro — o DeepSeek pode rejeitar
         // `response_format` json_schema (400 "unavailable now").

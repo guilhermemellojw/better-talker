@@ -83,6 +83,17 @@ envolve o trecho em `〈sugestão〉…〈/sugestão〉`; o app mostra o badge *
 - Criação **sem** o marcador continua tratada como possível alucinação (gate normal).
 - No chat a sugestão aparece no balão; em propostas/inserts, ANTES/DEPOIS com aceite humano.
 
+### Colar e conversar (qualquer esboço, sem cerimônia)
+
+Para explorar um esboço sem importar/vincular nada: **cole o texto (500+ caracteres) direto no chat**,
+sem S-34 vinculado. O app detecta a colagem, guarda o texto **só na conversa** (nada persiste)
+e responde com base nele, íntegro:
+
+- **System mínimo** (3 linhas) em vez do prompt estruturado — sem regras de S-34/oratória, sem dossiê, sem RAG, sem cauda de formato.
+- **Gate em modo aviso:** nada é removido; trechos sem apoio ganham `⚠️ Revise`.
+- **Cauda de formato condicional:** conversa curta flui sem molde; pedidos de geração (`desenvolva`, `escreva`, `crie`, `sugira`) mantêm a formatação estruturada.
+- **Limpar a conversa descarta** o esboço colado. Para persistir, use o fluxo normal (importar → vincular).
+
 > **Contexto de uso:** projeto de uso pessoal (poucos amigos), distribuição por APK sideload — sem Play Store nesta fase.
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.

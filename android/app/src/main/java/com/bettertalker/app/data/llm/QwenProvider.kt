@@ -40,13 +40,21 @@ class QwenProvider(
         // Paridade de contrato com o GeminiProvider: o mesmo LlmRequest gera
         // o mesmo prompt; só o transporte muda.
         val prompts = promptsFor(request)
-        val wantProposal = request.responseFormat == ResponseFormat.EDIT_PROPOSAL
+        // T1 (modo colar e conversar): texto puro sempre — nunca schema.
+        val wantProposal = request.minimalPaste == null &&
+            request.responseFormat == ResponseFormat.EDIT_PROPOSAL
         val body = requestBody(
             system = prompts.first,
             user = prompts.second,
             maxOutputTokens = request.maxOutputTokens,
             editProposal = wantProposal,
-            jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
+            jsonSchema = if (request.minimalPaste == null &&
+                request.responseFormat == ResponseFormat.JSON_SCHEMA
+            ) {
+                request.jsonSchema
+            } else {
+                null
+            },
         )
         val url = "${endpoint.trimEnd('/')}/chat/completions"
         // Authorization via header (nunca na URL, nunca em log).
