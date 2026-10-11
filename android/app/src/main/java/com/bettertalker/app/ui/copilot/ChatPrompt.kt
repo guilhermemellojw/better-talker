@@ -122,7 +122,7 @@ fun ChatPromptBar(
             TextField(
                 value = input,
                 onValueChange = onInput,
-                placeholder = { Text("Digite uma mensagem...") },
+                placeholder = { Text("Cole um esboço ou pergunte…") },
                 modifier = Modifier.fillMaxWidth()
                     .then(
                         if (focusRequester != null) Modifier.focusRequester(focusRequester)
@@ -300,16 +300,7 @@ fun ChatErrorRow(
     }
 }
 
-/** Legenda discreta sob o prompt. */
-@Composable
-fun ChatCaption(modifier: Modifier = Modifier) {
-    Text(
-        "100% offline • confira as citações",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.secondary,
-        modifier = modifier.padding(top = 2.dp)
-    )
-}
+/** T1 (chat minimalista) — removida: redundante com o banner de setup. */
 
 /**
  * Ações locais do app (o roteador `ChatIntent` as executa). São diferentes dos

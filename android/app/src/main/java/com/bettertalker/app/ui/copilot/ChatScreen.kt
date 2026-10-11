@@ -345,9 +345,7 @@ fun ChatScreen(
                     onVoiceCancel = { vm.cancelVoiceInput() },
                     focusRequester = composerFocus,
                 )
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    ChatCaption()
-                }
+                // T1 (chat minimalista): caption removida (redundante com o banner).
                 Spacer(Modifier.height(4.dp))
             }
         }

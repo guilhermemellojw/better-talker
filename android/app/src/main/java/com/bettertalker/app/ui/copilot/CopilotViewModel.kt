@@ -373,8 +373,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 }
             }
             viewModelScope.launch {
-                // espera a primeira leitura do banco para saudar com contexto
-                // (a saudação lê nota/esboço direto do DAO, sem race)
+                // espera a primeira leitura do banco para limpar prévias
+                // de draft órfãs (processo morreu no meio da edição).
+                // T1 (chat minimalista): sem balão de boas-vindas — o chat
+                // abre vazio, direto na conversa.
                 kotlinx.coroutines.flow.combine(
                     db.noteDao().observeById(noteId),
                     outlines.observe(noteId)
@@ -385,7 +387,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         .forEach { db.chatDao().delete(it.id) }
                 } catch (_: Exception) {
                 }
-                ensureGreeting()
             }
         }
     }
@@ -880,46 +881,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         post(false, "text", ChatCodec.escMap(mapOf("text" to t)), origin)
     }
 
-    private suspend fun greetText(
-        readiness: com.bettertalker.app.ui.editor.NoteReadiness? = null,
-    ): String {
-        val nid = noteId
-        val title = nid?.let { db.noteDao().get(it)?.title }.orEmpty().ifBlank { "sua nota" }
-        val outline = nid?.let { outlines.get(it) }
-        val secs = if (outline != null) OutlineParser.fromJson(outline.sectionsJson) else emptyList()
-        val missing = repo.missingBases().map { repo.baseTitle(it) }
-        // Abertura da F15: convite, não formulário. O usuário não escolhe
-        // intent, fonte nem provider — escreve e o pipeline resolve.
-        val sb = StringBuilder("Como posso ajudar com este discurso?\n\n")
-        sb.append("Escreva o que você quer. Eu cuido do contexto, das fontes e do bloco em foco.")
-        if (secs.isNotEmpty()) {
-            sb.append("\n\nEsboço com ${secs.size} seções — sigo a linha de raciocínio dele.")
-        } else {
-            sb.append("\n\nToque no + abaixo para importar ou colar o esboço — assim sigo a linha de raciocínio.")
-        }
-        if (missing.isNotEmpty()) {
-            sb.append("\n\nFaltam as bases: ${missing.joinToString("; ")}.")
-        }
-        // Onboarding F2a: menciona o que falta quando o setup está incompleto.
-        if (readiness != null && !readiness.isSetupComplete) {
-            sb.append("\n\nAinda não temos o material de apoio completo — o banner acima mostra o que falta.")
-        }
-        return sb.toString()
-    }
-
-    private suspend fun ensureGreeting() {
-        val nid = noteId ?: return
-        if (db.chatDao().all(nid).isEmpty()) {
-            val readiness = runCatching {
-                repo.readNoteReadiness(
-                    noteId = nid,
-                    hasSections = db.speechSectionDao().forNote(nid).isNotEmpty(),
-                    outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
-                )
-            }.getOrNull()
-            post(false, "text", ChatCodec.escMap(mapOf("text" to greetText(readiness))))
-        }
-    }
+    // T1 (chat minimalista): balão de boas-vindas removido — o chat abre
+    // vazio, direto na conversa. O placeholder do composer orienta.
 
     fun clearChat() = viewModelScope.launch {
         val nid = noteId ?: return@launch
@@ -928,7 +891,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // T1: o esboço colado vive só na conversa — limpar descarta o modo.
         pasteBuffer = null
         _pasteMode.value = false
-        if (_chatScope.value == null) ensureGreeting()
+        // T1 (chat minimalista): sem balão de boas-vindas após limpar.
     }
 
     /** Resolve refs salvas numa mensagem contra os anexos atuais (p/ renderizar). */
