@@ -33,10 +33,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -701,39 +704,61 @@ private fun MessageActions(
     Column(modifier.fillMaxWidth()) {
         // T1 (P2 estético): háptica leve nos chips de ação.
         val haptic = LocalHapticFeedback.current
-        // Fase 18 §21: sugestão conversacional vira proposta F5.
-        TextButton(
-            onClick = {
+        // T1 (chat minimalista): ações escondidas em overflow ⋯ — mesma
+        // Fase 18 §21 (proposta F5), F2.3 (tópico), T4 (voz) e T2 (mini),
+        // sem poluir a conversa.
+        var menuOpen by remember { mutableStateOf(false) }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            IconButton(onClick = {
                 haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                vm.createProposal(item.id)
+                menuOpen = true
+            }) {
+                Icon(Icons.Default.MoreVert, "Mais ações")
             }
-        ) { Text("Criar proposta") }
-        // F2.3: manda a resposta para o tópico em foco (roteamento
-        // pelo alvo atual; sem foco, cai no comportamento legado).
-        if (hasScope) {
-            TextButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    vm.insertTextIntoScope(item.text)
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                // Fase 18 §21: sugestão conversacional vira proposta F5.
+                DropdownMenuItem(
+                    text = { Text("Criar proposta") },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        menuOpen = false
+                        vm.createProposal(item.id)
+                    }
+                )
+                // F2.3: manda a resposta para o tópico em foco (roteamento
+                // pelo alvo atual; sem foco, cai no comportamento legado).
+                if (hasScope) {
+                    DropdownMenuItem(
+                        text = { Text("Inserir no tópico") },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            menuOpen = false
+                            vm.insertTextIntoScope(item.text)
+                        }
+                    )
                 }
-            ) { Text("Inserir no tópico") }
-        }
-        // T4 (voz): lê a resposta em voz alta (texto pós-gate).
-        TextButton(
-            onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                if (speaking) onStopSpeak() else onSpeak()
-            },
-            enabled = ttsReady,
-        ) { Text(speakButtonLabel(speaking)) }
-        // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
-        if (hasScope) {
-            TextButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    vm.requestMiniSpeech()
+                // T4 (voz): lê a resposta em voz alta (texto pós-gate).
+                DropdownMenuItem(
+                    text = { Text(speakButtonLabel(speaking)) },
+                    enabled = ttsReady,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        menuOpen = false
+                        if (speaking) onStopSpeak() else onSpeak()
+                    }
+                )
+                // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
+                if (hasScope) {
+                    DropdownMenuItem(
+                        text = { Text("Gerar mini discurso") },
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            menuOpen = false
+                            vm.requestMiniSpeech()
+                        }
+                    )
                 }
-            ) { Text("Gerar mini discurso") }
+            }
         }
     }
 }
