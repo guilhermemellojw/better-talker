@@ -369,4 +369,49 @@ class ChatRouterTest {
             assertFalse(t, ChatRouter.isInsertIntoSpeechCommand(t))
         }
     }
+
+    // ---------- T2 (Fase 2): materializar a estrutura ("insira tudo") ----------
+
+    @Test
+    fun comandoDeMaterializarEstrutura() {
+        for (t in listOf(
+            "insira tudo na nota",
+            "materialize o discurso",
+            "crie as seções",
+            "aplique na nota",
+            "transcreva para a nota",
+            "coloque tudo no discurso",
+        )) {
+            assertTrue(t, ChatRouter.isApplyStructureCommand(t))
+        }
+    }
+
+    @Test
+    fun miniDiscursoNaoEhMaterializar() {
+        // T3 mini é dono do "mini" — sem sequestro.
+        assertFalse(ChatRouter.isApplyStructureCommand("insira isso no mini discurso"))
+        assertFalse(ChatRouter.isApplyStructureCommand("coloque no mini"))
+    }
+
+    @Test
+    fun conversaNormalNaoEhMaterializar() {
+        for (t in listOf(
+            "desenvolva o ponto 2",
+            "crie uma introdução",
+            "o que você acha?",
+            "insira isso no ponto 2",
+        )) {
+            assertFalse(t, ChatRouter.isApplyStructureCommand(t))
+        }
+    }
+
+    @Test
+    fun rotaApplyStructure() {
+        val r = route("insira tudo na nota")
+        assertTrue(r is Route.ApplyStructure)
+        assertEquals(
+            "route=APPLY_STRUCTURE reason=pedido de materializar a estrutura na nota",
+            ChatRouter.describe(r)
+        )
+    }
 }

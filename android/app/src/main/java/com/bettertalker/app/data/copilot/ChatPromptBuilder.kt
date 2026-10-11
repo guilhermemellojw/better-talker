@@ -87,6 +87,20 @@ fun buildMinimalPastePrompts(
 }
 
 /**
+ * T2 (Fase 2) — instrução de materialização: pede ao modelo a estrutura
+ * completa discutida, em Markdown canônico que o [StructureParser] entende.
+ * O histórico da conversa (com a memória da construção) é a fonte.
+ */
+const val APPLY_STRUCTURE_INSTRUCTION =
+    "Gere a estrutura COMPLETA do discurso que construímos nesta conversa, " +
+        "em Markdown canônico, exatamente neste formato:\n" +
+        "# INTRODUÇÃO\n[texto da abertura]\n\n" +
+        "# SEÇÃO 1: [título do ponto]\n[texto do ponto]\n\n" +
+        "# CONCLUSÃO\n[texto do fechamento]\n\n" +
+        "Use uma linha # SEÇÃO N para cada ponto desenvolvido. " +
+        "Responda SOMENTE com a estrutura, sem explicações fora dela."
+
+/**
  * T1 — marcador de criação: o modelo envolve ilustrações/metáforas/exemplos
  * originais em 〈sugestão〉…〈/sugestão〉. O gate isenta a PROSA marcada, mas
  * NUNCA número nem referência inventados.

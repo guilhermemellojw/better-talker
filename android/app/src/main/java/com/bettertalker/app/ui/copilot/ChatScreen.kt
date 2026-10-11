@@ -615,6 +615,17 @@ fun ChatScreen(
             onUndo = onDraftUndo,
         )
     }
+
+    // T2 (Fase 2): prévia da estrutura ("insira tudo") antes de persistir.
+    val structurePreview by vm.structurePreview.collectAsState()
+    structurePreview?.let { preview ->
+        StructurePreviewSheet(
+            preview = preview,
+            onDismiss = vm::dismissStructurePreview,
+            onReplace = { vm.applyStructure(replace = true) },
+            onAppend = { vm.applyStructure(replace = false) },
+        )
+    }
 }
 
 @Composable

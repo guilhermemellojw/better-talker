@@ -22,6 +22,7 @@ import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.edit.CopilotEditProposal
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.edit.EditBlock
@@ -1050,6 +1051,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 answerMinimal(text, historyBefore, isFirst)
                 return@launch
             }
+            // T2 (Fase 2): materializar a estrutura — ANTES do comando de
+            // inserção pontual (T3 mini sequestraria "na nota").
+            if (com.bettertalker.app.data.copilot.ChatRouter.isApplyStructureCommand(text)) {
+                requestApplyStructure(historyBefore)
+                return@launch
+            }
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).
             if (resolveInsertCommand(text)) return@launch
@@ -1116,6 +1123,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         return@launch
                     }
                     generateOratory(route, text, remote, contextBlock)
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.ApplyStructure -> {
+                    // T2 (Fase 2): normalmente interceptado antes do mini-voz;
+                    // se chegar via router, atende do mesmo jeito.
+                    requestApplyStructure(historyBefore)
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
@@ -3264,6 +3277,112 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     fun consumeDraftRequest() {
         _draftReq.value = null
+    }
+
+    // ---------- T2 (Fase 2): materializar a estrutura ("insira tudo") ----------
+
+    /**
+     * Prévia da estrutura emitida pelo modelo, aguardando confirmação.
+     * Volátil (não persiste); null = sem prévia pendente.
+     */
+    data class StructurePreview(
+        val sections: List<com.bettertalker.app.data.export.StructureSection>,
+        val hasExisting: Boolean,
+    )
+
+    private val _structurePreview =
+        MutableStateFlow<StructurePreview?>(null)
+    val structurePreview: StateFlow<StructurePreview?> = _structurePreview.asStateFlow()
+
+    fun dismissStructurePreview() {
+        _structurePreview.value = null
+    }
+
+    /**
+     * Pede ao modelo a estrutura completa em Markdown canônico e abre a
+     * prévia (sem persistir). O histórico — com a memória da construção —
+     * é a fonte; sem RAG/dossiê.
+     */
+    private suspend fun requestApplyStructure(history: List<ChatTurn>) {
+        val nid = noteId ?: return
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para gerar a estrutura.")
+            return
+        }
+        _runState.value = ChatRunState.Generating
+        try {
+            val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+            val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                provider.generate(
+                    com.bettertalker.app.data.llm.LlmRequest(
+                        text = "",
+                        action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                        message = com.bettertalker.app.data.copilot.APPLY_STRUCTURE_INSTRUCTION,
+                        history = history,
+                        isFirstMessage = false,
+                    )
+                )
+            }
+            val sections = com.bettertalker.app.data.export.parseStructureMarkdown(res.text)
+            if (sections.isEmpty()) {
+                postText("Não consegui extrair a estrutura da resposta. Tente de novo.")
+                return
+            }
+            val hasExisting = db.speechSectionDao().forNote(nid).isNotEmpty()
+            _structurePreview.value = StructurePreview(sections, hasExisting)
+            post(false, "text", ChatCodec.escMap(mapOf(
+                "text" to "Estrutura pronta (${sections.size} partes) — revise e confirme no painel.")))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            _runState.value = ChatRunState.Cancelled()
+            throw e
+        } catch (e: Exception) {
+            val code = (e as? com.bettertalker.app.data.llm.ProviderError)?.code
+            android.util.Log.e("CopilotLLM", "apply-structure failed " +
+                e.javaClass.simpleName + " code=$code")
+            val msg = friendlyChatError(e)
+            _runState.value = ChatRunState.Error(msg)
+            postText(msg)
+        } finally {
+            _chatBusy.value = false
+            if (_runState.value is ChatRunState.Generating) {
+                _runState.value = ChatRunState.Success
+            }
+        }
+    }
+
+    /**
+     * Confirma a prévia: converte em seções (INTRO/BODY/CONCLUSION) e
+     * persiste via `OutlineImportService` (mesmo contrato do `linkDraft`).
+     * Sem seções existentes — ou com [replace] — substitui; senão anexa.
+     */
+    fun applyStructure(replace: Boolean) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val preview = _structurePreview.value ?: return@launch
+        val noteTitle = db.noteDao().get(nid)?.title?.takeIf { it.isNotBlank() } ?: "Discurso"
+        try {
+            val fresh = com.bettertalker.app.data.export.toOutlineConversion(
+                preview.sections, nid, noteTitle,
+            )
+            val conversion = if (replace || !preview.hasExisting) {
+                fresh
+            } else {
+                val existingSecs = db.speechSectionDao().forNote(nid)
+                    .map { it.toDomain() }
+                val subMap = existingSecs.associate { s ->
+                    s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
+                }
+                com.bettertalker.app.data.export.mergeAppend(existingSecs, subMap, fresh)
+            }
+            outlineImportService.persist(conversion, DiscourseType.S34_DISCOURSE)
+            _structurePreview.value = null
+            post(false, "text", ChatCodec.escMap(mapOf(
+                "text" to "Inserido na nota. Você pode editar livremente.")))
+            viewModelScope.launch { refreshReadiness() }
+        } catch (_: Exception) {
+            post(false, "text", ChatCodec.escMap(mapOf(
+                "text" to "Não consegui inserir na nota. Tente de novo.")))
+        }
     }
 
     /** Limpa Result/Error depois de levar o texto ao composer. */

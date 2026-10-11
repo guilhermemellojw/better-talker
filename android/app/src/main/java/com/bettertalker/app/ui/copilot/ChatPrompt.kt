@@ -418,9 +418,85 @@ fun AttachSheet(
     }
 }
 
+/**
+ * T2 (Fase 2) — prévia da estrutura ("insira tudo na nota") antes de
+ * persistir: títulos + primeiras linhas, com Substituir/Adicionar quando
+ * a nota já tem seções. Puro o parse; o clique delega ao VM.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AttachOption(icon: ImageVector, title: String, desc: String, onClick: () -> Unit) {
-    androidx.compose.material3.TextButton(onClick = onClick) {
+fun StructurePreviewSheet(
+    preview: CopilotViewModel.StructurePreview,
+    onDismiss: () -> Unit,
+    onReplace: () -> Unit,
+    onAppend: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                "Inserir estrutura na nota",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${preview.sections.size} partes detectadas. Revise antes de inserir.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Spacer(Modifier.height(8.dp))
+            preview.sections.forEach { s ->
+                val roleLabel = when (s.role) {
+                    com.bettertalker.app.data.export.StructureRole.INTRO -> "Introdução"
+                    com.bettertalker.app.data.export.StructureRole.CONCLUSION -> "Conclusão"
+                    else -> "Ponto"
+                }
+                Text(
+                    "$roleLabel — ${s.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                val firstLines = com.bettertalker.app.ui.editor.stripHtml(s.contentHtml)
+                    .lines()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .take(2)
+                    .joinToString(" ")
+                    .take(140)
+                if (firstLines.isNotBlank()) {
+                    Text(
+                        firstLines,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            if (preview.hasExisting) {
+                Text(
+                    "A nota já tem seções. Substituir tudo ou adicionar ao final?",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onReplace) { Text("Substituir") }
+                    TextButton(onClick = onAppend) { Text("Adicionar") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onReplace) { Text("Inserir na nota") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun AttachOption(icon: ImageVector, title: String, desc: String, onClick: () -> Unit) {    androidx.compose.material3.TextButton(onClick = onClick) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null)
             Spacer(Modifier.width(12.dp))

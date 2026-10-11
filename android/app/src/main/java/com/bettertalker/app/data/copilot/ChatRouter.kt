@@ -49,6 +49,13 @@ object ChatRouter {
         data class OutOfScope(val requestedPoint: Int, val message: String, val reason: String) : Route
 
         /**
+         * T2 (Fase 2) — "insira tudo na nota": materializa a estrutura
+         * construída em conjunto (prévia + persist). Detectado antes do
+         * comando de inserção pontual (T3 mini), que sequestraria "na nota".
+         */
+        data class ApplyStructure(val reason: String) : Route
+
+        /**
          * T1 (modo colar e conversar) — conversa sobre um esboço colado
          * íntegro, sem S-34/dossiê/RAG. Construída pelo ViewModel (que sabe
          * se há S-34 vinculado), nunca pelo route() puro.
@@ -148,6 +155,28 @@ object ChatRouter {
     private val ACCEPT_RE = Regex("^(aceitar|aceito|aplicar|aplique|confirmar|confirmo)\\b")
     private val REJECT_RE = Regex("^(rejeitar|rejeito|descartar|descarte|dispensar|recusar)\\b")
 
+    // ---------- T2 (Fase 2): materializar a estrutura ("insira tudo") ----------
+
+    private val APPLY_VERB = Regex("\\b(insira|insere|inserir|coloque|colocar|materialize|materializar|" +
+        "transcreva|transcrever|aplique|aplicar|crie|criar)\\b")
+    private val APPLY_ALL = Regex("\\btudo\\b")
+    private val APPLY_NOUN = Regex("\\b(estrutura|estruturas|secao|secoes|topico|topicos|" +
+        "discurso|nota|rascunho)\\b")
+
+    /**
+     * T2 — comando de materialização: "insira tudo na nota", "materialize o
+     * discurso", "crie as seções". Exclui o "mini" (T3 mini é dono dele).
+     * Puro/testável.
+     */
+    fun isApplyStructureCommand(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        if (t.contains("mini")) return false
+        // "crie um ponto 4" é OutOfScope (§34), não materialização.
+        if (NUMBERED_TARGET.containsMatchIn(t)) return false
+        if (!APPLY_VERB.containsMatchIn(t)) return false
+        return APPLY_ALL.containsMatchIn(t) || APPLY_NOUN.containsMatchIn(t)
+    }
+
     // ---------- Pergunta estrutural ----------
 
     private val QUESTION_OPENERS = Regex(
@@ -178,6 +207,13 @@ object ChatRouter {
                 return Route.ProposalReply(true, "resposta de aceite")
             REJECT_RE.containsMatchIn(t.trim()) ->
                 return Route.ProposalReply(false, "resposta de rejeição")
+        }
+
+        // T2 (Fase 2): materializar a estrutura — antes da oratória e do
+        // meta, para "crie as seções" não virar geração e "insira tudo na
+        // nota" não cair no geral.
+        if (isApplyStructureCommand(text)) {
+            return Route.ApplyStructure("pedido de materializar a estrutura na nota")
         }
 
         // Meta-linguagem ("o termo desenvolvimento", "o significado de X"):
@@ -252,6 +288,7 @@ object ChatRouter {
         is Route.ProposalReply -> "route=PROPOSAL_REPLY accept=${route.accept} reason=${route.reason}"
         is Route.NothingToRefine -> "route=NOTHING_TO_REFINE reason=${route.reason}"
         is Route.OutOfScope -> "route=OUT_OF_SCOPE point=${route.requestedPoint} reason=${route.reason}"
+        is Route.ApplyStructure -> "route=APPLY_STRUCTURE reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }
