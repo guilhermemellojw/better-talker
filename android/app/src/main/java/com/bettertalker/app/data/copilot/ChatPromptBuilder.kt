@@ -98,32 +98,10 @@ const val SUGGESTION_MARKER_RULE =
         "continuam exigindo apoio real no acervo."
 
 /**
- * Regras de fidelidade. Idênticas em espírito e efeitos ao `SYSTEM_PROMPT` do
- * web e usadas tanto pelo chat quanto por proposta de edição — não duplicar nem
- * simplificar estas regras ao construir um prompt Android.
+ * T3 (higiene) — removido: era código morto no Android (nenhum provider o
+ * enviava; todos usam buildChatPrompt/buildDeepSeekPrompts). O contrato de
+ * fidelidade vive no prompt real e é travado por promptVivoTemAsRegrasDeFidelidade.
  */
-val SYSTEM_PROMPT = """
-Você é o "Better Talker Copilot", preparador de oratória e discursos.
-Sua função é sugerir melhorias de tom, perguntas de raciocínio, ilustrações e aplicações práticas.
-
-CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO:
-- Você pode reorganizar ideias, melhorar clareza, sugerir transições, aplicações,
-  ilustrações, introduções e conclusões.
-- FONTES DE CONTEÚDO são a base para qualquer afirmação factual. ORIENTAÇÕES DE
-  ORATÓRIA (BE/TH) ensinam TÉCNICA de apresentação — nunca as use como fonte de fatos.
-- NUNCA invente ou adivinhe: fatos, estatísticas, citações, referências, títulos,
-  páginas ou parágrafos. Não atribua ideias às publicações sem suporte no contexto.
-- Não preencha lacunas com conhecimento geral apresentado como se viesse das fontes;
-  pode explicar ou reformular o que as fontes sustentam.
-- Se as fontes não sustentarem a resposta, diga exatamente: "$INSUFFICIENT_EVIDENCE_MESSAGE"
-  e oriente a importar a publicação pelo navegador oficial. Mantenha tom instrutivo e modesto.
-- SOBRE AS ORIENTAÇÕES DE ORATÓRIA (Fase 7): use-as para decidir COMO apresentar, nunca
-  para criar autoridade factual. Não apresente uma técnica como mandamento; se faltar
-  orientação de treinamento, diga que não há orientação suficiente em vez de inventar
-  um ensinamento atribuído ao BE/TH. Ilustrações, perguntas ou transições CRIADAS por
-  você devem ser apresentadas como sugestão do modelo ("Uma técnica/ilustração possível
-  seria..."), nunca atribuídas à fonte.
-""".trimIndent() + "\n\n" + SUGGESTION_MARKER_RULE
 
 /** Bloco em foco. Vazio se não há bloco nem duração (§ F15 blockSection). */
 fun blockSection(blockTitle: String?, blockMinutes: Int?): String {
@@ -228,12 +206,13 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "nem mencionar intents ou trilhos. Se a melhor ajuda for sugerir um novo texto para o " +
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual, use exatamente a frase de insuficiência e, quando fizer sentido, " +
-        "ofereça um caminho criativo deixando claro que é sugestão sua. " + SUGGESTION_MARKER_RULE +
-        // T1 (refinamento das sugestões): marcar ANTES das aspas — o gate
-        // isenta a prosa marcada; aspas sem marcador viram "aspas sem fonte".
-        "\nAo apresentar uma criação sua (ilustração, metáfora, exemplo), envolva-a em " +
-        "〈sugestão〉…〈/sugestão〉 ANTES de qualquer aspas, para que o sistema a reconheça " +
-        "como sugestão e não remova." +
+        "ofereça um caminho criativo deixando claro que é sugestão sua. " +
+        // T3 (higiene): marcador em 1 parágrafo único (antes eram a regra +
+        // o parágrafo das aspas). Números e referências seguem exigindo apoio.
+        "\nAo criar algo seu (ilustração, metáfora, exemplo), envolva-o em " +
+        "〈sugestão〉…〈/sugestão〉 ANTES de qualquer aspas, para o sistema reconhecer " +
+        "a criação e não tratá-la como fato — números e referências continuam " +
+        "exigindo apoio real no acervo." +
         // T4 (acesso bíblico): o versículo resolvido é a única fonte autorizada.
         "\nSe a pergunta citar uma referência bíblica e o bloco TEXTOS BÍBLICOS existir, " +
         "cite o texto do bloco entre aspas, palavra por palavra; se não existir, diga que " +

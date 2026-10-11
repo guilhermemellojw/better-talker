@@ -5,7 +5,7 @@ import com.bettertalker.app.data.copilot.INSUFFICIENT_EVIDENCE_MESSAGE
 import com.bettertalker.app.data.copilot.MAX_CONTENT_SOURCES
 import com.bettertalker.app.data.copilot.MAX_TOTAL_SOURCES
 import com.bettertalker.app.data.copilot.MAX_TRAINING_SOURCES
-import com.bettertalker.app.data.copilot.SYSTEM_PROMPT
+import com.bettertalker.app.data.copilot.MINIMAL_SYSTEM_PROMPT
 import com.bettertalker.app.data.copilot.blockSection
 import com.bettertalker.app.data.copilot.buildChatPrompt
 import com.bettertalker.app.data.copilot.focusLine
@@ -55,19 +55,29 @@ class ChatPromptParityTest {
         trainingCategory = cat
     )
 
-    // ---------- 1. regras de fidelidade presentes ----------
+    // ---------- 1. regras de fidelidade presentes (no prompt vivo) ----------
 
     @Test
-    fun systemPromptTemAsRegrasDeFidelidade() {
-        assertTrue(SYSTEM_PROMPT.contains("CRIATIVIDADE NA FORMA, FIDELIDADE NO CONTEÚDO"))
-        // Anti-atribuição
-        assertTrue(SYSTEM_PROMPT.contains("NUNCA invente"))
-        // CONTENT/TRAINING nunca misturados
-        assertTrue(SYSTEM_PROMPT.contains("nunca as use como fonte de fatos"))
-        // Insuficiência com a frase exata
-        assertTrue(SYSTEM_PROMPT.contains(INSUFFICIENT_EVIDENCE_MESSAGE))
-        // Criação é sugestão do modelo, não da fonte
-        assertTrue(SYSTEM_PROMPT.contains("nunca atribuídas à fonte"))
+    fun promptVivoTemAsRegrasDeFidelidade() {
+        // T3: SYSTEM_PROMPT era morto — o contrato vive no prompt real.
+        val p = buildChatPrompt(
+            message = "melhore", history = emptyList(), isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null, blockMinutes = null, blockText = "x"
+        )
+        // Criação é sugestão marcada, não fato da fonte.
+        assertTrue(p.contains("〈sugestão〉"))
+        assertTrue(p.contains("ANTES de qualquer aspas"))
+        // Treinamento nunca é prova factual (foco de verificação).
+        assertTrue(focusLine("confira se está certo").contains("Não use orientações de oratória como prova factual"))
+        // Insuficiência: a frase exata existe (const) e o prompt a referencia;
+        // o modo minimalista a inclui literalmente.
+        assertTrue(p.contains("frase de insuficiência"))
+        assertEquals(
+            "Não encontrei suporte suficiente nas fontes disponíveis.",
+            INSUFFICIENT_EVIDENCE_MESSAGE
+        )
+        assertTrue(MINIMAL_SYSTEM_PROMPT.contains(INSUFFICIENT_EVIDENCE_MESSAGE))
     }
 
     // ---------- 2. CONTENT e TRAINING em blocos separados ----------

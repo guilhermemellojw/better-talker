@@ -11,8 +11,8 @@ class SuggestionPromptTest {
     private val marker = "〈sugestão〉"
 
     @Test
-    fun systemPromptTemMarcador() {
-        assertTrue(SYSTEM_PROMPT.contains(marker))
+    fun minimalSystemTemMarcador() {
+        assertTrue(MINIMAL_SYSTEM_PROMPT.contains(marker))
     }
 
     @Test

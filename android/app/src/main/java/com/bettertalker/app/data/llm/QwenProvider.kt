@@ -221,7 +221,7 @@ private fun QwenProvider.promptsFor(request: LlmRequest): Pair<String, String> {
         )
         return minimal.first to minimal.second
     }
-    // O system do web é o SYSTEM_PROMPT do Copilot; no Android o prompt de
+    // T3: o SYSTEM_PROMPT morto foi removido; no Android o prompt de
     // chat já embute as instruções (buildChatPrompt). Para o oratório, o
     // buildPrompt do modo já contém as regras — system vazio evita duplicar.
     val base: Pair<String, String> = if (request.oratorySpec != null) {
