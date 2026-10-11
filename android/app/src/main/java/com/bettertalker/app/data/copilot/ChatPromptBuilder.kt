@@ -52,6 +52,40 @@ const val MAX_TOTAL_SOURCES = 12
 const val MAX_CONTEXT_PASSAGE_CHARS = 800
 
 /**
+ * T1 (modo colar e conversar) — teto do texto colado íntegro no prompt.
+ * Bem acima do teto de bloco (2000), para o modelo ler o esboço como o
+ * usuário escreveu, sem picar via RAG.
+ */
+const val MINIMAL_PASTE_MAX_CHARS = 20_000
+
+/**
+ * T1 (modo colar e conversar) — system minimalista, 3 linhas. Sem regras
+ * de S-34/oratória, sem dossiê, sem cauda de formato: o esboço colado É o
+ * contexto. Puro/testável.
+ */
+val MINIMAL_SYSTEM_PROMPT = """
+Você é um copiloto de oratória. Responda com base no esboço abaixo.
+Ao criar algo novo, marque com 〈sugestão〉…〈/sugestão〉.
+Se não houver suporte no esboço, diga "Não encontrei suporte suficiente nas fontes disponíveis."
+""".trimIndent()
+
+/**
+ * T1 (modo colar e conversar) — prompt mínimo: system fixo + esboço
+ * íntegro (truncado no teto) + mensagem. Sem TAIL, sem regras, sem RAG.
+ * Puro/testável.
+ */
+fun buildMinimalPastePrompts(
+    pastedText: String,
+    message: String,
+    history: List<ChatTurn>,
+): Pair<String, String> {
+    val pasted = pastedText.take(MINIMAL_PASTE_MAX_CHARS)
+    val user = chatBriefToText(message, history, history.none { it.fromMe }) +
+        "\n\n--- ESBOÇO COLADO (íntegro; única fonte) ---\n$pasted\n--- FIM DO ESBOÇO ---"
+    return MINIMAL_SYSTEM_PROMPT to user
+}
+
+/**
  * T1 — marcador de criação: o modelo envolve ilustrações/metáforas/exemplos
  * originais em 〈sugestão〉…〈/sugestão〉. O gate isenta a PROSA marcada, mas
  * NUNCA número nem referência inventados.

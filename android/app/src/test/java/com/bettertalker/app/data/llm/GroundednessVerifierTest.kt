@@ -120,4 +120,23 @@ class GroundednessVerifierTest {
         assertFalse(r.hasRemovals)
         assertEquals(resposta, r.text)
     }
+
+    @Test
+    fun modo_aviso_detecta_mas_nao_remove() {
+        val resposta = "O texto fala de esperança. \"Todos os justos herdarão a terra para sempre.\""
+        val r = GroundednessVerifier.verify(resposta, fontes, warnOnly = true)
+        assertTrue(r.hasRemovals)
+        assertEquals(1, r.removed.size)
+        // Texto intacto: sem corte e sem aviso de remoção.
+        assertEquals(resposta, r.text)
+        assertFalse(r.text.contains(GroundednessVerifier.REMOVAL_NOTICE))
+    }
+
+    @Test
+    fun modo_aviso_sem_problema_nao_muda_nada() {
+        val resposta = "O texto fala de esperança e consolo."
+        val r = GroundednessVerifier.verify(resposta, fontes, warnOnly = true)
+        assertFalse(r.hasRemovals)
+        assertEquals(resposta, r.text)
+    }
 }

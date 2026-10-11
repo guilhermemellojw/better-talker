@@ -48,8 +48,24 @@ object ChatRouter {
         /** Pedido que criaria estrutura nova fora do S-34 (§34 F20-C). */
         data class OutOfScope(val requestedPoint: Int, val message: String, val reason: String) : Route
 
+        /**
+         * T1 (modo colar e conversar) — conversa sobre um esboço colado
+         * íntegro, sem S-34/dossiê/RAG. Construída pelo ViewModel (que sabe
+         * se há S-34 vinculado), nunca pelo route() puro.
+         */
+        data class PasteAndChat(val reason: String) : Route
+
         data class General(val reason: String) : Route
     }
+
+    /** T1 — texto longo sem estrutura vira candidato a colar-e-conversar. */
+    const val PASTE_MIN_CHARS = 500
+
+    /**
+     * T1 — candidato a colar-e-conversar: texto corrido longo (o usuário
+     * colou um esboço em vez de digitar uma pergunta). Puro/testável.
+     */
+    fun isPasteCandidate(text: String): Boolean = text.trim().length > PASTE_MIN_CHARS
 
     // ---------- Normalização de phráse natural → pedido canônico ----------
 
@@ -236,6 +252,7 @@ object ChatRouter {
         is Route.ProposalReply -> "route=PROPOSAL_REPLY accept=${route.accept} reason=${route.reason}"
         is Route.NothingToRefine -> "route=NOTHING_TO_REFINE reason=${route.reason}"
         is Route.OutOfScope -> "route=OUT_OF_SCOPE point=${route.requestedPoint} reason=${route.reason}"
+        is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }
 }

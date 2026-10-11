@@ -74,6 +74,13 @@ data class LlmRequest(
      * do chat. Null = sem dossiê (comportamento anterior).
      */
     val contextBlock: String? = null,
+    /**
+     * T1 (modo colar e conversar): esboço colado íntegro. Quando presente,
+     * o provider usa o prompt minimalista ([buildMinimalPastePrompts]) em
+     * vez do prompt estruturado — sem S-34, dossiê, RAG ou TAIL.
+     * Null = modo padrão (comportamento anterior).
+     */
+    val minimalPaste: String? = null,
 )
 
 enum class ResponseFormat { TEXT, EDIT_PROPOSAL, JSON_SCHEMA }

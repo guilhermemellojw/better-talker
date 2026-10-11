@@ -494,6 +494,14 @@ class UrlConnectionDeepSeekStreamClient : DeepSeekStreamClient {
  * chat para separar prefixo estável (cache) do volátil.
  */
 private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<String, String> {
+    // T1 (modo colar e conversar): prompt minimalista, sem TAIL/regras/RAG.
+    request.minimalPaste?.let { pasted ->
+        return com.bettertalker.app.data.copilot.buildMinimalPastePrompts(
+            pastedText = pasted,
+            message = request.message.ifBlank { request.text },
+            history = request.history,
+        )
+    }
     val base: Pair<String, String> = if (request.oratorySpec != null) {
         val user = com.bettertalker.app.data.copilot.OratoryGeneration.buildPrompt(
             request.oratorySpec,

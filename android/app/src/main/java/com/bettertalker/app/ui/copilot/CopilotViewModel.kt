@@ -569,6 +569,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Mensagem que originou o turno atual, para "Tentar novamente". */
     private var lastUserMessage: String? = null
 
+    /**
+     * T1 (modo colar e conversar) — esboço colado íntegro, só na memória
+     * (nunca persiste: sem draft, sem outline, sem attachment). Null = modo
+     * padrão. Limpo em [clearChat]; novo colar substitui.
+     */
+    private var pasteBuffer: String? = null
+    private val _pasteMode = MutableStateFlow(false)
+    val pasteMode = _pasteMode.asStateFlow()
+
     /** Proveniência do último turno, para "Fontes e apoio" (§14 F15). */
     private val _chatEvidence = MutableStateFlow<List<EvidenceMeta>>(emptyList())
     val chatEvidence = _chatEvidence.asStateFlow()
@@ -916,6 +925,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val nid = noteId ?: return@launch
         // F2.3: limpa só a conversa do escopo atual (tópico ou global).
         db.chatDao().clearScoped(nid, _chatScope.value)
+        // T1: o esboço colado vive só na conversa — limpar descarta o modo.
+        pasteBuffer = null
+        _pasteMode.value = false
         if (_chatScope.value == null) ensureGreeting()
     }
 
@@ -1027,6 +1039,26 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
             // do try e pulavam o finally — travando composer e runState.
             try {
+            // T1 (modo colar e conversar): texto longo colado, sem S-34 nem
+            // esboço vinculado, vira o contexto íntegro da conversa — sem
+            // persistir (sem draft/outline/attachment). Perguntas seguintes
+            // usam a rota fixa minimalista (sem router/oratória/dossiê/RAG).
+            if (pasteBuffer == null &&
+                com.bettertalker.app.data.copilot.ChatRouter.isPasteCandidate(text) &&
+                _lastS34Document == null &&
+                outlines.get(noteId) == null
+            ) {
+                pasteBuffer = text.take(com.bettertalker.app.data.copilot.MINIMAL_PASTE_MAX_CHARS)
+                _pasteMode.value = true
+                post(false, "text", ChatCodec.escMap(mapOf(
+                    "text" to "Esboço recebido (${pasteBuffer!!.length} caracteres). " +
+                        "Pergunte o que quiser sobre ele — sem vincular, sem cerimônia.")))
+                return@launch
+            }
+            if (pasteBuffer != null) {
+                answerMinimal(text, historyBefore, isFirst)
+                return@launch
+            }
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).
             if (resolveInsertCommand(text)) return@launch
@@ -1096,7 +1128,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
-                is com.bettertalker.app.data.copilot.ChatRouter.Route.General -> Unit
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.General,
+                // T1 (modo colar e conversar): o VM decide antes do router
+                // (precisa do S-34/esboço vinculado); route() nunca emite.
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.PasteAndChat -> Unit
             }
 
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
@@ -1401,6 +1436,61 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             contentSourceIds = full.contentSourceIds.filter { it in allowed },
             trainingSourceIds = full.trainingSourceIds.filter { it in allowed }
         )
+    }
+
+    /**
+     * T1 (modo colar e conversar) — resposta minimalista sobre o esboço
+     * colado íntegro: sem router, oratória, dossiê, retrieval ou TAIL.
+     * Gate em modo aviso (nunca remove); insuficiência e "⚠️ Revise"
+     * seguem os mesmos padrões do modo padrão.
+     */
+    private suspend fun answerMinimal(
+        text: String,
+        history: List<ChatTurn>,
+        isFirst: Boolean,
+    ) {
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para conversar sobre o esboço.")
+            return
+        }
+        val pasted = pasteBuffer
+        if (pasted.isNullOrBlank()) {
+            postText("Cole o esboço de novo — perdi o texto colado.")
+            return
+        }
+        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+        val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            provider.generate(
+                com.bettertalker.app.data.llm.LlmRequest(
+                    text = pasted,
+                    action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                    message = text,
+                    history = history,
+                    isFirstMessage = isFirst,
+                    minimalPaste = pasted,
+                )
+            )
+        }
+        val outText = truncateIfCut(res.text, res.meta.finishReason)
+        // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
+        // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
+        val corpus = listOf(pasted)
+        val verified = GroundednessVerifier.verify(outText, corpus, warnOnly = true)
+        if (verified.removed.isNotEmpty()) {
+            android.util.Log.w(
+                "CopilotLLM",
+                "chat minimalista: ${verified.removed.size} trecho(s) sem apoio (só aviso)"
+            )
+        }
+        val revision = citationRevisionNotice(verified.text, corpus)
+            ?: if (verified.removed.isNotEmpty()) {
+                com.bettertalker.app.data.llm.GroundednessVerifier.WARN_ONLY_NOTICE
+            } else {
+                null
+            }
+        val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
+        post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT)
     }
 
     /**

@@ -47,9 +47,16 @@ class GeminiProvider(
                     System.currentTimeMillis() - started, 0, offline = true)
             )
         }
-        // F20-B: modo oratório tem prompt especializado próprio (estrutura +
-        // fontes + treinamento + instruções do modo).
-        val basePrompt = if (request.oratorySpec != null) {
+        // T1 (modo colar e conversar): prompt minimalista (system+user juntos,
+        // como o web) em vez do prompt estruturado.
+        val basePrompt = if (request.minimalPaste != null) {
+            val minimal = com.bettertalker.app.data.copilot.buildMinimalPastePrompts(
+                pastedText = request.minimalPaste,
+                message = request.message.ifBlank { request.text },
+                history = request.history,
+            )
+            minimal.first + "\n\n" + minimal.second
+        } else if (request.oratorySpec != null) {
             com.bettertalker.app.data.copilot.OratoryGeneration.buildPrompt(
                 request.oratorySpec,
                 request.message.ifBlank { request.brief }

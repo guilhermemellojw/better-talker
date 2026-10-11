@@ -212,6 +212,15 @@ class QwenProvider(
  * LlmRequest produz system+user equivalentes; só o transporte muda.
  */
 private fun QwenProvider.promptsFor(request: LlmRequest): Pair<String, String> {
+    // T1 (modo colar e conversar): prompt minimalista em vez do estruturado.
+    request.minimalPaste?.let { pasted ->
+        val minimal = com.bettertalker.app.data.copilot.buildMinimalPastePrompts(
+            pastedText = pasted,
+            message = request.message.ifBlank { request.text },
+            history = request.history,
+        )
+        return minimal.first to minimal.second
+    }
     // O system do web é o SYSTEM_PROMPT do Copilot; no Android o prompt de
     // chat já embute as instruções (buildChatPrompt). Para o oratório, o
     // buildPrompt do modo já contém as regras — system vazio evita duplicar.

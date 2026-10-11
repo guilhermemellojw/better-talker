@@ -59,7 +59,14 @@ object GroundednessVerifier {
     /** T2 — número com 2+ dígitos: nunca isento, nem em criação. */
     private val NUMBER = Regex("""\b(\d{1,4}(?:[.,]\d{1,2})?)\b""")
 
-    fun verify(text: String, sources: List<String>): VerificationResult {
+    /**
+     * T1 (modo colar e conversar) — modo aviso: detecta os mesmos trechos,
+     * mas NÃO remove nada (texto intacto + lista de removidos para o aviso
+     * "⚠️ Revise"). O modo padrão (remoção) continua inalterado.
+     */
+    const val WARN_ONLY_NOTICE = "⚠️ Revise: há trecho sem apoio no esboço colado."
+
+    fun verify(text: String, sources: List<String>, warnOnly: Boolean = false): VerificationResult {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())
         val corpus = sources.map(::normalize).filter { it.isNotBlank() }
         if (corpus.isEmpty()) return VerificationResult(text, emptyList())
@@ -108,6 +115,8 @@ object GroundednessVerifier {
         val removed = merged
             .map { text.substring(it.first, it.last + 1).trim() }
             .filter { it.isNotBlank() }
+        // T1 (modo aviso): o chamador exibe o aviso; o texto segue intacto.
+        if (warnOnly) return VerificationResult(text, removed)
         val kept = StringBuilder()
         var cursor = 0
         for (r in merged) {

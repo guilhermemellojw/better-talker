@@ -485,4 +485,21 @@ class DeepSeekProviderTest {
         assertFalse(body.contains("JSON válido"))
         assertFalse(body.contains("cercas de código"))
     }
+
+    // ---------- T1 (modo colar e conversar): prompt minimalista ----------
+
+    @Test
+    fun colarEConversarUsaSystemMinimo() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("sugestão aqui")))
+        val esboco = "Ponto 1: a fé. Ponto 2: a esperança."
+        provider(http).generate(req().copy(message = "o que acha?", minimalPaste = esboco))
+        val body = http.bodies.single()
+        assertTrue(body.contains("copiloto de oratória"))
+        assertTrue(body.contains("Ponto 1: a fé."))
+        assertTrue(body.contains("o que acha?"))
+        // Sem cauda de formato, sem regras, sem TAIL.
+        assertFalse(body.contains("Abra com 1 frase"))
+        assertFalse(body.contains("REGRAS DO S-34"))
+        assertFalse(body.contains("FONTES DE CONTEÚDO"))
+    }
 }

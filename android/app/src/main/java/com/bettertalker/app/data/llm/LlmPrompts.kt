@@ -11,6 +11,14 @@ import com.bettertalker.app.data.domain.ContextPack
  * muda. Mesma lógica do `promptsFor` do QwenProvider (que permanece intacto).
  */
 internal fun buildProviderPrompts(request: LlmRequest): Pair<String, String> {
+    // T1 (modo colar e conversar): prompt minimalista em vez do estruturado.
+    request.minimalPaste?.let { pasted ->
+        return com.bettertalker.app.data.copilot.buildMinimalPastePrompts(
+            pastedText = pasted,
+            message = request.message.ifBlank { request.text },
+            history = request.history,
+        )
+    }
     val base: Pair<String, String> = if (request.oratorySpec != null) {
         val user = OratoryGeneration.buildPrompt(
             request.oratorySpec,
