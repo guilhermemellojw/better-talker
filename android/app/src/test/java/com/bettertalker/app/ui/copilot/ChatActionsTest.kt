@@ -21,6 +21,14 @@ class ChatActionsTest {
     }
 
     @Test
+    fun sugestoesDoOlaSoAntesDaPrimeiraMensagem() {
+        assertTrue(shouldShowSuggestions(hasUserMessage = false, inputBlank = true))
+        assertFalse(shouldShowSuggestions(hasUserMessage = true, inputBlank = true))
+        assertFalse(shouldShowSuggestions(hasUserMessage = false, inputBlank = false))
+        assertFalse(shouldShowSuggestions(hasUserMessage = true, inputBlank = false))
+    }
+
+    @Test
     fun mensagemDoUsuarioNaoTemAcoes() {
         assertFalse(hasMessageActions(item(fromMe = true)))
     }

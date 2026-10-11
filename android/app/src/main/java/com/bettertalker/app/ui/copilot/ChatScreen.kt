@@ -292,8 +292,12 @@ fun ChatScreen(
         input = ""
     }
 
-    // sugestões do olá: só até a primeira mensagem do usuário
-    val showSuggestions = messages.none { it.fromMe } && input.isBlank()
+    // T1 (chat minimalista): sugestões do olá só até a primeira mensagem do
+    // usuário (regra pura em shouldShowSuggestions, testável sem Compose).
+    val showSuggestions = shouldShowSuggestions(
+        hasUserMessage = messages.any { it.fromMe },
+        inputBlank = input.isBlank(),
+    )
 
     Scaffold(
         topBar = {
@@ -776,6 +780,13 @@ internal fun speakButtonDescription(speaking: Boolean, ready: Boolean): String =
 
 /** T2 (Bug #13): kinds sem ações (têm corpo próprio); só texto do Copilot tem. */
 private val ACTIONLESS_KINDS = setOf("ideas", "refs", "bases", "sections", "draft")
+
+/**
+ * T1 (chat minimalista): quick actions do olá só antes da 1ª mensagem do
+ * usuário e com o composer vazio. Puro/testável (sem Compose).
+ */
+internal fun shouldShowSuggestions(hasUserMessage: Boolean, inputBlank: Boolean): Boolean =
+    !hasUserMessage && inputBlank
 
 /** T2 (Bug #13): resposta do Copilot de texto corrido → tem item de ações. */
 internal fun hasMessageActions(item: CopilotViewModel.ChatItem): Boolean =
