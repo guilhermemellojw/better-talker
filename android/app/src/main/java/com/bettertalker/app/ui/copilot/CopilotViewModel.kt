@@ -218,6 +218,17 @@ fun citationRevisionNotice(text: String, corpus: List<String>): String? {
 }
 
 /**
+ * T2 (chat minimalista): banner de setup só quando o setup está
+ * incompleto (sem vínculos), não dispensado e antes do primeiro uso.
+ * Após o 1º envio, nunca mais. Puro/testável.
+ */
+fun shouldShowSetupBanner(
+    isSetupComplete: Boolean,
+    dismissed: Boolean,
+    seen: Boolean,
+): Boolean = !isSetupComplete && !dismissed && !seen
+
+/**
  * T2 — aviso não bloqueante de fidelidade oratória. `null` quando ok.
  * Consome o verificador existente
  * [com.bettertalker.app.data.copilot.OratoryFidelityCheck]. Puro/testável.
@@ -676,6 +687,21 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     val setupBannerDismissed: StateFlow<Boolean> = _setupBannerDismissed.asStateFlow()
 
     /**
+     * T2 (chat minimalista): banner de setup só antes do primeiro uso.
+     * Combina prontidão + dispensa volátil + flag persistida. Puro o
+     * predicado ([shouldShowSetupBanner]), testável sem DataStore.
+     */
+    val showSetupBanner: StateFlow<Boolean> = combine(
+        _readiness, _setupBannerDismissed, settings.chatSetupSeen
+    ) { readiness, dismissed, seen ->
+        shouldShowSetupBanner(
+            isSetupComplete = readiness?.isSetupComplete ?: true,
+            dismissed = dismissed,
+            seen = seen,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /**
      * Recebe o contexto empurrado pelo FAB do editor. A prontidão que
      * vem junto pode estar levemente defasada — [refreshReadiness]
      * confirma na entrada do chat.
@@ -965,6 +991,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         if (_chatBusy.value) return
         lastUserMessage = text
         viewModelScope.launch {
+            // T2: qualquer envio conta como primeiro uso (banner some depois).
+            settings.setChatSetupSeen()
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.

@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.copilot.OratoryFidelityCheck
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -54,5 +55,20 @@ class GateWarningsTest {
         assertNull(
             fidelityRevisionNotice(OratoryFidelityCheck.Report(emptyList(), emptyList(), emptyList()))
         )
+    }
+
+    @Test
+    fun bannerApareceAntesDoPrimeiroUso() {
+        assertTrue(shouldShowSetupBanner(isSetupComplete = false, dismissed = false, seen = false))
+    }
+
+    @Test
+    fun bannerSomeAposPrimeiroUsoOuSetupOuDispensa() {
+        // Após o 1º envio, nunca mais — mesmo sem vínculos.
+        assertFalse(shouldShowSetupBanner(isSetupComplete = false, dismissed = false, seen = true))
+        // Setup completo: sem banner, com ou sem uso anterior.
+        assertFalse(shouldShowSetupBanner(isSetupComplete = true, dismissed = false, seen = false))
+        // Dispensa volátil da sessão continua valendo.
+        assertFalse(shouldShowSetupBanner(isSetupComplete = false, dismissed = true, seen = false))
     }
 }

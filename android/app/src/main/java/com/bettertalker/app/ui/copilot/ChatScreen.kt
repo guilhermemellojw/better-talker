@@ -116,7 +116,8 @@ fun ChatScreen(
     val localPartial by vm.localPartial.collectAsState()
     // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
     val readiness by vm.readiness.collectAsState()
-    val setupDismissed by vm.setupBannerDismissed.collectAsState()
+    // T2 (chat minimalista): visibilidade combinada no VM (só 1ª vez).
+    val showSetupBanner by vm.showSetupBanner.collectAsState()
     LaunchedEffect(vm) { vm.refreshReadiness() }
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
@@ -353,8 +354,9 @@ fun ChatScreen(
         Box(Modifier.fillMaxSize().padding(pad)) {
             Column(Modifier.fillMaxSize()) {
                 // Onboarding F2a: banner de setup (fora do scroll da conversa).
+                // T2: só antes do 1º uso (combinado no VM).
                 val r = readiness
-                if (r != null && !r.isSetupComplete && !setupDismissed) {
+                if (showSetupBanner && r != null) {
                     SetupBanner(
                         readiness = r,
                         onImportOutline = { showAttach = true },

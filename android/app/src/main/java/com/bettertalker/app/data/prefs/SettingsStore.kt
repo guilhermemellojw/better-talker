@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.prefs
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -103,4 +104,9 @@ class SettingsStore(private val ctx: Context) {
             it[DEEPSEEK_MODEL] = if (v == "deepseek-v4-pro") "deepseek-v4-pro" else "deepseek-flash"
         }
     }
+
+    /** T2 (chat minimalista): o usuário já usou o chat ao menos uma vez. */
+    private val CHAT_SETUP_SEEN = booleanPreferencesKey("chat_setup_seen")
+    val chatSetupSeen: Flow<Boolean> = ctx.store.data.map { it[CHAT_SETUP_SEEN] ?: false }
+    suspend fun setChatSetupSeen() { ctx.store.edit { it[CHAT_SETUP_SEEN] = true } }
 }
