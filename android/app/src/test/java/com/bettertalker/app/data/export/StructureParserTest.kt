@@ -77,6 +77,17 @@ class StructureParserTest {
     }
 
     @Test
+    fun instrucaoCanonicaTemFormatoParseavel() {
+        // O que o prompt pede, o parser entende (contratoInstruction↔parser).
+        val instruction = com.bettertalker.app.data.copilot.APPLY_STRUCTURE_INSTRUCTION
+        assertTrue(instruction.contains("# INTRODUÇÃO"))
+        assertTrue(instruction.contains("# SEÇÃO 1"))
+        assertTrue(instruction.contains("# CONCLUSÃO"))
+        val sample = "# INTRODUÇÃO\nOi.\n\n# SEÇÃO 1: X\nY.\n\n# CONCLUSÃO\nFim."
+        assertEquals(3, parseStructureMarkdown(sample).size)
+    }
+
+    @Test
     fun conversaoTemPapeisEOrdens() {
         val c = conv(parseStructureMarkdown(canonico))
         assertEquals("Tema", c.noteTitle)

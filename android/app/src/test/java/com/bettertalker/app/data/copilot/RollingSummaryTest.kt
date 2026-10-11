@@ -86,6 +86,17 @@ class RollingSummaryTest {
     }
 
     @Test
+    fun mergeApproach_acumulaVariosTurnos() {
+        // Conversa longa: cada turno acrescenta sem apagar o anterior.
+        val after1 = mergeApproach(null, listOf("abertura com pergunta"))!!
+        val after2 = mergeApproach(after1, listOf("tom pastoral"))!!
+        assertTrue(after2.contains("abertura com pergunta"))
+        assertTrue(after2.contains("tom pastoral"))
+        // Reafirmar o consenso não duplica (nada muda).
+        assertNull(mergeApproach(after2, listOf("abertura com pergunta")))
+    }
+
+    @Test
     fun caudaInstruiMarcarDecisao() {
         assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("〈decisão〉"))
     }

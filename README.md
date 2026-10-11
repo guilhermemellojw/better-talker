@@ -94,6 +94,18 @@ e responde com base nele, íntegro:
 - **Cauda de formato condicional:** conversa curta flui sem molde; pedidos de geração (`desenvolva`, `escreva`, `crie`, `sugira`) mantêm a formatação estruturada.
 - **Limpar a conversa descarta** o esboço colado. Para persistir, use o fluxo normal (importar → vincular).
 
+### Construir em conjunto (conversar → inserir tudo)
+
+Para montar o discurso conversando, sem esboço inicial: **converse ponto a ponto** com o Copilot
+e ao final diga *"insira tudo na nota"*:
+
+- **Memória da construção:** a cada turno o app resume o fio (seção atual, decisões, próximo passo)
+  num bloco `## MEMÓRIA DA CONSTRUÇÃO` no prompt — o copilot lembra o que foi decidido mesmo em
+  conversa longa. Consensos marcados com `〈decisão〉…〈/decisão〉` viram `abordagem acordada` do tópico.
+- **Inserir tudo:** o modelo emite a estrutura em Markdown canônico (`# INTRODUÇÃO`, `# SEÇÃO N`,
+  `# CONCLUSÃO`); o app mostra **prévia** (títulos + primeiras linhas) e, ao confirmar, cria as
+  seções na nota — **substituindo** tudo ou **adicionando** ao final, à escolha.
+
 > **Contexto de uso:** projeto de uso pessoal (poucos amigos), distribuição por APK sideload — sem Play Store nesta fase.
 
 > Estado honesto: o web e o nativo evoluíram em paralelo e **não têm paridade total** — o RAG com refs exatas e o chat são mais avançados no nativo; o teleprompter, as métricas de palco e o Copilot com Gemini existem no web.
