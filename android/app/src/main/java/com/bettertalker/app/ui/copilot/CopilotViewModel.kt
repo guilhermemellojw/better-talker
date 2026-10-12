@@ -1031,31 +1031,40 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
             // do try e pulavam o finally — travando composer e runState.
             try {
-            // T1 (modo colar e conversar): texto longo colado, sem S-34 nem
-            // esboço vinculado, vira o contexto íntegro da conversa — sem
-            // persistir (sem draft/outline/attachment). Perguntas seguintes
-            // usam a rota fixa minimalista (sem router/oratória/dossiê/RAG).
-            if (pasteBuffer == null &&
-                com.bettertalker.app.data.copilot.ChatRouter.isPasteCandidate(text) &&
-                _lastS34Document == null &&
-                outlines.get(noteId) == null
-            ) {
-                pasteBuffer = text.take(com.bettertalker.app.data.copilot.MINIMAL_PASTE_MAX_CHARS)
-                _pasteMode.value = true
-                post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Esboço recebido (${pasteBuffer!!.length} caracteres). " +
-                        "Pergunte o que quiser sobre ele — sem vincular, sem cerimônia.")))
-                return@launch
-            }
-            if (pasteBuffer != null) {
-                answerMinimal(text, historyBefore, isFirst)
-                return@launch
-            }
-            // T2 (Fase 2): materializar a estrutura — ANTES do comando de
-            // inserção pontual (T3 mini sequestraria "na nota").
-            if (com.bettertalker.app.data.copilot.ChatRouter.isApplyStructureCommand(text)) {
-                requestApplyStructure(historyBefore)
-                return@launch
+            // T2 (Fase 2.1): ordem dos intercepts — colagem NOVA primeiro; o
+            // comando explícito de materializar vence o fallback do modo colar
+            // (antes, o pasteBuffer sequestrava "insira tudo na nota").
+            when (com.bettertalker.app.data.copilot.ChatRouter.interceptFor(
+                text,
+                canStartPaste = pasteBuffer == null &&
+                    _lastS34Document == null &&
+                    outlines.get(noteId) == null,
+                pasteActive = pasteBuffer != null,
+            )) {
+                // T1 (modo colar e conversar): texto longo colado, sem S-34 nem
+                // esboço vinculado, vira o contexto íntegro da conversa — sem
+                // persistir (sem draft/outline/attachment). Perguntas seguintes
+                // usam a rota fixa minimalista (sem router/oratória/dossiê/RAG).
+                com.bettertalker.app.data.copilot.ChatRouter.Intercept.NEW_PASTE -> {
+                    pasteBuffer = text.take(com.bettertalker.app.data.copilot.MINIMAL_PASTE_MAX_CHARS)
+                    _pasteMode.value = true
+                    post(false, "text", ChatCodec.escMap(mapOf(
+                        "text" to "Esboço recebido (${pasteBuffer!!.length} caracteres). " +
+                            "Pergunte o que quiser sobre ele — sem vincular, sem cerimônia.")))
+                    return@launch
+                }
+                // T2 (Fase 2): materializar a estrutura — ANTES do comando de
+                // inserção pontual (T3 mini sequestraria "na nota") e ANTES do
+                // fallback do modo colar (Fase 2.1).
+                com.bettertalker.app.data.copilot.ChatRouter.Intercept.APPLY_STRUCTURE -> {
+                    requestApplyStructure(historyBefore)
+                    return@launch
+                }
+                com.bettertalker.app.data.copilot.ChatRouter.Intercept.PASTE_CHAT -> {
+                    answerMinimal(text, historyBefore, isFirst)
+                    return@launch
+                }
+                com.bettertalker.app.data.copilot.ChatRouter.Intercept.NONE -> Unit
             }
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).

@@ -177,6 +177,21 @@ object ChatRouter {
         return APPLY_ALL.containsMatchIn(t) || APPLY_NOUN.containsMatchIn(t)
     }
 
+    /**
+     * T2 (Fase 2.1) — ordem dos intercepts do `send()`: colagem NOVA primeiro;
+     * o comando explícito de materializar ("insira tudo na nota") vence o
+     * fallback de conversa sobre o esboço colado — antes, o ramo do
+     * `pasteBuffer` o sequestrava (validado no A34). Puro/testável.
+     */
+    enum class Intercept { NEW_PASTE, APPLY_STRUCTURE, PASTE_CHAT, NONE }
+
+    fun interceptFor(text: String, canStartPaste: Boolean, pasteActive: Boolean): Intercept = when {
+        canStartPaste && isPasteCandidate(text) -> Intercept.NEW_PASTE
+        isApplyStructureCommand(text) -> Intercept.APPLY_STRUCTURE
+        pasteActive -> Intercept.PASTE_CHAT
+        else -> Intercept.NONE
+    }
+
     // ---------- Pergunta estrutural ----------
 
     private val QUESTION_OPENERS = Regex(

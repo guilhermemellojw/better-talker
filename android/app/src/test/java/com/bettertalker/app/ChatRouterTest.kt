@@ -414,4 +414,75 @@ class ChatRouterTest {
             ChatRouter.describe(r)
         )
     }
+
+    // ---------- T2 (Fase 2.1): precedência sobre o modo colar ----------
+
+    @Test
+    fun emModoColarComandoMaterializaTemPrecedencia() {
+        // Regressão da validação no A34: no modo colar, o comando virava conversa.
+        assertEquals(
+            ChatRouter.Intercept.APPLY_STRUCTURE,
+            ChatRouter.interceptFor(
+                "Insira tudo na nota.",
+                canStartPaste = false,
+                pasteActive = true,
+            )
+        )
+        assertEquals(
+            ChatRouter.Intercept.APPLY_STRUCTURE,
+            ChatRouter.interceptFor(
+                "Insira tudo na nota de novo, por favor.",
+                canStartPaste = false,
+                pasteActive = true,
+            )
+        )
+    }
+
+    @Test
+    fun comandoMaterializaNoModoPadraoTambem() {
+        assertEquals(
+            ChatRouter.Intercept.APPLY_STRUCTURE,
+            ChatRouter.interceptFor(
+                "materialize o discurso",
+                canStartPaste = true,
+                pasteActive = false,
+            )
+        )
+    }
+
+    @Test
+    fun colagemNovaVemAntesDeTudo() {
+        assertEquals(
+            ChatRouter.Intercept.NEW_PASTE,
+            ChatRouter.interceptFor(
+                "x".repeat(501),
+                canStartPaste = true,
+                pasteActive = false,
+            )
+        )
+    }
+
+    @Test
+    fun perguntaNoModoColarContinuaConversa() {
+        assertEquals(
+            ChatRouter.Intercept.PASTE_CHAT,
+            ChatRouter.interceptFor(
+                "o que você acha do esboço?",
+                canStartPaste = false,
+                pasteActive = true,
+            )
+        )
+    }
+
+    @Test
+    fun textoNormalSemColagemNaoIntercepta() {
+        assertEquals(
+            ChatRouter.Intercept.NONE,
+            ChatRouter.interceptFor(
+                "desenvolva o ponto 2",
+                canStartPaste = true,
+                pasteActive = false,
+            )
+        )
+    }
 }
