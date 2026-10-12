@@ -94,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.bettertalker.app.data.export.buildExportHtml
 import com.bettertalker.app.data.export.buildExportPlainText
+import com.bettertalker.app.data.export.PdfExportManager
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
@@ -758,8 +759,11 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
             },
             onSavePdf = {
                 showExport = false
-                // T3 liga o PdfExportManager (PrintManager) neste callback.
-                Toast.makeText(ctx, "Salvar PDF: em preparação", Toast.LENGTH_SHORT).show()
+                // T3: PrintManager + WebView offscreen — o usuário escolhe
+                // "Salvar como PDF" e o destino no diálogo do sistema.
+                PdfExportManager.printDiscurso(
+                    ctx, title.ifBlank { "Discurso" }, exportHtmlOf(title, sections),
+                )
             },
             onCopy = {
                 showExport = false
