@@ -158,4 +158,34 @@ class ExportHtmlBuilderTest {
         assertTrue(html.contains("<p>Texto final.</p>"))
         assertFalse(html.contains("ABORDAGEM-INTERNA-NAO-EXPORTAR"))
     }
+
+    // ---------- T2 (Exportação): texto puro para "Copiar" ----------
+
+    @Test
+    fun plainTextIncluiTitulosECorpoSemTags() {
+        val sections = listOf(
+            section(SectionRole.INTRO, 0, "INTRODUÇÃO", contentHtml = "<p>Boa noite a todos.</p>"),
+            section(SectionRole.BODY, 1, "Tópico", contentHtml = "<p>Primeiro <strong>ponto</strong>.</p>"),
+        )
+        val text = buildExportPlainText(sections)
+        assertTrue(text.contains("INTRODUÇÃO"))
+        assertTrue(text.contains("Boa noite a todos."))
+        assertTrue(text.contains("Tópico"))
+        assertTrue(text.contains("Primeiro ponto."))
+        assertFalse(text.contains("<p>"))
+        assertFalse(text.contains("<strong>"))
+    }
+
+    @Test
+    fun plainTextAplicaFallbackDosSubPontosESecaoSemCorpo() {
+        val sections = listOf(
+            section(SectionRole.BODY, 0, "Tópico", contentHtml = ""),
+            section(SectionRole.CONCLUSION, 1, "CONCLUSÃO"),
+        )
+        val subs = mapOf("s0" to listOf(sub("s0", 0, developed = "<p>Desenvolvido aqui.</p>")))
+        val text = buildExportPlainText(sections, subs)
+        assertTrue(text.contains("Desenvolvido aqui."))
+        // Sem corpo → só o título da seção.
+        assertTrue(text.endsWith("CONCLUSÃO"))
+    }
 }

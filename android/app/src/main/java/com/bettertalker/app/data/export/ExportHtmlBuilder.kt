@@ -113,3 +113,29 @@ fun buildExportHtml(
     sb.append("</body>\n</html>\n")
     return sb.toString()
 }
+
+/**
+ * T2 (Exportação) — texto puro do discurso (títulos + corpo, sem HTML) para o
+ * "Copiar texto". Mesma travessia do [buildExportHtml]. Puro/testável.
+ */
+fun buildExportPlainText(
+    sections: List<SpeechSection>,
+    subPointsBySection: Map<String, List<SubPoint>> = emptyMap(),
+): String {
+    fun strip(html: String): String = html
+        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("</p>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace(Regex("[ \\t]+"), " ")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+
+    return sections.sortedBy { it.order }.joinToString("\n\n") { s ->
+        val body = strip(sectionBody(s, subPointsBySection[s.id].orEmpty()))
+        if (body.isBlank()) s.title else "${s.title}\n\n$body"
+    }
+}

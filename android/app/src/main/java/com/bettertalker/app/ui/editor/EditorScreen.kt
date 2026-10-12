@@ -1,5 +1,10 @@
 package com.bettertalker.app.ui.editor
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
@@ -39,6 +45,8 @@ import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -50,6 +58,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -73,6 +82,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -81,9 +91,13 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
+import com.bettertalker.app.data.export.buildExportHtml
+import com.bettertalker.app.data.export.buildExportPlainText
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
+import java.io.File
 
 // Paleta de cores da fonte (estilo Word)
 private val FONT_COLORS = listOf(
@@ -131,8 +145,11 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
     var showColorDialog by remember { mutableStateOf(false) }
     var showAttachmentsSheet by remember { mutableStateOf(false) }
+    // Exportação: sheet com Compartilhar / Salvar PDF / Copiar texto.
+    var showExport by remember { mutableStateOf(false) }
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
     var showOutlineDialog by remember { mutableStateOf(false) }
 
     // 3.2.5c: editor multi-seção. Duas noções independentes:
@@ -316,6 +333,10 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Exportar / Compartilhar") },
+                            onClick = { showMenu = false; showExport = true },
                         )
                         outlineList.firstOrNull()?.let { o ->
                             DropdownMenuItem(
@@ -726,6 +747,26 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
             onDismiss = { showAttachmentsSheet = false },
         )
     }
+
+    // Exportação (T2/T3): Compartilhar HTML, Salvar PDF e Copiar texto.
+    if (showExport) {
+        ExportSheet(
+            onDismiss = { showExport = false },
+            onShare = {
+                showExport = false
+                shareExportHtml(ctx, title, sections)
+            },
+            onSavePdf = {
+                showExport = false
+                // T3 liga o PdfExportManager (PrintManager) neste callback.
+                Toast.makeText(ctx, "Salvar PDF: em preparação", Toast.LENGTH_SHORT).show()
+            },
+            onCopy = {
+                showExport = false
+                copyExportText(ctx, sections)
+            },
+        )
+    }
 }
 
 /** 3.2.5g.3: bolinha de cor da nota (dialog do ⋮; sem swatch de "limpar"). */
@@ -874,6 +915,103 @@ private fun ColorDots(
                         tint = MaterialTheme.colorScheme.secondary
                     )
                 }
+            }
+        }
+    }
+}
+
+// ---------- Exportação (T2): Compartilhar / Copiar ----------
+
+/** HTML de exportação a partir do estado atual do editor. */
+private fun exportHtmlOf(title: String, sections: List<SectionUiState>): String =
+    buildExportHtml(
+        noteTitle = title.ifBlank { "Discurso" },
+        sections = sections.map { it.section },
+        subPointsBySection = sections.associate { it.section.id to it.subPoints },
+    )
+
+/** T2 (Exportação) — grava o HTML no cache e abre o Share Intent (text/html). */
+private fun shareExportHtml(ctx: Context, title: String, sections: List<SectionUiState>) {
+    val html = exportHtmlOf(title, sections)
+    val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+    val base = title.ifBlank { "Discurso" }
+        .replace(Regex("[^\\p{L}\\p{N}]+"), "_")
+        .trim('_')
+        .ifBlank { "Discurso" }
+        .take(60)
+    val file = File(dir, "$base.html")
+    file.writeText(html, Charsets.UTF_8)
+    val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/html"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, title.ifBlank { "Discurso" })
+        putExtra(Intent.EXTRA_TITLE, title.ifBlank { "Discurso" })
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    ctx.startActivity(Intent.createChooser(send, "Compartilhar discurso"))
+}
+
+/** T2 (Exportação) — copia o texto puro do discurso (títulos + corpo). */
+private fun copyExportText(ctx: Context, sections: List<SectionUiState>) {
+    val text = buildExportPlainText(
+        sections = sections.map { it.section },
+        subPointsBySection = sections.associate { it.section.id to it.subPoints },
+    )
+    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("Discurso", text))
+    Toast.makeText(ctx, "Texto copiado", Toast.LENGTH_SHORT).show()
+}
+
+/** Sheet de exportação: Compartilhar (HTML), Salvar PDF e Copiar texto. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExportSheet(
+    onDismiss: () -> Unit,
+    onShare: () -> Unit,
+    onSavePdf: () -> Unit,
+    onCopy: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("Exportar discurso", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(4.dp))
+            ExportOption(
+                Icons.Default.Share, "Compartilhar",
+                "HTML do discurso (WhatsApp, Drive, e-mail)", onShare,
+            )
+            ExportOption(
+                Icons.Default.PictureAsPdf, "Salvar PDF",
+                "Escolha o destino no diálogo do sistema", onSavePdf,
+            )
+            ExportOption(
+                Icons.Default.ContentCopy, "Copiar texto",
+                "Texto do discurso sem formatação", onCopy,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/** Linha de ação do sheet de exportação. */
+@Composable
+private fun ExportOption(
+    icon: ImageVector,
+    title: String,
+    desc: String,
+    onClick: () -> Unit,
+) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
             }
         }
     }
