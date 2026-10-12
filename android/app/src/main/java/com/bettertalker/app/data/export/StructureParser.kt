@@ -233,9 +233,28 @@ fun toOutlineConversion(
 }
 
 /**
+ * T5 (Fase 2.1) — chave de dedup do título de um corpo: normalizada
+ * (minúscula, sem acento, sem pontuação). Puro/testável.
+ */
+fun bodyTitleKey(title: String): String = normalizeText(title)
+
+/**
+ * T5 (Fase 2.1) — quantos corpos novos repetem um título já existente
+ * (serão pulados no "adicionar ao final"). Puro/testável.
+ */
+fun countDuplicateBodyTitles(existingSections: List<SpeechSection>, fresh: OutlineConversion): Int {
+    val existingKeys = existingSections
+        .filter { it.role == SectionRole.BODY }
+        .map { bodyTitleKey(it.title) }
+        .toSet()
+    return fresh.bodies.count { bodyTitleKey(it.section.title) in existingKeys }
+}
+
+/**
  * Anexa uma conversão nova à estrutura existente (modo "adicionar"):
  * existentes mantidos, novos após, orders renormalizados, intro/conclusion
- * existentes prevalecem. Puro/testável.
+ * existentes prevalecem. T5 (Fase 2.1): corpo novo com título já existente
+ * (normalizado) é PULADO — "adicionar" não duplica tópico. Puro/testável.
  */
 fun mergeAppend(
     existingSections: List<SpeechSection>,
@@ -247,10 +266,16 @@ fun mergeAppend(
     val intro = (ordered.firstOrNull { it.role == SectionRole.INTRO } ?: fresh.intro)
         ?.copy(order = idx++)
     val conclusionExisting = ordered.firstOrNull { it.role == SectionRole.CONCLUSION }
+    val existingBodyKeys = ordered
+        .filter { it.role == SectionRole.BODY }
+        .map { bodyTitleKey(it.title) }
+        .toSet()
     val bodies = (
         ordered.filter { it.role == SectionRole.BODY }.map { s ->
             BodyConversion(s.copy(order = idx++), existingSubPoints[s.id].orEmpty())
-        } + fresh.bodies.map { b -> b.copy(section = b.section.copy(order = idx++)) }
+        } + fresh.bodies
+            .filterNot { bodyTitleKey(it.section.title) in existingBodyKeys }
+            .map { b -> b.copy(section = b.section.copy(order = idx++)) }
         )
     val conclusion = (conclusionExisting ?: fresh.conclusion)?.copy(order = idx)
     return fresh.copy(intro = intro, bodies = bodies, conclusion = conclusion)

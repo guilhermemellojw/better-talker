@@ -226,4 +226,49 @@ class StructureParserTest {
         // Linhas em branco múltiplas colapsam em uma (direto na higiene).
         assertEquals("A\n\nB", sanitizeStructureText("A\n\n\n\nB"))
     }
+
+    // ---------- T5 (Fase 2.1): dedup no adicionar ao final ----------
+
+    @Test
+    fun mergeAppend_pulaCorpoComTituloJaExistente() {
+        val existing = listOf(
+            section(SectionRole.BODY, 0, "b").copy(title = "Bênçãos do dia a dia"),
+        )
+        val fresh = conv(parseStructureMarkdown(
+            "# SEÇÃO 1: Bênçãos do dia a dia\nRepetição do mesmo tópico.\n\n" +
+                "# SEÇÃO 2: Ajudar os outros\nTópico novo com conteúdo."
+        ))
+        val merged = mergeAppend(existing, emptyMap(), fresh)
+        // Existente + o novo; o duplicado foi pulado (não anexou segunda cópia).
+        assertEquals(2, merged.bodies.size)
+        assertEquals(1, merged.bodies.count { it.section.title == "Bênçãos do dia a dia" })
+        assertTrue(merged.bodies.any { it.section.title == "Ajudar os outros" })
+    }
+
+    @Test
+    fun mergeAppend_dedupIgnoraCaixaEAcento() {
+        val existing = listOf(
+            section(SectionRole.BODY, 0, "b").copy(title = "Bênçãos do Dia a Dia!"),
+        )
+        val fresh = conv(parseStructureMarkdown(
+            "# SEÇÃO 1: bencaos do dia a dia\nMesmo tópico com outra forma."
+        ))
+        val merged = mergeAppend(existing, emptyMap(), fresh)
+        assertEquals(1, merged.bodies.size)
+        assertEquals("b", merged.bodies.single().section.id)
+    }
+
+    @Test
+    fun countDuplicateBodyTitlesContaPulados() {
+        val existing = listOf(
+            section(SectionRole.BODY, 0, "b").copy(title = "Bênçãos do dia a dia"),
+            section(SectionRole.BODY, 1, "c").copy(title = "Gratidão nas dificuldades"),
+        )
+        val fresh = conv(parseStructureMarkdown(
+            "# SEÇÃO 1: Bênçãos do dia a dia\nRepetido também por aqui.\n\n" +
+                "# SEÇÃO 2: Gratidão nas dificuldades\nRepetido também por aqui.\n\n" +
+                "# SEÇÃO 3: Ajudar os outros\nNovo de verdade neste ponto."
+        ))
+        assertEquals(2, countDuplicateBodyTitles(existing, fresh))
+    }
 }

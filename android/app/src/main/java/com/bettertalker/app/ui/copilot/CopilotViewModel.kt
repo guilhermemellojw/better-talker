@@ -3393,6 +3393,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 val subMap = existingSecs.associate { s ->
                     s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
                 }
+                // T5 (Fase 2.1): corpos com título já existente são pulados —
+                // "adicionar ao final" não duplica tópico.
+                val pulados = com.bettertalker.app.data.export.countDuplicateBodyTitles(
+                    existingSecs, fresh,
+                )
+                if (pulados > 0) {
+                    android.util.Log.i(
+                        "CopilotLLM",
+                        "apply-structure: $pulados seção(ões) duplicada(s) pulada(s) no adicionar"
+                    )
+                }
                 com.bettertalker.app.data.export.mergeAppend(existingSecs, subMap, fresh)
             }
             outlineImportService.persist(conversion, DiscourseType.S34_DISCOURSE)
