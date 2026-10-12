@@ -1464,12 +1464,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             return
         }
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+        // T1 (Fase 2.1): memória da construção TAMBÉM no modo colar. O fio
+        // (decisões/consenso + próximo passo) entra como CONTEÚDO da mensagem
+        // — o system segue minimalista. Sem resumo (conversa curta sem
+        // decisões) → mensagem inalterada (prompt igual ao anterior).
+        val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
+            com.bettertalker.app.data.copilot.buildRollingSummary(
+                history,
+                pushedSectionTitle() ?: _activeBlockTitle.value.orEmpty(),
+            )
+        )
+        val messageWithMemory =
+            com.bettertalker.app.data.copilot.minimalMemoryPrefix(memory) + text
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
                     text = pasted,
                     action = com.bettertalker.app.data.llm.LlmAction.CHAT,
-                    message = text,
+                    message = messageWithMemory,
                     history = history,
                     isFirstMessage = isFirst,
                     minimalPaste = pasted,

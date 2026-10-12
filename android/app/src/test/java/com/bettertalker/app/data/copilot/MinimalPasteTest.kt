@@ -74,4 +74,61 @@ class MinimalPasteTest {
             ChatRouter.describe(ChatRouter.Route.PasteAndChat("esboço colado"))
         )
     }
+
+    // ---------- T1 (Fase 2.1): memória da construção no modo colar ----------
+
+    @Test
+    fun semResumoPromptMinimalistaFicaInalterado() {
+        assertEquals("", minimalMemoryPrefix(null))
+        assertEquals("", minimalMemoryPrefix(""))
+        assertEquals("", minimalMemoryPrefix("   "))
+        val (system, user) = buildMinimalPastePrompts(esboco, "o que acha?", emptyList())
+        assertFalse(system.contains("MEMÓRIA DA CONSTRUÇÃO"))
+        assertFalse(user.contains("MEMÓRIA DA CONSTRUÇÃO"))
+    }
+
+    @Test
+    fun comResumoMemoriaEntraComoConteudoNaNensagem() {
+        val resumo = renderMemoryBlock(
+            RollingSummary(
+                decisions = listOf("mensagem em 3 pontos: fé, esperança e amor"),
+                nextStep = "insira tudo na nota",
+                userTurns = 3,
+            )
+        )
+        assertTrue(resumo != null)
+        val prefixo = minimalMemoryPrefix(resumo)
+        assertTrue(prefixo.contains("## MEMÓRIA DA CONSTRUÇÃO"))
+        assertTrue(prefixo.contains("fé, esperança e amor"))
+        val (system, user) = buildMinimalPastePrompts(esboco, prefixo + "e agora?", emptyList())
+        assertTrue(user.contains("## MEMÓRIA DA CONSTRUÇÃO"))
+        assertTrue(user.contains("e agora?"))
+        // O system segue minimalista — a memória é conteúdo, não instrução.
+        assertFalse(system.contains("MEMÓRIA DA CONSTRUÇÃO"))
+    }
+
+    @Test
+    fun resumoGrandeTruncadoNoTeto() {
+        val linha = "- Decisão: " + "x".repeat(60)
+        val grande = "## MEMÓRIA DA CONSTRUÇÃO\n" + (1..20).joinToString("\n") { linha }
+        val prefixo = minimalMemoryPrefix(grande)
+        val bloco = prefixo.trimEnd()
+        assertTrue(bloco.endsWith("…"))
+        assertTrue(bloco.length <= MINIMAL_MEMORY_MAX_CHARS)
+    }
+
+    @Test
+    fun resumoDaConversaChegaAoPromptMinimalista() {
+        // Pista explícita do usuário ("Fechado") vira decisão sem tag do modelo.
+        val history = listOf(
+            ChatTurn(true, "Fechado, mensagem em 3 pontos."),
+            ChatTurn(false, "Combinado! Vamos desenvolver o primeiro."),
+        )
+        val resumo = renderMemoryBlock(buildRollingSummary(history, ""))
+        assertTrue(resumo != null)
+        val prefixo = minimalMemoryPrefix(resumo)
+        assertTrue(prefixo.contains("MEMÓRIA DA CONSTRUÇÃO"))
+        val (_, user) = buildMinimalPastePrompts(esboco, prefixo + "continue", history)
+        assertTrue(user.contains("MEMÓRIA DA CONSTRUÇÃO"))
+    }
 }

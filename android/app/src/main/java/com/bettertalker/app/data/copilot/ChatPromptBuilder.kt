@@ -71,6 +71,32 @@ Se não houver suporte no esboço, diga "Não encontrei suporte suficiente nas f
 """.trimIndent()
 
 /**
+ * T1 (Fase 2.1) — teto do bloco de memória injetado no modo colar. O system
+ * segue minimalista: a memória entra como CONTEÚDO, junto da mensagem.
+ */
+const val MINIMAL_MEMORY_MAX_CHARS = 400
+
+/**
+ * T1 (Fase 2.1) — prefixo de conteúdo com a memória da construção para a
+ * mensagem do modo colar. Bloco nulo/vazio → `""` (prompt inalterado). Bloco
+ * maior que [MINIMAL_MEMORY_MAX_CHARS] corta na última linha inteira + "…"
+ * (o resultado nunca passa do teto). Puro/testável.
+ */
+fun minimalMemoryPrefix(memoryBlock: String?): String {
+    val block = memoryBlock?.trim().orEmpty()
+    if (block.isEmpty()) return ""
+    val fitted = if (block.length <= MINIMAL_MEMORY_MAX_CHARS) {
+        block
+    } else {
+        val cut = block.take(MINIMAL_MEMORY_MAX_CHARS - 1)
+        val lastNewline = cut.lastIndexOf('\n')
+        val head = if (lastNewline > 0) cut.take(lastNewline) else cut
+        head.trimEnd() + "…"
+    }
+    return "$fitted\n\n"
+}
+
+/**
  * T1 (modo colar e conversar) — prompt mínimo: system fixo + esboço
  * íntegro (truncado no teto) + mensagem. Sem TAIL, sem regras, sem RAG.
  * Puro/testável.
