@@ -169,7 +169,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val stageVm: StageViewModel = viewModel(
                 key = "stage-$noteId",
-                factory = StageViewModel.Factory(db, settings, noteId)
+                factory = StageViewModel.Factory(ctx, db, settings, noteId)
             )
             StageScreen(stageVm, onBack = { nav.popBackStack() })
         }

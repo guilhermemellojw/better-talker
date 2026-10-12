@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +84,8 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val elapsed by vm.elapsed.collectAsState()
     val running by vm.timerRunning.collectAsState()
     val fontSp by vm.fontSp.collectAsState()
+    val speaking by vm.ttsSpeaking.collectAsState()
+    val speechReady by vm.ttsReady.collectAsState()
     val scroll = rememberScrollState()
     var controls by remember { mutableStateOf(true) }
 
@@ -97,6 +100,8 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
             view.keepScreenOn = false
+            // T2: sair do palco para o ensaio em voz alta.
+            vm.stopSpeech()
         }
     }
 
@@ -161,6 +166,9 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 onToggleTimer = vm::toggleTimer,
                 fontSp = fontSp,
                 onFontDelta = vm::bumpFont,
+                speaking = speaking,
+                speechReady = speechReady,
+                onToggleSpeech = vm::toggleSpeech,
                 onExit = onBack,
             )
         }
@@ -195,6 +203,9 @@ private fun StageControlBar(
     onToggleTimer: () -> Unit,
     fontSp: Int,
     onFontDelta: (Int) -> Unit,
+    speaking: Boolean,
+    speechReady: Boolean,
+    onToggleSpeech: () -> Unit,
     onExit: () -> Unit,
 ) {
     Surface(
@@ -232,6 +243,14 @@ private fun StageControlBar(
             }
             IconButton(onClick = { onFontDelta(2) }) {
                 Text("A+", color = StageFg, fontWeight = FontWeight.Bold)
+            }
+            // T2: ensaio em voz alta (▶ Ouvir / ⏸ Parar) — mesmo rótulo do chat.
+            TextButton(onClick = onToggleSpeech, enabled = speechReady) {
+                Text(
+                    com.bettertalker.app.ui.copilot.speakButtonLabel(speaking),
+                    color = if (speechReady) StageFg else StageDim,
+                    fontWeight = FontWeight.Bold,
+                )
             }
             IconButton(onClick = onExit) {
                 Icon(Icons.Default.Close, "Sair do Modo Palco", tint = StageFg)

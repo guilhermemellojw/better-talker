@@ -61,7 +61,17 @@ class StageViewModel(
     private val db: AppDatabase,
     private val settings: SettingsStore,
     private val noteId: String,
+    appCtx: android.content.Context,
 ) : ViewModel() {
+
+    // T2 — TTS de ensaio: reaproveita o mesmo gerenciador do chat.
+    private val tts = com.bettertalker.app.data.voice.TextToSpeechManager(appCtx)
+
+    /** Motor de voz pronto (pt-BR instalado). */
+    val ttsReady: StateFlow<Boolean> = tts.ready
+
+    /** Leitura em andamento. */
+    val ttsSpeaking: StateFlow<Boolean> = tts.speaking
 
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
@@ -130,13 +140,31 @@ class StageViewModel(
         viewModelScope.launch { settings.setStageFontSp(next) }
     }
 
+    /** T2 — botão ▶ Ouvir / ⏸ Parar: uma leitura por vez (o manager flusha). */
+    fun toggleSpeech() {
+        if (tts.speaking.value) tts.stop() else speakContent()
+    }
+
+    private fun speakContent() {
+        val text = com.bettertalker.app.data.voice.prepareForSpeech(_content.value)
+        if (text.isNotBlank()) tts.speak(text)
+    }
+
+    fun stopSpeech() = tts.stop()
+
+    override fun onCleared() {
+        tts.shutdown()
+        super.onCleared()
+    }
+
     class Factory(
+        private val ctx: android.content.Context,
         private val db: AppDatabase,
         private val settings: SettingsStore,
         private val noteId: String,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            StageViewModel(db, settings, noteId) as T
+            StageViewModel(db, settings, noteId, ctx.applicationContext) as T
     }
 }
