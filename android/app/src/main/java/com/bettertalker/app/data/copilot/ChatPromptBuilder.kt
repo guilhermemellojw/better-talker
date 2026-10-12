@@ -116,15 +116,37 @@ fun buildMinimalPastePrompts(
  * T2 (Fase 2) — instrução de materialização: pede ao modelo a estrutura
  * completa discutida, em Markdown canônico que o [StructureParser] entende.
  * O histórico da conversa (com a memória da construção) é a fonte.
+ *
+ * T1 (Fase 2.2): o esboço colado complementa o histórico (ver
+ * [applyStructureMessage]) e o conteúdo tem de ser REAL — os colchetes do
+ * formato são só a marcação do esquema, nunca placeholders.
  */
 const val APPLY_STRUCTURE_INSTRUCTION =
-    "Gere a estrutura COMPLETA do discurso que construímos nesta conversa, " +
-        "em Markdown canônico, exatamente neste formato:\n" +
+    "Gere a estrutura COMPLETA e final do discurso a partir do esboço original " +
+        "(quando houver) e das decisões desta conversa, em Markdown canônico, " +
+        "exatamente neste formato:\n" +
         "# INTRODUÇÃO\n[texto da abertura]\n\n" +
         "# SEÇÃO 1: [título do ponto]\n[texto do ponto]\n\n" +
         "# CONCLUSÃO\n[texto do fechamento]\n\n" +
         "Use uma linha # SEÇÃO N para cada ponto desenvolvido. " +
+        "Os colchetes acima são só o formato — não os copie: escreva o conteúdo " +
+        "real de cada parte, sem placeholders nem notas. " +
         "Responda SOMENTE com a estrutura, sem explicações fora dela."
+
+/**
+ * T1 (Fase 2.2) — mensagem do "insira tudo": a instrução canônica + o esboço
+ * colado (quando existir), no mesmo canal de mensagem comum a todos os
+ * providers. O esboço COMPLEMENTA o histórico; sem esboço (modo estruturado),
+ * a mensagem é a instrução pura (comportamento anterior). Teto do esboço:
+ * [MINIMAL_PASTE_MAX_CHARS]. Puro/testável.
+ */
+fun applyStructureMessage(pastedOutline: String?): String {
+    val esboco = pastedOutline?.trim().orEmpty()
+    if (esboco.isEmpty()) return APPLY_STRUCTURE_INSTRUCTION
+    val clipped = esboco.take(MINIMAL_PASTE_MAX_CHARS)
+    return APPLY_STRUCTURE_INSTRUCTION +
+        "\n\n## ESBOÇO ORIGINAL (colado pelo usuário)\n$clipped\n## FIM DO ESBOÇO ORIGINAL"
+}
 
 /**
  * T1 — marcador de criação: o modelo envolve ilustrações/metáforas/exemplos

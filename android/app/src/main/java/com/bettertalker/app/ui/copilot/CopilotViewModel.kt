@@ -3321,8 +3321,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     /**
      * Pede ao modelo a estrutura completa em Markdown canônico e abre a
-     * prévia (sem persistir). O histórico — com a memória da construção —
-     * é a fonte; sem RAG/dossiê.
+     * prévia (sem persistir). O histórico — com a memória da construção — é
+     * a fonte; no modo colar, o esboço colado COMPLEMENTA o contexto
+     * (T1/Fase 2.2). Sem RAG/dossiê.
      */
     private suspend fun requestApplyStructure(history: List<ChatTurn>) {
         val nid = noteId ?: return
@@ -3339,7 +3340,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     com.bettertalker.app.data.llm.LlmRequest(
                         text = "",
                         action = com.bettertalker.app.data.llm.LlmAction.CHAT,
-                        message = com.bettertalker.app.data.copilot.APPLY_STRUCTURE_INSTRUCTION,
+                        message = com.bettertalker.app.data.copilot.applyStructureMessage(pasteBuffer),
                         history = history,
                         isFirstMessage = false,
                     )

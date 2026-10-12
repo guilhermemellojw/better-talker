@@ -131,4 +131,34 @@ class MinimalPasteTest {
         val (_, user) = buildMinimalPastePrompts(esboco, prefixo + "continue", history)
         assertTrue(user.contains("MEMÓRIA DA CONSTRUÇÃO"))
     }
+
+    // ---------- T1 (Fase 2.2): esboço colado no contexto do "insira tudo" ----------
+
+    @Test
+    fun applyStructureSemEsbocoMantemInstrucaoPura() {
+        assertEquals(APPLY_STRUCTURE_INSTRUCTION, applyStructureMessage(null))
+        assertEquals(APPLY_STRUCTURE_INSTRUCTION, applyStructureMessage("   "))
+        // Fallback do modo estruturado: instrução canônica + sem placeholders.
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("sem placeholders"))
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("# INTRODUÇÃO"))
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("# SEÇÃO 1"))
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("# CONCLUSÃO"))
+    }
+
+    @Test
+    fun applyStructureComEsbocoIncluiBloco() {
+        val msg = applyStructureMessage("Esboço sobre esperança. Ponto 1: confiar.")
+        assertTrue(msg.startsWith(APPLY_STRUCTURE_INSTRUCTION))
+        assertTrue(msg.contains("## ESBOÇO ORIGINAL (colado pelo usuário)"))
+        assertTrue(msg.contains("Esboço sobre esperança. Ponto 1: confiar."))
+        assertTrue(msg.contains("## FIM DO ESBOÇO ORIGINAL"))
+    }
+
+    @Test
+    fun applyStructureTruncaEsbocoNoTeto() {
+        val grande = "x".repeat(MINIMAL_PASTE_MAX_CHARS + 500)
+        val msg = applyStructureMessage(grande)
+        assertTrue(msg.contains("x".repeat(MINIMAL_PASTE_MAX_CHARS)))
+        assertFalse(msg.contains("x".repeat(MINIMAL_PASTE_MAX_CHARS + 1)))
+    }
 }
