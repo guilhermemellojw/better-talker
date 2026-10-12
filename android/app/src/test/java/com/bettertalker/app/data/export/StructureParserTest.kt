@@ -5,6 +5,7 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,7 +56,9 @@ class StructureParserTest {
 
     @Test
     fun parseToleranteCaixaENivel() {
-        val secs = parseStructureMarkdown("## secao 2: Fé\nTexto.\n\n# conclusao\nFim.")
+        val secs = parseStructureMarkdown(
+            "## secao 2: Fé\nTexto de apoio do ponto.\n\n# conclusao\nFim do discurso."
+        )
         assertEquals(2, secs.size)
         assertEquals(StructureRole.BODY, secs[0].role)
         assertEquals("Fé", secs[0].title)
@@ -83,7 +86,9 @@ class StructureParserTest {
         assertTrue(instruction.contains("# INTRODUÇÃO"))
         assertTrue(instruction.contains("# SEÇÃO 1"))
         assertTrue(instruction.contains("# CONCLUSÃO"))
-        val sample = "# INTRODUÇÃO\nOi.\n\n# SEÇÃO 1: X\nY.\n\n# CONCLUSÃO\nFim."
+        val sample = "# INTRODUÇÃO\nBoa noite a todos.\n\n" +
+            "# SEÇÃO 1: X\nDesenvolvimento do ponto.\n\n" +
+            "# CONCLUSÃO\nFechamento do discurso."
         assertEquals(3, parseStructureMarkdown(sample).size)
     }
 
@@ -127,7 +132,9 @@ class StructureParserTest {
     @Test
     fun mergeAppend_introNovaQuandoNaoHa() {
         val existing = listOf(section(SectionRole.BODY, 0, "b"))
-        val fresh = conv(parseStructureMarkdown("# INTRODUÇÃO\nOi.\n\n# SEÇÃO 1: X\nY."))
+        val fresh = conv(parseStructureMarkdown(
+            "# INTRODUÇÃO\nOi, ouvintes!\n\n# SEÇÃO 1: X\nTexto do ponto novo."
+        ))
         val merged = mergeAppend(existing, emptyMap(), fresh)
         assertEquals("INTRODUÇÃO", merged.intro?.title)
         assertEquals(0, merged.intro?.order)
@@ -140,9 +147,83 @@ class StructureParserTest {
             section(SectionRole.BODY, 0, "b"),
             section(SectionRole.CONCLUSION, 1, "c"),
         )
-        val fresh = conv(parseStructureMarkdown("# CONCLUSÃO\nNova.\n\n# SEÇÃO 1: X\nY."))
+        val fresh = conv(parseStructureMarkdown(
+            "# CONCLUSÃO\nNova conclusão aqui.\n\n# SEÇÃO 1: X\nTexto do ponto novo."
+        ))
         val merged = mergeAppend(existing, emptyMap(), fresh)
         assertEquals("c", merged.conclusion?.id)
         assertNull(merged.bodies.firstOrNull { it.section.title == "Conclusão" })
+    }
+
+    // ---------- T3 (Fase 2.1): sanitização da estrutura ----------
+
+    @Test
+    fun sugestoesSaoRemovidasDoConteudo() {
+        val secs = parseStructureMarkdown(
+            "# SEÇÃO 1: Fé\n〈sugestão〉A fé move montanhas, diz o provérbio.〈/sugestão〉 Base no texto."
+        )
+        assertEquals(1, secs.size)
+        val html = secs[0].contentHtml
+        assertFalse(html.contains("sugestão"))
+        assertTrue(html.contains("A fé move montanhas"))
+        assertTrue(html.contains("Base no texto."))
+    }
+
+    @Test
+    fun marcadorDeSugestaoSoltoTambemSome() {
+        val secs = parseStructureMarkdown(
+            "# SEÇÃO 1: X\nTexto com fechamento 〈/sugestão〉 e abertura 〈sugestão〉 soltos."
+        )
+        assertEquals(1, secs.size)
+        assertFalse(secs[0].contentHtml.contains("sugestão"))
+    }
+
+    @Test
+    fun cabecalhoOrfaoDeRespostaCortadaNaoViraLixo() {
+        // Caso real do A34: resposta cortada por length terminou em "# SE".
+        val secs = parseStructureMarkdown(
+            "# INTRODUÇÃO\nAbertura completa com sentido.\n\n# SE"
+        )
+        assertEquals(1, secs.size)
+        assertEquals("INTRODUÇÃO", secs[0].title)
+        assertFalse(secs.any { it.title == "SE" })
+    }
+
+    @Test
+    fun secaoComMenosDe10CharsEDescartada() {
+        val secs = parseStructureMarkdown(
+            "# SEÇÃO 1: X\nCurto.\n\n# SEÇÃO 2: Y\nConteúdo longo o suficiente."
+        )
+        assertEquals(1, secs.size)
+        assertEquals("Y", secs[0].title)
+    }
+
+    @Test
+    fun variacoesDeCabecalhoDeSecao() {
+        val secs = parseStructureMarkdown(
+            "# SEÇÃO 1: Com título\nConteúdo da primeira seção.\n" +
+                "# SEÇÃO 2\nConteúdo da segunda seção.\n" +
+                "# Seção 3\nConteúdo da terceira seção.\n" +
+                "## SEÇÃO 4:\nConteúdo da quarta seção."
+        )
+        assertEquals(4, secs.size)
+        assertEquals(
+            listOf("Com título", "SEÇÃO 2", "Seção 3", "SEÇÃO 4"),
+            secs.map { it.title }
+        )
+        assertTrue(secs.all { it.role == StructureRole.BODY })
+    }
+
+    @Test
+    fun caracteresDeControleELinhasExtrasSanitizados() {
+        val secs = parseStructureMarkdown(
+            "# SEÇÃO 1: X\nLinha um.\u0007\n\n\n\nLinha dois."
+        )
+        val html = secs[0].contentHtml
+        assertFalse(html.contains("\u0007"))
+        assertTrue(html.contains("Linha um."))
+        assertTrue(html.contains("Linha dois."))
+        // Linhas em branco múltiplas colapsam em uma (direto na higiene).
+        assertEquals("A\n\nB", sanitizeStructureText("A\n\n\n\nB"))
     }
 }

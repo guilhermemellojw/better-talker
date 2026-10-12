@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.export
 
+import com.bettertalker.app.data.llm.SUGGESTION_CLOSE
+import com.bettertalker.app.data.llm.SUGGESTION_OPEN
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.speech.BodyConversion
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -44,6 +46,35 @@ private val HEADER_RE = Regex("""^#{1,3}\s+(.+?)\s*$""")
 private val BOLD_RE = Regex("""\*\*(.+?)\*\*""")
 private val ITALIC_RE = Regex("""\*(.+?)\*""")
 
+/** T3 (Fase 2.1) — mínimo de conteúdo textual para uma seção valer. */
+const val MIN_STRUCTURE_CONTENT_CHARS = 10
+
+private val SUGGESTION_PAIR_RE = Regex(
+    Regex.escape(SUGGESTION_OPEN) + "(.*?)" + Regex.escape(SUGGESTION_CLOSE),
+    RegexOption.DOT_MATCHES_ALL,
+)
+
+private val CONTROL_CHARS_RE = Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]")
+
+/**
+ * T3 (Fase 2.1) — remove os marcadores `〈sugestão〉…〈/sugestão〉` do conteúdo
+ * canônico: na nota o texto entra limpo (o marcador é telemetria do gate, não
+ * conteúdo). Tags soltas (sem par) também somem. Puro/testável.
+ */
+fun stripSuggestionMarkers(text: String): String =
+    text.replace(SUGGESTION_PAIR_RE) { it.groupValues[1] }
+        .replace(SUGGESTION_OPEN, "")
+        .replace(SUGGESTION_CLOSE, "")
+
+/**
+ * T3 (Fase 2.1) — higiene do texto de seção: caracteres de controle fora,
+ * linhas em branco múltiplas viram uma. Puro/testável.
+ */
+fun sanitizeStructureText(text: String): String =
+    CONTROL_CHARS_RE.replace(text, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+
 /** Cabeçalho → papel (normalizado; BODY é o default). */
 internal fun structureRoleOf(header: String): StructureRole {
     val n = " ${normalizeText(header)} "
@@ -54,11 +85,12 @@ internal fun structureRoleOf(header: String): StructureRole {
     }
 }
 
-/** Título: após ":" quando houver ("SEÇÃO 1: Esperança"); senão, o cabeçalho. */
+/** Título: após ":" quando houver ("SEÇÃO 1: Esperança"); senão, o cabeçalho
+ * (sem ":" final — cabeçalho truncado "SEÇÃO 4:" não vira título com dois-pontos). */
 internal fun structureTitleOf(header: String): String {
     val afterColon = header.substringAfter(":", "").trim()
     if (afterColon.isNotEmpty()) return afterColon.take(120)
-    return header.trim().take(120)
+    return header.trim().trimEnd(':').trim().take(120)
 }
 
 /** Markdown simples → HTML simples (parágrafos + strong/em, com escape). */
@@ -88,13 +120,16 @@ internal fun plainLine(line: String): String {
 }
 
 /**
- * Extrai as seções do markdown canônico. Seções vazias (sem título nem
- * conteúdo) são descartadas. Vazio = nada aproveitável.
+ * Extrai as seções do markdown canônico. Seções com conteúdo curto demais
+ * (< [MIN_STRUCTURE_CONTENT_CHARS]) são descartadas — cabeçalho órfão de
+ * resposta cortada (ex.: "# SE" por `finish_reason=length`) não vira lixo.
+ * Marcadores `〈sugestão〉` são removidos antes do HTML. Vazio = nada
+ * aproveitável. Puro/testável.
  */
 fun parseStructureMarkdown(text: String): List<StructureSection> {
     data class Acc(val header: String, val body: MutableList<String>)
     val accs = mutableListOf<Acc>()
-    for (raw in text.lines()) {
+    for (raw in stripSuggestionMarkers(text).lines()) {
         val line = raw.trim()
         if (line.isEmpty()) continue
         val h = HEADER_RE.matchEntire(line)?.groupValues?.get(1)?.trim()
@@ -105,12 +140,11 @@ fun parseStructureMarkdown(text: String): List<StructureSection> {
         }
     }
     return accs.mapNotNull { (header, body) ->
-        val content = body.joinToString("\n").trim()
-        val title = structureTitleOf(header)
-        if (title.isBlank() && content.isBlank()) return@mapNotNull null
+        val content = sanitizeStructureText(body.joinToString("\n"))
+        if (content.length < MIN_STRUCTURE_CONTENT_CHARS) return@mapNotNull null
         StructureSection(
             role = structureRoleOf(header),
-            title = title.ifBlank { "Seção" },
+            title = structureTitleOf(header).ifBlank { "Seção" },
             contentHtml = markdownToSimpleHtml(content),
         )
     }
