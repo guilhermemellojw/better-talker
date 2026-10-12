@@ -62,12 +62,14 @@ const val MINIMAL_PASTE_MAX_CHARS = 20_000
 /**
  * T1 (modo colar e conversar) — system minimalista, 3 linhas. Sem regras
  * de S-34/oratória, sem dossiê, sem cauda de formato: o esboço colado É o
- * contexto. Puro/testável.
+ * contexto. T2 (Fase 2.2): o modo criação vira explícito — criar fora do
+ * esboço É permitido quando marcado como sugestão; a insuficiência fica
+ * restrita a fatos, números e referências. Puro/testável.
  */
 val MINIMAL_SYSTEM_PROMPT = """
 Você é um copiloto de oratória. Responda com base no esboço abaixo.
-Ao criar algo novo, marque com 〈sugestão〉…〈/sugestão〉.
-Se não houver suporte no esboço, diga "Não encontrei suporte suficiente nas fontes disponíveis."
+Ao criar conteúdo novo que não está no esboço (ilustração, exemplo, metáfora), é permitido: marque o trecho com 〈sugestão〉…〈/sugestão〉 e apresente como sugestão sua.
+Se não houver suporte no esboço para fatos, números ou referências, diga "Não encontrei suporte suficiente nas fontes disponíveis."
 """.trimIndent()
 
 /**

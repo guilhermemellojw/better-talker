@@ -161,4 +161,24 @@ class MinimalPasteTest {
         assertTrue(msg.contains("x".repeat(MINIMAL_PASTE_MAX_CHARS)))
         assertFalse(msg.contains("x".repeat(MINIMAL_PASTE_MAX_CHARS + 1)))
     }
+
+    // ---------- T2 (Fase 2.2): modo criação explícito no system minimalista ----------
+
+    @Test
+    fun modoCriacaoExplicitoNoSystemMinimalista() {
+        val (system, _) = buildMinimalPastePrompts(esboco, "e agora?", emptyList())
+        assertTrue(system.contains("〈sugestão〉"))
+        assertTrue(system.contains("é permitido"))
+        assertTrue(system.contains("sugestão sua"))
+        assertTrue(system.contains(INSUFFICIENT_EVIDENCE_MESSAGE))
+    }
+
+    @Test
+    fun insuficienciaFicaRestritaAFatosNumerosEReferencias() {
+        val (system, _) = buildMinimalPastePrompts(esboco, "e agora?", emptyList())
+        assertTrue(system.contains("fatos, números ou referências"))
+        // System segue enxuto (3 linhas), sem TAIL nem regras do S-34.
+        assertTrue(system.lines().size <= 4)
+        assertFalse(system.contains("Abra com 1 frase"))
+    }
 }
