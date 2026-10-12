@@ -149,7 +149,6 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
-    var showTools by remember { mutableStateOf(false) }
     var showAttach by remember { mutableStateOf(false) }
     var showPublications by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
@@ -337,7 +336,6 @@ fun ChatScreen(
                     busy = busy,
                     onSend = { doSend(input) },
                     onAttach = { showAttach = true },
-                    onTools = { showTools = true },
                     voiceState = voiceState,
                     voiceSeconds = voiceSeconds,
                     onVoice = {
@@ -439,6 +437,9 @@ fun ChatScreen(
                                             vm.speakMessage(m.text)
                                         },
                                         onStopSpeak = { vm.stopSpeaking() },
+                                        // T6 (Fase 2.1): limpar conversa (com
+                                        // confirmação) vive no ⋯ da resposta.
+                                        onClearConversation = { confirmClear = true },
                                         modifier = Modifier.offset(y = (-8).dp)
                                     )
                                 }
@@ -558,14 +559,6 @@ fun ChatScreen(
 
     if (showPublications) {
         PublicationPickerSheet(vm = vm, onDismiss = { showPublications = false })
-    }
-
-    if (showTools) {
-        ToolsSheet(
-            onDismiss = { showTools = false },
-            onSend = { showTools = false; doSend(it) },
-            onClear = { showTools = false; confirmClear = true }
-        )
     }
 
     if (confirmClear) {
@@ -714,6 +707,7 @@ private fun MessageActions(
     speaking: Boolean = false,
     onSpeak: () -> Unit = {},
     onStopSpeak: () -> Unit = {},
+    onClearConversation: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -773,6 +767,18 @@ private fun MessageActions(
                         }
                     )
                 }
+                // T6 (Fase 2.1): "Limpar conversa" veio do sheet Ferramentas
+                // (com diálogo de confirmação do ChatScreen).
+                DropdownMenuItem(
+                    text = {
+                        Text("Limpar conversa", color = MaterialTheme.colorScheme.error)
+                    },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        menuOpen = false
+                        onClearConversation()
+                    }
+                )
             }
         }
     }

@@ -40,6 +40,30 @@ class ChatActionsTest {
         }
     }
 
+    // ---------- T6 (Fase 2.1): atalhos realocados do sheet "Ferramentas" ----------
+
+    @Test
+    fun chipsCobremOsAtalhosDoSheetFerramentas() {
+        // "Ferramentas" saiu do composer; os comandos vivem nos chips da
+        // conversa vazia (sem perda de feature).
+        val chips = localSuggestionTexts(hasOutline = true)
+        listOf(
+            "Resumir",
+            "Quais refs faltam?",
+            "Mostre as seções",
+            "Refs do esboço",
+            "Sincronizar esboço",
+        ).forEach { cmd -> assertTrue("faltou: $cmd", cmd in chips) }
+    }
+
+    @Test
+    fun semEsbocoChipsBasicosContinuam() {
+        val chips = localSuggestionTexts(hasOutline = false)
+        assertTrue("Resumir" in chips)
+        assertTrue("Quais refs faltam?" in chips)
+        assertFalse("Sincronizar esboço" in chips)
+    }
+
     @Test
     fun runStateItemCount() {
         assertEquals(0, runStateItemCount(ChatRunState.Idle, partialVisible = false))

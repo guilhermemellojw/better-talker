@@ -20,20 +20,10 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FactCheck
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.LibraryBooks
-import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Summarize
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,7 +76,8 @@ val OUTLINE_MIMES = arrayOf(
 
 /**
  * Barra de prompt única (estilo Gemini, box-less): campo sem contorno,
- * + e Ferramentas à esquerda, enviar em círculo à direita.
+ * + à esquerda, voz e enviar à direita (T6: botão "Ferramentas" removido —
+ * ações realocadas no +, nos chips e no ⋯ das respostas).
  *
  * Teclado: `ImeAction.Send` envia; a quebra de linha do usuário é preservada
  * pelo campo multilinha (maxLines = 5). O botão de ação do IME substitui o
@@ -99,7 +90,6 @@ fun ChatPromptBar(
     busy: Boolean,
     onSend: () -> Unit,
     onAttach: () -> Unit,
-    onTools: () -> Unit,
     voiceState: VoiceInputState = VoiceInputState.Idle,
     voiceSeconds: Int = 0,
     onVoice: () -> Unit = {},
@@ -142,9 +132,6 @@ fun ChatPromptBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onAttach) {
                     Icon(Icons.Default.Add, "Anexar esboço")
-                }
-                IconButton(onClick = onTools) {
-                    Icon(Icons.Default.Tune, "Ferramentas")
                 }
                 Spacer(Modifier.weight(1f))
                 // T3 (voz): microfone com tap-to-toggle. Primário quando o
@@ -305,6 +292,10 @@ fun ChatErrorRow(
 /**
  * Ações locais do app (o roteador `ChatIntent` as executa). São diferentes dos
  * atalhos da F15: aqui o texto é o comando, não uma pergunta ao Copilot.
+ *
+ * T6 (Fase 2.1): recebe os atalhos que viviam no sheet "Ferramentas" —
+ * "Resumir", "Quais refs faltam?", "Mostre as seções", "Refs do esboço" e
+ * "Sincronizar esboço" continuam a um toque (chips da conversa vazia).
  */
 fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
     listOf(
@@ -313,7 +304,9 @@ fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
         "Desenvolva a introdução",
         "Resumir",
         "Quais refs faltam?",
-        "Mostre as seções"
+        "Mostre as seções",
+        "Refs do esboço",
+        "Sincronizar esboço"
     )
 } else {
     listOf("Resumir", "Quais refs faltam?")
@@ -509,69 +502,12 @@ private fun AttachOption(icon: ImageVector, title: String, desc: String, onClick
     }
 }
 
-private data class ToolItem(
-    val icon: ImageVector,
-    val title: String,
-    val desc: String,
-    val send: String?
-)
-
-/** Sheet Ferramentas: ações do Copilot + conversa (era o ⋮ da top bar). */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ToolsSheet(
-    onDismiss: () -> Unit,
-    onSend: (String) -> Unit,
-    onClear: () -> Unit
-) {
-    val tools = listOf(
-        ToolItem(Icons.Default.Summarize, "Resumir", "Resumo da nota com citações", "Resumir"),
-        ToolItem(Icons.Default.Lightbulb, "Ideias", "Gerar para uma seção", "Ideias"),
-        ToolItem(Icons.Default.FormatQuote, "Dar exemplo",
-            "Modelo pronto seguindo as publicações", "Exemplo"),
-        ToolItem(Icons.Default.Edit, "Desenvolver",
-            "Rascunho redigido da seção", "Desenvolva"),
-        ToolItem(Icons.Default.FactCheck, "Verificar referências",
-            "Publicações citadas na nota", "Quais referências faltam?"),
-        ToolItem(Icons.Default.Download, "Refs do esboço",
-            "Baixar o que o esboço cita", "refs do esboço"),
-        ToolItem(Icons.Default.FormatListBulleted, "Mostrar seções",
-            "Listar e gerar por seção", "Mostre as seções"),
-        ToolItem(Icons.Default.Sync, "Sincronizar",
-            "Atualizar esboço pelo texto da nota", "Sincronizar esboço")
-    )
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Ferramentas", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            tools.forEach { t ->
-                androidx.compose.material3.TextButton(onClick = { onSend(t.send!!) }) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(t.icon, null)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text(t.title, style = MaterialTheme.typography.titleSmall)
-                            Text(t.desc, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.secondary)
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Conversa", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            androidx.compose.material3.TextButton(onClick = onClear) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Delete, null,
-                        tint = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Limpar conversa", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-}
+// T6 (Fase 2.1): `ToolsSheet` removido do composer. Realocação sem perda:
+// - "Resumir", "Ideias", "Dar exemplo", "Desenvolver", "Verificar referências",
+//   "Refs do esboço", "Mostrar seções" e "Sincronizar" → chips de atalho
+//   (`localSuggestionTexts`, conversa vazia) e/ou texto livre no composer.
+// - "Limpar conversa" → menu ⋯ de cada resposta (com confirmação).
+// - Importar/colar/baixar/acervo já viviam no sheet do `+` (AttachSheet).
 
 /**
  * Onboarding F2a: banner de setup do Copilot (fora do scroll da conversa).
