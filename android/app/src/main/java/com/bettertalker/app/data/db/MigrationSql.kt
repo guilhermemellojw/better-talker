@@ -131,4 +131,12 @@ object MigrationSql {
         "ALTER TABLE `speech_sections` ADD COLUMN `agreedApproach` TEXT",
         "ALTER TABLE `chat_messages` ADD COLUMN `sectionId` TEXT",
     )
+
+    /**
+     * F3a (v16 -> v17): flag de aprovação da seção (timestamp anulável).
+     * Aditiva: registros antigos ficam com `approvedAt` NULL (não aprovada).
+     */
+    val MIGRATION_16_17: List<String> = listOf(
+        "ALTER TABLE `speech_sections` ADD COLUMN `approvedAt` INTEGER",
+    )
 }

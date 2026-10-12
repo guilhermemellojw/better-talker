@@ -35,6 +35,8 @@ data class SpeechSection(
     val objective: String? = null,
     /** F2.3: abordagem acordada do tópico (decisão consolidada do usuário). */
     val agreedApproach: String? = null,
+    // F3a: null = não aprovada; timestamp = aprovada (protocolo seção-a-seção).
+    val approvedAt: Long? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

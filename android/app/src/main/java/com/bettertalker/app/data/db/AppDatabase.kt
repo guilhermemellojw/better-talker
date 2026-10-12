@@ -233,7 +233,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -280,6 +280,8 @@ data class SpeechSectionEntity(
     val objective: String? = null,
     /** F2.3: abordagem acordada do tópico (decisão consolidada do usuário). */
     val agreedApproach: String? = null,
+    // F3a: null = não aprovada; timestamp = aprovada (consenso do protocolo seção-a-seção).
+    val approvedAt: Long? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

@@ -115,7 +115,8 @@ class DefaultDossierPromptBuilder(
         val title = d.noteTitle?.takeIf { it.isNotBlank() } ?: return
         val type = d.discourseType?.takeIf { it.isNotBlank() } ?: return
         appendLine("## DISCURSO")
-        appendLine("Título: $title")
+        // G: o S-34 carrega o "# " do markdown — limpa para o prompt.
+        appendLine("Título: ${title.removePrefix("# ").trimStart()}")
         appendLine("Tipo: $type")
         appendLine()
     }
@@ -154,6 +155,13 @@ class DefaultDossierPromptBuilder(
      * cada bloco omitido quando o campo estiver vazio/nulo.
      */
     private fun StringBuilder.appendSectionProse(d: Dossier) {
+        val developed = d.sectionSubPoints.sortedBy { it.order }
+            .filter { it.developedHtml.isNotBlank() }
+        if (d.currentSection.contentHtml.isBlank() && developed.isEmpty() &&
+            d.selectedText.isNullOrBlank()
+        ) return
+        // G: linha em branco separando a prosa do bloco anterior.
+        appendLine()
         // B1: texto atual da seção (mini discurso do tópico).
         d.currentSection.contentHtml.takeIf { it.isNotBlank() }?.let {
             appendLine("## TEXTO ATUAL DA SEÇÃO (o que já foi escrito)")

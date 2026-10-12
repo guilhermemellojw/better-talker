@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,10 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -121,6 +124,8 @@ fun SectionCardEditor(
     canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
     onChatAbout: (DraftTarget) -> Unit = {},
+    onApproveSection: () -> Unit = {},
+    onUnapproveSection: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editorStates = remember(state.section.id) {
@@ -218,6 +223,8 @@ fun SectionCardEditor(
                     onRemove = { confirmDelete = true },
                     onGenerateDraft = onGenerateDraft,
                     onChatAbout = onChatAbout,
+                    showUnapprove = state.section.approvedAt != null,
+                    onUnapprove = onUnapproveSection,
                 )
             } else {
                 Box {
@@ -251,6 +258,13 @@ fun SectionCardEditor(
                     }
                 }
             }
+            // F3a: aprovar a seção (protocolo seção-a-seção). À direita do
+            // cabeçalho; aprovada mostra o estado, desaprova pelo ⋮ do card.
+            ApprovalToggle(
+                approved = state.section.approvedAt != null,
+                readOnly = readOnly,
+                onApprove = onApproveSection,
+            )
         }
 
         Card(
@@ -418,6 +432,8 @@ fun SectionCardEditor(
                         onRemove = { confirmDelete = true },
                         onGenerateDraft = onGenerateDraft,
                         onChatAbout = onChatAbout,
+                        showUnapprove = state.section.approvedAt != null,
+                        onUnapprove = onUnapproveSection,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(2.dp),
@@ -446,10 +462,52 @@ fun SectionCardEditor(
     }
 }
 
+/**
+ * F3a: toggle de aprovação no cabeçalho do card. Não aprovada: ícone vazado
+ * + "Aprovar seção" (aprova no toque). Aprovada: ícone preenchido em
+ * primária + "Seção aprovada" (só exibe; desaprova pelo ⋮ do card).
+ */
+@Composable
+private fun ApprovalToggle(
+    approved: Boolean,
+    readOnly: Boolean,
+    onApprove: () -> Unit,
+) {
+    if (approved) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                "Seção aprovada",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "Seção aprovada",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+    } else {
+        TextButton(
+            onClick = onApprove,
+            enabled = !readOnly,
+            contentPadding = PaddingValues(horizontal = 4.dp),
+        ) {
+            Icon(
+                Icons.Outlined.CheckCircle,
+                null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("Aprovar seção", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
 /** Cabeçalho recolhível com seta à direita (título alinhado à base do card). */
 @Composable
-private fun CollapsibleHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {
-    Row(
+private fun CollapsibleHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {    Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 4.dp),
     ) {
@@ -878,6 +936,10 @@ private fun SectionMenuButton(
     onRemove: () -> Unit,
     onGenerateDraft: (DraftTarget) -> Unit,
     onChatAbout: (DraftTarget) -> Unit,
+    // F3a: quando a seção está aprovada, o ⋮ oferece a reversão (o cabeçalho
+    // mostra só o estado "Seção aprovada").
+    showUnapprove: Boolean = false,
+    onUnapprove: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (readOnly) return
@@ -908,6 +970,12 @@ private fun SectionMenuButton(
                 enabled = !isLast,
                 onClick = { onMoveDown(); menuOpen = false },
             )
+            if (showUnapprove) {
+                DropdownMenuItem(
+                    text = { Text("Desaprovar seção") },
+                    onClick = { onUnapprove(); menuOpen = false },
+                )
+            }
             if (!primaryActionsOnCard) {
                 DropdownMenuItem(
                     text = { Text("Conversar sobre esta parte") },

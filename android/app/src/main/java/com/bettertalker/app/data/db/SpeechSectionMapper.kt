@@ -24,6 +24,7 @@ fun SpeechSectionEntity.toDomain(): SpeechSection {
         methodPrinciple = methodPrinciple,
         objective = objective,
         agreedApproach = agreedApproach,
+        approvedAt = approvedAt,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -43,6 +44,7 @@ fun SpeechSection.toEntity(): SpeechSectionEntity {
         methodPrinciple = methodPrinciple,
         objective = objective,
         agreedApproach = agreedApproach,
+        approvedAt = approvedAt,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

@@ -120,7 +120,9 @@ class DossierProseTest {
         )
 
         assertTrue(prompt.contains("## DISCURSO"))
-        assertTrue(prompt.contains("Título: # 35. Viver para sempre?"))
+        // G: o "# " do markdown do S-34 é limpo no título.
+        assertTrue(prompt.contains("Título: 35. Viver para sempre?"))
+        assertFalse(prompt.contains("Título: # 35."))
         assertTrue(prompt.contains("Tipo: S34_DISCOURSE"))
     }
 

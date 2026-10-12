@@ -191,6 +191,30 @@ class SectionsController(
         }
     }
 
+    /**
+     * F3a: aprova a seção (consenso do protocolo seção-a-seção). Emite o
+     * estado na hora; o autosave persiste via `toEntity` (como as demais
+     * edições). `clock()` injeta o timestamp (testável).
+     */
+    suspend fun approveSection(sectionId: String) {
+        update(sectionId) {
+            it.copy(section = it.section.copy(
+                approvedAt = clock(),
+                updatedAt = clock(),
+            ))
+        }
+    }
+
+    /** F3a: desfaz a aprovação (volta a `null`). Mesmo caminho do aprovar. */
+    suspend fun unapproveSection(sectionId: String) {
+        update(sectionId) {
+            it.copy(section = it.section.copy(
+                approvedAt = null,
+                updatedAt = clock(),
+            ))
+        }
+    }
+
     /** Desenvolvimento de um sub-ponto (HTML); suja a seção pai (autosave dela). */
     fun onSubPointContent(subPointId: String, html: String) {
         val parent = _sections.value.firstOrNull { s -> s.subPoints.any { it.id == subPointId } }
