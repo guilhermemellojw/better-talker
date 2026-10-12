@@ -717,14 +717,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private var _pushedContext: ChatContext? = null
 
     /**
-     * F2.2-fix: "alvo empurrado" = sectionId/subPointId presentes (não a
-     * mera presença do objeto — o FAB empurra contexto até em chat genérico).
-     * Sem alvo, o RAG amplo fica intacto (documentado no answerRemote).
-     */
-    private fun hasPushedTarget(): Boolean =
-        _pushedContext?.sectionId != null || _pushedContext?.subPointId != null
-
-    /**
      * F2.3: escopo da conversa atual. `null` = conversa global da nota;
      * caso contrário, o id da seção/tópico em foco. Mensagens de um tópico
      * não vazam para o histórico de outro.
@@ -1128,7 +1120,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                             hasLinkedOutline = outlines.get(outlineNid) != null,
                         )
                     ) {
-                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
+                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
                         return@launch
                     }
                     generateOratory(route, text, remote, contextBlock)
@@ -1165,7 +1157,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         else answerCheckRefs()
                         return@launch
                     }
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock, hasPushedTarget())
+                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -1531,25 +1523,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
-        // FOCO: com alvo empurrado, o dossiê é o contexto principal e o
-        // legado (nota inteira + RAG amplo) recua. Sem alvo, intacto.
-        hasTarget: Boolean = false,
     ) {
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
-        // T1 — anti-apagamento: sem dossiê, o alvo empurrado NÃO pode piorar a
-        // resposta. Só zeramos text/blockTitle quando o dossiê realmente chegou
-        // (contextBlock != null). Caso contrário, mantemos o comportamento legado
-        // (texto do bloco + título) e logamos para diagnóstico.
-        val dossierArrived = shouldBlankFocusForTarget(
-            hasTarget = hasTarget,
-            contextBlock = contextBlock,
-        )
-        if (hasTarget && !dossierArrived) {
-            android.util.Log.w(
-                "CopilotLLM",
-                "chat remoto: push sem dossiê — mantendo foco legado (text/blockTitle)"
-            )
-        }
+        // Inversão de contexto (correção): o payload recebe AMBOS — o dossiê
+        // (metadados, via contextBlock) E a prosa em foco (via text).
+        // Nunca zera: sem a prosa, o modelo vê só o plano e "revise esta
+        // seção" sai genérico. O dossiê complementa, não substitui.
         // T3 (acesso bíblico): refs citadas NA PERGUNTA → texto literal da TNM
         // por ref exata (findByRef). P4: só quando a pergunta cita uma ref —
         // nunca varre a Bíblia por padrão. O bloco entra no prompt E no corpus
@@ -1589,7 +1568,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
-                    text = if (hasTarget && dossierArrived) "" else blockText,
+                    text = focusTextForLlm(blockText),
                     action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                     message = text,
                     history = history,
@@ -1597,7 +1576,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
-                    blockTitle = if (hasTarget && dossierArrived) null else _activeBlockTitle.value,
+                    blockTitle = _activeBlockTitle.value,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = effectiveContextBlock,
@@ -3528,18 +3507,15 @@ internal fun shouldDegradeOratoryToChat(
 ): Boolean = !hasS34Document && hasLinkedOutline
 
 /**
- * T1 — anti-apagamento do foco em `answerRemote`.
+ * Inversão de contexto (correção): a prosa em foco que vai ao LLM.
  *
- * Com alvo empurrado (`hasTarget=true`), `text`/`blockTitle` legados só são
- * zerados quando o dossiê realmente chegou (`contextBlock != null`). Sem
- * dossiê, o push NÃO pode piorar a resposta: mantém o foco legado.
+ * Sempre a prosa do bloco, com ou sem alvo empurrado — o dossiê
+ * (metadados) viaja em `contextBlock`, nunca no lugar da prosa.
+ * Vazio entra vazio (nunca inventa); nunca zera prosa existente.
  *
  * Pura, testável.
  */
-internal fun shouldBlankFocusForTarget(
-    hasTarget: Boolean,
-    contextBlock: String?,
-): Boolean = hasTarget && !contextBlock.isNullOrBlank()
+internal fun focusTextForLlm(blockText: String): String = blockText
 
 /**
  * T2 — prioridade unificada do foco: push > seleção > bloco > discurso.

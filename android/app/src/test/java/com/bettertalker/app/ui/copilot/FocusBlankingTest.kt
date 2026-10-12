@@ -1,46 +1,47 @@
 package com.bettertalker.app.ui.copilot
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * T1 — anti-apagamento do foco em `answerRemote`.
- *
- * Com alvo empurrado mas sem dossiê, `text`/`blockTitle` legados devem ser
- * mantidos (nunca zerados). Puro, sem Room/LLM.
+ * Inversão de contexto (correção): a prosa em foco SEMPRE vai ao LLM,
+ * com ou sem alvo empurrado — o dossiê (metadados) viaja em `contextBlock`,
+ * nunca no lugar da prosa. Puro, sem Room/LLM.
  */
-class FocusBlankingTest {
+class FocusTextForLlmTest {
 
     @Test
-    fun blank_comAlvoEDossie_retornaTrue() {
-        // Caso normal: push + dossiê → foco legado recua, dossiê manda.
-        assertTrue(
-            shouldBlankFocusForTarget(
-                hasTarget = true,
-                contextBlock = "## SEÇÃO ATUAL\nTítulo: Fé",
-            )
+    fun focus_comAlvoEDossie_mantemProsa() {
+        // O caso do bug: push + dossiê zerava o texto do bloco — o modelo
+        // via só o plano e "revise esta seção" saía genérico.
+        assertEquals(
+            "Texto da seção em foco.",
+            focusTextForLlm("Texto da seção em foco."),
         )
     }
 
     @Test
-    fun blank_comAlvoSemDossie_retornaFalse() {
-        // O caso do bug: push sem dossiê → manter text/blockTitle legados.
-        assertFalse(shouldBlankFocusForTarget(hasTarget = true, contextBlock = null))
-        assertFalse(shouldBlankFocusForTarget(hasTarget = true, contextBlock = ""))
+    fun focus_comAlvoSemDossie_mantemProsa() {
+        assertEquals(
+            "Texto da seção em foco.",
+            focusTextForLlm("Texto da seção em foco."),
+        )
     }
 
     @Test
-    fun blank_semAlvo_retornaFalse() {
-        // Chat genérico: nunca zera, com ou sem bloco de contexto.
-        assertFalse(shouldBlankFocusForTarget(hasTarget = false, contextBlock = null))
-        assertFalse(
-            shouldBlankFocusForTarget(
-                hasTarget = false,
-                contextBlock = "## SEÇÃO ATUAL\nTítulo: Fé",
-            )
+    fun focus_semAlvo_mantemProsa() {
+        // Chat genérico: comportamento inalterado.
+        assertEquals(
+            "Corpo da nota.",
+            focusTextForLlm("Corpo da nota."),
         )
+    }
+
+    @Test
+    fun focus_vazioContinuaVazio() {
+        // Nunca inventa: sem prosa, entra vazio (o dossiê/RAG seguem no payload).
+        assertEquals("", focusTextForLlm(""))
+        assertEquals("   ", focusTextForLlm("   "))
     }
 }
 
