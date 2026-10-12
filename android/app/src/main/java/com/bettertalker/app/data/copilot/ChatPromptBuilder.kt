@@ -133,6 +133,9 @@ const val APPLY_STRUCTURE_INSTRUCTION =
         "Use uma linha # SEÇÃO N para cada ponto desenvolvido. " +
         "Os colchetes acima são só o formato — não os copie: escreva o conteúdo " +
         "real de cada parte, sem placeholders nem notas. " +
+        "Escreva APENAS o texto que o orador deve falar. NÃO inclua instruções " +
+        "meta como \"Abra com…\", \"Comece dizendo…\" ou \"Use uma pergunta…\" " +
+        "dentro das seções: orientação de técnica não é discurso. " +
         "Responda SOMENTE com a estrutura, sem explicações fora dela."
 
 /**

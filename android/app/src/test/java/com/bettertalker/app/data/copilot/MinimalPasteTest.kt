@@ -162,6 +162,28 @@ class MinimalPasteTest {
         assertFalse(msg.contains("x".repeat(MINIMAL_PASTE_MAX_CHARS + 1)))
     }
 
+    // ---------- Fix: ApplyStructure sem frases-guia meta ----------
+
+    @Test
+    fun applyStructureOrientaSomenteTextoFalavel() {
+        assertTrue(
+            APPLY_STRUCTURE_INSTRUCTION.contains("APENAS o texto que o orador deve falar")
+        )
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("NÃO inclua instruções meta"))
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("\"Abra com…\""))
+        // O resto do contrato segue: sem placeholders + formato canônico.
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("sem placeholders"))
+        assertTrue(APPLY_STRUCTURE_INSTRUCTION.contains("# SEÇÃO 1"))
+    }
+
+    @Test
+    fun applyStructureComEsbocoMantemGuiaDeTextoFalavel() {
+        val msg = applyStructureMessage("Esboço de teste com três seções.")
+        assertTrue(msg.contains("## ESBOÇO ORIGINAL (colado pelo usuário)"))
+        assertTrue(msg.contains("APENAS o texto que o orador deve falar"))
+        assertTrue(msg.contains("NÃO inclua instruções meta"))
+    }
+
     // ---------- T2 (Fase 2.2): modo criação explícito no system minimalista ----------
 
     @Test
