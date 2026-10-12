@@ -69,6 +69,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -159,6 +161,18 @@ fun EditorScreen(
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var showOutlineDialog by remember { mutableStateOf(false) }
+    // Modo guiado seção-a-seção: rolagem até o card focado pelo chat.
+    // Sem LazyColumn (o Column atual preserva o estado dos editores):
+    // o ScrollState é içado e cada card registra seu Y no conteúdo.
+    val scrollState = rememberScrollState()
+    val sectionOffsets = remember { mutableMapOf<String, Int>() }
+    LaunchedEffect(vm) {
+        vm.scrollRequests.collect { id ->
+            sectionOffsets[id]?.let { y ->
+                scrollState.animateScrollTo(y.coerceAtLeast(0))
+            }
+        }
+    }
 
     // 3.2.5c: editor multi-seção. Duas noções independentes:
     // - activeSectionId: destaque visual do card tocado
@@ -599,7 +613,7 @@ fun EditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .imePadding()
                     .then(
                         // Sem toolbar (preview), o topo recolhido precisa do
@@ -727,6 +741,12 @@ fun EditorScreen(
                                 onGenerateDraft = vm::startDraft,
                                 onApproveSection = { vm.approveSection(sectionState.section.id) },
                                 onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
+                                // Modo guiado: registra o Y do card no conteúdo
+                                // rolável para o scroll pedido pelo chat.
+                                modifier = Modifier.onGloballyPositioned { coords ->
+                                    sectionOffsets[sectionState.section.id] =
+                                        coords.positionInParent().y.toInt()
+                                },
                                 onChatAbout = { target ->
                                     // T3 — aguarda o push concluir antes de navegar:
                                     // sem await, o chat podia abrir com o contexto

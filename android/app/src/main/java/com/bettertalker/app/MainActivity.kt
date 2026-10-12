@@ -244,6 +244,15 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
                 editorVm.pushedContext.collect { copilotVm.setPushedContext(it) }
             }
+            // Modo guiado seção-a-seção: seções reais do editor -> chat
+            // (navegação, indicador e gate; mesmo padrão do setSelection).
+            androidx.compose.runtime.LaunchedEffect(editorSections) {
+                copilotVm.setGuideSections(editorSections.map { it.section })
+            }
+            // Modo guiado seção-a-seção: foco do chat -> rolagem no editor.
+            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+                copilotVm.focusRequests.collect { editorVm.scrollToSection(it) }
+            }
         }
         composable(
             Routes.LIBRARY,

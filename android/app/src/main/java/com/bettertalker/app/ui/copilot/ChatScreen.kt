@@ -33,6 +33,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -136,6 +138,12 @@ fun ChatScreen(
     }
     // F2.3: escopo da conversa (tópico vs. global).
     val chatScope by vm.chatScope.collectAsState()
+    // Modo guiado seção-a-seção: seções reais do editor (navegação + indicador).
+    val guideSections by vm.guideSections.collectAsState()
+    val guideIndex = remember(guideSections, chatScope) {
+        guideSections.indexOfFirst { it.id == chatScope }
+    }
+    val guideCurrent = if (guideIndex >= 0) guideSections[guideIndex] else null
     val proposal by vm.proposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
@@ -368,6 +376,22 @@ fun ChatScreen(
                         onPaste = { showAttach = true },
                         onDownloadBases = { doSend("bases") },
                         onDismiss = { vm.dismissSetupBanner() },
+                    )
+                }
+                // Modo guiado seção-a-seção: barra fixa com o tópico em foco,
+                // gate de aprovação e navegação (mesma lógica dos comandos).
+                guideCurrent?.let { sec ->
+                    GuideBar(
+                        label = guideStripLabel(
+                            index = guideIndex,
+                            total = guideSections.size,
+                            title = sec.title,
+                            minutes = sec.minutes,
+                        ),
+                        approved = sec.approvedAt != null,
+                        onPrev = vm::previousSection,
+                        onNext = { vm.nextSection() },
+                        onApprove = vm::approveCurrentSection,
                     )
                 }
                 LazyColumn(
@@ -1200,4 +1224,47 @@ private fun BasesBody(
     }
     Spacer(Modifier.height(4.dp))
     TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
+}
+
+/**
+ * Modo guiado seção-a-seção: barra fixa acima da conversa com o tópico em
+ * foco, gate de aprovação e navegação. Os botões usam a MESMA lógica dos
+ * comandos de texto (`vm.nextSection/previousSection/approveCurrentSection`).
+ */
+@Composable
+private fun GuideBar(
+    label: String,
+    approved: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onApprove: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        IconButton(onClick = onPrev) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Seção anterior")
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            modifier = Modifier.weight(1f),
+        )
+        if (approved) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                "Seção aprovada",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            TextButton(onClick = onApprove) { Text("Aprovar") }
+        }
+        IconButton(onClick = onNext) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, "Próxima seção")
+        }
+    }
 }

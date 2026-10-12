@@ -68,12 +68,16 @@ import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
 import com.bettertalker.app.ui.editor.roleLabel
 import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
 import com.bettertalker.app.domain.speech.SectionRole
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -763,6 +767,144 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _conversationLabel = MutableStateFlow<String?>(null)
     val conversationLabel: StateFlow<String?> = _conversationLabel.asStateFlow()
 
+    // ---------- Modo guiado seção-a-seção: foco real ----------
+
+    /**
+     * Seções reais do editor (espelho via MainActivity — mesmo padrão do
+     * `setSelection`). Base da navegação, do indicador e do gate; o dossiê
+     * continua vindo do `dossierProvider` (fonte do conteúdo).
+     */
+    private val _guideSections = MutableStateFlow<List<SpeechSection>>(emptyList())
+    val guideSections: StateFlow<List<SpeechSection>> = _guideSections.asStateFlow()
+
+    fun setGuideSections(sections: List<SpeechSection>) {
+        _guideSections.value = sections
+    }
+
+    /** Pedidos de foco do chat para o editor (rolagem). MainActivity repassa. */
+    private val _focusRequests = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val focusRequests: SharedFlow<String> = _focusRequests.asSharedFlow()
+
+    /**
+     * Troca o escopo para a seção: conversa, dossiê (via `_pushedContext`,
+     * lido no próximo `send()`) e rótulo acompanham. Anuncia na conversa
+     * nova. Emite o pedido de rolagem ao editor.
+     */
+    private suspend fun focusSection(sectionId: String, announce: Boolean = true) {
+        val sections = _guideSections.value
+        val idx = sections.indexOfFirst { it.id == sectionId }
+        if (idx < 0) return
+        val sec = sections[idx]
+        _chatScope.value = sectionId
+        val nid = noteId
+        val readiness = _pushedContext?.readiness
+            ?: nid?.let {
+                repo.readNoteReadiness(
+                    it,
+                    sections.isNotEmpty(),
+                    outlines.get(it)?.refsJson.orEmpty(),
+                )
+            }
+            ?: return
+        val ctx = ChatContext(sectionId = sectionId, subPointId = null, readiness = readiness)
+        _pushedContext = ctx
+        _conversationLabel.value = null
+        _topicName.value = null
+        _conversationLabel.value = resolveConversationLabel(ctx)
+        _topicName.value = currentTopicName()
+        if (announce) {
+            post(
+                false,
+                "text",
+                ChatCodec.escMap(
+                    mapOf("text" to guideAnnounceLabel(idx, sections.size, sec.title, sec.minutes))
+                ),
+            )
+        }
+        _focusRequests.emit(sectionId)
+    }
+
+    /**
+     * Executa a decisão de navegação (comandos de texto e botões da barra
+     * usam este mesmo caminho). Retorna true = consumiu.
+     */
+    private suspend fun navigateSection(direction: GuideNavDirection, force: Boolean): Boolean {
+        val sections = _guideSections.value
+        val target = resolveNavTarget(
+            orderedIds = sections.map { it.id },
+            currentId = _chatScope.value,
+            direction = direction,
+            force = force,
+            approvedIds = sections.filter { it.approvedAt != null }.map { it.id }.toSet(),
+        )
+        when (target) {
+            is GuideNavTarget.MoveTo -> focusSection(target.sectionId)
+            GuideNavTarget.BlockedNeedsApproval -> postText(GUIDE_NEEDS_APPROVAL_MESSAGE)
+            GuideNavTarget.NoNext -> postText(GUIDE_NO_NEXT_MESSAGE)
+            GuideNavTarget.NoPrev -> postText(GUIDE_NO_PREV_MESSAGE)
+            GuideNavTarget.NoSections -> postText(GUIDE_NO_FOCUS_MESSAGE)
+        }
+        return true
+    }
+
+    /** Botão "avançar" da barra (force = long-press/"forçar próximo" por texto). */
+    fun nextSection(force: Boolean = false) = viewModelScope.launch {
+        navigateSection(GuideNavDirection.NEXT, force)
+    }
+
+    /** Botão "voltar" da barra. */
+    fun previousSection() = viewModelScope.launch {
+        navigateSection(GuideNavDirection.PREV, false)
+    }
+
+    /**
+     * Aprova a seção em foco (mesmo efeito do toggle do editor: mesma
+     * coluna, via DAO — o editor observa o banco e reflete sozinho).
+     */
+    fun approveCurrentSection() = viewModelScope.launch {
+        approveCurrentSectionNow()
+    }
+
+    private suspend fun approveCurrentSectionNow(): Boolean {
+        val sid = _chatScope.value
+        if (sid == null) {
+            postText(GUIDE_NO_FOCUS_MESSAGE)
+            return true
+        }
+        val sec = db.speechSectionDao().get(sid) ?: return true
+        if (sec.approvedAt == null) {
+            db.speechSectionDao().upsert(
+                sec.copy(approvedAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis())
+            )
+            postText("Tópico aprovado ✓ — diga “próximo” para avançar.")
+        } else {
+            postText("Este tópico já está aprovado — diga “próximo” para avançar.")
+        }
+        return true
+    }
+
+    /**
+     * Comandos do modo guiado seção-a-seção (qualquer provider — roda antes
+     * do split remoto/local). Com o guia legado ativo, devolve false para
+     * o `resolveGuide` legado decidir (prioridade preservada).
+     *
+     * Sem seção em foco, só "aprovar" é interceptado (comando inequívoco);
+     * navegação fica restrita à conversa de um tópico — evita falso
+     * positivo em mensagens naturais ("qual o próximo passo?").
+     */
+    private suspend fun resolveSectionNav(text: String): Boolean {
+        if (guideIndex != null) return false
+        if (_chatScope.value == null) {
+            if (isApproveCommand(text)) return approveCurrentSectionNow()
+            return false
+        }
+        if (isForceNextCommand(text)) return navigateSection(GuideNavDirection.NEXT, force = true)
+        if (isNextCommand(text)) return navigateSection(GuideNavDirection.NEXT, force = false)
+        if (isPrevCommand(text)) return navigateSection(GuideNavDirection.PREV, force = false)
+        if (isApproveCommand(text)) return approveCurrentSectionNow()
+        return false
+    }
+
     /** T4: nome do tópico em foco (confirmação da inserção no chat). */
     private val _topicName = MutableStateFlow<String?>(null)
     val topicName: StateFlow<String?> = _topicName.asStateFlow()
@@ -1145,6 +1287,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings, app)
                 if (ProviderFactory.useRemoteRoute(remote)) {
+                    // Guiado seção-a-seção: determinístico, antes do LLM
+                    // (mesmo padrão dos comandos de referência do Bug #7).
+                    if (resolveSectionNav(text)) return@launch
                     // T3 (Bug #7): comandos de referência são determinísticos e
                     // precisam funcionar com provider ativo — postam o card
                     // (📖 No acervo / ⚠️ sem fonte) em vez de irem ao modelo.
@@ -2578,10 +2723,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     /**
      * Comandos do modo guiado. Retorna true se consumiu.
+     * Com o guia legado desligado, delega à navegação seção-a-seção
+     * (seções reais; funciona com qualquer provider via intercepto).
      * Roda antes das confirmações? Não: confirmação pendente tem prioridade
      * (chamador ordena); aqui só vale com guia ligado.
      */
     private suspend fun resolveGuide(text: String): Boolean {
+        if (guideIndex == null) return resolveSectionNav(text)
         val i = guideIndex ?: return false
         val t = com.bettertalker.app.data.util.normalizeText(text)
         fun has(vararg ws: String) = ws.any { w -> t.contains(w) }
@@ -3516,6 +3664,99 @@ internal fun shouldDegradeOratoryToChat(
  * Pura, testável.
  */
 internal fun focusTextForLlm(blockText: String): String = blockText
+
+// ---------- Modo guiado seção-a-seção: navegação pura ----------
+
+/** Direção da navegação entre seções reais do editor. */
+enum class GuideNavDirection { NEXT, PREV }
+
+/**
+ * Destino decidido para um comando de navegação. Puro/testável.
+ */
+sealed interface GuideNavTarget {
+    /** Troca o escopo para a seção indicada. */
+    data class MoveTo(val sectionId: String) : GuideNavTarget
+    /** Gate: atual não aprovada e sem `force`. */
+    data object BlockedNeedsApproval : GuideNavTarget
+    /** NEXT na última seção. */
+    data object NoNext : GuideNavTarget
+    /** PREV na primeira (ou sem foco). */
+    data object NoPrev : GuideNavTarget
+    /** Sem seções na nota. */
+    data object NoSections : GuideNavTarget
+}
+
+const val GUIDE_NEEDS_APPROVAL_MESSAGE =
+    "Esta seção ainda não foi aprovada. Aprove antes de avançar, ou diga 'forçar próximo'."
+const val GUIDE_NO_NEXT_MESSAGE = "Não há próxima seção."
+const val GUIDE_NO_PREV_MESSAGE = "Não há seção anterior."
+const val GUIDE_NO_FOCUS_MESSAGE = "Abra um tópico no editor para navegar entre seções."
+
+/**
+ * Decide o destino: NEXT avança (gate de aprovação, salvo `force`);
+ * PREV sempre permite; sem foco, NEXT começa pela primeira.
+ * `orderedIds` na ordem do editor. Puro/testável.
+ */
+internal fun resolveNavTarget(
+    orderedIds: List<String>,
+    currentId: String?,
+    direction: GuideNavDirection,
+    force: Boolean,
+    approvedIds: Set<String>,
+): GuideNavTarget {
+    if (orderedIds.isEmpty()) return GuideNavTarget.NoSections
+    val idx = orderedIds.indexOf(currentId)
+    return when (direction) {
+        GuideNavDirection.NEXT -> {
+            if (idx < 0) return GuideNavTarget.MoveTo(orderedIds.first())
+            if (idx + 1 >= orderedIds.size) return GuideNavTarget.NoNext
+            if (!force && currentId !in approvedIds) return GuideNavTarget.BlockedNeedsApproval
+            GuideNavTarget.MoveTo(orderedIds[idx + 1])
+        }
+        GuideNavDirection.PREV -> {
+            if (idx - 1 < 0) return GuideNavTarget.NoPrev
+            GuideNavTarget.MoveTo(orderedIds[idx - 1])
+        }
+    }
+}
+
+/** Rótulo do indicador: "Tópico N de M — [título] (X min)". Puro/testável. */
+internal fun guideStripLabel(index: Int, total: Int, title: String, minutes: Int): String =
+    "Tópico ${index + 1} de $total — $title ($minutes min)"
+
+/** Anúncio de troca de escopo postado na conversa nova. Puro/testável. */
+internal fun guideAnnounceLabel(index: Int, total: Int, title: String, minutes: Int): String =
+    "— Tópico ${index + 1} de $total: $title ($minutes min) —"
+
+private fun normalizeNavText(text: String): String =
+    " ${com.bettertalker.app.data.util.normalizeText(text)} "
+
+/** "próximo/próxima/seguinte/avançar" (o `force` se decide à parte). Puro/testável. */
+internal fun isNextCommand(text: String): Boolean {
+    val t = normalizeNavText(text)
+    return listOf("proximo", "proxima", "seguinte", "avancar").any { t.contains(it) }
+}
+
+/** "forçar próximo"/"pular". Puro/testável. */
+internal fun isForceNextCommand(text: String): Boolean {
+    val t = normalizeNavText(text)
+    return t.contains("forcar proximo") || t.contains("forca proximo") || t.contains("pular")
+}
+
+/** "anterior"/"voltar"/"volta". Puro/testável. */
+internal fun isPrevCommand(text: String): Boolean {
+    val t = normalizeNavText(text)
+    return listOf("anterior", "voltar", "volta").any { t.contains(it) }
+}
+
+/**
+ * "aprovar"/"aprovado"/"ok, aprovado" — mas nunca "desaprovar".
+ * Puro/testável.
+ */
+internal fun isApproveCommand(text: String): Boolean {
+    val t = normalizeNavText(text)
+    return t.contains("aprov") && !t.contains("desaprov")
+}
 
 /**
  * T2 — prioridade unificada do foco: push > seleção > bloco > discurso.
