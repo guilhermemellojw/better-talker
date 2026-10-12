@@ -399,3 +399,11 @@ fun stripXml(raw: String): String =
         .replace(Regex("[ \\t\\r\\f]+"), " ")
         .replace(Regex("\n[ \t]*\n(?:[ \t]*\n)*"), "\n\n")
         .trim()
+
+/**
+ * HTML→texto cru (tags viram UM espaço, sem colapsar o resto).
+ * Para prompts que precisam da prosa literal (dossiê da seção).
+ * Puro/testável.
+ */
+fun htmlToPlainText(s: String): String =
+    s.replace(Regex("<[^>]+>"), " ")

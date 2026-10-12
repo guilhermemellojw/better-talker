@@ -1,8 +1,15 @@
 package com.bettertalker.app.data.planning
 
+import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.speech.SectionRole
+
+/** Teto da prosa da seção no dossiê (B1). */
+private const val MAX_SECTION_PROSE_CHARS = 4000
+
+/** Teto do desenvolvimento de cada sub-ponto no dossiê (B2). */
+private const val MAX_SUBPOINT_PROSE_CHARS = 2000
 
 /**
  * Monta o prompt do LLM a partir de um [Dossier].
@@ -86,6 +93,7 @@ class DefaultDossierPromptBuilder(
     }
 
     private fun StringBuilder.appendContext(d: Dossier) {
+        appendDiscourse(d)
         appendSection(d)
         appendAgreedApproach(d)
         appendOverview(d)
@@ -97,6 +105,20 @@ class DefaultDossierPromptBuilder(
     }
 
     // ---------- seções ----------
+
+    /**
+     * C (título/tipo no system): cabeçalho do discurso — só quando AMBOS
+     * presentes (sem cabeçalho órfão). Viaja no contextBlock, que compõe o
+     * system prompt em todos os providers.
+     */
+    private fun StringBuilder.appendDiscourse(d: Dossier) {
+        val title = d.noteTitle?.takeIf { it.isNotBlank() } ?: return
+        val type = d.discourseType?.takeIf { it.isNotBlank() } ?: return
+        appendLine("## DISCURSO")
+        appendLine("Título: $title")
+        appendLine("Tipo: $type")
+        appendLine()
+    }
 
     private fun StringBuilder.appendSection(d: Dossier) {
         appendLine("## SEÇÃO ATUAL")
@@ -122,8 +144,38 @@ class DefaultDossierPromptBuilder(
             appendLine("Linha de raciocínio do tópico (partes de UMA ideia — não trate como textos separados):")
             line.forEach { appendLine(it) }
         }
+        // B (prosa no dossiê): metadados acima; aqui o que já foi escrito.
+        appendSectionProse(d)
         appendLine()
     }
+
+    /**
+     * B1/B2/B3 — prosa da seção em texto simples, sempre nesta ordem;
+     * cada bloco omitido quando o campo estiver vazio/nulo.
+     */
+    private fun StringBuilder.appendSectionProse(d: Dossier) {
+        // B1: texto atual da seção (mini discurso do tópico).
+        d.currentSection.contentHtml.takeIf { it.isNotBlank() }?.let {
+            appendLine("## TEXTO ATUAL DA SEÇÃO (o que já foi escrito)")
+            appendLine(truncateProse(htmlToPlainText(it).trim(), MAX_SECTION_PROSE_CHARS))
+        }
+        // B2: desenvolvimento atual de cada sub-ponto, em ordem.
+        d.sectionSubPoints.sortedBy { it.order }.forEachIndexed { i, sp ->
+            sp.developedHtml.takeIf { it.isNotBlank() }?.let {
+                appendLine("### Sub-ponto ${i + 1} — desenvolvimento atual")
+                appendLine(truncateProse(htmlToPlainText(it).trim(), MAX_SUBPOINT_PROSE_CHARS))
+            }
+        }
+        // B3: trecho selecionado no editor.
+        d.selectedText?.takeIf { it.isNotBlank() }?.let {
+            appendLine("## TRECHO SELECIONADO")
+            appendLine(truncateProse(htmlToPlainText(it).trim(), MAX_SUBPOINT_PROSE_CHARS))
+        }
+    }
+
+    /** Corta a prosa no teto, marcando o corte (nunca devolve texto parcial calado). */
+    private fun truncateProse(text: String, max: Int): String =
+        if (text.length <= max) text else text.take(max) + "… [truncado]"
 
     /**
      * F2.3: abordagem acordada — instrução de alta prioridade para a redação

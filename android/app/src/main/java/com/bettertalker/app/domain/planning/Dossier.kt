@@ -45,6 +45,13 @@ data class Dossier(
      * não um sub-ponto isolado.
      */
     val sectionSubPoints: List<SubPoint> = emptyList(),
+    /**
+     * C (título/tipo no system): título da nota em foco e tipo do discurso.
+     * Null = desconhecido (bloco ## DISCURSO omitido). Defaults mantêm
+     * compatibilidade com construções existentes.
+     */
+    val noteTitle: String? = null,
+    val discourseType: String? = null,
 )
 
 /**

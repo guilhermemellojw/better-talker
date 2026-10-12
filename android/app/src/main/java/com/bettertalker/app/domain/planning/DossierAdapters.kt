@@ -38,6 +38,8 @@ fun sectionWithSubPointsOf(
  *
  * Pura (só depende de [DossierBuilder]). Testável sem VM/Room.
  *
+ * @param noteTitle título da nota em foco (vai ao bloco ## DISCURSO).
+ * @param discourseType tipo do discurso (vai ao bloco ## DISCURSO).
  * @return dossiê, ou null se não há seleção válida ou seção não encontrada
  */
 suspend fun buildDossierFrom(
@@ -47,6 +49,8 @@ suspend fun buildDossierFrom(
     selectedText: String,
     fullContentHtml: String,
     builder: DossierBuilder,
+    noteTitle: String? = null,
+    discourseType: String? = null,
 ): Dossier? {
     if (sectionId == null) return null
     if (sections.none { it.section.id == sectionId }) return null
@@ -56,5 +60,8 @@ suspend fun buildDossierFrom(
         selectedText = selectedText,
         fullContentHtml = fullContentHtml,
     )
-    return builder.build(context, sections)
+    return builder.build(context, sections)?.copy(
+        noteTitle = noteTitle,
+        discourseType = discourseType,
+    )
 }

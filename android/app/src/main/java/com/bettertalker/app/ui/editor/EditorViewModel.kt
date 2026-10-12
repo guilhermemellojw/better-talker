@@ -381,6 +381,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         val sectionsWithSubs = _sections.value.map {
             SectionWithSubPoints(section = it.section, subPoints = it.subPoints)
         }
+        val note = db.noteDao().get(noteId)
         return buildDossierFrom(
             sections = sectionsWithSubs,
             sectionId = sel.sectionId,
@@ -388,6 +389,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             selectedText = sel.selectedText,
             fullContentHtml = sel.fullContentHtml,
             builder = dossierBuilder,
+            noteTitle = note?.title,
+            discourseType = note?.discourseType,
         )
     }
 
@@ -534,6 +537,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         val sectionsWithSubs = _sections.value.map {
             SectionWithSubPoints(section = it.section, subPoints = it.subPoints)
         }
+        val note = db.noteDao().get(noteId)
         return when (target) {
             is DraftTarget.SubPoint -> buildDossierFrom(
                 sections = sectionsWithSubs,
@@ -542,6 +546,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 selectedText = "",
                 fullContentHtml = "",
                 builder = dossierBuilder,
+                noteTitle = note?.title,
+                discourseType = note?.discourseType,
             )
             is DraftTarget.Section -> buildDossierFrom(
                 sections = sectionsWithSubs,
@@ -550,6 +556,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 selectedText = "",
                 fullContentHtml = "",
                 builder = dossierBuilder,
+                noteTitle = note?.title,
+                discourseType = note?.discourseType,
             )
         }
     }
