@@ -62,8 +62,14 @@ class DeepSeekProvider(
         var modeIndex = if (structured && jsonSchemaRejected) 1 else 0
         // T1 (P0): resposta estruturada não usa thinking — o reasoning consome
         // `max_tokens` e devolve content vazio (finish=length) em prompts
-        // longos (oratória/proposta). Chat mantém o esforço configurado.
-        val effort = if (structured) STRUCTURED_REASONING_EFFORT else reasoningEffort
+        // longos (oratória/proposta). T4 (Fase 2.1): o modo colar também usa
+        // "none" — o esboço íntegro + histórico estouravam o orçamento no
+        // thinking (validado no A34: maioria dos turnos exigia retry).
+        val effort = reasoningEffortFor(
+            structured = structured,
+            minimalPaste = request.minimalPaste != null,
+            configured = reasoningEffort,
+        )
         // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
         // e devolver content vazio (finish_reason=length). Nesse caso o
         // provider refaz UMA vez com orçamento maior antes de falhar.
@@ -140,7 +146,7 @@ class DeepSeekProvider(
                             if (finish == "length" && !budgetBumped) {
                                 budgetBumped = true
                                 budget = (budget * 2).coerceAtMost(4096)
-                                log("deepseek vazio por length; retry com budget=$budget")
+                                log("deepseek vazio por length; retry com budget=$budget tentativa=$attempts")
                                 lastError = ProviderError(
                                     ProviderErrorCode.INVALID_RESPONSE,
                                     "Orçamento de tokens esgotado antes da resposta.", id, attempts
@@ -266,6 +272,23 @@ class DeepSeekProvider(
          * vazia (finish=length) em prompts longos; "none" devolve o JSON direto.
          */
         const val STRUCTURED_REASONING_EFFORT = "none"
+
+        /**
+         * T4 (Fase 2.1) — modo colar e conversar: thinking desligado pelo mesmo
+         * motivo (esboço íntegro + histórico estouravam o orçamento antes do
+         * content; a maioria dos turnos exigia retry no A34).
+         */
+        const val MINIMAL_REASONING_EFFORT = "none"
+
+        /**
+         * T4 (Fase 2.1) — esforço de reasoning por rota. Puro/testável.
+         */
+        fun reasoningEffortFor(structured: Boolean, minimalPaste: Boolean, configured: String): String =
+            when {
+                structured -> STRUCTURED_REASONING_EFFORT
+                minimalPaste -> MINIMAL_REASONING_EFFORT
+                else -> configured
+            }
 
         /**
          * Corpo chat/completions (puro/testável). `stream:true` + usage no fim;

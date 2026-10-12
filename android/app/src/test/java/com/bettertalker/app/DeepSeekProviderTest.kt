@@ -502,4 +502,46 @@ class DeepSeekProviderTest {
         assertFalse(body.contains("REGRAS DO S-34"))
         assertFalse(body.contains("FONTES DE CONTEÚDO"))
     }
+
+    // ---------- T4 (Fase 2.1): thinking off no modo colar + log do retry ----------
+
+    @Test
+    fun modoColarUsaReasoningEffortNone() = runBlocking {
+        val http = FakeStream(mutableListOf(okStream("ok")))
+        provider(http).generate(
+            req().copy(message = "o que acha?", minimalPaste = "Esboço colado íntegro aqui.")
+        )
+        assertTrue(http.bodies.single().contains("\"reasoning_effort\":\"none\""))
+    }
+
+    @Test
+    fun retryPorLengthRegistraLog() = runBlocking {
+        val onlyLength = Scripted(
+            LlmHttpClient.HttpResult(200, ""),
+            lines = listOf(
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}",
+                "data: [DONE]",
+            ),
+        )
+        val http = FakeStream(mutableListOf(onlyLength, okStream("ok")))
+        val logs = mutableListOf<String>()
+        DeepSeekProvider(apiKey = "sk-teste", stream = http, log = { logs += it }).generate(req())
+        assertTrue(logs.any { it.contains("vazio por length") && it.contains("retry com budget=2000") })
+    }
+
+    @Test
+    fun esforcoDeReasoningPorRotaPuro() {
+        assertEquals(
+            "none",
+            DeepSeekProvider.reasoningEffortFor(structured = true, minimalPaste = false, configured = "low")
+        )
+        assertEquals(
+            "none",
+            DeepSeekProvider.reasoningEffortFor(structured = false, minimalPaste = true, configured = "low")
+        )
+        assertEquals(
+            "low",
+            DeepSeekProvider.reasoningEffortFor(structured = false, minimalPaste = false, configured = "low")
+        )
+    }
 }
