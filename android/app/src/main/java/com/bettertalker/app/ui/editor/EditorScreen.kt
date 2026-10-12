@@ -121,7 +121,13 @@ private enum class PickerMode { FONT_COLOR, HIGHLIGHT, SIZE }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, onOpenChat: () -> Unit) {
+fun EditorScreen(
+    vm: EditorViewModel,
+    onBack: () -> Unit,
+    onAttach: () -> Unit,
+    onOpenChat: () -> Unit,
+    onOpenStage: () -> Unit,
+) {
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
     val saving by vm.saving.collectAsState()
@@ -339,6 +345,10 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, onAttach: () -> Unit, 
                         DropdownMenuItem(
                             text = { Text("Exportar / Compartilhar") },
                             onClick = { showMenu = false; showExport = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Modo Palco") },
+                            onClick = { showMenu = false; onOpenStage() },
                         )
                         outlineList.firstOrNull()?.let { o ->
                             DropdownMenuItem(

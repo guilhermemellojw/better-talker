@@ -109,4 +109,19 @@ class SettingsStore(private val ctx: Context) {
     private val CHAT_SETUP_SEEN = booleanPreferencesKey("chat_setup_seen")
     val chatSetupSeen: Flow<Boolean> = ctx.store.data.map { it[CHAT_SETUP_SEEN] ?: false }
     suspend fun setChatSetupSeen() { ctx.store.edit { it[CHAT_SETUP_SEEN] = true } }
+
+    /** Modo Palco (v1) — tamanho da fonte de leitura (sp), persistente. */
+    private val STAGE_FONT_SP =
+        androidx.datastore.preferences.core.intPreferencesKey("stage_font_sp")
+    val stageFontSp: Flow<Int> = ctx.store.data.map {
+        it[STAGE_FONT_SP] ?: STAGE_FONT_DEFAULT_SP
+    }
+    suspend fun setStageFontSp(v: Int) {
+        ctx.store.edit { it[STAGE_FONT_SP] = v.coerceIn(STAGE_FONT_MIN_SP, STAGE_FONT_MAX_SP) }
+    }
 }
+
+/** Modo Palco (v1): limites do tamanho da fonte de leitura (sp). */
+const val STAGE_FONT_MIN_SP = 16
+const val STAGE_FONT_DEFAULT_SP = 24
+const val STAGE_FONT_MAX_SP = 48

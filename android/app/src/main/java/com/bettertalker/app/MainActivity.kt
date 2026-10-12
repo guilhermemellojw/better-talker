@@ -28,6 +28,8 @@ import com.bettertalker.app.ui.home.HomeViewModel
 import com.bettertalker.app.ui.home.TrashScreen
 import com.bettertalker.app.ui.library.LibraryScreen
 import com.bettertalker.app.ui.library.LibraryViewModel
+import com.bettertalker.app.ui.stage.StageScreen
+import com.bettertalker.app.ui.stage.StageViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
 import kotlinx.coroutines.launch
 
@@ -154,8 +156,22 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 vm,
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
-                onOpenChat = { nav.navigate(Routes.chat(noteId)) }
+                onOpenChat = { nav.navigate(Routes.chat(noteId)) },
+                // Modo Palco: rota própria (rota declarada aqui para não tocar
+                // os arquivos de navegação fora do escopo do handoff).
+                onOpenStage = { nav.navigate("stage/$noteId") }
             )
+        }
+        composable(
+            "stage/{noteId}",
+            arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+        ) { back ->
+            val noteId = back.arguments?.getString("noteId") ?: return@composable
+            val stageVm: StageViewModel = viewModel(
+                key = "stage-$noteId",
+                factory = StageViewModel.Factory(db, settings, noteId)
+            )
+            StageScreen(stageVm, onBack = { nav.popBackStack() })
         }
         composable(
             Routes.CHAT,
