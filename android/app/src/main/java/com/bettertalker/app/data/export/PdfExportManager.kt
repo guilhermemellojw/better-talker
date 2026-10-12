@@ -9,6 +9,21 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 
 /**
+ * T1 (Exportação) — nome-base seguro para arquivo compartilhado e job name do
+ * PDF: remove os caracteres que quebram o picker do Android (`º ª / \ : * ? "
+ * < > |`) e mantém o resto legível — "N.º 28 — Tema" vira "N 28 — Tema".
+ * Nunca vira hash. Puro/testável.
+ */
+fun exportFileBaseName(title: String): String = title
+    .replace(Regex("[ºª/:\\\\*?\"<>|]"), " ")
+    // Ponto colado em espaço ("N. ") não vira "extensão" no picker do Samsung.
+    .replace(Regex("\\.\\s+"), " ")
+    .replace(Regex("\\s+"), " ")
+    .trim()
+    .ifBlank { "Discurso" }
+    .take(60)
+
+/**
  * T3 (Exportação) — "Salvar PDF" via `PrintManager` + WebView offscreen.
  *
  * Nativo, sem bibliotecas: o WebView carrega o HTML do [buildExportHtml]
@@ -29,7 +44,8 @@ object PdfExportManager {
      * Chamar da MAIN thread (WebView); usa o contexto da Activity no print.
      */
     fun printDiscurso(context: Context, jobName: String, html: String) {
-        val name = jobName.ifBlank { "Discurso" }
+        // Fix: nome sanitizado (o picker do Samsung truncava em "º").
+        val name = exportFileBaseName(jobName)
         Handler(Looper.getMainLooper()).post {
             val app = context.applicationContext
             // Job anterior já foi resolvido pelo sistema; libera o WebView antigo.

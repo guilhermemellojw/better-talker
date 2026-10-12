@@ -94,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.bettertalker.app.data.export.buildExportHtml
 import com.bettertalker.app.data.export.buildExportPlainText
+import com.bettertalker.app.data.export.exportFileBaseName
 import com.bettertalker.app.data.export.PdfExportManager
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.theme.NOTE_COLORS
@@ -938,11 +939,8 @@ private fun exportHtmlOf(title: String, sections: List<SectionUiState>): String 
 private fun shareExportHtml(ctx: Context, title: String, sections: List<SectionUiState>) {
     val html = exportHtmlOf(title, sections)
     val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
-    val base = title.ifBlank { "Discurso" }
-        .replace(Regex("[^\\p{L}\\p{N}]+"), "_")
-        .trim('_')
-        .ifBlank { "Discurso" }
-        .take(60)
+    // Fix: mesmo helper do job name do PDF (legível, sem caracteres que quebram).
+    val base = exportFileBaseName(title)
     val file = File(dir, "$base.html")
     file.writeText(html, Charsets.UTF_8)
     val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
