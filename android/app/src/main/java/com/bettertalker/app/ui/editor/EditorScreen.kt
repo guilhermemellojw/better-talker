@@ -74,10 +74,13 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -165,13 +168,31 @@ fun EditorScreen(
     // Sem LazyColumn (o Column atual preserva o estado dos editores):
     // o ScrollState é içado e cada card registra seu Y no conteúdo.
     val scrollState = rememberScrollState()
-    val sectionOffsets = remember { mutableMapOf<String, Int>() }
-    LaunchedEffect(vm) {
-        vm.scrollRequests.collect { id ->
-            sectionOffsets[id]?.let { y ->
-                scrollState.animateScrollTo(y.coerceAtLeast(0))
-            }
+    // F5e (device): posições em coordenadas de JANELA. `positionInParent()`
+    // mede contra um wrapper interno do card (valor quase constante), não
+    // contra o conteúdo rolável — usar a janela + o topo do viewport é
+    // imune ao aninhamento.
+    val sectionWinY = remember { mutableStateMapOf<String, Int>() }
+    var viewportTopWin by remember { mutableStateOf(0) }
+    val pendingScroll by vm.scrollRequests.collectAsState()
+    LaunchedEffect(pendingScroll) {
+        val id = pendingScroll ?: return@LaunchedEffect
+        // F5e: espera o Y ESTABILIZAR (2 frames iguais) — o primeiro layout
+        // pode reportar altura intermediária (cards ainda assentando).
+        var last = -1
+        var stable = 0
+        var frames = 0
+        while (stable < 2 && frames < 240) {
+            withFrameNanos { }
+            frames++
+            val y = sectionWinY[id] ?: continue
+            if (y == last) stable++ else { stable = 0; last = y }
         }
+        if (last >= 0) {
+            val target = (last - viewportTopWin + scrollState.value).coerceAtLeast(0)
+            scrollState.animateScrollTo(target)
+        }
+        vm.consumeScrollRequest()
     }
 
     // 3.2.5c: editor multi-seção. Duas noções independentes:
@@ -613,6 +634,11 @@ fun EditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
+                    .onGloballyPositioned { coords ->
+                        viewportTopWin = coords.localToWindow(
+                            androidx.compose.ui.geometry.Offset.Zero
+                        ).y.toInt()
+                    }
                     .verticalScroll(scrollState)
                     .imePadding()
                     .then(
@@ -744,8 +770,9 @@ fun EditorScreen(
                                 // Modo guiado: registra o Y do card no conteúdo
                                 // rolável para o scroll pedido pelo chat.
                                 modifier = Modifier.onGloballyPositioned { coords ->
-                                    sectionOffsets[sectionState.section.id] =
-                                        coords.positionInParent().y.toInt()
+                                    sectionWinY[sectionState.section.id] = coords.localToWindow(
+                                        androidx.compose.ui.geometry.Offset.Zero
+                                    ).y.toInt()
                                 },
                                 onChatAbout = { target ->
                                     // T3 — aguarda o push concluir antes de navegar:

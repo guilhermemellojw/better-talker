@@ -22,10 +22,7 @@ import com.bettertalker.app.domain.speech.SectionValidationResult
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
@@ -638,16 +635,24 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     val pushedContext: StateFlow<ChatContext?> = _pushedContext.asStateFlow()
 
     /**
-     * Pedidos de rolagem vindos do chat (modo guiado seção-a-seção).
-     * A EditorScreen observa e rola até o card. Extra Buffer: o pedido
-     * nunca suspende o emissor.
+     * Pedido de rolagem vindo do chat (modo guiado seção-a-seção).
+     *
+     * F5e (validação em device): ESTADO, não evento — o pedido é feito
+     * enquanto o editor NÃO está composto (chat em primeiro plano) e precisa
+     * sobreviver até a tela montar. Um SharedFlow sem replay descartava o
+     * evento e a rolagem nunca acontecia ao voltar do chat.
      */
-    private val _scrollRequests = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val scrollRequests: SharedFlow<String> = _scrollRequests.asSharedFlow()
+    private val _scrollRequests = MutableStateFlow<String?>(null)
+    val scrollRequests: StateFlow<String?> = _scrollRequests.asStateFlow()
 
     /** Chat pediu foco visual nesta seção (navegação "próximo"/"anterior"). */
     fun scrollToSection(sectionId: String) {
-        _scrollRequests.tryEmit(sectionId)
+        _scrollRequests.value = sectionId
+    }
+
+    /** Marca o pedido como aplicado (a EditorScreen consome depois de rolar). */
+    fun consumeScrollRequest() {
+        _scrollRequests.value = null
     }
 
     /**
