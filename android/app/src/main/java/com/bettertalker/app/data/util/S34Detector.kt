@@ -45,6 +45,16 @@ object S34Detector {
     /** Bloco de objetivo ("Objetivo:"). Sinal de apoio — nunca decide sozinho. */
     val OBJECTIVE_RE = Regex("""(?m)^\s*objetivo\s*:""", RegexOption.IGNORE_CASE)
 
+    /**
+     * F5a — bloco NOTA do orador (persona): "NOTA:" ou "Nota ao orador:"
+     * (com itálico markdown opcional). Só marca o INÍCIO — o S34Parser
+     * captura o corpo. Puro/testável.
+     */
+    val SPEAKER_NOTE_RE = Regex(
+        """(?m)^\s*\*?(?:Nota ao orador|NOTA)\*?\s*:\s*""",
+        RegexOption.IGNORE_CASE
+    )
+
     enum class S34Signal {
         TIMED_SECTIONS,
         NUMBERED_POINTS,

@@ -94,6 +94,7 @@ class DefaultDossierPromptBuilder(
 
     private fun StringBuilder.appendContext(d: Dossier) {
         appendDiscourse(d)
+        appendSpeakerNote(d)
         appendSection(d)
         appendAgreedApproach(d)
         appendOverview(d)
@@ -118,6 +119,19 @@ class DefaultDossierPromptBuilder(
         // G: o S-34 carrega o "# " do markdown — limpa para o prompt.
         appendLine("Título: ${title.removePrefix("# ").trimStart()}")
         appendLine("Tipo: $type")
+        appendLine()
+    }
+
+    /**
+     * F5a: persona do orador (NOTA do esboço). Impressa UMA vez no
+     * contextBlock; quando o chat também carrega o bloco estrutural do S-34,
+     * cada canal mostra a sua versão rotulada (draft/mini discurso recebem
+     * só esta).
+     */
+    private fun StringBuilder.appendSpeakerNote(d: Dossier) {
+        val note = d.speakerNote?.takeIf { it.isNotBlank() } ?: return
+        appendLine("## ORIENTAÇÃO DO ORADOR (do esboço)")
+        appendLine(note.trim())
         appendLine()
     }
 

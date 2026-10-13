@@ -402,6 +402,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             builder = dossierBuilder,
             noteTitle = note?.title,
             discourseType = note?.discourseType,
+            speakerNote = outlineSpeakerNote(),
         )
     }
 
@@ -559,6 +560,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 builder = dossierBuilder,
                 noteTitle = note?.title,
                 discourseType = note?.discourseType,
+                speakerNote = outlineSpeakerNote(),
             )
             is DraftTarget.Section -> buildDossierFrom(
                 sections = sectionsWithSubs,
@@ -569,9 +571,21 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 builder = dossierBuilder,
                 noteTitle = note?.title,
                 discourseType = note?.discourseType,
+                speakerNote = outlineSpeakerNote(),
             )
         }
     }
+
+    /**
+     * F5a: NOTA do orador do esboço vinculado (mesma fonte do preamble do
+     * esboço; para S-34-origin ela carrega o bloco NOTA/Nota ao orador).
+     * Não confundir com `speakerNotes` (propriedade exposta à UI) — aqui é
+     * só leitura para o dossiê. Null quando não há esboço/nota.
+     */
+    private suspend fun outlineSpeakerNote(): String? =
+        outlines.get(noteId)?.let {
+            com.bettertalker.app.data.util.OutlineParser.preambleOf(it.sectionsJson)
+        }?.takeIf { it.isNotBlank() }
 
     /**
      * Gera o draft para [target]. Null em falha tratável (sem gerador,

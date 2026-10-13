@@ -51,6 +51,7 @@ suspend fun buildDossierFrom(
     builder: DossierBuilder,
     noteTitle: String? = null,
     discourseType: String? = null,
+    speakerNote: String? = null,
 ): Dossier? {
     if (sectionId == null) return null
     if (sections.none { it.section.id == sectionId }) return null
@@ -63,5 +64,6 @@ suspend fun buildDossierFrom(
     return builder.build(context, sections)?.copy(
         noteTitle = noteTitle,
         discourseType = discourseType,
+        speakerNote = speakerNote?.takeIf { it.isNotBlank() },
     )
 }

@@ -22,6 +22,8 @@ data class S34Document(
     val title: String,
     /** Null quando não há bloco de objetivo identificável — nunca inventado. */
     val objective: String?,
+    /** F5a: bloco NOTA do esboço (persona do orador). Null quando o esboço não traz. */
+    val speakerNote: String? = null,
     val sections: List<S34Section>,
     /** Linhas órfãs antes da primeira seção (ex.: marcador, cabeçalho).
      * Preservadas sem provenance fina: são texto não-estruturado. */

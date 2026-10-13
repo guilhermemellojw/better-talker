@@ -25,6 +25,8 @@ data class OutlineStructureContext(
     val title: String,
     /** Null quando o S-34 não declara objetivo — nunca inventado (§19 B.5). */
     val objective: String?,
+    /** F5a: NOTA do orador (persona do esboço). Null quando o esboço não traz. */
+    val speakerNote: String? = null,
     /** Pontos em ordem documental (títulos; corpo só do foco). */
     val orderedSections: List<OrderedSection>,
     /** Ponto em foco, quando a B.4 resolveu um. */
@@ -129,6 +131,7 @@ fun structuralContextOf(
         outlineId = outlineId,
         title = document?.title.orEmpty(),
         objective = document?.objective?.takeIf { it.isNotBlank() },
+        speakerNote = document?.speakerNote?.takeIf { it.isNotBlank() },
         orderedSections = ordered,
         currentSection = current?.let { v ->
             OutlineStructureContext.CurrentSection(
@@ -185,6 +188,10 @@ fun serializeStructuralContext(ctx: OutlineStructureContext): String {
     sb.append("\n\n--- S-34 (ESTRUTURA DO DISCURSO) ---\n")
     sb.append("$S34 Título: ${ctx.title.ifBlank { "(sem título)" }}\n")
     if (ctx.objective != null) sb.append("$S34 Objetivo: ${ctx.objective}\n")
+    // F5a: persona do orador — tom/ênfase/restrições do esboço.
+    ctx.speakerNote?.takeIf { it.isNotBlank() }?.let {
+        sb.append("$S34 ORIENTAÇÃO DO ORADOR: ${it.trim()}\n")
+    }
 
     if (ctx.orderedSections.isNotEmpty()) {
         sb.append("$S34 Pontos, na ordem do esboço:\n")
@@ -256,4 +263,6 @@ REGRAS DO S-34 (quando houver estrutura de S-34 no contexto):
    da Bíblia ou de uma publicação.
 8. Quando as fontes não sustentarem uma afirmação factual, não preencha a lacuna
    inventando conteúdo; diga exatamente: "$INSUFFICIENT_EVIDENCE_MESSAGE"
+9. Siga a ORIENTAÇÃO DO ORADOR ao compor qualquer texto: tom, ênfase e restrições
+   (ex.: "não conte histórias sobre demônios") são obrigatórios, não sugestões.
 """.trimIndent()

@@ -53,6 +53,10 @@ object S34Parser {
      */
     private val SPECIAL_SPACE_RE = Regex("[\u00A0\u2007\u202F]")
 
+    /** F5a: limpa marcadores markdown da linha da NOTA ("> citação", "*ênfase*"). */
+    private fun cleanSpeakerNoteLine(raw: String): String =
+        raw.trim().removePrefix(">").trim().trim('*').trim()
+
     private data class BodyLine(val lineNo: Int, val text: String)
     private data class MutableSub(val content: String, val sourceLine: Int)
     private data class MutableSection(
@@ -110,6 +114,39 @@ object S34Parser {
             }
         }
 
+        // F5a — bloco NOTA do orador (persona). Captura até cabeçalho de
+        // seção/subponto, próximo "Objetivo:"/"NOTA:" ou linha em branco
+        // DUPLA. Uma branca simples separa parágrafos ("\n\n").
+        var speakerNote: String? = null
+        var inSpeakerNote = false
+        var speakerNoteBlanks = 0
+        val speakerNoteLines = mutableListOf<String>()
+
+        fun flushSpeakerNote() {
+            if (!inSpeakerNote) return
+            inSpeakerNote = false
+            speakerNoteBlanks = 0
+            if (speakerNoteLines.isEmpty()) return
+            val paragraphs = mutableListOf<StringBuilder>()
+            for (l in speakerNoteLines) {
+                if (l.isBlank()) {
+                    if (paragraphs.isNotEmpty() && paragraphs.last().isNotEmpty()) {
+                        paragraphs += StringBuilder()
+                    }
+                    continue
+                }
+                if (paragraphs.isEmpty()) paragraphs += StringBuilder()
+                if (paragraphs.last().isNotEmpty()) paragraphs.last().append(' ')
+                paragraphs.last().append(l)
+            }
+            speakerNoteLines.clear()
+            val block = paragraphs.filter { it.isNotEmpty() }
+                .joinToString("\n\n") { it.toString() }
+                .trim()
+            if (block.isEmpty()) return
+            speakerNote = listOfNotNull(speakerNote, block).joinToString("\n\n")
+        }
+
         lines.forEachIndexed { idx, raw ->
             val lineNo = idx + 1
             val line = raw.trim()
@@ -117,7 +154,22 @@ object S34Parser {
                 // Parágrafo quebrou: objetivo de múltiplos parágrafos é
                 // truncado de propósito (conservador — §15; documentado).
                 closeObjective()
+                if (inSpeakerNote) {
+                    speakerNoteBlanks++
+                    if (speakerNoteBlanks >= 2) flushSpeakerNote()
+                    else speakerNoteLines += "" // marca quebra de parágrafo
+                }
                 return@forEachIndexed
+            }
+            // F5a: termina a captura da NOTA ao encontrar o próximo bloco
+            // estrutural (seção/subponto/cabeçalhos) — nunca vaza para o corpo.
+            if (inSpeakerNote) {
+                val terminator = POINT_RE.matches(line) ||
+                    SECTION_MIN_RE.matchEntire(line) != null ||
+                    SUBPOINT_RE.matches(line) ||
+                    S34Detector.OBJECTIVE_RE.containsMatchIn(line) ||
+                    S34Detector.SPEAKER_NOTE_RE.containsMatchIn(line)
+                if (terminator) flushSpeakerNote()
             }
             if (POINT_RE.matches(line)) {
                 closeObjective()
@@ -182,6 +234,22 @@ object S34Parser {
                 if (rest.isNotEmpty()) objectiveLines += rest
                 return@forEachIndexed
             }
+            // F5a: inicio do bloco NOTA do orador (persona). O corpo é
+            // capturado linha a linha até um terminador/bloco.
+            S34Detector.SPEAKER_NOTE_RE.find(line)?.let { m ->
+                flushSpeakerNote() // fecha a anterior (concatena com \n\n)
+                inSpeakerNote = true
+                speakerNoteBlanks = 0
+                val rest = line.substring(m.range.last + 1).trim()
+                if (rest.isNotEmpty()) speakerNoteLines += cleanSpeakerNoteLine(rest)
+                return@forEachIndexed
+            }
+            if (inSpeakerNote) {
+                speakerNoteBlanks = 0
+                val clean = cleanSpeakerNoteLine(line)
+                if (clean.isNotEmpty()) speakerNoteLines += clean
+                return@forEachIndexed
+            }
             val sec = current
             if (sec != null) {
                 sec.body += BodyLine(lineNo, line)
@@ -194,6 +262,7 @@ object S34Parser {
             }
         }
         closeObjective()
+        flushSpeakerNote()
 
         val docSections = sections.map { s ->
             val subsections = s.subs.mapIndexed { si, sub ->
@@ -220,6 +289,7 @@ object S34Parser {
             id = "s34-" + hashText(rawText),
             title = title,
             objective = objective,
+            speakerNote = speakerNote?.takeIf { it.isNotBlank() },
             sections = docSections,
             headerLines = headerLines
         )
