@@ -1,9 +1,11 @@
 package com.bettertalker.app.data.work
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.bettertalker.app.data.cloud.AuthRepository
+import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.DbProvider
@@ -23,19 +25,35 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
     override suspend fun doWork(): Result {
         val auth = AuthRepository(applicationContext)
-        if (!auth.isConfigured()) return Result.success()
-        val user = auth.currentUser() ?: return Result.success()
+        if (!auth.isConfigured()) {
+            Log.d("SyncWorker", "Sync ignorado: Firebase não configurado neste build.")
+            return Result.success()
+        }
+        val user = auth.currentUser()
+        if (user == null) {
+            Log.d("SyncWorker", "Sync ignorado: sem usuário logado.")
+            return Result.success()
+        }
         val db: AppDatabase = DbProvider.get(applicationContext)
         return try {
+            // F5g: o estado permanece Running durante TODAS as etapas abaixo.
+            SyncStatus.set(SyncStatus.State.Running)
             val fs = FirebaseFirestore.getInstance()
             val root = fs.collection("users").document(user.uid)
             syncNotes(db, root)
             syncFolders(db, root)
             syncAttachments(db, root)
             syncOutlines(db, root)
-            SettingsStore(applicationContext).setLastSync(System.currentTimeMillis())
+            val now = System.currentTimeMillis()
+            SettingsStore(applicationContext).setLastSync(now)
+            SyncStatus.set(SyncStatus.State.Success(now))
             Result.success()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // F5g: visibilidade — antes a exceção era engolida em silêncio.
+            Log.e("SyncWorker", "Sync falhou: ${e.message}", e)
+            SyncStatus.set(
+                SyncStatus.State.Error(e.message ?: "Erro desconhecido", System.currentTimeMillis())
+            )
             Result.retry()
         }
     }

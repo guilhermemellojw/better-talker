@@ -8,9 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,12 +35,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.cloud.SyncStatus
+import com.bettertalker.app.data.cloud.syncIndicatorText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
     val user by vm.user.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
+    val syncState by vm.syncState.collectAsState()
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
     val confirmWipe by vm.confirmWipe.collectAsState()
@@ -100,11 +106,7 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                     } else {
                         Text(user?.email ?: user?.uid ?: "Conectado", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
-                        Text(
-                            vm.lastSyncText(lastSync),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
+                        SyncIndicator(state = syncState, lastSync = lastSync, vm = vm)
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(onClick = vm::syncNow, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                             Text("Sincronizar agora")
@@ -139,6 +141,51 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.secondary
             )
         }
+    }
+}
+
+/**
+ * F5g: indicador do estado do sync (4 estados). Idle com sync anterior usa o
+ * texto persistido (`lastSync`) para não voltar a "Nunca sincronizado".
+ */
+@Composable
+private fun SyncIndicator(
+    state: SyncStatus.State,
+    lastSync: Long,
+    vm: AccountViewModel,
+) {
+    val now = System.currentTimeMillis()
+    when (state) {
+        is SyncStatus.State.Running -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                syncIndicatorText(state, now),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
+        is SyncStatus.State.Error -> Column {
+            Text(
+                syncIndicatorText(state, now),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(Modifier.height(4.dp))
+            OutlinedButton(onClick = vm::syncNow, modifier = Modifier.fillMaxWidth()) {
+                Text("Tentar de novo")
+            }
+        }
+        is SyncStatus.State.Success -> Text(
+            syncIndicatorText(state, now),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
+        is SyncStatus.State.Idle -> Text(
+            if (lastSync > 0L) vm.lastSyncText(lastSync) else syncIndicatorText(state, now),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary
+        )
     }
 }
 

@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.cloud.AuthRepository
 import com.bettertalker.app.data.cloud.SyncScheduler
+import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -27,6 +29,9 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     val user = auth.user
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    /** F5g: estado volátil do sync (Idle/Running/Success/Error) — observável na tela. */
+    val syncState: StateFlow<SyncStatus.State> = SyncStatus.state
     val configured = auth.isConfigured()
 
     private val _busy = MutableStateFlow(false)
