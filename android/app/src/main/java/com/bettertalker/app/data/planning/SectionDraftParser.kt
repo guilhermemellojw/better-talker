@@ -1,6 +1,6 @@
 package com.bettertalker.app.data.planning
 
-import com.bettertalker.app.data.llm.GeminiProvider
+import com.bettertalker.app.data.llm.JsonCodec
 
 /** Resultado do parse do JSON retornado pelo LLM. */
 data class ParsedDraft(
@@ -108,7 +108,7 @@ class DefaultSectionDraftParser : SectionDraftParser {
         return null
     }
 
-    private fun unesc(raw: String): String = GeminiProvider.jsonUnescape(raw)
+    private fun unesc(raw: String): String = JsonCodec.unescape(raw)
 
     private data class TextSpan(val start: Int, val end: Int)
 

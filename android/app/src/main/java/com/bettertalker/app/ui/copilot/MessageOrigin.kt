@@ -3,7 +3,7 @@ package com.bettertalker.app.ui.copilot
 /**
  * Origem de uma mensagem do assistente no chat.
  *
- * COPILOT (default): resposta do Copilot remoto (Groq/Gemini).
+ * COPILOT (default): resposta do Copilot remoto (DeepSeek).
  * LOCAL: retrieval on-device, scaffolding determinístico ou IA local —
  * nunca prosa gerada remotamente. Histórico antigo (sem a chave no
  * payload) decodifica como COPILOT.

@@ -232,7 +232,7 @@ fun extractJsonFence(text: String): String? {
 fun jsonStringField(obj: String, key: String): String? {
     val m = Regex("\"" + Regex.escape(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(obj)
         ?: return null
-    return GeminiJson.unescape(m.groupValues[1])
+    return JsonUnescape.unescape(m.groupValues[1])
 }
 
 /** Divide os objetos de topo de um array [...] respeitando strings e chaves. */
@@ -353,7 +353,7 @@ fun parseEditProposal(
 }
 
 /** Unescape JSON mínimo compartilhado com o parser. */
-private object GeminiJson {
+private object JsonUnescape {
     fun unescape(s: String): String {
         val sb = StringBuilder()
         var i = 0
@@ -380,43 +380,6 @@ private object GeminiJson {
             }
         }
         return sb.toString()
-    }
-}
-
-// ---------- Histórico (editHistory.ts) ----------
-
-/**
- * Undo/redo por pilha de snapshots. push só no accept; edição nova limpa
- * o redo. Sem IO.
- */
-class EditHistory {
-    private val undoStack = ArrayDeque<List<EditBlock>>()
-    private val redoStack = ArrayDeque<List<EditBlock>>()
-
-    val canUndo: Boolean get() = undoStack.isNotEmpty()
-    val canRedo: Boolean get() = redoStack.isNotEmpty()
-
-    fun push(blocks: List<EditBlock>) {
-        undoStack.addLast(blocks.map { it.copy() })
-        if (undoStack.size > MAX_EDIT_HISTORY) undoStack.removeFirst()
-        redoStack.clear()
-    }
-
-    fun undo(current: List<EditBlock>): List<EditBlock>? {
-        val prev = undoStack.removeLastOrNull() ?: return null
-        redoStack.addLast(current.map { it.copy() })
-        return prev
-    }
-
-    fun redo(current: List<EditBlock>): List<EditBlock>? {
-        val next = redoStack.removeLastOrNull() ?: return null
-        undoStack.addLast(current.map { it.copy() })
-        return next
-    }
-
-    fun clear() {
-        undoStack.clear()
-        redoStack.clear()
     }
 }
 

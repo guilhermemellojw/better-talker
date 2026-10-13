@@ -295,15 +295,15 @@ class ChatRouterTest {
         val spec = (com.bettertalker.app.data.copilot.OratoryGeneration.spec(
             r.mode, doc, v, r.action
         ) as com.bettertalker.app.data.copilot.OratoryGeneration.Result.Ready).spec
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = com.bettertalker.app.data.llm.GeminiProvider(apiKey = "k", http = http, log = {})
+        val stream = LlmProviderTestSupport.CapturingStream()
+        val provider = com.bettertalker.app.data.llm.DeepSeekProvider(apiKey = "k", stream = stream)
         kotlinx.coroutines.runBlocking {
             provider.generate(com.bettertalker.app.data.llm.LlmRequest(
                 text = "corpo", message = "Desenvolva o ponto 2.",
                 oratorySpec = spec
             ))
         }
-        val body = http.bodies.first()
+        val body = stream.bodies.first()
         assertTrue(body.contains("MODO: DESENVOLVIMENTO DO PONTO"))
         assertTrue(body.contains("ESTRUTURA DO S-34"))
         assertTrue(body.contains("Tiago 2:17"))

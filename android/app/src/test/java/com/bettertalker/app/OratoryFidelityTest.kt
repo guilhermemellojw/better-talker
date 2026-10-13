@@ -5,7 +5,6 @@ import com.bettertalker.app.data.copilot.OratoryGeneration
 import com.bettertalker.app.data.copilot.OratoryGeneration.Action
 import com.bettertalker.app.data.copilot.OratoryGeneration.Mode
 import com.bettertalker.app.data.copilot.OratoryGeneration.Result
-import com.bettertalker.app.data.llm.GeminiProvider
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.s34.S34Parser
 import com.bettertalker.app.data.s34.S34StructuralRetrieval
@@ -133,39 +132,4 @@ class OratoryFidelityTest {
         }
     }
 
-    // ---------- §41: offline não fabrica texto ----------
-
-    @Test
-    fun offlineNaoFabricaRespostaRemota() {
-        // Provider sem chave: motor offline EXPLÍCITO — não finge remoto.
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = GeminiProvider(apiKey = "", http = http, log = {})
-        val res = runBlocking {
-            provider.generate(LlmRequest(text = "corpo", message = "desenvolva"))
-        }
-        assertTrue(res.meta.offline)
-        assertEquals(0, http.bodies.size)
-        assertTrue(res.text.contains("Modo offline"))
-    }
-
-    @Test
-    fun erroDeRedeContinuaErroHonesto() {
-        // Sem chave e com falha de rede, o erro sobe como texto humano.
-        val failing = object : com.bettertalker.app.data.llm.LlmHttpClient {
-            override suspend fun postJson(
-                url: String, body: String, timeoutMs: Long,
-                headers: Map<String, String>
-            ): com.bettertalker.app.data.llm.LlmHttpClient.HttpResult =
-                throw java.net.SocketTimeoutException("t")
-        }
-        val provider = GeminiProvider(apiKey = "k", http = failing, log = {}, maxAttempts = 1)
-        try {
-            runBlocking { provider.generate(LlmRequest(text = "corpo", message = "x")) }
-            assertTrue(false)
-        } catch (e: com.bettertalker.app.data.llm.ProviderError) {
-            val human = com.bettertalker.app.data.copilot.friendlyChatError(e)
-            assertFalse(human.contains("SocketTimeout"))
-            assertFalse(human.contains("HTTP"))
-        }
-    }
 }

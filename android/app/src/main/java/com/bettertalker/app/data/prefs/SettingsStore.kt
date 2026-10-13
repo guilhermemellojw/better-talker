@@ -43,53 +43,9 @@ class SettingsStore(private val ctx: Context) {
     suspend fun setLastSync(v: Long) { ctx.store.edit { it[LAST_SYNC] = v } }
 
     /**
-     * Fase 18 — chave BYOD do Gemini (tela Modelo IA). Mesmo DataStore das
-     * demais settings: sem armazenamento paralelo. Opcional, local,
-     * nunca em log/erro/telemetry — só sai do aparelho no POST HTTPS.
-     */
-    private val LLM_API_KEY = stringPreferencesKey("llm_api_key")
-    val llmApiKey: Flow<String> = ctx.store.data.map { it[LLM_API_KEY].orEmpty() }
-    suspend fun setLlmApiKey(v: String) { ctx.store.edit { it[LLM_API_KEY] = v.trim() } }
-    suspend fun clearLlmApiKey() { ctx.store.edit { it.remove(LLM_API_KEY) } }
-
-    /**
-     * F20-F1 — chave BYOD do Groq/Qwen (tela Modelo IA). Mesmas garantias da
-     * chave Gemini: DataStore local, nunca em log/erro, só no header
-     * Authorization do POST HTTPS. DEV-ONLY: chave embutida em APK debug
-     * pode ser extraída — nunca distribuir com segredo embutido.
-     */
-    private val GROQ_API_KEY = stringPreferencesKey("groq_api_key")
-    val groqApiKey: Flow<String> = ctx.store.data.map { it[GROQ_API_KEY].orEmpty() }
-    suspend fun setGroqApiKey(v: String) { ctx.store.edit { it[GROQ_API_KEY] = v.trim() } }
-    suspend fun clearGroqApiKey() { ctx.store.edit { it.remove(GROQ_API_KEY) } }
-
-    /**
-     * F20-F1 / T3 — provider de IA selecionado:
-     * "auto" (default) | "deepseek" | "gemini" | "qwen" | "gemma_local".
-     *
-     * "auto" resolve em runtime (T3 DeepSeek): DeepSeek com chave e online →
-     * outro remoto com chave e online (Gemini, Groq) → Gemma local (modelo
-     * presente) → determinístico. Valores explícitos são preservados.
-     */
-    private val LLM_PROVIDER = stringPreferencesKey("llm_provider")
-    val llmProvider: Flow<String> = ctx.store.data.map { it[LLM_PROVIDER] ?: "auto" }
-    suspend fun setLlmProvider(v: String) {
-        ctx.store.edit {
-            it[LLM_PROVIDER] = when (v) {
-                "deepseek" -> "deepseek"
-                "gemini" -> "gemini"
-                // F2: provider on-device (Gemma 4 E2B via LiteRT-LM)
-                "gemma_local" -> "gemma_local"
-                // T3: decisão automática remoto → local → determinístico
-                "auto" -> "auto"
-                else -> "qwen"
-            }
-        }
-    }
-
-    /**
-     * T3 (DeepSeek) — chave BYOD do DeepSeek. Mesmas garantias das demais:
-     * DataStore local, nunca em log/erro, só no header Authorization do POST.
+     * T3 (DeepSeek) — chave BYOD do DeepSeek. Única chave de IA do app
+     * (cleanup multi-LLM). DataStore local, nunca em log/erro/telemetria —
+     * só sai do aparelho no POST HTTPS.
      */
     private val DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
     val deepseekApiKey: Flow<String> = ctx.store.data.map { it[DEEPSEEK_API_KEY].orEmpty() }

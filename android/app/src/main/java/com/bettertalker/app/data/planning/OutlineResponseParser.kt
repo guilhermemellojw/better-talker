@@ -1,6 +1,6 @@
 package com.bettertalker.app.data.planning
 
-import com.bettertalker.app.data.llm.GeminiProvider
+import com.bettertalker.app.data.llm.JsonCodec
 import com.bettertalker.app.domain.planning.OutlineGenerationRequest
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.PublicationRef
@@ -169,7 +169,7 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
         return null
     }
 
-    private fun unesc(raw: String): String = GeminiProvider.jsonUnescape(raw)
+    private fun unesc(raw: String): String = JsonCodec.unescape(raw)
 
     private data class TextSpan(val start: Int, val end: Int)
 

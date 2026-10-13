@@ -6,7 +6,7 @@ import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.llm.DeepSeekStreamClient
-import com.bettertalker.app.data.llm.GeminiProvider
+import com.bettertalker.app.data.llm.JsonCodec
 import com.bettertalker.app.data.llm.LlmHttpClient
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.llm.ProviderError
@@ -67,7 +67,7 @@ class DeepSeekProviderTest {
     }
 
     private fun delta(text: String): String =
-        "data: {\"choices\":[{\"delta\":{\"content\":${GeminiProvider.jsonEscape(text)}}}]}"
+        "data: {\"choices\":[{\"delta\":{\"content\":${JsonCodec.escape(text)}}}]}"
 
     private fun okStream(vararg parts: String) = Scripted(
         LlmHttpClient.HttpResult(200, "", mapOf("x-ratelimit-remaining-requests" to "9")),

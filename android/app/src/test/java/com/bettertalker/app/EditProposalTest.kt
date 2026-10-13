@@ -3,7 +3,6 @@ package com.bettertalker.app
 import com.bettertalker.app.data.edit.ApplyResult
 import com.bettertalker.app.data.edit.CopilotEditProposal
 import com.bettertalker.app.data.edit.EditBlock
-import com.bettertalker.app.data.edit.EditHistory
 import com.bettertalker.app.data.edit.EditOperation
 import com.bettertalker.app.data.edit.EditProposalMode
 import com.bettertalker.app.data.edit.InsertPosition
@@ -229,38 +228,6 @@ class EditProposalTest {
         assertEquals("{\"a\":1}", extractJsonFence("x ```\n{\"a\":1}\n``` y"))
         assertEquals("{\"a\":1}", extractJsonFence("  {\"a\":1}  "))
         assertEquals(null, extractJsonFence("sem json"))
-    }
-
-    // ---------- undo/redo ----------
-
-    @Test
-    fun undoRedoCicloCompleto() {
-        val h = EditHistory()
-        assertTrue(!h.canUndo && !h.canRedo)
-        h.push(blocks)
-        val applied = applyEditProposal(blocks, replaceProp()).blocks!!
-        val back = h.undo(applied)
-        assertEquals(blocks, back)
-        assertTrue(h.canRedo)
-        val fwd = h.redo(back!!)
-        assertEquals(applied, fwd)
-    }
-
-    @Test
-    fun pushNovoLimpaRedo() {
-        val h = EditHistory()
-        h.push(blocks)
-        val applied = applyEditProposal(blocks, replaceProp()).blocks!!
-        h.undo(applied)
-        assertTrue(h.canRedo)
-        h.push(applied)
-        assertTrue(!h.canRedo)
-    }
-
-    @Test
-    fun undoVazioDevolveNull() {
-        assertNull(EditHistory().undo(blocks))
-        assertNull(EditHistory().redo(blocks))
     }
 
     // ---------- rejeição = não aplicar ----------

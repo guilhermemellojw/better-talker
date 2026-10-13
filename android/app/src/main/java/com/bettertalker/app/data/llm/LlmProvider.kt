@@ -7,7 +7,7 @@ import com.bettertalker.app.data.domain.ContextPack
  * Fase 18 — BLOCO A. Contrato do provider LLM nativo.
  *
  * Equivalente conceitual ao `LlmProvider` do web (Fase 4): a UI/ViewModel
- * conversa com esta abstração, nunca com Gemini direto. Permite trocar o
+ * conversa com esta abstração, nunca com um provider direto. Permite trocar o
  * remoto, o on-device ou fakes sem tocar no pipeline do chat.
  *
  * Puro/testável: sem Android, sem IO nesta interface (a IO vive nas
@@ -61,8 +61,8 @@ data class LlmRequest(
     val responseFormat: ResponseFormat = ResponseFormat.TEXT,
     /**
      * Schema JSON (string) usado quando responseFormat == JSON_SCHEMA.
-     * Aditivo e retrocompatível: null = sem schema. Hoje só o QwenProvider
-     * o anexa ao body (response_format json_schema); o GeminiProvider o ignora.
+     * Aditivo e retrocompatível: null = sem schema. Hoje só o DeepSeek
+     * o anexa ao body (response_format json_schema).
      */
     val jsonSchema: String? = null,
     val editMode: com.bettertalker.app.data.edit.EditProposalMode? = null,
@@ -92,14 +92,13 @@ data class LlmResponseMeta(
     val attempts: Int,
     /** true = motor offline determinístico (sem chave). */
     val offline: Boolean,
-    /** F20-F1 §37: tokens reais quando o endpoint informa (Groq/Qwen). */
+    /** F20-F1 §37: tokens reais quando o endpoint informa. */
     val usage: LlmUsage? = null,
     /** F20-F1 §37: headers de limite restantes, quando informados. */
     val rateLimit: Map<String, String> = emptyMap(),
     /**
-     * Motivo de término do modelo (`finish_reason` do Groq =
-     * "stop"/"length"/…; `finishReason` do Gemini normalizado para o
-     * mesmo vocabulário: "MAX_TOKENS" vira "length").
+     * Motivo de término do modelo (`finish_reason`:
+     * "stop"/"length"/…).
      * Null = endpoint não informou.
      */
     val finishReason: String? = null,

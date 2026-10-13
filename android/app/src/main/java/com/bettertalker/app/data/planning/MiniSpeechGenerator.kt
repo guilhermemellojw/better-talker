@@ -14,7 +14,7 @@ import kotlinx.coroutines.CancellationException
  * F2.3 — gera o mini discurso do tópico como UM texto contínuo.
  *
  * Diferente do [SectionGeneratorImpl] (JSON_SCHEMA, remotos), este caminho
- * usa texto puro, porque o Gemma local (LiteRT) não segue schema. É o
+ * usa texto puro (modelos locais não seguem schema estrito). É o
  * gerador injetado quando o provider selecionado é o local.
  *
  * O [LlmProvider] local já aplica o [com.bettertalker.app.data.llm.GroundednessVerifier]

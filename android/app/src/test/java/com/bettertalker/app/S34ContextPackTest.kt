@@ -387,9 +387,9 @@ class S34ContextPackTest {
         val ctx = contextFor("att-1", sectionHint = "colocamos em prática")!!
         // O provider monta o prompt a partir do request: a estrutura precisa
         // viajar no LlmRequest, senão o bloco nunca chega ao modelo.
-        val fakeHttp = com.bettertalker.app.LlmProviderTestSupport.okHttp()
-        val provider = com.bettertalker.app.data.llm.GeminiProvider(
-            apiKey = "k", http = fakeHttp, log = {}
+        val fakeStream = com.bettertalker.app.LlmProviderTestSupport.CapturingStream()
+        val provider = com.bettertalker.app.data.llm.DeepSeekProvider(
+            apiKey = "k", stream = fakeStream
         )
         runBlocking {
             provider.generate(
@@ -401,7 +401,7 @@ class S34ContextPackTest {
                 )
             )
         }
-        val body = fakeHttp.bodies.first()
+        val body = fakeStream.bodies.first()
         assertTrue(body.contains("ESTRUTURA DO DISCURSO"))
         assertTrue(body.contains("REGRAS DO S-34"))
         assertTrue(body.contains("Tiago 2:17"))

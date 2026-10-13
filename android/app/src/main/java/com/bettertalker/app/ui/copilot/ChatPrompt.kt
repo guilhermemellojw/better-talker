@@ -75,7 +75,7 @@ val OUTLINE_MIMES = arrayOf(
 )
 
 /**
- * Barra de prompt única (estilo Gemini, box-less): campo sem contorno,
+ * Barra de prompt única (estilo chat, box-less): campo sem contorno,
  * + à esquerda, voz e enviar à direita (T6: botão "Ferramentas" removido —
  * ações realocadas no +, nos chips e no ⋯ das respostas).
  *

@@ -116,7 +116,7 @@ fun ChatScreen(
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
     val runState by vm.runState.collectAsState()
-    // F2.1 — fases do Gemma local (só observa; remotos seguem o rótulo legado).
+    // Fases de progresso do provider (o DeepSeek alimenta Generating/parcial).
     val localPhase by vm.localPhase.collectAsState()
     val localPartial by vm.localPartial.collectAsState()
     // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
@@ -492,7 +492,7 @@ fun ChatScreen(
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).
-                    // F2.1: com o Gemma local, o rótulo reflete a fase real
+                    // Fase real do progresso (parcial do streaming)
                     // (load/RAG/geração); remotos mantêm o texto legado.
                     when (val s = runState) {
                         is ChatRunState.Sending, is ChatRunState.Generating -> {

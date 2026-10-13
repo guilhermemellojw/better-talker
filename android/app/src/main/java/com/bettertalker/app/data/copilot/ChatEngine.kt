@@ -226,18 +226,35 @@ fun renderMemoryBlock(summary: RollingSummary): String? {
 fun mergeApproach(current: String?, decisions: List<String>): String? {
     val fresh = decisions.map { it.trim() }.filter { it.isNotEmpty() }
     if (fresh.isEmpty()) return null
-    val base = current?.trim().orEmpty()
-    val seen = base.lowercase()
+    return mergeApproachText(current, fresh.joinToString("\n") { "- $it" })
+}
+
+/**
+ * Mescla TEXTO novo no agreedApproach (uma ou várias linhas), com dedupe
+ * por trecho (case-insensitive) e teto de [MAX_APPROACH_CHARS]. Aceita
+ * tanto linhas "- item" quanto prosa livre. Null quando nada muda.
+ * Puro/testável — usado pelo consenso do chat e pela proposta de
+ * estrutura (#3c), para o campo não crescer sem limite.
+ */
+fun mergeApproachText(existing: String?, addition: String?): String? {
+    val add = addition?.trim().orEmpty()
+    if (add.isEmpty()) return null
+    val base = existing?.trim().orEmpty()
     val sb = StringBuilder(base)
-    for (d in fresh) {
-        if (seen.contains(d.lowercase()) || sb.toString().lowercase().contains(d.lowercase())) continue
+    for (line in add.split("\n")) {
+        val d = line.trim().removePrefix("- ").trim()
+        if (d.isEmpty()) continue
+        if (sb.toString().lowercase().contains(d.lowercase())) continue
         if (sb.isNotEmpty()) sb.append("\n")
         sb.append("- ").append(d)
     }
-    val merged = sb.toString().trim().take(500)
+    val merged = sb.toString().trim().take(MAX_APPROACH_CHARS)
     if (merged.isEmpty() || merged == base) return null
     return merged
 }
+
+/** Teto do campo agreedApproach (compartilhado com o prompt do dossiê). */
+const val MAX_APPROACH_CHARS = 500
 
 /** Atalho que vira mensagem de usuário e entra no MESMO pipeline do chat livre. */
 data class QuickAction(val id: String, val label: String, val message: String)

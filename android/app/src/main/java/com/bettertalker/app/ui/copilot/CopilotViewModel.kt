@@ -894,14 +894,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /**
      * Comandos do modo guiado seção-a-seção (qualquer provider — roda antes
      * do split remoto/local). Com o guia legado ativo, devolve false para
-     * o `resolveGuide` legado decidir (prioridade preservada).
+     * (o guia legado foi removido no cleanup; só a barra/atalhos contam).
      *
      * Sem seção em foco, só "aprovar" é interceptado (comando inequívoco);
      * navegação fica restrita à conversa de um tópico — evita falso
      * positivo em mensagens naturais ("qual o próximo passo?").
      */
     private suspend fun resolveSectionNav(text: String): Boolean {
-        if (guideIndex != null) return false
         if (_chatScope.value == null) {
             if (isApproveCommand(text)) return approveCurrentSectionNow()
             return false
@@ -1225,15 +1224,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
-            // F2.1 — marca a fase real de leitura das fontes (RAG Room) quando
-            // a rota é o Gemma local. Só observa; o fluxo segue intacto.
-            if (ProviderFactory.resolveRemote(settings, app).providerId ==
-                ProviderFactory.PROVIDER_LOCAL_GEMMA
-            ) {
-                com.bettertalker.app.data.llm.LocalProgress.set(
-                    com.bettertalker.app.data.llm.LocalPhase.ReadingSources
-                )
-            }
             val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
@@ -1265,7 +1255,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     lastOratory = com.bettertalker.app.data.copilot.OratorySession.LastGeneration(
                         route.mode, route.sectionId
                     )
-                    // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
+                    // Provider remoto (DeepSeek) + sua chave.
                     val remote = ProviderFactory.resolveRemote(settings, app)
                     if (!ProviderFactory.useRemoteRoute(remote)) {
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
@@ -1307,7 +1297,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).
-            // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
+            // Provider remoto (DeepSeek) + sua chave.
             // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings, app)
                 if (ProviderFactory.useRemoteRoute(remote)) {
@@ -1330,7 +1320,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
-                    if (resolveGuide(text)) {
+                    if (resolveSectionNav(text)) {
                         pendingConfirm = null
                         return@withLock
                     }
@@ -1756,7 +1746,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // "stop" prematuro). Trunca até a última frase completa — nunca
         // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
         val text = truncateIfCut(res.text, res.meta.finishReason)
-        // T1 — gate de alucinação universal (mesmo pós-filtro do Gemma local):
+        // T1 — gate de alucinação universal (pós-filtro do streaming):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão. T1/T3: o
         // corpus do gate cobre TUDO que o prompt injeta — o bloco do dossiê
@@ -2014,7 +2004,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     }
                     return@launch
                 }
-                // F20-F1: provider selecionado (Gemini ou Groq/Qwen) + sua chave.
+                // Provider remoto (DeepSeek) + sua chave.
                 val remote = ProviderFactory.resolveRemote(settings, app)
                 if (!ProviderFactory.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar propostas.")
@@ -2834,78 +2824,35 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             MessageOrigin.LOCAL)
     }
 
-    /** Índice da seção atual no modo guiado (null = desligado). */
-    private var guideIndex: Int? = null
-
-    private suspend fun startGuided() {
-        if (needOutline()) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Vincule um esboço primeiro — o modo guiado percorre seção por seção. Toque no + para importar ou colar.")))
-            return
-        }
-        if (outlineSections.value.isEmpty()) {
-            post(false, "text", ChatCodec.escMap(mapOf("text" to "O esboço vinculado está vazio.")))
-            return
-        }
-        guideIndex = 0
-        guideStep()
-    }
-
-    private suspend fun guideStep() {
-        val secs = outlineSections.value
-        val i = guideIndex ?: return
-        if (i >= secs.size) {
-            guideIndex = null
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Guia concluído ✓ — passamos por todas as ${secs.size} seções.")))
-            return
-        }
-        answerDevelop(secs[i].title, "desenvolver ${secs[i].title}")
-        if (i + 1 < secs.size) {
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Parte ${i + 1} de ${secs.size}. Diga “próximo”, “refazer” ou “parar”.")))
-        } else {
-            guideIndex = null
-            post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Última parte pronta ✓ — guia concluído.")))
-        }
-    }
-
     /**
-     * Comandos do modo guiado. Retorna true se consumiu.
-     * Com o guia legado desligado, delega à navegação seção-a-seção
-     * (seções reais; funciona com qualquer provider via intercepto).
-     * Roda antes das confirmações? Não: confirmação pendente tem prioridade
-     * (chamador ordena); aqui só vale com guia ligado.
+     * "Me guie" — orienta o fluxo seção-a-seção REAL (substitui o guia
+     * legado, que iterava `outlineSections` e não trocava o escopo).
      */
-    private suspend fun resolveGuide(text: String): Boolean {
-        if (guideIndex == null) return resolveSectionNav(text)
-        val i = guideIndex ?: return false
-        val t = com.bettertalker.app.data.util.normalizeText(text)
-        fun has(vararg ws: String) = ws.any { w -> t.contains(w) }
-        return when {
-            ChatIntent.isYes(text) || has("proximo", "proxima", "seguinte", "vamos", "vai", "continua") -> {
-                guideIndex = i + 1
-                guideStep()
-                true
-            }
-            has("refazer", "repete", "de novo", "outra vez", "novamente") -> {
-                guideStep()
-                true
-            }
-            has("parar", "chega", "sair", "cancela", "fim", "basta", "para tudo", "para por aqui") -> {
-                guideIndex = null
-                post(false, "text", ChatCodec.escMap(mapOf(
-                    "text" to "Guia pausado. Diga “me guie” para recomeçar do início.")))
-                true
-            }
-            else -> false
+    private suspend fun startGuided() {
+        if (guideSections.value.isEmpty()) {
+            post(
+                false,
+                "text",
+                ChatCodec.escMap(mapOf(
+                    "text" to "Abra um tópico no editor e use a barra do topo " +
+                        "(←/→ para navegar, Aprovar para liberar o avanço)."
+                )),
+            )
+            return
         }
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf(
+                "text" to "Use a barra do topo: ←/→ para navegar, “Aprovar” para " +
+                    "liberar o avanço e “próximo” quando a seção estiver aprovada."
+            )),
+        )
     }
 
     /**
-     * T4 — composição local. O legado MediaPipe/Qwen foi removido; a geração
-     * local agora acontece pelo provider Gemma LiteRT (rota unificada). Sem
+     * T4 — composição local. O legado MediaPipe foi removido; a geração
+     * acontece pelo provider remoto (DeepSeek, rota unificada). Sem
      * provedor disponível, responde orientação honesta (determinístico).
      */
     private suspend fun answerCompose() {
@@ -2915,8 +2862,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             return
         }
         post(false, "text", ChatCodec.escMap(mapOf(
-            "text" to "Para compor texto, selecione o modelo local (Gemma) na tela Modelo IA " +
-                "ou configure uma chave de IA.")))
+            "text" to "Para compor texto, configure a chave do DeepSeek na tela Modelo IA.")))
     }
 
     /** Últimas trocas resumidas em 1 linha para o prompt RAG. */
@@ -4072,12 +4018,11 @@ internal fun applyStructurePlan(
 ): SpeechSection {
     val bible = (section.bibleRefs + plan.bibleRefs).distinct()
     val pubs = (section.publicationRefs + plan.publicationRefs).distinct()
-    val current = section.agreedApproach?.trim().orEmpty()
-    val approach = when {
-        summary.isBlank() -> current.ifBlank { null }
-        current.isBlank() -> summary
-        else -> "$current\n\n$summary"
-    }
+    val current = section.agreedApproach
+    // E: mesmo merge do consenso do chat — dedupe + teto de 500 chars
+    // (o campo não pode crescer sem limite a cada aplicação).
+    val merged = com.bettertalker.app.data.copilot.mergeApproachText(current, summary)
+    val approach = merged ?: current?.takeIf { it.isNotBlank() }
     return section.copy(
         objective = plan.mainIdea,
         minutes = plan.minutes,

@@ -17,9 +17,9 @@ import kotlinx.coroutines.CancellationException
  * texto vazio, JSON inválido) retorna null; só [CancellationException] propaga
  * (padrão 1.3b/2.1, structured concurrency preservada).
  *
- * Limitação conhecida: se o provider configurado for GeminiProvider,
- * JSON_SCHEMA comporta-se como TEXT (sem garantia estrutural) — o Gemini
- * ignora o schema. Recomendado usar QwenProvider (Groq).
+ * O DeepSeek anexa o schema ao body (response_format json_schema);
+ * providers que ignorarem o schema degradam para TEXT sem garantia
+ * estrutural (o parser local valida mesmo assim).
  */
 class OutlineGeneratorImpl(
     private val llmProvider: LlmProvider,
@@ -53,10 +53,10 @@ class OutlineGeneratorImpl(
 
     internal companion object {
         /**
-         * JSON Schema do esboço (draft compatível com o modo estrito do Groq,
-         * mesmo envelope de EDIT_PROPOSAL_SCHEMA do QwenProvider: name + strict).
+         * JSON Schema do esboço (envelope estrito: name + strict; mesmo
+         * formato de EDIT_PROPOSAL_SCHEMA).
          * O modo estrito exige `additionalProperties:false` E `required` com
-         * TODAS as propriedades em cada objeto, senão o Groq devolve HTTP 400.
+         * TODAS as propriedades em cada objeto, senão o endpoint rejeita (HTTP 400).
          */
         const val OUTLINE_SCHEMA: String =
             "{\"name\":\"outline\",\"strict\":true,\"schema\":" +

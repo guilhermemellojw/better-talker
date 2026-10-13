@@ -42,7 +42,6 @@ dependencies {
     implementation platform("androidx.compose:compose-bom:${rootProject.ext.composeBomVersion}")
     implementation 'androidx.core:core-ktx:1.17.0'
     // F2 — motor on-device (Gemma 4 E2B via LiteRT-LM)
-    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.17.1'
     implementation "androidx.activity:activity-compose:${rootProject.ext.androidxActivityVersion}"
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.ui:ui-graphics'

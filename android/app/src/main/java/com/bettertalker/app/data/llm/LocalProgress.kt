@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * F2.1 — fases semânticas do provider on-device (Gemma local).
+ * Fases de progresso do streaming (usadas pelo DeepSeek: parcial/Generating/Done).
  *
  * Só estados verdadeiros, nunca porcentagem inventada:
  * - [LoadingModel]: engine LiteRT carregando (primeiro uso; ~5 s no A34).
@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * - [Done]: resposta concluída e postada.
  * - [Idle]: nenhum turno local em andamento.
  *
- * Compartilhado (object) porque o [LocalGemmaProvider] é instanciado por
+ * Compartilhado (object) porque o provider é instanciado por
  * chamada na [ProviderFactory]; a UI observa via ViewModel sem tocar o fluxo.
  */
 enum class LocalPhase {

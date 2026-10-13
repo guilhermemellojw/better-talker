@@ -1,7 +1,7 @@
 package com.bettertalker.app.domain.planning
 
 /**
- * Abstração do gerador de propostas. Implementações reais usam LLM (Groq/Qwen),
+ * Abstração do gerador de propostas. Implementações reais usam LLM (DeepSeek),
  * mas esta interface é pura e testável com fakes.
  *
  * Retorna null se o gerador não conseguir produzir uma proposta.

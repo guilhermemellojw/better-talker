@@ -1,7 +1,7 @@
 package com.bettertalker.app.data.llm
 
 /**
- * F2 (Gemma local) — verificador de apoio factual pós-geração.
+ * Verificador de apoio factual pós-geração (universal).
  *
  * Conservador por desenho: só remove frases com evidência CLARA de falta de
  * apoio — citações entre aspas (>= [MIN_QUOTE_CHARS]) que não aparecem nas

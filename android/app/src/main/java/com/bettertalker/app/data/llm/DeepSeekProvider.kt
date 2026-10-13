@@ -293,7 +293,7 @@ class DeepSeekProvider(
         /**
          * Corpo chat/completions (puro/testável). `stream:true` + usage no fim;
          * structured output estrito só no caminho de proposta (mesmo schema do
-         * Qwen/Groq — parse local idêntico).
+         * parse local).
          */
         fun requestBody(
             model: String = MODEL_FLASH,
@@ -308,15 +308,15 @@ class DeepSeekProvider(
             structured: DeepSeekStructuredMode = DeepSeekStructuredMode.SCHEMA,
         ): String {
             val sb = StringBuilder("{\"model\":")
-            sb.append(GeminiProvider.jsonEscape(model))
+            sb.append(JsonCodec.escape(model))
             sb.append(",\"messages\":[{\"role\":\"system\",\"content\":")
-            sb.append(GeminiProvider.jsonEscape(system))
+            sb.append(JsonCodec.escape(system))
             sb.append("},{\"role\":\"user\",\"content\":")
-            sb.append(GeminiProvider.jsonEscape(user))
+            sb.append(JsonCodec.escape(user))
             sb.append("}],\"temperature\":0.2,\"max_tokens\":")
             sb.append(maxOutputTokens)
             sb.append(",\"reasoning_effort\":")
-            sb.append(GeminiProvider.jsonEscape(reasoningEffort))
+            sb.append(JsonCodec.escape(reasoningEffort))
             if (stream) {
                 sb.append(",\"stream\":true,\"stream_options\":{\"include_usage\":true}")
             }
@@ -324,7 +324,7 @@ class DeepSeekProvider(
                 DeepSeekStructuredMode.SCHEMA -> {
                     if (editProposal) {
                         sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
-                        sb.append(QwenProvider.EDIT_PROPOSAL_SCHEMA)
+                        sb.append(LlmSchemas.EDIT_PROPOSAL_SCHEMA)
                         sb.append("}")
                     } else if (jsonSchema != null) {
                         sb.append(",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":")
@@ -354,7 +354,7 @@ class DeepSeekProvider(
             if (!payload.contains("\"content\"")) return null
             val m = Regex("\"content\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(payload)
                 ?: return null
-            val text = GeminiProvider.jsonUnescape(m.groupValues[1])
+            val text = JsonCodec.unescape(m.groupValues[1])
             return if (text.isEmpty()) null else SseEvent.Delta(text)
         }
 
@@ -514,7 +514,7 @@ class UrlConnectionDeepSeekStreamClient : DeepSeekStreamClient {
 }
 
 /**
- * Seleção de prompt com paridade ao GeminiProvider/QwenProvider (mesmo
+ * Seleção de prompt com paridade ao contrato antigo (mesmo
  * LlmRequest => mesmo conteúdo; só o transporte muda). T2 refina o caminho de
  * chat para separar prefixo estável (cache) do volátil.
  */

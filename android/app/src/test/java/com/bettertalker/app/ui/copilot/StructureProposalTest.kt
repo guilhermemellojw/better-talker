@@ -118,19 +118,47 @@ class StructureProposalTest {
         assertEquals(7, updated.minutes)
         assertEquals(listOf("Gên 1:26", "Ec 3:11"), updated.bibleRefs)
         assertEquals(listOf(PublicationRef("lff", page = 5)), updated.publicationRefs)
-        assertEquals("Abordagem proposta.", updated.agreedApproach)
+        assertTrue(updated.agreedApproach!!.contains("Abordagem proposta."))
         assertEquals(777L, updated.updatedAt)
         // Aprovação é passo separado (#3a) — não é tocada.
         assertNull(updated.approvedAt)
     }
 
     @Test
-    fun apply_concatenaAbordagemExistenteComDuasQuebras() {
+    fun apply_mesclaAbordagemExistenteComDedupe() {
         val updated = applyStructurePlan(
             section(approach = "Abordagem antiga"),
             plan(), summary = "Abordagem nova",
         )
-        assertEquals("Abordagem antiga\n\nAbordagem nova", updated.agreedApproach)
+        assertTrue(updated.agreedApproach!!.contains("Abordagem antiga"))
+        assertTrue(updated.agreedApproach!!.contains("Abordagem nova"))
+    }
+
+    // ---------- E (cleanup): teto do agreedApproach ----------
+
+    @Test
+    fun apply_tresPlanosIdenticos_umaCopia() {
+        var s = section()
+        repeat(3) { s = applyStructurePlan(s, plan(), summary = "Mesma abordagem") }
+        assertEquals(
+            1,
+            Regex("mesma abordagem", RegexOption.IGNORE_CASE).findAll(s.agreedApproach!!).count(),
+        )
+    }
+
+    @Test
+    fun apply_dezPlanosDistintos_teto500() {
+        var s = section()
+        repeat(10) { i ->
+            s = applyStructurePlan(
+                s, plan(),
+                summary = "Abordagem distinta número $i " + "x".repeat(60),
+            )
+        }
+        assertTrue(
+            "tinha ${s.agreedApproach!!.length} chars",
+            s.agreedApproach!!.length <= 500,
+        )
     }
 
     @Test

@@ -160,7 +160,7 @@ class OutlineGeneratorImplTest {
     fun editProposalSchema_bracesAndBracketsAreBalanced() {
         assertEquals(
             0 to 0,
-            balanceOf(com.bettertalker.app.data.llm.QwenProvider.EDIT_PROPOSAL_SCHEMA),
+            balanceOf(com.bettertalker.app.data.llm.LlmSchemas.EDIT_PROPOSAL_SCHEMA),
         )
     }
 }

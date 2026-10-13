@@ -6,9 +6,9 @@ import com.bettertalker.app.data.copilot.buildEditProposalPrompt
 import com.bettertalker.app.data.domain.ContextPack
 
 /**
- * F2 (Gemma local) — seleção de prompt com paridade total aos providers
+ * Seleção de prompt com paridade ao contrato dos providers
  * remotos: o mesmo [LlmRequest] produz system+user equivalentes; só o motor
- * muda. Mesma lógica do `promptsFor` do QwenProvider (que permanece intacto).
+ * muda.
  */
 internal fun buildProviderPrompts(request: LlmRequest): Pair<String, String> {
     // T1 (modo colar e conversar): prompt minimalista em vez do estruturado.

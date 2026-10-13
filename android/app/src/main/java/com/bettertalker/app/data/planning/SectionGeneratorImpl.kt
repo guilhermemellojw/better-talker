@@ -109,9 +109,9 @@ class SectionGeneratorImpl(
 
     internal companion object {
         /**
-         * Schema do draft. Envelope estrito (Groq) espelhando OUTLINE_SCHEMA.
+         * Schema do draft. Envelope estrito, espelhando OUTLINE_SCHEMA.
          * O modo estrito exige `additionalProperties:false` em TODO objeto,
-         * senão o Groq rejeita o request inteiro (HTTP 400).
+         * senão o endpoint rejeita o request inteiro (HTTP 400).
          */
         const val SECTION_DRAFT_SCHEMA: String =
             "{\"name\":\"section_draft\",\"strict\":true,\"schema\":" +

@@ -36,7 +36,7 @@ interface DossierPromptBuilder {
 
     /**
      * F2.3: prompt de redação do mini discurso do tópico. Texto puro (sem
-     * JSON) — compatível com o Gemma local, que não segue schema. Usa o
+     * JSON) — compatível com respostas em texto puro. Usa o
      * mesmo contexto do chat (objetivo, linha de raciocínio, abordagem
      * acordada, fontes).
      *
@@ -74,7 +74,7 @@ class DefaultDossierPromptBuilder(
 
     /**
      * F2.3: mini discurso do tópico — UM texto contínuo, em texto puro
-     * (o Gemma local não segue JSON schema). O objetivo, a linha de
+     * (texto puro, sem schema). O objetivo, a linha de
      * raciocínio e a abordagem acordada já entram no contexto.
      */
     override fun buildMiniSpeech(dossier: Dossier): String {

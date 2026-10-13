@@ -11,7 +11,7 @@ import com.bettertalker.app.data.edit.ParseResult
 import com.bettertalker.app.data.edit.applyEditProposal
 import com.bettertalker.app.data.edit.captureBaseHashes
 import com.bettertalker.app.data.edit.parseEditProposal
-import com.bettertalker.app.data.llm.GeminiProvider
+import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.s34.S34Parser
@@ -47,8 +47,8 @@ class OratoryProposalFlowTest {
 
     @Test
     fun modoOratorioChegaAoProviderComoPromptEspecializado() {
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = GeminiProvider(apiKey = "k", http = http, log = {})
+        val stream = LlmProviderTestSupport.CapturingStream()
+        val provider = DeepSeekProvider(apiKey = "k", stream = stream)
         runBlocking {
             provider.generate(
                 LlmRequest(
@@ -60,7 +60,7 @@ class OratoryProposalFlowTest {
                 )
             )
         }
-        val body = http.bodies.first()
+        val body = stream.bodies.first()
         // O prompt especializado do modo viaja no corpo HTTP.
         assertTrue(body.contains("REGRAS DE GERAÇÃO ORATÓRIA"))
         assertTrue(body.contains("MODO: DESENVOLVIMENTO DO PONTO"))
@@ -105,8 +105,8 @@ class OratoryProposalFlowTest {
 
     @Test
     fun modoReplaceUsaAcaoDeSubstituicaoNoPrompt() {
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = GeminiProvider(apiKey = "k", http = http, log = {})
+        val stream = LlmProviderTestSupport.CapturingStream()
+        val provider = DeepSeekProvider(apiKey = "k", stream = stream)
         runBlocking {
             provider.generate(
                 LlmRequest(
@@ -118,7 +118,7 @@ class OratoryProposalFlowTest {
                 )
             )
         }
-        val body = http.bodies.first()
+        val body = stream.bodies.first()
         assertTrue(body.contains("MODO: ABERTURA"))
         assertTrue(body.contains("Para substituir conteúdo existente"))
         assertTrue(body.contains("Melhore a introdução"))
@@ -126,8 +126,8 @@ class OratoryProposalFlowTest {
 
     @Test
     fun geracaoOratoriaRespeitaIsolamentoNoPrompt() {
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = GeminiProvider(apiKey = "k", http = http, log = {})
+        val stream = LlmProviderTestSupport.CapturingStream()
+        val provider = DeepSeekProvider(apiKey = "k", stream = stream)
         runBlocking {
             provider.generate(
                 LlmRequest(
@@ -137,7 +137,7 @@ class OratoryProposalFlowTest {
                 )
             )
         }
-        val body = http.bodies.first()
+        val body = stream.bodies.first()
         assertTrue(body.contains("Tiago 2:17"))
         assertFalse(body.contains("João 17:17"))
         assertFalse(body.contains("Hebreus 10:23"))
@@ -146,8 +146,8 @@ class OratoryProposalFlowTest {
 
     @Test
     fun semSpecOratorioPromptGenericoContinua() {
-        val http = LlmProviderTestSupport.okHttp()
-        val provider = GeminiProvider(apiKey = "k", http = http, log = {})
+        val stream = LlmProviderTestSupport.CapturingStream()
+        val provider = DeepSeekProvider(apiKey = "k", stream = stream)
         runBlocking {
             provider.generate(
                 LlmRequest(
@@ -158,7 +158,7 @@ class OratoryProposalFlowTest {
                 )
             )
         }
-        val body = http.bodies.first()
+        val body = stream.bodies.first()
         assertFalse(body.contains("REGRAS DE GERAÇÃO ORATÓRIA"))
         assertTrue(body.contains("PRESERVANDO todas as ideias originais"))
     }
