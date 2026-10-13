@@ -22,9 +22,9 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
     override fun build(request: OutlineGenerationRequest): String {
         val source = request.sourceContent?.trim()
         if (!source.isNullOrEmpty()) return buildFromSource(request, source)
-        val bible = if (request.bibleRefs.isEmpty()) "(nenhuma fornecida)"
+        val bible = if (request.bibleRefs.isEmpty()) " (nenhuma fornecida)"
         else request.bibleRefs.joinToString("\n- ", prefix = "\n- ")
-        val pubs = if (request.publicationRefs.isEmpty()) "(nenhuma fornecida)"
+        val pubs = if (request.publicationRefs.isEmpty()) " (nenhuma fornecida)"
         else request.publicationRefs.joinToString("\n- ", prefix = "\n- ") {
             buildString {
                 append(it.symbol)
@@ -75,9 +75,9 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
         } else {
             source
         }
-        val bible = if (request.bibleRefs.isEmpty()) "(nenhuma encontrada)"
+        val bible = if (request.bibleRefs.isEmpty()) " (nenhuma encontrada)"
         else request.bibleRefs.joinToString("\n- ", prefix = "\n- ")
-        val pubs = if (request.publicationRefs.isEmpty()) "(nenhuma encontrada)"
+        val pubs = if (request.publicationRefs.isEmpty()) " (nenhuma encontrada)"
         else request.publicationRefs.joinToString("\n- ", prefix = "\n- ") {
             buildString {
                 append(it.symbol)

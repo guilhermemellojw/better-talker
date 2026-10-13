@@ -520,3 +520,63 @@ fun NoteStructureProposalCard(
         }
     }
 }
+
+/**
+ * F5d (Modo B) — até 3 ângulos para um tema do zero. Ao clicar "Usar esta",
+ * o card fica resolvido (sem mais botões) e o fluxo do #5b assume com o
+ * `NoteStructureProposalCard` (Aplicar estrutura / Rejeitar).
+ */
+@Composable
+fun MultiProposalCard(
+    ui: CopilotViewModel.MultiProposalUi,
+    vm: CopilotViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text(
+            "${ui.proposals.size} opções para: ${ui.theme}",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Spacer(Modifier.height(4.dp))
+        ui.proposals.forEachIndexed { i, p ->
+            val chosen = ui.chosen == p.id
+            Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                Text(
+                    "[${i + 1}] ${p.title} (${p.angle}) — ${p.summary}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "${p.sections.size} seções · ${p.totalMinutes} min",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                when {
+                    ui.chosen == null -> {
+                        TextButton(onClick = { vm.chooseMultiProposal(p.id) }) {
+                            Text("Usar esta")
+                        }
+                    }
+                    chosen -> {
+                        Text(
+                            "— escolhida —",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                }
+            }
+        }
+        ui.notice?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}

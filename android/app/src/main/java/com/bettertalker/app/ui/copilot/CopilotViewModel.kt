@@ -69,6 +69,7 @@ import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.data.planning.OutlineGeneratorImpl
+import com.bettertalker.app.data.planning.OutlineProposerFactory
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.OutlineAngle
@@ -1221,6 +1222,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 structureFromPasted(currentTarget())
                 return@launch
             }
+            // F5d (Modo B): opções/ângulos para um tema do zero — determinístico,
+            // pré-split (qualquer provider).
+            if (com.bettertalker.app.data.copilot.ChatRouter.isAnglesForThemeCommand(text)) {
+                proposeAnglesFor(ChatIntent.extractThemeForAngles(text))
+                return@launch
+            }
             // FALTA-2: propor estrutura da seção — determinístico, pré-split
             // (qualquer provider). Sem seção em foco, só a palavra de escopo
             // explícita dispara (o handler orienta a focar).
@@ -1312,6 +1319,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     // F5b (Modo C): normalmente interceptado antes do mini-voz;
                     // se chegar via router, atende do mesmo jeito.
                     structureFromPasted(currentTarget())
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.AnglesForTheme -> {
+                    // F5d (Modo B): idem — pré-split cobre o caso comum.
+                    proposeAnglesFor(route.theme)
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
@@ -1934,6 +1946,23 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     val noteStructureProposal: StateFlow<NoteStructureProposalUi?> =
         _noteStructureProposal.asStateFlow()
 
+    /**
+     * F5d (Modo B): até 3 propostas de ângulo (DOCTRINAL/PRACTICAL/NARRATIVE)
+     * para um discurso do zero ("me dá opções para X"). `chosen` = id da
+     * escolhida; ao escolher, uma `NoteStructureProposalUi` é criada (reuso
+     * do #5b) e o card fica resolvido (sem mais botões).
+     */
+    data class MultiProposalUi(
+        val id: String,
+        val theme: String,
+        val proposals: List<OutlineProposal>,
+        val chosen: String? = null,
+        val notice: String? = null,
+    )
+
+    private val _multiProposal = MutableStateFlow<MultiProposalUi?>(null)
+    val multiProposal: StateFlow<MultiProposalUi?> = _multiProposal.asStateFlow()
+
     /** Snapshots para Desfazer após aceite (nota ou seção). Volátil, cap 50. */
     private sealed interface ProposalSnapshot {
         data class Note(val html: String, val md: String) : ProposalSnapshot
@@ -2481,6 +2510,85 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val nid = noteId ?: return ""
         val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
         return noteStructureHash(db.noteDao().get(nid)?.title, sections)
+    }
+
+    // ---------- F5d (Modo B): ângulos para um discurso do zero ----------
+
+    /**
+     * F5d (Modo B): propõe até 3 ângulos para [theme] via `OutlineProposer`
+     * (retrieval + 1 geração por ângulo; cada uma já validada na origem).
+     * A escolha cria uma `NoteStructureProposalUi` — mesmo cartão e aceite
+     * do #5b, sem lógica duplicada.
+     */
+    private suspend fun proposeAnglesFor(theme: String?) {
+        val clean = theme?.trim()?.takeIf { it.isNotBlank() }
+        if (clean == null) {
+            postText(ANGLES_NEEDS_THEME_MESSAGE)
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+            return
+        }
+        val proposals = try {
+            OutlineProposerFactory(
+                passageDao = db.passageDao(),
+                attachmentDao = db.attachmentDao(),
+                llmProvider = ProviderFactory.createFor(remote, app),
+            ).create().propose(clean, ANGLES_TOTAL_MINUTES, Audience.GENERAL)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+        when (val outcome = buildAnglesOutcome(clean, proposals)) {
+            is AnglesOutcome.Error -> postText(outcome.message)
+            is AnglesOutcome.Ui -> {
+                _multiProposal.value = outcome.ui
+                post(
+                    false,
+                    "text",
+                    ChatCodec.escMap(mapOf(
+                        "text" to "— ${outcome.ui.proposals.size} ângulos propostos para: " +
+                            "${outcome.ui.theme} —",
+                    )),
+                )
+            }
+        }
+    }
+
+    /**
+     * F5d: escolhe 1 ângulo — marca o card como resolvido e cria a
+     * `NoteStructureProposalUi` correspondente (reuso integral do #5b:
+     * stale + persist + contagem real). Revalida antes (defensivo).
+     */
+    fun chooseMultiProposal(proposalId: String) {
+        val ui = _multiProposal.value ?: return
+        if (ui.chosen != null) return
+        val proposal = ui.proposals.firstOrNull { it.id == proposalId } ?: return
+        if (OutlineProposalValidator.validate(proposal) is
+            com.bettertalker.app.domain.planning.ValidationResult.Invalid
+        ) {
+            _multiProposal.value = ui.copy(notice = MULTI_PROPOSAL_INVALID_NOTICE)
+            return
+        }
+        val nid = noteId
+        if (nid == null) {
+            _multiProposal.value = ui.copy(notice = MULTI_PROPOSAL_NEEDS_NOTE_NOTICE)
+            return
+        }
+        _multiProposal.value = ui.copy(chosen = proposal.id)
+        viewModelScope.launch {
+            val sectionsNow = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+            _noteStructureProposal.value = noteStructureProposalFromChoice(
+                ui = ui.copy(chosen = proposal.id),
+                proposalId = proposalId,
+                noteId = nid,
+                currentSectionCount = sectionsNow.size,
+                noteBaseHash = noteStructureHash(db.noteDao().get(nid)?.title, sectionsNow),
+            ) ?: return@launch
+        }
     }
 
     fun dismissProposalNotice() {
@@ -4279,6 +4387,75 @@ internal fun structureAppliedNotice(totalSections: Int): String =
  */
 internal fun dossierSpeakerNoteIncluded(structural: OutlineStructureContext?): Boolean =
     structural?.speakerNote.isNullOrBlank()
+
+// ---------- F5d (Modo B): ângulos para um discurso do zero (pura) ----------
+
+/** Duração total default dos ângulos (o usuário ajusta na aplicação). */
+const val ANGLES_TOTAL_MINUTES = 30
+
+/** Pedido sem tema: o chat pergunta o tema em vez de gerar às cegas. */
+const val ANGLES_NEEDS_THEME_MESSAGE =
+    "Sobre qual tema? Diga 'me dá opções para um discurso sobre <tema>'."
+
+/** Propositor sem nenhuma proposta válida (LLM/retrieval). */
+const val ANGLES_EMPTY_MESSAGE =
+    "Não consegui gerar ângulos para este tema. Tente reformular."
+
+const val MULTI_PROPOSAL_INVALID_NOTICE = "Essa opção ficou inválida. Gere novamente."
+
+const val MULTI_PROPOSAL_NEEDS_NOTE_NOTICE =
+    "Abra uma nota para escolher e aplicar uma estrutura."
+
+/** Resultado do pedido de ângulos: UI pronta ou erro para o chat. */
+sealed interface AnglesOutcome {
+    data class Ui(val ui: CopilotViewModel.MultiProposalUi) : AnglesOutcome
+    data class Error(val message: String) : AnglesOutcome
+}
+
+/**
+ * F5d: decide o resultado do propose() — tema ausente ou 0 válidas viram
+ * mensagem no chat; caso contrário, `MultiProposalUi` pendente.
+ * Puro/testável.
+ */
+internal fun buildAnglesOutcome(
+    theme: String?,
+    proposals: List<OutlineProposal>,
+    id: String = newId("mprop"),
+): AnglesOutcome {
+    val clean = theme?.trim().orEmpty()
+    if (clean.isBlank()) return AnglesOutcome.Error(ANGLES_NEEDS_THEME_MESSAGE)
+    if (proposals.isEmpty()) return AnglesOutcome.Error(ANGLES_EMPTY_MESSAGE)
+    return AnglesOutcome.Ui(
+        CopilotViewModel.MultiProposalUi(id = id, theme = clean, proposals = proposals),
+    )
+}
+
+/**
+ * F5d: converte a escolha do card em `NoteStructureProposalUi` — MESMO
+ * contrato/aceite do #5b (nada de lógica duplicada). Null = id inexistente.
+ * Puro/testável.
+ */
+internal fun noteStructureProposalFromChoice(
+    ui: CopilotViewModel.MultiProposalUi,
+    proposalId: String,
+    noteId: String,
+    currentSectionCount: Int,
+    noteBaseHash: String,
+    id: String = newId("nsp"),
+): CopilotViewModel.NoteStructureProposalUi? {
+    val proposal = ui.proposals.firstOrNull { it.id == proposalId } ?: return null
+    return CopilotViewModel.NoteStructureProposalUi(
+        id = id,
+        noteId = noteId,
+        title = proposal.title,
+        summary = proposal.summary,
+        totalMinutes = proposal.totalMinutes,
+        sections = proposal.sections,
+        hints = listOf("opção escolhida (${proposal.angle})"),
+        currentSectionCount = currentSectionCount,
+        noteBaseHash = noteBaseHash,
+    )
+}
 
 /**
  * F5b: monta o pedido de estruturação do texto colado. Refs bíblicas e de

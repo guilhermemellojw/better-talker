@@ -57,6 +57,20 @@ class OutlinePromptBuilderSourceContentTest {
     }
 
     @Test
+    fun semRefs_espacoAposDoisPontos() {
+        // F5d (cosmético irmão): espaçamento também nas linhas de bíblia/publicações.
+        val semRefs = request(null).copy(bibleRefs = emptyList(), publicationRefs = emptyList())
+        val theme = DefaultOutlinePromptBuilder().build(semRefs)
+        assertTrue(theme.contains("estas): (nenhuma fornecida)"))
+        assertFalse(theme.contains("estas):(nenhuma fornecida)"))
+        val source = DefaultOutlinePromptBuilder().build(
+            semRefs.copy(sourceContent = "Conteúdo colado."),
+        )
+        assertTrue(source.contains("estas): (nenhuma encontrada)"))
+        assertFalse(source.contains("estas):(nenhuma encontrada)"))
+    }
+
+    @Test
     fun sourceContent_truncadoEm12k() {
         val long = "x".repeat(DefaultOutlinePromptBuilder.MAX_SOURCE_CHARS + 500)
         val prompt = DefaultOutlinePromptBuilder().build(request(long))

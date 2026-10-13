@@ -59,6 +59,42 @@ object ChatIntent {
             .containsMatchIn(t)
     }
 
+    // ---------- Modo B (F5d): ângulos para um discurso do zero ----------
+
+    /** Molduras que pedem opções/ângulos/abordagens (texto normalizado). */
+    private val ANGLES_FRAME = Regex(
+        "\\b(opcoes|angulos|abordagens|alternativas|possibilidades|falar|discurso)\\b",
+    )
+
+    /** Tema após marcador explícito ("sobre X", "a respeito de X", …). */
+    private val THEME_AFTER_SOBRE = Regex(
+        """(?i)(?:sobre|a\s+respeito\s+de|acerca\s+de|a\s+cerca\s+de)\s+(.+)$""",
+    )
+
+    /** Fallback do tema: "opções/ângulos/abordagens para X" (sem "sobre"). */
+    private val THEME_AFTER_PARA = Regex("""(?i)(?:para|pra)\s+(.+)$""")
+
+    /**
+     * Modo B (F5d): extrai o tema de "me dá opções para um discurso sobre X",
+     * "sugere ângulos para X", "como posso falar sobre X".
+     *
+     * Só dentro de uma moldura de comando — perguntas abertas
+     * ("o que você acha sobre fé?") devolvem null; sem tema após o marcador
+     * ("me dá opções") também. Puro/testável.
+     */
+    fun extractThemeForAngles(raw: String): String? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        if (!ANGLES_FRAME.containsMatchIn(normalizeText(text))) return null
+        val match = THEME_AFTER_SOBRE.find(text)
+            ?: THEME_AFTER_PARA.find(text)
+            ?: return null
+        val theme = match.groupValues[1].trim()
+            .trimEnd('.', '!', '?', ',', ';', ':')
+            .trim()
+        return theme.takeIf { it.isNotBlank() }
+    }
+
     /** Tira as palavras de continuação para extrair o tópico restante ("fala mais sobre fé" -> "sobre fe"). */
     fun stripMoreWords(raw: String): String {
         val t = normalizeText(raw)

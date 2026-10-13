@@ -149,6 +149,8 @@ fun ChatScreen(
     val structureProposal by vm.structureProposal.collectAsState()
     // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
+    // F5d (Modo B): opções de ângulos para um tema do zero.
+    val multiProposal by vm.multiProposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
     val outlineInfo by vm.outlineInfo.collectAsState()
@@ -241,7 +243,7 @@ fun ChatScreen(
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
         hasProposal = proposal != null || structureProposal != null ||
-            noteStructureProposal != null,
+            noteStructureProposal != null || multiProposal != null,
         runStateItems = runStateItems
     )
 
@@ -492,6 +494,13 @@ fun ChatScreen(
                     structureProposal?.let { sp ->
                         item(key = "structure-proposal") {
                             StructureProposalCard(sp, vm)
+                        }
+                    }
+                    // F5d (Modo B): opções/ângulos — acima do cartão de
+                    // aplicação (a escolha alimenta o fluxo do #5b).
+                    multiProposal?.let { mp ->
+                        item(key = "multi-proposal") {
+                            MultiProposalCard(mp, vm)
                         }
                     }
                     // F5b (Modo C): proposta de estrutura da nota inteira.

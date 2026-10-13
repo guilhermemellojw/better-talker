@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.s34.S34Document
+import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.normalizeText
 
 /**
@@ -68,6 +69,14 @@ object ChatRouter {
          * tempos, refs). A aplicação SUBSTITUI as seções (com confirmação).
          */
         data class StructureFromPasted(val reason: String) : Route
+
+        /**
+         * F5d (Modo B) — "me dá opções para X": a IA propõe até 3 ângulos
+         * (DOCTRINAL/PRACTICAL/NARRATIVE) para um discurso do zero; o usuário
+         * escolhe 1 e o fluxo do #5b aplica (substitui a nota). `theme` null
+         * = pedido sem tema (o handler pergunta).
+         */
+        data class AnglesForTheme(val theme: String?, val reason: String) : Route
 
         /**
          * T1 (modo colar e conversar) — conversa sobre um esboço colado
@@ -200,6 +209,47 @@ object ChatRouter {
         return STRUCT_PASTED_NOUN.containsMatchIn(padded)
     }
 
+    // ---------- F5d (Modo B): ângulos para um discurso do zero ----------
+
+    /** Substantivo forte do pedido de opções. */
+    private val ANGLES_NOUN = Regex("\\b(opcoes|angulos|abordagens|alternativas|possibilidades)\\b")
+
+    /** "como (posso|poderia) falar sobre X" — pedido direto de abordagem. */
+    private val ANGLES_COMO_FALAR = Regex("\\bcomo\\s+(posso\\s+|poderia\\s+)?falar\\b")
+
+    /** Indícios de PEDIDO (não pergunta aberta): me dá, sugere, quero, posso… */
+    private val ANGLES_REQUEST = Regex(
+        "\\b(me\\s+d[ae]s?|sugere|sugerir|sugira|mostra|mostrar|mostre|quero|posso|poderia|" +
+            "indica|indicar|indique|apresenta|apresentar|traz|traga)\\b"
+    )
+
+    /**
+     * F5d: perguntas explícitas que NÃO pedem opções ("o que você acha de X?",
+     * "qual a melhor opção…"). "que ângulos posso usar…" NÃO cai aqui (o
+     * "que" nu não abre pergunta quando há pedido de opções).
+     */
+    private val ANGLES_QUESTION_GUARD = Regex(
+        "^(o que|qual|quais|quanto|quantos|quantas|existe|existem|onde|quem|quando)\\b"
+    )
+
+    /**
+     * F5d (Modo B) — comando de opções/ângulos: "me dá opções para (um
+     * discurso sobre) X", "sugere ângulos para X", "3 abordagens (possíveis)
+     * para X", "que ângulos posso usar para X", "como posso falar sobre X".
+     *
+     * Verbo/moldura obrigatória + substantivo forte (ou "como falar").
+     * Perguntas abertas não sequestram. Puro/testável.
+     */
+    fun isAnglesForThemeCommand(text: String): Boolean {
+        val t = normalizeText(text).trim()
+        if (t.isEmpty()) return false
+        if (ANGLES_QUESTION_GUARD.containsMatchIn(t)) return false
+        val padded = " $t "
+        if (ANGLES_COMO_FALAR.containsMatchIn(padded)) return true
+        if (!ANGLES_NOUN.containsMatchIn(padded)) return false
+        return ANGLES_REQUEST.containsMatchIn(padded) || padded.contains(" para ")
+    }
+
     // ---------- Réplica de proposta ----------
 
     private val ACCEPT_RE = Regex("^(aceitar|aceito|aplicar|aplique|confirmar|confirmo)\\b")
@@ -317,6 +367,15 @@ object ChatRouter {
             return Route.StructureFromPasted("pedido de estruturar o texto colado")
         }
 
+        // F5d (Modo B): opções/ângulos para um tema do zero — antes da
+        // proposta de seção (que sequestraria "sugere … para").
+        if (isAnglesForThemeCommand(text)) {
+            return Route.AnglesForTheme(
+                theme = ChatIntent.extractThemeForAngles(text),
+                reason = "pedido de opções/ângulos para o tema",
+            )
+        }
+
         // FALTA-2: propor a estrutura da seção em foco — antes da oratória
         // (que sequestraria verbos como "crie") e do meta. Exige verbo +
         // substantivo estritos, mais palavra de escopo ou foco atual.
@@ -399,6 +458,7 @@ object ChatRouter {
         is Route.ApplyStructure -> "route=APPLY_STRUCTURE reason=${route.reason}"
         is Route.ProposeStructure -> "route=PROPOSE_STRUCTURE reason=${route.reason}"
         is Route.StructureFromPasted -> "route=STRUCTURE_FROM_PASTED reason=${route.reason}"
+        is Route.AnglesForTheme -> "route=ANGLES_FOR_THEME theme=${route.theme ?: "—"} reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }
