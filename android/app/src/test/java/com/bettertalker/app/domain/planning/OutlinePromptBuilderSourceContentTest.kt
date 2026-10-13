@@ -1,0 +1,55 @@
+package com.bettertalker.app.domain.planning
+
+import com.bettertalker.app.data.planning.DefaultOutlinePromptBuilder
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * F5b (Modo C) — o prompt muda de "crie um esboço sobre X" para "estructure
+ * este conteúdo" quando `sourceContent` está presente; sem ele, o caminho
+ * theme-driven do #3c fica intacto.
+ */
+class OutlinePromptBuilderSourceContentTest {
+
+    private fun request(source: String?) = OutlineGenerationRequest(
+        id = "r1",
+        theme = "Seção 1",
+        totalMinutes = 30,
+        audience = Audience.GENERAL,
+        angle = OutlineAngle.PRACTICAL,
+        bibleRefs = listOf("João 3:16"),
+        publicationRefs = listOf(PublicationRef("w13 15/5")),
+        methodPrinciples = emptyList(),
+        sourceContent = source,
+    )
+
+    @Test
+    fun comSourceContent_promptEstruturaOConteudo() {
+        val prompt = DefaultOutlinePromptBuilder().build(
+            request("O artigo fala sobre a esperança.\n[Leia João 3:16.]"),
+        )
+        assertTrue(prompt.contains("Estruture este conteúdo em seções com tempos e textos-âncora."))
+        assertTrue(prompt.contains("O artigo fala sobre a esperança."))
+        assertTrue(prompt.contains("Preserve as referências já citadas no conteúdo."))
+        assertFalse(prompt.contains("Gere um esboço de discurso"))
+        // O tema derivado do conteúdo: o título da seção NÃO vira tema.
+        assertFalse(prompt.contains("Tema: Seção 1"))
+    }
+
+    @Test
+    fun semSourceContent_promptThemeDrivenIntacto() {
+        val prompt = DefaultOutlinePromptBuilder().build(request(null))
+        assertTrue(prompt.contains("Gere um esboço de discurso em português (PT-BR)."))
+        assertTrue(prompt.contains("Tema: Seção 1"))
+        assertFalse(prompt.contains("Estruture este conteúdo"))
+    }
+
+    @Test
+    fun sourceContent_truncadoEm12k() {
+        val long = "x".repeat(DefaultOutlinePromptBuilder.MAX_SOURCE_CHARS + 500)
+        val prompt = DefaultOutlinePromptBuilder().build(request(long))
+        assertTrue(prompt.contains("…(conteúdo truncado)"))
+        assertFalse(prompt.contains(long))
+    }
+}

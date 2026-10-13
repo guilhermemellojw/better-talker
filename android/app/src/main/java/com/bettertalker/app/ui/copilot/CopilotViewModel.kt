@@ -50,6 +50,7 @@ import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.ScopedHit
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.s34.S34ImportHook
+import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
@@ -59,9 +60,11 @@ import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
+import com.bettertalker.app.data.util.PublicationDetector
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.S34Detector
 import com.bettertalker.app.data.util.detectKind
+import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.data.planning.OutlineGeneratorImpl
@@ -71,6 +74,7 @@ import com.bettertalker.app.domain.planning.OutlineAngle
 import com.bettertalker.app.domain.planning.OutlineGenerationRequest
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.OutlineProposalValidator
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
@@ -80,6 +84,7 @@ import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
 import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -1210,6 +1215,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).
             if (resolveInsertCommand(text)) return@launch
+            // F5b (Modo C): estruturar texto colado de publicação numa seção
+            // — determinístico, pré-split (qualquer provider).
+            if (com.bettertalker.app.data.copilot.ChatRouter.isStructureFromPastedCommand(text)) {
+                structureFromPasted(currentTarget())
+                return@launch
+            }
             // FALTA-2: propor estrutura da seção — determinístico, pré-split
             // (qualquer provider). Sem seção em foco, só a palavra de escopo
             // explícita dispara (o handler orienta a focar).
@@ -1286,6 +1297,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.ProposeStructure -> {
                     // FALTA-2: pré-split (vale com qualquer provider).
                     proposeStructureFor(currentTarget())
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.StructureFromPasted -> {
+                    // F5b (Modo C): normalmente interceptado antes do mini-voz;
+                    // se chegar via router, atende do mesmo jeito.
+                    structureFromPasted(currentTarget())
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
@@ -1881,6 +1898,33 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _structureProposal = MutableStateFlow<StructureProposalUi?>(null)
     val structureProposal: StateFlow<StructureProposalUi?> = _structureProposal.asStateFlow()
 
+    /**
+     * F5b (Modo C): proposta de NOTA INTEIRA a partir de texto colado numa
+     * seção ("estruturar como esboço"). Substitui as seções da nota via
+     * `OutlineImportService.persist` com confirmação. Estados: pendente
+     * (`applied=false`, `notice=null`) → `applied=true` | `notice="..."`.
+     */
+    data class NoteStructureProposalUi(
+        val id: String,
+        val noteId: String,
+        val title: String,
+        val summary: String,
+        val totalMinutes: Int,
+        val sections: List<SectionPlan>,
+        /** Sinais do PublicationDetector (informativo no cartão). */
+        val hints: List<String> = emptyList(),
+        /** Nº de seções atuais da nota na criação (aviso de substituição). */
+        val currentSectionCount: Int = 0,
+        /** FNV-1a da nota (título + seções) na criação (stale real no aceite). */
+        val noteBaseHash: String,
+        val applied: Boolean = false,
+        val notice: String? = null,
+    )
+
+    private val _noteStructureProposal = MutableStateFlow<NoteStructureProposalUi?>(null)
+    val noteStructureProposal: StateFlow<NoteStructureProposalUi?> =
+        _noteStructureProposal.asStateFlow()
+
     /** Snapshots para Desfazer após aceite (nota ou seção). Volátil, cap 50. */
     private sealed interface ProposalSnapshot {
         data class Note(val html: String, val md: String) : ProposalSnapshot
@@ -2302,6 +2346,122 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     fun rejectStructureProposal() {
         val ui = _structureProposal.value ?: return
         _structureProposal.value = ui.copy(notice = STRUCTURE_REJECTED_NOTICE)
+    }
+
+    // ---------- F5b (Modo C): estruturar texto colado de publicação ----------
+
+    /**
+     * F5b (Modo C): divide o texto colado na seção em foco num esboço de
+     * nota inteira. Gatilho determinístico; a IA só estrutura o conteúdo
+     * (nunca inventa refs — o request leva as refs extraídas do texto).
+     */
+    private suspend fun structureFromPasted(target: DraftTarget?) {
+        val targetError = structurePastedTargetError(target)
+        if (targetError != null) {
+            postText(targetError)
+            return
+        }
+        val sectionId = (target as DraftTarget.Section).sectionId
+        val section = guideSections.value.firstOrNull { it.id == sectionId }
+            ?: db.speechSectionDao().get(sectionId)?.toDomain()
+        if (section == null) {
+            postText("Não achei a seção em foco. Reabra o tópico no editor.")
+            return
+        }
+        val sourceText = htmlToPlainText(section.contentHtml).trim()
+        structurePastedEmptyError(sourceText)?.let {
+            postText(it)
+            return
+        }
+        val signal = PublicationDetector.looksLikePublication(sourceText)
+        val nid = noteId
+        if (nid == null) {
+            postText(STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE)
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+            return
+        }
+        val generator = OutlineGeneratorImpl(ProviderFactory.createFor(remote, app))
+        val request = buildStructureFromPastedRequest(section, sourceText)
+        val proposal = try {
+            generator.generate(request)
+        } catch (_: Exception) {
+            null
+        }
+        if (proposal == null) {
+            postText("Não consegui estruturar o texto. Tente novamente.")
+            return
+        }
+        val validation = OutlineProposalValidator.validate(proposal)
+        if (validation is com.bettertalker.app.domain.planning.ValidationResult.Invalid) {
+            postText(
+                "A estrutura veio inválida (${validation.errors.joinToString(", ")}). " +
+                    "Tente novamente."
+            )
+            return
+        }
+        val sectionsNow = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        _noteStructureProposal.value = NoteStructureProposalUi(
+            id = newId("nsp"),
+            noteId = nid,
+            title = proposal.title,
+            summary = proposal.summary,
+            totalMinutes = proposal.totalMinutes,
+            sections = proposal.sections,
+            hints = signal.hints,
+            currentSectionCount = sectionsNow.size,
+            noteBaseHash = noteStructureHash(db.noteDao().get(nid)?.title, sectionsNow),
+        )
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf("text" to "— Estrutura proposta a partir do texto colado —")),
+        )
+    }
+
+    /**
+     * F5b (Modo C): aceita a proposta de nota — revalida, barra stale (hash
+     * da nota inteira) e SUBSTITUI as seções via `OutlineImportService.persist`
+     * (atômico). `approvedAt` não é tocado: aprovação é passo separado.
+     */
+    fun acceptNoteStructureProposal() {
+        val ui = _noteStructureProposal.value ?: return
+        if (ui.applied) return
+        viewModelScope.launch {
+            when (val d = decideNoteStructureAccept(ui, currentNoteStructureHash())) {
+                NoteStructureAcceptDecision.Invalid ->
+                    _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_INVALID_NOTICE)
+                NoteStructureAcceptDecision.Stale ->
+                    _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_STALE_NOTICE)
+                is NoteStructureAcceptDecision.Apply -> {
+                    try {
+                        outlineImportService.persist(d.conversion, DiscourseType.S34_DISCOURSE)
+                        _noteStructureProposal.value = ui.copy(
+                            applied = true,
+                            notice = "Estrutura aplicada. ${ui.sections.size} seções criadas.",
+                        )
+                    } catch (_: Exception) {
+                        _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_FAILED_NOTICE)
+                    }
+                }
+            }
+        }
+    }
+
+    /** F5b: rejeita a proposta de nota — só marca a UI, nada é escrito. */
+    fun rejectNoteStructureProposal() {
+        val ui = _noteStructureProposal.value ?: return
+        _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_REJECTED_NOTICE)
+    }
+
+    /** F5b: hash atual da nota (título + seções), para o gate de stale. */
+    private suspend fun currentNoteStructureHash(): String {
+        val nid = noteId ?: return ""
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        return noteStructureHash(db.noteDao().get(nid)?.title, sections)
     }
 
     fun dismissProposalNotice() {
@@ -4055,6 +4215,166 @@ internal fun decideStructureAccept(
         return StructureAcceptDecision.Stale
     }
     return StructureAcceptDecision.Apply(applyStructurePlan(current, plan, summary, now))
+}
+
+// ---------- F5b (Modo C): estruturar texto colado de publicação (pura) ----------
+
+/** Foco inválido (sub-ponto ou nada): orienta a focar uma seção. */
+const val STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE =
+    "Foque numa seção com o texto colado para estruturar."
+
+/** Seção em foco sem texto colado (o comando confirma; o conteúdo não existe). */
+const val STRUCTURE_PASTED_EMPTY_MESSAGE =
+    "Cole o texto de uma publicação numa seção e foque nela antes de pedir."
+
+/** Duração total default do esboço estruturado (o usuário ajusta depois). */
+const val STRUCTURE_PASTED_TOTAL_MINUTES = 30
+
+/** Aviso quando a nota mudou depois da proposta (nada é aplicado). */
+const val NOTE_STRUCTURE_STALE_NOTICE = "Proposta obsoleta — o texto da nota mudou."
+
+/** Aviso quando a proposta é rejeitada (nada é escrito). */
+const val NOTE_STRUCTURE_REJECTED_NOTICE = "Proposta rejeitada — nada foi alterado."
+
+const val NOTE_STRUCTURE_INVALID_NOTICE = "A estrutura ficou inválida. Gere novamente."
+
+const val NOTE_STRUCTURE_FAILED_NOTICE = "Não consegui aplicar a estrutura. Tente novamente."
+
+/** Erro de conteúdo vazio para o comando: null = há texto. Puro/testável. */
+internal fun structurePastedEmptyError(sourceText: String): String? =
+    if (sourceText.isBlank()) STRUCTURE_PASTED_EMPTY_MESSAGE else null
+
+/** Erro de alvo para `structureFromPasted`: null = foco válido em seção. Puro. */
+internal fun structurePastedTargetError(target: DraftTarget?): String? =
+    if (target is DraftTarget.Section) null else STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE
+
+/**
+ * F5b: monta o pedido de estruturação do texto colado. Refs bíblicas e de
+ * publicação são EXTRAÍDAS do próprio conteúdo (mesmo formato canônico do
+ * `OutlineConverter`) — o conjunto autorizado não inventa nada. O tema é o
+ * título atual da seção (o LLM deriva o título real do conteúdo).
+ * Puro/testável.
+ */
+internal fun buildStructureFromPastedRequest(
+    section: SpeechSection,
+    sourceContent: String,
+    id: String = newId("sgen"),
+): OutlineGenerationRequest {
+    val bible = RefDetector.detectBible(sourceContent).map {
+        val abbrev = normalizeBibleBookName(it.label) ?: it.label
+        "$abbrev ${it.chapter}:${it.verse}"
+    }.distinct()
+    val pubs = RefDetector.detect(sourceContent).map {
+        PublicationRef(
+            symbol = canonicalPublicationSymbol(it.pubKey, it.editionKey),
+            page = it.page,
+            paragraph = it.paragraph,
+            article = it.article,
+            chapter = it.chapter,
+        )
+    }.distinct()
+    return OutlineGenerationRequest(
+        id = id,
+        theme = section.title,
+        totalMinutes = STRUCTURE_PASTED_TOTAL_MINUTES,
+        audience = Audience.GENERAL,
+        angle = OutlineAngle.PRACTICAL,
+        bibleRefs = bible,
+        publicationRefs = pubs,
+        methodPrinciples = emptyList(),
+        sourceContent = sourceContent,
+    )
+}
+
+/** F5b: hash da nota inteira (título + seções) para o gate de stale. Puro. */
+internal fun noteStructureHash(noteTitle: String?, sections: List<SpeechSection>): String =
+    hashText(
+        noteTitle.orEmpty().trim() + "\n" +
+            sections.joinToString("\n\n") { sectionProposalBlock(it.title, it.contentHtml) },
+    )
+
+/** F5b: reconstrói a proposta completa a partir da UI (validar/converter). Puro. */
+internal fun noteProposalOf(ui: CopilotViewModel.NoteStructureProposalUi): OutlineProposal =
+    OutlineProposal(
+        id = ui.id,
+        angle = OutlineAngle.PRACTICAL,
+        audience = Audience.GENERAL,
+        title = ui.title,
+        summary = ui.summary,
+        totalMinutes = ui.totalMinutes,
+        sections = ui.sections,
+    )
+
+/**
+ * F5b: corpo de 1 seção do plano — vira sub-pontos/refs no converter
+ * (mesma mecânica do esboço importado). Puro/testável.
+ */
+internal fun sectionPlanBody(plan: SectionPlan): String = buildString {
+    if (plan.mainIdea.isNotBlank()) append(plan.mainIdea.trim())
+    plan.bibleRefs.forEach {
+        if (isNotEmpty()) append('\n')
+        append("[Leia $it.]")
+    }
+    plan.publicationRefs.forEach { r ->
+        if (isNotEmpty()) append('\n')
+        append("(${r.symbol}${r.page?.let { p -> " p. $p" } ?: ""})")
+    }
+}
+
+/**
+ * F5b: converte a proposta de NOTA em [OutlineConversion] reusando
+ * [buildOutlineConversion] (converter existente: intro/conclusão
+ * sintetizadas no caminho S-34; sub-pontos extraídos do corpo).
+ * Puro/testável.
+ */
+internal fun proposalToConversion(
+    proposal: OutlineProposal,
+    noteId: String,
+    converter: OutlineConverter = OutlineConverter(),
+): OutlineConversion {
+    val sections = proposal.sections.mapIndexed { i, plan ->
+        OutlineSection(
+            title = plan.title,
+            minutes = plan.minutes,
+            order = i,
+            body = sectionPlanBody(plan),
+        )
+    }
+    return buildOutlineConversion(
+        title = proposal.title,
+        totalMinutes = proposal.totalMinutes,
+        sections = sections,
+        preamble = "",
+        noteId = noteId,
+        converter = converter,
+    )
+}
+
+/** Decisão do aceite da proposta de nota: aplica, invalida ou barra por stale. */
+sealed interface NoteStructureAcceptDecision {
+    data class Apply(val conversion: OutlineConversion) : NoteStructureAcceptDecision
+    data object Stale : NoteStructureAcceptDecision
+    data object Invalid : NoteStructureAcceptDecision
+}
+
+/**
+ * F5b: decide o aceite — revalida a proposta e compara o hash atual da nota
+ * com o da criação. Só [NoteStructureAcceptDecision.Apply] escreve (via
+ * `persist` no chamador). Puro/testável.
+ */
+internal fun decideNoteStructureAccept(
+    ui: CopilotViewModel.NoteStructureProposalUi,
+    currentHash: String,
+    converter: OutlineConverter = OutlineConverter(),
+): NoteStructureAcceptDecision {
+    val proposal = noteProposalOf(ui)
+    if (OutlineProposalValidator.validate(proposal) !is
+        com.bettertalker.app.domain.planning.ValidationResult.Valid
+    ) {
+        return NoteStructureAcceptDecision.Invalid
+    }
+    if (currentHash != ui.noteBaseHash) return NoteStructureAcceptDecision.Stale
+    return NoteStructureAcceptDecision.Apply(proposalToConversion(proposal, ui.noteId, converter))
 }
 
 /**

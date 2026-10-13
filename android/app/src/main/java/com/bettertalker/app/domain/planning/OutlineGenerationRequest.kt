@@ -24,4 +24,10 @@ data class OutlineGenerationRequest(
     val bibleRefs: List<String>,
     val publicationRefs: List<PublicationRef>,
     val methodPrinciples: List<String>,
+    /**
+     * F5b: conteúdo de origem (artigo colado). Quando presente, o LLM
+     * estrutura ESTE conteúdo em vez de gerar do tema. Default null mantém
+     * o caminho theme-driven do #3c.
+     */
+    val sourceContent: String? = null,
 )

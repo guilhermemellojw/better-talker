@@ -147,6 +147,8 @@ fun ChatScreen(
     val proposal by vm.proposal.collectAsState()
     // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
     val structureProposal by vm.structureProposal.collectAsState()
+    // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
+    val noteStructureProposal by vm.noteStructureProposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
     val outlineInfo by vm.outlineInfo.collectAsState()
@@ -238,7 +240,8 @@ fun ChatScreen(
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
-        hasProposal = proposal != null || structureProposal != null,
+        hasProposal = proposal != null || structureProposal != null ||
+            noteStructureProposal != null,
         runStateItems = runStateItems
     )
 
@@ -489,6 +492,12 @@ fun ChatScreen(
                     structureProposal?.let { sp ->
                         item(key = "structure-proposal") {
                             StructureProposalCard(sp, vm)
+                        }
+                    }
+                    // F5b (Modo C): proposta de estrutura da nota inteira.
+                    noteStructureProposal?.let { nsp ->
+                        item(key = "note-structure-proposal") {
+                            NoteStructureProposalCard(nsp, vm)
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).

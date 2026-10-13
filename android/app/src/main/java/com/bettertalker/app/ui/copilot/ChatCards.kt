@@ -444,3 +444,79 @@ fun StructureProposalCard(
         }
     }
 }
+
+/**
+ * F5b (Modo C) — proposta de estrutura da NOTA INTEIRA a partir de texto
+ * colado numa seção. Mesma família visual do `StructureProposalCard`, com
+ * lista de seções e aviso destacado de substituição.
+ */
+@Composable
+fun NoteStructureProposalCard(
+    ui: CopilotViewModel.NoteStructureProposalUi,
+    vm: CopilotViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text("Estrutura da nota proposta", style = MaterialTheme.typography.titleSmall)
+        if (ui.summary.isNotBlank()) {
+            Text(
+                ui.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        Text(
+            "Tema: ${ui.title} • ${ui.totalMinutes} min",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(Modifier.height(4.dp))
+        ui.sections.forEachIndexed { i, s ->
+            val refs = (s.bibleRefs + s.publicationRefs.map { it.symbol })
+                .joinToString(", ")
+            Text(
+                buildString {
+                    append("[${i + 1}] ${s.title} — ${s.minutes} min")
+                    if (refs.isNotBlank()) append(" — $refs")
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (ui.hints.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Sinais detectados: ${ui.hints.joinToString("; ")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        ui.notice?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                // Obsoleta = aviso forte; demais avisos ficam discretos.
+                color = if (it.contains("obsoleta")) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.secondary,
+            )
+        }
+        if (!ui.applied && ui.notice == null) {
+            Spacer(Modifier.height(4.dp))
+            // Confirmação explícita: a aplicação SUBSTITUI as seções da nota.
+            Text(
+                "Isto vai substituir as ${ui.currentSectionCount} seções atuais desta nota.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { vm.acceptNoteStructureProposal() }) {
+                    Text("Aplicar estrutura")
+                }
+                TextButton(onClick = { vm.rejectNoteStructureProposal() }) { Text("Rejeitar") }
+            }
+        }
+    }
+}

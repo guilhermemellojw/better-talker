@@ -63,6 +63,13 @@ object ChatRouter {
         data class ProposeStructure(val reason: String) : Route
 
         /**
+         * F5b (Modo C) — "estruturar como esboço": o usuário colou texto de
+         * publicação numa seção e quer que a IA o divida em seções (título,
+         * tempos, refs). A aplicação SUBSTITUI as seções (com confirmação).
+         */
+        data class StructureFromPasted(val reason: String) : Route
+
+        /**
          * T1 (modo colar e conversar) — conversa sobre um esboço colado
          * íntegro, sem S-34/dossiê/RAG. Construída pelo ViewModel (que sabe
          * se há S-34 vinculado), nunca pelo route() puro.
@@ -155,6 +162,42 @@ object ChatRouter {
         val anaphora = INSERT_ANAPHORA.containsMatchIn(t)
         if (!anaphora && CREATION_OBJECT.containsMatchIn(t)) return false
         return anaphora || INSERT_DESTINATION.containsMatchIn(t)
+    }
+
+    // ---------- F5b (Modo C): estruturar texto colado de publicação ----------
+
+    /** Verbos inequívocos de estruturação (texto normalizado). */
+    private val STRUCT_PASTED_VERB = Regex("\\b(estruturar|transforma|transformar|organiza|organizar|vira|virar)\\b")
+
+    /**
+     * "estrutura" é verbo E substantivo (ambíguo): só vale como comando
+     * quando seguido de alvo claro ("estrutura como esboço", "estrutura isso
+     * em seções") — "estrutura do discurso está boa" NÃO é comando.
+     */
+    private val STRUCT_PASTED_IMPERATIVE = Regex("\\bestrutura\\s+(como|em|isso|isto|o texto|esse|essa|este|esta)\\b")
+
+    /** Substantivo forte do comando (o que a estruturação produz). */
+    private val STRUCT_PASTED_NOUN = Regex("\\b(esboco|esbocos|discurso|secoes|secao)\\b")
+
+    /**
+     * F5b (Modo C) — comando de estruturar o texto colado: "estruturar como
+     * esboço", "estrutura como esboço", "transforma em esboço", "organiza em
+     * seções", "organizar como discurso", "isto vira um discurso".
+     *
+     * Verbo obrigatório + substantivo forte. Perguntas abertas ("qual a
+     * estrutura do discurso?") NÃO sequestram. Puro/testável.
+     */
+    fun isStructureFromPastedCommand(text: String): Boolean {
+        val t = normalizeText(text).trim()
+        if (t.isEmpty()) return false
+        if (QUESTION_OPENERS.containsMatchIn(t)) return false
+        val padded = " $t "
+        if (!STRUCT_PASTED_VERB.containsMatchIn(padded) &&
+            !STRUCT_PASTED_IMPERATIVE.containsMatchIn(padded)
+        ) {
+            return false
+        }
+        return STRUCT_PASTED_NOUN.containsMatchIn(padded)
     }
 
     // ---------- Réplica de proposta ----------
@@ -268,6 +311,12 @@ object ChatRouter {
             return Route.ApplyStructure("pedido de materializar a estrutura na nota")
         }
 
+        // F5b (Modo C): estruturar texto colado numa seção — antes da
+        // proposta de seção (FALTA-2), que sequestraria "estrutura".
+        if (isStructureFromPastedCommand(text)) {
+            return Route.StructureFromPasted("pedido de estruturar o texto colado")
+        }
+
         // FALTA-2: propor a estrutura da seção em foco — antes da oratória
         // (que sequestraria verbos como "crie") e do meta. Exige verbo +
         // substantivo estritos, mais palavra de escopo ou foco atual.
@@ -349,6 +398,7 @@ object ChatRouter {
         is Route.OutOfScope -> "route=OUT_OF_SCOPE point=${route.requestedPoint} reason=${route.reason}"
         is Route.ApplyStructure -> "route=APPLY_STRUCTURE reason=${route.reason}"
         is Route.ProposeStructure -> "route=PROPOSE_STRUCTURE reason=${route.reason}"
+        is Route.StructureFromPasted -> "route=STRUCTURE_FROM_PASTED reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }
