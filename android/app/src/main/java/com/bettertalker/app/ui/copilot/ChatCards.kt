@@ -7,6 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -378,5 +381,66 @@ fun ToolBtn(
             tint = if (active) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+/**
+ * FALTA-2 — cartão da proposta de ESTRUTURA da seção (plano do
+ * `OutlineProposer`): resumo, objetivo, tempo e textos-âncora, com
+ * Aplicar/Rejeitar. Aplicado ou com aviso (rejeitada/obsoleta) → sem
+ * botões; obsoleta ganha destaque de aviso.
+ */
+@Composable
+fun StructureProposalCard(
+    ui: CopilotViewModel.StructureProposalUi,
+    vm: CopilotViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text("Estrutura proposta", style = MaterialTheme.typography.titleSmall)
+        if (ui.summary.isNotBlank()) {
+            Text(
+                ui.summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text("Objetivo: ${ui.plan.mainIdea}", style = MaterialTheme.typography.bodySmall)
+        Text("Tempo: ${ui.plan.minutes} min", style = MaterialTheme.typography.bodySmall)
+        if (ui.plan.bibleRefs.isNotEmpty()) {
+            Text(
+                "Textos bíblicos: ${ui.plan.bibleRefs.joinToString(", ")}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (ui.plan.publicationRefs.isNotEmpty()) {
+            Text(
+                "Publicações: ${ui.plan.publicationRefs.joinToString(", ") { it.symbol }}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        ui.notice?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                // Obsoleta = aviso forte; demais avisos ficam discretos.
+                color = if (it.contains("obsoleta")) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.secondary,
+            )
+        }
+        if (!ui.applied && ui.notice == null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { vm.acceptStructureProposal() }) {
+                    Text("Aplicar estrutura")
+                }
+                TextButton(onClick = { vm.rejectStructureProposal() }) { Text("Rejeitar") }
+            }
+        }
     }
 }

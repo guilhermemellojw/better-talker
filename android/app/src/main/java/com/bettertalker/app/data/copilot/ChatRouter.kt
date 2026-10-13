@@ -56,6 +56,13 @@ object ChatRouter {
         data class ApplyStructure(val reason: String) : Route
 
         /**
+         * FALTA-2 — "propõe estrutura para esta seção": a IA devolve um
+         * SectionPlan (objetivo, tempo, textos-âncora) para revisão antes
+         * da prosa. Detectado antes da oratória (que sequestraria "crie").
+         */
+        data class ProposeStructure(val reason: String) : Route
+
+        /**
          * T1 (modo colar e conversar) — conversa sobre um esboço colado
          * íntegro, sem S-34/dossiê/RAG. Construída pelo ViewModel (que sabe
          * se há S-34 vinculado), nunca pelo route() puro.
@@ -163,6 +170,13 @@ object ChatRouter {
     private val APPLY_NOUN = Regex("\\b(estrutura|estruturas|secao|secoes|topico|topicos|" +
         "discurso|nota|rascunho)\\b")
 
+    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|sugere|sugerir|sugira|" +
+        "planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
+    private val PROPOSE_STRUCT_PLAN_VERB = Regex("\\b(planeja|planejar|planeje)\\b")
+    private val PROPOSE_STRUCT_NOUN_STRICT = Regex("\\b(estrutura|plano|objetivo|progressao)\\b")
+    private val PROPOSE_STRUCT_TEXTS = Regex("\\btextos\\b")
+    private val PROPOSE_STRUCT_SCOPE = Regex("\\b(secao|secoes|topico|topicos|ponto|pontos|parte)\\b")
+
     /**
      * T2 — comando de materialização: "insira tudo na nota", "materialize o
      * discurso", "crie as seções". Exclui o "mini" (T3 mini é dono dele).
@@ -190,6 +204,29 @@ object ChatRouter {
         isApplyStructureCommand(text) -> Intercept.APPLY_STRUCTURE
         pasteActive -> Intercept.PASTE_CHAT
         else -> Intercept.NONE
+    }
+
+    /**
+     * FALTA-2 — comando de estrutura da seção: "propõe estrutura (para esta
+     * seção)", "propõe o plano", "planeja a seção", "define o objetivo",
+     * "que textos usar nesta seção".
+     *
+     * Regras estritas (verbo obrigatório):
+     * - verbo + substantivo forte (estrutura/plano/objetivo/progressão) → sim;
+     * - verbo de planejamento (planeja/planejar) + escopo (seção/tópico) → sim;
+     * - "textos" (plural) + escopo (ou foco) → sim — "como usar este texto"
+     *   (singular, sem escopo) NÃO sequestra; "use esta seção como
+     *   introdução" não tem substantivo/planejamento → NÃO.
+     * Puro/testável.
+     */
+    fun isProposeStructureCommand(text: String, focused: Boolean = false): Boolean {
+        val t = " ${normalizeText(text)} "
+        if (!PROPOSE_STRUCT_VERB.containsMatchIn(t)) return false
+        if (PROPOSE_STRUCT_NOUN_STRICT.containsMatchIn(t)) return true
+        val scope = PROPOSE_STRUCT_SCOPE.containsMatchIn(t)
+        if (PROPOSE_STRUCT_PLAN_VERB.containsMatchIn(t) && scope) return true
+        if (PROPOSE_STRUCT_TEXTS.containsMatchIn(t) && (scope || focused)) return true
+        return false
     }
 
     // ---------- Pergunta estrutural ----------
@@ -229,6 +266,13 @@ object ChatRouter {
         // nota" não cair no geral.
         if (isApplyStructureCommand(text)) {
             return Route.ApplyStructure("pedido de materializar a estrutura na nota")
+        }
+
+        // FALTA-2: propor a estrutura da seção em foco — antes da oratória
+        // (que sequestraria verbos como "crie") e do meta. Exige verbo +
+        // substantivo estritos, mais palavra de escopo ou foco atual.
+        if (isProposeStructureCommand(text, focused = currentSectionId != null)) {
+            return Route.ProposeStructure("pedido de estrutura da seção em foco")
         }
 
         // Meta-linguagem ("o termo desenvolvimento", "o significado de X"):
@@ -304,6 +348,7 @@ object ChatRouter {
         is Route.NothingToRefine -> "route=NOTHING_TO_REFINE reason=${route.reason}"
         is Route.OutOfScope -> "route=OUT_OF_SCOPE point=${route.requestedPoint} reason=${route.reason}"
         is Route.ApplyStructure -> "route=APPLY_STRUCTURE reason=${route.reason}"
+        is Route.ProposeStructure -> "route=PROPOSE_STRUCTURE reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }

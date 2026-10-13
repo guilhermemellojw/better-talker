@@ -23,6 +23,7 @@ import com.bettertalker.app.data.db.OutlineEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.toDomain
+import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.data.edit.CopilotEditProposal
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.edit.EditBlock
@@ -63,7 +64,14 @@ import com.bettertalker.app.data.util.S34Detector
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.planning.truncateIfCut
+import com.bettertalker.app.data.planning.OutlineGeneratorImpl
+import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.domain.planning.OutlineAngle
+import com.bettertalker.app.domain.planning.OutlineGenerationRequest
+import com.bettertalker.app.domain.planning.OutlineProposal
+import com.bettertalker.app.domain.planning.OutlineProposalValidator
+import com.bettertalker.app.domain.planning.SectionPlan
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
 import com.bettertalker.app.ui.editor.roleLabel
@@ -1203,6 +1211,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).
             if (resolveInsertCommand(text)) return@launch
+            // FALTA-2: propor estrutura da seção — determinístico, pré-split
+            // (qualquer provider). Sem seção em foco, só a palavra de escopo
+            // explícita dispara (o handler orienta a focar).
+            if (com.bettertalker.app.data.copilot.ChatRouter.isProposeStructureCommand(
+                    text,
+                    focused = _chatScope.value != null,
+                )
+            ) {
+                proposeStructureFor(currentTarget())
+                return@launch
+            }
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -1272,6 +1291,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     // T2 (Fase 2): normalmente interceptado antes do mini-voz;
                     // se chegar via router, atende do mesmo jeito.
                     requestApplyStructure(historyBefore)
+                    return@launch
+                }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.ProposeStructure -> {
+                    // FALTA-2: pré-split (vale com qualquer provider).
+                    proposeStructureFor(currentTarget())
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
@@ -1842,6 +1866,31 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _proposal = MutableStateFlow<ProposalUi?>(null)
     val proposal = _proposal.asStateFlow()
 
+    /**
+     * FALTA-2: proposta de ESTRUTURA da seção (coexiste com `ProposalUi`,
+     * que é de TEXTO). O plano vem do `OutlineProposer`; o aceite escreve
+     * objetivo/minutes/refs/abordagem na seção. Estados: pendente
+     * (`applied=false`, `notice=null`) → `applied=true` | `notice="..."`.
+     * Sem enum novo — mesmo padrão de `ProposalUi`.
+     */
+    data class StructureProposalUi(
+        val id: String,
+        val sectionId: String,
+        /** Proposta integral (para revalidar no aceite). */
+        val proposal: OutlineProposal,
+        /** Plano da seção focada (conteúdo revisável). */
+        val plan: SectionPlan,
+        /** O que a IA propõe, em 1-2 frases (vira abordagem no aceite). */
+        val summary: String,
+        /** FNV-1a do bloco da seção na criação (stale real na aceitação). */
+        val sectionBaseHash: String,
+        val applied: Boolean = false,
+        val notice: String? = null,
+    )
+
+    private val _structureProposal = MutableStateFlow<StructureProposalUi?>(null)
+    val structureProposal: StateFlow<StructureProposalUi?> = _structureProposal.asStateFlow()
+
     /** Snapshots para Desfazer após aceite (nota ou seção). Volátil, cap 50. */
     private sealed interface ProposalSnapshot {
         data class Note(val html: String, val md: String) : ProposalSnapshot
@@ -2162,6 +2211,107 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Rejeita: editor intacto, conversa continua. */
     fun rejectProposal() {
         _proposal.value = null
+    }
+
+    /**
+     * FALTA-2: gera a estrutura da seção em foco via `OutlineGenerator`
+     * (1 chamada, escopo por seção; refs da própria seção como âncoras).
+     * Sem chave remota → orienta configurar (mesmo padrão da oratória).
+     * Proposta válida vira `StructureProposalUi` + anúncio no escopo.
+     */
+    private suspend fun proposeStructureFor(target: DraftTarget?) {
+        val sectionId = (target as? DraftTarget.Section)?.sectionId
+        if (sectionId == null) {
+            postText(structureTargetError(target) ?: STRUCTURE_NEEDS_SECTION_MESSAGE)
+            return
+        }
+        val section = guideSections.value.firstOrNull { it.id == sectionId }
+            ?: db.speechSectionDao().get(sectionId)?.toDomain()
+        if (section == null) {
+            postText("Não achei a seção em foco. Reabra o tópico no editor.")
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+            return
+        }
+        val principles = dossierProvider?.invoke(DraftTarget.Section(sectionId))
+            ?.methodPrinciples.orEmpty()
+        val generator = com.bettertalker.app.data.planning.OutlineGeneratorImpl(
+            ProviderFactory.createFor(remote, app)
+        )
+        val request = buildStructureRequest(section, principles)
+        val proposal = try {
+            generator.generate(request)
+        } catch (_: Exception) {
+            null
+        }
+        if (proposal == null) {
+            postText("Não consegui gerar a estrutura. Tente novamente.")
+            return
+        }
+        if (OutlineProposalValidator.validate(proposal) !is
+            com.bettertalker.app.domain.planning.ValidationResult.Valid
+        ) {
+            postText("A estrutura veio incompleta. Tente novamente.")
+            return
+        }
+        val plan = pickSectionPlan(proposal, section.title)
+        if (plan == null) {
+            postText("A estrutura veio sem seções. Tente novamente.")
+            return
+        }
+        _structureProposal.value = StructureProposalUi(
+            id = newId("sprop"),
+            sectionId = sectionId,
+            proposal = proposal,
+            plan = plan,
+            summary = proposal.summary,
+            sectionBaseHash = hashText(sectionProposalBlock(section.title, section.contentHtml)),
+        )
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf("text" to "— Estrutura proposta para ${section.title} —")),
+        )
+    }
+
+    /**
+     * FALTA-2: aceita a estrutura — revalida, barra stale por hash e escreve
+     * objetivo/minutes/refs/abordagem na seção (via DAO, como o aceite de
+     * texto; o editor observa o banco e reflete). `approvedAt` intacto:
+     * aprovação é passo separado (#3a).
+     */
+    fun acceptStructureProposal() {
+        val ui = _structureProposal.value ?: return
+        if (ui.applied) return
+        viewModelScope.launch {
+            if (OutlineProposalValidator.validate(ui.proposal) !is
+                com.bettertalker.app.domain.planning.ValidationResult.Valid
+            ) {
+                _structureProposal.value = ui.copy(notice = "A estrutura ficou inválida. Gere novamente.")
+                return@launch
+            }
+            val current = db.speechSectionDao().get(ui.sectionId)?.toDomain() ?: run {
+                _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
+                return@launch
+            }
+            when (val d = decideStructureAccept(current, ui.sectionBaseHash, ui.plan, ui.summary)) {
+                StructureAcceptDecision.Stale ->
+                    _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
+                is StructureAcceptDecision.Apply -> {
+                    db.speechSectionDao().upsert(d.updated.toEntity())
+                    _structureProposal.value = ui.copy(notice = "Estrutura aplicada.", applied = true)
+                }
+            }
+        }
+    }
+
+    /** Rejeita a estrutura: só marca a UI, nada é escrito. */
+    fun rejectStructureProposal() {
+        val ui = _structureProposal.value ?: return
+        _structureProposal.value = ui.copy(notice = STRUCTURE_REJECTED_NOTICE)
     }
 
     fun dismissProposalNotice() {
@@ -3853,6 +4003,114 @@ internal fun applyProposalOps(
  */
 internal fun sectionProposalBlock(title: String, contentHtml: String): String =
     if (contentHtml.isBlank()) title else "$title\n\n$contentHtml"
+
+// ---------- FALTA-2: proposta de estrutura da seção (pura) ----------
+
+/** Aviso quando a seção mudou depois da proposta (nada é aplicado). */
+const val STRUCTURE_STALE_NOTICE = "Proposta obsoleta — o texto mudou desde que foi gerada."
+
+/** Aviso quando a proposta é rejeitada (nada é escrito). */
+const val STRUCTURE_REJECTED_NOTICE = "Proposta rejeitada — nada foi alterado."
+
+/** Erro quando o foco não é uma seção (sub-ponto ou chat genérico). */
+const val STRUCTURE_NEEDS_SECTION_MESSAGE =
+    "Para propor estrutura, foque numa seção (não num sub-ponto)."
+
+/**
+ * Erro de alvo para `proposeStructureFor`: null = foco válido em seção.
+ * Puro/testável.
+ */
+internal fun structureTargetError(target: DraftTarget?): String? =
+    if (target is DraftTarget.Section) null else STRUCTURE_NEEDS_SECTION_MESSAGE
+
+/**
+ * Monta o pedido de estrutura a partir da seção em foco (+ princípios do
+ * dossiê, se houver). Escopo por seção: `totalMinutes` = minutos da
+ * própria seção; as refs da seção viram o conjunto autorizado (o prompt
+ * e o parser exigem subconjunto — nada inventado). Puro/testável.
+ */
+internal fun buildStructureRequest(
+    section: SpeechSection,
+    methodPrinciples: List<String> = emptyList(),
+    id: String = newId("sgen"),
+): OutlineGenerationRequest = OutlineGenerationRequest(
+    id = id,
+    theme = section.title,
+    totalMinutes = section.minutes,
+    audience = Audience.GENERAL,
+    angle = OutlineAngle.PRACTICAL,
+    bibleRefs = section.bibleRefs,
+    publicationRefs = section.publicationRefs,
+    methodPrinciples = methodPrinciples,
+)
+
+/**
+ * Escolhe o plano da seção focada dentro da proposta: melhor casamento de
+ * título (normalizado, contém) e, sem casamento, o primeiro. Null = sem
+ * seções (proposta vazia — o validador já barraria). Puro/testável.
+ */
+internal fun pickSectionPlan(proposal: OutlineProposal, sectionTitle: String): SectionPlan? {
+    if (proposal.sections.isEmpty()) return null
+    val want = sectionTitle.trim().lowercase()
+    return proposal.sections.firstOrNull {
+        it.title.trim().lowercase().isNotBlank() &&
+            (it.title.trim().lowercase().contains(want) || want.contains(it.title.trim().lowercase()))
+    } ?: proposal.sections.first()
+}
+
+/**
+ * Aplica o plano aprovado na seção: objetivo (= ideia central), minutos e
+ * refs (merge com dedupe); abordagem concatena com `\n\n`. `approvedAt`
+ * e o resto passam intactos — aprovação é passo separado (#3a).
+ * Puro/testável.
+ */
+internal fun applyStructurePlan(
+    section: SpeechSection,
+    plan: SectionPlan,
+    summary: String,
+    now: Long = System.currentTimeMillis(),
+): SpeechSection {
+    val bible = (section.bibleRefs + plan.bibleRefs).distinct()
+    val pubs = (section.publicationRefs + plan.publicationRefs).distinct()
+    val current = section.agreedApproach?.trim().orEmpty()
+    val approach = when {
+        summary.isBlank() -> current.ifBlank { null }
+        current.isBlank() -> summary
+        else -> "$current\n\n$summary"
+    }
+    return section.copy(
+        objective = plan.mainIdea,
+        minutes = plan.minutes,
+        bibleRefs = bible,
+        publicationRefs = pubs,
+        agreedApproach = approach,
+        updatedAt = now,
+    )
+}
+
+/** Decisão do aceite: aplica ou barra por stale. Puro/testável. */
+sealed interface StructureAcceptDecision {
+    data class Apply(val updated: SpeechSection) : StructureAcceptDecision
+    data object Stale : StructureAcceptDecision
+}
+
+/**
+ * Decide o aceite: hash da seção atual vs. hash da criação. Revalidação
+ * do `proposal` acontece no chamador (precisa do validate).
+ * Puro/testável.
+ */
+internal fun decideStructureAccept(
+    current: SpeechSection,
+    sectionBaseHash: String,
+    plan: SectionPlan,
+    summary: String,
+    now: Long = System.currentTimeMillis(),
+): StructureAcceptDecision {
+    if (hashText(sectionProposalBlock(current.title, current.contentHtml)) != sectionBaseHash) {
+        return StructureAcceptDecision.Stale
+    }
+    return StructureAcceptDecision.Apply(applyStructurePlan(current, plan, summary, now))
+}
 
 /**
  * T2 (Bug #14) — aplica a proposta ao bloco da seção e devolve o NOVO

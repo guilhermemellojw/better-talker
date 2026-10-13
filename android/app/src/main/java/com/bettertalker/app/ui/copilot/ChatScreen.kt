@@ -145,6 +145,8 @@ fun ChatScreen(
     }
     val guideCurrent = if (guideIndex >= 0) guideSections[guideIndex] else null
     val proposal by vm.proposal.collectAsState()
+    // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
+    val structureProposal by vm.structureProposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
     val sectionBusy by vm.sectionBusy.collectAsState()
     val outlineInfo by vm.outlineInfo.collectAsState()
@@ -236,7 +238,7 @@ fun ChatScreen(
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
-        hasProposal = proposal != null,
+        hasProposal = proposal != null || structureProposal != null,
         runStateItems = runStateItems
     )
 
@@ -481,6 +483,12 @@ fun ChatScreen(
                     if (prop != null) {
                         item(key = "proposal") {
                             ProposalCard(prop, vm)
+                        }
+                    }
+                    // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
+                    structureProposal?.let { sp ->
+                        item(key = "structure-proposal") {
+                            StructureProposalCard(sp, vm)
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).
