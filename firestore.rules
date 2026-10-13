@@ -1,0 +1,18 @@
+rules_version = '2';
+// Better Talker — regras do Firestore (baseline do repositório).
+//
+// Estrutura: cada usuário só acessa a própria árvore:
+//   users/{uid}/notes/*  users/{uid}/folders/*  users/{uid}/attachments/*
+//   users/{uid}/outlines/*  users/{uid}/tombstones/*
+//
+// IMPORTANTE: confira contra as regras PUBLICADAS no Console
+// (Firestore → Regras). Este arquivo é a versão canônica do repo para
+// evitar perda acidental no Console; `firebase deploy --only firestore:rules`
+// sobrescreve o que estiver publicado.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
