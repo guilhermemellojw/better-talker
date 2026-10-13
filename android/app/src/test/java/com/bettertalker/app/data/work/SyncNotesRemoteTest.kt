@@ -1,12 +1,8 @@
 package com.bettertalker.app.data.work
 
-import com.bettertalker.app.data.db.NoteDao
 import com.bettertalker.app.data.db.NoteEntity
-import com.bettertalker.app.data.db.TombstoneDao
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.util.plainFromMarkdown
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,92 +11,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// ---------- Fakes (padrão do projeto: JVM puro, sem SDK/Room) ----------
-
-/** Fake Map-based do contrato remoto; `set` faz MERGE (como SetOptions.merge). */
-private class FakeSyncRemote : SyncRemote {
-    private val collections = mutableMapOf<String, MutableMap<String, MutableMap<String, Any?>>>()
-    private fun col(name: String) = collections.getOrPut(name) { mutableMapOf() }
-
-    override suspend fun getAll(collection: String): Map<String, Map<String, Any?>> =
-        col(collection).mapValues { it.value.toMap() }
-
-    override suspend fun get(collection: String, id: String): Map<String, Any?>? =
-        col(collection)[id]?.toMap()
-
-    override suspend fun set(collection: String, id: String, data: Map<String, Any?>) {
-        col(collection).getOrPut(id) { mutableMapOf() }.putAll(data)
-    }
-
-    override suspend fun delete(collection: String, id: String) {
-        col(collection).remove(id)
-    }
-
-    fun doc(collection: String, id: String): Map<String, Any?>? = col(collection)[id]
-    fun ids(collection: String): Set<String> = col(collection).keys.toSet()
-}
-
-private class FakeNoteDao(rows: List<NoteEntity> = emptyList()) : NoteDao {
-    var rows: MutableList<NoteEntity> = rows.toMutableList()
-
-    override fun observe(folderId: String?, q: String): Flow<List<NoteEntity>> =
-        flowOf(this.rows.filter { !it.trashed })
-
-    override suspend fun get(id: String): NoteEntity? = rows.firstOrNull { it.id == id }
-
-    override fun observeById(id: String): Flow<NoteEntity?> =
-        flowOf(rows.firstOrNull { it.id == id })
-
-    override suspend fun upsert(note: NoteEntity) {
-        rows = rows.filter { it.id != note.id }.toMutableList().also { it.add(note) }
-    }
-
-    override suspend fun trash(id: String, now: Long) {
-        rows = rows.map { if (it.id == id) it.copy(trashed = true, updatedAt = now) else it }
-            .toMutableList()
-    }
-
-    override suspend fun togglePin(id: String, now: Long) {
-        rows = rows.map { if (it.id == id) it.copy(pinned = !it.pinned, updatedAt = now) else it }
-            .toMutableList()
-    }
-
-    override suspend fun restore(id: String, now: Long) {
-        rows = rows.map { if (it.id == id) it.copy(trashed = false, updatedAt = now) else it }
-            .toMutableList()
-    }
-
-    override suspend fun move(id: String, folderId: String?, now: Long) {
-        rows = rows.map { if (it.id == id) it.copy(folderId = folderId, updatedAt = now) else it }
-            .toMutableList()
-    }
-
-    override fun observeTrashed(): Flow<List<NoteEntity>> = flowOf(rows.filter { it.trashed })
-
-    override suspend fun allIncludingTrashed(): List<NoteEntity> = rows.toList()
-
-    override suspend fun delete(id: String) {
-        rows = rows.filter { it.id != id }.toMutableList()
-    }
-
-    override suspend fun clearFolder(folderId: String) {
-        rows = rows.map { if (it.folderId == folderId) it.copy(folderId = null) else it }
-            .toMutableList()
-    }
-
-    override suspend fun count(): Int = rows.count { !it.trashed }
-}
-
-private class FakeTombstoneDao(rows: List<TombstoneEntity> = emptyList()) : TombstoneDao {
-    var rows: MutableList<TombstoneEntity> = rows.toMutableList()
-    override suspend fun all(): List<TombstoneEntity> = rows.toList()
-    override suspend fun put(t: TombstoneEntity) {
-        rows = rows.filter { it.id != t.id }.toMutableList().also { it.add(t) }
-    }
-    override suspend fun remove(id: String) {
-        rows = rows.filter { it.id != id }.toMutableList()
-    }
-}
+// ---------- Fakes ----------
+// FakeSyncRemote/FakeNoteDao/FakeTombstoneDao (extraídos na F7b) vivem em
+// TestFakes.kt, compartilhados com o SyncSectionsRemoteTest.
 
 // ---------- Fixtures ----------
 

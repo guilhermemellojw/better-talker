@@ -15,9 +15,18 @@ import com.bettertalker.app.data.db.FolderEntity
 import com.bettertalker.app.data.db.NoteDao
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.OutlineDao
+import com.bettertalker.app.data.db.SpeechSectionDao
+import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.data.db.SubPointDao
+import com.bettertalker.app.data.db.SubPointEntity
 import com.bettertalker.app.data.db.TombstoneDao
 import com.bettertalker.app.data.db.TombstoneEntity
+import com.bettertalker.app.data.db.decodePublicationRefList
+import com.bettertalker.app.data.db.encodePublicationRefList
 import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.data.repo.decodeStringList
+import com.bettertalker.app.data.repo.encodeStringList
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.google.firebase.firestore.FirebaseFirestore
 
 /**
@@ -48,6 +57,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             // Mesmo contrato de antes: getAll/set(merge)/delete por coleção flat.
             val remote: SyncRemote = FirestoreSyncRemote(root)
             syncNotes(remote, db.noteDao(), db.tombstoneDao())
+            // F7b: seções e sub-pontos (flat). Ordem: notes -> sections ->
+            // subPoints (a cascata de nota já limpou os docs remotos antes).
+            syncSections(remote, db.speechSectionDao(), db.noteDao())
+            syncSubPoints(remote, db.subPointDao(), db.speechSectionDao(), db.noteDao())
             syncFolders(remote, db.folderDao(), db.tombstoneDao())
             syncAttachments(remote, db.attachmentDao(), db.tombstoneDao())
             syncOutlines(remote, db.outlineDao(), db.tombstoneDao())
@@ -78,9 +91,9 @@ internal suspend fun syncNotes(
     val tombs = tombstoneDao.all().filter { it.type == "note" }.map { it.id }.toSet()
     val local = noteDao.allIncludingTrashed()
 
-    // push tombstones -> apaga na nuvem e limpa local
+    // push tombstones -> cascata remota FLAT (sub-pontos -> seções -> nota)
     for (tid in tombs) {
-        remote.delete("notes", tid)
+        deleteNoteDeep(remote, tid)
         if (!cloud.containsKey(tid)) tombstoneDao.remove(tid)
     }
     // pull
@@ -275,6 +288,195 @@ internal suspend fun syncOutlines(
         }
     }
 }
+
+// ---------- F7b: sections (flat) ----------
+
+/**
+ * F7b — sincroniza `speech_sections` na coleção FLAT `sections` (campo
+ * `noteId`), no mesmo padrão LWW/tombstone do [syncNotes].
+ *
+ * LIMITAÇÕES DOCUMENTADAS (escopo de um round futuro):
+ * - Não há tombstone de SEÇÃO/SUB-PONTO (a tabela `tombstones` só tem
+ *   note/folder/attachment/outline): um item apagado individualmente no
+ *   aparelho pode "ressuscitar" no próximo pull (o doc remoto continua lá).
+ * - A cascata REMOTA vem do tombstone de NOTA via [deleteNoteDeep]
+ *   (consumido no [syncNotes]); docs órfãos de versões anteriores ficam.
+ * - A iteração local usa `noteDao.allIncludingTrashed()` + `forNote`
+ *   porque `SpeechSectionDao`/`SubPointDao` não têm `all()` global.
+ */
+internal suspend fun syncSections(
+    remote: SyncRemote,
+    sectionDao: SpeechSectionDao,
+    noteDao: NoteDao,
+) {
+    val cloud = remote.getAll("sections")
+    val noteIds = noteDao.allIncludingTrashed().map { it.id }.toSet()
+    val local = noteIds.flatMap { sectionDao.forNote(it) }
+
+    // pull (LWW) — só de notas que ainda existem localmente
+    for ((id, data) in cloud) {
+        val noteId = data["noteId"] as? String ?: continue
+        if (!noteIds.contains(noteId)) continue
+        val cur = local.firstOrNull { it.id == id }
+        val cup = (data["updatedAt"] as? Long) ?: 0L
+        if (cur == null || cup > cur.updatedAt) {
+            sectionDao.upsert(cloudSection(id, data))
+        }
+    }
+    // push
+    for (sec in local) {
+        val data = cloud[sec.id]
+        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        if (data == null || sec.updatedAt > cup) {
+            remote.set("sections", sec.id, sectionMap(sec))
+        }
+    }
+}
+
+// ---------- F7b: subPoints (flat) ----------
+
+/**
+ * F7b — sincroniza `sub_points` na coleção FLAT `subPoints` (campos
+ * `noteId` e `sectionId`). Sub-ponto órfão (seção/nota que não existe mais
+ * localmente) NÃO é puxado — evita "ressuscitar" por doc remoto.
+ * Mesmas limitações documentadas em [syncSections].
+ */
+internal suspend fun syncSubPoints(
+    remote: SyncRemote,
+    subPointDao: SubPointDao,
+    sectionDao: SpeechSectionDao,
+    noteDao: NoteDao,
+) {
+    val cloud = remote.getAll("subPoints")
+    val noteIds = noteDao.allIncludingTrashed().map { it.id }.toSet()
+    val sections = noteIds.flatMap { sectionDao.forNote(it) }
+    val sectionIds = sections.map { it.id }.toSet()
+    val local = sections.flatMap { subPointDao.forSection(it.id) }
+
+    // pull (LWW) — só de seções que ainda existem localmente
+    for ((id, data) in cloud) {
+        val sectionId = data["sectionId"] as? String ?: continue
+        if (!sectionIds.contains(sectionId)) continue
+        val cur = local.firstOrNull { it.id == id }
+        val cup = (data["updatedAt"] as? Long) ?: 0L
+        if (cur == null || cup > cur.updatedAt) {
+            subPointDao.upsert(cloudSubPoint(id, data))
+        }
+    }
+    // push
+    for (sp in local) {
+        val data = cloud[sp.id]
+        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        if (data == null || sp.updatedAt > cup) {
+            remote.set("subPoints", sp.id, subPointMap(sp))
+        }
+    }
+}
+
+/**
+ * F7b — cascata remota FLAT de nota: apaga sub-pontos -> seções -> nota.
+ * O client do Firestore não tem recursive delete; iterar é o único caminho.
+ * Substitui o delete direto do doc de nota no tombstone do [syncNotes].
+ */
+internal suspend fun deleteNoteDeep(remote: SyncRemote, noteId: String) {
+    val sections = remote.getAll("sections").filterValues { it["noteId"] == noteId }
+    val sectionIds = sections.keys
+    val subs = remote.getAll("subPoints").filterValues { it["sectionId"] in sectionIds }
+    for (sid in subs.keys) remote.delete("subPoints", sid)
+    for (sid in sectionIds) remote.delete("sections", sid)
+    remote.delete("notes", noteId)
+}
+
+// ---------- F7b: mapeamentos Entity <-> documento (refs como arrays) ----------
+
+/** Documento de seção. O `id` é a chave do doc (como no noteMap). */
+internal fun sectionMap(e: SpeechSectionEntity): Map<String, Any?> = mapOf(
+    "noteId" to e.noteId,
+    "order" to e.order,
+    "role" to e.role,
+    "title" to e.title,
+    "minutes" to e.minutes,
+    "contentHtml" to e.contentHtml,
+    "bibleRefs" to decodeStringList(e.bibleRefsJson),
+    "publicationRefs" to publicationRefsToDoc(decodePublicationRefList(e.publicationRefsJson)),
+    "methodPrinciple" to e.methodPrinciple,
+    "objective" to e.objective,
+    "agreedApproach" to e.agreedApproach,
+    "approvedAt" to e.approvedAt,
+    "createdAt" to e.createdAt,
+    "updatedAt" to e.updatedAt,
+).filterValues { it != null }
+
+/** Parser inverso defensivo (null-safe em cada campo). */
+internal fun cloudSection(id: String, data: Map<String, Any?>): SpeechSectionEntity =
+    SpeechSectionEntity(
+        id = id,
+        noteId = data["noteId"] as? String ?: "",
+        order = (data["order"] as? Long)?.toInt() ?: 0,
+        role = data["role"] as? String ?: "BODY",
+        title = data["title"] as? String ?: "",
+        minutes = (data["minutes"] as? Long)?.toInt() ?: 0,
+        contentHtml = data["contentHtml"] as? String ?: "",
+        bibleRefsJson = encodeStringList(docToStringList(data["bibleRefs"])),
+        publicationRefsJson = encodePublicationRefList(docToPublicationRefs(data["publicationRefs"])),
+        methodPrinciple = data["methodPrinciple"] as? String,
+        objective = data["objective"] as? String,
+        agreedApproach = data["agreedApproach"] as? String,
+        approvedAt = data["approvedAt"] as? Long,
+        createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
+        updatedAt = (data["updatedAt"] as? Long) ?: System.currentTimeMillis(),
+    )
+
+/** Documento de sub-ponto. O `id` é a chave do doc. */
+internal fun subPointMap(e: SubPointEntity): Map<String, Any?> = mapOf(
+    "sectionId" to e.sectionId,
+    "order" to e.order,
+    "outlineText" to e.outlineText,
+    "developedHtml" to e.developedHtml,
+    "instruction" to e.instruction,
+    "bibleRefs" to decodeStringList(e.bibleRefsJson),
+    "publicationRefs" to publicationRefsToDoc(decodePublicationRefList(e.publicationRefsJson)),
+    "createdAt" to e.createdAt,
+    "updatedAt" to e.updatedAt,
+).filterValues { it != null }
+
+/** Parser inverso defensivo (null-safe em cada campo). */
+internal fun cloudSubPoint(id: String, data: Map<String, Any?>): SubPointEntity =
+    SubPointEntity(
+        id = id,
+        sectionId = data["sectionId"] as? String ?: "",
+        order = (data["order"] as? Long)?.toInt() ?: 0,
+        outlineText = data["outlineText"] as? String ?: "",
+        bibleRefsJson = encodeStringList(docToStringList(data["bibleRefs"])),
+        publicationRefsJson = encodePublicationRefList(docToPublicationRefs(data["publicationRefs"])),
+        instruction = data["instruction"] as? String,
+        developedHtml = data["developedHtml"] as? String ?: "",
+        createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
+        updatedAt = (data["updatedAt"] as? Long) ?: System.currentTimeMillis(),
+    )
+
+private fun publicationRefsToDoc(refs: List<PublicationRef>): List<Map<String, Any?>> =
+    refs.map { r ->
+        buildMap {
+            put("symbol", r.symbol)
+            r.page?.let { put("page", it) }
+            r.paragraph?.let { put("paragraph", it) }
+        }
+    }
+
+private fun docToStringList(v: Any?): List<String> =
+    (v as? List<*>)?.filterIsInstance<String>().orEmpty()
+
+private fun docToPublicationRefs(v: Any?): List<PublicationRef> =
+    (v as? List<*>).orEmpty().mapNotNull { item ->
+        val m = item as? Map<*, *> ?: return@mapNotNull null
+        val symbol = m["symbol"] as? String ?: return@mapNotNull null
+        PublicationRef(
+            symbol = symbol,
+            page = (m["page"] as? Long)?.toInt(),
+            paragraph = (m["paragraph"] as? Long)?.toInt(),
+        )
+    }
 
 /**
  * Filtro de segurança no pull: uma nota local VIVA nunca é lixada por
