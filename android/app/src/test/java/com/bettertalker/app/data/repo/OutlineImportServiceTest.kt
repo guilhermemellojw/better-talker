@@ -9,8 +9,6 @@ import com.bettertalker.app.domain.speech.BodyConversion
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.SectionRole
-import com.bettertalker.app.domain.speech.SectionValidationError
-import com.bettertalker.app.domain.speech.SectionValidationResult
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
 import kotlinx.coroutines.flow.Flow
@@ -138,12 +136,13 @@ class OutlineImportServiceTest {
     }
 
     @Test
-    fun persist_emptyBodies_returnsInvalid_noBody() = runBlocking {
+    fun persist_emptyBodies_persistsEdgesAndReturnsCount() = runBlocking {
         // 3.2.5f-pre: validação informativa — persiste mesmo assim.
+        // F5c: o retorno é o TOTAL persistido (NO_BODY segue detectado
+        // internamente; a detecção é coberta em SpeechSectionValidatorTest).
         val (service, sections, subPoints) = setup()
-        val result = service.persist(conversion(bodies = 0))
-        assertTrue(result is SectionValidationResult.Invalid)
-        assertTrue((result as SectionValidationResult.Invalid).errors.contains(SectionValidationError.NO_BODY))
+        val total = service.persist(conversion(bodies = 0))
+        assertEquals(2, total) // intro + conclusion
         // intro + conclusion persistidos (autonomia: dado não é descartado)
         assertEquals(2, sections.rows.size)
         assertTrue(subPoints.rows.isEmpty())
@@ -152,7 +151,8 @@ class OutlineImportServiceTest {
     @Test
     fun persist_validConversion_persistsAllSectionsAndSubPoints() = runBlocking {
         val (service, sections, subPoints) = setup()
-        service.persist(conversion(bodies = 2, subPerBody = 3))
+        val total = service.persist(conversion(bodies = 2, subPerBody = 3))
+        assertEquals(4, total) // intro + 2 bodies + conclusion
         assertEquals(4, sections.rows.size) // intro + 2 bodies + conclusion
         assertEquals(6, subPoints.rows.size)
         assertEquals(SectionRole.INTRO.name, sections.rows.first { it.id == "a-i" }.role)
@@ -171,12 +171,12 @@ class OutlineImportServiceTest {
     }
 
     @Test
-    fun persist_nonPositiveMinutes_returnsInvalid() = runBlocking {
+    fun persist_nonPositiveMinutes_persistsAndReturnsCount() = runBlocking {
         // 3.2.5f-pre: validação informativa — persiste mesmo assim.
+        // F5c: o retorno é o TOTAL persistido.
         val (service, sections, subPoints) = setup()
-        val result = service.persist(conversion(bodyMinutes = 0))
-        assertTrue(result is SectionValidationResult.Invalid)
-        assertTrue((result as SectionValidationResult.Invalid).errors.contains(SectionValidationError.NON_POSITIVE_MINUTES))
+        val total = service.persist(conversion(bodyMinutes = 0))
+        assertEquals(4, total)
         assertEquals(4, sections.rows.size)
         assertEquals(6, subPoints.rows.size)
     }
@@ -235,7 +235,7 @@ class OutlineImportServiceTest {
     }
 
     @Test
-    fun persist_treasures_withIntroNullButConclusionPresent_returnsInvalid() = runBlocking {
+    fun persist_treasures_withIntroNullButConclusionPresent_persistsAndCounts() = runBlocking {
         val (service, sections, _) = setup()
         // Construção manual inválida: conclusion presente num tipo curto.
         val base = com.bettertalker.app.domain.speech.OutlineConverter().convert(
@@ -256,16 +256,15 @@ class OutlineImportServiceTest {
             ),
         )
         // 3.2.5f-pre: validação informativa — persiste mesmo assim.
-        val result = service.persist(broken)
-        assertTrue(result is SectionValidationResult.Invalid)
-        assertTrue((result as SectionValidationResult.Invalid).errors.contains(SectionValidationError.UNEXPECTED_CONCLUSION))
+        val total = service.persist(broken)
+        assertEquals(2, total) // 1 body + 1 conclusion
         assertEquals(2, sections.rows.size)
     }
 
     // ---------- 3.2.5f-pre: validação não-bloqueante ----------
 
     @Test
-    fun persist_invalidStructure_doesNotThrow_returnsInvalid() = runBlocking {
+    fun persist_invalidStructure_doesNotThrow_countsSections() = runBlocking {
         // 2 BODYs num MINISTRY_PART: inválido, mas persiste (autonomia).
         val (service, sections, _) = setup()
         val bodies = (0 until 2).map { b ->
@@ -276,17 +275,16 @@ class OutlineImportServiceTest {
             "Título", 10, DiscourseType.MINISTRY_PART,
             intro = null, bodies = bodies, conclusion = null,
         )
-        val result = service.persist(conversion)
-        assertTrue(result is SectionValidationResult.Invalid)
-        assertTrue((result as SectionValidationResult.Invalid).errors.contains(SectionValidationError.WRONG_BODY_COUNT))
+        val total = service.persist(conversion)
+        assertEquals(2, total)
         assertEquals(2, sections.rows.size)
     }
 
     @Test
-    fun persist_validStructure_returnsValid() = runBlocking {
+    fun persist_validStructure_returnsSectionCount() = runBlocking {
         val (service, _, _) = setup()
-        val result = service.persist(conversion(bodies = 2, subPerBody = 3))
-        assertEquals(SectionValidationResult.Valid, result)
+        val total = service.persist(conversion(bodies = 2, subPerBody = 3))
+        assertEquals(4, total)
     }
 
     @Test

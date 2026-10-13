@@ -46,6 +46,17 @@ class OutlinePromptBuilderSourceContentTest {
     }
 
     @Test
+    fun semMetodos_espacoAposDoisPontos() {
+        // F5c (cosmético): ": (nenhum fornecido)" nos dois caminhos do prompt.
+        val theme = DefaultOutlinePromptBuilder().build(request(null))
+        val source = DefaultOutlinePromptBuilder().build(request("Conteúdo colado."))
+        assertTrue(theme.contains("aplicar: (nenhum fornecido)"))
+        assertFalse(theme.contains("aplicar:(nenhum fornecido)"))
+        assertTrue(source.contains("aplicar: (nenhum fornecido)"))
+        assertFalse(source.contains("aplicar:(nenhum fornecido)"))
+    }
+
+    @Test
     fun sourceContent_truncadoEm12k() {
         val long = "x".repeat(DefaultOutlinePromptBuilder.MAX_SOURCE_CHARS + 500)
         val prompt = DefaultOutlinePromptBuilder().build(request(long))

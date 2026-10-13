@@ -31,8 +31,13 @@ interface DossierPromptBuilder {
      *
      * Enxuto por role (F2b): BODY vê só a seção alvo; INTRO/CONCLUSION
      * veem o overview resumido de todas.
+     *
+     * F5c: `includeSpeakerNote = false` omite "## ORIENTAÇÃO DO ORADOR"
+     * quando o bloco estrutural do S-34 já carrega a orientação (evita a
+     * mesma instrução em dois blocos do mesmo prompt). Draft/mini discurso
+     * mantêm o default `true`.
      */
-    fun buildContextBlock(dossier: Dossier): String
+    fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean = true): String
 
     /**
      * F2.3: prompt de redação do mini discurso do tópico. Texto puro (sem
@@ -66,9 +71,9 @@ class DefaultDossierPromptBuilder(
         }.trim()
     }
 
-    override fun buildContextBlock(dossier: Dossier): String {
+    override fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean): String {
         return buildString {
-            appendContext(dossier)
+            appendContext(dossier, includeSpeakerNote)
         }.trim()
     }
 
@@ -92,9 +97,9 @@ class DefaultDossierPromptBuilder(
         }.trim()
     }
 
-    private fun StringBuilder.appendContext(d: Dossier) {
+    private fun StringBuilder.appendContext(d: Dossier, includeSpeakerNote: Boolean = true) {
         appendDiscourse(d)
-        appendSpeakerNote(d)
+        if (includeSpeakerNote) appendSpeakerNote(d)
         appendSection(d)
         appendAgreedApproach(d)
         appendOverview(d)

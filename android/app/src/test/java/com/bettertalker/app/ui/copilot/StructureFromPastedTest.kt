@@ -255,6 +255,32 @@ class StructureFromPastedTest {
         assertTrue(bodies.all { b -> subPointDao.rows.any { it.sectionId == b.id } })
     }
 
+    // ---------- F5c: contagem real no notice do aceite ----------
+
+    @Test
+    fun aceitar_noticeUsaContagemRealDeSecoes() = runBlocking {
+        val sectionDao = FakeSectionDao()
+        val service = OutlineImportService(FakeTransactionRunner(), sectionDao, FakeSubPointDao())
+        val four = proposal().copy(
+            sections = listOf(
+                plan("Abertura", 10, listOf("João 3:16")),
+                plan("Desenvolvimento", 8),
+                plan("Aplicação", 6, listOf("Salmo 37:29")),
+                plan("Encerramento", 6),
+            ),
+        )
+        val ui = uiFor(four)
+        val decision = decideNoteStructureAccept(ui, ui.noteBaseHash)
+        assertTrue(decision is NoteStructureAcceptDecision.Apply)
+        val total = service.persist(
+            (decision as NoteStructureAcceptDecision.Apply).conversion,
+            DiscourseType.S34_DISCOURSE,
+        )
+        // 4 seções do plano + intro + conclusão sintetizadas pelo converter.
+        assertEquals(6, total)
+        assertEquals("Estrutura aplicada. 6 seções criadas.", structureAppliedNotice(total))
+    }
+
     // ---------- 9. nota alterada → obsoleta, não aplica ----------
 
     @Test

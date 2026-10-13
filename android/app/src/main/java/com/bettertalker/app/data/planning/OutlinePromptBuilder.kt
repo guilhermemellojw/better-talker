@@ -32,7 +32,7 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
                 if (it.paragraph != null) append(" §${it.paragraph}")
             }
         }
-        val methods = if (request.methodPrinciples.isEmpty()) "(nenhum fornecido)"
+        val methods = if (request.methodPrinciples.isEmpty()) " (nenhum fornecido)"
         else request.methodPrinciples.joinToString("\n- ", prefix = "\n- ")
         return """
             Gere um esboço de discurso em português (PT-BR).
@@ -85,7 +85,7 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
                 if (it.paragraph != null) append(" §${it.paragraph}")
             }
         }
-        val methods = if (request.methodPrinciples.isEmpty()) "(nenhum fornecido)"
+        val methods = if (request.methodPrinciples.isEmpty()) " (nenhum fornecido)"
         else request.methodPrinciples.joinToString("\n- ", prefix = "\n- ")
         return """
             Estruture este conteúdo em seções com tempos e textos-âncora.

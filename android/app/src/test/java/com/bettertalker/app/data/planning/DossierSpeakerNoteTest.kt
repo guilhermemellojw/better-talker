@@ -52,4 +52,28 @@ class DossierSpeakerNoteTest {
                 .contains("ORIENTAÇÃO DO ORADOR"),
         )
     }
+
+    // ---------- F5c: flag de dedupe no chat ----------
+
+    @Test
+    fun flagFalse_omiteBlocoMesmoComNota() {
+        val out = DefaultDossierPromptBuilder().buildContextBlock(
+            dossier("Não conte histórias sobre os demônios."),
+            includeSpeakerNote = false,
+        )
+        assertFalse(out.contains("ORIENTAÇÃO DO ORADOR"))
+        assertFalse(out.contains("Não conte histórias sobre os demônios."))
+        // O resto do contexto continua presente.
+        assertTrue(out.contains("## SEÇÃO ATUAL"))
+    }
+
+    @Test
+    fun flagTrueExplicita_mantemBloco() {
+        val out = DefaultDossierPromptBuilder().buildContextBlock(
+            dossier("Fale com bondade e convicção."),
+            includeSpeakerNote = true,
+        )
+        assertTrue(out.contains("## ORIENTAÇÃO DO ORADOR (do esboço)"))
+        assertTrue(out.contains("Fale com bondade e convicção."))
+    }
 }

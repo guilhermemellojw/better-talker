@@ -6,7 +6,6 @@ import com.bettertalker.app.data.db.TransactionRunner
 import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
-import com.bettertalker.app.domain.speech.SectionValidationResult
 import com.bettertalker.app.domain.speech.SpeechSectionValidator
 
 /**
@@ -22,8 +21,9 @@ import com.bettertalker.app.domain.speech.SpeechSectionValidator
  * Invariantes aplicadas:
  * - A lista completa de seções (intro + bodies + conclusion) é validada via
  *   [SpeechSectionValidator] (≥1 BODY, ≤1 INTRO, ≤1 CONCLUSION, minutes > 0).
- * - 3.2.5f-pre: a validação é INFORMATIVA, não bloqueante — o resultado é
- *   retornado ao caller (a UI alerta sem impedir a edição).
+ * - 3.2.5f-pre: a validação é INFORMATIVA, não bloqueante — o editor
+ *   revalida ao observar o banco e mostra o alerta (F5c: o retorno passou a
+ *   ser a CONTAGEM de seções persistidas, para avisos com número real).
  *
  * @param transactionRunner runner injetável (Room em produção, fake em teste)
  * @param sectionDao DAO de seções
@@ -48,12 +48,13 @@ class OutlineImportService(
      * num MINISTRY_PART), o dado é persistido mesmo assim — o usuário é
      * dono do documento. A UI deve mostrar o alerta quando apropriado.
      *
-     * @return o resultado da validação, para o caller decidir como alertar.
+     * @return o total de seções persistidas (intro + bodies + conclusão),
+     *   para o chamador compor avisos com a contagem real (F5c).
      */
     suspend fun persist(
         conversion: OutlineConversion,
         discourseType: DiscourseType = conversion.discourseType,
-    ): SectionValidationResult {
+    ): Int {
         // 1. Lista completa de seções (intro? + bodies + conclusion?).
         val allSections = buildList {
             conversion.intro?.let { add(it) }
@@ -61,8 +62,9 @@ class OutlineImportService(
             conversion.conclusion?.let { add(it) }
         }
 
-        // 2. Validação de domínio (regras do [discourseType]) — informativa.
-        val validationResult = SpeechSectionValidator.validate(allSections, discourseType)
+        // 2. Validação de domínio (regras do [discourseType]) — informativa:
+        //    roda para consistência; o editor revalida ao observar o banco.
+        SpeechSectionValidator.validate(allSections, discourseType)
 
         // 3. Sub-pontos de todos os bodies.
         val allSubPoints = conversion.bodies.flatMap { it.subPoints }
@@ -85,6 +87,6 @@ class OutlineImportService(
                 subPointDao.upsertAll(allSubPoints.map { it.toEntity() })
             }
         }
-        return validationResult
+        return allSections.size
     }
 }

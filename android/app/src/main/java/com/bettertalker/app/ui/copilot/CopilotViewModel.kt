@@ -14,6 +14,7 @@ import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
+import com.bettertalker.app.data.copilot.OutlineStructureContext
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
@@ -1168,7 +1169,6 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 null
             }
             lastDossier = dossier
-            val contextBlock = dossier?.let { dossierPromptBuilder.buildContextBlock(it) }
             val blockText = currentFocusText()
             post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
             _chatBusy.value = true
@@ -1236,6 +1236,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
             val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
+            // F5c: dedupe da ORIENTAÇÃO DO ORADOR — o dossiê só a repete
+            // quando o bloco estrutural do S-34 (que já a carrega) não está
+            // presente neste turno.
+            val contextBlock = dossier?.let {
+                dossierPromptBuilder.buildContextBlock(
+                    it,
+                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                )
+            }
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
             // F20-D: roteamento natural ANTES do chat — oratória, consulta
@@ -2076,7 +2085,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         editMode = mode,
                         brief = brief,
                         // F2b: dossiê do último send() (a proposta nasce do turno).
-                        contextBlock = lastDossier?.let { dossierPromptBuilder.buildContextBlock(it) },
+                        // F5c: dedupe da ORIENTAÇÃO DO ORADOR (igual ao send()).
+                        contextBlock = lastDossier?.let {
+                            dossierPromptBuilder.buildContextBlock(
+                                it,
+                                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                            )
+                        },
                     ))
                 }
                 android.util.Log.e("CopilotLLM", "proposal generated len=" + res.text.length +
@@ -2438,10 +2453,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_STALE_NOTICE)
                 is NoteStructureAcceptDecision.Apply -> {
                     try {
-                        outlineImportService.persist(d.conversion, DiscourseType.S34_DISCOURSE)
+                        // F5c: contagem REAL (intro + bodies + conclusão).
+                        val total = outlineImportService.persist(
+                            d.conversion,
+                            DiscourseType.S34_DISCOURSE,
+                        )
                         _noteStructureProposal.value = ui.copy(
                             applied = true,
-                            notice = "Estrutura aplicada. ${ui.sections.size} seções criadas.",
+                            notice = structureAppliedNotice(total),
                         )
                     } catch (_: Exception) {
                         _noteStructureProposal.value = ui.copy(notice = NOTE_STRUCTURE_FAILED_NOTICE)
@@ -3530,10 +3549,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 preamble = _draftPreamble.value,
                 noteId = nid,
             )
-            // 3.2.5f-pre: validação informativa (não bloqueia); o EditorViewModel
-            // revalida ao observar as seções e mostra o aviso quando a nota abrir.
-            @Suppress("UNUSED_VARIABLE")
-            val validationResult = outlineImportService.persist(
+            // F5c: persist devolve o total de seções persistidas (contagem);
+            // a validação segue informativa e o EditorViewModel revalida ao
+            // observar as seções, mostrando o aviso quando a nota abrir.
+            outlineImportService.persist(
                 conversion,
                 com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE,
             )
@@ -4247,6 +4266,19 @@ internal fun structurePastedEmptyError(sourceText: String): String? =
 /** Erro de alvo para `structureFromPasted`: null = foco válido em seção. Puro. */
 internal fun structurePastedTargetError(target: DraftTarget?): String? =
     if (target is DraftTarget.Section) null else STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE
+
+/** F5c: aviso de aceite com a contagem REAL de seções persistidas. Puro. */
+internal fun structureAppliedNotice(totalSections: Int): String =
+    "Estrutura aplicada. $totalSections seções criadas."
+
+/**
+ * F5c: o dossiê deve repetir a ORIENTAÇÃO DO ORADOR? Não quando o bloco
+ * estrutural do S-34 já a carrega (a mesma instrução não aparece em dois
+ * blocos do mesmo prompt). Sem bloco estrutural — ou sem nota — o dossiê
+ * mantém a orientação. Puro/testável.
+ */
+internal fun dossierSpeakerNoteIncluded(structural: OutlineStructureContext?): Boolean =
+    structural?.speakerNote.isNullOrBlank()
 
 /**
  * F5b: monta o pedido de estruturação do texto colado. Refs bíblicas e de
