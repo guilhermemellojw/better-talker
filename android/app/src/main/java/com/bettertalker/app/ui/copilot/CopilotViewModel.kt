@@ -86,6 +86,7 @@ import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.OutlineConversion
 import com.bettertalker.app.domain.speech.OutlineConverter
 import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.domain.speech.SubPoint
 import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -2316,10 +2317,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         }
         val principles = dossierProvider?.invoke(DraftTarget.Section(sectionId))
             ?.methodPrinciples.orEmpty()
+        // E2E: refs do #3c vêm também dos sub-pontos (é onde o esboço as
+        // guarda); a seção só costuma ter refs depois de um aceite anterior.
+        val subPoints = db.subPointDao().forSection(sectionId).map { it.toDomain() }
         val generator = com.bettertalker.app.data.planning.OutlineGeneratorImpl(
             ProviderFactory.createFor(remote, app)
         )
-        val request = buildStructureRequest(section, principles)
+        val request = buildStructureRequest(section, principles, subPoints = subPoints)
         val proposal = try {
             generator.generate(request)
         } catch (_: Exception) {
@@ -4266,16 +4270,31 @@ internal fun buildStructureRequest(
     section: SpeechSection,
     methodPrinciples: List<String> = emptyList(),
     id: String = newId("sgen"),
-): OutlineGenerationRequest = OutlineGenerationRequest(
-    id = id,
-    theme = section.title,
-    totalMinutes = section.minutes,
-    audience = Audience.GENERAL,
-    angle = OutlineAngle.PRACTICAL,
-    bibleRefs = section.bibleRefs,
-    publicationRefs = section.publicationRefs,
-    methodPrinciples = methodPrinciples,
-)
+    subPoints: List<SubPoint> = emptyList(),
+): OutlineGenerationRequest {
+    // E2E (device): no nível da seção, as refs do esboço vivem nos
+    // SUB-PONTOS — agregar (ordem de aparição, trim, dedupe), MESMO padrão
+    // do DossierBuilder. Sem isto o validador barra a proposta do #3c
+    // ("A estrutura veio incompleta") em qualquer seção criada pelo app.
+    val subs = subPoints.sortedBy { it.order }
+    val bible = (section.bibleRefs + subs.flatMap { it.bibleRefs })
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+    val pubs = (section.publicationRefs + subs.flatMap { it.publicationRefs })
+        .filter { it.symbol.isNotBlank() }
+        .distinct()
+    return OutlineGenerationRequest(
+        id = id,
+        theme = section.title,
+        totalMinutes = section.minutes,
+        audience = Audience.GENERAL,
+        angle = OutlineAngle.PRACTICAL,
+        bibleRefs = bible,
+        publicationRefs = pubs,
+        methodPrinciples = methodPrinciples,
+    )
+}
 
 /**
  * Escolhe o plano da seção focada dentro da proposta: melhor casamento de

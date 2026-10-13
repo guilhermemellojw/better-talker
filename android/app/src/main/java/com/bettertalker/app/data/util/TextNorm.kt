@@ -407,3 +407,33 @@ fun stripXml(raw: String): String =
  */
 fun htmlToPlainText(s: String): String =
     s.replace(Regex("<[^>]+>"), " ")
+
+/**
+ * F5f (E2E): remove wrappers de tag que o LLM às vezes inventa em campos de
+ * TEXTO ("<sugestão>…</sugestão>", "<resumo>…"), preservando o conteúdo.
+ *
+ * - Pares `<tag>…</tag>` são removidos repetidamente (cobre aninhamento
+ *   simplório: `<a><b>x</b></a>` → `x`).
+ * - Tags órfãs (abertura/fechamento sem par) são removidas — cobre o
+ *   `</sugestão>` solto observado no device.
+ * - Aceita acentos no nome da tag (a real é "sugestão"); NÃO é um parser
+ *   HTML: texto entre tags não pareadas é preservado.
+ */
+fun stripPromptTags(s: String): String {
+    var out = s
+    var guard = 0
+    while (guard < 5) {
+        val next = PROMPT_TAG_PAIR.replace(out) { m -> m.groupValues[1] }
+        if (next == out) break
+        out = next
+        guard++
+    }
+    return PROMPT_TAG_STRAY.replace(out, "").trim()
+}
+
+private val PROMPT_TAG_PAIR = Regex(
+    "<[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>(.*?)</[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>",
+    RegexOption.DOT_MATCHES_ALL,
+)
+
+private val PROMPT_TAG_STRAY = Regex("</?[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>")

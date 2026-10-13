@@ -55,6 +55,25 @@ class DefaultOutlineResponseParserTest {
     }
 
     @Test
+    fun camposComTagsDoModelo_sanitizados() {
+        // F5f (E2E): wrappers inventados pelo modelo e fechamento órfão.
+        val json = """
+            {"title":"<sugestão>Ressurreição segura</sugestão>",
+            "summary":"Resumo. </sugestão>",
+            "sections":[
+            {"title":"<b>INTRODUÇÃO</b>","minutes":3,"mainIdea":"<sugestão>Gancho</sugestão>",
+             "bibleRefs":["João 5:28,29"],"publicationRefs":[],"methodPrinciple":"<m>Ilustre</m>"}
+            ]}
+        """.trimIndent()
+        val proposal = parser.parse(json, request()) ?: return
+        assertEquals("Ressurreição segura", proposal.title)
+        assertEquals("Resumo.", proposal.summary)
+        assertEquals("INTRODUÇÃO", proposal.sections[0].title)
+        assertEquals("Gancho", proposal.sections[0].mainIdea)
+        assertEquals("Ilustre", proposal.sections[0].methodPrinciple)
+    }
+
+    @Test
     fun missingTitle_returnsNull() {
         assertNull(parser.parse("""{"summary":"s","sections":[]}""", request()))
     }

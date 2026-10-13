@@ -2,6 +2,7 @@ package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.llm.JsonCodec
 import com.bettertalker.app.domain.planning.OutlineGenerationRequest
+import com.bettertalker.app.data.util.stripPromptTags
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
@@ -45,8 +46,12 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
         val root = rootObject(jsonText) ?: return null
         val sectionsSpan = arraySpan(root, "sections") ?: return null
         val head = root.substring(0, sectionsSpan.start) + root.substring(sectionsSpan.end)
-        val title = stringField(head, "title")?.ifBlank { return null } ?: return null
-        val summary = stringField(head, "summary")?.ifBlank { return null } ?: return null
+        // F5f (E2E): o modelo às vezes embrulha o texto em tags próprias
+        // ("<sugestão>…</sugestão>") — sanitizar antes de aceitar o campo.
+        val title = stringField(head, "title")?.let { stripPromptTags(it) }
+            ?.ifBlank { return null } ?: return null
+        val summary = stringField(head, "summary")?.let { stripPromptTags(it) }
+            ?.ifBlank { return null } ?: return null
         val sections = splitObjects(root.substring(sectionsSpan.start, sectionsSpan.end))
             .map { parseSection(it, request) ?: return null }
         return OutlineProposal(
@@ -61,12 +66,14 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
     }
 
     private fun parseSection(raw: String, request: OutlineGenerationRequest): SectionPlan? {
-        val title = stringField(raw, "title") ?: return null
+        // F5f (E2E): campos de TEXTO passam por stripPromptTags; refs
+        // (estruturadas) não.
+        val title = stringField(raw, "title")?.let { stripPromptTags(it) } ?: return null
         val minutes = intField(raw, "minutes") ?: return null
-        val mainIdea = stringField(raw, "mainIdea") ?: return null
+        val mainIdea = stringField(raw, "mainIdea")?.let { stripPromptTags(it) } ?: return null
         val refs = stringArray(raw, "bibleRefs") ?: return null
         val pubs = objectArray(raw, "publicationRefs") ?: return null
-        val method = stringField(raw, "methodPrinciple")
+        val method = stringField(raw, "methodPrinciple")?.let { stripPromptTags(it) }
         val keptRefs = refs.filter { it in request.bibleRefs }
         val allowedSymbols = request.publicationRefs.map { it.symbol }.toSet()
         val keptPubs = pubs.mapNotNull { parsePublicationRef(it) }
