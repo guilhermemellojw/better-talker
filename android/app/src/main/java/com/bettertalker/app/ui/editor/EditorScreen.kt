@@ -4,7 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,7 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
@@ -51,16 +54,17 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -136,6 +140,10 @@ fun EditorScreen(
     onAttach: () -> Unit,
     onOpenChat: () -> Unit,
     onOpenStage: () -> Unit,
+    // #7e2: empty state — o pipeline de esboço/paste vive no chat
+    // (CopilotViewModel); a tela só dispara.
+    onImportOutline: (Uri) -> Unit,
+    onPasteOutline: (String) -> Unit,
 ) {
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
@@ -163,10 +171,23 @@ fun EditorScreen(
     var showAttachmentsSheet by remember { mutableStateOf(false) }
     // Exportação: sheet com Compartilhar / Salvar PDF / Copiar texto.
     var showExport by remember { mutableStateOf(false) }
+    // #7e2: empty state — "Colar texto" e o menu do "Começar do zero".
+    var showPasteDialog by remember { mutableStateOf(false) }
+    var showAddSectionMenu by remember { mutableStateOf(false) }
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var showOutlineDialog by remember { mutableStateOf(false) }
+    // #7e2: "Anexar esboço" reusa o pipeline do chat — mesmo contrato do
+    // picker do ChatScreen (OpenDocument → CopilotViewModel.importOutlineFile).
+    val outlinePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            onImportOutline(uri)
+            onOpenChat()
+        }
+    }
     // Modo guiado seção-a-seção: rolagem até o card focado pelo chat.
     // Sem LazyColumn (o Column atual preserva o estado dos editores):
     // o ScrollState é içado e cada card registra seu Y no conteúdo.
@@ -237,7 +258,13 @@ fun EditorScreen(
     var activeEditorKey by remember { mutableStateOf<String?>(null) }
 
     // 3.2.5g.2: preview esconde a toolbar — não deixar picker ativo vazar.
-    LaunchedEffect(preview) { if (preview) activePicker = null }
+    // #7e2: o menu do empty state também não pode ressurgir depois.
+    LaunchedEffect(preview) {
+        if (preview) {
+            activePicker = null
+            showAddSectionMenu = false
+        }
+    }
 
     // 3.2.5e: inserts programáticos (Copilot/atalhos) são consumidos pelos
     // cards via sectionPendingInserts; a fila legada foi removida do VM.
@@ -359,26 +386,6 @@ fun EditorScreen(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    // T1 — aguarda o push concluir antes de navegar (mesma
-                    // race residual do botão do card, corrigida no T3).
-                    scope.launch {
-                        vm.pushContextForChat(
-                            targetFromEditorKey(activeEditorKey) { subPointId ->
-                                sections.firstOrNull { s ->
-                                    s.subPoints.any { it.id == subPointId }
-                                }?.section?.id
-                            }
-                        )
-                        onOpenChat()
-                    }
-                }
-            ) {
-                Icon(Icons.Default.AutoAwesome, "Conversar com o Copilot")
-            }
-        },
         topBar = {
             TopAppBar(
                 scrollBehavior = scrollBehavior,
@@ -728,25 +735,75 @@ fun EditorScreen(
             }
 
             if (sections.isEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // #7e2: dois caminhos — importar esboço (arquivo/colar) ou
+                // montar do zero (menu de roles). O FAB não existe mais.
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                         Text(
                             "Comece a montar seu discurso",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(Modifier.height(6.dp))
                         Text(
-                            "Adicione uma introdução, os tópicos de desenvolvimento e a conclusão.",
-                            style = MaterialTheme.typography.bodySmall,
+                            "Importe um esboço ou monte o seu do zero.",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
+
+                        Spacer(Modifier.height(12.dp))
+
                         if (!preview) {
-                            Spacer(Modifier.height(16.dp))
-                            AddSectionButton(
-                                onAdd = { role -> vm.addSection(role, afterSectionId = null) },
-                                modifier = Modifier.padding(horizontal = 32.dp),
-                            )
+                            Button(
+                                onClick = { outlinePicker.launch(arrayOf("*/*")) },
+                                modifier = Modifier.fillMaxWidth(0.85f),
+                            ) {
+                                Icon(Icons.Default.AttachFile, null, Modifier.size(20.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Column(horizontalAlignment = Alignment.Start) {
+                                    Text(
+                                        "Anexar esboço",
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        "Importar arquivo ou colar texto",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                            }
+                            Box {
+                                OutlinedButton(
+                                    onClick = { showAddSectionMenu = true },
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                ) {
+                                    Icon(Icons.Default.Add, null, Modifier.size(20.dp))
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(horizontalAlignment = Alignment.Start) {
+                                        Text(
+                                            "Começar do zero",
+                                            style = MaterialTheme.typography.titleSmall,
+                                        )
+                                        Text(
+                                            "Adicionar introdução, tópicos e conclusão",
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+                                AddSectionMenu(
+                                    expanded = showAddSectionMenu,
+                                    onDismiss = { showAddSectionMenu = false },
+                                    onAdd = { role -> vm.addSection(role, afterSectionId = null) },
+                                )
+                            }
+                            TextButton(onClick = { showPasteDialog = true }) {
+                                Text("Colar texto", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }
@@ -908,6 +965,40 @@ fun EditorScreen(
             },
         )
     }
+
+    // #7e2: "Colar texto" do empty state — mesmo pipeline do chat
+    // (CopilotViewModel.pasteOutline). "Analisar" segue para o chat, onde o
+    // rascunho do esboço é exibido.
+    if (showPasteDialog) {
+        var pasteText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showPasteDialog = false },
+            title = { Text("Colar esboço") },
+            text = {
+                OutlinedTextField(
+                    value = pasteText,
+                    onValueChange = { pasteText = it },
+                    minLines = 6,
+                    maxLines = 15,
+                    placeholder = { Text("Cole aqui o texto do esboço ou da publicação...") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val t = pasteText
+                    showPasteDialog = false
+                    if (t.isNotBlank()) {
+                        onPasteOutline(t)
+                        onOpenChat()
+                    }
+                }) { Text("Analisar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteDialog = false }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 /** 3.2.5g.3: bolinha de cor da nota (dialog do ⋮; sem swatch de "limpar"). */
@@ -976,8 +1067,8 @@ private fun SpeakerNotesBlock(notes: String) {
 
 /**
  * 3.2.5f.2b: botão "Adicionar seção" com dropdown de role
- * (INTRO/BODY/CONCLUSION). Usado no fim da lista de seções e no empty
- * state (reuso). O caller decide se aparece (fora do preview).
+ * (INTRO/BODY/CONCLUSION). Usado no fim da lista de seções. O caller
+ * decide se aparece (fora do preview).
  */
 @Composable
 private fun AddSectionButton(
@@ -994,13 +1085,30 @@ private fun AddSectionButton(
             Spacer(Modifier.width(4.dp))
             Text("Adicionar parte")
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            SectionRole.values().forEach { role ->
-                DropdownMenuItem(
-                    text = { Text(friendlyRoleMenuLabel(role)) },
-                    onClick = { onAdd(role); menuOpen = false },
-                )
-            }
+        AddSectionMenu(
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            onAdd = onAdd,
+        )
+    }
+}
+
+/**
+ * #7e2: dropdown de roles extraído para reuso — empty state ("Começar do
+ * zero") e fim da lista (AddSectionButton).
+ */
+@Composable
+private fun AddSectionMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onAdd: (SectionRole) -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        SectionRole.values().forEach { role ->
+            DropdownMenuItem(
+                text = { Text(friendlyRoleMenuLabel(role)) },
+                onClick = { onAdd(role); onDismiss() },
+            )
         }
     }
 }
