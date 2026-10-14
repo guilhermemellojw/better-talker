@@ -36,7 +36,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -140,6 +142,8 @@ fun ChatScreen(
     val chatScope by vm.chatScope.collectAsState()
     // Modo guiado seção-a-seção: seções reais do editor (navegação + indicador).
     val guideSections by vm.guideSections.collectAsState()
+    // #10c: escopo do chat (Tópico ↔ Discurso inteiro).
+    val scopeMode by vm.scopeMode.collectAsState()
     val guideIndex = remember(guideSections, chatScope) {
         guideSections.indexOfFirst { it.id == chatScope }
     }
@@ -387,18 +391,34 @@ fun ChatScreen(
                 }
                 // Modo guiado seção-a-seção: barra fixa com o tópico em foco,
                 // gate de aprovação e navegação (mesma lógica dos comandos).
-                guideCurrent?.let { sec ->
-                    GuideBar(
-                        label = guideStripLabel(
-                            index = guideIndex,
-                            total = guideSections.size,
-                            title = sec.title,
-                            minutes = sec.minutes,
-                        ),
-                        approved = sec.approvedAt != null,
-                        onPrev = vm::previousSection,
-                        onNext = { vm.nextSection() },
-                        onApprove = vm::approveCurrentSection,
+                // #10c: escopo do chat — em Discurso inteiro a barra some e só
+                // o chip fica; em Tópico, barra + chip lado a lado.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    val sec = guideCurrent
+                    if (scopeMode == ScopeMode.SECTION && sec != null) {
+                        Box(Modifier.weight(1f)) {
+                            GuideBar(
+                                label = guideStripLabel(
+                                    index = guideIndex,
+                                    total = guideSections.size,
+                                    title = sec.title,
+                                    minutes = sec.minutes,
+                                ),
+                                approved = sec.approvedAt != null,
+                                onPrev = vm::previousSection,
+                                onNext = { vm.nextSection() },
+                                onApprove = vm::approveCurrentSection,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    ScopeChip(
+                        whole = scopeMode == ScopeMode.WHOLE,
+                        onClick = vm::toggleScope,
+                        modifier = Modifier.padding(end = 4.dp),
                     )
                 }
                 LazyColumn(
@@ -1293,4 +1313,28 @@ private fun GuideBar(
             Icon(Icons.AutoMirrored.Filled.ArrowForward, "Próxima seção")
         }
     }
+}
+
+/**
+ * #10c — chip do escopo do chat: "Tópico" (default) ↔ "Discurso inteiro".
+ * Um toque alterna; em WHOLE a GuideBar some e a escrita pede o tópico.
+ */
+@Composable
+private fun ScopeChip(
+    whole: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(if (whole) "Discurso inteiro" else "Tópico") },
+        leadingIcon = {
+            Icon(
+                Icons.Default.SwapHoriz,
+                null,
+                modifier = Modifier.size(16.dp),
+            )
+        },
+        modifier = modifier,
+    )
 }

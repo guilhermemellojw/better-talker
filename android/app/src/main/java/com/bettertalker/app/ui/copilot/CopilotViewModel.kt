@@ -769,6 +769,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private var _pushedContext: ChatContext? = null
 
     /**
+     * #10c: último tópico focado — alvo do retorno quando o escopo volta de
+     * "Discurso inteiro" para "Tópico".
+     */
+    private var _lastFocusedSectionId: String? = null
+
+    /** #10c: escopo do chat — Tópico (default) ou Discurso inteiro. */
+    private val _scopeMode = MutableStateFlow(ScopeMode.SECTION)
+    val scopeMode: StateFlow<ScopeMode> = _scopeMode.asStateFlow()
+
+    /**
      * F2.3: escopo da conversa atual. `null` = conversa global da nota;
      * caso contrário, o id da seção/tópico em foco. Mensagens de um tópico
      * não vazam para o histórico de outro.
@@ -793,6 +803,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         _pushedContext = ctx
         // F2.3: a conversa segue o foco (tópico vs. global).
         _chatScope.value = ctx?.sectionId
+        // #10c: entrada com tópico redefine o escopo para SECTION e memoriza
+        // o último foco (alvo do toggle de volta).
+        if (ctx?.sectionId != null) {
+            _lastFocusedSectionId = ctx.sectionId
+            _scopeMode.value = ScopeMode.SECTION
+        }
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
         _setupBannerDismissed.value = false
@@ -814,6 +830,39 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     /** Rótulo do alvo empurrado ("Conversando sobre: …"). Null = sem header. */
     private val _conversationLabel = MutableStateFlow<String?>(null)
     val conversationLabel: StateFlow<String?> = _conversationLabel.asStateFlow()
+
+    /**
+     * #10c — alterna o escopo do chat: Tópico ↔ Discurso inteiro.
+     *
+     * - SECTION → WHOLE: some o foco (histórico global da nota; GuideBar some).
+     * - WHOLE → SECTION: volta ao último tópico focado (ou à 1ª seção da nota);
+     *   sem seções, permanece em WHOLE.
+     */
+    fun toggleScope() = viewModelScope.launch {
+        if (_scopeMode.value == ScopeMode.SECTION) {
+            _scopeMode.value = ScopeMode.WHOLE
+            _chatScope.value = null
+            _pushedContext = null
+            return@launch
+        }
+        val target = scopeRestoreTarget(
+            lastFocused = _lastFocusedSectionId,
+            sectionIds = _guideSections.value.map { it.id },
+        ) ?: return@launch
+        setPushedContext(
+            ChatContext(
+                sectionId = target,
+                subPointId = null,
+                readiness = _readiness.value ?: com.bettertalker.app.ui.editor.NoteReadiness(
+                    hasSections = _guideSections.value.isNotEmpty(),
+                    hasOutline = false,
+                    hasMissingRefs = false,
+                    hasMissingBases = false,
+                    hasChatHistory = true,
+                ),
+            )
+        )
+    }
 
     // ---------- Modo guiado seção-a-seção: foco real ----------
 
@@ -942,6 +991,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      */
     private suspend fun resolveSectionNav(text: String): Boolean {
         if (_chatScope.value == null) {
+            // #10c: em Discurso inteiro, navegação pede o escopo de tópico.
+            if (_scopeMode.value == ScopeMode.WHOLE &&
+                (isForceNextCommand(text) || isNextCommand(text) || isPrevCommand(text))
+            ) {
+                postText(SCOPE_WHOLE_NAV_NOTICE)
+                return true
+            }
             if (isApproveCommand(text)) return approveCurrentSectionNow()
             return false
         }
@@ -2725,6 +2781,14 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * Determinístico: nunca vai ao LLM. Retorna true se consumiu a mensagem.
      */
     private suspend fun resolveInsertCommand(text: String): Boolean {
+        // #10c: escrita ancora em seção — em Discurso inteiro, orienta trocar
+        // (cobre recortes e o fluxo anafórico).
+        val writeIntent = parseInsertSnippet(text) != null ||
+            com.bettertalker.app.data.copilot.ChatRouter.isInsertIntoSpeechCommand(text)
+        scopeBlockedNotice(_scopeMode.value, insert = writeIntent, nav = false)?.let {
+            postText(it)
+            return true
+        }
         // #8c (GAP-2): recorte por comando — "insira a opção 2", "insira a 3",
         // "insira o parágrafo 1", "insira de X a Y", "insira só isso".
         val snippet = parseInsertSnippet(text)
@@ -4231,6 +4295,31 @@ const val GUIDE_NEEDS_APPROVAL_MESSAGE =
     "Esta seção ainda não foi aprovada. Aprove antes de avançar, ou diga 'forçar próximo'."
 const val GUIDE_NO_NEXT_MESSAGE = "Não há próxima seção."
 const val GUIDE_NO_PREV_MESSAGE = "Não há seção anterior."
+
+/** #10c: escopo do chat — Tópico (default) ou Discurso inteiro. */
+enum class ScopeMode { SECTION, WHOLE }
+
+/** #10c: avisos do escopo Discurso inteiro (escrita/navegação pedem tópico). */
+const val SCOPE_WHOLE_INSERT_NOTICE = "Mude o escopo para Tópico para inserir no card."
+const val SCOPE_WHOLE_NAV_NOTICE = "Mude o escopo para Tópico para navegar entre seções."
+
+/**
+ * #10c: alvo do retorno WHOLE→SECTION — último foco válido ou 1ª seção da
+ * nota; null = sem seções (permanece em WHOLE). Puro/testável.
+ */
+internal fun scopeRestoreTarget(lastFocused: String?, sectionIds: List<String>): String? =
+    lastFocused?.takeIf { it in sectionIds } ?: sectionIds.firstOrNull()
+
+/**
+ * #10c: aviso quando o escopo WHOLE bloqueia a ação; null = segue normal.
+ * Puro/testável.
+ */
+internal fun scopeBlockedNotice(mode: ScopeMode, insert: Boolean, nav: Boolean): String? = when {
+    mode != ScopeMode.WHOLE -> null
+    insert -> SCOPE_WHOLE_INSERT_NOTICE
+    nav -> SCOPE_WHOLE_NAV_NOTICE
+    else -> null
+}
 const val GUIDE_NO_FOCUS_MESSAGE = "Abra um tópico no editor para navegar entre seções."
 
 /**
