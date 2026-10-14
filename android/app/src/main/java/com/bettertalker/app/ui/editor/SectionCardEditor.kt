@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.util.headingOffset
@@ -132,6 +134,8 @@ fun SectionCardEditor(
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
     // #7d3b: o título virou Text herói — a edição acontece por diálogo.
     var showTitleDialog by remember(state.section.id) { mutableStateOf(false) }
+    // #7d3b-b: o chip de minutos do rodapé abre diálogo de edição.
+    var showMinutesDialog by remember(state.section.id) { mutableStateOf(false) }
 
     val isBody = state.section.role == SectionRole.BODY
 
@@ -324,7 +328,11 @@ fun SectionCardEditor(
                     )
                     Spacer(Modifier.weight(1f))
                     if (isBody && state.section.minutes > 0) {
+                        // #7d3b-b: toque no chip abre o diálogo de edição
+                        // (minutos não têm mais campo inline no card).
                         Surface(
+                            onClick = { showMinutesDialog = true },
+                            enabled = !readOnly,
                             shape = RoundedCornerShape(4.dp),
                             color = Color.Transparent,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -404,6 +412,39 @@ fun SectionCardEditor(
             },
             dismissButton = {
                 TextButton(onClick = { showTitleDialog = false }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    // #7d3b-b: edição dos minutos pelo chip do rodapé (Salvar chama
+    // onMinutesChange; campo vazio não altera).
+    if (showMinutesDialog) {
+        var draft by remember(state.section.id) { mutableStateOf(state.section.minutes.toString()) }
+        val minutesFocus = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { showMinutesDialog = false },
+            title = { Text("Editar minutos") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { input -> draft = input.filter { it.isDigit() }.take(2) },
+                    singleLine = true,
+                    suffix = { Text("min") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(minutesFocus),
+                )
+                LaunchedEffect(Unit) { minutesFocus.requestFocus() }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    draft.toIntOrNull()?.let { onMinutesChange(it) }
+                    showMinutesDialog = false
+                }) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMinutesDialog = false }) { Text("Cancelar") }
             },
         )
     }
