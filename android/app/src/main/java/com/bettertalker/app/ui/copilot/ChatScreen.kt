@@ -420,9 +420,9 @@ fun ChatScreen(
                     if (messages.isEmpty() && chatScope != null) {
                         item(key = "topic-empty") {
                             Text(
-                                "Conversa deste tópico. Converse com o Copilot para " +
-                                    "decidir a abordagem e depois toque em " +
-                                    "“Criar mini discurso” no card.",
+                                "Conversa deste tópico. Peça ao Copilot para " +
+                                    "desenvolver este tópico e depois diga " +
+                                    "“insira no tópico”.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.secondary
                             )

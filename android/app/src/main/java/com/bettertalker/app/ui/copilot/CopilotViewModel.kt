@@ -66,9 +66,13 @@ import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.S34Detector
 import com.bettertalker.app.data.util.VmPastePlan
 import com.bettertalker.app.data.util.detectKind
+import com.bettertalker.app.data.util.extractSnippet
 import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
+import com.bettertalker.app.data.util.parseInsertSnippet
+import com.bettertalker.app.data.util.snippetLabel
+import com.bettertalker.app.data.util.stripPromptTags
 import com.bettertalker.app.data.util.vmPastePlan
 import com.bettertalker.app.data.util.vmRejectionMessage
 import com.bettertalker.app.data.util.vmTalkMessage
@@ -284,7 +288,24 @@ fun fidelityRevisionNotice(
  * e apara. Puro/testável.
  */
 internal fun cleanForInsert(raw: String): String =
-    stripSuggestionTags(raw).text.trim()
+    stripPromptTags(raw).trim()
+
+/**
+ * #8c (GAP-4): dica discreta de ação quando a resposta fecha decisões —
+ * usa o comando de inserção que já existe ("insira isso").
+ */
+internal const val INSERT_INSTRUCTION =
+    "_Se estiver de acordo, diga \"insira isso\" para eu colocar no card._"
+
+/**
+ * #8c (GAP-4): anexa a instrução discreta quando a resposta tem decisões
+ * (〈decisão〉 ou pista explícita). Idempotente — nunca duplica. Puro/testável.
+ */
+internal fun appendInsertInstruction(finalText: String, responseText: String): String {
+    if (com.bettertalker.app.data.copilot.extractDecisions(responseText).isEmpty()) return finalText
+    if (finalText.contains(INSERT_INSTRUCTION)) return finalText
+    return finalText.trimEnd() + "\n\n" + INSERT_INSTRUCTION
+}
 
 /** T4: confirmação de inserção no tópico em foco (ou na nota, sem alvo). */
 internal fun insertConfirmation(topic: String?): String =
@@ -1864,6 +1885,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             scopeEmpty = turnContext.pack.contentSources.isEmpty(),
         )
         val withTip = if (tip == null) finalText else finalText + tip
+        // #8c (GAP-4): instrução discreta quando a resposta fecha decisões.
+        val withInstruction = appendInsertInstruction(withTip, verified.text)
         // T1 (Fase 2): consenso automático — decisões da resposta (〈decisão〉
         // ou pista explícita) viram agreedApproach do tópico em foco, sem
         // duplicar. Best-effort: nunca quebra a resposta.
@@ -1871,7 +1894,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             recordConsensus(verified.text)
         } catch (_: Exception) {
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to withTip)), MessageOrigin.COPILOT)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to withInstruction)), MessageOrigin.COPILOT)
     }
 
     /**
@@ -2697,6 +2720,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * Determinístico: nunca vai ao LLM. Retorna true se consumiu a mensagem.
      */
     private suspend fun resolveInsertCommand(text: String): Boolean {
+        // #8c (GAP-2): recorte por comando — "insira a opção 2", "insira a 3",
+        // "insira o parágrafo 1", "insira de X a Y", "insira só isso".
+        val snippet = parseInsertSnippet(text)
+        if (snippet != null) {
+            val last = lastCopilotText()
+            if (last.isBlank()) {
+                postText("Não há uma resposta minha recente para inserir. Gere o texto e tente de novo.")
+                return true
+            }
+            val cut = extractSnippet(last, snippet)
+            if (cut.isNullOrBlank()) {
+                postText("Não encontrei ${snippetLabel(snippet)} na última resposta.")
+                return true
+            }
+            insertTextIntoScope(cut)
+            postText(insertConfirmation(currentTopicName()) + " ✔")
+            return true
+        }
         if (!com.bettertalker.app.data.copilot.ChatRouter.isInsertIntoSpeechCommand(text)) {
             return false
         }

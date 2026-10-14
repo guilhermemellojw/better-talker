@@ -418,17 +418,21 @@ fun htmlToPlainText(s: String): String =
  *   `</sugestão>` solto observado no device.
  * - Aceita acentos no nome da tag (a real é "sugestão"); NÃO é um parser
  *   HTML: texto entre tags não pareadas é preservado.
+ * - #8c: também remove a família com colchetes angulares CJK usada pelos
+ *   marcadores internos ("〈decisão〉…〈/decisão〉", "〈sugestão〉").
  */
 fun stripPromptTags(s: String): String {
     var out = s
     var guard = 0
     while (guard < 5) {
-        val next = PROMPT_TAG_PAIR.replace(out) { m -> m.groupValues[1] }
+        val next = PROMPT_TAG_PAIR_CJK.replace(
+            PROMPT_TAG_PAIR.replace(out) { m -> m.groupValues[1] }
+        ) { m -> m.groupValues[1] }
         if (next == out) break
         out = next
         guard++
     }
-    return PROMPT_TAG_STRAY.replace(out, "").trim()
+    return PROMPT_TAG_STRAY_CJK.replace(PROMPT_TAG_STRAY.replace(out, ""), "").trim()
 }
 
 private val PROMPT_TAG_PAIR = Regex(
@@ -437,3 +441,11 @@ private val PROMPT_TAG_PAIR = Regex(
 )
 
 private val PROMPT_TAG_STRAY = Regex("</?[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>")
+
+// #8c: marcadores internos com colchetes angulares CJK (〈 U+2329 / 〉 U+232A).
+private val PROMPT_TAG_PAIR_CJK = Regex(
+    "〈[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+〉(.*?)〈/[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+〉",
+    RegexOption.DOT_MATCHES_ALL,
+)
+
+private val PROMPT_TAG_STRAY_CJK = Regex("〈/?[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+〉")
