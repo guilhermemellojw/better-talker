@@ -1302,7 +1302,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
                         return@launch
                     }
-                    generateOratory(route, text, remote, contextBlock)
+                    generateOratory(route, text, remote, contextBlock, turnContext)
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.ApplyStructure -> {
@@ -1527,6 +1527,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         message: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     ) {
         val doc = _lastS34Document
         if (doc == null) {
@@ -1602,8 +1603,36 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                                 "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
                         )
                     }
+                    // #7e: gate de groundedness — mesmo verificador do chat,
+                    // agora também no texto de oratória (citações/refs contra o
+                    // corpus do turno + dossiê em contexto + foco).
+                    val verified = verifyGeneratedText(
+                        generated,
+                        turnContext,
+                        listOfNotNull(contextBlock, focus.takeIf { it.isNotBlank() }),
+                    )
+                    if (verified.hasRemovals) {
+                        android.util.Log.w(
+                            "CopilotLLM",
+                            "oratória: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+                        )
+                    }
+                    // Com remoções, o texto da proposta vira o verificado
+                    // (frases sem apoio fora + aviso padrão do verificador).
+                    val proposal = if (verified.hasRemovals) {
+                        r.proposal.copy(
+                            operations = listOf(
+                                com.bettertalker.app.data.edit.EditOperation.Replace(
+                                    targetId,
+                                    com.bettertalker.app.data.export.markdownToSimpleHtml(verified.text),
+                                )
+                            )
+                        )
+                    } else {
+                        r.proposal
+                    }
                     _proposal.value = ProposalUi(
-                        r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
+                        proposal, focus, sectionId = secId, sectionBaseHash = secHash,
                         notice = notice
                     )
                 }
@@ -3860,7 +3889,27 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     )
                 )
             }
-            val sections = com.bettertalker.app.data.export.parseStructureMarkdown(res.text)
+            // #7e: gate de groundedness — o esboço colado é a fonte do gate;
+            // o que estiver carregado (dossiê, S-34 e seções atuais) complementa.
+            // Limitação: este caminho não monta ContextPack/RAG (reportado).
+            val corpus = buildList {
+                pasteBuffer?.takeIf { it.isNotBlank() }?.let { add(it) }
+                lastDossier?.let {
+                    add(dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote = false))
+                }
+                _lastS34Document?.let { addAll(s34CorpusTexts(it)) }
+                db.speechSectionDao().forNote(nid).forEach {
+                    add(com.bettertalker.app.data.edit.stripHtmlToText(it.contentHtml))
+                }
+            }.filter { it.isNotBlank() }
+            val verified = verifyGeneratedText(res.text, null, corpus)
+            if (verified.hasRemovals) {
+                android.util.Log.w(
+                    "CopilotLLM",
+                    "insira tudo: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+                )
+            }
+            val sections = com.bettertalker.app.data.export.parseStructureMarkdown(verified.text)
             if (sections.isEmpty()) {
                 postText("Não consegui extrair a estrutura da resposta. Tente de novo.")
                 return
