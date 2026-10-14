@@ -374,6 +374,22 @@ fun SectionCardEditor(
                                     .fillMaxWidth()
                                     .heightIn(min = 80.dp),
                             )
+                            // #7d2b: mesma família visual do BODY — chat do tópico
+                            // visível também em INTRO/CONCLUSÃO (fora do preview).
+                            if (!readOnly) {
+                                Spacer(Modifier.height(14.dp))
+                                OutlinedButton(
+                                    onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome, null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Conversar sobre este tópico")
+                                }
+                            }
                         }
 
                         SectionRole.BODY -> {
@@ -955,8 +971,8 @@ private fun SectionMenuButton(
     isFirst: Boolean,
     isLast: Boolean,
     showRoleChange: Boolean = false,
-    // F3.1: em BODY as ações primárias vivem no card; o ⋮ fica só com o
-    // estrutural. Em INTRO/CONCLUSÃO o ⋮ ainda expõe conversar/gerar.
+    // F3.1/#7d2b: em BODY e INTRO/CONCLUSÃO as ações primárias (chat) vivem no
+    // card; o ⋮ fica estrutural. Parâmetro mantido como contrato das call sites.
     primaryActionsOnCard: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
     onMoveUp: () -> Unit,
@@ -1004,22 +1020,8 @@ private fun SectionMenuButton(
                     onClick = { onUnapprove(); menuOpen = false },
                 )
             }
-            if (!primaryActionsOnCard) {
-                DropdownMenuItem(
-                    text = { Text("Conversar sobre esta parte") },
-                    onClick = {
-                        menuOpen = false
-                        onChatAbout(DraftTarget.Section(sectionId))
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Gerar com Copilot") },
-                    onClick = {
-                        menuOpen = false
-                        onGenerateDraft(DraftTarget.Section(sectionId))
-                    },
-                )
-            }
+            // #7d2b: "Conversar sobre esta parte"/"Gerar com Copilot" saíram do ⋮
+            // de INTRO/CONCLUSÃO — o chat agora é botão visível no corpo do card.
             if (showRoleChange) {
                 DropdownMenuItem(
                     text = { Text("Alterar papel") },
