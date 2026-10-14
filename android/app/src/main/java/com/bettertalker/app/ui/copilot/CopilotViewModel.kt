@@ -1618,13 +1618,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         )
                     }
                     // Com remoções, o texto da proposta vira o verificado
-                    // (frases sem apoio fora + aviso padrão do verificador).
+                    // (frases sem apoio fora). #7e-fix: o aviso do verificador
+                    // NÃO entra no conteúdo — vai para o `notice` da proposta.
+                    val (cleanText, removalNotice) = stripRemovalNotice(verified.text)
                     val proposal = if (verified.hasRemovals) {
                         r.proposal.copy(
                             operations = listOf(
                                 com.bettertalker.app.data.edit.EditOperation.Replace(
                                     targetId,
-                                    com.bettertalker.app.data.export.markdownToSimpleHtml(verified.text),
+                                    com.bettertalker.app.data.export.markdownToSimpleHtml(cleanText),
                                 )
                             )
                         )
@@ -1633,7 +1635,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     }
                     _proposal.value = ProposalUi(
                         proposal, focus, sectionId = secId, sectionBaseHash = secHash,
-                        notice = notice
+                        notice = listOfNotNull(notice, removalNotice)
+                            .joinToString(" ").ifBlank { null }
                     )
                 }
                 is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
@@ -3909,7 +3912,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     "insira tudo: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
                 )
             }
-            val sections = com.bettertalker.app.data.export.parseStructureMarkdown(verified.text)
+            // #7e-fix: o aviso do verificador não entra no markdown — é
+            // postado como mensagem no chat.
+            val (cleanText, removalNotice) = stripRemovalNotice(verified.text)
+            val sections = com.bettertalker.app.data.export.parseStructureMarkdown(cleanText)
             if (sections.isEmpty()) {
                 postText("Não consegui extrair a estrutura da resposta. Tente de novo.")
                 return
@@ -3918,6 +3924,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             _structurePreview.value = StructurePreview(sections, hasExisting)
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Estrutura pronta (${sections.size} partes) — revise e confirme no painel.")))
+            if (removalNotice != null) {
+                postText(removalNotice)
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             _runState.value = ChatRunState.Cancelled()
             throw e

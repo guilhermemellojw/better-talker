@@ -46,3 +46,20 @@ internal fun verifyGeneratedText(
     }.filter { it.isNotBlank() }
     return GroundednessVerifier.verify(text, corpus)
 }
+
+/**
+ * #7e-fix — separa o aviso padrão do verificador do CONTEÚDO gerado: o
+ * `REMOVAL_NOTICE` nunca pode virar texto de discurso. Devolve o texto limpo
+ * e o aviso (trimado, pronto para o chat/notice) — null quando não há aviso.
+ * Puro/testável.
+ */
+internal fun stripRemovalNotice(text: String): Pair<String, String?> {
+    val marker = GroundednessVerifier.REMOVAL_NOTICE
+    val markerTrimmed = marker.trim()
+    return when {
+        text.endsWith(marker) -> text.removeSuffix(marker).trimEnd() to markerTrimmed
+        text.endsWith(markerTrimmed) -> text.removeSuffix(markerTrimmed).trimEnd() to markerTrimmed
+        text.contains(markerTrimmed) -> text.replace(markerTrimmed, "").trimEnd() to markerTrimmed
+        else -> text to null
+    }
+}

@@ -4,6 +4,7 @@ import com.bettertalker.app.data.export.parseStructureMarkdown
 import com.bettertalker.app.data.llm.GroundednessVerifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -56,5 +57,32 @@ class GenerationVerificationTest {
         val r = verifyGeneratedText(generated, extraSources = emptyList())
         assertFalse(r.hasRemovals)
         assertEquals(generated, r.text)
+    }
+
+    // ---------- #7e-fix: aviso separado do conteúdo ----------
+
+    @Test
+    fun stripRemovalNotice_terminaComAviso_separa() {
+        val text = "Conteúdo do discurso." + GroundednessVerifier.REMOVAL_NOTICE
+        val (clean, notice) = stripRemovalNotice(text)
+        assertEquals("Conteúdo do discurso.", clean)
+        assertEquals(GroundednessVerifier.REMOVAL_NOTICE.trim(), notice)
+        assertFalse(clean.contains("Observação"))
+    }
+
+    @Test
+    fun stripRemovalNotice_semAviso_devolveNull() {
+        val text = "Conteúdo limpo do discurso."
+        val (clean, notice) = stripRemovalNotice(text)
+        assertEquals(text, clean)
+        assertNull(notice)
+    }
+
+    @Test
+    fun stripRemovalNotice_noMeio_removeDevolveAviso() {
+        val text = "Antes. " + GroundednessVerifier.REMOVAL_NOTICE.trim() + " Depois."
+        val (clean, notice) = stripRemovalNotice(text)
+        assertFalse(clean.contains("Observação"))
+        assertEquals(GroundednessVerifier.REMOVAL_NOTICE.trim(), notice)
     }
 }
