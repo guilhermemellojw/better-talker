@@ -489,7 +489,9 @@ class OutlineConverterTest {
         val pub = conv.bodies.single().subPoints.single().publicationRefs.single()
         assertEquals("w21.08", pub.symbol)
         assertEquals(13, pub.paragraph)
-        assertEquals(null, pub.page)
+        // #8a: o tail "18 § 13" agora é lido pelo RefDetector (página + §);
+        // antes o formato moderno descartava a página (era null).
+        assertEquals(18, pub.page)
     }
 
     @Test

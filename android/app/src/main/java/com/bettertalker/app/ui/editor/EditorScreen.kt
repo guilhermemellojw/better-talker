@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
@@ -174,6 +175,8 @@ fun EditorScreen(
     // #7e2: empty state — "Colar texto" e o menu do "Começar do zero".
     var showPasteDialog by remember { mutableStateOf(false) }
     var showAddSectionMenu by remember { mutableStateOf(false) }
+    // #8a: "Anexar esboço" virou sheet com 2 caminhos (importar/colar).
+    var showAttachSheet by remember { mutableStateOf(false) }
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -761,7 +764,7 @@ fun EditorScreen(
 
                         if (!preview) {
                             Button(
-                                onClick = { outlinePicker.launch(arrayOf("*/*")) },
+                                onClick = { showAttachSheet = true },
                                 modifier = Modifier.fillMaxWidth(0.85f),
                             ) {
                                 Icon(Icons.Default.AttachFile, null, Modifier.size(20.dp))
@@ -800,9 +803,6 @@ fun EditorScreen(
                                     onDismiss = { showAddSectionMenu = false },
                                     onAdd = { role -> vm.addSection(role, afterSectionId = null) },
                                 )
-                            }
-                            TextButton(onClick = { showPasteDialog = true }) {
-                                Text("Colar texto", style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
@@ -964,6 +964,63 @@ fun EditorScreen(
                 copyExportText(ctx, sections)
             },
         )
+    }
+
+    // #8a: uma porta, dois caminhos — importar arquivo (picker existente)
+    // ou colar texto (diálogo existente).
+    if (showAttachSheet) {
+        ModalBottomSheet(onDismissRequest = { showAttachSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("Anexar esboço", style = MaterialTheme.typography.titleMedium)
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showAttachSheet = false
+                            outlinePicker.launch(arrayOf("*/*"))
+                        }
+                        .padding(vertical = 10.dp),
+                ) {
+                    Icon(Icons.Default.AttachFile, null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Importar arquivo", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Selecione um .docx, .pdf ou texto",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showAttachSheet = false
+                            showPasteDialog = true
+                        }
+                        .padding(vertical = 10.dp),
+                ) {
+                    Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Colar texto", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Cole aqui o material da reunião",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
     }
 
     // #7e2: "Colar texto" do empty state — mesmo pipeline do chat

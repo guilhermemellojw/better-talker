@@ -301,4 +301,33 @@ class RefDetectorTest {
         assertNull(back.single().article)
         assertNull(back.single().paragraph)
     }
+
+    // ---------- #8a: formatos V&M (mwb, tail do w-code, ponto de lição) ----------
+
+    @Test
+    fun detect_mwb_detectsApostilaVidaEMinisterio() {
+        val ref = RefDetector.detect("(mwb24.05)").single()
+        assertEquals("mwb", ref.pubKey)
+        assertEquals("mwb|2024|5", ref.editionKey)
+        assertEquals(RefDetector.Kind.MAGAZINE, ref.kind)
+        // variante com espaço
+        assertEquals("mwb|2024|5", RefDetector.detect("(mwb 24.05)").single().editionKey)
+    }
+
+    @Test
+    fun detect_wCode_comPaginaEParagrafo() {
+        val ref = RefDetector.detect("(w25.07 5 § 14)").single()
+        assertEquals("w", ref.pubKey)
+        assertEquals("w|2025|7", ref.editionKey)
+        assertEquals(5, ref.page)
+        assertEquals(14, ref.paragraph)
+    }
+
+    @Test
+    fun detect_licaoComPonto_extraiParagrafo() {
+        val ref = RefDetector.detect("(lff lição 24 ponto 3)").single()
+        assertEquals("lff", ref.pubKey)
+        assertEquals("lição 24", ref.chapter)
+        assertEquals(3, ref.paragraph)
+    }
 }

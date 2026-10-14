@@ -115,8 +115,14 @@ object RefDetector {
         """(?:A\s+)?Sentinela\s+de\s+(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+(\d{4})""",
         RegexOption.IGNORE_CASE
     )
-    // w24.12 | w 24/12 (estudo mensal moderna)
-    private val W_CODE_RE = Regex("""\bw\s*(\d{2})[./](\d{1,2})\b""")
+    // w24.12 | w 24/12 (estudo mensal moderna) — #8a: tail opcional de
+    // página/§ ("w25.07 5 § 14"). O `\b` final impede phantom "w24.12"
+    // dentro de "w24.125" (o tail não pode terminar no meio de um número).
+    private val W_CODE_RE = Regex(
+        """\bw\s*(\d{2})[./](\d{1,2})(?:\s+(\d{1,3})(?:\s*§\s*(\d{1,3}))?)?\b"""
+    )
+    // #8a: apostila Vida e Ministério (mwb24.05 | mwb 24.05).
+    private val MWB_CODE_RE = Regex("""\bmwb\s*(\d{2})[./](\d{1,2})\b""")
     // w99 1/5 | w99 15/5 (antiga dia/mês: dia 1º = pública, 15 = estudo)
     // Aceita também ponto como separador (w82 15.3) — 3.2.3a-fix3.
     private val W_DAY_RE = Regex("""\bw\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})\b""")
@@ -129,10 +135,11 @@ object RefDetector {
     // citação por sigla do catálogo: lff cap. 5 | be pág. 52 | th lição 3
     // (sigla validada contra PubCatalog; "na" excluído por colidir com preposição)
     // T2: captura o número da unidade (cap./lição/estudo/pág./parág./n.°) e o
-    // § que o segue ("lmd lição 3 § 4").
+    // § que o segue ("lmd lição 3 § 4") ou "ponto N" ("lff lição 24 ponto 3").
     private val SYMBOL_REF_RE = Regex(
         """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap[íi]tulo|cap\.?|li[cç][aã]o|p[áa]gina|p[áa]g\.?|""" +
-            """par[áa]grafo|par[áa]g\.?|estudo|n[úu]mero|n\.?(?:º|o|°)?)\s*(\d{1,3})?(?:\s*§\s*(\d{1,3}))?""",
+            """par[áa]grafo|par[áa]g\.?|estudo|n[úu]mero|n\.?(?:º|o|°)?)\s*(\d{1,3})?""" +
+            """(?:\s*(?:§\s*(\d{1,3})|ponto\s+(\d{1,3})))?""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
@@ -373,10 +380,30 @@ object RefDetector {
         W_CODE_RE.findAll(text).forEach { m ->
             val year = fullYear(m.groupValues[1].toInt())
             val num = m.groupValues[2].toInt()
+            // #8a: tail opcional — página/§ logo após a edição ("w25.07 5 § 14").
+            val page = m.groupValues[3].toIntOrNull()
+            val par = m.groupValues[4].toIntOrNull()
+            val extra = listOfNotNull(
+                page?.let { "pág. $it" },
+                par?.let { "§ $it" },
+            ).joinToString(" ")
             add(
                 DetectedRef(
                     m.value.trim(), Kind.MAGAZINE, "w",
-                    "w|$year|$num", "A Sentinela $num/$year"
+                    "w|$year|$num", "A Sentinela $num/$year" +
+                        (if (extra.isNotEmpty()) " • $extra" else ""),
+                    page = page, paragraph = par,
+                )
+            )
+        }
+        // #8a: apostila Vida e Ministério ("mwb24.05" | "mwb 24.05").
+        MWB_CODE_RE.findAll(text).forEach { m ->
+            val year = fullYear(m.groupValues[1].toInt())
+            val num = m.groupValues[2].toInt()
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.MAGAZINE, "mwb",
+                    "mwb|$year|$num", "Apostila Vida e Ministério $num/$year"
                 )
             )
         }
@@ -477,7 +504,8 @@ object RefDetector {
                 val keyword = m.groupValues[2].lowercase()
                 val k = normalizeText(keyword)
                 val num = m.groupValues[3].toIntOrNull()
-                val par = m.groupValues[4].toIntOrNull()
+                // #8a: § ou "ponto N" (lff lição 24 ponto 3).
+                val par = m.groupValues[4].toIntOrNull() ?: m.groupValues[5].toIntOrNull()
                 // T2: separa a unidade citada (capítulo/lição/estudo × página
                 // × parágrafo) para o resolvedor achar o trecho exato.
                 val chapter = if (num != null && (k.startsWith("cap") || k.startsWith("li") ||
@@ -990,7 +1018,10 @@ object RefDetector {
         } else {
             // T1 (refs por página): só-página não tem unidade textual para
             // buscar — orienta a citar §/capítulo em vez do aviso genérico.
-            val pageOnly = ref.page != null && ref.article == null && ref.chapter == null
+            // #8a: um § presente já é unidade textual — "w25.07 5 § 14"
+            // (page+paragraph) não é só-página.
+            val pageOnly = ref.page != null && ref.paragraph == null &&
+                ref.article == null && ref.chapter == null
             ContentCheck(
                 resolved = false,
                 snippet = null,
