@@ -45,7 +45,10 @@ class MainActivity : FragmentActivity() {
             val mode by settings.themeMode.collectAsState(
                 initial = com.bettertalker.app.ui.theme.ThemeMode.AUTO
             )
-            BetterTalkerTheme(mode = mode) { AppNav(settings) }
+            val palette by settings.paletteId.collectAsState(
+                initial = com.bettertalker.app.ui.theme.PaletteId.SAMSUNG
+            )
+            BetterTalkerTheme(mode = mode, palette = palette) { AppNav(settings) }
         }
     }
 }

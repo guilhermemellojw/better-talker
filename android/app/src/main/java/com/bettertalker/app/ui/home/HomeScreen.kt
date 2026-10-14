@@ -66,7 +66,9 @@ import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.theme.NOTE_COLORS
+import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
+import com.bettertalker.app.ui.theme.paletteLabel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +88,7 @@ fun HomeScreen(
     val folderId by vm.folderId.collectAsState()
     val counts by vm.attachCounts.collectAsState()
     val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
+    val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
     val scope = rememberCoroutineScope()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var showTheme by remember { mutableStateOf(false) }
@@ -126,6 +129,28 @@ fun HomeScreen(
                                     ThemeMode.DARK -> "Escuro"
                                 }
                             )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    // #7d3: segunda seção — paleta curada.
+                    Text("Paleta", style = MaterialTheme.typography.titleSmall)
+                    PaletteId.entries.forEach { p ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    scope.launch { settings.setPaletteId(p) }
+                                    showTheme = false
+                                }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            RadioButton(selected = paletteId == p, onClick = {
+                                scope.launch { settings.setPaletteId(p) }
+                                showTheme = false
+                            })
+                            Spacer(Modifier.width(8.dp))
+                            Text(paletteLabel(p))
                         }
                     }
                 }

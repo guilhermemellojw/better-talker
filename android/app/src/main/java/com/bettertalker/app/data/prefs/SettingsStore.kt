@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -21,6 +22,14 @@ class SettingsStore(private val ctx: Context) {
         runCatching { ThemeMode.valueOf(it[THEME] ?: "AUTO") }.getOrDefault(ThemeMode.AUTO)
     }
     suspend fun setThemeMode(v: ThemeMode) { ctx.store.edit { it[THEME] = v.name } }
+
+    /** #7d3: paleta curada escolhida (default SAMSUNG preserva o legado). */
+    private val PALETTE = stringPreferencesKey("palette_id")
+    val paletteId: Flow<PaletteId> = ctx.store.data.map {
+        runCatching { PaletteId.valueOf(it[PALETTE] ?: "SAMSUNG") }
+            .getOrDefault(PaletteId.SAMSUNG)
+    }
+    suspend fun setPaletteId(v: PaletteId) { ctx.store.edit { it[PALETTE] = v.name } }
 
     private val REINDEX_V3 = stringPreferencesKey("reindexed_v3")
     private val INDEX_FORMAT = androidx.datastore.preferences.core.intPreferencesKey("index_format")
