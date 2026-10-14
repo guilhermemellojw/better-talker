@@ -17,13 +17,6 @@ fun friendlyRoleName(role: SectionRole): String = when (role) {
     SectionRole.CONCLUSION -> "Conclusão"
 }
 
-/** Rótulo curto do papel para o menu de "Adicionar parte". */
-fun friendlyRoleMenuLabel(role: SectionRole): String = when (role) {
-    SectionRole.INTRO -> "Introdução"
-    SectionRole.BODY -> "Tópico de desenvolvimento"
-    SectionRole.CONCLUSION -> "Conclusão"
-}
-
 /**
  * Fontes do tópico: referências da seção + de TODOS os sub-pontos, deduplicadas
  * e na ordem de aparição. Não cria infraestrutura nova — só agrega o que já

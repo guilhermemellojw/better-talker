@@ -1163,7 +1163,7 @@ private fun AddSectionMenu(
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         SectionRole.values().forEach { role ->
             DropdownMenuItem(
-                text = { Text(friendlyRoleMenuLabel(role)) },
+                text = { Text(friendlyRoleName(role)) },
                 onClick = { onAdd(role); onDismiss() },
             )
         }

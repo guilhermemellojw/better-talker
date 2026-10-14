@@ -1,4 +1,4 @@
-// DEMO 3.2.5b — REMOVER APÓS VALIDAÇÃO
+// Fixture de teste — movida de main no #10a (era a DEMO 3.2.5b).
 // Fixture realista do SectionCardEditor, baseada no S-34-T N.º 35:
 // 1 INTRO + 5 BODY (5/5/6/9/3 sub-pontos = 28) + 1 CONCLUSION.
 // Editores vivos = 1 (INTRO) + 28 (sub-pontos) + 1 (CONCLUSION) = 30.
