@@ -412,7 +412,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     /** Fase 3.5e.3: há chave remota configurada (qualquer provider)? */
     private val _canGenerateDraft = MutableStateFlow(false)
-    val canGenerateDraft: StateFlow<Boolean> = _canGenerateDraft.asStateFlow()
 
     fun setSectionGenerator(generator: SectionGenerator, canGenerate: Boolean) {
         sectionGenerator = generator
@@ -430,8 +429,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * Gera um rascunho para [target] (sub-ponto ou seção). Assíncrono:
      * `Loading → Ready/Error` em [draftState]. Cancela geração anterior.
      *
-     * Não faz nada sem chave ([canGenerateDraft]) — a UI já bloqueia o
-     * item do menu; aqui é defesa em profundidade.
+     * Não faz nada sem chave configurada — defesa em profundidade.
      */
     fun startDraft(target: DraftTarget) {
         if (!_canGenerateDraft.value) return

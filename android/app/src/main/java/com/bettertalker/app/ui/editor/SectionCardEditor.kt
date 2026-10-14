@@ -121,7 +121,6 @@ fun SectionCardEditor(
     onMoveSectionUp: () -> Unit = {},
     onMoveSectionDown: () -> Unit = {},
     onRemoveSection: () -> Unit = {},
-    onGenerateDraft: (DraftTarget) -> Unit = {},
     onChatAbout: (DraftTarget) -> Unit = {},
     onApproveSection: () -> Unit = {},
     onUnapproveSection: () -> Unit = {},
@@ -201,13 +200,10 @@ fun SectionCardEditor(
                         isFirst = isFirstSection,
                         isLast = isLastSection,
                         showRoleChange = true,
-                        primaryActionsOnCard = true,
                         onRoleChange = onRoleChange,
                         onMoveUp = onMoveSectionUp,
                         onMoveDown = onMoveSectionDown,
                         onRemove = { confirmDelete = true },
-                        onGenerateDraft = onGenerateDraft,
-                        onChatAbout = onChatAbout,
                         showUnapprove = state.section.approvedAt != null,
                         onUnapprove = onUnapproveSection,
                     )
@@ -450,9 +446,6 @@ fun SectionCardEditor(
                                             onActiveEditorChange(null, null)
                                         }
                                     },
-                                    onGenerateDraft = {
-                                        onGenerateDraft(DraftTarget.Section(state.section.id))
-                                    },
                                 )
                             }
                         }
@@ -466,13 +459,10 @@ fun SectionCardEditor(
                         isFirst = isFirstSection,
                         isLast = isLastSection,
                         showRoleChange = false,
-                        primaryActionsOnCard = false,
                         onRoleChange = onRoleChange,
                         onMoveUp = onMoveSectionUp,
                         onMoveDown = onMoveSectionDown,
                         onRemove = { confirmDelete = true },
-                        onGenerateDraft = onGenerateDraft,
-                        onChatAbout = onChatAbout,
                         showUnapprove = state.section.approvedAt != null,
                         onUnapprove = onUnapproveSection,
                         modifier = Modifier
@@ -885,7 +875,6 @@ private fun MiniSpeechBlock(
     onContentChange: (String) -> Unit,
     onSelectionChange: (SelectionContext?) -> Unit,
     onFocusChange: (Boolean, String) -> Unit,
-    onGenerateDraft: () -> Unit,
 ) {
     val hasText = contentHtml.isNotBlank()
     val miniKey = "section-$sectionId"
@@ -951,15 +940,10 @@ private fun SectionMenuButton(
     isFirst: Boolean,
     isLast: Boolean,
     showRoleChange: Boolean = false,
-    // F3.1/#7d2b: em BODY e INTRO/CONCLUSÃO as ações primárias (chat) vivem no
-    // card; o ⋮ fica estrutural. Parâmetro mantido como contrato das call sites.
-    primaryActionsOnCard: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
-    onGenerateDraft: (DraftTarget) -> Unit,
-    onChatAbout: (DraftTarget) -> Unit,
     // F3a: quando a seção está aprovada, o ⋮ oferece a reversão (o cabeçalho
     // mostra só o estado "Seção aprovada").
     showUnapprove: Boolean = false,

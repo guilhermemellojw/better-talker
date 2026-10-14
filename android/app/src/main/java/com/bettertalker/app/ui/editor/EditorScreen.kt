@@ -762,7 +762,6 @@ fun EditorScreen(
                                     vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
                                 },
                                 onRemoveSection = { vm.removeSection(sectionState.section.id) },
-                                onGenerateDraft = vm::startDraft,
                                 onApproveSection = { vm.approveSection(sectionState.section.id) },
                                 onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
                                 // Modo guiado: registra o Y do card no conteúdo
