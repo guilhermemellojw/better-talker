@@ -2,6 +2,7 @@
 package com.bettertalker.app.ui.editor
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -9,7 +10,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,13 +23,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -44,7 +42,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -91,13 +90,6 @@ import kotlinx.coroutines.flow.drop
  * rico vive só no mini discurso (e em INTRO/CONCLUSÃO). O `developedHtml`
  * legado continua no banco e é oferecido discretamente como "Nota antiga".
  */
-
-@Composable
-internal fun roleChipColors(role: SectionRole): Color = when (role) {
-    SectionRole.INTRO -> MaterialTheme.colorScheme.primaryContainer
-    SectionRole.BODY -> MaterialTheme.colorScheme.secondaryContainer
-    SectionRole.CONCLUSION -> MaterialTheme.colorScheme.tertiaryContainer
-}
 
 @Composable
 fun SectionCardEditor(
@@ -138,170 +130,48 @@ fun SectionCardEditor(
     }
     var focusedEditorKey by remember(state.section.id) { mutableStateOf<String?>(null) }
     var confirmDelete by remember(state.section.id) { mutableStateOf(false) }
+    // #7d3b: o título virou Text herói — a edição acontece por diálogo.
+    var showTitleDialog by remember(state.section.id) { mutableStateOf(false) }
 
     val isBody = state.section.role == SectionRole.BODY
 
-    var titleText by remember(state.section.id, state.section.title) {
-        mutableStateOf(state.section.title)
-    }
-    var minutesText by remember(state.section.id, state.section.minutes) {
-        mutableStateOf(state.section.minutes.toString())
-    }
-    var roleMenuOpen by remember(state.section.id) { mutableStateOf(false) }
-
     Column {
-        // Discovery #5 (#7d2a): BODY em 2 linhas (título / metadados);
-        // INTRO/CONCLUSÃO em linha única (chip / aprovar).
+        // #7d3b: título herói — Text (toque abre o diálogo de edição). Sem
+        // chip "TÓPICO N"/papel e sem aprovar no card (gate fica no chat).
         Column(
             modifier = Modifier
-                .padding(start = 8.dp, end = 8.dp, bottom = 2.dp)
+                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp)
                 .then(
-                    if (isBody && !isActiveSection) {
+                    if (!isActiveSection) {
                         Modifier.clickable { onActivate() }
                     } else Modifier
                 ),
         ) {
-            if (isBody) {
-                // LINHA 1: título (peso 1) + ⋮.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Text(
+                text = state.section.title.ifBlank { "Título do tópico" },
+                style = MaterialTheme.typography.titleLarge,
+                color = if (state.section.title.isBlank()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 3,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !readOnly) { showTitleDialog = true },
+            )
+            Spacer(Modifier.height(12.dp))
+            if (!readOnly) {
+                OutlinedButton(
+                    onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    SectionDragHandle(
-                        onDragStart = onDragStart,
-                        onDrag = onDrag,
-                        onDragEnd = onDragEnd,
+                    Icon(
+                        Icons.Default.AutoAwesome, null,
+                        modifier = Modifier.size(18.dp),
                     )
-                    TextField(
-                        value = titleText,
-                        enabled = !readOnly,
-                        onValueChange = {
-                            // Título é uma linha lógica: quebra de linha vira espaço.
-                            val v = it.replace("\n", " ")
-                            titleText = v
-                            onTitleChange(v)
-                        },
-                        // Multi-linha para o usuário ler o tópico inteiro sem rolar.
-                        singleLine = false,
-                        maxLines = 2,
-                        placeholder = {
-                            Text(
-                                "Título do tópico",
-                                style = MaterialTheme.typography.bodyLarge.copy(
-                                    fontWeight = FontWeight.SemiBold
-                                ),
-                            )
-                        },
-                        modifier = Modifier.weight(1f),
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                    SectionMenuButton(
-                        sectionId = state.section.id,
-                        readOnly = readOnly,
-                        isFirst = isFirstSection,
-                        isLast = isLastSection,
-                        showRoleChange = true,
-                        onRoleChange = onRoleChange,
-                        onMoveUp = onMoveSectionUp,
-                        onMoveDown = onMoveSectionDown,
-                        onRemove = { confirmDelete = true },
-                        showUnapprove = state.section.approvedAt != null,
-                        onUnapprove = onUnapproveSection,
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-                // LINHA 2: minutos (esquerda) + aprovar (direita).
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    TextField(
-                        value = minutesText,
-                        enabled = !readOnly,
-                        onValueChange = { input ->
-                            val filtered = input.filter { it.isDigit() }.take(2)
-                            minutesText = filtered
-                            filtered.toIntOrNull()?.let { onMinutesChange(it) }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.width(60.dp),
-                        suffix = { Text("min") },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent,
-                        ),
-                    )
-                    Spacer(Modifier.weight(1f))
-                    ApprovalToggle(
-                        approved = state.section.approvedAt != null,
-                        readOnly = readOnly,
-                        onApprove = onApproveSection,
-                    )
-                }
-            } else {
-                // INTRO/CONCLUSÃO: chip de papel (esquerda) + aprovar (direita).
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    SectionDragHandle(
-                        onDragStart = onDragStart,
-                        onDrag = onDrag,
-                        onDragEnd = onDragEnd,
-                    )
-                    Box {
-                        Surface(
-                            onClick = { if (!readOnly) roleMenuOpen = true },
-                            enabled = !readOnly,
-                            shape = RoundedCornerShape(4.dp),
-                            color = roleChipColors(state.section.role),
-                        ) {
-                            Text(
-                                friendlyRoleName(state.section.role).uppercase(),
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = roleMenuOpen,
-                            onDismissRequest = { roleMenuOpen = false },
-                        ) {
-                            SectionRole.values().forEach { role ->
-                                DropdownMenuItem(
-                                    text = { Text(friendlyRoleName(role)) },
-                                    onClick = {
-                                        onRoleChange(role)
-                                        roleMenuOpen = false
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    ApprovalToggle(
-                        approved = state.section.approvedAt != null,
-                        readOnly = readOnly,
-                        onApprove = onApproveSection,
-                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Conversar sobre este tópico")
                 }
             }
         }
@@ -321,12 +191,13 @@ fun SectionCardEditor(
                 .semantics { contentDescription = "Seção ${state.section.role.name}" }
                 .clickable(enabled = !isActiveSection) { onActivate() },
         ) {
-            Box {
+            // #7d3b: conteúdo + rodapé (handle ≡, minutos, ⋮) no pé do card.
+            Column {
                 Column(
                     Modifier.padding(
                         start = 12.dp,
-                        end = if (isBody) 4.dp else 32.dp,
-                        top = 8.dp, bottom = 10.dp,
+                        end = 12.dp,
+                        top = 8.dp, bottom = 4.dp,
                     )
                 ) {
                     // Inserts do chat → mini discurso do tópico (`section-{id}`).
@@ -385,22 +256,6 @@ fun SectionCardEditor(
                                     .fillMaxWidth()
                                     .heightIn(min = 80.dp),
                             )
-                            // #7d2b: mesma família visual do BODY — chat do tópico
-                            // visível também em INTRO/CONCLUSÃO (fora do preview).
-                            if (!readOnly) {
-                                Spacer(Modifier.height(14.dp))
-                                OutlinedButton(
-                                    onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Icon(
-                                        Icons.Default.AutoAwesome, null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Conversar sobre este tópico")
-                                }
-                            }
                         }
 
                         SectionRole.BODY -> {
@@ -419,20 +274,6 @@ fun SectionCardEditor(
                                     onRemoveSubPoint = onRemoveSubPoint,
                                     onAddSubPoint = { onAddSubPoint(null) },
                                 )
-
-                                if (!readOnly) {
-                                    OutlinedButton(
-                                        onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AutoAwesome, null,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Conversar sobre este tópico")
-                                    }
-                                }
 
                                 TopicSourcesBlock(
                                     sectionId = state.section.id,
@@ -469,22 +310,48 @@ fun SectionCardEditor(
                     }
                 }
 
-                if (!isBody) {
+                // #7d3b: rodapé — handle (D&D) + minutos (BODY, se > 0) + ⋮.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                ) {
+                    SectionDragHandle(
+                        onDragStart = onDragStart,
+                        onDrag = onDrag,
+                        onDragEnd = onDragEnd,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (isBody && state.section.minutes > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color.Transparent,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        ) {
+                            Text(
+                                "${state.section.minutes} min",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     SectionMenuButton(
                         sectionId = state.section.id,
                         readOnly = readOnly,
                         isFirst = isFirstSection,
                         isLast = isLastSection,
-                        showRoleChange = false,
+                        // #7d3b: o chip de papel saiu; INTRO/CONCLUSÃO mudam de
+                        // papel pelo ⋮ (mesma opção que o BODY já tinha).
+                        showRoleChange = true,
                         onRoleChange = onRoleChange,
                         onMoveUp = onMoveSectionUp,
                         onMoveDown = onMoveSectionDown,
                         onRemove = { confirmDelete = true },
                         showUnapprove = state.section.approvedAt != null,
                         onUnapprove = onUnapproveSection,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(2.dp),
                     )
                 }
             }
@@ -508,48 +375,37 @@ fun SectionCardEditor(
             },
         )
     }
-}
 
-/**
- * F3a: toggle de aprovação no cabeçalho do card. Não aprovada: ícone vazado
- * + "Aprovar seção" (aprova no toque). Aprovada: ícone preenchido em
- * primária + "Seção aprovada" (só exibe; desaprova pelo ⋮ do card).
- */
-@Composable
-private fun ApprovalToggle(
-    approved: Boolean,
-    readOnly: Boolean,
-    onApprove: () -> Unit,
-) {
-    if (approved) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.CheckCircle,
-                "Seção aprovada",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-            Text(
-                "Seção aprovada",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp),
-            )
-        }
-    } else {
-        TextButton(
-            onClick = onApprove,
-            enabled = !readOnly,
-            contentPadding = PaddingValues(horizontal = 4.dp),
-        ) {
-            Icon(
-                Icons.Outlined.CheckCircle,
-                null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-            Text("Aprovar seção", style = MaterialTheme.typography.labelMedium)
-        }
+    // #7d3b: edição do título (o herói do card é Text; salvar chama
+    // onTitleChange).
+    if (showTitleDialog) {
+        var draft by remember(state.section.id) { mutableStateOf(state.section.title) }
+        val titleFocus = remember { FocusRequester() }
+        AlertDialog(
+            onDismissRequest = { showTitleDialog = false },
+            title = { Text("Editar título") },
+            text = {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    singleLine = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(titleFocus),
+                )
+                LaunchedEffect(Unit) { titleFocus.requestFocus() }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Título é uma linha lógica: quebra de linha vira espaço.
+                    onTitleChange(draft.replace("\n", " ").trim())
+                    showTitleDialog = false
+                }) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTitleDialog = false }) { Text("Cancelar") }
+            },
+        )
     }
 }
 
