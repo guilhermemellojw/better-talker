@@ -24,6 +24,7 @@ import com.bettertalker.app.ui.editor.EditorViewModel
 import com.bettertalker.app.ui.account.AccountScreen
 import com.bettertalker.app.ui.account.AccountViewModel
 import com.bettertalker.app.ui.home.HomeScreen
+import com.bettertalker.app.ui.settings.SettingsScreen
 import com.bettertalker.app.ui.home.HomeViewModel
 import com.bettertalker.app.ui.home.TrashScreen
 import com.bettertalker.app.ui.library.LibraryScreen
@@ -98,15 +99,23 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 onOpenNote = { nav.navigate(Routes.editor(it)) },
                 onOpenLibrary = { nav.navigate(Routes.library()) },
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
-                onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
-                onOpenModel = { nav.navigate(Routes.MODEL) },
-                settings = settings,
+                // #10b: ⚙ → SettingsScreen (Conta/Aparência/IA).
+                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
             )
         }
         composable(Routes.TRASH) { back ->
             val parent = remember(back) { nav.getBackStackEntry(Routes.HOME) }
             val vm: HomeViewModel = viewModel(parent, factory = HomeViewModel.Factory(ctx, db))
             TrashScreen(vm, onBack = { nav.popBackStack() })
+        }
+        // #10b: Settings centralizada (Conta/Aparência/IA) — ⚙ da Home.
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                settings,
+                onBack = { nav.popBackStack() },
+                onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
+                onOpenModel = { nav.navigate(Routes.MODEL) },
+            )
         }
         composable(Routes.ACCOUNT) {
             val vm: AccountViewModel = viewModel(factory = AccountViewModel.Factory(ctx))

@@ -23,27 +23,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -63,12 +57,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.theme.NOTE_COLORS
-import com.bettertalker.app.ui.theme.PaletteId
-import com.bettertalker.app.ui.theme.ThemeMode
-import com.bettertalker.app.ui.theme.paletteLabel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,86 +68,21 @@ fun HomeScreen(
     onOpenNote: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenTrash: () -> Unit,
-    onOpenAccount: () -> Unit,
-    onOpenModel: () -> Unit,
-    settings: SettingsStore,
+    // #10b: Conta/Aparência/IA agora vivem na SettingsScreen (⚙).
+    onOpenSettings: () -> Unit,
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
     val query by vm.query.collectAsState()
     val folderId by vm.folderId.collectAsState()
     val counts by vm.attachCounts.collectAsState()
-    val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
-    val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
     val scope = rememberCoroutineScope()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    var showTheme by remember { mutableStateOf(false) }
     var showNewFolder by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var confirmDelFolder by remember { mutableStateOf(false) }
-    // Dropdown de usuário (Conta/Aparência/Modelo IA).
-    var menuOpen by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val selectedFolder = folders.firstOrNull { it.id == folderId }
-
-    if (showTheme) {
-        AlertDialog(
-            onDismissRequest = { showTheme = false },
-            title = { Text("Aparência") },
-            text = {
-                Column {
-                    ThemeMode.entries.forEach { m ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    scope.launch { settings.setThemeMode(m) }
-                                    showTheme = false
-                                }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            RadioButton(selected = themeMode == m, onClick = {
-                                scope.launch { settings.setThemeMode(m) }
-                                showTheme = false
-                            })
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                when (m) {
-                                    ThemeMode.AUTO -> "Automático (sistema)"
-                                    ThemeMode.LIGHT -> "Claro"
-                                    ThemeMode.DARK -> "Escuro"
-                                }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    // #7d3: segunda seção — paleta curada.
-                    Text("Paleta", style = MaterialTheme.typography.titleSmall)
-                    PaletteId.entries.forEach { p ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    scope.launch { settings.setPaletteId(p) }
-                                    showTheme = false
-                                }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            RadioButton(selected = paletteId == p, onClick = {
-                                scope.launch { settings.setPaletteId(p) }
-                                showTheme = false
-                            })
-                            Spacer(Modifier.width(8.dp))
-                            Text(paletteLabel(p))
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showTheme = false }) { Text("Fechar") } }
-        )
-    }
 
     if (showRename && selectedFolder != null) {
         var name by remember(selectedFolder.id) { mutableStateOf(selectedFolder.name) }
@@ -238,33 +163,9 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
-
-                    // Dropdown de usuário (padrão do EditorScreen: Box ancora o menu).
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.AccountCircle, "Conta")
-                        }
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Conta") },
-                                onClick = { menuOpen = false; onOpenAccount() },
-                                leadingIcon = { Icon(Icons.Default.AccountCircle, null) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Aparência") },
-                                onClick = { menuOpen = false; showTheme = true },
-                                leadingIcon = { Icon(Icons.Default.Contrast, null) },
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("Modelo IA") },
-                                onClick = { menuOpen = false; onOpenModel() },
-                                leadingIcon = { Icon(Icons.Default.SmartToy, null) },
-                            )
-                        }
+                    // #10b: ⚙ abre a SettingsScreen (Conta/Aparência/IA).
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, "Configurações")
                     }
                 }
             )

@@ -8,6 +8,7 @@ object Routes {
     const val ACCOUNT = "account"
     const val CHAT = "chat/{noteId}"
     const val MODEL = "model"
+    const val SETTINGS = "settings"
     fun editor(noteId: String) = "editor/$noteId"
     fun chat(noteId: String) = "chat/$noteId"
     fun library(linkNote: String? = null) =
