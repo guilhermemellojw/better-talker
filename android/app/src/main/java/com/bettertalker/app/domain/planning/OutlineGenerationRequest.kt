@@ -30,4 +30,9 @@ data class OutlineGenerationRequest(
      * o caminho theme-driven do #3c.
      */
     val sourceContent: String? = null,
+    /**
+     * #8b: natureza do material colado (ex: "TALK:10min") — quando presente,
+     * o prompt pede um discurso COMPLETO com a duração da parte V&M.
+     */
+    val materialNature: String? = null,
 )

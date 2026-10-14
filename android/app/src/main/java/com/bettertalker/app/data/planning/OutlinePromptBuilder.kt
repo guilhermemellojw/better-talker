@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.planning
 
+import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.domain.planning.OutlineGenerationRequest
 
 /**
@@ -87,7 +88,7 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
         }
         val methods = if (request.methodPrinciples.isEmpty()) " (nenhum fornecido)"
         else request.methodPrinciples.joinToString("\n- ", prefix = "\n- ")
-        return """
+        val prompt = """
             Estruture este conteúdo em seções com tempos e textos-âncora.
 
             Conteúdo de origem (texto que o usuário colou numa seção):
@@ -121,6 +122,21 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
             Retorne APENAS JSON válido no formato abaixo, sem markdown, sem ```json, sem texto extra:
             {"title":"string","summary":"string","sections":[{"title":"string","minutes":0,"mainIdea":"string","bibleRefs":["string"],"publicationRefs":[{"symbol":"string","page":0,"paragraph":0}],"methodPrinciple":"string"}]}
         """.trimIndent()
+        // #8b: hint V&M — discurso completo com a duração da parte.
+        val vmHint = request.materialNature?.let { nature ->
+            val minutes = materialMinutesOf(nature) ?: request.totalMinutes
+            "Este material é da reunião Vida e Ministério (discurso).\n" +
+                "Gere um discurso COMPLETO: introdução, desenvolvimento e conclusão.\n" +
+                "Duração alvo: $minutes minutos."
+        }
+        return if (vmHint == null) {
+            prompt
+        } else {
+            prompt.replaceFirst(
+                "Estruture este conteúdo em seções com tempos e textos-âncora.\n",
+                "Estruture este conteúdo em seções com tempos e textos-âncora.\n\n$vmHint\n",
+            )
+        }
     }
 
     companion object {

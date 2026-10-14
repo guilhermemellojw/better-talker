@@ -64,9 +64,15 @@ import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.PublicationDetector
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.S34Detector
+import com.bettertalker.app.data.util.VmPastePlan
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.htmlToPlainText
+import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
+import com.bettertalker.app.data.util.vmPastePlan
+import com.bettertalker.app.data.util.vmRejectionMessage
+import com.bettertalker.app.data.util.vmTalkMessage
+import com.bettertalker.app.data.util.vmTalkSection
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.data.planning.OutlineGeneratorImpl
 import com.bettertalker.app.data.planning.OutlineProposerFactory
@@ -2435,7 +2441,37 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * nota inteira. Gatilho determinístico; a IA só estrutura o conteúdo
      * (nunca inventa refs — o request leva as refs extraídas do texto).
      */
-    private suspend fun structureFromPasted(target: DraftTarget?) {
+    /**
+     * #8b: materializa a parte TALK colada como seção BODY (fonte do gerador)
+     * e pede a estrutura completa com o hint V&M ("TALK:Nmin").
+     */
+    private suspend fun handleVmTalkPaste(plan: VmPastePlan.Talk) {
+        val nid = noteId
+        if (nid == null) {
+            postText(STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE)
+            return
+        }
+        val now = System.currentTimeMillis()
+        val order = (db.speechSectionDao().forNote(nid).maxOfOrNull { it.order } ?: -1) + 1
+        val section = vmTalkSection(
+            talk = plan.talk,
+            noteId = nid,
+            order = order,
+            id = newId("sec"),
+            now = now,
+        )
+        db.speechSectionDao().upsert(section.toEntity())
+        postText(vmTalkMessage(plan.talk, plan.ignored))
+        structureFromPasted(
+            target = DraftTarget.Section(section.id),
+            materialNature = "TALK:${plan.talk.minutes}min",
+        )
+    }
+
+    private suspend fun structureFromPasted(
+        target: DraftTarget?,
+        materialNature: String? = null,
+    ) {
         val targetError = structurePastedTargetError(target)
         if (targetError != null) {
             postText(targetError)
@@ -2465,7 +2501,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             return
         }
         val generator = OutlineGeneratorImpl(ProviderFactory.createFor(remote, app))
-        val request = buildStructureFromPastedRequest(section, sourceText)
+        val request = buildStructureFromPastedRequest(
+            section, sourceText, materialNature = materialNature,
+        )
         val proposal = try {
             generator.generate(request)
         } catch (_: Exception) {
@@ -3537,6 +3575,18 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     }
 
     fun pasteOutline(text: String) = viewModelScope.launch {
+        // #8b: material V&M roteia por natureza (TALK gera; demais rejeitam).
+        when (val plan = vmPastePlan(text)) {
+            is VmPastePlan.Talk -> {
+                handleVmTalkPaste(plan)
+                return@launch
+            }
+            is VmPastePlan.Rejected -> {
+                postText(vmRejectionMessage(plan.parts))
+                return@launch
+            }
+            VmPastePlan.Generic -> Unit
+        }
         val (titled, rest) = PastedOutlineAnalyzer.splitTitle(text)
         val (cands, droppedCount) = PastedOutlineAnalyzer.candidates(rest.ifBlank { text })
         if (cands.isEmpty()) {
@@ -4545,6 +4595,8 @@ internal fun buildStructureFromPastedRequest(
     section: SpeechSection,
     sourceContent: String,
     id: String = newId("sgen"),
+    // #8b: hint V&M ("TALK:10min") — natureza + duração no prompt.
+    materialNature: String? = null,
 ): OutlineGenerationRequest {
     val bible = RefDetector.detectBible(sourceContent).map {
         val abbrev = normalizeBibleBookName(it.label) ?: it.label
@@ -4562,13 +4614,15 @@ internal fun buildStructureFromPastedRequest(
     return OutlineGenerationRequest(
         id = id,
         theme = section.title,
-        totalMinutes = STRUCTURE_PASTED_TOTAL_MINUTES,
+        // #8b: material V&M tem duração própria (o hint manda no prompt).
+        totalMinutes = materialMinutesOf(materialNature) ?: STRUCTURE_PASTED_TOTAL_MINUTES,
         audience = Audience.GENERAL,
         angle = OutlineAngle.PRACTICAL,
         bibleRefs = bible,
         publicationRefs = pubs,
         methodPrinciples = emptyList(),
         sourceContent = sourceContent,
+        materialNature = materialNature,
     )
 }
 
