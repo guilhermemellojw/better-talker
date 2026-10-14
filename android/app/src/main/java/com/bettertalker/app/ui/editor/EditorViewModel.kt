@@ -304,6 +304,10 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun moveSection(sectionId: String, direction: MoveDirection) =
         sectionsController.moveSection(sectionId, direction)
 
+    /** #7d4: reordena por D&D (índice alvo absoluto; no-op se igual). */
+    fun moveSectionTo(sectionId: String, targetIndex: Int) =
+        sectionsController.moveSectionTo(sectionId, targetIndex)
+
     fun updateSectionRole(sectionId: String, role: SectionRole) =
         sectionsController.updateSectionRole(sectionId, role)
 

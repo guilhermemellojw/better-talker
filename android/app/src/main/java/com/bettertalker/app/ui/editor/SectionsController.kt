@@ -300,6 +300,23 @@ class SectionsController(
         launchAtomicPersist(renormalized)
     }
 
+    /**
+     * #7d4: move a seção [sectionId] para a posição [targetIndex] (D&D).
+     * No-op se o índice atual já é o alvo ou se o alvo está fora de 0..size-1.
+     */
+    fun moveSectionTo(sectionId: String, targetIndex: Int) {
+        val list = _sections.value.toMutableList()
+        val from = list.indexOfFirst { it.section.id == sectionId }
+        if (from < 0) return
+        val to = targetIndex.coerceIn(0, list.size - 1)
+        if (from == to) return
+        val item = list.removeAt(from)
+        list.add(to, item)
+        val renormalized = renormalizeSections(list)
+        _sections.value = renormalized
+        launchAtomicPersist(renormalized)
+    }
+
     /** Muda o role de uma seção (sem validar — validação é aviso). */
     fun updateSectionRole(sectionId: String, newRole: SectionRole) {
         update(sectionId) {

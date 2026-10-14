@@ -4,6 +4,7 @@ package com.bettertalker.app.ui.editor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -57,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
@@ -124,6 +127,10 @@ fun SectionCardEditor(
     onChatAbout: (DraftTarget) -> Unit = {},
     onApproveSection: () -> Unit = {},
     onUnapproveSection: () -> Unit = {},
+    // #7d4: D&D de seções — o gesto vive no handle (≡); o EditorScreen é dono do estado.
+    onDragStart: () -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val editorStates = remember(state.section.id) {
@@ -147,7 +154,7 @@ fun SectionCardEditor(
         // INTRO/CONCLUSÃO em linha única (chip / aprovar).
         Column(
             modifier = Modifier
-                .padding(start = 20.dp, end = 8.dp, bottom = 2.dp)
+                .padding(start = 8.dp, end = 8.dp, bottom = 2.dp)
                 .then(
                     if (isBody && !isActiveSection) {
                         Modifier.clickable { onActivate() }
@@ -161,6 +168,11 @@ fun SectionCardEditor(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    SectionDragHandle(
+                        onDragStart = onDragStart,
+                        onDrag = onDrag,
+                        onDragEnd = onDragEnd,
+                    )
                     TextField(
                         value = titleText,
                         enabled = !readOnly,
@@ -249,6 +261,11 @@ fun SectionCardEditor(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
+                    SectionDragHandle(
+                        onDragStart = onDragStart,
+                        onDrag = onDrag,
+                        onDragEnd = onDragEnd,
+                    )
                     Box {
                         Surface(
                             onClick = { if (!readOnly) roleMenuOpen = true },
@@ -931,6 +948,35 @@ private fun MiniSpeechBlock(
                 .heightIn(min = 72.dp),
         )
     }
+}
+
+/**
+ * #7d4: handle de reordenação (≡). Long-press inicia o gesto; o componente
+ * NÃO guarda estado — emite eventos para o EditorScreen (dono do drag).
+ */
+@Composable
+private fun SectionDragHandle(
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+) {
+    Icon(
+        imageVector = Icons.Default.DragHandle,
+        contentDescription = "Reordenar seção",
+        modifier = Modifier
+            .size(24.dp)
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { onDragStart() },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        onDrag(dragAmount.y)
+                    },
+                )
+            },
+    )
 }
 
 @Composable

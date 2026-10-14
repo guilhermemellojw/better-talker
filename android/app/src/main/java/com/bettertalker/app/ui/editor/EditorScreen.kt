@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,6 +75,7 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +87,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -96,6 +99,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import com.bettertalker.app.data.export.buildExportHtml
 import com.bettertalker.app.data.export.buildExportPlainText
@@ -173,6 +177,11 @@ fun EditorScreen(
     // imune ao aninhamento.
     val sectionWinY = remember { mutableStateMapOf<String, Int>() }
     var viewportTopWin by remember { mutableStateOf(0) }
+    var viewportHeightPx by remember { mutableFloatStateOf(0f) }
+    // #7d4: estado do D&D de seções (dono: a tela; o handle só emite eventos).
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragStartWinY by remember { mutableFloatStateOf(0f) }
     val pendingScroll by vm.scrollRequests.collectAsState()
     LaunchedEffect(pendingScroll) {
         val id = pendingScroll ?: return@LaunchedEffect
@@ -192,6 +201,28 @@ fun EditorScreen(
             scrollState.animateScrollTo(target)
         }
         vm.consumeScrollRequest()
+    }
+
+    // #7d4: auto-scroll durante o drag — dedo perto do topo/base do viewport.
+    // Compensa `dragOffsetY` para o card seguir sob o dedo enquanto o conteúdo rola.
+    LaunchedEffect(draggingId) {
+        if (draggingId == null) return@LaunchedEffect
+        while (true) {
+            if (viewportHeightPx > 0f) {
+                val fingerY = dragStartWinY + dragOffsetY
+                val margin = 140f
+                val delta = when {
+                    fingerY < viewportTopWin + margin -> -14f
+                    fingerY > viewportTopWin + viewportHeightPx - margin -> 14f
+                    else -> 0f
+                }
+                if (delta != 0f) {
+                    scrollState.scrollBy(delta)
+                    dragOffsetY += delta
+                }
+            }
+            withFrameNanos { }
+        }
     }
 
     // 3.2.5c: editor multi-seção. Duas noções independentes:
@@ -637,6 +668,7 @@ fun EditorScreen(
                         viewportTopWin = coords.localToWindow(
                             androidx.compose.ui.geometry.Offset.Zero
                         ).y.toInt()
+                        viewportHeightPx = coords.size.height.toFloat()
                     }
                     .verticalScroll(scrollState)
                     .imePadding()
@@ -722,65 +754,102 @@ fun EditorScreen(
                     sections.forEachIndexed { index, sectionState ->
                         // key(id): estado do card não migra no reorder (3.2.5f.2b).
                         key(sectionState.section.id) {
-                            SectionCardEditor(
-                                state = sectionState,
-                                isActiveSection = sectionState.section.id == activeSectionId,
-                                readOnly = preview,
-                                isFirstSection = index == 0,
-                                isLastSection = index == sections.lastIndex,
-                                onActivate = {
-                                    activeSectionId = sectionState.section.id
-                                    vm.setActiveSectionTitle(sectionState.section.title)
-                                },
-                                onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
-                                onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
-                                onContentChange = { vm.onSectionContent(sectionState.section.id, it) },
-                                onActiveEditorChange = { key, state ->
-                                    activeEditorKey = key
-                                    activeEditorState = state
-                                },
-                                onSelectionChange = { ctx -> vm.onSelectionChange(ctx) },
-                                sectionPendingInserts = sectionPendingInserts,
-                                onConsumeInsert = { vm.consumeInsert(it) },
-                                onAddSubPoint = { afterId ->
-                                    vm.addSubPoint(sectionState.section.id, afterId)
-                                },
-                                onRemoveSubPoint = { spId -> vm.removeSubPoint(spId) },
-                                onMoveSubPoint = { spId, dir -> vm.moveSubPoint(spId, dir) },
-                                onUpdateSubPointOutlineText = { spId, text ->
-                                    vm.updateSubPointOutlineText(spId, text)
-                                },
-                                onObjectiveChange = { vm.onSectionObjective(sectionState.section.id, it) },
-                                onApproachChange = { vm.onSectionApproach(sectionState.section.id, it) },
-                                onRoleChange = { role ->
-                                    vm.updateSectionRole(sectionState.section.id, role)
-                                },
-                                onMoveSectionUp = {
-                                    vm.moveSection(sectionState.section.id, MoveDirection.UP)
-                                },
-                                onMoveSectionDown = {
-                                    vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
-                                },
-                                onRemoveSection = { vm.removeSection(sectionState.section.id) },
-                                onApproveSection = { vm.approveSection(sectionState.section.id) },
-                                onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
-                                // Modo guiado: registra o Y do card no conteúdo
-                                // rolável para o scroll pedido pelo chat.
-                                modifier = Modifier.onGloballyPositioned { coords ->
-                                    sectionWinY[sectionState.section.id] = coords.localToWindow(
-                                        androidx.compose.ui.geometry.Offset.Zero
-                                    ).y.toInt()
-                                },
-                                onChatAbout = { target ->
-                                    // T3 — aguarda o push concluir antes de navegar:
-                                    // sem await, o chat podia abrir com o contexto
-                                    // ainda não empurrado (race do botão).
-                                    scope.launch {
-                                        vm.pushContextForChat(target)
-                                        onOpenChat()
-                                    }
-                                },
-                            )
+                            val isDragging = draggingId == sectionState.section.id
+                            // #7d4: o card arrastado translada/escala/sombreia; os
+                            // demais ficam parados (v1 sem live preview).
+                            Box(
+                                modifier = Modifier
+                                    .zIndex(if (isDragging) 1f else 0f)
+                                    .graphicsLayer {
+                                        translationY = if (isDragging) dragOffsetY else 0f
+                                        val scale = if (isDragging) 1.02f else 1f
+                                        scaleX = scale
+                                        scaleY = scale
+                                        shadowElevation = if (isDragging) 8.dp.toPx() else 0f
+                                    },
+                            ) {
+                                SectionCardEditor(
+                                    state = sectionState,
+                                    isActiveSection = sectionState.section.id == activeSectionId,
+                                    readOnly = preview,
+                                    isFirstSection = index == 0,
+                                    isLastSection = index == sections.lastIndex,
+                                    onActivate = {
+                                        activeSectionId = sectionState.section.id
+                                        vm.setActiveSectionTitle(sectionState.section.title)
+                                    },
+                                    onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
+                                    onMinutesChange = { vm.onSectionMinutes(sectionState.section.id, it) },
+                                    onContentChange = { vm.onSectionContent(sectionState.section.id, it) },
+                                    onActiveEditorChange = { key, state ->
+                                        activeEditorKey = key
+                                        activeEditorState = state
+                                    },
+                                    onSelectionChange = { ctx -> vm.onSelectionChange(ctx) },
+                                    sectionPendingInserts = sectionPendingInserts,
+                                    onConsumeInsert = { vm.consumeInsert(it) },
+                                    onAddSubPoint = { afterId ->
+                                        vm.addSubPoint(sectionState.section.id, afterId)
+                                    },
+                                    onRemoveSubPoint = { spId -> vm.removeSubPoint(spId) },
+                                    onMoveSubPoint = { spId, dir -> vm.moveSubPoint(spId, dir) },
+                                    onUpdateSubPointOutlineText = { spId, text ->
+                                        vm.updateSubPointOutlineText(spId, text)
+                                    },
+                                    onObjectiveChange = { vm.onSectionObjective(sectionState.section.id, it) },
+                                    onApproachChange = { vm.onSectionApproach(sectionState.section.id, it) },
+                                    onRoleChange = { role ->
+                                        vm.updateSectionRole(sectionState.section.id, role)
+                                    },
+                                    onMoveSectionUp = {
+                                        vm.moveSection(sectionState.section.id, MoveDirection.UP)
+                                    },
+                                    onMoveSectionDown = {
+                                        vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
+                                    },
+                                    onRemoveSection = { vm.removeSection(sectionState.section.id) },
+                                    onApproveSection = { vm.approveSection(sectionState.section.id) },
+                                    onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
+                                    // #7d4: D&D — estado na tela; o handle só emite.
+                                    onDragStart = {
+                                        draggingId = sectionState.section.id
+                                        dragStartWinY =
+                                            (sectionWinY[sectionState.section.id] ?: 0).toFloat()
+                                        dragOffsetY = 0f
+                                    },
+                                    onDrag = { deltaY -> dragOffsetY += deltaY },
+                                    onDragEnd = {
+                                        val id = draggingId
+                                        if (id != null) {
+                                            val target = computeTargetIndex(
+                                                draggedY = dragStartWinY + dragOffsetY,
+                                                orderedSectionIds = sections.map { it.section.id },
+                                                sectionWinY = sectionWinY.mapValues { it.value.toFloat() },
+                                                draggedId = id,
+                                            )
+                                            if (target != null) vm.moveSectionTo(id, target)
+                                        }
+                                        draggingId = null
+                                        dragOffsetY = 0f
+                                    },
+                                    // Modo guiado: registra o Y do card no conteúdo
+                                    // rolável para o scroll pedido pelo chat.
+                                    modifier = Modifier.onGloballyPositioned { coords ->
+                                        sectionWinY[sectionState.section.id] = coords.localToWindow(
+                                            androidx.compose.ui.geometry.Offset.Zero
+                                        ).y.toInt()
+                                    },
+                                    onChatAbout = { target ->
+                                        // T3 — aguarda o push concluir antes de navegar:
+                                        // sem await, o chat podia abrir com o contexto
+                                        // ainda não empurrado (race do botão).
+                                        scope.launch {
+                                            vm.pushContextForChat(target)
+                                            onOpenChat()
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                     if (!preview) {
