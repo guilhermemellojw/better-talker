@@ -131,12 +131,19 @@ object ChatRouter {
     // ---------- T3 (Mini Discurso): inserção em linguagem natural ----------
 
     /** Verbos de inserção (texto normalizado, sem acento; "coloque"→coloqu). */
-    private val INSERT_VERB = Regex("\\b(insir|inser|coloc|coloqu|adicion|inclu)\\w*\\b")
+    private val INSERT_VERB = Regex(
+        "\\b(insir|inser|coloc|coloqu|adicion|inclu)\\w*\\b|\\b(poe|ponha)\\b"
+    )
 
-    /** Referência ao que já foi dito (a resposta anterior do Copilot). */
+    /**
+     * Referência ao texto (anáfora) — #8c (GAP-9): aceita paráfrases
+     * ("isso aí", "o que você escreveu", "esse conteúdo"). "o texto" puro
+     * ficou de fora: "coloca o texto" não é pedido de inserir o que existe.
+     */
     private val INSERT_ANAPHORA = Regex(
-        "\\b(isso|isto|esse texto|essa resposta|essa sugestao|esse trecho|essa parte|" +
-            "essa ideia|esse conteudo|essa mensagem|o texto|essa proposta)\\b"
+        "\\b(isso|isto|essa resposta|esse texto|o que voce escreveu|o que escreveu|" +
+            "esse conteudo|isso ai|esse trecho|essa parte|essa sugestao|essa ideia|" +
+            "essa mensagem|essa proposta)\\b"
     )
 
     /** Destino explícito e genérico (discurso/tópico/nota), sem número. */
@@ -154,23 +161,46 @@ object ChatRouter {
     /** Alvo numerado ("no ponto 2"): fora do escopo desta rodada — não sequestra. */
     private val NUMBERED_TARGET = Regex("\\b(ponto|topico|secao)\\s+\\d{1,2}\\b")
 
+    /** #8c (GAP-9): hedge no início da oração bloqueia o comando. */
+    private val HEDGE_START = Regex("^(acho que|acho|talvez|sera que|quem sabe|de repente)\\b")
+
+    /** Orações separadas por vírgula/ponto e vírgula, normalizadas. */
+    private fun insertClauses(text: String): List<String> =
+        text.split(Regex("[,;]")).map { normalizeText(it) }.filter { it.isNotBlank() }
+
+    /**
+     * #8c (GAP-9) — pedido de inserir "isso" no card, aceitando paráfrases:
+     * verbo de ação + referência ao texto, sem hedge. Oração por oração
+     * ("acho que fechamos, vamos colocar isso no card" → SIM; "acho que devia
+     * colocar isso no card" → NÃO). Puro/testável.
+     */
+    fun isInsertCommand(text: String): Boolean = insertClauses(text).any { c ->
+        !HEDGE_START.containsMatchIn(c) &&
+            INSERT_VERB.containsMatchIn(c) &&
+            INSERT_ANAPHORA.containsMatchIn(c)
+    }
+
     /**
      * T3 — comando de inserção no mini discurso/tópico em linguagem natural:
-     * "insira isso no mini discurso", "insira no tópico", "coloque no
-     * discurso", "adicione ao mini discurso", "insira esse texto".
-     * Determinístico (nunca vai ao LLM). Puro/testável.
+     * "insira isso no mini discurso", "insira no tópico", "coloca isso no
+     * card", "vamos colocar isso no card". Determinístico (nunca vai ao LLM).
      *
      * Exclui: criação nova ("insira uma ilustração no ponto 2"), alvo
      * numerado ("insira isso no ponto 2"), esqueleto e cards ("insira a 2").
+     * #8c: a referência agora vem de [isInsertCommand] (paráfrases + hedge).
      */
     fun isInsertIntoSpeechCommand(text: String): Boolean {
         val t = " ${normalizeText(text)} "
         if (t.contains("esqueleto")) return false
         if (!INSERT_VERB.containsMatchIn(t)) return false
         if (NUMBERED_TARGET.containsMatchIn(t)) return false
-        val anaphora = INSERT_ANAPHORA.containsMatchIn(t)
-        if (!anaphora && CREATION_OBJECT.containsMatchIn(t)) return false
-        return anaphora || INSERT_DESTINATION.containsMatchIn(t)
+        if (isInsertCommand(text)) return true
+        // Destino explícito sem referência ("insira no tópico") — legado.
+        return insertClauses(text).any { c ->
+            !HEDGE_START.containsMatchIn(c) &&
+                INSERT_DESTINATION.containsMatchIn(" $c ") &&
+                !CREATION_OBJECT.containsMatchIn(" $c ")
+        }
     }
 
     // ---------- F5b (Modo C): estruturar texto colado de publicação ----------

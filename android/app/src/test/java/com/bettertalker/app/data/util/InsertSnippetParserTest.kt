@@ -24,22 +24,17 @@ class InsertSnippetParserTest {
     }
 
     @Test
-    fun insiraDeClaroAEsperanca_between() {
+    fun insiraDeXAeY_between() {
         assertEquals(
-            Snippet.Between("Claro", "esperança"),
-            parseInsertSnippet("insira de \"Claro\" a \"esperança\""),
+            Snippet.Between("X", "Y"),
+            parseInsertSnippet("insira de \"X\" a \"Y\""),
         )
-    }
-
-    @Test
-    fun insiraSoIsso_stripMeta() {
-        assertEquals(Snippet.StripMeta, parseInsertSnippet("insira só isso"))
-        assertEquals(Snippet.StripMeta, parseInsertSnippet("insira apenas o texto"))
     }
 
     @Test
     fun insiraIsso_null() {
         assertNull(parseInsertSnippet("insira isso"))
         assertNull(parseInsertSnippet("insira no tópico"))
+        assertNull(parseInsertSnippet("insira só isso"))
     }
 }

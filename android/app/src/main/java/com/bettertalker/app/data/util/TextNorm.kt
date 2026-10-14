@@ -449,3 +449,41 @@ private val PROMPT_TAG_PAIR_CJK = Regex(
 )
 
 private val PROMPT_TAG_STRAY_CJK = Regex("〈/?[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+〉")
+
+// #8c (GAP-2): marcadores de preâmbulo/pós-escrito "meta" do assistente.
+private val META_START_HINTS = listOf(
+    "claro", "aqui está", "aqui vai", "segue", "vou escrever",
+    "vou sugerir", "escrevi", "a seguir",
+)
+private val META_END_HINTS = listOf(
+    "espero ter ajudado", "quer que eu", "precisa de mais",
+    "se quiser", "posso ajustar", "me avise", "é isso",
+)
+private val META_QUOTE_STARTS = listOf("\"", "«", "〈")
+
+private fun looksMeta(p: String, hints: List<String>): Boolean {
+    if (p.length >= 100) return false
+    if (META_QUOTE_STARTS.any { p.startsWith(it) }) return false
+    val low = p.lowercase()
+    return hints.any { low.contains(it) }
+}
+
+/**
+ * #8c (GAP-2) — remove o preâmbulo/pós-escrito "meta" do assistente
+ * ("Claro! Aqui está o texto:", "Espero ter ajudado!").
+ *
+ * - Só o PRIMEIRO e o ÚLTIMO parágrafo, e só se parecerem meta
+ *   (<100 chars + marcador da posição; não começam com citação).
+ * - Nunca remove se for o único parágrafo.
+ * Puro/testável.
+ */
+fun stripMetaPreamble(text: String): String {
+    val paras = text.split(Regex("\\n\\s*\\n")).map { it.trim() }.filter { it.isNotEmpty() }
+    if (paras.size < 2) return text
+    var lo = 0
+    var hi = paras.size - 1
+    if (looksMeta(paras[lo], META_START_HINTS)) lo++
+    if (hi >= lo && looksMeta(paras[hi], META_END_HINTS)) hi--
+    if (lo == 0 && hi == paras.size - 1) return text
+    return paras.subList(lo, hi + 1).joinToString("\n\n").trim()
+}

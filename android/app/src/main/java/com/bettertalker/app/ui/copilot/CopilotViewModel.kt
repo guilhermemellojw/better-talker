@@ -72,6 +72,7 @@ import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.parseInsertSnippet
 import com.bettertalker.app.data.util.snippetLabel
+import com.bettertalker.app.data.util.stripMetaPreamble
 import com.bettertalker.app.data.util.stripPromptTags
 import com.bettertalker.app.data.util.vmPastePlan
 import com.bettertalker.app.data.util.vmRejectionMessage
@@ -287,8 +288,12 @@ fun fidelityRevisionNotice(
  * `〈sugestão〉…〈/sugestão〉` (marcador interno do verificador, nunca conteúdo)
  * e apara. Puro/testável.
  */
-internal fun cleanForInsert(raw: String): String =
-    stripPromptTags(raw).trim()
+internal fun cleanForInsert(raw: String): String {
+    // #8c: limpeza DEFAULT em toda inserção — tags internas, preâmbulo/
+    // pós-escrito "meta" e linhas em branco duplicadas.
+    val stripped = stripMetaPreamble(stripPromptTags(raw))
+    return stripped.replace(Regex("\\n{3,}"), "\n\n").trim()
+}
 
 /**
  * #8c (GAP-4): dica discreta de ação quando a resposta fecha decisões —

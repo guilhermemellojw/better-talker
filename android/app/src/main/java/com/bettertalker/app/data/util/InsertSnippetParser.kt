@@ -7,10 +7,10 @@ package com.bettertalker.app.data.util
  * - "insira a opção 2" / "insira a 3" / "use a opção 2" → [Snippet.NthBlock]
  * - "insira o parágrafo 1"                              → [Snippet.NthParagraph]
  * - "insira de "X" a "Y""                               → [Snippet.Between]
- * - "insira só isso" / "insira apenas o texto"          → [Snippet.StripMeta]
  *
  * "insira isso" NÃO é recorte (retorna null) — segue o fluxo anafórico que
- * já existe. Puro/testável.
+ * já existe. A limpeza (tags/preâmbulo) é DEFAULT em toda inserção
+ * ([stripMetaPreamble] + [stripPromptTags]), não um comando. Puro/testável.
  */
 sealed interface Snippet {
     /** N-ésimo bloco (separado por `---`, "**Opção N:**" ou "N."). */
@@ -21,9 +21,6 @@ sealed interface Snippet {
 
     /** Trecho literal entre dois marcadores citados. */
     data class Between(val start: String, val end: String) : Snippet
-
-    /** Remove preâmbulo/pós-escrito "meta" (primeiro e último parágrafos). */
-    object StripMeta : Snippet
 }
 
 private const val VERB = "(?:insira|insere|inserir|use|usar|coloque|colocar)"
@@ -40,10 +37,6 @@ private val BETWEEN_RE = Regex(
     """\binsira\s+de\s+["“'](.+?)["”']\s+a\s+["“'](.+?)["”']""",
     RegexOption.IGNORE_CASE,
 )
-private val STRIP_META_RE = Regex(
-    """\binsira\s+(s[óo]|apenas)\b""",
-    RegexOption.IGNORE_CASE,
-)
 
 fun parseInsertSnippet(text: String): Snippet? {
     val t = text.trim()
@@ -54,7 +47,6 @@ fun parseInsertSnippet(text: String): Snippet? {
     }
     PARAGRAFO_RE.find(t)?.let { m -> return Snippet.NthParagraph(m.groupValues[1].toInt()) }
     OPCAO_RE.find(t)?.let { m -> return Snippet.NthBlock(m.groupValues[1].toInt()) }
-    if (STRIP_META_RE.containsMatchIn(t)) return Snippet.StripMeta
     return null
 }
 
@@ -63,7 +55,6 @@ fun snippetLabel(snippet: Snippet): String = when (snippet) {
     is Snippet.NthBlock -> "a opção ${snippet.n}"
     is Snippet.NthParagraph -> "o parágrafo ${snippet.n}"
     is Snippet.Between -> "o trecho"
-    Snippet.StripMeta -> "o texto"
 }
 
 private val DASH_SEP = Regex("""\n\s*-{3,}\s*\n""")
@@ -85,7 +76,6 @@ fun extractSnippet(responseText: String, snippet: Snippet): String? {
         is Snippet.NthBlock -> nthBlock(text, snippet.n)
         is Snippet.NthParagraph -> nthParagraph(text, snippet.n)
         is Snippet.Between -> between(text, snippet.start, snippet.end)
-        Snippet.StripMeta -> stripMeta(text)
     }
 }
 
@@ -128,20 +118,4 @@ private fun between(text: String, start: String, end: String): String? {
         RegexOption.DOT_MATCHES_ALL,
     ).find(text) ?: return null
     return m.groupValues[1].trim().ifEmpty { null }
-}
-
-private val META_HINTS = listOf("claro", "aqui", "espero", "vou", "a seguir", "segue")
-
-private fun isMetaParagraph(p: String): Boolean =
-    p.length < 80 && META_HINTS.any { p.lowercase().contains(it) }
-
-/** Remove o primeiro/último parágrafo quando são "meta" (cortesia/aviso). */
-private fun stripMeta(text: String): String? {
-    val paras = text.split(PARAGRAPH_SEP).map { it.trim() }.filter { it.isNotEmpty() }
-    if (paras.isEmpty()) return null
-    var lo = 0
-    var hi = paras.size - 1
-    if (paras.size > 1 && isMetaParagraph(paras[lo])) lo++
-    if (hi >= lo && isMetaParagraph(paras[hi])) hi--
-    return paras.subList(lo, hi + 1).joinToString("\n\n").trim().ifEmpty { null }
 }

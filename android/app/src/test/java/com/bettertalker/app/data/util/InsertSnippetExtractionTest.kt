@@ -42,12 +42,6 @@ class InsertSnippetExtractionTest {
     }
 
     @Test
-    fun stripMeta_removePreambuloEPosEscrito() {
-        val text = "Claro! Aqui está o texto:\n\nConteúdo principal do card.\n\nEspero ter ajudado!"
-        assertEquals("Conteúdo principal do card.", extractSnippet(text, Snippet.StripMeta))
-    }
-
-    @Test
     fun naoEncontrado_null() {
         assertNull(extractSnippet("Só um parágrafo.", Snippet.NthBlock(2)))
         assertNull(extractSnippet("Só um parágrafo.", Snippet.Between("x", "y")))
