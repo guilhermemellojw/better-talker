@@ -29,7 +29,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -122,7 +121,6 @@ fun SectionCardEditor(
     onMoveSectionUp: () -> Unit = {},
     onMoveSectionDown: () -> Unit = {},
     onRemoveSection: () -> Unit = {},
-    canGenerateDraft: Boolean = false,
     onGenerateDraft: (DraftTarget) -> Unit = {},
     onChatAbout: (DraftTarget) -> Unit = {},
     onApproveSection: () -> Unit = {},
@@ -440,7 +438,6 @@ fun SectionCardEditor(
                                     contentHtml = state.section.contentHtml,
                                     targetMinutes = state.section.minutes,
                                     readOnly = readOnly,
-                                    canGenerateDraft = canGenerateDraft,
                                     editorStates = editorStates,
                                     onContentChange = onContentChange,
                                     onSelectionChange = onSelectionChange,
@@ -884,7 +881,6 @@ private fun MiniSpeechBlock(
     contentHtml: String,
     targetMinutes: Int,
     readOnly: Boolean,
-    canGenerateDraft: Boolean,
     editorStates: MutableMap<String, RichTextState>,
     onContentChange: (String) -> Unit,
     onSelectionChange: (SelectionContext?) -> Unit,
@@ -945,22 +941,6 @@ private fun MiniSpeechBlock(
                 .fillMaxWidth()
                 .heightIn(min = 72.dp),
         )
-        if (!readOnly) {
-            Button(
-                onClick = onGenerateDraft,
-                enabled = canGenerateDraft,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (hasText) "Atualizar mini discurso" else "Criar mini discurso")
-            }
-            if (!canGenerateDraft) {
-                Text(
-                    "Configure um modelo de IA na tela Modelo IA para gerar.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
     }
 }
 

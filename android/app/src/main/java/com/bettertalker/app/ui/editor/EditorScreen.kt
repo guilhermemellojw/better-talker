@@ -145,7 +145,6 @@ fun EditorScreen(
     val sections by vm.sections.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
     val draftState by vm.draftState.collectAsState()
-    val canGenerateDraft by vm.canGenerateDraft.collectAsState()
     var preview by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
@@ -763,7 +762,6 @@ fun EditorScreen(
                                     vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
                                 },
                                 onRemoveSection = { vm.removeSection(sectionState.section.id) },
-                                canGenerateDraft = canGenerateDraft,
                                 onGenerateDraft = vm::startDraft,
                                 onApproveSection = { vm.approveSection(sectionState.section.id) },
                                 onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
