@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -79,9 +78,9 @@ val OUTLINE_MIMES = arrayOf(
  * + à esquerda, voz e enviar à direita (T6: botão "Ferramentas" removido —
  * ações realocadas no +, nos chips e no ⋯ das respostas).
  *
- * Teclado: `ImeAction.Send` envia; a quebra de linha do usuário é preservada
- * pelo campo multilinha (maxLines = 5). O botão de ação do IME substitui o
- * Enter/Shift+Enter da web — é a equivalência mais natural do Android (§8 F15).
+ * Teclado: Enter = quebra de linha (o usuário estrutura o texto no campo
+ * multilinha, maxLines = 5); o envio é SÓ pelo botão de enviar. O IME não
+ * tem ação de send — evita enviar sem querer no meio da digitação.
  */
 @Composable
 fun ChatPromptBar(
@@ -126,8 +125,8 @@ fun ChatPromptBar(
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSend() })
+                // Enter = nova linha (estruturação); envio só pelo botão.
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onAttach) {
