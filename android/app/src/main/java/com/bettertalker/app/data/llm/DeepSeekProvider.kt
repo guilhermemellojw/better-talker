@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.llm
 
 import com.bettertalker.app.data.copilot.ProviderErrorCode
+import com.bettertalker.app.data.planning.looksTruncated
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.withLock
@@ -141,24 +142,39 @@ class DeepSeekProvider(
                 when {
                     res.status == 200 -> {
                         val text = sb.toString()
-                        if (text.isBlank()) {
-                            // T2: thinking consumiu o orçamento (length sem content).
-                            if (finish == "length" && !budgetBumped) {
-                                budgetBumped = true
-                                budget = (budget * 2).coerceAtMost(4096)
-                                log("deepseek vazio por length; retry com budget=$budget tentativa=$attempts")
-                                lastError = ProviderError(
-                                    ProviderErrorCode.INVALID_RESPONSE,
-                                    "Orçamento de tokens esgotado antes da resposta.", id, attempts
-                                )
-                                continue
-                            }
+                        val vazio = text.isBlank()
+                        // #11-fix: fragmento CORTADO não-vazio também merece 1
+                        // retry com budget maior — antes passava cru como resposta.
+                        val vazioPorLength = vazio && finish == "length"
+                        val cortado = !vazio && finish == "length" &&
+                            looksTruncated(text, finish)
+                        if (shouldRetryOnLength(vazioPorLength, cortado, budgetBumped)) {
+                            budgetBumped = true
+                            budget = (budget * 2).coerceAtMost(4096)
+                            log(
+                                "deepseek ${if (vazio) "vazio" else "cortado"} por length; " +
+                                    "retry com budget=$budget tentativa=$attempts"
+                            )
+                            lastError = ProviderError(
+                                ProviderErrorCode.INVALID_RESPONSE,
+                                "Orçamento de tokens esgotado antes da resposta.", id, attempts
+                            )
+                            continue
+                        }
+                        if (vazio) {
                             val msg = if (finish == "length") {
                                 "Orçamento de tokens esgotado antes da resposta."
                             } else {
                                 "Resposta vazia do DeepSeek."
                             }
                             throw ProviderError(ProviderErrorCode.INVALID_RESPONSE, msg, id, attempts)
+                        }
+                        // #11-fix (c): torna visível o corte que antes passava mudo.
+                        if (finish == "length") {
+                            android.util.Log.w(
+                                "DeepSeek",
+                                "resposta cortada por length: ${text.length} chars"
+                            )
                         }
                         LocalProgress.set(LocalPhase.Done)
                         // T1: no modo texto puro o modelo pode vir com prosa em
@@ -567,3 +583,18 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
     val block = request.contextBlock?.takeIf { it.isNotBlank() } ?: return base
     return base.first to ("## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$block\n\n" + base.second)
 }
+
+/**
+ * #11-fix: decide o retry único por corte de orçamento.
+ *
+ * - `emptyByLength`: content vazio com finish=length (caso T2 original);
+ * - `cut`: fragmento não-vazio cortado por length (caso novo — o stub);
+ * - `budgetBumped`: o retry já aconteceu (nunca faz loop).
+ *
+ * Puro/testável.
+ */
+internal fun shouldRetryOnLength(
+    emptyByLength: Boolean,
+    cut: Boolean,
+    budgetBumped: Boolean,
+): Boolean = (emptyByLength || cut) && !budgetBumped

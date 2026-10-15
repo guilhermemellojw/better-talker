@@ -250,6 +250,17 @@ fun citationRevisionNotice(text: String, corpus: List<String>): String? {
 }
 
 /**
+ * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
+ * acervo (o modelo vai citar 600 chars + comentar; 1000 é apertado). Puro.
+ */
+internal fun answerOutputBudget(hasResolvedRefs: Boolean): Int =
+    if (hasResolvedRefs) {
+        maxOf(com.bettertalker.app.data.llm.DEFAULT_LLM_MAX_OUTPUT_TOKENS, 2048)
+    } else {
+        com.bettertalker.app.data.llm.DEFAULT_LLM_MAX_OUTPUT_TOKENS
+    }
+
+/**
  * T2 (chat minimalista): banner de setup só quando o setup está
  * incompleto (sem vínculos), não dispensado e antes do primeiro uso.
  * Após o 1º envio, nunca mais. Puro/testável.
@@ -1891,6 +1902,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     message = text,
                     history = history,
                     isFirstMessage = isFirst,
+                    // #11-fix: folga quando há ref do acervo resolvida na pergunta.
+                    maxOutputTokens = answerOutputBudget(
+                        questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
+                    ),
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
