@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,7 +29,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -42,11 +40,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FormatBold
-import androidx.compose.material.icons.filled.FormatClear
-import androidx.compose.material.icons.filled.FormatItalic
-import androidx.compose.material.icons.filled.FormatStrikethrough
-import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
@@ -98,12 +91,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.ParagraphStyle
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
@@ -116,23 +106,8 @@ import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
 import java.io.File
 
-// Paleta de cores da fonte (estilo Word)
-private val FONT_COLORS = listOf(
-    Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFFBC02D),
-    Color(0xFF388E3C), Color(0xFF1976D2), Color(0xFF7B1FA2),
-    Color.Black
-)
-// Cores de marca-texto
-private val HIGHLIGHT_COLORS = listOf(
-    Color(0xFFFFFF00), Color(0xFFA5FF8A), Color(0xFF8AD4FF),
-    Color(0xFFFFB3BA), Color(0xFFFFE08A)
-)
-
 // 3.2.5g.2: tamanhos de fonte em EditorFontSizes.kt (compartilhados com o
 // SectionCardEditor, que aplica o tamanho padrão do corpo).
-
-/** 3.2.5g.2: picker ativo abaixo da toolbar (substitui os booleans antigos). */
-private enum class PickerMode { FONT_COLOR, HIGHLIGHT, SIZE }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -163,11 +138,6 @@ fun EditorScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    // 3.2.5g.2: picker ativo abaixo da toolbar (substitui showColors/showHighlight/showSize).
-    var activePicker by remember { mutableStateOf<PickerMode?>(null) }
-    // Menus dos slots da toolbar.
-    var showSizeMenu by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
     var showColorDialog by remember { mutableStateOf(false) }
     var showAttachmentsSheet by remember { mutableStateOf(false) }
@@ -261,11 +231,9 @@ fun EditorScreen(
     // sozinho não diz a qual seção/sub-ponto pertence.
     var activeEditorKey by remember { mutableStateOf<String?>(null) }
 
-    // 3.2.5g.2: preview esconde a toolbar — não deixar picker ativo vazar.
-    // #7e2: o menu do empty state também não pode ressurgir depois.
+    // #7e2: o menu do empty state não pode ressurgir depois do preview.
     LaunchedEffect(preview) {
         if (preview) {
-            activePicker = null
             showAddSectionMenu = false
         }
     }
@@ -273,12 +241,6 @@ fun EditorScreen(
     // 3.2.5e: inserts programáticos (Copilot/atalhos) são consumidos pelos
     // cards via sectionPendingInserts; a fila legada foi removida do VM.
 
-    val curSpan = activeEditorState?.currentSpanStyle ?: SpanStyle()
-    val isBold = (curSpan.fontWeight?.weight ?: 400) > 400
-    val isItalic = curSpan.fontStyle == FontStyle.Italic
-    val isUnderline = curSpan.textDecoration?.contains(TextDecoration.Underline) == true
-    val isStrike = curSpan.textDecoration?.contains(TextDecoration.LineThrough) == true
-    val toolbarEnabled = activeEditorState != null
 
     if (showMove) {
         AlertDialog(
@@ -472,201 +434,16 @@ fun EditorScreen(
             // topo, por isso o inset da status bar (consumido quando ela
             // ainda está expandida).
             if (!preview) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 12.dp),
-            ) {
-                // Toolbar Word-like fixa no topo (rolável p/ telas estreitas).
-                // 3.2.5c: opera o editor ATIVO (activeEditorState); sem foco = desabilitada.
-                // 3.2.5g.2: 8 slots (B I U S | 🎨 | 14 | ≡ | ⋯) + menus/pickers.
-                val sizeLabel = when (curSpan.fontSize) {
-                    FONT_SIZE_S -> "14"
-                    FONT_SIZE_M -> "18"
-                    FONT_SIZE_G -> "24"
-                    // Sem span explícito = corpo no tamanho padrão.
-                    else -> "18"
-                }
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(end = 8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    item {
-                        ToolBtn(Icons.Default.FormatBold, "Negrito", active = isBold, enabled = toolbarEnabled) {
-                            activeEditorState?.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatItalic, "Itálico", active = isItalic, enabled = toolbarEnabled) {
-                            activeEditorState?.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatUnderlined, "Sublinhado", active = isUnderline, enabled = toolbarEnabled) {
-                            activeEditorState?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline))
-                        }
-                    }
-                    item {
-                        ToolBtn(Icons.Default.FormatStrikethrough, "Tachado", active = isStrike, enabled = toolbarEnabled) {
-                            activeEditorState?.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
-                        }
-                    }
-                    // "14": mostra o tamanho vigente e aplica S/M/G direto.
-                    item {
-                        Box {
-                            TextButton(onClick = { showSizeMenu = true }, enabled = toolbarEnabled) {
-                                Text(sizeLabel, fontWeight = FontWeight.SemiBold)
-                            }
-                            DropdownMenu(
-                                expanded = showSizeMenu,
-                                onDismissRequest = { showSizeMenu = false },
-                            ) {
-                                listOf(
-                                    "Pequeno (14)" to FONT_SIZE_S,
-                                    "Médio (18)" to FONT_SIZE_M,
-                                    "Grande (24)" to FONT_SIZE_G,
-                                ).forEach { (label, size) ->
-                                    DropdownMenuItem(
-                                        text = { Text(label) },
-                                        onClick = {
-                                            showSizeMenu = false
-                                            activeEditorState?.toggleSpanStyle(SpanStyle(fontSize = size))
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    // ⋯: formatação secundária (cor, marca-texto, listas,
-                    // alinhamento) + limpar. F3.1: toolbar enxuta (B I U S |
-                    // tamanho | ⋯) para caber em telas estreitas.
-                    item {
-                        Box {
-                            ToolBtn(Icons.Default.MoreVert, "Mais opções", active = showMoreMenu, enabled = toolbarEnabled) {
-                                showMoreMenu = true
-                            }
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Cor de fonte") },
-                                    onClick = { showMoreMenu = false; activePicker = PickerMode.FONT_COLOR },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Marca-texto") },
-                                    onClick = { showMoreMenu = false; activePicker = PickerMode.HIGHLIGHT },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Tamanho") },
-                                    onClick = { showMoreMenu = false; activePicker = PickerMode.SIZE },
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Título") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.insertMarkdownAfterSelection("\n# ")
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Lista") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleUnorderedList()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Lista numerada") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleOrderedList()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Alinhar à esquerda") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Left))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Centralizar") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Center))
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Alinhar à direita") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleParagraphStyle(ParagraphStyle(textAlign = TextAlign.Right))
-                                    },
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Limpar formatação") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        activeEditorState?.toggleSpanStyle(
-                                            SpanStyle(
-                                                color = Color.Unspecified,
-                                                background = Color.Unspecified,
-                                                fontWeight = FontWeight.Normal,
-                                                fontStyle = FontStyle.Normal,
-                                                textDecoration = TextDecoration.None,
-                                                fontSize = androidx.compose.ui.unit.TextUnit.Unspecified
-                                            )
-                                        )
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (toolbarEnabled) {
-                    when (activePicker) {
-                        PickerMode.FONT_COLOR -> {
-                            Spacer(Modifier.height(6.dp))
-                            ColorDots(
-                                colors = FONT_COLORS,
-                                current = curSpan.color,
-                                onPick = { activeEditorState?.toggleSpanStyle(SpanStyle(color = it)) }
-                            )
-                        }
-                        PickerMode.HIGHLIGHT -> {
-                            Spacer(Modifier.height(6.dp))
-                            ColorDots(
-                                colors = HIGHLIGHT_COLORS,
-                                current = curSpan.background,
-                                onPick = { activeEditorState?.toggleSpanStyle(SpanStyle(background = it)) }
-                            )
-                        }
-                        PickerMode.SIZE -> {
-                            Spacer(Modifier.height(6.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("P" to FONT_SIZE_S, "M" to FONT_SIZE_M, "G" to FONT_SIZE_G).forEach { (label, size) ->
-                                    val active = curSpan.fontSize == size
-                                    TextButton(onClick = {
-                                        activeEditorState?.toggleSpanStyle(SpanStyle(fontSize = size))
-                                    }) {
-                                        Text(
-                                            label,
-                                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (active) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        null -> Unit
-                    }
-                }
-            }
+                // #13-fix-a: toolbar extraída para FormattingToolbar.kt
+                // (linha fina no phone + sheet; inline no tablet).
+                // Opera o editor ATIVO; sem foco = desabilitada.
+                EditorFormattingToolbar(
+                    activeEditorState = activeEditorState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(horizontal = 12.dp),
+                )
             }
 
             // 3.2.5c: corpo multi-seção (preview = readOnly em todos os cards).
@@ -1177,62 +954,6 @@ private fun AddSectionMenu(
                 text = { Text(friendlyRoleName(role)) },
                 onClick = { onAdd(role); onDismiss() },
             )
-        }
-    }
-}
-
-@Composable
-private fun ToolBtn(
-    icon: ImageVector,
-    desc: String,
-    active: Boolean = false,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    IconButton(onClick = onClick, enabled = enabled) {
-        Icon(
-            icon, desc,
-            tint = if (active) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
-@Composable
-private fun ColorDots(
-    colors: List<Color>,
-    current: Color,
-    onPick: (Color) -> Unit
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        (listOf(Color.Unspecified) + colors).forEach { c ->
-            val selected = if (c == Color.Unspecified) current == Color.Unspecified
-            else current == c
-            Box(
-                Modifier
-                    .size(if (selected) 30.dp else 24.dp)
-                    .clip(CircleShape)
-                    .then(
-                        if (c == Color.Unspecified) Modifier.border(
-                            2.dp, MaterialTheme.colorScheme.outline, CircleShape
-                        )
-                        else Modifier.background(c)
-                    )
-                    .then(
-                        if (selected) Modifier.border(
-                            2.dp, MaterialTheme.colorScheme.primary, CircleShape
-                        ) else Modifier
-                    )
-                    .clickable { onPick(c) }
-            ) {
-                if (c == Color.Unspecified) {
-                    Icon(
-                        Icons.Default.FormatClear, null,
-                        modifier = Modifier.size(16.dp).align(Alignment.Center),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
         }
     }
 }
