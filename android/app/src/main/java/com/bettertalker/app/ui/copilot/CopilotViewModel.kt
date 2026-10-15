@@ -323,6 +323,20 @@ internal fun appendInsertInstruction(finalText: String, responseText: String): S
     return finalText.trimEnd() + "\n\n" + INSERT_INSTRUCTION
 }
 
+/**
+ * #15a: aviso suave quando a resposta é gerada SEM S-34 vinculado — o gate
+ * duro ("Importe o S-34") foi removido; isto só informa. Nunca bloqueia.
+ */
+internal const val NO_S34_WARNING =
+    "_⚠️ Sem esboço S-34 vinculado — o texto pode não seguir a estrutura original._"
+
+/** #15a: anexa o aviso suave ao fim da resposta. Idempotente — nunca duplica. Puro/testável. */
+internal fun appendNoS34Warning(finalText: String): String {
+    if (finalText.contains(NO_S34_WARNING)) return finalText
+    val base = finalText.trimEnd()
+    return if (base.isEmpty()) NO_S34_WARNING else base + "\n\n" + NO_S34_WARNING
+}
+
 /** T4: confirmação de inserção no tópico em foco (ou na nota, sem alvo). */
 internal fun insertConfirmation(topic: String?): String =
     if (topic != null) "Inserido no tópico “$topic”." else "Inserido na nota."
@@ -1388,17 +1402,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
                         return@launch
                     }
-                    // F2e: sem S-34 mas com esboço vinculado (seções
-                    // convertidas) → degrada para o chat normal, que já
-                    // tem dossiê injetado. Sem esboço nenhum, o
-                    // generateOratory mantém a mensagem "Importe o S-34".
-                    val outlineNid = noteId ?: return@launch
-                    if (shouldDegradeOratoryToChat(
-                            hasS34Document = _lastS34Document != null,
-                            hasLinkedOutline = outlines.get(outlineNid) != null,
+                    // #15a: sem S-34 vinculado NÃO há mais recusa — a rota
+                    // degrada para o chat normal (seção + corpus + RAG, dossiê
+                    // injetado) e o aviso suave [NO_S34_WARNING] entra no fim
+                    // da resposta. Com S-34, a geração oratória ancorada segue.
+                    if (shouldDegradeOratoryToChat(hasS34Document = _lastS34Document != null)) {
+                        answerRemote(
+                            text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                            noS34Warning = true,
                         )
-                    ) {
-                        answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
                         return@launch
                     }
                     generateOratory(route, text, remote, contextBlock, turnContext)
@@ -1638,11 +1650,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         contextBlock: String? = null,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     ) {
-        val doc = _lastS34Document
-        if (doc == null) {
-            postText("Não tenho a estrutura deste discurso. Importe o S-34 para eu gerar com fidelidade.")
-            return
-        }
+        // #15a: sem S-34 o chamador degrada para o chat (com aviso suave);
+        // este guard é defensivo — estado impossível pelo fluxo do sendMessage.
+        val doc = _lastS34Document ?: return
         val view = route.sectionId?.let {
             com.bettertalker.app.data.s34.S34StructuralRetrieval.scopeToSection(doc, it)
         }
@@ -1862,6 +1872,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        /** #15a: rota sem S-34 degradada → aviso suave no fim da resposta. */
+        noS34Warning: Boolean = false,
     ) {
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
         // Inversão de contexto (correção): o payload recebe AMBOS — o dossiê
@@ -1973,6 +1985,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val withTip = if (tip == null) finalText else finalText + tip
         // #8c (GAP-4): instrução discreta quando a resposta fecha decisões.
         val withInstruction = appendInsertInstruction(withTip, verified.text)
+        // #15a: aviso suave quando a resposta veio de rota degradada sem S-34.
+        val withS34Notice =
+            if (noS34Warning) appendNoS34Warning(withInstruction) else withInstruction
         // T1 (Fase 2): consenso automático — decisões da resposta (〈decisão〉
         // ou pista explícita) viram agreedApproach do tópico em foco, sem
         // duplicar. Best-effort: nunca quebra a resposta.
@@ -1980,7 +1995,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             recordConsensus(verified.text)
         } catch (_: Exception) {
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to withInstruction)), MessageOrigin.COPILOT)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to withS34Notice)), MessageOrigin.COPILOT)
     }
 
     /**
@@ -4280,15 +4295,13 @@ internal fun buildOutlineConversion(
  * vinculado. Todo o resto do produto (dossiê, `buildContextBlock`,
  * greeting) já é agnóstico ao tipo.
  *
- * Degrada **apenas** quando há esboço vinculado (seções convertidas
- * disponíveis). Sem esboço nenhum, mantém a mensagem original.
+ * #15a: sem S-34 o gate duro foi removido — degrada SEMPRE (com ou sem
+ * esboço convertido) e o aviso suave [NO_S34_WARNING] entra no fim da
+ * resposta. Com S-34, a geração oratória ancorada segue normal.
  *
  * Pura, testável.
  */
-internal fun shouldDegradeOratoryToChat(
-    hasS34Document: Boolean,
-    hasLinkedOutline: Boolean,
-): Boolean = !hasS34Document && hasLinkedOutline
+internal fun shouldDegradeOratoryToChat(hasS34Document: Boolean): Boolean = !hasS34Document
 
 /**
  * Inversão de contexto (correção): a prosa em foco que vai ao LLM.

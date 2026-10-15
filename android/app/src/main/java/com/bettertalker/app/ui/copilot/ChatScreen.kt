@@ -937,11 +937,24 @@ fun stripSuggestionTags(md: String): SuggestionText {
     return SuggestionText(cleaned, has)
 }
 
+/**
+ * #15b — pipeline de render da bolha do assistente: primeiro o badge de
+ * sugestão ([stripSuggestionTags] detecta `〈sugestão〉`), depois a remoção
+ * das demais tags internas (`〈decisão〉`, órfãs) via stripPromptTags — o
+ * badge continua (o par `〈sugestão〉` já saiu na 1ª etapa). Puro/testável.
+ */
+internal fun cleanedForRender(md: String): SuggestionText {
+    val suggested = stripSuggestionTags(md)
+    return suggested.copy(
+        text = com.bettertalker.app.data.util.stripPromptTags(suggested.text)
+    )
+}
+
 /** Texto formatado do assistente (markdown próprio, selecionável). */
 @Composable
 fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
     if (md.isBlank()) return
-    val suggested = remember(md) { stripSuggestionTags(md) }
+    val suggested = remember(md) { cleanedForRender(md) }
     val blocks = remember(suggested.text) { parseBlocks(suggested.text) }
     SelectionContainer {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {

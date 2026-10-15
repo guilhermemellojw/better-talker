@@ -43,8 +43,12 @@ fun inSuggestion(pos: Int, spans: List<IntRange>): Boolean = spans.any { pos in 
 
 object GroundednessVerifier {
 
-    /** Citações curtas são ruído (ex.: "sim"); só valem a partir daqui. */
-    const val MIN_QUOTE_CHARS = 12
+    /**
+     * Citações curtas são ruído (ex.: "sim"); só valem a partir daqui.
+     * #15c: 12 → 20 — citações curtas legítimas viravam falso-positivo de
+     * remoção (o verificador é conservador por desenho).
+     */
+    const val MIN_QUOTE_CHARS = 20
 
     const val REMOVAL_NOTICE =
         "\n\n(Observação: removi uma frase que não tinha apoio nas fontes.)"
@@ -161,14 +165,19 @@ object GroundednessVerifier {
     }
 
     /**
-     * Normaliza para comparação: caixa, espaços, acentos e marcas de markdown
-     * (`*`, `#`, `>`) — o modelo pode enfatizar/titular dentro da citação, e
-     * sem isso `**"citação"**` não casava com o corpus (falso-positivo).
+     * Normaliza para comparação: caixa, espaços (inclusive Unicode/NBSP),
+     * acentos, marcas de markdown (`*`, `#`, `>`) e tipografia (travessões →
+     * `-`, reticências → `...`, aspas curvas → retas) — o modelo pode
+     * enfatizar/titular dentro da citação, e sem isso `**"citação"**` ou
+     * `—`/`…` divergentes não casavam com o corpus (falso-positivo).
+     * #15c: a MESMA função normaliza citação e corpus (comparação simétrica).
      */
     internal fun normalize(s: String): String = s
         .lowercase()
         .replace(Regex("[*#>]"), "")
-        .replace(Regex("\\s+"), " ")
+        .replace(Regex("[\\s\\u00A0\\u2007\\u2009\\u202F\\uFEFF]+"), " ")
+        .replace(Regex("\\s*[\\u2010-\\u2015\\u2212-]\\s*"), "-")
+        .replace("…", "...")
         .replace('á', 'a').replace('à', 'a').replace('â', 'a').replace('ã', 'a')
         .replace('é', 'e').replace('ê', 'e')
         .replace('í', 'i')
@@ -176,5 +185,6 @@ object GroundednessVerifier {
         .replace('ú', 'u')
         .replace('ç', 'c')
         .replace('“', '"').replace('”', '"')
+        .replace('‘', '\'').replace('’', '\'')
         .trim()
 }
