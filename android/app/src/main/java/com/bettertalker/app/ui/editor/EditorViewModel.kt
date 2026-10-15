@@ -274,14 +274,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun onSectionContent(sectionId: String, html: String) =
         sectionsController.onSectionContent(sectionId, html)
 
-    /** F2.3: objetivo do tópico (fachada p/ o SectionsController). */
-    fun onSectionObjective(sectionId: String, objective: String) =
-        sectionsController.onSectionObjective(sectionId, objective)
-
-    /** F2.3: abordagem acordada do tópico (fachada p/ o SectionsController). */
-    fun onSectionApproach(sectionId: String, approach: String) =
-        sectionsController.onSectionApproach(sectionId, approach)
-
     /** F3a: aprova a seção (fachada p/ o SectionsController). */
     fun approveSection(sectionId: String) =
         viewModelScope.launch { sectionsController.approveSection(sectionId) }

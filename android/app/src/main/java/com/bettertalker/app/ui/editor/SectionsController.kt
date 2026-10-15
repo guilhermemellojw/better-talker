@@ -166,32 +166,6 @@ class SectionsController(
     }
 
     /**
-     * F2.3: objetivo do tópico. Aceita vazio (limpa o campo). Nunca é
-     * preenchido automaticamente por sugestão do Copilot — só pelo usuário.
-     */
-    fun onSectionObjective(sectionId: String, objective: String) {
-        update(sectionId) {
-            it.copy(section = it.section.copy(
-                objective = objective.trim().ifBlank { null },
-                updatedAt = clock(),
-            ))
-        }
-    }
-
-    /**
-     * F2.3: abordagem acordada do tópico. Gravada apenas quando o usuário
-     * confirma o consenso (a UI só chama isto no aceite explícito).
-     */
-    fun onSectionApproach(sectionId: String, approach: String) {
-        update(sectionId) {
-            it.copy(section = it.section.copy(
-                agreedApproach = approach.trim().ifBlank { null },
-                updatedAt = clock(),
-            ))
-        }
-    }
-
-    /**
      * F3a: aprova a seção (consenso do protocolo seção-a-seção). Emite o
      * estado na hora; o autosave persiste via `toEntity` (como as demais
      * edições). `clock()` injeta o timestamp (testável).

@@ -6,7 +6,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,8 +25,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -65,7 +63,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.domain.speech.SectionRole
@@ -110,8 +107,6 @@ fun SectionCardEditor(
     onRemoveSubPoint: (subPointId: String) -> Unit = {},
     onMoveSubPoint: (subPointId: String, direction: MoveDirection) -> Unit = { _, _ -> },
     onUpdateSubPointOutlineText: (subPointId: String, newText: String) -> Unit = { _, _ -> },
-    onObjectiveChange: (String) -> Unit = {},
-    onApproachChange: (String) -> Unit = {},
     isFirstSection: Boolean = false,
     isLastSection: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
@@ -264,12 +259,6 @@ fun SectionCardEditor(
 
                         SectionRole.BODY -> {
                             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                TopicObjectiveField(
-                                    objective = state.section.objective,
-                                    readOnly = readOnly,
-                                    onObjectiveChange = onObjectiveChange,
-                                )
-
                                 ReasoningLine(
                                     subPoints = state.subPoints,
                                     readOnly = readOnly,
@@ -277,18 +266,6 @@ fun SectionCardEditor(
                                     onMoveSubPoint = onMoveSubPoint,
                                     onRemoveSubPoint = onRemoveSubPoint,
                                     onAddSubPoint = { onAddSubPoint(null) },
-                                )
-
-                                TopicSourcesBlock(
-                                    sectionId = state.section.id,
-                                    refs = topicSources(state.section, state.subPoints),
-                                )
-
-                                TopicApproachBlock(
-                                    sectionId = state.section.id,
-                                    approach = state.section.agreedApproach,
-                                    readOnly = readOnly,
-                                    onApproachChange = onApproachChange,
                                 )
 
                                 MiniSpeechBlock(
@@ -445,66 +422,6 @@ fun SectionCardEditor(
             },
             dismissButton = {
                 TextButton(onClick = { showMinutesDialog = false }) { Text("Cancelar") }
-            },
-        )
-    }
-}
-
-/** Cabeçalho recolhível com seta à direita (título alinhado à base do card). */
-@Composable
-private fun CollapsibleHeader(title: String, expanded: Boolean, onToggle: () -> Unit) {    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable { onToggle() }.padding(vertical = 4.dp),
-    ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** OBJETIVO — curto e distinto da abordagem. */
-@Composable
-private fun TopicObjectiveField(
-    objective: String?,
-    readOnly: Boolean,
-    onObjectiveChange: (String) -> Unit,
-) {
-    var obj by remember(objective) { mutableStateOf(objective.orEmpty()) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            "OBJETIVO",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        BasicTextField(
-            value = obj,
-            onValueChange = {
-                obj = it
-                onObjectiveChange(it)
-            },
-            enabled = !readOnly,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            decorationBox = { innerTextField ->
-                if (obj.isBlank()) {
-                    Text(
-                        "O que este tópico deve alcançar?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                innerTextField()
             },
         )
     }
@@ -705,76 +622,6 @@ private fun SubPointRow(
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") }
             },
         )
-    }
-}
-
-/** FONTES E APOIO — agregado do tópico (recolhível). */
-@Composable
-private fun TopicSourcesBlock(sectionId: String, refs: List<String>) {
-    var expanded by remember(sectionId) { mutableStateOf(false) }
-    Column {
-        CollapsibleHeader("Fontes e apoio", expanded) { expanded = !expanded }
-        if (expanded) {
-            Text(
-                if (refs.isEmpty()) "Nenhuma referência neste tópico."
-                else refs.joinToString("  ·  "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-    }
-}
-
-/** ABORDAGEM ACORDADA — recolhível; distinta do mini discurso. */
-@Composable
-private fun TopicApproachBlock(
-    sectionId: String,
-    approach: String?,
-    readOnly: Boolean,
-    onApproachChange: (String) -> Unit,
-) {
-    var expanded by remember(sectionId) { mutableStateOf(false) }
-    var app by remember(approach) { mutableStateOf(approach.orEmpty()) }
-    Column {
-        CollapsibleHeader("Abordagem acordada", expanded) { expanded = !expanded }
-        if (approach.isNullOrBlank()) {
-            Text(
-                "A abordagem será registrada quando você chegar a um acordo com o Copilot.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (expanded) {
-            if (readOnly) {
-                if (!approach.isNullOrBlank()) {
-                    Text(
-                        approach,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-            } else {
-                OutlinedTextField(
-                    value = app,
-                    onValueChange = {
-                        app = it
-                        onApproachChange(it)
-                    },
-                    placeholder = { Text("A decisão combinada com o Copilot") },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        } else if (!approach.isNullOrBlank()) {
-            Text(
-                approach,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
     }
 }
 
@@ -1022,17 +869,28 @@ private fun SectionContentEditor(
     }
 
     key(editorKey) {
-        // Discovery #5: richeditor não herda LocalContentColor; sem cor
-        // explícita o texto vira preto no dark. cursorBrush idem.
-        BasicRichTextEditor(
-            state = richState,
-            enabled = !readOnly,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                fontSize = FONT_SIZE_BODY_DEFAULT,
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            modifier = modifier.onFocusChanged { onFocusChange(it.isFocused) },
-        )
+        Box {
+            // #12: empty state do editor rich — some ao digitar; nunca no preview.
+            if (!readOnly && richState.annotatedString.text.isEmpty()) {
+                Text(
+                    "Insira seu texto aqui",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                )
+            }
+            // Discovery #5: richeditor não herda LocalContentColor; sem cor
+            // explícita o texto vira preto no dark. cursorBrush idem.
+            BasicRichTextEditor(
+                state = richState,
+                enabled = !readOnly,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = FONT_SIZE_BODY_DEFAULT,
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = modifier.onFocusChanged { onFocusChange(it.isFocused) },
+            )
+        }
     }
 }
