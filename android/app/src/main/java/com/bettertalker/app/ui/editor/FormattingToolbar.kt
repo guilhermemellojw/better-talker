@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,6 +102,8 @@ fun EditorFormattingToolbar(
     val canUndo = history?.canUndo == true
     val canRedo = history?.canRedo == true
 
+    // #13-fix-a2: indicador do marca-texto — background ativo no cursor.
+    val hasHighlight = curSpan.background != Color.Unspecified
     var tabletPicker by remember { mutableStateOf<TabletPicker?>(null) }
     var sheet by remember { mutableStateOf<SheetMode?>(null) }
     val isTablet = LocalConfiguration.current.screenWidthDp >= 600
@@ -145,7 +150,7 @@ fun EditorFormattingToolbar(
                 item {
                     Box {
                         ToolBtn(
-                            Icons.Default.FormatColorText, "Cor e marca-texto",
+                            Icons.Default.FormatColorText, "Cor de fonte",
                             active = tabletPicker == TabletPicker.COLORS, enabled = enabled,
                         ) { tabletPicker = TabletPicker.COLORS }
                         DropdownMenu(
@@ -158,8 +163,6 @@ fun EditorFormattingToolbar(
                             ) {
                                 SheetTitle("Cor de fonte")
                                 ColorGrid(FONT_COLORS, curSpan.color) { onFontColor(it); tabletPicker = null }
-                                SheetTitle("Marca-texto")
-                                ColorGrid(HIGHLIGHT_COLORS, curSpan.background) { onHighlight(it); tabletPicker = null }
                             }
                         }
                     }
@@ -178,6 +181,26 @@ fun EditorFormattingToolbar(
                         }
                     }
                 }
+                item {
+                    Box {
+                        ToolBtn(
+                            Icons.Default.Highlight, "Marca-texto",
+                            active = hasHighlight, enabled = enabled,
+                        ) { tabletPicker = TabletPicker.HIGHLIGHT }
+                        DropdownMenu(
+                            expanded = tabletPicker == TabletPicker.HIGHLIGHT,
+                            onDismissRequest = { tabletPicker = null },
+                        ) {
+                            Column(
+                                Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                SheetTitle("Marca-texto")
+                                ColorGrid(HIGHLIGHT_COLORS, curSpan.background) { onHighlight(it); tabletPicker = null }
+                            }
+                        }
+                    }
+                }
                 item { ToolBtn(Icons.Default.Title, "Título", active = isHeading, enabled = enabled, onClick = onHeading) }
                 item { ToolBtn(Icons.AutoMirrored.Filled.FormatListBulleted, "Lista", active = isBullet, enabled = enabled, onClick = onBullet) }
                 item { ToolBtn(Icons.Default.FormatListNumbered, "Lista numerada", active = isNumbered, enabled = enabled, onClick = onNumbered) }
@@ -189,29 +212,51 @@ fun EditorFormattingToolbar(
                 item { ToolBtn(Icons.AutoMirrored.Filled.Redo, "Refazer", enabled = enabled && canRedo, onClick = onRedo) }
             }
         } else {
-            // Phone: linha fina; o resto vive no ModalBottomSheet.
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                contentPadding = PaddingValues(end = 8.dp),
-                modifier = Modifier.fillMaxWidth(),
+            // #13-fix-a2: linha fina FULL-WIDTH — 3 grupos com separadores
+            // ([B I U S] │ [🎨 Aa ⬛] │ [⋮]); weights 4/3/1 preenchem a
+            // largura toda (sem vazio à direita).
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                item { ToolBtn(Icons.Default.FormatBold, "Negrito", active = isBold, enabled = enabled, onClick = onBold) }
-                item { ToolBtn(Icons.Default.FormatItalic, "Itálico", active = isItalic, enabled = enabled, onClick = onItalic) }
-                item { ToolBtn(Icons.Default.FormatUnderlined, "Sublinhado", active = isUnderline, enabled = enabled, onClick = onUnderline) }
-                item { ToolBtn(Icons.Default.FormatStrikethrough, "Tachado", active = isStrike, enabled = enabled, onClick = onStrike) }
-                item {
+                // Grupo 1 — texto.
+                Row(
+                    modifier = Modifier.weight(4f),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    ToolBtn(Icons.Default.FormatBold, "Negrito", active = isBold, enabled = enabled, onClick = onBold)
+                    ToolBtn(Icons.Default.FormatItalic, "Itálico", active = isItalic, enabled = enabled, onClick = onItalic)
+                    ToolBtn(Icons.Default.FormatUnderlined, "Sublinhado", active = isUnderline, enabled = enabled, onClick = onUnderline)
+                    ToolBtn(Icons.Default.FormatStrikethrough, "Tachado", active = isStrike, enabled = enabled, onClick = onStrike)
+                }
+                VerticalDivider(modifier = Modifier.height(24.dp))
+                // Grupo 2 — visual (cor de fonte, tamanho, marca-texto).
+                Row(
+                    modifier = Modifier.weight(3f),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                ) {
                     ToolBtn(
-                        Icons.Default.FormatColorText, "Cor e marca-texto",
+                        Icons.Default.FormatColorText, "Cor de fonte",
                         active = sheet == SheetMode.COLORS, enabled = enabled,
                     ) { sheet = SheetMode.COLORS }
-                }
-                item {
                     ToolBtn(
                         Icons.Default.FormatSize, "Tamanho",
                         active = sheet == SheetMode.SIZE, enabled = enabled,
                     ) { sheet = SheetMode.SIZE }
+                    ToolBtn(
+                        Icons.Default.Highlight, "Marca-texto",
+                        // Indicador de estado pelo cursor (background ativo).
+                        active = hasHighlight, enabled = enabled,
+                    ) { sheet = SheetMode.HIGHLIGHT }
                 }
-                item {
+                VerticalDivider(modifier = Modifier.height(24.dp))
+                // Grupo 3 — menu.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
                     ToolBtn(
                         Icons.Default.MoreVert, "Mais opções",
                         active = sheet == SheetMode.MORE, enabled = enabled,
@@ -225,10 +270,18 @@ fun EditorFormattingToolbar(
     if (sheetMode != null) {
         ModalBottomSheet(onDismissRequest = { sheet = null }) {
             when (sheetMode) {
-                SheetMode.COLORS -> ColorsSheetContent(
-                    curSpan = curSpan,
-                    onFontColor = onFontColor,
-                    onHighlight = onHighlight,
+                SheetMode.COLORS -> ColorPickerSheetContent(
+                    title = "Cor de fonte",
+                    colors = FONT_COLORS,
+                    current = curSpan.color,
+                    onPick = onFontColor,
+                    onDismiss = { sheet = null },
+                )
+                SheetMode.HIGHLIGHT -> ColorPickerSheetContent(
+                    title = "Marca-texto",
+                    colors = HIGHLIGHT_COLORS,
+                    current = curSpan.background,
+                    onPick = onHighlight,
                     onDismiss = { sheet = null },
                 )
                 SheetMode.SIZE -> SizeSheetContent(
@@ -249,8 +302,8 @@ fun EditorFormattingToolbar(
 }
 
 /** #13-fix-a: pickers do tablet (popup) e do sheet do phone. */
-private enum class TabletPicker { COLORS, SIZE }
-private enum class SheetMode { COLORS, SIZE, MORE }
+private enum class TabletPicker { COLORS, HIGHLIGHT, SIZE }
+private enum class SheetMode { COLORS, HIGHLIGHT, SIZE, MORE }
 
 // Paleta de cores da fonte (estilo Word) — movida do EditorScreen.
 private val FONT_COLORS = listOf(
@@ -370,10 +423,11 @@ private fun SizeRow(
 }
 
 @Composable
-private fun ColorsSheetContent(
-    curSpan: SpanStyle,
-    onFontColor: (Color) -> Unit,
-    onHighlight: (Color) -> Unit,
+private fun ColorPickerSheetContent(
+    title: String,
+    colors: List<Color>,
+    current: Color,
+    onPick: (Color) -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(
@@ -383,10 +437,8 @@ private fun ColorsSheetContent(
             .padding(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SheetTitle("Cor de fonte")
-        ColorGrid(FONT_COLORS, curSpan.color) { onFontColor(it); onDismiss() }
-        SheetTitle("Marca-texto")
-        ColorGrid(HIGHLIGHT_COLORS, curSpan.background) { onHighlight(it); onDismiss() }
+        SheetTitle(title)
+        ColorGrid(colors, current) { onPick(it); onDismiss() }
     }
 }
 
