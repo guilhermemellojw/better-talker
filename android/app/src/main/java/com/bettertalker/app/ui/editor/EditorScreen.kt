@@ -85,6 +85,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -254,7 +255,7 @@ fun EditorScreen(
     // - activeEditorState: editor focado (a toolbar opera nele; null = desabilitada)
     // É o MESMO RichTextState vivo do mapa do SectionCardEditor — atualizado
     // in-place quando o HTML externo muda (não precisa re-emitir).
-    var activeSectionId by remember { mutableStateOf<String?>(null) }
+    var activeSectionId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeEditorState by remember { mutableStateOf<RichTextState?>(null) }
     // F2c: chave do editor focado (fonte do alvo do FAB). O RichTextState
     // sozinho não diz a qual seção/sub-ponto pertence.
@@ -895,6 +896,18 @@ fun EditorScreen(
                                         ).y.toInt()
                                     },
                                     onChatAbout = { target ->
+                                        // #14-fix: "Conversar sobre este tópico"
+                                        // ativa a seção (borda + canal de bloco
+                                        // consistente) antes de empurrar.
+                                        chatAboutActivation(
+                                            target = target,
+                                            sectionTitles = sections.associate {
+                                                it.section.id to it.section.title
+                                            },
+                                        )?.let { (id, title) ->
+                                            activeSectionId = id
+                                            vm.setActiveSectionTitle(title)
+                                        }
                                         // T3 — aguarda o push concluir antes de navegar:
                                         // sem await, o chat podia abrir com o contexto
                                         // ainda não empurrado (race do botão).
@@ -1227,6 +1240,18 @@ private fun ColorDots(
 // ---------- Exportação (T2): Compartilhar / Copiar ----------
 
 /** HTML de exportação a partir do estado atual do editor. */
+/**
+ * #14-fix: alvo da ativação ao "Conversar sobre este tópico" — só seções
+ * ativam (borda + canal de bloco); sub-ponto/nulo apenas empurram contexto.
+ * Devolve (sectionId, título) ou null. Puro/testável.
+ */
+internal fun chatAboutActivation(
+    target: DraftTarget?,
+    sectionTitles: Map<String, String>,
+): Pair<String, String>? = (target as? DraftTarget.Section)?.let { t ->
+    sectionTitles[t.sectionId]?.let { t.sectionId to it }
+}
+
 private fun exportHtmlOf(title: String, sections: List<SectionUiState>): String =
     buildExportHtml(
         noteTitle = title.ifBlank { "Discurso" },

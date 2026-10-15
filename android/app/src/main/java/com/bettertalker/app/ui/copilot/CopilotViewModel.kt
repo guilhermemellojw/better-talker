@@ -1526,6 +1526,10 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
      * mensagem atual: o histórico nunca inclui a própria pergunta, e a
      * primeira mensagem é detectada de verdade.
      */
+    /** #14-fix: o foco de bloco/seleção só vale no escopo Tópico (SECTION). */
+    private fun scopeBlockTitle(): String? =
+        if (_scopeMode.value == ScopeMode.WHOLE) null else _activeBlockTitle.value
+
     private suspend fun buildTurnFor(
         text: String,
         trainingCategory: com.bettertalker.app.data.domain.TrainingCategory?,
@@ -1558,7 +1562,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             history = history,
             isFirstMessage = isFirst,
             pack = pack,
-            blockTitle = _activeBlockTitle.value,
+            blockTitle = scopeBlockTitle(),
             blockMinutes = null,
             blockText = blockText,
             structural = structural,
@@ -1589,6 +1593,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 .filter { it.noteId == nid } // T1: inclui o S-34 importado (indexed=false)
                 .map { it.id }
         }.orEmpty()
+        // #14-fix: em WHOLE o bloco/seleção não valem (sem "conclusão fantasma").
+        val (effBlock, effSel) = effectiveFocusFields(
+            whole = _scopeMode.value == ScopeMode.WHOLE,
+            activeBlockTitle = _activeBlockTitle.value,
+            selection = _selection.value,
+        )
         for (id in s34CandidateIds(candidateIds, linkedIds)) {
             val result = retriever.retrieve(
                 sourceAttachmentId = id,
@@ -1596,8 +1606,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 // ativo/seleção (que podem apontar para outro tópico ou nada).
                 sectionHint = structuralHint(
                     pushedTitle = pushedSectionTitle(),
-                    activeBlockTitle = _activeBlockTitle.value,
-                    selection = _selection.value,
+                    activeBlockTitle = effBlock,
+                    selection = effSel,
                 ),
                 query = text
             )
@@ -1801,7 +1811,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
             com.bettertalker.app.data.copilot.buildRollingSummary(
                 history,
-                pushedSectionTitle() ?: _activeBlockTitle.value.orEmpty(),
+                pushedSectionTitle() ?: scopeBlockTitle().orEmpty(),
             )
         )
         val messageWithMemory =
@@ -1872,7 +1882,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
             com.bettertalker.app.data.copilot.buildRollingSummary(
                 history,
-                pushedSectionTitle() ?: _activeBlockTitle.value.orEmpty(),
+                pushedSectionTitle() ?: scopeBlockTitle().orEmpty(),
             )
         )
         val effectiveContextBlock = combineContextBlocks(
@@ -1909,7 +1919,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
-                    blockTitle = _activeBlockTitle.value,
+                    blockTitle = scopeBlockTitle(),
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = effectiveContextBlock,
@@ -2148,10 +2158,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     /** Texto em foco agora (push > seleção > bloco > discurso). Mesma regra do send(). */
     private suspend fun currentFocusText(): String {
+        // #14-fix: em WHOLE só o corpo da nota vale (sem bloco/seleção).
+        val (effBlock, effSel) = effectiveFocusFields(
+            whole = _scopeMode.value == ScopeMode.WHOLE,
+            activeBlockTitle = _activeBlockTitle.value,
+            selection = _selection.value,
+        )
         return pushedFirstFocus(
             pushedTitle = pushedSectionTitle(),
-            selection = _selection.value.trim(),
-            activeBlockTitle = _activeBlockTitle.value,
+            selection = effSel,
+            activeBlockTitle = effBlock,
             noteBody = _noteBody.value.take(2000),
         )
     }
@@ -2247,7 +2263,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         history = history,
                         isFirstMessage = false,
                         contextPack = turnContext.pack,
-                        blockTitle = _activeBlockTitle.value,
+                        blockTitle = scopeBlockTitle(),
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
                         brief = brief,
@@ -4409,6 +4425,17 @@ internal fun isApproveCommand(text: String): Boolean {
  * O alvo empurrado pelo editor vence os canais legados (que podem apontar
  * para outro tópico ou nada). Sem push, vale a ordem antiga. Pura, testável.
  */
+/**
+ * #14-fix: campos de foco EFETIVOS do turno — em WHOLE (Discurso inteiro) o
+ * bloco ativo e a seleção do editor NÃO valem (o foco é a nota inteira);
+ * em SECTION, passam intactos. Puro/testável.
+ */
+internal fun effectiveFocusFields(
+    whole: Boolean,
+    activeBlockTitle: String?,
+    selection: String,
+): Pair<String?, String> = if (whole) null to "" else activeBlockTitle to selection
+
 internal fun pushedFirstFocus(
     pushedTitle: String?,
     selection: String,
