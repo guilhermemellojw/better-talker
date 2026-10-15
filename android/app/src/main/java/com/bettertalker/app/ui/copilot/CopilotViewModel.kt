@@ -342,6 +342,38 @@ internal fun insertConfirmation(topic: String?): String =
     if (topic != null) "Inserido no tópico “$topic”." else "Inserido na nota."
 
 /**
+ * #15d — query do RAG enriquecida: título da seção em foco + título da
+ * nota + títulos das seções do S-34 (resumo, quando houver) + prosa do
+ * bloco + pergunta. Sem contexto, mantém o comportamento antigo
+ * (`blockText + " " + question`). Teto 2500 — o fallback adaptativo
+ * cobre o caso em que a query enriquecida ainda é fraca. Pura/testável.
+ */
+internal fun enrichedRetrievalQuery(
+    blockText: String,
+    question: String,
+    sectionTitle: String? = null,
+    noteTitle: String? = null,
+    s34SectionTitles: List<String> = emptyList(),
+    max: Int = 2500,
+): String {
+    val context = buildString {
+        if (!sectionTitle.isNullOrBlank()) append(sectionTitle.trim())
+        if (!noteTitle.isNullOrBlank()) {
+            if (isNotEmpty()) append(" · ")
+            append(noteTitle.trim())
+        }
+        s34SectionTitles.forEach { t ->
+            if (t.isNotBlank()) {
+                if (isNotEmpty()) append(" · ")
+                append(t.trim())
+            }
+        }
+    }
+    val base = if (context.isEmpty()) "$blockText $question" else "$context $blockText $question"
+    return base.take(max)
+}
+
+/**
  * T5 (Mini Discurso) — destino de uma ideia no editor: tópico (`sectionId`)
  * ou âncora de heading (notas legadas, sem seções). Puro.
  */
@@ -1561,7 +1593,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 db.passageDao(), db.attachmentDao())
         )
         val pack = packRepo.buildPack(
-            query = (blockText + " " + text).take(2000),
+            // #15d: query enriquecida — seção em foco + nota + seções do
+            // S-34 (resumo) + prosa + pergunta.
+            query = enrichedRetrievalQuery(
+                blockText = blockText,
+                question = text,
+                sectionTitle = scopeBlockTitle(),
+                noteTitle = noteId?.let { db.noteDao().get(it)?.title },
+                s34SectionTitles = _lastS34Document?.sections?.map { it.title }.orEmpty(),
+            ),
             scope = scope,
             includeTraining = trainingCategory != null,
             trainingCategory = trainingCategory

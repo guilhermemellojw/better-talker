@@ -16,6 +16,7 @@ import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.domain.Speech
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.data.domain.TrainingClassifier
+import com.bettertalker.app.data.domain.expandQuery
 import com.bettertalker.app.data.domain.toPassage
 import com.bettertalker.app.data.domain.toPublication
 
@@ -67,6 +68,19 @@ private const val TERM_CANDIDATES = 400
 
 /** F20: termos da query usados na seleção de candidatos. */
 private const val MAX_TERMS = 6
+
+/**
+ * #15d — fallback adaptativo do ContextPack: limiar de relevância
+ * (finalScore), mínimo de hits relevantes para o caminho normal e o
+ * Top-K de resgate. Abaixo de [MIN_RELEVANT_HITS] relevantes, a query é
+ * expandida com os sinônimos curados (QueryExpansion) e o retrieve sobe
+ * para [FALLBACK_TOP_K]. Calibração: o finalScore já embute o piso da
+ * fonte (SOURCE_WEIGHT × prioridade ≈ 0,09-0,10), então 0,15 exige
+ * ~20%+ de cobertura dos termos da query.
+ */
+private const val MIN_RELEVANT_SCORE = 0.15
+private const val MIN_RELEVANT_HITS = 3
+private const val FALLBACK_TOP_K = 10
 
 private fun sourceTypeOf(a: AttachmentEntity): SourceType =
     if (a.sourceType.isNotBlank()) SourceType.fromSerial(a.sourceType)
@@ -192,7 +206,9 @@ class RoomTrainingRepository(
 
 class RoomContextPackRepository(
     private val retrieval: RetrievalRepository,
-    private val training: TrainingRepository
+    private val training: TrainingRepository,
+    /** #15d: log injetável — testes JVM não têm android.util.Log. */
+    private val log: (String) -> Unit = { android.util.Log.i("Retrieval", it) }
 ) : ContextPackRepository {
     override suspend fun buildPack(
         query: String,
@@ -200,7 +216,23 @@ class RoomContextPackRepository(
         includeTraining: Boolean,
         trainingCategory: TrainingCategory?
     ): ContextPack {
-        val content = retrieval.retrieve(query, scope).hits
+        // #15d: caminho normal = Top-K 5. O fallback adaptativo só entra
+        // quando o retrieve padrão devolve poucos trechos RELEVANTES (o
+        // TF-IDF não casou com o vocabulário do acervo).
+        val baseHits = retrieval.retrieve(query, scope).hits
+        val relevant = baseHits.count { it.finalScore >= MIN_RELEVANT_SCORE }
+        val content = if (relevant < MIN_RELEVANT_HITS) {
+            val expandedQuery = expandQuery(query)
+            val expandedHits = retrieval.retrieve(expandedQuery, scope, FALLBACK_TOP_K).hits
+            log("fallback: base=${baseHits.size} expanded=${expandedHits.size}")
+            // Merge: preserva os hits base (nunca substitui) + novos com
+            // score mínimo; dedupe por id; ordem por score.
+            (baseHits + expandedHits.filter { it.finalScore >= MIN_RELEVANT_SCORE })
+                .distinctBy { it.passage.id }
+                .sortedByDescending { it.finalScore }
+        } else {
+            baseHits
+        }
         val trainingHits = if (includeTraining) {
             training.retrieveTraining(query, trainingCategory, scope).hits
         } else emptyList()
