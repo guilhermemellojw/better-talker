@@ -305,10 +305,10 @@ class OratoryGenerationTest {
 
     @Test
     fun limiteVariaPorModo() {
-        assertTrue(OratoryGeneration.maxWords(Mode.TRANSITION) < OratoryGeneration.maxWords(Mode.DEVELOPMENT))
-        assertTrue(OratoryGeneration.maxWords(Mode.INTRODUCTION) < OratoryGeneration.maxWords(Mode.DEVELOPMENT))
+        assertTrue(OratoryGeneration.maxWords(Mode.TRANSITION, 1) < OratoryGeneration.maxWords(Mode.DEVELOPMENT, 6))
+        assertTrue(OratoryGeneration.maxWords(Mode.INTRODUCTION, 1) < OratoryGeneration.maxWords(Mode.DEVELOPMENT, 6))
         val p = OratoryGeneration.buildPrompt(spec(Mode.TRANSITION), "x")
-        assertTrue(p.contains("Limite aproximado: ${OratoryGeneration.maxWords(Mode.TRANSITION)} palavras"))
+        assertTrue(p.contains("Limite aproximado: ${OratoryGeneration.maxWords(Mode.TRANSITION, 1)} palavras"))
     }
 
     // ---------- §38: referência sem texto ----------

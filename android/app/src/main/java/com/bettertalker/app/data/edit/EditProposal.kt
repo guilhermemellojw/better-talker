@@ -182,6 +182,11 @@ fun applyEditProposal(
         ValidationResult.Ok -> Unit
     }
     var out = blocks.map { it.copy() }
+    // #16-fix-c: Insert(AFTER) no MESMO alvo mantêm a ordem do array (o
+    // modelo emite os parágrafos em ordem de leitura). Cada insert novo
+    // entra depois do último bloco já encadeado nesse alvo — antes, todos
+    // caíam em idx+1 do alvo fixo e a saída saía invertida (LIFO).
+    val afterChain = mutableMapOf<String, EditBlock>()
     for (op in proposal.operations) {
         when (op) {
             is EditOperation.Replace -> {
@@ -194,8 +199,13 @@ fun applyEditProposal(
                 val idx = out.indexOfFirst { it.id == op.targetId }
                 if (idx < 0) return ApplyResult(ProposalApplyStatus.INVALID)
                 val created = EditBlock(newId(op), op.contentHtml)
-                val at = if (op.position == InsertPosition.BEFORE) idx else idx + 1
+                val at = if (op.position == InsertPosition.BEFORE) idx else {
+                    val anchor = afterChain[op.targetId]
+                    val anchorIdx = if (anchor == null) -1 else out.indexOfFirst { it === anchor }
+                    (if (anchorIdx >= 0) anchorIdx else idx) + 1
+                }
                 out = out.subList(0, at) + created + out.subList(at, out.size)
+                if (op.position == InsertPosition.AFTER) afterChain[op.targetId] = created
             }
         }
     }

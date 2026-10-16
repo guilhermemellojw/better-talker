@@ -78,12 +78,6 @@ object OratoryFidelityCheck {
         }
 
         // Números: só os que existem no conteúdo autorizado contam como apoiados.
-        val authorized = buildString {
-            append(spec.current?.content.orEmpty()).append(' ')
-            spec.current?.subsections?.forEach { append(it).append(' ') }
-            spec.current?.references?.forEach { r -> r.text?.let { append(it).append(' ') } }
-            spec.contentSources.forEach { append(it.text).append(' ') }
-        }
         val unsupported = NUMBER_RE.findAll(generatedText)
             .filter { m ->
                 // #16-fix-a: número precedido de contexto de prosa
@@ -95,14 +89,53 @@ object OratoryFidelityCheck {
                 !NUMBER_PROSE_CONTEXT.containsMatchIn(before)
             }
             .map { it.groupValues[1] }
-            .filter { n ->
-                // Números de referência (capítulo:versículo) e de código já tratados acima.
-                !authorized.contains(n) && n.length > 1
-            }
+            .filter { n -> n.length > 1 && !isAuthorizedNumber(n, spec, generatedText) }
             .distinct()
             .toList()
 
         return Report(invented.distinct(), leakedRefs.distinct(), unsupported)
+    }
+
+    /**
+     * #16-fix-c: número com apoio real NÃO é dado inventado quando:
+     * 1) faz parte de código de estudo ("S-34", "S-38") no texto;
+     * 2) é ano derivado de publicação do spec ("w11" → "2011", "g14" → "2014");
+     * 3) aparece no conteúdo autorizado (corpo, subpontos, refs, fontes).
+     * Puro/testável.
+     */
+    fun isAuthorizedNumber(number: String, spec: OratoryGeneration.Spec, text: String): Boolean {
+        if (number.isBlank()) return true
+        // 1) código de estudo/apostila: o dígito é identificador, não dado.
+        if (Regex("""(?i)(?:^|[^\p{L}\d])s-""" + Regex.escape(number) + """\b""")
+                .containsMatchIn(text)) return true
+        // 2) anos expandidos das publicações citadas no spec.
+        if (number in publicationYears(spec)) return true
+        // 3) conteúdo autorizado do turno (comportamento anterior preservado).
+        return authorizedCorpus(spec).contains(number)
+    }
+
+    /** Conteúdo autorizado do turno: corpo, subpontos, refs com texto, fontes. */
+    private fun authorizedCorpus(spec: OratoryGeneration.Spec): String = buildString {
+        append(spec.current?.content.orEmpty()).append(' ')
+        spec.current?.subsections?.forEach { append(it).append(' ') }
+        spec.current?.references?.forEach { r -> r.text?.let { append(it).append(' ') } }
+        spec.contentSources.forEach { append(it.text).append(' ') }
+    }
+
+    /**
+     * Anos que as publicações do spec autorizam ("w11 1/7" → 2011,
+     * "g14 5/15" → 2014): o modelo expande o código para a data por extenso.
+     */
+    private fun publicationYears(spec: OratoryGeneration.Spec): Set<String> {
+        val labels = buildList {
+            spec.current?.references?.forEach { add(it.label) }
+            spec.contentSources.forEach { add(it.reference); add(it.label) }
+        }
+        return labels.flatMap { label ->
+            Regex("""(?i)\b[a-z]{1,2}(\d{2})\b""").findAll(label)
+                .map { "20" + it.groupValues[1] }
+                .toList()
+        }.toSet()
     }
 
     /**

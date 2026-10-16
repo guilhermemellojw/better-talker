@@ -106,6 +106,10 @@ object GroundednessVerifier {
             NUMBER.findAll(slice).forEach { m ->
                 val n = m.groupValues[1]
                 if (n.length <= 1) return@forEach
+                // #16-fix-c: "S-34" — o dígito faz parte do código, não é dado.
+                if (m.range.first >= 2 &&
+                    slice.regionMatches(m.range.first - 2, "S-", 0, 2, ignoreCase = true)
+                ) return@forEach
                 val g = (span.first + m.range.first)..(span.first + m.range.last)
                 if (verseRanges.any { g.first in it }) return@forEach
                 if (corpus.none { it.contains(normalize(n)) }) {

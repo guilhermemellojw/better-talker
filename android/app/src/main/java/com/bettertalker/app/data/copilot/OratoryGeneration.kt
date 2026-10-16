@@ -48,18 +48,21 @@ object OratoryGeneration {
             }
     }
 
+    /** Ritmo de fala (palavras/min) — mesma taxa do editor (WordCount.kt). */
+    private const val WORDS_PER_MINUTE = 130
+
+    /** Teto de segurança do limite de palavras (#16-fix-c). */
+    private const val MAX_WORDS = 2000
+
     /**
-     * Limite de palavras por modo (§29 — decisão registrada, não arbitrária):
-     * abertura e fechamento são curtos; desenvolvimento é o corpo do ponto;
-     * transição é uma ponte. Valores generosos o bastante para não mutilar
-     * texto natural e curtos o bastante para um orador falar.
+     * Limite de palavras do prompt (#16-fix-c): duração REAL da seção ×
+     * ritmo de fala — antes era fixo por modo (320 no desenvolvimento),
+     * curto demais para seções longas. Seção sem "(N min)" no S-34
+     * (abertura/fechamento) usa 1 min; teto de segurança para durações
+     * absurdas.
      */
-    fun maxWords(mode: Mode): Int = when (mode) {
-        Mode.INTRODUCTION -> 140
-        Mode.DEVELOPMENT -> 320
-        Mode.TRANSITION -> 70
-        Mode.CONCLUSION -> 140
-    }
+    fun maxWords(mode: Mode, minutes: Int?): Int =
+        ((minutes ?: 1).coerceAtLeast(1) * WORDS_PER_MINUTE).coerceAtMost(MAX_WORDS)
 
     /** O que o pedido quer fazer com o conteúdo existente (§26). */
     enum class Action { INSERT, REPLACE }
@@ -125,6 +128,8 @@ object OratoryGeneration {
         val outlineId: String,
         val outlineTitle: String,
         val objective: String?,
+        /** Duração da seção em minutos (#16-fix-c); null = sem "(N min)". */
+        val minutes: Int? = null,
         /** Pontos na ordem, com marcação do atual. */
         val orderedSections: List<SectionLine>,
         /** Ponto em foco (corpo + subpontos + referências). */
@@ -292,6 +297,9 @@ object OratoryGeneration {
             outlineId = document.id,
             outlineTitle = document.title,
             objective = document.objective?.takeIf { it.isNotBlank() },
+            // #16-fix-c: transição é ponte (~1 min) — não herda a duração do
+            // ponto; demais modos usam a duração real da seção em foco.
+            minutes = if (mode == Mode.TRANSITION) 1 else effective?.minutes,
             orderedSections = ordered.map { s ->
                 SectionLine(s.id, s.order, s.title, s.id == currentId)
             },
@@ -429,7 +437,7 @@ Para substituir conteúdo existente, use {"type": "replace", "content": "<p>...<
         sb.append("--- TREINAMENTO (COMO APRESENTAR, NÃO É FATO) ---\n")
         sb.append("[TRAINING] ").append(spec.training.joinToString(", ") { it.serial }).append("\n")
         sb.append("\n").append(modeInstructions(spec.mode)).append("\n")
-        sb.append("Limite aproximado: ${maxWords(spec.mode)} palavras.\n")
+        sb.append("Limite aproximado: ${maxWords(spec.mode, spec.minutes)} palavras.\n")
         sb.append("\nPEDIDO DO USUÁRIO: \"$userRequest\"\n")
         return sb.toString()
     }

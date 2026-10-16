@@ -73,6 +73,7 @@ import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.parseInsertSnippet
 import com.bettertalker.app.data.util.snippetLabel
+import com.bettertalker.app.data.util.stripInternalTags
 import com.bettertalker.app.data.util.stripMetaPreamble
 import com.bettertalker.app.data.util.stripPromptTags
 import com.bettertalker.app.data.util.vmPastePlan
@@ -5035,5 +5036,8 @@ internal fun applyProposalToSectionBlock(
     val block = sectionProposalBlock(title, contentHtml)
     if (!block.contains(focus)) return null
     val applied = applyProposalOps(block, block, focus, proposal) ?: return null
-    return applied.first.removePrefix(title).trimStart('\n', ' ', '\t')
+    // #16-fix-c: o texto aceito não carrega marcadores internos
+    // (〈sugestão〉/〈decisão〉): o conteúdo fica, os marcadores saem —
+    // preservando o HTML (stripPromptTags genérico comeria os <p>).
+    return stripInternalTags(applied.first.removePrefix(title).trimStart('\n', ' ', '\t'))
 }

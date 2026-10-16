@@ -435,6 +435,40 @@ fun stripPromptTags(s: String): String {
     return PROMPT_TAG_STRAY_CJK.replace(PROMPT_TAG_STRAY.replace(out, ""), "").trim()
 }
 
+/**
+ * #16-fix-c: remove SÓ os marcadores internos ("〈sugestão〉…〈/sugestão〉",
+ * "〈decisão〉…〈/decisão〉", pares e órfãos) PRESERVANDO o HTML — para o
+ * aceite de propostas, que persiste contentHtml. O [stripPromptTags]
+ * genérico não serve aqui: o regex ASCII dele casa qualquer par de tags e
+ * colapsaria "<p>A</p><p>B</p>" em "AB".
+ */
+fun stripInternalTags(s: String): String {
+    var out = s
+    var guard = 0
+    while (guard < 5) {
+        val next = PROMPT_TAG_PAIR_CJK.replace(
+            PROMPT_TAG_PAIR_INTERNAL.replace(out) { m -> m.groupValues[1] }
+        ) { m -> m.groupValues[1] }
+        if (next == out) break
+        out = next
+        guard++
+    }
+    return PROMPT_TAG_STRAY_CJK.replace(
+        PROMPT_TAG_STRAY_INTERNAL.replace(out, ""), ""
+    ).trim()
+}
+
+// Marcadores internos na forma ASCII (o modelo às vezes troca os CJK):
+// nomes exatos — nunca qualquer tag, para não comer HTML.
+private val PROMPT_TAG_PAIR_INTERNAL = Regex(
+    "<(?:sugest[aã]o|decis[aã]o)>(.*?)</(?:sugest[aã]o|decis[aã]o)>",
+    setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
+)
+private val PROMPT_TAG_STRAY_INTERNAL = Regex(
+    "</?(?:sugest[aã]o|decis[aã]o)>",
+    RegexOption.IGNORE_CASE,
+)
+
 private val PROMPT_TAG_PAIR = Regex(
     "<[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>(.*?)</[A-Za-zÀ-ÖØ-öø-ÿ0-9_]+>",
     RegexOption.DOT_MATCHES_ALL,
