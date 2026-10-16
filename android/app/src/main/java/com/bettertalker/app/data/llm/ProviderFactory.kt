@@ -38,16 +38,25 @@ object ProviderFactory {
     ): RemoteConfig = RemoteConfig(PROVIDER_DEEPSEEK, deepseekKey, deepseekModel)
 
     /** Instancia o provider da config. */
-    fun createFor(config: RemoteConfig): LlmProvider = DeepSeekProvider(
+    fun createFor(
+        config: RemoteConfig,
+        effort: String = DeepSeekProvider.REASONING_EFFORT,
+    ): LlmProvider = DeepSeekProvider(
         apiKey = config.apiKey,
         model = config.model ?: DeepSeekProvider.MODEL_FLASH,
+        reasoningEffort = effort,
     )
 
     /**
      * Assinatura com contexto preservada por compatibilidade dos call sites
-     * (o DeepSeek não precisa de Context).
+     * (o DeepSeek não precisa de Context). #17-fix: `effort` vem do chip
+     * (Rápido/Profundo) nas rotas criativas.
      */
-    fun createFor(config: RemoteConfig, context: Context): LlmProvider = createFor(config)
+    fun createFor(
+        config: RemoteConfig,
+        context: Context,
+        effort: String = DeepSeekProvider.REASONING_EFFORT,
+    ): LlmProvider = createFor(config, effort)
 
     /** Provider com as Settings atuais. */
     suspend fun create(settings: SettingsStore): LlmProvider = createFor(resolveRemote(settings))

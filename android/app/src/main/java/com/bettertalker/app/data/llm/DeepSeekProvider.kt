@@ -283,6 +283,12 @@ class DeepSeekProvider(
         const val REASONING_EFFORT = "low"
 
         /**
+         * #17-fix: modo "Profundo" do chip — mais raciocínio nas rotas de
+         * chat (só onde não é estruturado; ver [reasoningEffortFor]).
+         */
+        const val REASONING_EFFORT_DEEP = "high"
+
+        /**
          * T1 (P0) — resposta estruturada (oratória/proposta): thinking desligado.
          * O reasoning consome `max_tokens` antes do content e devolve resposta
          * vazia (finish=length) em prompts longos; "none" devolve o JSON direto.

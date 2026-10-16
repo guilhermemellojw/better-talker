@@ -17,11 +17,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AssistChip
@@ -83,6 +85,10 @@ val OUTLINE_MIMES = arrayOf(
  * multilinha, maxLines = 5); o envio é SÓ pelo botão de enviar. O IME não
  * tem ação de send — evita enviar sem querer no meio da digitação.
  */
+/** #17-fix: rótulo do chip de pensamento (puro/testável). */
+internal fun thinkingChipLabel(mode: ThinkingMode): String =
+    if (mode == ThinkingMode.DEEP) "🧠 Profundo" else "⚡ Rápido"
+
 @Composable
 fun ChatPromptBar(
     input: String,
@@ -95,6 +101,8 @@ fun ChatPromptBar(
     onVoice: () -> Unit = {},
     onVoiceFinish: () -> Unit = {},
     onVoiceCancel: () -> Unit = {},
+    thinkingMode: ThinkingMode = ThinkingMode.DEFAULT,
+    onToggleThinking: () -> Unit = {},
     focusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
@@ -134,6 +142,20 @@ fun ChatPromptBar(
                     Icon(Icons.Default.Add, "Anexar esboço")
                 }
                 Spacer(Modifier.weight(1f))
+                // #17-fix: chip Rápido/Profundo (per-session) — antes da voz,
+                // à direita do campo; rotas estruturadas ignoram o modo.
+                AssistChip(
+                    onClick = onToggleThinking,
+                    label = { Text(thinkingChipLabel(thinkingMode)) },
+                    leadingIcon = {
+                        Icon(
+                            if (thinkingMode == ThinkingMode.DEEP) Icons.Default.Psychology
+                            else Icons.Default.Bolt,
+                            null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    },
+                )
                 // T3 (voz): microfone com tap-to-toggle. Primário quando o
                 // campo está vazio; secundário quando já há texto.
                 when (voiceState) {

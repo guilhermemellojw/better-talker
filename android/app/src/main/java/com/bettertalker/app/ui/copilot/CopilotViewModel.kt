@@ -309,6 +309,27 @@ internal fun cleanForInsert(raw: String): String {
 }
 
 /**
+ * #17-fix: modo de pensamento do chip (per-session, default Rápido).
+ * FAST = "low" · DEEP = "high" — rotas estruturadas ignoram (ver
+ * [thinkingEffortFor] e DeepSeekProvider.reasoningEffortFor).
+ */
+enum class ThinkingMode {
+    FAST, DEEP;
+
+    /** #17-fix: alternância pura (testável). */
+    fun toggled(): ThinkingMode = if (this == FAST) DEEP else FAST
+
+    companion object {
+        val DEFAULT = FAST
+    }
+}
+
+/** #17-fix: esforço de reasoning do chip para as rotas criativas. Puro. */
+fun thinkingEffortFor(mode: ThinkingMode): String =
+    if (mode == ThinkingMode.DEEP) com.bettertalker.app.data.llm.DeepSeekProvider.REASONING_EFFORT_DEEP
+    else com.bettertalker.app.data.llm.DeepSeekProvider.REASONING_EFFORT
+
+/**
  * #8c (GAP-4): dica discreta de ação quando a resposta fecha decisões —
  * usa o comando de inserção que já existe ("insira isso").
  */
@@ -663,10 +684,21 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val draftItems: List<ChatCodec.DraftItem> = emptyList(),
         /** Origem da resposta (COPILOT default; LOCAL = retrieval/IA local). */
         val origin: MessageOrigin = MessageOrigin.COPILOT,
+        /** #17-fix: tempo de resposta do assistente (ms), quando informado. */
+        val durationMs: Long? = null,
     )
 
     private val _chatBusy = MutableStateFlow(false)
     val chatBusy = _chatBusy.asStateFlow()
+
+    // ---------- #17-fix: chip Rápido/Profundo (per-session) ----------
+
+    private val _thinkingMode = MutableStateFlow(ThinkingMode.DEFAULT)
+    val thinkingMode: StateFlow<ThinkingMode> = _thinkingMode.asStateFlow()
+
+    fun toggleThinkingMode() {
+        _thinkingMode.value = _thinkingMode.value.toggled()
+    }
     private val _noteText = MutableStateFlow("")
     private val _noteTitle = MutableStateFlow("")
     private val _noteBody = MutableStateFlow("")
@@ -1170,7 +1202,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, "text",
-                            text = m["text"].orEmpty(), origin = messageOriginOf(m))
+                            text = m["text"].orEmpty(), origin = messageOriginOf(m),
+                            durationMs = m["durationMs"]?.toLongOrNull())
                     }
                 }
             }
@@ -1184,12 +1217,15 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         kind: String,
         payload: String,
         origin: MessageOrigin = MessageOrigin.COPILOT,
+        durationMs: Long? = null,
     ) {
         val nid = noteId ?: return
         // Origem embutida no JSON do payload (sem migration; histórico
         // antigo sem a chave decodifica como COPILOT).
         val withOrigin = ChatCodec.unescMap(payload)
             .toMutableMap().also { it["origin"] = origin.name }
+        // #17-fix: tempo de resposta do assistente no payload (sem schema).
+        if (durationMs != null && durationMs > 0) withOrigin["durationMs"] = durationMs.toString()
         db.chatDao().put(
             ChatEntity(
                 newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin),
@@ -1919,7 +1955,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 null
             }
         val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
-        post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT,
+            durationMs = res.meta.durationMs)
     }
 
     /**
@@ -1938,7 +1975,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         /** #15a: rota sem S-34 degradada → aviso suave no fim da resposta. */
         noS34Warning: Boolean = false,
     ) {
-        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
+        // #17-fix: a rota de chat respeita o chip (Rápido = low / Profundo = high);
+        // rotas estruturadas (oratória/proposta) forçam "none" dentro do provider.
+        val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(
+            remote, app, thinkingEffortFor(_thinkingMode.value)
+        )
         // Inversão de contexto (correção): o payload recebe AMBOS — o dossiê
         // (metadados, via contextBlock) E a prosa em foco (via text).
         // Nunca zera: sem a prosa, o modelo vê só o plano e "revise esta
@@ -2058,7 +2099,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             recordConsensus(verified.text)
         } catch (_: Exception) {
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to withS34Notice)), MessageOrigin.COPILOT)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to withS34Notice)), MessageOrigin.COPILOT,
+            durationMs = res.meta.durationMs)
         // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
         // indexada não vinculada → sugere vincular (1× por sessão).
         if (!scopeSuggestionShown) {

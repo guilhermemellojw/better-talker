@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.bettertalker.app.data.util.stripInternalTags
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -122,6 +123,10 @@ fun ChatScreen(
     // Fases de progresso do provider (o DeepSeek alimenta Generating/parcial).
     val localPhase by vm.localPhase.collectAsState()
     val localPartial by vm.localPartial.collectAsState()
+    val thinkingMode by vm.thinkingMode.collectAsState()
+    // #17-fix: parcial limpo durante o streaming (só marcadores internos —
+    // HTML/markdown intactos; marcador sem par = removido como órfão).
+    val cleanedPartial = remember(localPartial) { stripInternalTags(localPartial) }
     // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
     val readiness by vm.readiness.collectAsState()
     // T2 (chat minimalista): visibilidade combinada no VM (só 1ª vez).
@@ -371,6 +376,8 @@ fun ChatScreen(
                     },
                     onVoiceFinish = { vm.finishVoiceInput() },
                     onVoiceCancel = { vm.cancelVoiceInput() },
+                    thinkingMode = thinkingMode,
+                    onToggleThinking = vm::toggleThinkingMode,
                     focusRequester = composerFocus,
                 )
                 // T1 (chat minimalista): caption removida (redundante com o banner).
@@ -566,7 +573,7 @@ fun ChatScreen(
                             // quando a resposta final é postada).
                             if (s is ChatRunState.Generating &&
                                 localPhase == LocalPhase.Generating &&
-                                localPartial.isNotBlank()
+                                cleanedPartial.isNotBlank()
                             ) {
                                 item {
                                     // T3: cursor pulsante no fim do parcial —
@@ -586,7 +593,7 @@ fun ChatScreen(
                                     Row(Modifier.fillMaxWidth()) {
                                         Text(
                                             buildAnnotatedString {
-                                                append(localPartial)
+                                                append(cleanedPartial)
                                                 withStyle(
                                                     SpanStyle(
                                                         color = cursorColor.copy(alpha = cursorAlpha)
@@ -743,14 +750,27 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                // P1: presença do Copilot nas respostas de texto.
-                AssistantAvatar()
-                ChatMessageText(item.text, Modifier.weight(1f))
+            else -> Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // P1: presença do Copilot nas respostas de texto.
+                    AssistantAvatar()
+                    ChatMessageText(item.text, Modifier.weight(1f))
+                }
+                // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
+                item.durationMs?.let { ms ->
+                    if (ms > 0) {
+                        Text(
+                            "pensou ${"%.1f".format(ms / 1000.0)}s",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 32.dp, top = 2.dp),
+                        )
+                    }
+                }
             }
         }
     }
