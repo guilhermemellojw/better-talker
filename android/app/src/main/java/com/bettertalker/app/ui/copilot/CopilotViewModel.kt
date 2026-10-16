@@ -76,6 +76,7 @@ import com.bettertalker.app.data.util.snippetLabel
 import com.bettertalker.app.data.util.stripInternalTags
 import com.bettertalker.app.data.util.stripMetaPreamble
 import com.bettertalker.app.data.util.stripPromptTags
+import com.bettertalker.app.domain.speech.toJson
 import com.bettertalker.app.data.util.vmPastePlan
 import com.bettertalker.app.data.util.vmRejectionMessage
 import com.bettertalker.app.data.util.vmTalkMessage
@@ -2983,6 +2984,76 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 "text" to "— Estrutura proposta para Necessidades Locais: ${inputs.theme} —",
             )),
         )
+    }
+
+    /**
+     * #20-fix-a: gera a Tribuna da nota — cápsulas (ideia/âncora/transição)
+     * por seção, salvas em `tribunaJson`. Não streama; não passa pelo gate
+     * (o texto é para o usuário editar).
+     */
+    fun generateTribuna() {
+        viewModelScope.launch {
+            val nid = noteId ?: return@launch
+            val remote = ProviderFactory.resolveRemote(settings, app)
+            if (!ProviderFactory.useRemoteRoute(remote)) {
+                postText("Configure a chave de IA na tela Modelo IA para gerar a Tribuna.")
+                return@launch
+            }
+            val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+            if (sections.none { it.contentHtml.isNotBlank() }) {
+                postText("As seções ainda estão vazias — desenvolva o discurso antes de gerar a Tribuna.")
+                return@launch
+            }
+            val prompt = com.bettertalker.app.data.copilot.buildTribunaPrompt(sections)
+            val provider = ProviderFactory.createFor(
+                remote, app, thinkingEffortFor(_thinkingMode.value)
+            )
+            val res = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    provider.generate(
+                        com.bettertalker.app.data.llm.LlmRequest(
+                            text = prompt,
+                            action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                            message = prompt,
+                            maxOutputTokens = 2048,
+                        )
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            if (res == null) {
+                postText("Não consegui gerar a Tribuna. Tente novamente.")
+                return@launch
+            }
+            val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
+            val byId = com.bettertalker.app.domain.speech.tribunaCapsulesFromJson(json)
+                .associateBy { it.sectionId }
+            var saved = 0
+            sections.forEach { s ->
+                val capsule = byId[s.id] ?: return@forEach
+                db.speechSectionDao().upsert(
+                    s.copy(
+                        tribunaJson = capsule.toJson(),
+                        updatedAt = System.currentTimeMillis(),
+                    ).toEntity()
+                )
+                saved++
+            }
+            if (saved == 0) {
+                postText("A resposta da Tribuna veio vazia ou em formato inesperado. Tente novamente.")
+            } else {
+                post(
+                    false,
+                    "text",
+                    ChatCodec.escMap(mapOf(
+                        "text" to "— Tribuna gerada para $saved seções —",
+                    )),
+                )
+            }
+        }
     }
 
     /**

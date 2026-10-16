@@ -25,6 +25,7 @@ fun SpeechSectionEntity.toDomain(): SpeechSection {
         objective = objective,
         agreedApproach = agreedApproach,
         approvedAt = approvedAt,
+        tribunaJson = tribunaJson,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
@@ -45,6 +46,7 @@ fun SpeechSection.toEntity(): SpeechSectionEntity {
         objective = objective,
         agreedApproach = agreedApproach,
         approvedAt = approvedAt,
+        tribunaJson = tribunaJson,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

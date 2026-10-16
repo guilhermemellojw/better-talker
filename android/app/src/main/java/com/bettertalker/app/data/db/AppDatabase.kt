@@ -233,7 +233,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -282,6 +282,8 @@ data class SpeechSectionEntity(
     val agreedApproach: String? = null,
     // F3a: null = não aprovada; timestamp = aprovada (consenso do protocolo seção-a-seção).
     val approvedAt: Long? = null,
+    /** #20-fix-a: cápsula da Tribuna (ideia/âncora/transição em JSON). Null = ainda não gerada. */
+    val tribunaJson: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

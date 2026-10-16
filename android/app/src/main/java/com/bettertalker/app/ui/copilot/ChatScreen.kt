@@ -1027,114 +1027,163 @@ fun ChatMessageText(
                     block is MdBlock.Bullet || block is MdBlock.Check || block is MdBlock.Para
                 val mark = if (isTextBlock) markPending else null
                 if (isTextBlock) markPending = null
-                when (block) {
-                    is MdBlock.Title -> Text(
-                        markPlain(block.text, mark),
-                        // P1: pesos e lineHeights vêm da AppTypography.
-                        style = if (block.level >= 3) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                    is MdBlock.Quote -> Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Min)
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Box(
-                            Modifier
-                                .width(4.dp)
-                                .fillMaxHeight()
-                                .background(
-                                    MaterialTheme.colorScheme.primary,
-                                    MaterialTheme.shapes.small
-                                )
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            markInline(block.text, mark),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                        )
-                    }
-                    is MdBlock.Divider -> HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 2.dp),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                    )
-                    is MdBlock.Bullet -> Row(
-                        verticalAlignment = Alignment.Top,
-                        // #22-fix-b: recuo progressivo por profundidade.
-                        modifier = Modifier.padding(start = (block.depth * 16).dp),
-                    ) {
-                        Text(
-                            // T2: lista ordenada preserva o número; #22-fix-b:
-                            // sub-nível usa ○ (como o web); topo segue "•".
-                            bulletMarker(block.number, block.depth),
-                            style = MaterialTheme.typography.bodyLarge,
-                            // #22-fix-b: o negrito é do primeiro nível.
-                            fontWeight = if (block.depth == 0) FontWeight.Bold else FontWeight.Normal,
-                            modifier = Modifier.widthIn(min = 26.dp)
-                        )
-                        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
-                    }
-                    is MdBlock.Check -> Row(
-                        verticalAlignment = Alignment.Top,
-                        // #22-fix-b: recuo progressivo por profundidade.
-                        modifier = Modifier.padding(start = (block.depth * 16).dp),
-                    ) {
-                        Text(
-                            if (block.done) "☑  " else "☐  ",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (block.done) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.widthIn(min = 26.dp)
-                        )
-                        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
-                    }
-                    is MdBlock.TextForCard -> Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(MaterialTheme.shapes.medium)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            )
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outline,
-                                MaterialTheme.shapes.medium,
-                            )
-                            .padding(12.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "Texto para o card",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            if (onUseInCard != null) {
-                                TextButton(onClick = { onUseInCard(block.text) }) {
-                                    Text("⤓ Usar no card")
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            inline(block.text),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                    }
-                    is MdBlock.Para -> Text(
-                        markInline(block.text, mark),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
+                // #20-fix-a: render extraído (reusado pelo preview do card).
+                RenderBlock(block, mark, onUseInCard)
             }
         }
     }
 }
+
+/**
+ * #20-fix-a: render de um bloco markdown — extraído do ChatMessageText para
+ * ser reusado dentro do `<texto-do-card>` (preview formatado).
+ */
+@Composable
+private fun RenderBlock(
+    block: MdBlock,
+    mark: AnnotatedString?,
+    onUseInCard: ((String) -> Unit)?,
+) {
+    when (block) {
+        is MdBlock.Title -> Text(
+            markPlain(block.text, mark),
+            // P1: pesos e lineHeights vêm da AppTypography.
+            style = if (block.level >= 3) MaterialTheme.typography.titleMedium
+            else MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        is MdBlock.Quote -> RenderQuote(block.text, mark)
+        is MdBlock.Divider -> HorizontalDivider(
+            modifier = Modifier.padding(vertical = 2.dp),
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+        )
+        is MdBlock.Bullet -> RenderBullet(block, mark)
+        is MdBlock.Check -> RenderCheck(block, mark)
+        is MdBlock.Para -> Text(
+            markInline(block.text, mark),
+            style = MaterialTheme.typography.bodyLarge
+        )
+        is MdBlock.TextForCard -> RenderTextForCard(block, onUseInCard)
+    }
+}
+
+@Composable
+private fun RenderQuote(text: String, mark: AnnotatedString?) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .padding(vertical = 6.dp)
+    ) {
+        Box(
+            Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(
+                    MaterialTheme.colorScheme.primary,
+                    MaterialTheme.shapes.small
+                )
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            markInline(text, mark),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+        )
+    }
+}
+
+@Composable
+private fun RenderBullet(block: MdBlock.Bullet, mark: AnnotatedString?) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        // #22-fix-b: recuo progressivo por profundidade.
+        modifier = Modifier.padding(start = (block.depth * 16).dp),
+    ) {
+        Text(
+            // T2: lista ordenada preserva o número; #22-fix-b:
+            // sub-nível usa ○ (como o web); topo segue "•".
+            bulletMarker(block.number, block.depth),
+            style = MaterialTheme.typography.bodyLarge,
+            // #22-fix-b: o negrito é do primeiro nível.
+            fontWeight = if (block.depth == 0) FontWeight.Bold else FontWeight.Normal,
+            modifier = Modifier.widthIn(min = 26.dp)
+        )
+        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun RenderCheck(block: MdBlock.Check, mark: AnnotatedString?) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        // #22-fix-b: recuo progressivo por profundidade.
+        modifier = Modifier.padding(start = (block.depth * 16).dp),
+    ) {
+        Text(
+            if (block.done) "☑  " else "☐  ",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (block.done) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.widthIn(min = 26.dp)
+        )
+        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+/**
+ * #20-fix-a: preview do `<texto-do-card>` — parseia markdown dentro do bloco
+ * (títulos, listas, sub-listas com ○). O INSERT continua passando o texto
+ * CRU (`onUseInCard(block.text)`) — o editor rich entende markdown.
+ */
+@Composable
+private fun RenderTextForCard(
+    block: MdBlock.TextForCard,
+    onUseInCard: ((String) -> Unit)?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.outline,
+                MaterialTheme.shapes.medium,
+            )
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Texto para o card",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            if (onUseInCard != null) {
+                TextButton(onClick = { onUseInCard(block.text) }) {
+                    Text("⤓ Usar no card")
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        val innerBlocks = remember(block.text) { cardInnerBlocks(block.text) }
+        innerBlocks.forEach { inner ->
+            RenderBlock(inner, mark = null, onUseInCard = null)
+        }
+    }
+}
+
+/**
+ * #20-fix-a: blocos do preview do card — cards aninhados são ignorados
+ * (nunca existem na prática). Puro/testável.
+ */
+internal fun cardInnerBlocks(text: String): List<MdBlock> =
+    parseBlocks(text).filter { it !is MdBlock.TextForCard }
 
 /** #22-fix-b: marcador do item de lista (○ em sub-níveis; • no topo). Puro/testável. */
 internal fun bulletMarker(number: Int?, depth: Int): String =

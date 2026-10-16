@@ -162,6 +162,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 // Ensaio: rota própria (rota declarada aqui para não tocar
                 // os arquivos de navegação fora do escopo do handoff).
                 onOpenStage = { nav.navigate("stage/$noteId") },
+                onGenerateTribuna = { copilotVm.generateTribuna() },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
                 onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
                 onPasteOutline = { text -> copilotVm.pasteOutline(text) },

@@ -37,6 +37,8 @@ data class SpeechSection(
     val agreedApproach: String? = null,
     // F3a: null = não aprovada; timestamp = aprovada (protocolo seção-a-seção).
     val approvedAt: Long? = null,
+    /** #20-fix-a: cápsula da Tribuna (JSON). Null = ainda não gerada. */
+    val tribunaJson: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
 )

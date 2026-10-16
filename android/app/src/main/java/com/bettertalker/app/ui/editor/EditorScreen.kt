@@ -121,6 +121,8 @@ fun EditorScreen(
     // (CopilotViewModel); a tela só dispara.
     onImportOutline: (Uri) -> Unit,
     onPasteOutline: (String) -> Unit,
+    /** #20-fix-a: gera a Tribuna da nota (cápsulas por seção). */
+    onGenerateTribuna: () -> Unit = {},
 ) {
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
@@ -398,6 +400,11 @@ fun EditorScreen(
                         DropdownMenuItem(
                             text = { Text("Ensaio") },
                             onClick = { showMenu = false; onOpenStage() },
+                        )
+                        // #20-fix-a: Tribuna — mapa de memória do discurso.
+                        DropdownMenuItem(
+                            text = { Text("Gerar Tribuna") },
+                            onClick = { showMenu = false; onGenerateTribuna() },
                         )
                         outlineList.firstOrNull()?.let { o ->
                             DropdownMenuItem(

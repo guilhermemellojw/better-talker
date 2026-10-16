@@ -139,4 +139,9 @@ object MigrationSql {
     val MIGRATION_16_17: List<String> = listOf(
         "ALTER TABLE `speech_sections` ADD COLUMN `approvedAt` INTEGER",
     )
+
+    /** #20-fix-a: v17 -> v18, cápsula da Tribuna por seção (aditiva, nullable). */
+    val MIGRATION_17_18: List<String> = listOf(
+        "ALTER TABLE `speech_sections` ADD COLUMN `tribunaJson` TEXT",
+    )
 }
