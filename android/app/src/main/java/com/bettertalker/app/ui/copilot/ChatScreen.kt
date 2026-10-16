@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,7 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -80,6 +78,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
@@ -252,7 +251,6 @@ fun ChatScreen(
     )
     val lastItemIndex = chatLastItemIndex(
         messageCount = messages.size,
-        actionsCount = messages.count { hasMessageActions(it) },
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
@@ -475,38 +473,25 @@ fun ChatScreen(
                                     destinations = destinations, sectionBusy = sectionBusy,
                                     liveSections = outlineSections,
                                     merges = merges, draft = draft,
-                                    onOpenLibrary = onOpenLibrary
+                                    onOpenLibrary = onOpenLibrary,
+                                    // #22-fix (P2): o ⋮ vive DENTRO do item da
+                                    // mensagem (canto superior direito) — sem
+                                    // linha própria no LazyColumn.
+                                    actions = { mod ->
+                                        MessageActions(
+                                            m, vm, hasScope = chatScope != null,
+                                            ttsReady = ttsReady,
+                                            speaking = speakingId == m.id,
+                                            onSpeak = {
+                                                speakingId = m.id
+                                                vm.speakMessage(m.text)
+                                            },
+                                            onStopSpeak = { vm.stopSpeaking() },
+                                            onClearConversation = { confirmClear = true },
+                                            modifier = mod,
+                                        )
+                                    },
                                 )
-                            }
-                        }
-                        // T2 (Bug #13): ações em item PRÓPRIO — nunca ficam
-                        // cortadas/escondidas no fim de uma resposta longa.
-                        if (hasMessageActions(m)) {
-                            item(key = m.id + ":actions") {
-                                Box(
-                                    Modifier.animateItem(
-                                        fadeInSpec = tween(150),
-                                        fadeOutSpec = tween(150)
-                                    )
-                                ) {
-                                    // T1: as ações são um item próprio do LazyColumn
-                                    // (espaçamento 14dp); o offset mantém o par
-                                    // mensagem+ações visualmente junto.
-                                    MessageActions(
-                                        m, vm, hasScope = chatScope != null,
-                                        ttsReady = ttsReady,
-                                        speaking = speakingId == m.id,
-                                        onSpeak = {
-                                            speakingId = m.id
-                                            vm.speakMessage(m.text)
-                                        },
-                                        onStopSpeak = { vm.stopSpeaking() },
-                                        // T6 (Fase 2.1): limpar conversa (com
-                                        // confirmação) vive no ⋯ da resposta.
-                                        onClearConversation = { confirmClear = true },
-                                        modifier = Modifier.offset(y = (-8).dp)
-                                    )
-                                }
                             }
                         }
                     }
@@ -723,7 +708,9 @@ private fun MessageBubble(
     liveSections: List<OutlineSection>,
     merges: List<com.bettertalker.app.data.util.PastedOutlineAnalyzer.MergeSuggestion>,
     draft: List<DraftSection>,
-    onOpenLibrary: () -> Unit
+    onOpenLibrary: () -> Unit,
+    /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
+    actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
     if (item.fromMe) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -753,51 +740,51 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    // P1: presença do Copilot nas respostas de texto.
-                    AssistantAvatar()
+            else -> Box(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(end = 32.dp)) {
+                    // #22-fix (P1): selo "BT · " inline no primeiro bloco —
+                    // sem coluna de avatar (texto em x=0).
                     ChatMessageText(
                         item.text,
-                        Modifier.weight(1f),
+                        Modifier.fillMaxWidth(),
                         onUseInCard = { vm.insertTextIntoScope(it) },
+                        leadingMark = assistantInlineMark(),
                     )
-                }
-                // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
-                item.durationMs?.let { ms ->
-                    if (ms > 0) {
-                        Text(
-                            "pensou ${"%.1f".format(ms / 1000.0)}s",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 32.dp, top = 2.dp),
-                        )
+                    // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
+                    item.durationMs?.let { ms ->
+                        if (ms > 0) {
+                            Text(
+                                "pensou ${"%.1f".format(ms / 1000.0)}s",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 2.dp),
+                            )
+                        }
                     }
+                }
+                // #22-fix (P2): ⋮ no canto superior direito do bloco.
+                if (hasMessageActions(item) && actions != null) {
+                    actions(Modifier.align(Alignment.TopEnd))
                 }
             }
         }
     }
 }
 
-/** P1 — identidade do Copilot: monograma "BT" no círculo primário (24dp). */
+/** #22-fix (P1): selo "BT · " inline — substitui a coluna de avatar (24dp). */
 @Composable
-private fun AssistantAvatar() {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            "BT",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
-        )
+private fun assistantInlineMark(): AnnotatedString {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    return remember(color) {
+        buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    color = color,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                )
+            ) { append("BT · ") }
+        }
     }
 }
 
@@ -826,11 +813,15 @@ private fun MessageActions(
         // sem poluir a conversa.
         var menuOpen by remember { mutableStateOf(false) }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            IconButton(onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                menuOpen = true
-            }) {
-                Icon(Icons.Default.MoreVert, "Mais ações")
+            IconButton(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    menuOpen = true
+                },
+                // #22-fix (P2): ⋮ compacto (32dp) dentro do item da mensagem.
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(Icons.Default.MoreVert, "Mais ações", modifier = Modifier.size(20.dp))
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 // Fase 18 §21: sugestão conversacional vira proposta F5.
@@ -931,12 +922,11 @@ internal fun runStateItemCount(runState: ChatRunState, partialVisible: Boolean):
 
 /**
  * T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll ao
- * fim. Espelha a ordem real dos itens (contexto, mensagens+ações, fontes,
- * proposta, estados). Puro/testável.
+ * fim. Espelha a ordem real dos itens (contexto, mensagens — já com as ações
+ * dentro —, fontes, proposta, estados). Puro/testável.
  */
 internal fun chatLastItemIndex(
     messageCount: Int,
-    actionsCount: Int,
     hasContext: Boolean,
     hasTopicEmpty: Boolean,
     hasProvenance: Boolean,
@@ -945,7 +935,7 @@ internal fun chatLastItemIndex(
 ): Int {
     val total = (if (hasContext) 1 else 0) +
         (if (hasTopicEmpty) 1 else 0) +
-        messageCount + actionsCount +
+        messageCount +
         (if (hasProvenance) 1 else 0) +
         (if (hasProposal) 1 else 0) +
         runStateItems
@@ -1012,6 +1002,8 @@ fun ChatMessageText(
     md: String,
     modifier: Modifier = Modifier,
     onUseInCard: ((String) -> Unit)? = null,
+    /** #22-fix (P1): selo prependado ao primeiro bloco de texto (ex.: "BT · "). */
+    leadingMark: AnnotatedString? = null,
 ) {
     if (md.isBlank()) return
     // #21-fix: parse ANTES do strip — o <texto-do-card> vira bloco próprio
@@ -1027,10 +1019,17 @@ fun ChatMessageText(
                     color = MaterialTheme.colorScheme.secondary
                 )
             }
+            var markPending = leadingMark
             blocks.forEach { block ->
+                // #22-fix (P1): o selo entra no PRIMEIRO bloco de texto
+                // (Divider/TextForCard não consomem).
+                val isTextBlock = block is MdBlock.Title || block is MdBlock.Quote ||
+                    block is MdBlock.Bullet || block is MdBlock.Check || block is MdBlock.Para
+                val mark = if (isTextBlock) markPending else null
+                if (isTextBlock) markPending = null
                 when (block) {
                     is MdBlock.Title -> Text(
-                        block.text,
+                        markPlain(block.text, mark),
                         // P1: pesos e lineHeights vêm da AppTypography.
                         style = if (block.level >= 3) MaterialTheme.typography.titleMedium
                         else MaterialTheme.typography.titleLarge,
@@ -1053,7 +1052,7 @@ fun ChatMessageText(
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            inline(block.text),
+                            markInline(block.text, mark),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -1072,7 +1071,7 @@ fun ChatMessageText(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
-                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge)
+                        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
                     }
                     is MdBlock.Check -> Row(verticalAlignment = Alignment.Top) {
                         Text(
@@ -1082,7 +1081,7 @@ fun ChatMessageText(
                             else MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
-                        Text(inline(block.text), style = MaterialTheme.typography.bodyLarge)
+                        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
                     }
                     is MdBlock.TextForCard -> Column(
                         modifier = Modifier
@@ -1118,7 +1117,7 @@ fun ChatMessageText(
                         )
                     }
                     is MdBlock.Para -> Text(
-                        inline(block.text),
+                        markInline(block.text, mark),
                         style = MaterialTheme.typography.bodyLarge
                     )
                 }
@@ -1126,6 +1125,15 @@ fun ChatMessageText(
         }
     }
 }
+
+/** #22-fix (P1): texto do bloco com o selo prependado (quando houver). */
+private fun markPlain(text: String, mark: AnnotatedString?): AnnotatedString =
+    if (mark == null) AnnotatedString(text)
+    else buildAnnotatedString { append(mark); append(text) }
+
+@Composable
+private fun markInline(text: String, mark: AnnotatedString?): AnnotatedString =
+    if (mark == null) inline(text) else buildAnnotatedString { append(mark); append(inline(text)) }
 
 @Composable
 private fun IdeasBody(

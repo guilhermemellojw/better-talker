@@ -76,17 +76,18 @@ class ChatActionsTest {
     }
 
     @Test
-    fun ultimoItemIncluiAcoesEItensDeFim() {
-        // 1 contexto + 2 mensagens + 2 ações + 1 fontes = 6 itens → índice 5.
-        assertEquals(5, chatLastItemIndex(2, 2, true, false, true, false, 0))
-        // Mesma lista + proposta + 1 item de estado = 8 itens → índice 7.
-        assertEquals(7, chatLastItemIndex(2, 2, true, false, true, true, 1))
+    fun ultimoItemIncluiItensDeFim() {
+        // #22-fix: ações agora vivem DENTRO do item da mensagem.
+        // 1 contexto + 2 mensagens + 1 fontes = 4 itens → índice 3.
+        assertEquals(3, chatLastItemIndex(2, true, false, true, false, 0))
+        // Mesma lista + proposta + 1 item de estado = 6 itens → índice 5.
+        assertEquals(5, chatLastItemIndex(2, true, false, true, true, 1))
     }
 
     @Test
     fun ultimoItemNuncaNegativo() {
-        assertEquals(0, chatLastItemIndex(0, 0, false, false, false, false, 0))
+        assertEquals(0, chatLastItemIndex(0, false, false, false, false, 0))
         // Tópico vazio (sem contexto) = 1 item → índice 0.
-        assertEquals(0, chatLastItemIndex(0, 0, false, true, false, false, 0))
+        assertEquals(0, chatLastItemIndex(0, false, true, false, false, 0))
     }
 }
