@@ -53,6 +53,8 @@ class TribunaViewModel(
     private val debounceMs: Long = 400L,
     /** Testes passam um escopo; produção usa o viewModelScope. */
     private val scope: CoroutineScope? = null,
+    /** #20-fix-c: título da nota (export). Testes usam o default. */
+    private val noteTitleProvider: suspend () -> String = { "" },
 ) : ViewModel() {
 
     private val workScope: CoroutineScope get() = scope ?: viewModelScope
@@ -85,20 +87,29 @@ class TribunaViewModel(
 
     private val persistJobs = mutableMapOf<String, Job>()
 
-    /** Lê as seções da nota + parse dos tribunaJson. */
+    private val _noteTitle = MutableStateFlow("")
+    /** Título da nota (para o export); vazio até o load. */
+    val noteTitle: StateFlow<String> = _noteTitle.asStateFlow()
+
+    /** Lê as seções da nota (live) + parse dos tribunaJson. */
     fun load() {
         workScope.launch {
-            _cards.value = dao.forNote(noteId)
-                .sortedBy { it.order }
-                .map { e ->
-                    TribunaCardUi(
-                        sectionId = e.id,
-                        order = e.order,
-                        sectionTitle = e.title,
-                        minutes = e.minutes,
-                        capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
-                    )
-                }
+            _noteTitle.value = noteTitleProvider().ifBlank { "" }
+        }
+        workScope.launch {
+            dao.observeForNote(noteId).collect { rows ->
+                _cards.value = rows
+                    .sortedBy { it.order }
+                    .map { e ->
+                        TribunaCardUi(
+                            sectionId = e.id,
+                            order = e.order,
+                            sectionTitle = e.title,
+                            minutes = e.minutes,
+                            capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
+                        )
+                    }
+            }
         }
     }
 
@@ -178,7 +189,10 @@ class TribunaViewModel(
                 override val fontSp: Flow<Int> = settings.stageFontSp
                 override suspend fun setFontSp(v: Int) = settings.setStageFontSp(v)
             }
-            return TribunaViewModel(db.speechSectionDao(), noteId, speaker, prefs) as T
+            return TribunaViewModel(
+                db.speechSectionDao(), noteId, speaker, prefs,
+                noteTitleProvider = { db.noteDao().get(noteId)?.title.orEmpty() },
+            ) as T
         }
     }
 }

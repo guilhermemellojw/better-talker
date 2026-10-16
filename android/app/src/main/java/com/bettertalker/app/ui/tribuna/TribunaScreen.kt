@@ -13,8 +13,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +31,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -46,6 +52,9 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
     val cards by vm.cards.collectAsState()
     val fontSp by vm.fontSp.collectAsState()
     val speakingId by vm.speakingId.collectAsState()
+    val noteTitle by vm.noteTitle.collectAsState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var menuOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.load() }
     // #20-fix-b: sair da tela para a leitura em voz (o orador pode voltar).
@@ -67,6 +76,36 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
                     }
                     TextButton(onClick = { vm.setFontSp(fontSp + 2) }) {
                         Text("A+", fontWeight = FontWeight.Bold)
+                    }
+                    // #20-fix-c: export da Tribuna (PDF/HTML/Copiar).
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, "Opções")
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Exportar PDF") },
+                            onClick = {
+                                menuOpen = false
+                                exportTribunaPdf(ctx, noteTitle, cards)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Exportar HTML") },
+                            onClick = {
+                                menuOpen = false
+                                shareTribunaHtml(ctx, noteTitle, cards)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copiar") },
+                            onClick = {
+                                menuOpen = false
+                                copyTribunaText(ctx, cards)
+                            },
+                        )
                     }
                 },
             )
@@ -186,4 +225,76 @@ private fun TribunaField(
             modifier = Modifier.fillMaxWidth(),
         )
     }
+}
+
+// ---------- #20-fix-c: export (PDF / HTML / Copiar) ----------
+
+private fun tribunaCardsData(
+    cards: List<TribunaViewModel.TribunaCardUi>,
+): List<com.bettertalker.app.data.export.TribunaCardData> = cards.map {
+    com.bettertalker.app.data.export.TribunaCardData(
+        order = it.order,
+        sectionTitle = it.sectionTitle,
+        minutes = it.minutes,
+        capsule = it.capsule,
+    )
+}
+
+private fun exportTitle(noteTitle: String): String =
+    "Tribuna " + noteTitle.ifBlank { "" }
+
+/** PDF via PrintManager (mesmo caminho do Ensaio/export do editor). */
+private fun exportTribunaPdf(
+    ctx: android.content.Context,
+    noteTitle: String,
+    cards: List<TribunaViewModel.TribunaCardUi>,
+) {
+    val html = com.bettertalker.app.data.export.buildTribunaHtml(noteTitle, tribunaCardsData(cards))
+    com.bettertalker.app.data.export.PdfExportManager.printDiscurso(ctx, exportTitle(noteTitle), html)
+}
+
+/** HTML no cache + Share Intent (mesmo padrão do export do editor). */
+private fun shareTribunaHtml(
+    ctx: android.content.Context,
+    noteTitle: String,
+    cards: List<TribunaViewModel.TribunaCardUi>,
+) {
+    val html = com.bettertalker.app.data.export.buildTribunaHtml(noteTitle, tribunaCardsData(cards))
+    val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+    val base = com.bettertalker.app.data.export.exportFileBaseName(exportTitle(noteTitle))
+    val file = java.io.File(dir, "$base.html")
+    file.writeText(html, Charsets.UTF_8)
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        ctx, "${ctx.packageName}.fileprovider", file
+    )
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/html"
+        putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        putExtra(android.content.Intent.EXTRA_SUBJECT, "Tribuna")
+        putExtra(android.content.Intent.EXTRA_TITLE, exportTitle(noteTitle))
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    ctx.startActivity(android.content.Intent.createChooser(send, "Compartilhar Tribuna"))
+}
+
+/** Texto puro da Tribuna (só cards com cápsula). */
+private fun copyTribunaText(
+    ctx: android.content.Context,
+    cards: List<TribunaViewModel.TribunaCardUi>,
+) {
+    val text = buildString {
+        cards.filter { it.capsule != null }.forEach { c ->
+            val cap = c.capsule!!
+            append("${c.order + 1}. ${c.sectionTitle} — ${c.minutes} min\n")
+            append("Ideia: ${cap.mainIdea}\n")
+            cap.bibleRef?.takeIf { it.isNotBlank() }?.let { append("Texto-chave: $it\n") }
+            append("Âncora: ${cap.anchorPhrase}\n")
+            cap.transition?.takeIf { it.isNotBlank() }?.let { append("Transição: $it\n") }
+            append("\n")
+        }
+    }.trim()
+    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+        as android.content.ClipboardManager
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("Tribuna", text))
+    android.widget.Toast.makeText(ctx, "Tribuna copiada", android.widget.Toast.LENGTH_SHORT).show()
 }

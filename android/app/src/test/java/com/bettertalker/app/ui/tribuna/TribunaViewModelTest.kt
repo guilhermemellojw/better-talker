@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -41,7 +42,7 @@ class TribunaViewModelTest {
             rows.value = rows.value.filterNot { it.noteId == noteId }
         }
         override fun observeForNote(noteId: String): Flow<List<SpeechSectionEntity>> =
-            flowOf(emptyList())
+            rows.map { list -> list.filter { it.noteId == noteId }.sortedBy { it.order } }
     }
 
     private class FakeSpeaker : TribunaSpeaker {
