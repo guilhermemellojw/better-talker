@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -426,7 +427,7 @@ fun ChatScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     // Rótulo de contexto: o bloco em foco, sem o usuário digitar id (§13).
                     if (messages.isNotEmpty()) {
@@ -582,12 +583,7 @@ fun ChatScreen(
                                             label = "cursorAlpha"
                                         )
                                     val cursorColor = MaterialTheme.colorScheme.onSurface
-                                    Card(
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                        ),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
+                                    Row(Modifier.fillMaxWidth()) {
                                         Text(
                                             buildAnnotatedString {
                                                 append(localPartial)
@@ -597,8 +593,7 @@ fun ChatScreen(
                                                     )
                                                 ) { append("▍") }
                                             },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            modifier = Modifier.padding(12.dp)
+                                            style = MaterialTheme.typography.bodyLarge
                                         )
                                     }
                                 }
@@ -723,10 +718,13 @@ private fun MessageBubble(
     if (item.fromMe) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                modifier = Modifier.fillMaxWidth(0.94f)
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .fillMaxWidth(0.75f)
             ) {
-                ChatMessageText(item.text, Modifier.padding(12.dp))
+                ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
             }
         }
         return
@@ -972,7 +970,7 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
     val suggested = remember(md) { cleanedForRender(md) }
     val blocks = remember(suggested.text) { parseBlocks(suggested.text) }
     SelectionContainer {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (suggested.hasSuggestion) {
                 Text(
                     "💡 Sugestão criativa",
@@ -986,16 +984,13 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                         block.text,
                         // P1: pesos e lineHeights vêm da AppTypography.
                         style = if (block.level >= 3) MaterialTheme.typography.titleMedium
-                        else MaterialTheme.typography.titleLarge
+                        else MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                     is MdBlock.Quote -> Row(
                         Modifier
                             .fillMaxWidth()
                             .height(IntrinsicSize.Min)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                                MaterialTheme.shapes.small
-                            )
                             .padding(vertical = 6.dp)
                     ) {
                         Box(
