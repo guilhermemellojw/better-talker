@@ -163,6 +163,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 // os arquivos de navegação fora do escopo do handoff).
                 onOpenStage = { nav.navigate("stage/$noteId") },
                 onGenerateTribuna = { copilotVm.generateTribuna() },
+                onOpenTribuna = { nav.navigate(Routes.tribuna(noteId)) },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
                 onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
                 onPasteOutline = { text -> copilotVm.pasteOutline(text) },
@@ -178,6 +179,22 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 factory = StageViewModel.Factory(ctx, db, settings, noteId)
             )
             StageScreen(stageVm, onBack = { nav.popBackStack() })
+        }
+        // #20-fix-b: Tribuna — leitura do mapa de memória.
+        composable(
+            Routes.TRIBUNA,
+            arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+        ) { back ->
+            val noteId = back.arguments?.getString("noteId") ?: return@composable
+            val tribunaVm: com.bettertalker.app.ui.tribuna.TribunaViewModel = viewModel(
+                key = "tribuna-$noteId",
+                factory = com.bettertalker.app.ui.tribuna.TribunaViewModel.Factory(
+                    ctx, db, settings, noteId
+                ),
+            )
+            com.bettertalker.app.ui.tribuna.TribunaScreen(
+                tribunaVm, onBack = { nav.popBackStack() }
+            )
         }
         composable(
             Routes.CHAT,

@@ -123,6 +123,8 @@ fun EditorScreen(
     onPasteOutline: (String) -> Unit,
     /** #20-fix-a: gera a Tribuna da nota (cápsulas por seção). */
     onGenerateTribuna: () -> Unit = {},
+    /** #20-fix-b: abre a tela da Tribuna. */
+    onOpenTribuna: () -> Unit = {},
 ) {
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
@@ -405,6 +407,11 @@ fun EditorScreen(
                         DropdownMenuItem(
                             text = { Text("Gerar Tribuna") },
                             onClick = { showMenu = false; onGenerateTribuna() },
+                        )
+                        // #20-fix-b: abrir a tela (empty state cobre "não gerada").
+                        DropdownMenuItem(
+                            text = { Text("Abrir Tribuna") },
+                            onClick = { showMenu = false; onOpenTribuna() },
                         )
                         outlineList.firstOrNull()?.let { o ->
                             DropdownMenuItem(
