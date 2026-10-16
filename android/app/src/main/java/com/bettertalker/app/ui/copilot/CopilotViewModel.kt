@@ -1699,7 +1699,13 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             com.bettertalker.app.data.s34.S34StructuralRetrieval.scopeToSection(doc, it)
         }
         val spec = com.bettertalker.app.data.copilot.OratoryGeneration.spec(
-            route.mode, doc, view, route.action
+            route.mode, doc, view, route.action,
+            // #16-fix-e: popula referenceTexts com os textos das refs BÍBLICAS
+            // do esboço (acervo nwt) — mata a contradição "NÃO disponível" no
+            // prompt da oratória e alimenta o gate via authorizedRefTexts.
+            com.bettertalker.app.data.copilot.OratoryGeneration.referenceTextsFor(
+                doc.sections,
+            ) { raw -> repo.biblePassages(raw).map { it.passage.text } },
         )
         if (spec is com.bettertalker.app.data.copilot.OratoryGeneration.Result.CannotGenerate) {
             postText(spec.blocked.message)

@@ -3,6 +3,7 @@ package com.bettertalker.app.data.copilot
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.data.s34.S34Document
 import com.bettertalker.app.data.s34.S34RefType
+import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.s34.S34StructuralRetrieval
 import com.bettertalker.app.data.util.normalizeText
 
@@ -53,6 +54,28 @@ object OratoryGeneration {
 
     /** Teto de segurança do limite de palavras (#16-fix-c). */
     private const val MAX_WORDS = 2000
+
+    /**
+     * #16-fix-e: map rawText (linha do S-34) → textos autorizados das refs
+     * BÍBLICAS, resolvidos via [resolve] (acervo nwt). A chave é a LINHA
+     * inteira (match exato no `textFor`); ordem de aparição (determinística
+     * para o prompt); linha sem texto fica FORA (preserva "NÃO disponível").
+     * Puro quanto ao resolvedor (fake em teste).
+     */
+    internal suspend fun referenceTextsFor(
+        sections: List<S34Section>,
+        resolve: suspend (String) -> List<String>,
+    ): Map<String, String> = buildMap {
+        sections.forEach { sec ->
+            (sec.references + sec.subsections.flatMap { it.references })
+                .filter { it.type == S34RefType.BIBLE }
+                .forEach { r ->
+                    if (containsKey(r.rawText)) return@forEach
+                    val texts = resolve(r.rawText).filter { it.isNotBlank() }
+                    if (texts.isNotEmpty()) put(r.rawText, texts.joinToString(" "))
+                }
+        }
+    }
 
     /**
      * #16-fix-d: textos autorizados das refs do spec — para o corpus do
