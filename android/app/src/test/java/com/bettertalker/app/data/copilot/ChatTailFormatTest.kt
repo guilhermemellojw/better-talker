@@ -42,7 +42,7 @@ class ChatTailFormatTest {
     @Test
     fun caudaComEstruturaTemFormato() {
         val tail = chatTailInstructions(true)
-        assertTrue(tail.contains("Abra com 1 frase"))
+        assertTrue(tail.contains("Quando estruturar"))
         assertTrue(tail.contains("〈sugestão〉"))
         assertTrue(tail.contains("frase de insuficiência"))
     }
@@ -67,6 +67,20 @@ class ChatTailFormatTest {
     @Test
     fun promptDeGeracaoMantemFormato() {
         val p = prompt("desenvolva esse ponto")
-        assertTrue(p.contains("Abra com 1 frase"))
+        assertTrue(p.contains("Quando estruturar"))
+    }
+
+    // ---------- #18-fix: formato sem abertura/fechamento prescritos ----------
+
+    @Test
+    fun formatoNaoPrescreveAberturaNemFechamento() {
+        assertFalse(CHAT_TAIL_FORMAT.contains("Abra com 1 frase"))
+        assertFalse(CHAT_TAIL_FORMAT.contains("feche com o próximo passo"))
+    }
+
+    @Test
+    fun formatoMantemEstruturaEHigieneTecnica() {
+        assertTrue(CHAT_TAIL_FORMAT.contains("##"))
+        assertTrue(CHAT_TAIL_FORMAT.contains("Sem código"))
     }
 }

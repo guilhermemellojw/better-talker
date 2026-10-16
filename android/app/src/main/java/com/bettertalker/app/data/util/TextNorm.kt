@@ -461,11 +461,22 @@ private val META_END_HINTS = listOf(
 )
 private val META_QUOTE_STARTS = listOf("\"", "«", "〈")
 
-private fun looksMeta(p: String, hints: List<String>): Boolean {
+/**
+ * #18-fix: as dicas de meta valem só no INÍCIO DE FRASE (^ ou após .!?…).
+ * Antes, `contains` por substring engolia parágrafos legítimos —
+ * "declarou" contém "claro"; "o argumento que segue é…" contém "segue".
+ */
+private fun metaPattern(hint: String): Regex =
+    Regex("(^|[.!?…]\\s+)" + Regex.escape(hint) + "\\b")
+
+private val META_START_PATTERNS = META_START_HINTS.map(::metaPattern)
+private val META_END_PATTERNS = META_END_HINTS.map(::metaPattern)
+
+private fun looksMeta(p: String, patterns: List<Regex>): Boolean {
     if (p.length >= 100) return false
     if (META_QUOTE_STARTS.any { p.startsWith(it) }) return false
     val low = p.lowercase()
-    return hints.any { low.contains(it) }
+    return patterns.any { it.containsMatchIn(low) }
 }
 
 /**
@@ -482,8 +493,8 @@ fun stripMetaPreamble(text: String): String {
     if (paras.size < 2) return text
     var lo = 0
     var hi = paras.size - 1
-    if (looksMeta(paras[lo], META_START_HINTS)) lo++
-    if (hi >= lo && looksMeta(paras[hi], META_END_HINTS)) hi--
+    if (looksMeta(paras[lo], META_START_PATTERNS)) lo++
+    if (hi >= lo && looksMeta(paras[hi], META_END_PATTERNS)) hi--
     if (lo == 0 && hi == paras.size - 1) return text
     return paras.subList(lo, hi + 1).joinToString("\n\n").trim()
 }

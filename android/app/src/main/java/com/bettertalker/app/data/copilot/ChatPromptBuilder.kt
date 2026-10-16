@@ -73,6 +73,20 @@ Se não houver suporte no esboço para fatos, números ou referências, diga "N�
 """.trimIndent()
 
 /**
+ * #18-fix: persona do chat (geral/oratória). ESTÁVEL — sem interpolação
+ * dinâmica: entra como PREFIXO do system e preserva o cache determinístico.
+ * O modo colar mantém a sua própria (MINIMAL_SYSTEM_PROMPT) — não substituir.
+ */
+const val CHAT_PERSONA =
+    "Você é um assistente experiente que ajuda a preparar discursos " +
+        "das Testemunhas de Jeová. Você conhece a Bíblia, as publicações " +
+        "e o formato dos discursos (S-34, apostila Vida e Ministério). " +
+        "Fale de forma natural, calorosa e direta — como um irmão " +
+        "experiente conversando com outro. Prefira frases curtas, " +
+        "vocabulário simples e tom encorajador. Evite formalidade " +
+        "excessiva e academicismo."
+
+/**
  * T1 (Fase 2.1) — teto do bloco de memória injetado no modo colar. O system
  * segue minimalista: a memória entra como CONTEÚDO, junto da mensagem.
  */
@@ -264,8 +278,8 @@ private val VerifyingCues = listOf(
  * sem molde fixo. Puro/testável.
  */
 const val CHAT_TAIL_FORMAT =
-    "Abra com 1 frase; use ## para seções, -/1. para listas, ** em 1-3 termos por item; " +
-        "feche com o próximo passo. Sem código, tabelas ou HTML."
+    "Quando estruturar, use ## para seções, -/1. para listas, ** em termos-chave. " +
+        "Sem código, tabelas ou HTML."
 
 const val CHAT_TAIL_INSTRUCTIONS: String =
     "Responda de forma conversacional e direta: parágrafos curtos, sem rótulos internos " +
@@ -401,7 +415,7 @@ fun buildDeepSeekPrompts(
         .orEmpty()
     // T2 (TAIL condicional): o formato varia com a mensagem — turnos curtos
     // e estruturados geram dois prefixos estáveis (cache por classe).
-    val system = (s34Rules + oratoryRules + context + block + dossier + "\n" +
+    val system = (CHAT_PERSONA + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
         chatTailInstructions(wantsStructuredAnswer(message))).trim()
     val user = chatBriefToText(message, history, isFirstMessage) + "\n\n" + focusLine(message) +
         "\n\nTexto do bloco em foco:\n\"$blockText\""
