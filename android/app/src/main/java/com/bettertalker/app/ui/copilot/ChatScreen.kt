@@ -720,9 +720,7 @@ private fun MessageBubble(
             Card(
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .fillMaxWidth(0.75f)
+                modifier = Modifier.widthIn(max = 320.dp)
             ) {
                 ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
             }

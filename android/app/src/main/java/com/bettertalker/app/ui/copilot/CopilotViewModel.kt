@@ -2515,7 +2515,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             }
             proposalUndo.addLast(ProposalSnapshot.Note(note.richHtml, note.mdText))
             if (proposalUndo.size > 50) proposalUndo.removeFirst()
-            notes.save(nid, note.title, applied.second, applied.first,
+            // #19-fix-a2: o aceite não persiste marcadores internos (mesmo fix do section path).
+            notes.save(nid, note.title, applied.second, stripInternalTags(applied.first),
                 note.folderId, note.colorArgb, note.pinned)
             _proposal.value = ui.copy(notice = "Proposta aplicada.", applied = true)
         }
