@@ -248,6 +248,7 @@ class RoomContextPackRepository(
         val trainingHits = if (includeTraining) {
             training.retrieveTraining(query, trainingCategory, scope).hits
         } else emptyList()
-        return ContextPacks.fromCandidates(content, trainingHits)
+        // #15d-escopo: expõe a contagem de relevantes para a sugestão de vínculo.
+        return ContextPacks.fromCandidates(content, trainingHits, relevantCount = relevant)
     }
 }

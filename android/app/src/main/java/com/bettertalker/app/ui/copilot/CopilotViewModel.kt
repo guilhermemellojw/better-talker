@@ -46,6 +46,7 @@ import com.bettertalker.app.data.verify.verifyText
 import com.bettertalker.app.data.repo.CopilotRepository
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.ImportException
+import com.bettertalker.app.data.repo.MIN_RELEVANT_HITS
 import com.bettertalker.app.data.repo.OutlineRepository
 import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.ScopedHit
@@ -2036,6 +2037,24 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         } catch (_: Exception) {
         }
         post(false, "text", ChatCodec.escMap(mapOf("text" to withS34Notice)), MessageOrigin.COPILOT)
+        // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
+        // indexada não vinculada → sugere vincular (1× por sessão).
+        if (!scopeSuggestionShown) {
+            val atts = db.attachmentDao().all()
+            val hasNoteAttachments = noteId?.let { nid ->
+                atts.any { it.noteId == nid && it.indexed }
+            } ?: false
+            val hasUnlinkedIndexed = atts.any { it.indexed && it.noteId.isNullOrBlank() }
+            if (shouldSuggestScope(
+                    turnContext.pack.relevantCount,
+                    hasNoteAttachments = hasNoteAttachments,
+                    hasUnlinkedIndexed = hasUnlinkedIndexed,
+                )
+            ) {
+                scopeSuggestionShown = true
+                _scopeSuggestion.value = true
+            }
+        }
     }
 
     /**
@@ -2148,6 +2167,17 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     private val _noteStructureProposal = MutableStateFlow<NoteStructureProposalUi?>(null)
     val noteStructureProposal: StateFlow<NoteStructureProposalUi?> =
         _noteStructureProposal.asStateFlow()
+
+    // #15d-escopo: sugestão de vincular publicações (RAG fraco + nota sem
+    // anexos indexados + publicação indexada não vinculada). 1× por sessão.
+    private val _scopeSuggestion = MutableStateFlow(false)
+    val scopeSuggestion: StateFlow<Boolean> = _scopeSuggestion.asStateFlow()
+    private var scopeSuggestionShown = false
+
+    /** #15d-escopo: "Agora não" — fecha e não reaparece nesta sessão. */
+    fun dismissScopeSuggestion() {
+        _scopeSuggestion.value = false
+    }
 
     /**
      * F5d (Modo B): até 3 propostas de ângulo (DOCTRINAL/PRACTICAL/NARRATIVE)
@@ -4342,6 +4372,18 @@ internal fun buildOutlineConversion(
  * Pura, testável.
  */
 internal fun shouldDegradeOratoryToChat(hasS34Document: Boolean): Boolean = !hasS34Document
+
+/**
+ * #15d-escopo: a sugestão de vincular publicações é legítima quando o RAG
+ * veio fraco (< MIN_RELEVANT_HITS relevantes), a nota NÃO tem anexos
+ * indexados e existe publicação indexada não vinculada — há o que vincular
+ * e vincular ajudaria. Pura/testável.
+ */
+internal fun shouldSuggestScope(
+    relevantCount: Int,
+    hasNoteAttachments: Boolean,
+    hasUnlinkedIndexed: Boolean,
+): Boolean = relevantCount < MIN_RELEVANT_HITS && !hasNoteAttachments && hasUnlinkedIndexed
 
 /**
  * Inversão de contexto (correção): a prosa em foco que vai ao LLM.

@@ -98,7 +98,9 @@ data class RetrievalResult(
 
 data class ContextPack(
     val contentSources: List<EvidenceSource>,
-    val trainingSources: List<EvidenceSource>
+    val trainingSources: List<EvidenceSource>,
+    /** #15d-escopo: hits relevantes do RAG (pós-gate #15d-fix). */
+    val relevantCount: Int = 0
 )
 
 // ---------- Adapters Entity -> Domain (sem inferência: ausente vira null) ----------

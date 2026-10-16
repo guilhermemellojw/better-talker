@@ -522,6 +522,36 @@ fun NoteStructureProposalCard(
 }
 
 /**
+ * #15d-escopo: sugestão discreta de vincular publicações quando o RAG
+ * falhou por escopo (nota sem vínculos + acervo indexado disponível).
+ * Estado do VM (como os demais cards) — 1× por sessão, não bloqueia.
+ */
+@Composable
+fun ScopeSuggestionCard(
+    onOpenLibrary: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+    ) {
+        Text("💡 Esta nota não tem publicações vinculadas", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Vincular uma publicação indexada (it, bh, lff...) pode trazer respostas mais ancoradas no acervo.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onOpenLibrary) { Text("Ver na Biblioteca") }
+            TextButton(onClick = onDismiss) { Text("Agora não") }
+        }
+    }
+}
+
+/**
  * F5d (Modo B) — até 3 ângulos para um tema do zero. Ao clicar "Usar esta",
  * o card fica resolvido (sem mais botões) e o fluxo do #5b assume com o
  * `NoteStructureProposalCard` (Aplicar estrutura / Rejeitar).

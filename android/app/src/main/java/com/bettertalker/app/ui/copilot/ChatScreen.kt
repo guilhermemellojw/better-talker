@@ -153,6 +153,8 @@ fun ChatScreen(
     val structureProposal by vm.structureProposal.collectAsState()
     // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
+    // #15d-escopo: sugestão de vincular publicações (RAG fraco por escopo).
+    val scopeSuggestion by vm.scopeSuggestion.collectAsState()
     // F5d (Modo B): opções de ângulos para um tema do zero.
     val multiProposal by vm.multiProposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
@@ -247,7 +249,7 @@ fun ChatScreen(
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
         hasProposal = proposal != null || structureProposal != null ||
-            noteStructureProposal != null || multiProposal != null,
+            noteStructureProposal != null || multiProposal != null || scopeSuggestion,
         runStateItems = runStateItems
     )
 
@@ -527,6 +529,19 @@ fun ChatScreen(
                     noteStructureProposal?.let { nsp ->
                         item(key = "note-structure-proposal") {
                             NoteStructureProposalCard(nsp, vm)
+                        }
+                    }
+                    // #15d-escopo: card discreto — vincular publicações quando
+                    // o RAG falhou por escopo (não bloqueia; 1× por sessão).
+                    if (scopeSuggestion) {
+                        item(key = "scope-suggestion") {
+                            ScopeSuggestionCard(
+                                onOpenLibrary = {
+                                    vm.dismissScopeSuggestion()
+                                    onOpenLibrary()
+                                },
+                                onDismiss = { vm.dismissScopeSuggestion() },
+                            )
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).

@@ -11,14 +11,17 @@ object ContextPacks {
         content: List<RetrievalCandidate>,
         training: List<RetrievalCandidate>,
         contentLimit: Int = 8,
-        trainingLimit: Int = 4
+        trainingLimit: Int = 4,
+        /** #15d-escopo: nº de hits relevantes do RAG (default preserva o legado). */
+        relevantCount: Int = 0,
     ): ContextPack = ContextPack(
         contentSources = content.take(contentLimit.coerceAtLeast(0)).mapIndexed { i, c ->
             candidateToEvidence(c, "Fonte ${i + 1}")
         },
         trainingSources = training.take(trainingLimit.coerceAtLeast(0)).mapIndexed { i, c ->
             candidateToEvidence(c, "Treinamento ${i + 1}")
-        }
+        },
+        relevantCount = relevantCount,
     )
 
     /** Só conteúdo: o trilho training fica vazio por construção (§20). */
