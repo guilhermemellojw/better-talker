@@ -16,6 +16,8 @@ android {
         versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
+        // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
+        ndk { abiFilters "arm64-v8a" }
     }
     buildTypes {
         release {
@@ -82,6 +84,9 @@ dependencies {
     testImplementation "junit:junit:${rootProject.ext.junitVersion}"
     // Fase 10: SQLite real na JVM para validar o SQL das migrations (sem Android).
     testImplementation 'org.xerial:sqlite-jdbc:3.41.2.2'
+    // #23-bench: teste instrumentado (RTF do Kokoro no A34).
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
+    androidTestImplementation "androidx.test:runner:1.6.2"
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
 
