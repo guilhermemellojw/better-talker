@@ -290,20 +290,29 @@ object ChatRouter {
     private val APPLY_VERB = Regex("\\b(insira|insere|inserir|coloque|colocar|materialize|materializar|" +
         "transcreva|transcrever|aplique|aplicar|crie|criar)\\b")
     private val APPLY_ALL = Regex("\\btudo\\b")
-    private val APPLY_NOUN = Regex("\\b(estrutura|estruturas|secao|secoes|topico|topicos|" +
-        "discurso|nota|rascunho)\\b")
-
-    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|sugere|sugerir|sugira|" +
-        "planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
-    private val PROPOSE_STRUCT_PLAN_VERB = Regex("\\b(planeja|planejar|planeje)\\b")
-    private val PROPOSE_STRUCT_NOUN_STRICT = Regex("\\b(estrutura|plano|objetivo|progressao)\\b")
-    private val PROPOSE_STRUCT_TEXTS = Regex("\\btextos\\b")
-    private val PROPOSE_STRUCT_SCOPE = Regex("\\b(secao|secoes|topico|topicos|ponto|pontos|parte)\\b")
+    /** #16-fix-a: alvo explícito de materialização ("na nota", "no editor"). */
+    private val APPLY_TARGET = Regex("\\b(na|para a|no)\\s+(nota|editor)\\b")
+    /** #16-fix-a: verbo de transcrição/materialização explícito. */
+    private val APPLY_MATERIALIZE = Regex("\\b(materialize|materializar|transcreva|transcrever)\\b")
+    /** #16-fix-a: objeto "estrutura/seções" — materialização legítima. */
+    private val APPLY_STRUCTURE_NOUN = Regex("\\b(estrutura|estruturas|secao|secoes)\\b")
+    /**
+     * #16-fix-a: geração de SEÇÃO (introdução/conclusão) — o objeto do verbo é
+     * criar texto, não materializar a estrutura. Sem marcador forte
+     * ("tudo"/alvo), NÃO é comando de materialização (bug do teste #16: "Crie
+     * uma introdução para este discurso" era sequestrado pelo apply-structure
+     * e o parse da estrutura falhava).
+     */
+    private val GENERATION_SECTION = Regex("\\b(introducao|conclusao)\\b")
 
     /**
      * T2 — comando de materialização: "insira tudo na nota", "materialize o
      * discurso", "crie as seções". Exclui o "mini" (T3 mini é dono dele).
-     * Puro/testável.
+     *
+     * #16-fix-a: exige intenção EXPLÍCITA de materialização — marcador
+     * ("tudo"), alvo ("na nota"/"no editor"), verbo de materialização ou o
+     * objeto "estrutura/seções". "Crie uma introdução para este discurso" cai
+     * no chat/oratória normal. Em dúvida, o padrão é `false`. Puro/testável.
      */
     fun isApplyStructureCommand(text: String): Boolean {
         val t = " ${normalizeText(text)} "
@@ -311,8 +320,19 @@ object ChatRouter {
         // "crie um ponto 4" é OutOfScope (§34), não materialização.
         if (NUMBERED_TARGET.containsMatchIn(t)) return false
         if (!APPLY_VERB.containsMatchIn(t)) return false
-        return APPLY_ALL.containsMatchIn(t) || APPLY_NOUN.containsMatchIn(t)
+        val strong = APPLY_ALL.containsMatchIn(t) || APPLY_TARGET.containsMatchIn(t)
+        if (GENERATION_SECTION.containsMatchIn(t) && !strong) return false
+        return strong ||
+            APPLY_MATERIALIZE.containsMatchIn(t) ||
+            APPLY_STRUCTURE_NOUN.containsMatchIn(t)
     }
+
+    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|sugere|sugerir|sugira|" +
+        "planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
+    private val PROPOSE_STRUCT_PLAN_VERB = Regex("\\b(planeja|planejar|planeje)\\b")
+    private val PROPOSE_STRUCT_NOUN_STRICT = Regex("\\b(estrutura|plano|objetivo|progressao)\\b")
+    private val PROPOSE_STRUCT_TEXTS = Regex("\\btextos\\b")
+    private val PROPOSE_STRUCT_SCOPE = Regex("\\b(secao|secoes|topico|topicos|ponto|pontos|parte)\\b")
 
     /**
      * T2 (Fase 2.1) — ordem dos intercepts do `send()`: colagem NOVA primeiro;

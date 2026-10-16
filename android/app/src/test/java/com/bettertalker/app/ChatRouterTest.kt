@@ -405,6 +405,33 @@ class ChatRouterTest {
         }
     }
 
+    // ---------- #16-fix-a: geração de seção NÃO é materialização ----------
+
+    @Test
+    fun geracaoDeIntroducaoOuConclusaoNaoEhMaterializar() {
+        // Bug do teste #16: "crie" + "discurso" sequestravam a oratória.
+        for (t in listOf(
+            "Crie uma introdução para este discurso",
+            "Faça uma conclusão para o discurso",
+            "Gere uma introdução para o discurso",
+            "crie uma conclusão para este discurso",
+        )) {
+            assertFalse(t, ChatRouter.isApplyStructureCommand(t))
+        }
+    }
+
+    @Test
+    fun materializacaoComMarcadorContinuaValendo() {
+        // Com marcador forte ("tudo"/alvo), geração de seção segue sendo
+        // materialização legítima.
+        for (t in listOf(
+            "Aplique o discurso na nota",
+            "materialize a introdução na nota",
+        )) {
+            assertTrue(t, ChatRouter.isApplyStructureCommand(t))
+        }
+    }
+
     @Test
     fun rotaApplyStructure() {
         val r = route("insira tudo na nota")

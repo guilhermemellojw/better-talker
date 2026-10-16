@@ -132,4 +132,60 @@ class OratoryFidelityTest {
         }
     }
 
+    // ---------- #16-fix-a: abreviações do S-34 x nomes completos do modelo ----------
+
+    /** S-34 sintético com as refs abreviadas do caso real (Sal/Da/1Co). */
+    private val t003 = S34Parser.parseS34(
+        """S-34 — TEXTO SINTÉTICO PARA TESTE
+Tema: Organização unida
+Objetivo:
+Testar refs abreviadas.
+
+1. Jeová é um Deus de organização (6 min)
+   As fiéis criaturas espirituais estão organizadas. (Sal 103:20, 21; Da 7:10)
+   O povo de Jeová na Terra também está organizado. (1Co 14:33, 40)
+"""
+    )
+    private val specT003 = (OratoryGeneration.spec(
+        Mode.DEVELOPMENT, t003, S34StructuralRetrieval.scopeToSection(t003, "sec-1"), Action.INSERT
+    ) as Result.Ready).spec
+
+    @Test
+    fun salmoCompletoCasaComAbreviacaoSal() {
+        val r = OratoryFidelityCheck.check(
+            "Como diz Salmo 103:20, os anjos cumprem a palavra.", specT003
+        )
+        assertTrue(r.inventedReferences.isEmpty())
+    }
+
+    @Test
+    fun danielCompletoCasaComAbreviacaoDa() {
+        val r = OratoryFidelityCheck.check(
+            "Em Daniel 7:10, milhares o serviam.", specT003
+        )
+        assertTrue(r.inventedReferences.isEmpty())
+    }
+
+    @Test
+    fun corintiosCompletoCasaComAbreviacao1co() {
+        val r = OratoryFidelityCheck.check(
+            "Paulo escreveu em 1 Coríntios 14:33 sobre ordem.", specT003
+        )
+        assertTrue(r.inventedReferences.isEmpty())
+    }
+
+    @Test
+    fun numeroDeVersiculoNaProsaNaoViraInventado() {
+        val r = OratoryFidelityCheck.check(
+            "E o versículo 32 acrescenta que as estrelas seguem leis.", specT003
+        )
+        assertTrue(r.unsupportedNumbers.isEmpty())
+    }
+
+    @Test
+    fun referenciaRealForaDoS34ContinuaInventada() {
+        val r = OratoryFidelityCheck.check("Gênesis 1:1 fala da criação.", specT003)
+        assertTrue(r.inventedReferences.contains("Gênesis 1:1"))
+    }
+
 }
