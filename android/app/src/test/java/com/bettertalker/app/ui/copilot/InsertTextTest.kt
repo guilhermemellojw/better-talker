@@ -33,4 +33,20 @@ class InsertTextTest {
     fun insertConfirmation_semTopoFalaDaNota() {
         assertEquals("Inserido na nota.", insertConfirmation(null))
     }
+
+    // ---------- #24-fix: órfão de </texto-do-card> no payload ----------
+
+    @Test
+    fun stripOrphanCardClose_semAbridorRemove() {
+        assertEquals(
+            "Texto da resposta.\n\nFim.",
+            stripOrphanCardClose("Texto da resposta.\n</texto-do-card>\n\nFim.")
+        )
+    }
+
+    @Test
+    fun stripOrphanCardClose_comBlocoFicaIntacto() {
+        val raw = "Intro.\n<texto-do-card>Texto para o card.</texto-do-card>"
+        assertEquals(raw, stripOrphanCardClose(raw))
+    }
 }

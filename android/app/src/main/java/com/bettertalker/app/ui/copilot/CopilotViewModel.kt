@@ -366,6 +366,20 @@ internal fun insertConfirmation(topic: String?): String =
     if (topic != null) "Inserido no tópico “$topic”." else "Inserido na nota."
 
 /**
+ * #24-fix — remove `</texto-do-card>` órfão (sem abridor) do texto postado
+ * no chat. Com abridor, o parser do #21 converte o bloco — intacto; sem,
+ * o fechamento é ruído (render/TTS). Linhas vazias duplicadas que sobrarem
+ * são colapsadas. Puro/testável.
+ */
+internal fun stripOrphanCardClose(raw: String): String =
+    if (raw.contains(com.bettertalker.app.ui.components.TEXT_FOR_CARD_OPEN)) {
+        raw
+    } else {
+        raw.replace(com.bettertalker.app.ui.components.TEXT_FOR_CARD_CLOSE, "")
+            .replace(Regex("\\n{3,}"), "\n\n")
+    }
+
+/**
  * #15d — query do RAG enriquecida: título da seção em foco + título da
  * nota + títulos das seções do S-34 (resumo, quando houver) + prosa do
  * bloco + pergunta. Sem contexto, mantém o comportamento antigo
@@ -2098,6 +2112,9 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         // #15a: aviso suave quando a resposta veio de rota degradada sem S-34.
         val withS34Notice =
             if (noS34Warning) appendNoS34Warning(withInstruction) else withInstruction
+        // #24-fix: fecha órfão de <texto-do-card> sem abridor (o modelo às
+        // vezes emite só o fechamento) — o payload persistido fica limpo.
+        val persistedText = stripOrphanCardClose(withS34Notice)
         // T1 (Fase 2): consenso automático — decisões da resposta (〈decisão〉
         // ou pista explícita) viram agreedApproach do tópico em foco, sem
         // duplicar. Best-effort: nunca quebra a resposta.
@@ -2105,7 +2122,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             recordConsensus(verified.text)
         } catch (_: Exception) {
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to withS34Notice)), MessageOrigin.COPILOT,
+        post(false, "text", ChatCodec.escMap(mapOf("text" to persistedText)), MessageOrigin.COPILOT,
             durationMs = res.meta.durationMs)
         // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
         // indexada não vinculada → sugere vincular (1× por sessão).

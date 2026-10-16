@@ -45,6 +45,8 @@ object RefDetector {
         val page: Int? = null,
         /** T2 (refs): parágrafo numerado da citação ("n.° 4" / "§ 4"). */
         val paragraph: Int? = null,
+        /** #24-fix: parágrafo FINAL do range ("§§ 8-9" → 9). */
+        val paragraphEnd: Int? = null,
     )
 
     data class RefStatus(
@@ -116,10 +118,12 @@ object RefDetector {
         RegexOption.IGNORE_CASE
     )
     // w24.12 | w 24/12 (estudo mensal moderna) — #8a: tail opcional de
-    // página/§ ("w25.07 5 § 14"). O `\b` final impede phantom "w24.12"
-    // dentro de "w24.125" (o tail não pode terminar no meio de um número).
+    // página/§ ("w25.07 5 § 14"); #24-fix: §/§§ + range ("w25.07 22 §§ 8-9").
+    // O `\b` final impede phantom "w24.12" dentro de "w24.125" (o tail não
+    // pode terminar no meio de um número).
     private val W_CODE_RE = Regex(
-        """\bw\s*(\d{2})[./](\d{1,2})(?:\s+(\d{1,3})(?:\s*§\s*(\d{1,3}))?)?\b"""
+        """\bw\s*(\d{2})[./](\d{1,2})""" +
+            """(?:\s+(\d{1,3})(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b"""
     )
     // #8a: apostila Vida e Ministério (mwb24.05 | mwb 24.05).
     private val MWB_CODE_RE = Regex("""\bmwb\s*(\d{2})[./](\d{1,2})\b""")
@@ -182,6 +186,11 @@ object RefDetector {
         """(?:A\s+)?Sentinela\s+(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?""",
         RegexOption.IGNORE_CASE
     )
+    // #24-fix B4: "cap:vers" logo após a ocorrência de um título
+    // ("…de Jeremias 45:3") é citação bíblica — não é menção ao título
+    // da publicação (matava o phantom "jr" em "Jeremias 45:3").
+    // O matcher roda no texto NORMALIZADO: "45:3" chega como "45 3".
+    private val BIBLE_CHAPVER_AFTER_RE = Regex("""^\s*\(?\d{1,3}\s*:?\s*\d{1,3}\b""")
 
     private val PT_MONTHS = listOf(
         "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -232,8 +241,17 @@ object RefDetector {
         val seen = mutableSetOf<String>()
 
         fun add(ref: DetectedRef) {
-            // mesma edição citada 2x (págs. diferentes) = 1 entrada
-            if (seen.add(ref.editionKey)) out += ref
+            // #24-fix: dedupe com granularidade PARA REVISTAS — a mesma edição
+            // com página/§ diferentes são citações distintas ("w25.07 22 §§ 8-9"
+            // × "w25.07 20 § 2"); duplicata real (mesmos campos) ainda cai.
+            // Livros mantêm o dedupe por edição (legado): os matchers de
+            // página se sobrepõem e o comportamento é travado por testes.
+            val key = if (ref.kind == Kind.MAGAZINE) {
+                "${ref.editionKey}|${ref.page ?: ""}|${ref.paragraph ?: ""}|${ref.paragraphEnd ?: ""}"
+            } else {
+                ref.editionKey
+            }
+            if (seen.add(key)) out += ref
         }
 
         AWAKE_RE.findAll(text).forEach { m ->
@@ -383,16 +401,18 @@ object RefDetector {
             // #8a: tail opcional — página/§ logo após a edição ("w25.07 5 § 14").
             val page = m.groupValues[3].toIntOrNull()
             val par = m.groupValues[4].toIntOrNull()
+            // #24-fix: §§ N-M preserva o fim do range.
+            val parEnd = m.groupValues[5].toIntOrNull()
             val extra = listOfNotNull(
                 page?.let { "pág. $it" },
-                par?.let { "§ $it" },
+                par?.let { if (parEnd != null) "§§ $it-$parEnd" else "§ $it" },
             ).joinToString(" ")
             add(
                 DetectedRef(
                     m.value.trim(), Kind.MAGAZINE, "w",
                     "w|$year|$num", "A Sentinela $num/$year" +
                         (if (extra.isNotEmpty()) " • $extra" else ""),
-                    page = page, paragraph = par,
+                    page = page, paragraph = par, paragraphEnd = parEnd,
                 )
             )
         }
@@ -573,6 +593,11 @@ object RefDetector {
                     (m.range.last + 1).coerceAtMost(norm.length),
                     (m.range.last + 21).coerceAtMost(norm.length)
                 )
+                // #24-fix B4: "Jeremias 45:3" é citação bíblica (livro + cap:vers),
+                // não menção a título de publicação — não vira ref "jr".
+                if (BIBLE_CHAPVER_AFTER_RE.containsMatchIn(after)) {
+                    return@firstOrNull false
+                }
                 Regex(
                     """(livro|brochura|publicacao|obra|revista|apostila|ver|veja|ler|leia|estud\w*|consult\w*)\s*$"""
                 ).containsMatchIn(before) ||
@@ -945,7 +970,8 @@ object RefDetector {
 
     fun chapterOf(raw: String): ChapterRef? {
         // "§" não sobrevive à normalização: trata no texto cru
-        Regex("""§\s*(\d{1,3})""").find(raw)?.let {
+        // #24-fix: aceita "§§ N-N" (o chapter é o parágrafo inicial).
+        Regex("""§{1,2}\s*(\d{1,3})""").find(raw)?.let {
             return ChapterRef("paragrafo", it.groupValues[1].toInt())
         }
         // T2: "n.° 4" / "n.º 4" / "n. 4" (parágrafo numerado do estudo).
@@ -1048,7 +1074,10 @@ object RefDetector {
             "{\"r\":\"${esc(it.raw)}\",\"k\":\"${it.kind.name}\"," +
                 "\"p\":\"${esc(it.pubKey)}\",\"e\":\"${esc(it.editionKey)}\",\"l\":\"${esc(it.label)}\"," +
                 "\"a\":\"${esc(it.article.orEmpty())}\",\"c\":\"${esc(it.chapter.orEmpty())}\"," +
-                "\"pg\":${it.page ?: -1},\"g\":${it.paragraph ?: -1}}"
+                "\"pg\":${it.page ?: -1},\"g\":${it.paragraph ?: -1}" +
+                // #24-fix: fim do range ("§§ 8-9" → 9) — ausente quando null
+                // (compatível com o formato anterior).
+                (it.paragraphEnd?.let { pe -> ",\"ge\":$pe" } ?: "") + "}"
         }
     }
 
@@ -1060,7 +1089,7 @@ object RefDetector {
             val re = Regex(
                 """\{"r":"((?:[^"\\]|\\.)*)","k":"(MAGAZINE|BOOK)","p":"((?:[^"\\]|\\.)*)",""" +
                     """"e":"((?:[^"\\]|\\.)*)","l":"((?:[^"\\]|\\.)*)"""" +
-                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+),"g":(-?\d+))?\}"""
+                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+),"g":(-?\d+)(?:,"ge":(-?\d+))?)?\}"""
             )
             re.findAll(json).map { m ->
                 fun un(s: String) = s.replace("\\\"", "\"").replace("\\\\", "\\")
@@ -1072,6 +1101,7 @@ object RefDetector {
                     chapter = un(m.groupValues[7]).ifBlank { null },
                     page = m.groupValues[8].toIntOrNull()?.takeIf { it >= 0 },
                     paragraph = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
+                    paragraphEnd = m.groupValues[10].toIntOrNull()?.takeIf { it >= 0 },
                 )
             }.toList()
         } catch (_: Exception) {

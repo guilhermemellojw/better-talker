@@ -1,7 +1,10 @@
 package com.bettertalker.app.data.util
 
+import com.bettertalker.app.data.s34.normalizeBibleBookName
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
+import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 
 /**
  * #8b — detecção de material da reunião Vida e Ministério (V&M).
@@ -77,6 +80,22 @@ private val INLINE_POINT_RE = Regex("""ponto\s+(\d{1,2})""", RegexOption.IGNORE_
 private val MIN_RE = Regex("""(\d{1,3})\s*(?:min|minutos?)\b""", RegexOption.IGNORE_CASE)
 private val TIME_ONLY_RE = Regex("""^\(?\s*\d{1,3}\s*(?:min|minutos?)\s*\)?\.?$""", RegexOption.IGNORE_CASE)
 
+// #24-fix A1/A3: "Título: X (N min)" — formato real da apostila sem o
+// cabeçalho de seção ou logo após ele.
+private val TITULO_RE = Regex(
+    """^Título:\s*(.+?)\s*\((\d{1,3})\s*min(?:utos?)?\)\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
+// #24-fix A4: "Tópico N:" é corpo da parte — nunca vira número/título.
+private val TOPICO_LINE_RE = Regex("""^Tópico\s+\d{1,2}\s*:""", RegexOption.IGNORE_CASE)
+
+// #24-fix A2: cabeçalho colado ao título da parte ("…DEUS 1. Título (10 min)").
+private val GLUED_PART_RE = Regex(
+    """^[,\s.:–—-]*(\d{1,2})\.\s*(.+?)\s*\((\d{1,3})\s*min(?:utos?)?\)\s*$""",
+    RegexOption.IGNORE_CASE,
+)
+
 /** Título e minutos de uma linha ("Discurso: X (5 min)" → "Discurso: X" + 5). */
 private fun titleAndMinutes(line: String): Pair<String, Int?> {
     val m = MIN_RE.find(line) ?: return line.trim() to null
@@ -87,8 +106,34 @@ private fun titleAndMinutes(line: String): Pair<String, Int?> {
     return cleaned to m.groupValues[1].toIntOrNull()
 }
 
+/**
+ * #24-fix A1 — material SEM cabeçalho de seção: "Título: X (N min)" na
+ * primeira linha útil + ≥1 linha "Tópico N:" → parte 1 (TALK) de TESOUROS.
+ * Puro/testável.
+ */
+private fun titleFirstMaterial(text: String): VmPart? {
+    val lines = text.split("\n").map { it.trim() }
+    val firstIdx = lines.indexOfFirst { it.isNotEmpty() }
+    if (firstIdx < 0) return null
+    // Formato com cabeçalho tem precedência: A1 só vale sem cabeçalho.
+    if (lines.any { l -> SECTION_HEADERS.any { l.uppercase().startsWith(it.first) } }) return null
+    val m = TITULO_RE.find(lines[firstIdx]) ?: return null
+    if (lines.none { TOPICO_LINE_RE.containsMatchIn(it) }) return null
+    val body = lines.drop(firstIdx + 1).joinToString("\n").trim()
+    return VmPart(
+        section = VmSection.TREASURES,
+        partNumber = 1,
+        title = m.groupValues[1].trim(),
+        minutes = m.groupValues[2].toIntOrNull() ?: 0,
+        nature = VmNature.TALK,
+        body = body,
+    )
+}
+
 /** Detecta material V&M; vazio quando não parece V&M. */
 fun detectVmMaterial(text: String): List<VmPart> {
+    // #24-fix A1: o formato real ("Título:" + "Tópico N:") não tem cabeçalho.
+    titleFirstMaterial(text)?.let { return listOf(it) }
     val out = mutableListOf<VmPart>()
     var section: VmSection? = null
     var started = false
@@ -132,23 +177,51 @@ fun detectVmMaterial(text: String): List<VmPart> {
                 started = true
                 number = inline.groupValues[1].toInt()
                 minutes = MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+            } else {
+                // #24-fix A2: cabeçalho colado ao título da parte
+                // ("TESOUROS DA PALAVRA DE DEUS 1. Título (10 min)").
+                val glued = GLUED_PART_RE.find(line.substring(header.first.length))
+                if (glued != null) {
+                    started = true
+                    number = glued.groupValues[1].toInt()
+                    title = glued.groupValues[2].trim()
+                    minutes = glued.groupValues[3].toIntOrNull()
+                }
             }
             continue
         }
         if (section == null) continue
         if (!started) {
             // Aguardando o início de uma parte ("1. Título" ou "1.").
-            val part = PART_LINE_RE.find(line) ?: continue
-            started = true
-            number = part.groupValues[1].toInt()
-            val (t, m) = titleAndMinutes(part.groupValues[2])
-            title = t
-            minutes = m
+            val part = PART_LINE_RE.find(line)
+            if (part != null) {
+                started = true
+                number = part.groupValues[1].toInt()
+                val (t, m) = titleAndMinutes(part.groupValues[2])
+                title = t
+                minutes = m
+                continue
+            }
+            // #24-fix A3: cabeçalho + "Título: X (N min)" sem número —
+            // trata como parte 1 (a natureza decide: TESOUROS 1 = TALK).
+            val titulo = TITULO_RE.find(line)
+            if (titulo != null) {
+                started = true
+                number = 1
+                title = titulo.groupValues[1].trim()
+                minutes = titulo.groupValues[2].toIntOrNull()
+                continue
+            }
             continue
         }
         // Coletando: título pendente / linha de tempo / corpo.
         if (title.isEmpty()) {
             if (line.isEmpty()) continue
+            // #24-fix A4: "Tópico N:" é corpo da parte — nunca título/número.
+            if (TOPICO_LINE_RE.containsMatchIn(line)) {
+                body += raw
+                continue
+            }
             if (TIME_ONLY_RE.matches(line)) {
                 minutes = minutes ?: MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
                 continue
@@ -236,6 +309,30 @@ fun materialMinutesOf(materialNature: String?): Int? =
         Regex("""(\d{1,3})""").find(it)?.groupValues?.get(1)?.toIntOrNull()
     }
 
+/**
+ * #24-fix C — refs estruturadas do corpo da parte TALK: Bíblia (canônica
+ * "Je 45:3") + publicações (symbol/página/§). Puro/testável.
+ */
+fun extractRefsFromBody(body: String): Pair<List<String>, List<PublicationRef>> {
+    val bible = RefDetector.detectBible(body)
+        .mapNotNull { b ->
+            normalizeBibleBookName(b.label)?.let { "$it ${b.chapter}:${b.verse}" }
+        }
+        .distinct()
+    val pubs = RefDetector.detect(body)
+        .map { ref ->
+            PublicationRef(
+                symbol = canonicalPublicationSymbol(ref.pubKey, ref.editionKey),
+                page = ref.page,
+                paragraph = ref.paragraph,
+                article = ref.article,
+                chapter = ref.chapter,
+            )
+        }
+        .distinct()
+    return bible to pubs
+}
+
 /** Seção BODY que materializa a parte TALK colada (fonte do gerador). */
 fun vmTalkSection(
     talk: VmPart,
@@ -243,17 +340,22 @@ fun vmTalkSection(
     order: Int,
     id: String,
     now: Long,
-): SpeechSection = SpeechSection(
-    id = id,
-    noteId = noteId,
-    order = order,
-    role = SectionRole.BODY,
-    title = talk.title,
-    minutes = talk.minutes,
-    contentHtml = htmlFromText(talk.body),
-    bibleRefs = emptyList(),
-    publicationRefs = emptyList(),
-    methodPrinciple = null,
-    createdAt = now,
-    updatedAt = now,
-)
+): SpeechSection {
+    // #24-fix C: as refs do corpo viram refs estruturadas da seção — o
+    // dossiê do chat sobre a seção TALK funciona antes do apply.
+    val (bibleRefs, publicationRefs) = extractRefsFromBody(talk.body)
+    return SpeechSection(
+        id = id,
+        noteId = noteId,
+        order = order,
+        role = SectionRole.BODY,
+        title = talk.title,
+        minutes = talk.minutes,
+        contentHtml = htmlFromText(talk.body),
+        bibleRefs = bibleRefs,
+        publicationRefs = publicationRefs,
+        methodPrinciple = null,
+        createdAt = now,
+        updatedAt = now,
+    )
+}
