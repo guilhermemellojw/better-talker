@@ -21,8 +21,18 @@ sealed interface MdBlock {
     data class Title(val level: Int, val text: String) : MdBlock
     data class Quote(val text: String) : MdBlock
     /** [number] != null = item de lista ordenada (o número é preservado). */
-    data class Bullet(val text: String, val number: Int? = null) : MdBlock
-    data class Check(val done: Boolean, val text: String) : MdBlock
+    data class Bullet(
+        val text: String,
+        val number: Int? = null,
+        /** #22-fix-b: nível da lista (0 = topo; 1 = sub; 2 = sub-sub). */
+        val depth: Int = 0,
+    ) : MdBlock
+    data class Check(
+        val done: Boolean,
+        val text: String,
+        /** #22-fix-b: nível do checklist (0 = topo). */
+        val depth: Int = 0,
+    ) : MdBlock
     data class Para(val text: String) : MdBlock
     /** #21-fix: trecho pronto para aplicar no card (`<texto-do-card>`). */
     data class TextForCard(val text: String) : MdBlock
@@ -92,6 +102,15 @@ fun parseBlocks(md: String): List<MdBlock> {
             return@forEach
         }
         if (line.isBlank()) { flush(); return@forEach }
+        // #22-fix-b: a indentação (contada ANTES do trimStart) define a
+        // profundidade da lista — 2 espaços = sub, 4+ = sub-sub; tab = 2.
+        val indentWidth = line.takeWhile { it == ' ' || it == '\t' }
+            .replace("\t", "  ").length
+        val depth = when {
+            indentWidth >= 4 -> 2
+            indentWidth >= 2 -> 1
+            else -> 0
+        }
         val t = line.trimStart()
         when {
             t.startsWith("#") -> {
@@ -104,16 +123,19 @@ fun parseBlocks(md: String): List<MdBlock> {
             CHECK_RE.matches(t) -> {
                 flush()
                 val m = CHECK_RE.find(t)!!
-                out += MdBlock.Check(m.groupValues[1].lowercase() == "x", m.groupValues[2])
+                out += MdBlock.Check(m.groupValues[1].lowercase() == "x", m.groupValues[2], depth)
             }
-            t.startsWith("- ") || t.startsWith("* ") -> { flush(); out += MdBlock.Bullet(t.drop(2)) }
+            t.startsWith("- ") || t.startsWith("* ") -> {
+                flush(); out += MdBlock.Bullet(t.drop(2), null, depth)
+            }
             ORDERED_RE.matches(t) -> {
                 // T2: preserva o número (lista ordenada), em vez de virar "•".
                 flush()
                 val m = ORDERED_RE.find(t)!!
                 out += MdBlock.Bullet(
                     m.groupValues[2].trim(),
-                    m.groupValues[1].toIntOrNull()
+                    m.groupValues[1].toIntOrNull(),
+                    depth,
                 )
             }
             else -> {

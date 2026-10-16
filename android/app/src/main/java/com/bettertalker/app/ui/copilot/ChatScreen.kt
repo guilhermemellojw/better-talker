@@ -1063,17 +1063,27 @@ fun ChatMessageText(
                         thickness = 1.dp,
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
                     )
-                    is MdBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
+                    is MdBlock.Bullet -> Row(
+                        verticalAlignment = Alignment.Top,
+                        // #22-fix-b: recuo progressivo por profundidade.
+                        modifier = Modifier.padding(start = (block.depth * 16).dp),
+                    ) {
                         Text(
-                            // T2: lista ordenada preserva o número; bullet comum segue "•".
-                            block.number?.let { "$it.  " } ?: "•  ",
+                            // T2: lista ordenada preserva o número; #22-fix-b:
+                            // sub-nível usa ○ (como o web); topo segue "•".
+                            bulletMarker(block.number, block.depth),
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
+                            // #22-fix-b: o negrito é do primeiro nível.
+                            fontWeight = if (block.depth == 0) FontWeight.Bold else FontWeight.Normal,
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
                         Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
                     }
-                    is MdBlock.Check -> Row(verticalAlignment = Alignment.Top) {
+                    is MdBlock.Check -> Row(
+                        verticalAlignment = Alignment.Top,
+                        // #22-fix-b: recuo progressivo por profundidade.
+                        modifier = Modifier.padding(start = (block.depth * 16).dp),
+                    ) {
                         Text(
                             if (block.done) "☑  " else "☐  ",
                             style = MaterialTheme.typography.bodyLarge,
@@ -1125,6 +1135,10 @@ fun ChatMessageText(
         }
     }
 }
+
+/** #22-fix-b: marcador do item de lista (○ em sub-níveis; • no topo). Puro/testável. */
+internal fun bulletMarker(number: Int?, depth: Int): String =
+    number?.let { "$it.  " } ?: if (depth > 0) "○  " else "•  "
 
 /** #22-fix (P1): texto do bloco com o selo prependado (quando houver). */
 private fun markPlain(text: String, mark: AnnotatedString?): AnnotatedString =
