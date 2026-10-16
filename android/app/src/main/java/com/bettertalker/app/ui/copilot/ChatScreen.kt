@@ -353,7 +353,8 @@ fun ChatScreen(
                         quickActions = vm.quickActions,
                         localActions = localSuggestionTexts(outlineInfo != null),
                         onPick = { doSend(it) },
-                        onAttach = { showAttach = true }
+                        onAttach = { showAttach = true },
+                        onPrefill = { input = it; composerFocus.requestFocus() }
                     )
                     Spacer(Modifier.height(6.dp))
                 }

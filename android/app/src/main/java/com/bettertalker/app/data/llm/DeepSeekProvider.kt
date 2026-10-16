@@ -74,7 +74,9 @@ class DeepSeekProvider(
         // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
         // e devolver content vazio (finish_reason=length). Nesse caso o
         // provider refaz UMA vez com orçamento maior antes de falhar.
-        var budget = request.maxOutputTokens
+        // #8f: o modo "Profundo" (reasoning "high") consome o orçamento no
+        // thinking — sobe o teto default para evitar o retry por content vazio.
+        var budget = outputBudgetFor(effort, request.maxOutputTokens)
         var budgetBumped = false
         val url = "${endpoint.trimEnd('/')}/chat/completions"
         // Autorização e negociação do stream via header (nunca na URL, nunca em log).
@@ -287,6 +289,24 @@ class DeepSeekProvider(
          * chat (só onde não é estruturado; ver [reasoningEffortFor]).
          */
         const val REASONING_EFFORT_DEEP = "high"
+
+        /**
+         * #8f: orçamento do turno no modo "Profundo" — o reasoning consome o
+         * teto default (1000) e o content volta vazio (retry + delay no A34).
+         */
+        const val DEEP_OUTPUT_TOKENS = 2000
+
+        /**
+         * #8f: teto efetivo de saída — sobe para [DEEP_OUTPUT_TOKENS] só no
+         * modo Profundo e só quando o pedido não trouxe um teto maior.
+         * Puro/testável.
+         */
+        fun outputBudgetFor(effort: String, requested: Int): Int =
+            if (effort == REASONING_EFFORT_DEEP && requested <= DEFAULT_LLM_MAX_OUTPUT_TOKENS) {
+                DEEP_OUTPUT_TOKENS
+            } else {
+                requested
+            }
 
         /**
          * T1 (P0) — resposta estruturada (oratória/proposta): thinking desligado.

@@ -3,6 +3,7 @@ package com.bettertalker.app.data.copilot
 import com.bettertalker.app.data.s34.S34Document
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.domain.planning.Audience
 
 /**
  * Fase 20-D — roteamento natural do chat para a sessão oratória.
@@ -77,6 +78,9 @@ object ChatRouter {
          * = pedido sem tema (o handler pergunta).
          */
         data class AnglesForTheme(val theme: String?, val reason: String) : Route
+
+        /** #8f: discurso curto para Necessidades Locais (sem esboço). */
+        data class GenerateLocalNeeds(val inputs: LocalNeedsInputs, val reason: String) : Route
 
         /**
          * T1 (modo colar e conversar) — conversa sobre um esboço colado
@@ -280,6 +284,48 @@ object ChatRouter {
         return ANGLES_REQUEST.containsMatchIn(padded) || padded.contains(" para ")
     }
 
+    // ---------- #8f: Necessidades Locais (discurso curto do zero) ----------
+
+    /** #8f: dados extraídos do pedido de NL. Puro/testável. */
+    data class LocalNeedsInputs(
+        val theme: String,
+        val minutes: Int,
+        val audience: Audience,
+    )
+
+    /** Moldura de NL: "necessidades locais", "NL", "discurso curto", "discurso de N min". */
+    private val NL_FRAME = Regex("\\b(necessidades\\s+locais|nl)\\b")
+    private val NL_SHORT_SPEECH = Regex("\\bdiscurso\\s+(curto|de\\s+\\d{1,2}\\s*min)")
+    /** Não sequestra ângulos ("3 ângulos para X") — Modo B tem precedência própria. */
+    private val NL_ANGLES_GUARD = Regex("\\b(opcoes|angulos|abordagens|alternativas|possibilidades)\\b")
+
+    fun isLocalNeedsCommand(text: String): Boolean = extractLocalNeedsInputs(text) != null
+
+    /**
+     * #8f: extrai tema/tempo/público do pedido de NL. Exige moldura explícita
+     * ("discurso curto", "necessidades locais", "NL", "discurso de N min") e
+     * tema após "sobre/a respeito de" — nunca sequestra oratória nem ângulos.
+     * Puro/testável.
+     */
+    fun extractLocalNeedsInputs(text: String): LocalNeedsInputs? {
+        val t = " ${normalizeText(text).trim()} "
+        if (!NL_FRAME.containsMatchIn(t) && !NL_SHORT_SPEECH.containsMatchIn(t)) return null
+        if (NL_ANGLES_GUARD.containsMatchIn(t)) return null
+        val match = Regex("(?i)\\b(?:sobre|a\\s+respeito\\s+de)\\s+(.+)").find(text.trim())
+            ?: return null
+        val theme = match.groupValues[1].trim()
+            .trimEnd('.', '!', '?', ',', ';', ':')
+            .trim()
+        if (theme.isBlank()) return null
+        val minutes = Regex("\\b(\\d{1,2})\\s*min").find(t)?.groupValues?.get(1)?.toIntOrNull() ?: 5
+        val audience = when {
+            Regex("\\b(novos|novas|estudantes)\\b").containsMatchIn(t) -> Audience.NEW
+            Regex("\\b(jovens?)\\b").containsMatchIn(t) -> Audience.YOUNG
+            else -> Audience.GENERAL
+        }
+        return LocalNeedsInputs(theme, minutes.coerceIn(3, 15), audience)
+    }
+
     // ---------- Réplica de proposta ----------
 
     private val ACCEPT_RE = Regex("^(aceitar|aceito|aplicar|aplique|confirmar|confirmo)\\b")
@@ -417,6 +463,12 @@ object ChatRouter {
             return Route.StructureFromPasted("pedido de estruturar o texto colado")
         }
 
+        // #8f: Necessidades Locais (discurso curto do zero) — antes dos ângulos
+        // (que sequestrariam "discurso … para") e da oratória (verbo "cria").
+        extractLocalNeedsInputs(text)?.let {
+            return Route.GenerateLocalNeeds(it, "pedido de discurso curto (Necessidades Locais)")
+        }
+
         // F5d (Modo B): opções/ângulos para um tema do zero — antes da
         // proposta de seção (que sequestraria "sugere … para").
         if (isAnglesForThemeCommand(text)) {
@@ -509,6 +561,8 @@ object ChatRouter {
         is Route.ProposeStructure -> "route=PROPOSE_STRUCTURE reason=${route.reason}"
         is Route.StructureFromPasted -> "route=STRUCTURE_FROM_PASTED reason=${route.reason}"
         is Route.AnglesForTheme -> "route=ANGLES_FOR_THEME theme=${route.theme ?: "—"} reason=${route.reason}"
+        is Route.GenerateLocalNeeds -> "route=GENERATE_LOCAL_NEEDS theme=${route.inputs.theme} " +
+            "minutes=${route.inputs.minutes} reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
     }

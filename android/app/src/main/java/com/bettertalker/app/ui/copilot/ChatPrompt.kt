@@ -345,6 +345,7 @@ fun ChatQuickActions(
     localActions: List<String>,
     onPick: (String) -> Unit,
     onAttach: () -> Unit,
+    onPrefill: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // T1 (P2 estético): háptica leve nos chips de ação.
@@ -353,6 +354,20 @@ fun ChatQuickActions(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // #8f: porta das Necessidades Locais — pré-preenche o composer (o
+        // tema fica com o usuário; nada é enviado sem ele completar).
+        item {
+            AssistChip(
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    onPrefill("Discurso curto para as necessidades locais sobre ")
+                },
+                label = { Text("Necessidades Locais") },
+                modifier = Modifier.semantics {
+                    contentDescription = "Necessidades Locais — preencher mensagem"
+                },
+            )
+        }
         if (localActions.isEmpty()) {
             item {
                 AssistChip(

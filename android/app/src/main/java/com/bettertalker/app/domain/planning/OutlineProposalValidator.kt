@@ -50,7 +50,7 @@ object OutlineProposalValidator {
      * @return [ValidationResult.Valid] se não houver erros,
      *   ou [ValidationResult.Invalid] com a lista ordenada de erros.
      */
-    fun validate(proposal: OutlineProposal): ValidationResult {
+    fun validate(proposal: OutlineProposal, allowEmptyRefs: Boolean = false): ValidationResult {
         val errors = mutableListOf<ValidationError>()
         if (proposal.title.isBlank()) errors.add(ValidationError.BLANK_TITLE)
         if (proposal.summary.isBlank()) errors.add(ValidationError.BLANK_SUMMARY)
@@ -71,7 +71,8 @@ object OutlineProposalValidator {
             if (normalizedTitles.size != normalizedTitles.toSet().size) {
                 errors.add(ValidationError.DUPLICATE_SECTION_TITLES)
             }
-            if (proposal.sections.none { it.bibleRefs.isNotEmpty() }) {
+            // #8f: Necessidades Locais do zero pode não ter refs fornecidas.
+            if (!allowEmptyRefs && proposal.sections.none { it.bibleRefs.isNotEmpty() }) {
                 errors.add(ValidationError.NO_SECTION_WITH_BIBLE_REFS)
             }
             if (proposal.sections.sumOf { it.minutes } > proposal.totalMinutes) {

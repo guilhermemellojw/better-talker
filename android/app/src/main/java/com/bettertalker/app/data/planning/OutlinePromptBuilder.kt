@@ -23,8 +23,13 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
     override fun build(request: OutlineGenerationRequest): String {
         val source = request.sourceContent?.trim()
         if (!source.isNullOrEmpty()) return buildFromSource(request, source)
-        val bible = if (request.bibleRefs.isEmpty()) " (nenhuma fornecida)"
-        else request.bibleRefs.joinToString("\n- ", prefix = "\n- ")
+        // #8f: sem refs fornecidas (Necessidades Locais do zero), o modelo
+        // NÃO deve inventar versículos — estrutura o tema sem ancorar.
+        val bible = if (request.bibleRefs.isEmpty()) {
+            " (nenhuma fornecida — não invente versículos; estruture o tema sem ancorar em refs)"
+        } else {
+            request.bibleRefs.joinToString("\n- ", prefix = "\n- ")
+        }
         val pubs = if (request.publicationRefs.isEmpty()) " (nenhuma fornecida)"
         else request.publicationRefs.joinToString("\n- ", prefix = "\n- ") {
             buildString {
@@ -52,7 +57,9 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
             Regras:
             - A soma dos minutes das seções NÃO deve exceder ${request.totalMinutes}.
             - Cada seção deve ter mainIdea não-vazia.
-            - Pelo menos uma seção deve ter bibleRefs não-vazio.
+            ${if (request.bibleRefs.isEmpty())
+                "- Sem referências fornecidas: deixe bibleRefs vazios; não invente versículos."
+            else "- Pelo menos uma seção deve ter bibleRefs não-vazio."}
             - Títulos das seções devem ser únicos (case-insensitive).
             - bibleRefs devem ser EXATAMENTE um subconjunto das referências bíblicas disponíveis.
             - publicationRefs devem ser EXATAMENTE um subconjunto das publicações disponíveis.

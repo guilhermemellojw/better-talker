@@ -1503,6 +1503,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     structureFromPasted(currentTarget())
                     return@launch
                 }
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.GenerateLocalNeeds -> {
+                    // #8f: Necessidades Locais — discurso curto do zero, sem esboço.
+                    generateLocalNeeds(route.inputs)
+                    return@launch
+                }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.AnglesForTheme -> {
                     // F5d (Modo B): idem — pré-split cobre o caso comum.
                     proposeAnglesFor(route.theme)
@@ -2895,6 +2900,89 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                 )
             }
         }
+    }
+
+    /**
+     * #8f: Necessidades Locais — discurso curto do zero, sem esboço. Reusa o
+     * mesmo gerador/validador do #5b (regra de refs relaxada) e o mesmo
+     * cartão de aceite (NoteStructureProposalUi). Refs do acervo entram
+     * quando há Bíblia indexada; nunca bloqueiam.
+     */
+    private suspend fun generateLocalNeeds(
+        inputs: com.bettertalker.app.data.copilot.ChatRouter.LocalNeedsInputs,
+    ) {
+        val nid = noteId
+        if (nid == null) {
+            postText("Abra uma nota para eu montar o discurso.")
+            return
+        }
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        if (!ProviderFactory.useRemoteRoute(remote)) {
+            postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+            return
+        }
+        // B3: refs do acervo quando houver Bíblia indexada (vazio = segue sem).
+        val bibleRefs = try {
+            com.bettertalker.app.data.planning.RoomBibleIndex(
+                com.bettertalker.app.data.repo.RoomRetrievalRepository(
+                    db.passageDao(), db.attachmentDao()
+                ),
+                db.attachmentDao(),
+            ).findByTheme(inputs.theme, 3)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val generator = com.bettertalker.app.data.planning.OutlineGeneratorImpl(
+            ProviderFactory.createFor(remote, app),
+        )
+        val request = com.bettertalker.app.domain.planning.OutlineGenerationRequest(
+            id = newId("nl"),
+            theme = inputs.theme,
+            totalMinutes = inputs.minutes,
+            audience = inputs.audience,
+            angle = com.bettertalker.app.domain.planning.OutlineAngle.PRACTICAL,
+            bibleRefs = bibleRefs,
+            publicationRefs = emptyList(),
+            methodPrinciples = emptyList(),
+        )
+        val proposal = try {
+            generator.generate(request)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (proposal == null) {
+            postText("Não consegui gerar o discurso. Tente novamente.")
+            return
+        }
+        val validation = com.bettertalker.app.domain.planning.OutlineProposalValidator
+            .validate(proposal, allowEmptyRefs = true)
+        if (validation is com.bettertalker.app.domain.planning.ValidationResult.Invalid) {
+            postText(
+                "A estrutura veio inválida (${validation.errors.joinToString(", ")}). Tente novamente."
+            )
+            return
+        }
+        val sectionsNow = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        _noteStructureProposal.value = NoteStructureProposalUi(
+            id = newId("nsp"),
+            noteId = nid,
+            title = proposal.title,
+            summary = proposal.summary,
+            totalMinutes = proposal.totalMinutes,
+            sections = proposal.sections,
+            hints = emptyList(),
+            currentSectionCount = sectionsNow.size,
+            noteBaseHash = noteStructureHash(db.noteDao().get(nid)?.title, sectionsNow),
+        )
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf(
+                "text" to "— Estrutura proposta para Necessidades Locais: ${inputs.theme} —",
+            )),
+        )
     }
 
     /**
