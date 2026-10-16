@@ -8,11 +8,11 @@ class ChatPromptThinkingChipTest {
 
     @Test
     fun rapidoMostraRotuloRapido() {
-        assertEquals("⚡ Rápido", thinkingChipLabel(ThinkingMode.FAST))
+        assertEquals("Rápido", thinkingChipLabel(ThinkingMode.FAST))
     }
 
     @Test
     fun profundoMostraRotuloProfundo() {
-        assertEquals("🧠 Profundo", thinkingChipLabel(ThinkingMode.DEEP))
+        assertEquals("Profundo", thinkingChipLabel(ThinkingMode.DEEP))
     }
 }

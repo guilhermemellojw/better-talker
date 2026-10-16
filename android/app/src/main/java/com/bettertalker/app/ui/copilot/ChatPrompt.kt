@@ -85,9 +85,9 @@ val OUTLINE_MIMES = arrayOf(
  * multilinha, maxLines = 5); o envio é SÓ pelo botão de enviar. O IME não
  * tem ação de send — evita enviar sem querer no meio da digitação.
  */
-/** #17-fix: rótulo do chip de pensamento (puro/testável). */
+/** #17-fix: rótulo do chip de pensamento (puro/testável). O ícone já indica o modo. */
 internal fun thinkingChipLabel(mode: ThinkingMode): String =
-    if (mode == ThinkingMode.DEEP) "🧠 Profundo" else "⚡ Rápido"
+    if (mode == ThinkingMode.DEEP) "Profundo" else "Rápido"
 
 @Composable
 fun ChatPromptBar(
