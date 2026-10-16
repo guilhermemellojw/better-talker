@@ -61,6 +61,7 @@ import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.QuickAction
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
+import com.bettertalker.app.data.edit.stripHtmlToText
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.ByodNotice
 
@@ -576,6 +577,10 @@ fun ProposalCard(
     // T3 — tags 〈sugestão〉 somem do texto exibido; badge sinaliza criação.
     val after = remember(afterFull) { stripSuggestionTags(afterFull) }
     val before = remember(ui.focusText) { stripSuggestionTags(ui.focusText) }
+    // #16-fix-b: o bloco de seção carrega HTML — o display mostra texto puro
+    // (sem tags), preservando o badge.
+    val beforeDisplay = remember(before.text) { stripHtmlToText(before.text) }
+    val afterDisplay = remember(after.text) { stripHtmlToText(after.text) }
     Column(
         modifier.fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -592,14 +597,14 @@ fun ProposalCard(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.secondary
         )
-        Text(before.text.take(600), style = MaterialTheme.typography.bodySmall)
+        Text(beforeDisplay.take(600), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(4.dp))
         Text(
             "DEPOIS" + if (after.hasSuggestion) " · 💡 Sugestão criativa" else "",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.secondary
         )
-        Text(after.text.take(1200), style = MaterialTheme.typography.bodySmall)
+        Text(afterDisplay.take(1200), style = MaterialTheme.typography.bodySmall)
         ui.verification?.let { v ->
             Spacer(Modifier.height(4.dp))
             Text(

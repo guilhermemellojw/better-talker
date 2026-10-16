@@ -1712,6 +1712,16 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
         val secHash = section?.let {
             hashText(sectionProposalBlock(it.title, it.contentHtml))
         }
+        // #16-fix-b: o LLM precisa ver a PROSA da seção (não só o título via
+        // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
+        // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
+        // a invariante do aceite (`block.contains(focus)`). Sem seção, o foco
+        // resolvido é mantido.
+        val block = oratoryFocusBlock(
+            sectionTitle = section?.title,
+            sectionContentHtml = section?.contentHtml,
+            fallbackFocus = focus,
+        )
         val targetId = "focus"
         val mode = if (route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE) {
             com.bettertalker.app.data.edit.EditProposalMode.IMPROVE
@@ -1723,7 +1733,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
             val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 provider.generate(
                     com.bettertalker.app.data.llm.LlmRequest(
-                        text = focus,
+                        text = block,
                         action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                         message = message,
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
@@ -1738,7 +1748,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     )
                 )
             }
-            val blocks = listOf(com.bettertalker.app.data.edit.EditBlock(targetId, focus))
+            val blocks = listOf(com.bettertalker.app.data.edit.EditBlock(targetId, block))
             when (val r = com.bettertalker.app.data.edit.parseEditProposal(
                 res.text, blocks, targetId, mode
             )) {
@@ -1769,7 +1779,12 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                     val verified = verifyGeneratedText(
                         generated,
                         turnContext,
-                        listOfNotNull(contextBlock, focus.takeIf { it.isNotBlank() }),
+                        listOfNotNull(
+                            contextBlock,
+                            // #16-fix-b: o corpus do gate inclui a prosa da seção
+                            // (texto puro) — o modelo agora a vê e pode citá-la.
+                            stripHtmlToText(block).takeIf { it.isNotBlank() },
+                        ),
                     )
                     if (verified.hasRemovals) {
                         android.util.Log.w(
@@ -1794,7 +1809,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                         r.proposal
                     }
                     _proposal.value = ProposalUi(
-                        proposal, focus, sectionId = secId, sectionBaseHash = secHash,
+                        proposal, block, sectionId = secId, sectionBaseHash = secHash,
                         notice = listOfNotNull(notice, removalNotice)
                             .joinToString(" ").ifBlank { null }
                     )
@@ -4620,6 +4635,24 @@ internal fun applyProposalOps(
  */
 internal fun sectionProposalBlock(title: String, contentHtml: String): String =
     if (contentHtml.isBlank()) title else "$title\n\n$contentHtml"
+
+/**
+ * #16-fix-b: bloco do foco da oratória. Quando o foco é uma seção, o LLM
+ * recebe o bloco REAL (título + contentHtml) — antes ia só o título
+ * (`pushedFirstFocus`) e a prosa escrita/editada nunca chegava ao modelo
+ * (bug do T8 no teste #16). Sem seção, mantém o foco resolvido. O valor
+ * satisfaz a invariante do aceite (`sectionProposalBlock.contains(this)`).
+ * Puro/testável.
+ */
+internal fun oratoryFocusBlock(
+    sectionTitle: String?,
+    sectionContentHtml: String?,
+    fallbackFocus: String,
+): String = if (sectionTitle.isNullOrBlank()) {
+    fallbackFocus
+} else {
+    sectionProposalBlock(sectionTitle, sectionContentHtml.orEmpty())
+}
 
 // ---------- FALTA-2: proposta de estrutura da seção (pura) ----------
 
