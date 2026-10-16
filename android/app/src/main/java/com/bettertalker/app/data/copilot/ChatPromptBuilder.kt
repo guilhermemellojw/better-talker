@@ -305,6 +305,13 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // marque com 〈decisão〉…〈/decisão〉 para o app lembrar e continuar daqui.
         "\nAo registrar um consenso ou decisão com o usuário, marque com " +
         "〈decisão〉…〈/decisão〉." +
+        // #21-fix: distinção texto-aplicável vs conversa — o app destaca o
+        // bloco com botão próprio ("Usar no card").
+        "\nQuando devolver texto pronto para aplicar no card (discurso, desenvolvimento, " +
+        "transição, introdução, conclusão), envolva APENAS esse trecho em " +
+        "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
+        "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
+        "o marcador." +
         // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
         "\n" + CHAT_TAIL_FORMAT
 

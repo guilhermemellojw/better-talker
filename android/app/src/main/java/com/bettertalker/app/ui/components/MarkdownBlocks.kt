@@ -24,9 +24,15 @@ sealed interface MdBlock {
     data class Bullet(val text: String, val number: Int? = null) : MdBlock
     data class Check(val done: Boolean, val text: String) : MdBlock
     data class Para(val text: String) : MdBlock
+    /** #21-fix: trecho pronto para aplicar no card (`<texto-do-card>`). */
+    data class TextForCard(val text: String) : MdBlock
     /** T4 — `---` vira linha divisória (antes renderizava literal). */
     data object Divider : MdBlock
 }
+
+// #21-fix: marcadores do bloco aplicável (ASCII, nomes exatos).
+const val TEXT_FOR_CARD_OPEN = "<texto-do-card>"
+const val TEXT_FOR_CARD_CLOSE = "</texto-do-card>"
 
 private val CHECK_RE = Regex("^-[ \\t]*\\[([ xX])\\][ \\t]*(.*)$")
 private val ORDERED_RE = Regex("^(\\d{1,3})[.)]\\s+(.*)$")
@@ -35,13 +41,56 @@ private val HR_RE = Regex("^-{3,}$")
 fun parseBlocks(md: String): List<MdBlock> {
     val out = mutableListOf<MdBlock>()
     val para = StringBuilder()
+    val card = StringBuilder()
+    var inCard = false
     fun flush() {
         val t = para.toString().trim()
         if (t.isNotEmpty()) out += MdBlock.Para(t)
         para.clear()
     }
+    fun flushCard() {
+        val t = card.toString().trim()
+        if (t.isNotEmpty()) out += MdBlock.TextForCard(t)
+        card.clear()
+        inCard = false
+    }
+    fun appendRest(rest: String) {
+        if (rest.isNotEmpty()) {
+            if (para.isNotEmpty()) para.append(' ')
+            para.append(rest)
+        }
+    }
     md.lines().forEach { raw ->
         val line = raw.trimEnd()
+        // #21-fix: <texto-do-card>…</texto-do-card> — bloco próprio na posição
+        // do texto (abre/fecha na mesma linha ou em linhas separadas).
+        if (!inCard) {
+            val openIdx = line.indexOf(TEXT_FOR_CARD_OPEN)
+            if (openIdx >= 0) {
+                flush()
+                val after = line.substring(openIdx + TEXT_FOR_CARD_OPEN.length)
+                val closeIdx = after.indexOf(TEXT_FOR_CARD_CLOSE)
+                if (closeIdx >= 0) {
+                    card.append(after.substring(0, closeIdx))
+                    flushCard()
+                    appendRest(after.substring(closeIdx + TEXT_FOR_CARD_CLOSE.length).trim())
+                } else {
+                    inCard = true
+                    card.append(after)
+                }
+                return@forEach
+            }
+        } else {
+            val closeIdx = line.indexOf(TEXT_FOR_CARD_CLOSE)
+            if (closeIdx >= 0) {
+                card.append('\n').append(line.substring(0, closeIdx))
+                flushCard()
+                appendRest(line.substring(closeIdx + TEXT_FOR_CARD_CLOSE.length).trim())
+            } else {
+                card.append('\n').append(line)
+            }
+            return@forEach
+        }
         if (line.isBlank()) { flush(); return@forEach }
         val t = line.trimStart()
         when {
@@ -73,6 +122,9 @@ fun parseBlocks(md: String): List<MdBlock> {
             }
         }
     }
+    // #21-fix: tag aberta sem fechar (stream/corte) — emite o conteúdo mesmo
+    // assim (o texto nunca some).
+    if (inCard) flushCard()
     flush()
     return out
 }

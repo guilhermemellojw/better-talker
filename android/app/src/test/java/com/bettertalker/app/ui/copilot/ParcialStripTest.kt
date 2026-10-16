@@ -20,4 +20,19 @@ class ParcialStripTest {
     fun tagIncompletaNaoCortaOConteudo() {
         assertEquals("X", stripInternalTags("〈sugestão〉X"))
     }
+
+    // #21-fix: a tag do bloco aplicável também fica oculta no parcial.
+
+    @Test
+    fun tagDoCardSomeNoParcial() {
+        assertEquals(
+            "abc def ghi",
+            stripInternalTags("abc <texto-do-card>def</texto-do-card> ghi"),
+        )
+    }
+
+    @Test
+    fun tagDoCardIncompletaNaoCortaOConteudo() {
+        assertEquals("abc def", stripInternalTags("abc <texto-do-card>def"))
+    }
 }

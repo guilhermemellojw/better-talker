@@ -459,13 +459,15 @@ fun stripInternalTags(s: String): String {
 }
 
 // Marcadores internos na forma ASCII (o modelo às vezes troca os CJK):
-// nomes exatos — nunca qualquer tag, para não comer HTML.
+// nomes exatos — nunca qualquer tag, para não comer HTML. #21-fix:
+// <texto-do-card> entra aqui (durante o stream a tag fica oculta; no final
+// o parser a converte em bloco próprio).
 private val PROMPT_TAG_PAIR_INTERNAL = Regex(
-    "<(?:sugest[aã]o|decis[aã]o)>(.*?)</(?:sugest[aã]o|decis[aã]o)>",
+    "<(?:sugest[aã]o|decis[aã]o|texto-do-card)>(.*?)</(?:sugest[aã]o|decis[aã]o|texto-do-card)>",
     setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
 )
 private val PROMPT_TAG_STRAY_INTERNAL = Regex(
-    "</?(?:sugest[aã]o|decis[aã]o)>",
+    "</?(?:sugest[aã]o|decis[aã]o|texto-do-card)>",
     RegexOption.IGNORE_CASE,
 )
 
@@ -492,6 +494,9 @@ private val META_START_HINTS = listOf(
 private val META_END_HINTS = listOf(
     "espero ter ajudado", "quer que eu", "precisa de mais",
     "se quiser", "posso ajustar", "me avise", "é isso",
+    // #21-fix: a dica "_Se estiver de acordo, diga \"insira isso\"..." não
+    // pode vazar para o card quando é o último parágrafo.
+    "insira isso", "se estiver de acordo",
 )
 private val META_QUOTE_STARTS = listOf("\"", "«", "〈")
 
@@ -509,7 +514,9 @@ private val META_END_PATTERNS = META_END_HINTS.map(::metaPattern)
 private fun looksMeta(p: String, patterns: List<Regex>): Boolean {
     if (p.length >= 100) return false
     if (META_QUOTE_STARTS.any { p.startsWith(it) }) return false
-    val low = p.lowercase()
+    // #21-fix: ênfase markdown no início ("_Se estiver de acordo…") não pode
+    // impedir a âncora de início de frase.
+    val low = p.lowercase().trimStart('_', '*', ' ')
     return patterns.any { it.containsMatchIn(low) }
 }
 

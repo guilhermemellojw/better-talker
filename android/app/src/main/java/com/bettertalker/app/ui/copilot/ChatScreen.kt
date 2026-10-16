@@ -11,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +74,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -759,7 +761,11 @@ private fun MessageBubble(
                 ) {
                     // P1: presença do Copilot nas respostas de texto.
                     AssistantAvatar()
-                    ChatMessageText(item.text, Modifier.weight(1f))
+                    ChatMessageText(
+                        item.text,
+                        Modifier.weight(1f),
+                        onUseInCard = { vm.insertTextIntoScope(it) },
+                    )
                 }
                 // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
                 item.durationMs?.let { ms ->
@@ -982,15 +988,39 @@ internal fun cleanedForRender(md: String): SuggestionText {
     )
 }
 
+/**
+ * #21-fix: strip por bloco — o parse roda no texto cru (a tag
+ * `<texto-do-card>` já virou bloco próprio) e cada bloco perde os marcadores
+ * internos; o conteúdo do card fica preservado (só os marcadores saem).
+ * Puro/testável.
+ */
+internal fun cleanBlocks(blocks: List<MdBlock>): List<MdBlock> = blocks.map { b ->
+    when (b) {
+        is MdBlock.Title -> b.copy(text = cleanedForRender(b.text).text)
+        is MdBlock.Quote -> b.copy(text = cleanedForRender(b.text).text)
+        is MdBlock.Bullet -> b.copy(text = cleanedForRender(b.text).text)
+        is MdBlock.Check -> b.copy(text = cleanedForRender(b.text).text)
+        is MdBlock.Para -> b.copy(text = cleanedForRender(b.text).text)
+        is MdBlock.TextForCard -> b.copy(text = stripInternalTags(b.text))
+        is MdBlock.Divider -> b
+    }
+}
+
 /** Texto formatado do assistente (markdown próprio, selecionável). */
 @Composable
-fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
+fun ChatMessageText(
+    md: String,
+    modifier: Modifier = Modifier,
+    onUseInCard: ((String) -> Unit)? = null,
+) {
     if (md.isBlank()) return
-    val suggested = remember(md) { cleanedForRender(md) }
-    val blocks = remember(suggested.text) { parseBlocks(suggested.text) }
+    // #21-fix: parse ANTES do strip — o <texto-do-card> vira bloco próprio
+    // (posição preservada) e o strip de marcadores roda por bloco.
+    val hasSuggestion = remember(md) { stripSuggestionTags(md).hasSuggestion }
+    val blocks = remember(md) { cleanBlocks(parseBlocks(md)) }
     SelectionContainer {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (suggested.hasSuggestion) {
+            if (hasSuggestion) {
                 Text(
                     "💡 Sugestão criativa",
                     style = MaterialTheme.typography.labelSmall,
@@ -1053,6 +1083,39 @@ fun ChatMessageText(md: String, modifier: Modifier = Modifier) {
                             modifier = Modifier.widthIn(min = 26.dp)
                         )
                         Text(inline(block.text), style = MaterialTheme.typography.bodyLarge)
+                    }
+                    is MdBlock.TextForCard -> Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline,
+                                MaterialTheme.shapes.medium,
+                            )
+                            .padding(12.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Texto para o card",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            if (onUseInCard != null) {
+                                TextButton(onClick = { onUseInCard(block.text) }) {
+                                    Text("⤓ Usar no card")
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            inline(block.text),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
                     }
                     is MdBlock.Para -> Text(
                         inline(block.text),
