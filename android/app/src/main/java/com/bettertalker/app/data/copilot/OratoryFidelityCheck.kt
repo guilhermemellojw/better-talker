@@ -3,6 +3,7 @@ package com.bettertalker.app.data.copilot
 import com.bettertalker.app.data.llm.inSuggestion
 import com.bettertalker.app.data.llm.suggestionSpans
 import com.bettertalker.app.data.s34.S34RefType
+import com.bettertalker.app.data.util.RefCanonicalizer
 
 /**
  * Fase 20-C — verificação objetiva da fidelidade da geração (§§37-39).
@@ -50,7 +51,10 @@ object OratoryFidelityCheck {
         // Referências autorizadas normalizadas. O rótulo é a LINHA do S-34
         // ("Leia Tiago 2:17."), então a citação do modelo ("Tiago 2:17") é
         // autorizada por CONTERÇÃO, não por igualdade.
-        val allowedKeys = allowedRefs.map { normalizeRef(it) }
+        // #16-fix-f: ranges do S-34 ("Jó 38:31-33") autorizam também os
+        // versículos individuais que o modelo cita (38:31, 38:32, 38:33).
+        val allowedKeys = (allowedRefs + allowedRefs.flatMap { RefCanonicalizer.expandRanges(it) })
+            .map { normalizeRef(it) }
 
         val invented = mutableListOf<String>()
         val leakedRefs = mutableListOf<String>()
@@ -114,12 +118,18 @@ object OratoryFidelityCheck {
         return authorizedCorpus(spec).contains(number)
     }
 
-    /** Conteúdo autorizado do turno: corpo, subpontos, refs com texto, fontes. */
+    /**
+     * Conteúdo autorizado do turno: corpo, subpontos, rótulos das refs
+     * ("(Jó 38:31-33)"), textos das refs e fontes — com os ranges
+     * expandidos (#16-fix-f: o "32" dentro de "31-33" é autorizado).
+     */
     private fun authorizedCorpus(spec: OratoryGeneration.Spec): String = buildString {
         append(spec.current?.content.orEmpty()).append(' ')
         spec.current?.subsections?.forEach { append(it).append(' ') }
+        spec.current?.references?.forEach { r -> append(r.label).append(' ') }
         spec.current?.references?.forEach { r -> r.text?.let { append(it).append(' ') } }
         spec.contentSources.forEach { append(it.text).append(' ') }
+        append(RefCanonicalizer.expandRanges(toString()).joinToString(" "))
     }
 
     /**
@@ -139,54 +149,6 @@ object OratoryFidelityCheck {
     }
 
     /**
-     * #16-fix-a: nomes de livros por extenso → abreviação canônica (o S-34 usa
-     * "Sal"; o modelo escreve "Salmo"). Aplicado antes da contenção — só
-     * quando o nome do livro precede um DÍGITO (a ref), para não poluir
-     * palavras ("chamamos" ≠ "cham"+"amos").
-     */
-    private val BOOK_NORMALIZE: Map<String, String> = mapOf(
-        "salmo" to "sal", "salmos" to "sal",
-        "daniel" to "da",
-        "1corintios" to "1co", "2corintios" to "2co",
-        "genesis" to "gen", "exodo" to "ex",
-        "levitico" to "le", "numeros" to "num",
-        "deuteronomio" to "de", "josue" to "jos",
-        "juizes" to "jz", "rute" to "rt",
-        "1samuel" to "1sa", "2samuel" to "2sa",
-        "1reis" to "1re", "2reis" to "2re",
-        "1cronicas" to "1cr", "2cronicas" to "2cr",
-        "esdras" to "esd", "neemias" to "ne",
-        "ester" to "est",
-        "proverbios" to "pr", "eclesiastes" to "ec",
-        "cantico" to "ca", "isaias" to "is",
-        "jeremias" to "je", "lamentacoes" to "la",
-        "ezequiel" to "ez", "oseias" to "os",
-        "joel" to "jl", "amos" to "am",
-        "obadias" to "ob", "jonas" to "jon",
-        "miqueias" to "miq", "habacuque" to "hab",
-        "sofonias" to "sof", "ageu" to "ag",
-        "zacarias" to "za", "malaquias" to "mal",
-        "mateus" to "mt", "marcos" to "mr",
-        "lucas" to "lu", "joao" to "jo",
-        "atos" to "at", "romanos" to "ro",
-        "galatas" to "gal", "efesios" to "ef",
-        "filipenses" to "fil", "colossenses" to "col",
-        "1tessalonicenses" to "1te", "2tessalonicenses" to "2te",
-        "1timoteo" to "1ti", "2timoteo" to "2ti",
-        "tito" to "tit", "filemom" to "flm",
-        "hebreus" to "he", "tiago" to "tg",
-        "1pedro" to "1pe", "2pedro" to "2pe",
-        "1joao" to "1jo", "2joao" to "2jo", "3joao" to "3jo",
-        "judas" to "ju",
-        "revelacao" to "re", "apocalipse" to "re",
-    )
-
-    /** Regras pré-compiladas (nome + dígito), maiores primeiro ("1joao" antes de "joao"). */
-    private val BOOK_RULES: List<Pair<Regex, String>> = BOOK_NORMALIZE.entries
-        .map { (full, abbrev) -> Regex(Regex.escape(full) + "(?=\\d)") to abbrev }
-        .sortedByDescending { it.first.pattern.length }
-
-    /**
      * #16-fix-a: contexto de prosa que NÃO é dado — "versículo 32",
      * "capítulo 3", "página 12" (o número pertence à ref, não é invenção).
      */
@@ -194,23 +156,10 @@ object OratoryFidelityCheck {
         Regex("(versiculo|versiculos|cap|capitulo|pag|pagina)\\s*$")
 
     /**
-     * Normaliza para comparar "Tiago 2:17" com "Leia Tiago 2:17." — minúsculas,
-     * sem acentos (o modelo escreve "Coríntios" com í; a regra usa "corintios"),
-     * sem espaços/pontuação, com nomes de livros reduzidos à abreviação
-     * canônica (#16-fix-a).
+     * #16-fix-f: canonicalização movida para [RefCanonicalizer] (compartilhada
+     * com o verificador). Mantém o nome local para os call sites.
      */
-    private fun normalizeRef(text: String): String {
-        var base = text.lowercase()
-            .replace('á', 'a').replace('à', 'a').replace('â', 'a').replace('ã', 'a')
-            .replace('é', 'e').replace('ê', 'e')
-            .replace('í', 'i')
-            .replace('ó', 'o').replace('ô', 'o').replace('õ', 'o')
-            .replace('ú', 'u')
-            .replace('ç', 'c')
-            .filter { it.isLetterOrDigit() }
-        for ((re, abbrev) in BOOK_RULES) base = base.replace(re, abbrev)
-        return base
-    }
+    private fun normalizeRef(text: String): String = RefCanonicalizer.canonicalBook(text)
 
     /** A referência citada pertence a OUTRO ponto do esboço? */
     private fun belongsToOtherSection(cited: String, spec: OratoryGeneration.Spec): Boolean {

@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.llm
 
+import com.bettertalker.app.data.util.RefCanonicalizer
+
 /**
  * Verificador de apoio factual pós-geração (universal).
  *
@@ -74,6 +76,9 @@ object GroundednessVerifier {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())
         val corpus = sources.map(::normalize).filter { it.isNotBlank() }
         if (corpus.isEmpty()) return VerificationResult(text, emptyList())
+        // #16-fix-f: formas canônicas do corpus (livros abreviados + ranges
+        // expandidos + páginas) — a comparação de refs usa estas.
+        val canonCorpus = corpus.flatMap { RefCanonicalizer.canonicalize(it) }
         val spans = suggestionSpans(text)
 
         val ranges = mutableListOf<IntRange>()
@@ -87,7 +92,10 @@ object GroundednessVerifier {
         }
         REF.findAll(text).forEach { m ->
             if (inSuggestion(m.range.first, spans)) return@forEach
-            if (corpus.none { it.contains(normalize(m.value)) }) {
+            // #16-fix-f: compara o NÚMERO (o corpus pode trazer "26-28" onde
+            // o modelo escreveu "páginas 26 a 28").
+            val number = m.groupValues[3]
+            if (canonCorpus.none { it.contains(number) }) {
                 ranges += sentenceAround(text, m.range)
             }
         }
@@ -99,7 +107,9 @@ object GroundednessVerifier {
             VERSE.findAll(slice).forEach { m ->
                 val g = (span.first + m.range.first)..(span.first + m.range.last)
                 verseRanges += g
-                if (corpus.none { it.contains(normalize(m.value)) }) {
+                // #16-fix-f: canonicaliza o livro ("1 Coríntios" → "1co") e
+                // aceita versículo individual dentro de range autorizado.
+                if (canonCorpus.none { it.contains(RefCanonicalizer.canonicalBook(m.value)) }) {
                     ranges += sentenceAround(text, g)
                 }
             }
@@ -112,7 +122,7 @@ object GroundednessVerifier {
                 ) return@forEach
                 val g = (span.first + m.range.first)..(span.first + m.range.last)
                 if (verseRanges.any { g.first in it }) return@forEach
-                if (corpus.none { it.contains(normalize(n)) }) {
+                if (canonCorpus.none { it.contains(n) }) {
                     ranges += sentenceAround(text, g)
                 }
             }
