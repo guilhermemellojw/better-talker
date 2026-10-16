@@ -22,7 +22,7 @@ import org.junit.Test
  */
 class RetrievalFallbackTest {
 
-    private fun hit(id: String, score: Double): RetrievalCandidate =
+    private fun hit(id: String, score: Double, terms: List<String> = emptyList()): RetrievalCandidate =
         RetrievalCandidate(
             passage = Passage(
                 id = id,
@@ -42,7 +42,7 @@ class RetrievalFallbackTest {
             lexicalScore = score,
             metadataScore = 0.0,
             finalScore = score,
-            matchedTerms = emptyList(),
+            matchedTerms = terms,
             foundBy = listOf("lexical"),
         )
 
@@ -80,7 +80,12 @@ class RetrievalFallbackTest {
 
     @Test
     fun hitsRelevantes_semExpansao_comportamentoAtual() {
-        val base = listOf(hit("1", 0.5), hit("2", 0.4), hit("3", 0.3))
+        // #15d-fix: relevantes exigem score >= 0.15 E >= 2 termos casados.
+        val base = listOf(
+            hit("1", 0.5, listOf("morte", "alma")),
+            hit("2", 0.4, listOf("morte", "ressurreicao")),
+            hit("3", 0.3, listOf("alma", "seol")),
+        )
         val (pack, fake) = pack("morte", mapOf("morte" to base))
         assertEquals(1, fake.calls.size) // sem 2ª chamada
         assertEquals(5, fake.calls[0].second) // Top-K padrão preservado
@@ -129,5 +134,55 @@ class RetrievalFallbackTest {
         val ids = pack.contentSources.map { it.id }
         assertFalse(ids.contains("ruido")) // < MIN_RELEVANT_SCORE
         assertTrue(ids.contains("bom"))
+    }
+
+    // ---------- #15d-fix: gate exige score + cobertura >= 2 ----------
+
+    @Test
+    fun casoQ3_cincoHitsUmMatchCada_ativaFallback() {
+        // O caso real: 5 versículos com 0.225 mas casando SÓ "explicar".
+        val base = (1..5).map { hit("v$it", 0.225, listOf("explicar")) }
+        val expandedQuery = expandQuery("mortos inconscientes")
+        val expanded = listOf(hit("novo", 0.9, listOf("morte", "alma")))
+        val (_, fake) = pack(
+            "mortos inconscientes",
+            mapOf("mortos inconscientes" to base, expandedQuery to expanded),
+        )
+        assertEquals(2, fake.calls.size) // relevant = 0 < 3 → fallback dispara
+    }
+
+    @Test
+    fun tresHitsDoisMatchesCada_semFallback() {
+        val base = (1..3).map { hit("ok$it", 0.25, listOf("mortos", "inconscientes")) }
+        val (_, fake) = pack("mortos inconscientes", mapOf("mortos inconscientes" to base))
+        assertEquals(1, fake.calls.size) // relevant = 3 → comportamento atual
+    }
+
+    @Test
+    fun mixUmForteQuatroFracos_ativaFallback() {
+        val base = listOf(hit("forte", 0.25, listOf("mortos", "inconscientes"))) +
+            (1..4).map { hit("fraco$it", 0.20, listOf("explicar")) }
+        val expandedQuery = expandQuery("mortos inconscientes")
+        val (_, fake) = pack(
+            "mortos inconscientes",
+            mapOf("mortos inconscientes" to base, expandedQuery to emptyList()),
+        )
+        assertEquals(2, fake.calls.size) // relevant = 1 < 3 → fallback dispara
+    }
+
+    @Test
+    fun scoreAltoSemMatches_naoConta() {
+        // Piso de source sozinho (sem termos casados) não é relevante.
+        val base = listOf(
+            hit("piso1", 0.35),
+            hit("piso2", 0.30),
+            hit("piso3", 0.25),
+        )
+        val expandedQuery = expandQuery("mortos inconscientes")
+        val (_, fake) = pack(
+            "mortos inconscientes",
+            mapOf("mortos inconscientes" to base, expandedQuery to emptyList()),
+        )
+        assertEquals(2, fake.calls.size) // relevant = 0 → fallback dispara
     }
 }

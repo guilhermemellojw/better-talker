@@ -77,9 +77,15 @@ private const val MAX_TERMS = 6
  * para [FALLBACK_TOP_K]. Calibração: o finalScore já embute o piso da
  * fonte (SOURCE_WEIGHT × prioridade ≈ 0,09-0,10), então 0,15 exige
  * ~20%+ de cobertura dos termos da query.
+ *
+ * #15d-fix: um hit só conta como relevante se, além do score, casar
+ * [MIN_MATCHED_TERMS] termos ou mais — o Discovery provou que 1 match de
+ * termo raro (ex.: "explicar", idf 0.68) + piso BIBLE (0.10) = 0.225
+ * passava o gate sozinho e o fallback nunca disparava.
  */
 private const val MIN_RELEVANT_SCORE = 0.15
-private const val MIN_RELEVANT_HITS = 3
+internal const val MIN_MATCHED_TERMS = 2
+internal const val MIN_RELEVANT_HITS = 3
 private const val FALLBACK_TOP_K = 10
 
 private fun sourceTypeOf(a: AttachmentEntity): SourceType =
@@ -219,8 +225,14 @@ class RoomContextPackRepository(
         // #15d: caminho normal = Top-K 5. O fallback adaptativo só entra
         // quando o retrieve padrão devolve poucos trechos RELEVANTES (o
         // TF-IDF não casou com o vocabulário do acervo).
+        // #15d-fix: "relevante" = score >= MIN_RELEVANT_SCORE **E**
+        // cobertura >= MIN_MATCHED_TERMS (1 match raro de superfície não
+        // conta mais como relevante).
         val baseHits = retrieval.retrieve(query, scope).hits
-        val relevant = baseHits.count { it.finalScore >= MIN_RELEVANT_SCORE }
+        val relevant = baseHits.count {
+            it.finalScore >= MIN_RELEVANT_SCORE &&
+                it.matchedTerms.size >= MIN_MATCHED_TERMS
+        }
         val content = if (relevant < MIN_RELEVANT_HITS) {
             val expandedQuery = expandQuery(query)
             val expandedHits = retrieval.retrieve(expandedQuery, scope, FALLBACK_TOP_K).hits
