@@ -1785,7 +1785,7 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
                             // #16-fix-b: o corpus do gate inclui a prosa da seção
                             // (texto puro) — o modelo agora a vê e pode citá-la.
                             stripHtmlToText(block).takeIf { it.isNotBlank() },
-                        ),
+                        ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
                     )
                     if (verified.hasRemovals) {
                         android.util.Log.w(

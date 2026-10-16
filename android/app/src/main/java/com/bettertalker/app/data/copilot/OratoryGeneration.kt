@@ -55,6 +55,17 @@ object OratoryGeneration {
     private const val MAX_WORDS = 2000
 
     /**
+     * #16-fix-d: textos autorizados das refs do spec — para o corpus do
+     * gate de groundedness (o gate precisa ver o que o modelo vê no
+     * prompt). Vazio quando o spec não traz textos (comportamento atual).
+     * Puro/testável.
+     */
+    internal fun authorizedRefTexts(spec: Spec): List<String> =
+        (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
+            .mapNotNull { it.text?.takeIf { t -> t.isNotBlank() } }
+            .distinct()
+
+    /**
      * Limite de palavras do prompt (#16-fix-c): duração REAL da seção ×
      * ritmo de fala — antes era fixo por modo (320 no desenvolvimento),
      * curto demais para seções longas. Seção sem "(N min)" no S-34
