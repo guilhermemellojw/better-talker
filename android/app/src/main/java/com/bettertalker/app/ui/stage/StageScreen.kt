@@ -52,7 +52,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
 
 /**
- * Modo Palco v1 — leitor de tribuna em tela cheia: fundo escuro de alto
+ * Ensaio v1 — leitor de tribuna em tela cheia: fundo escuro de alto
  * contraste, texto agregado com fonte ajustável, cronômetro global (com meta
  * e cores) e barra de controles auto-hide. `keepScreenOn` enquanto a tela vive.
  *
@@ -142,7 +142,7 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(18.dp))
             }
             Text(
-                content.ifBlank { "Esta nota ainda não tem texto para o palco." },
+                content.ifBlank { "Esta nota ainda não tem texto para o ensaio." },
                 color = StageFg,
                 fontSize = fontSp.sp,
                 lineHeight = (fontSp * 1.6).sp,
@@ -253,7 +253,7 @@ private fun StageControlBar(
                 )
             }
             IconButton(onClick = onExit) {
-                Icon(Icons.Default.Close, "Sair do Modo Palco", tint = StageFg)
+                Icon(Icons.Default.Close, "Sair do Ensaio", tint = StageFg)
             }
         }
     }

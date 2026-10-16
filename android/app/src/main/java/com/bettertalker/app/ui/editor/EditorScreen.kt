@@ -396,7 +396,7 @@ fun EditorScreen(
                             onClick = { showMenu = false; showExport = true },
                         )
                         DropdownMenuItem(
-                            text = { Text("Modo Palco") },
+                            text = { Text("Ensaio") },
                             onClick = { showMenu = false; onOpenStage() },
                         )
                         outlineList.firstOrNull()?.let { o ->

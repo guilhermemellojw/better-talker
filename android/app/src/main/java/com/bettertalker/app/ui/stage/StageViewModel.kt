@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Modo Palco v1 — estado do leitor de tribuna: texto agregado da nota,
+ * Ensaio v1 — estado do leitor de tribuna: texto agregado da nota,
  * cronômetro global (decorrido/meta/restante) e preferências de leitura.
  *
  * Cronômetro: inicia ao entrar na tela e pode ser pausado/retomado tocando

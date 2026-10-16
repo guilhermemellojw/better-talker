@@ -159,7 +159,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
-                // Modo Palco: rota própria (rota declarada aqui para não tocar
+                // Ensaio: rota própria (rota declarada aqui para não tocar
                 // os arquivos de navegação fora do escopo do handoff).
                 onOpenStage = { nav.navigate("stage/$noteId") },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
