@@ -986,7 +986,7 @@ private fun MessageActions(
     // #26-fix-c (UI): linha de ações rápidas ABAIXO da resposta (estilo
     // DeepSeek) — Copiar/Regenerar/Ouvir em 1 toque; avançadas no ⋯.
     val haptic = LocalHapticFeedback.current
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val copy = rememberCopyToClipboard()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -994,7 +994,7 @@ private fun MessageActions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         QuickAction(Icons.Default.ContentCopy, "Copiar texto") {
-            clipboard.setText(AnnotatedString(item.text))
+            copy(item.text)
         }
         QuickAction(Icons.Default.Refresh, "Regenerar resposta") {
             vm.regenerateLastResponse()
@@ -1057,6 +1057,25 @@ private fun MessageActions(
     }
 }
 
+/**
+ * #ui-polish: copiar para o clipboard no caminho moderno (suspend) —
+ * `LocalClipboard` + `ClipEntry` (o `LocalClipboardManager` está deprecado).
+ */
+@Composable
+private fun rememberCopyToClipboard(): (String) -> Unit {
+    val clipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    return { text ->
+        scope.launch {
+            clipboard.setClipEntry(
+                androidx.compose.ui.platform.ClipEntry(
+                    android.content.ClipData.newPlainText("texto", text)
+                )
+            )
+        }
+    }
+}
+
 /** #26-fix-c (UI): botão de ação rápida — alvo 32dp, ícone 16dp, cinza. */
 @Composable
 private fun QuickAction(
@@ -1092,11 +1111,11 @@ private fun UserMessageActions(
     item: CopilotViewModel.ChatItem,
     onEdit: (CopilotViewModel.ChatItem) -> Unit,
 ) {
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val copy = rememberCopyToClipboard()
     Row(verticalAlignment = Alignment.CenterVertically) {
         QuickAction(Icons.Default.Edit, "Editar pergunta") { onEdit(item) }
         QuickAction(Icons.Default.ContentCopy, "Copiar pergunta") {
-            clipboard.setText(AnnotatedString(item.text))
+            copy(item.text)
         }
     }
 }
