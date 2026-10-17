@@ -66,13 +66,14 @@ class ChatActionsTest {
 
     @Test
     fun runStateItemCount() {
-        assertEquals(0, runStateItemCount(ChatRunState.Idle, partialVisible = false))
-        assertEquals(0, runStateItemCount(ChatRunState.Success, partialVisible = false))
-        assertEquals(1, runStateItemCount(ChatRunState.Sending, partialVisible = false))
-        assertEquals(1, runStateItemCount(ChatRunState.Generating, partialVisible = false))
-        assertEquals(2, runStateItemCount(ChatRunState.Generating, partialVisible = true))
-        assertEquals(1, runStateItemCount(ChatRunState.Error("x"), partialVisible = false))
-        assertEquals(1, runStateItemCount(ChatRunState.Cancelled(), partialVisible = false))
+        assertEquals(0, runStateItemCount(ChatRunState.Idle))
+        assertEquals(0, runStateItemCount(ChatRunState.Success))
+        assertEquals(1, runStateItemCount(ChatRunState.Sending))
+        // #26-fix-c (UI): o indicador "Pensando…" e o parcial ocupam o MESMO
+        // slot — o estado de execução vale sempre 1 item.
+        assertEquals(1, runStateItemCount(ChatRunState.Generating))
+        assertEquals(1, runStateItemCount(ChatRunState.Error("x")))
+        assertEquals(1, runStateItemCount(ChatRunState.Cancelled()))
     }
 
     @Test

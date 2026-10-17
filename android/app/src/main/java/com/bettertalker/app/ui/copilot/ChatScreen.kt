@@ -30,11 +30,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -73,10 +79,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -175,6 +184,14 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
+    // #26-fix-c: pergunta em edição — o próximo envio SUBSTITUI a antiga
+    // (soft delete) em vez de duplicá-la. Zerado ao trocar de escopo.
+    var editingMessageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingMessageAt by rememberSaveable { mutableStateOf(0L) }
+    LaunchedEffect(chatScope) {
+        editingMessageId = null
+        editingMessageAt = 0L
+    }
     var showAttach by remember { mutableStateOf(false) }
     var showPublications by remember { mutableStateOf(false) }
     var showPaste by remember { mutableStateOf(false) }
@@ -243,11 +260,7 @@ fun ChatScreen(
     }
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
     // "para o fim" (garante os botões da última resposta visíveis).
-    val runStateItems = runStateItemCount(
-        runState,
-        runState is ChatRunState.Generating &&
-            localPhase == LocalPhase.Generating && localPartial.isNotBlank()
-    )
+    val runStateItems = runStateItemCount(runState)
     // #25-fix-a/#26-fix: há card de proposta/estrutura no fim da lista?
     // (alvo do "fim" E gatilho da pílula quando o turno gera só proposta)
     val hasProposal = proposal != null || structureProposal != null ||
@@ -335,7 +348,16 @@ fun ChatScreen(
             scope.launch { snack.showSnackbar("Aguarde a resposta…") }
             return
         }
-        vm.send(text)
+        // #26-fix-c: com edição pendente, o envio substitui a pergunta antiga
+        // (desativa ela + resposta) em vez de virar mais uma mensagem.
+        val editId = editingMessageId
+        if (editId != null) {
+            vm.editUserMessage(editId, editingMessageAt, text)
+        } else {
+            vm.send(text)
+        }
+        editingMessageId = null
+        editingMessageAt = 0L
         input = ""
     }
 
@@ -414,6 +436,27 @@ fun ChatScreen(
                         ) { Text(if (unseenCount == 1) "Nova mensagem ↓" else "$unseenCount novas ↓") }
                     }
                     Spacer(Modifier.height(6.dp))
+                }
+                // #26-fix-c: aviso de edição pendente — enviar substitui a
+                // pergunta antiga; "Cancelar" descarta a edição.
+                if (editingMessageId != null) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Editando pergunta",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                        androidx.compose.material3.TextButton(onClick = {
+                            editingMessageId = null
+                            editingMessageAt = 0L
+                            input = ""
+                        }) { Text("Cancelar") }
+                    }
+                    Spacer(Modifier.height(2.dp))
                 }
                 ChatPromptBar(
                     input = input,
@@ -528,6 +571,14 @@ fun ChatScreen(
                                     liveSections = outlineSections,
                                     merges = merges, draft = draft,
                                     onOpenLibrary = onOpenLibrary,
+                                    // #26-fix-c: preenche o composer e marca a
+                                    // pergunta — o envio substitui a antiga.
+                                    onEdit = { edited ->
+                                        editingMessageId = edited.id
+                                        editingMessageAt = edited.createdAt
+                                        input = edited.text
+                                        composerFocus.requestFocus()
+                                    },
                                     // #22-fix (P2): o ⋮ vive DENTRO do item da
                                     // mensagem (canto superior direito) — sem
                                     // linha própria no LazyColumn.
@@ -600,24 +651,33 @@ fun ChatScreen(
                     // (load/RAG/geração); remotos mantêm o texto legado.
                     when (val s = runState) {
                         is ChatRunState.Sending, is ChatRunState.Generating -> {
-                            item {
-                                Text(
+                            // #26-fix-c (UI): o parcial SUBSTITUI o indicador
+                            // quando o primeiro token chega (mesmo slot).
+                            val partialShown = s is ChatRunState.Generating &&
+                                localPhase == LocalPhase.Generating &&
+                                cleanedPartial.isNotBlank()
+                            if (!partialShown) {
+                                item {
                                     when (localPhase) {
-                                        LocalPhase.LoadingModel -> "Carregando modelo…"
-                                        LocalPhase.ReadingSources -> "Lendo as fontes…"
-                                        LocalPhase.Generating -> "Gerando resposta…"
-                                        else -> "Copilot está escrevendo…"
-                                    },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
+                                        LocalPhase.LoadingModel -> Text(
+                                            "Carregando modelo…",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                        LocalPhase.ReadingSources -> Text(
+                                            "Lendo as fontes…",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                        // "Pensando…" animado — a espera do
+                                        // primeiro token parece menor.
+                                        else -> TypingIndicator()
+                                    }
+                                }
                             }
                             // Texto parcial transitório (não persiste; some
                             // quando a resposta final é postada).
-                            if (s is ChatRunState.Generating &&
-                                localPhase == LocalPhase.Generating &&
-                                cleanedPartial.isNotBlank()
-                            ) {
+                            if (partialShown) {
                                 item {
                                     // T3: cursor pulsante no fim do parcial —
                                     // continua texto puro (sem parser); some
@@ -755,17 +815,25 @@ private fun MessageBubble(
     merges: List<com.bettertalker.app.data.util.PastedOutlineAnalyzer.MergeSuggestion>,
     draft: List<DraftSection>,
     onOpenLibrary: () -> Unit,
+    /** #26-fix-c: "Editar pergunta" (só bolhas do usuário). */
+    onEdit: ((CopilotViewModel.ChatItem) -> Unit)? = null,
     /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
     actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
     if (item.fromMe) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                modifier = Modifier.widthIn(max = 320.dp)
-            ) {
-                ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.widthIn(max = 320.dp)
+                ) {
+                    ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                }
+                // #26-fix-c: ⋮ discreto da pergunta (Editar pergunta).
+                if (onEdit != null) {
+                    UserMessageActions(item, onEdit)
+                }
             }
         }
         return
@@ -786,33 +854,64 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> Box(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(end = 32.dp)) {
-                    // #22-fix (P1): selo "BT · " inline no primeiro bloco —
-                    // sem coluna de avatar (texto em x=0).
-                    ChatMessageText(
-                        item.text,
-                        Modifier.fillMaxWidth(),
-                        onUseInCard = { vm.insertTextIntoScope(it) },
-                        leadingMark = assistantInlineMark(),
-                    )
-                    // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
-                    item.durationMs?.let { ms ->
-                        if (ms > 0) {
-                            Text(
-                                "pensou ${"%.1f".format(ms / 1000.0)}s",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 2.dp),
-                            )
-                        }
+            else -> Column(Modifier.fillMaxWidth()) {
+                // #22-fix (P1): selo "BT · " inline no primeiro bloco —
+                // sem coluna de avatar (texto em x=0).
+                ChatMessageText(
+                    item.text,
+                    Modifier.fillMaxWidth(),
+                    onUseInCard = { vm.insertTextIntoScope(it) },
+                    leadingMark = assistantInlineMark(),
+                )
+                // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
+                item.durationMs?.let { ms ->
+                    if (ms > 0) {
+                        Text(
+                            "pensou ${"%.1f".format(ms / 1000.0)}s",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
                     }
                 }
-                // #22-fix (P2): ⋮ no canto superior direito do bloco.
+                // #26-fix-c (UI): ações rápidas ABAIXO da resposta (estilo
+                // DeepSeek) — 1 toque, sem abrir menu.
                 if (hasMessageActions(item) && actions != null) {
-                    actions(Modifier.align(Alignment.TopEnd))
+                    actions(Modifier.padding(top = 2.dp))
                 }
             }
+        }
+    }
+}
+
+/**
+ * #26-fix-c (UI): "Pensando…" animado — três pontos pulsando em sequência
+ * até o primeiro token chegar (aí o texto parcial substitui o indicador).
+ */
+@Composable
+private fun TypingIndicator(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "typing")
+    Row(
+        modifier = modifier.semantics { contentDescription = "Copilot está escrevendo…" },
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(3) { i ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, delayMillis = i * 160, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "dot$i",
+            )
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+            )
         }
     }
 }
@@ -851,25 +950,30 @@ private fun MessageActions(
     onClearConversation: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Column(modifier.fillMaxWidth()) {
-        // T1 (P2 estético): háptica leve nos chips de ação.
-        val haptic = LocalHapticFeedback.current
-        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        // T1 (chat minimalista): ações escondidas em overflow ⋯ — mesma
-        // Fase 18 §21 (proposta F5), F2.3 (tópico), T4 (voz) e T2 (mini),
-        // sem poluir a conversa.
-        var menuOpen by remember { mutableStateOf(false) }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            IconButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    menuOpen = true
-                },
-                // #22-fix (P2): ⋮ compacto (32dp) dentro do item da mensagem.
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(Icons.Default.MoreVert, "Mais ações", modifier = Modifier.size(20.dp))
-            }
+    // #26-fix-c (UI): linha de ações rápidas ABAIXO da resposta (estilo
+    // DeepSeek) — Copiar/Regenerar/Ouvir em 1 toque; avançadas no ⋯.
+    val haptic = LocalHapticFeedback.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        QuickAction(Icons.Default.ContentCopy, "Copiar texto") {
+            clipboard.setText(AnnotatedString(item.text))
+        }
+        QuickAction(Icons.Default.Refresh, "Regenerar resposta") {
+            vm.regenerateLastResponse()
+        }
+        QuickAction(
+            icon = if (speaking) Icons.Default.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+            desc = speakButtonDescription(speaking, ttsReady),
+            enabled = ttsReady,
+        ) { if (speaking) onStopSpeak() else onSpeak() }
+        // Ações avançadas continuam num overflow discreto da própria linha.
+        Box {
+            QuickAction(Icons.Default.MoreVert, "Mais ações") { menuOpen = true }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 // Fase 18 §21: sugestão conversacional vira proposta F5.
                 DropdownMenuItem(
@@ -892,26 +996,6 @@ private fun MessageActions(
                         }
                     )
                 }
-                // T4 (voz): lê a resposta em voz alta (texto pós-gate).
-                DropdownMenuItem(
-                    text = { Text(speakButtonLabel(speaking)) },
-                    enabled = ttsReady,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                        menuOpen = false
-                        if (speaking) onStopSpeak() else onSpeak()
-                    }
-                )
-                // #5 (UX S): copia o texto da mensagem (mesmo texto pós-gate
-                // que o TTS lê — sem chrome de render).
-                DropdownMenuItem(
-                    text = { Text("Copiar texto") },
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                        menuOpen = false
-                        clipboard.setText(AnnotatedString(item.text))
-                    }
-                )
                 // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
                 if (hasScope) {
                     DropdownMenuItem(
@@ -936,6 +1020,50 @@ private fun MessageActions(
                     }
                 )
             }
+        }
+    }
+}
+
+/** #26-fix-c (UI): botão de ação rápida — alvo 32dp, ícone 16dp, cinza. */
+@Composable
+private fun QuickAction(
+    icon: ImageVector,
+    desc: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    IconButton(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+            onClick()
+        },
+        enabled = enabled,
+        modifier = Modifier.size(32.dp),
+    ) {
+        Icon(
+            icon, desc,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * #26-fix-c (DeepSeek Web): ações da PERGUNTA do usuário — diretas na bolha
+ * (sem ⋮): "Editar pergunta" preenche o composer; o próximo envio substitui
+ * a antiga; "Copiar pergunta" copia o texto.
+ */
+@Composable
+private fun UserMessageActions(
+    item: CopilotViewModel.ChatItem,
+    onEdit: (CopilotViewModel.ChatItem) -> Unit,
+) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        QuickAction(Icons.Default.Edit, "Editar pergunta") { onEdit(item) }
+        QuickAction(Icons.Default.ContentCopy, "Copiar pergunta") {
+            clipboard.setText(AnnotatedString(item.text))
         }
     }
 }
@@ -1013,12 +1141,13 @@ internal fun hasMessageActions(item: CopilotViewModel.ChatItem): Boolean =
 
 /**
  * T2 (Bug #13): itens do estado de execução no fim da lista (espelha o
- * `when (runState)` do LazyColumn). Puro/testável.
+ * `when (runState)` do LazyColumn). #26-fix-c (UI): o indicador "Pensando…"
+ * e o texto parcial ocupam o MESMO slot (um substitui o outro) — o estado
+ * de execução vale sempre 1 item. Puro/testável.
  */
-internal fun runStateItemCount(runState: ChatRunState, partialVisible: Boolean): Int =
+internal fun runStateItemCount(runState: ChatRunState): Int =
     when (runState) {
-        is ChatRunState.Sending -> 1
-        is ChatRunState.Generating -> if (partialVisible) 2 else 1
+        is ChatRunState.Sending, is ChatRunState.Generating,
         is ChatRunState.Error, is ChatRunState.Cancelled -> 1
         else -> 0
     }
