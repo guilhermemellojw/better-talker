@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -83,6 +85,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -336,6 +339,15 @@ fun ChatScreen(
     // instantâneo, alinhando o FIM do item (offset máximo).
     LaunchedEffect(localPartial) {
         if (localPartial.isNotBlank() && followEnd) {
+            listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
+        }
+    }
+    // #ui-polish (Item 4): teclado — se o usuário já acompanhava o fim, a
+    // lista continua colada no fundo quando o IME encolhe o viewport.
+    // (O padding do IME fica SÓ no composer; a lista não o duplica.)
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && followEnd) {
             listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
@@ -678,33 +690,44 @@ fun ChatScreen(
                             // Texto parcial transitório (não persiste; some
                             // quando a resposta final é postada).
                             if (partialShown) {
-                                item {
-                                    // T3: cursor pulsante no fim do parcial —
-                                    // continua texto puro (sem parser); some
-                                    // quando a resposta final chega.
-                                    val cursorAlpha by rememberInfiniteTransition(label = "cursor")
-                                        .animateFloat(
-                                            initialValue = 0.2f,
-                                            targetValue = 1f,
-                                            animationSpec = infiniteRepeatable(
-                                                animation = tween(400, easing = LinearEasing),
-                                                repeatMode = RepeatMode.Reverse
-                                            ),
-                                            label = "cursorAlpha"
+                                // #ui-polish (Item 3): o parcial entra e SAI
+                                // com fade — a resposta formatada (item novo,
+                                // com animateItem próprio) completa o
+                                // crossfade quando o token final chega.
+                                item(key = "streaming") {
+                                    Box(
+                                        Modifier.animateItem(
+                                            fadeInSpec = tween(150),
+                                            fadeOutSpec = tween(150),
                                         )
-                                    val cursorColor = MaterialTheme.colorScheme.onSurface
-                                    Row(Modifier.fillMaxWidth()) {
-                                        Text(
-                                            buildAnnotatedString {
-                                                append(cleanedPartial)
-                                                withStyle(
-                                                    SpanStyle(
-                                                        color = cursorColor.copy(alpha = cursorAlpha)
-                                                    )
-                                                ) { append("▍") }
-                                            },
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
+                                    ) {
+                                        // T3: cursor pulsante no fim do parcial —
+                                        // continua texto puro (sem parser); some
+                                        // quando a resposta final chega.
+                                        val cursorAlpha by rememberInfiniteTransition(label = "cursor")
+                                            .animateFloat(
+                                                initialValue = 0.2f,
+                                                targetValue = 1f,
+                                                animationSpec = infiniteRepeatable(
+                                                    animation = tween(400, easing = LinearEasing),
+                                                    repeatMode = RepeatMode.Reverse
+                                                ),
+                                                label = "cursorAlpha"
+                                            )
+                                        val cursorColor = MaterialTheme.colorScheme.onSurface
+                                        Row(Modifier.fillMaxWidth()) {
+                                            Text(
+                                                buildAnnotatedString {
+                                                    append(cleanedPartial)
+                                                    withStyle(
+                                                        SpanStyle(
+                                                            color = cursorColor.copy(alpha = cursorAlpha)
+                                                        )
+                                                    ) { append("▍") }
+                                                },
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
                                     }
                                 }
                             }
