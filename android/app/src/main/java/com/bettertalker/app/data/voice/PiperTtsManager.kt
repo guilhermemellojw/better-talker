@@ -58,6 +58,9 @@ class PiperTtsManager(
     private var playJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /** Guarda o ciclo de vida do AudioTrack: pause/flush (stop) × release (writer). */
+    private val trackLock = Any()
+
     /** espeak-ng-data: modelDir primeiro; kokoro-pt como ponte legada. */
     internal fun resolveEspeakDir(): File? = listOf(
         File(modelDir, "espeak-ng-data"),
@@ -138,7 +141,7 @@ class PiperTtsManager(
                     )
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
-                audioTrack = track
+                synchronized(trackLock) { audioTrack = track }
                 track.play()
                 local.generateWithConfigAndCallback(
                     text = text,
@@ -158,9 +161,13 @@ class PiperTtsManager(
             } catch (e: Throwable) {
                 Log.e("PiperTts", "speak falhou: ${e.message}", e)
             } finally {
-                runCatching { track?.stop() }
-                runCatching { track?.release() }
-                if (audioTrack === track) audioTrack = null
+                // Release SEMPRE na thread do writer, sob o lock (o stop de
+                // outra thread faz pause/flush — nunca tocamos um track liberado).
+                synchronized(trackLock) {
+                    runCatching { track?.stop() }
+                    runCatching { track?.release() }
+                    if (audioTrack === track) audioTrack = null
+                }
                 _speaking.value = false
             }
         }
@@ -168,11 +175,12 @@ class PiperTtsManager(
 
     override fun stop() {
         _speaking.value = false
+        // Mantém a referência do job para o shutdown poder esperar (join).
         playJob?.cancel()
-        playJob = null
-        audioTrack?.let {
-            runCatching { it.pause(); it.flush(); it.stop(); it.release() }
-            audioTrack = null
+        // pause()+flush() desbloqueia o write; sob o lock para nunca tocar
+        // um track que o writer está liberando. O release fica no finally.
+        synchronized(trackLock) {
+            audioTrack?.let { runCatching { it.pause(); it.flush() } }
         }
     }
 
@@ -184,9 +192,14 @@ class PiperTtsManager(
     }
 
     override fun shutdown() {
+        // Mesma corrida do stop: o release do modelo espera o writer terminar.
+        val job = playJob
         stop()
-        runCatching { tts?.release() }
-        tts = null
-        scope.cancel()
+        scope.launch {
+            runCatching { job?.join() }
+            runCatching { tts?.release() }
+            tts = null
+            scope.cancel()
+        }
     }
 }
