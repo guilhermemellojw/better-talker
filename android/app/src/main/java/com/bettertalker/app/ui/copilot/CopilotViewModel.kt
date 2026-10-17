@@ -420,6 +420,26 @@ internal fun enrichedRetrievalQuery(
 internal fun historyForResend(turns: List<ChatTurn>): List<ChatTurn> =
     if (turns.lastOrNull()?.fromMe == true) turns.dropLast(1) else turns
 
+/** #ui-polish: instrução do "Continuar gerando" (append na mesma bolha). */
+const val CONTINUE_INSTRUCTION =
+    "Continue exatamente de onde a resposta anterior parou. Não repita nada do que já foi dito, " +
+        "não recomece e mantenha o mesmo tom, formato e nível de detalhe."
+
+/**
+ * #ui-polish: texto final do "Continuar" — remove o marcador de corte
+ * (" [...]") do trecho antigo e anexa a continuação como parágrafo novo.
+ * Puro/testável.
+ */
+internal fun mergeContinuation(existing: String, continuation: String): String {
+    val base = existing.removeSuffix(" [...]").trimEnd()
+    val extra = continuation.trim()
+    return when {
+        base.isEmpty() -> extra
+        extra.isEmpty() -> existing
+        else -> base + "\n\n" + extra
+    }
+}
+
 /**
  * T5 (Mini Discurso) — destino de uma ideia no editor: tópico (`sectionId`)
  * ou âncora de heading (notas legadas, sem seções). Puro.
@@ -717,6 +737,8 @@ class CopilotViewModel(
         val durationMs: Long? = null,
         /** #26-fix-c: timestamp de criação (alvo do "Editar pergunta"). */
         val createdAt: Long = 0,
+        /** #ui-polish: resposta cortada por limite de tokens ("Continuar"). */
+        val isTruncated: Boolean = false,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -1245,6 +1267,75 @@ class CopilotViewModel(
         send(text, postUserMessage = true, historyOverride = null)
     }
 
+    /**
+     * #ui-polish (Continuar gerando): estende a MESMA resposta truncada —
+     * o trecho novo é anexado ao payload da mensagem (sem criar bolha nova)
+     * e o marcador "[...]" é removido. Usa o histórico ativo como contexto
+     * e a mesma instrução de continuação (pura/testável).
+     */
+    fun continueGeneration(messageId: String) {
+        val nid = noteId ?: return
+        if (_chatBusy.value) return
+        // #23-fix-c (G1): mesmo contrato do send (escopo + job/stop).
+        turnScope = _chatScope.value
+        currentGenerationJob = viewModelScope.launch {
+            _chatBusy.value = true
+            _runState.value = ChatRunState.Sending
+            try {
+                val target = db.chatDao().allScoped(nid, _chatScope.value)
+                    .firstOrNull { it.id == messageId && !it.fromMe && it.kind == "text" }
+                    ?: return@launch
+                val remote = ProviderFactory.resolveRemote(settings, app)
+                if (!ProviderFactory.useRemoteRoute(remote)) {
+                    postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
+                    return@launch
+                }
+                val provider = ProviderFactory.createFor(
+                    remote, app, thinkingEffortFor(_thinkingMode.value)
+                )
+                val history = conversationTurnsScoped()
+                val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    provider.generate(
+                        com.bettertalker.app.data.llm.LlmRequest(
+                            text = "",
+                            action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                            message = CONTINUE_INSTRUCTION,
+                            history = history,
+                            isFirstMessage = false,
+                        )
+                    )
+                }
+                _runState.value = ChatRunState.Generating
+                val cont = truncateIfCut(res.text, res.meta.finishReason)
+                if (cont.isBlank()) {
+                    postText("Não consegui continuar a resposta agora. Tente novamente.")
+                    return@launch
+                }
+                val oldMap = ChatCodec.unescMap(target.payload)
+                val merged = mergeContinuation(oldMap["text"].orEmpty(), cont)
+                val newMap = oldMap.toMutableMap().apply {
+                    put("text", merged)
+                    if (cont != res.text) put("truncated", "1") else remove("truncated")
+                }
+                db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _runState.value = ChatRunState.Cancelled()
+                throw e
+            } catch (e: Exception) {
+                postText(friendlyChatError(e))
+            } finally {
+                turnScope = null
+                currentGenerationJob = null
+                _chatBusy.value = false
+                if (_runState.value is ChatRunState.Sending ||
+                    _runState.value is ChatRunState.Generating
+                ) {
+                    _runState.value = ChatRunState.Success
+                }
+            }
+        }
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val messages = if (noteId != null) {
         _chatScope.flatMapLatest { scope ->
@@ -1292,7 +1383,8 @@ class CopilotViewModel(
                         ChatItem(e.id, e.fromMe, "text",
                             text = m["text"].orEmpty(), origin = messageOriginOf(m),
                             durationMs = m["durationMs"]?.toLongOrNull(),
-                            createdAt = e.createdAt)
+                            createdAt = e.createdAt,
+                            isTruncated = m["truncated"] == "1")
                     }
                 }
             }
@@ -1315,6 +1407,8 @@ class CopilotViewModel(
         payload: String,
         origin: MessageOrigin = MessageOrigin.COPILOT,
         durationMs: Long? = null,
+        /** #ui-polish: resposta cortada por limite de tokens. */
+        truncated: Boolean = false,
         // #23-fix-c (G1): escopo do turno (capturado no send) > vivo.
         targetScope: String? = turnScope ?: _chatScope.value,
     ) {
@@ -1325,6 +1419,8 @@ class CopilotViewModel(
             .toMutableMap().also { it["origin"] = origin.name }
         // #17-fix: tempo de resposta do assistente no payload (sem schema).
         if (durationMs != null && durationMs > 0) withOrigin["durationMs"] = durationMs.toString()
+        // #ui-polish: flag de corte no payload JSON (sem migration).
+        if (truncated) withOrigin["truncated"] = "1"
         db.chatDao().put(
             ChatEntity(
                 newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin),
@@ -2065,6 +2161,7 @@ class CopilotViewModel(
             )
         }
         val outText = truncateIfCut(res.text, res.meta.finishReason)
+        val truncated = outText != res.text
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
@@ -2083,7 +2180,7 @@ class CopilotViewModel(
             }
         val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
         post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT,
-            durationMs = res.meta.durationMs)
+            durationMs = res.meta.durationMs, truncated = truncated)
     }
 
     /**
@@ -2173,6 +2270,7 @@ class CopilotViewModel(
         // "stop" prematuro). Trunca até a última frase completa — nunca
         // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
         val text = truncateIfCut(res.text, res.meta.finishReason)
+        val truncated = text != res.text
         // T1 — gate de alucinação universal (pós-filtro do streaming):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão. T1/T3: o
@@ -2230,7 +2328,7 @@ class CopilotViewModel(
         } catch (_: Exception) {
         }
         post(false, "text", ChatCodec.escMap(mapOf("text" to persistedText)), MessageOrigin.COPILOT,
-            durationMs = res.meta.durationMs)
+            durationMs = res.meta.durationMs, truncated = truncated)
         // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
         // indexada não vinculada → sugere vincular (1× por sessão).
         if (!scopeSuggestionShown) {

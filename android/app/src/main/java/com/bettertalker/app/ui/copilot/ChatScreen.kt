@@ -897,6 +897,16 @@ private fun MessageBubble(
                         )
                     }
                 }
+                // #ui-polish (Continuar gerando): resposta cortada por
+                // limite de tokens — estende a MESMA bolha.
+                if (item.isTruncated) {
+                    TextButton(
+                        onClick = { vm.continueGeneration(item.id) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        Text("Continuar gerando", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
                 // #26-fix-c (UI): ações rápidas ABAIXO da resposta (estilo
                 // DeepSeek) — 1 toque, sem abrir menu.
                 if (hasMessageActions(item) && actions != null) {
