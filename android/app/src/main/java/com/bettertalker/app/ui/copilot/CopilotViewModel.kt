@@ -897,6 +897,11 @@ class CopilotViewModel(
     private val _chatScope = MutableStateFlow<String?>(null)
     val chatScope: StateFlow<String?> = _chatScope.asStateFlow()
 
+    /** #23-fix-c (G1): escopo capturado no INÍCIO do turno — a resposta cai
+     *  na seção certa mesmo se o usuário swipar durante a geração. Limpo no
+     *  fim do turno (posts fora dele voltam ao escopo vivo). */
+    private var turnScope: String? = null
+
     /**
      * F2.3: alvo atual do chat, para rotear inserções para o tópico certo.
      * null = chat global (mantém o comportamento legado de inserção).
@@ -1027,6 +1032,9 @@ class CopilotViewModel(
                 ChatCodec.escMap(
                     mapOf("text" to guideAnnounceLabel(idx, sections.size, sec.title, sec.minutes))
                 ),
+                // #23-fix-c: o anúncio pertence à conversa NOVA (escopo vivo),
+                // nunca ao escopo do turno em andamento.
+                targetScope = _chatScope.value,
             )
         }
         _focusRequests.emit(sectionId)
@@ -1234,6 +1242,8 @@ class CopilotViewModel(
         payload: String,
         origin: MessageOrigin = MessageOrigin.COPILOT,
         durationMs: Long? = null,
+        // #23-fix-c (G1): escopo do turno (capturado no send) > vivo.
+        targetScope: String? = turnScope ?: _chatScope.value,
     ) {
         val nid = noteId ?: return
         // Origem embutida no JSON do payload (sem migration; histórico
@@ -1246,8 +1256,9 @@ class CopilotViewModel(
             ChatEntity(
                 newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin),
                 System.currentTimeMillis(),
-                // F2.3: a mensagem pertence ao escopo da conversa atual.
-                sectionId = _chatScope.value,
+                // F2.3: a mensagem pertence ao escopo do turno (G1) — não ao
+                // escopo vivo no momento em que a resposta chega.
+                sectionId = targetScope,
             )
         )
     }
@@ -1339,6 +1350,8 @@ class CopilotViewModel(
         // mínimo anti rajada/toque duplo: a UI também desabilita o envio com chatBusy
         if (_chatBusy.value) return
         lastUserMessage = text
+        // #23-fix-c (G1): captura o escopo do turno ANTES de gerar.
+        turnScope = _chatScope.value
         viewModelScope.launch {
             // T2: qualquer envio conta como primeiro uso (banner some depois).
             settings.setChatSetupSeen()
@@ -1612,6 +1625,8 @@ class CopilotViewModel(
                 postText(msg)
             } finally {
                 // O composer SEMPRE destrava aqui — inclusive depois de erro.
+                // #23-fix-c: turno acabado — posts fora dele usam o escopo vivo.
+                turnScope = null
                 _chatBusy.value = false
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
                     _runState.value = ChatRunState.Success
