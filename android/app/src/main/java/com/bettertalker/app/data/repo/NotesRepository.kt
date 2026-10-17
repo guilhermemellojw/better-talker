@@ -1,12 +1,14 @@
 package com.bettertalker.app.data.repo
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.FolderEntity
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.TombstoneEntity
+import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.plainFromMarkdown
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +27,68 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
         db.noteDao().upsert(
             NoteEntity(id, "Nova nota", "", "", folderId, 0xFFFBD44AL, false, false, now, now)
         )
+        return id
+    }
+
+    /**
+     * Fase 1 "Colar e Pronto": nota tipada vazia (Discurso/Demonstração).
+     */
+    suspend fun createTypedNote(
+        folderId: String?,
+        title: String,
+        type: com.bettertalker.app.domain.speech.DiscourseType,
+    ): String {
+        val now = System.currentTimeMillis()
+        val id = newId("note")
+        db.noteDao().upsert(
+            NoteEntity(
+                id, title.ifBlank { "Nova nota" }, "", "", folderId,
+                0xFFFBD44AL, false, false, now, now,
+                discourseType = type.name,
+            )
+        )
+        return id
+    }
+
+    /**
+     * Fase 1 "Colar e Pronto": nota pronta do texto colado — título/tipo do
+     * [built]; TALK/DEMO ganham a seção BODY (contentHtml dos turnos);
+     * genérico fica com o texto no corpo da nota. Atômico (nota + seção).
+     */
+    suspend fun createPastedNote(
+        folderId: String?,
+        built: com.bettertalker.app.data.util.PastedNote,
+    ): String {
+        val now = System.currentTimeMillis()
+        val id = newId("note")
+        db.withTransaction {
+            db.noteDao().upsert(
+                NoteEntity(
+                    id, built.title, built.plainText, built.plainText, folderId,
+                    0xFFFBD44AL, false, false, now, now,
+                    discourseType = built.discourseType.name,
+                )
+            )
+            val bodyHtml = built.bodyHtml
+            if (bodyHtml != null) {
+                db.speechSectionDao().upsert(
+                    com.bettertalker.app.domain.speech.SpeechSection(
+                        id = newId("sec"),
+                        noteId = id,
+                        order = 0,
+                        role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+                        title = built.bodyTitle.ifBlank { "Corpo" },
+                        minutes = built.bodyMinutes,
+                        contentHtml = bodyHtml,
+                        bibleRefs = emptyList(),
+                        publicationRefs = emptyList(),
+                        methodPrinciple = null,
+                        createdAt = now,
+                        updatedAt = now,
+                    ).toEntity()
+                )
+            }
+        }
         return id
     }
     suspend fun get(id: String) = db.noteDao().get(id)

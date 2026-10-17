@@ -26,8 +26,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -37,6 +40,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -81,6 +85,9 @@ fun HomeScreen(
     var showNewFolder by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var confirmDelFolder by remember { mutableStateOf(false) }
+    // Fase 1 "Colar e Pronto": FAB abre as opções de criação.
+    var showCreateSheet by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val snack = remember { SnackbarHostState() }
     val selectedFolder = folders.firstOrNull { it.id == folderId }
 
@@ -156,6 +163,24 @@ fun HomeScreen(
         )
     }
 
+    // Fase 1 "Colar e Pronto": opções de criação (Colar/Discurso/Demonstração/Branco).
+    if (showCreateSheet) {
+        CreateNoteSheet(
+            onDismiss = { showCreateSheet = false },
+            onPaste = {
+                val clip = clipboard.getText()?.text?.trim().orEmpty()
+                if (clip.isEmpty()) {
+                    scope.launch { snack.showSnackbar("Nada para colar na área de transferência.") }
+                } else {
+                    scope.launch { onOpenNote(vm.createNoteFromPaste(clip)) }
+                }
+            },
+            onSpeech = { scope.launch { onOpenNote(vm.createSpeechNote()) } },
+            onDemo = { scope.launch { onOpenNote(vm.createDemoNote()) } },
+            onBlank = { scope.launch { onOpenNote(vm.newNote()) } },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -171,7 +196,7 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { scope.launch { onOpenNote(vm.newNote()) } }) {
+            FloatingActionButton(onClick = { showCreateSheet = true }) {
                 Icon(Icons.Default.Add, "Nova nota")
             }
         },
@@ -278,6 +303,81 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Fase 1 "Colar e Pronto": opções de criação de nota (FAB → sheet).
+ * "Colar" lê a área de transferência e deixa a detecção V&M decidir o formato.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateNoteSheet(
+    onDismiss: () -> Unit,
+    onPaste: () -> Unit,
+    onSpeech: () -> Unit,
+    onDemo: () -> Unit,
+    onBlank: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(
+                "Criar nota",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+            )
+            CreateNoteOption(
+                icon = Icons.Default.ContentPaste,
+                title = "Colar",
+                subtitle = "Da área de transferência — detecta discurso ou demonstração",
+                onClick = onPaste,
+            )
+            CreateNoteOption(
+                icon = Icons.Default.RecordVoiceOver,
+                title = "Discurso",
+                subtitle = "Estrutura de discurso (S-34)",
+                onClick = onSpeech,
+            )
+            CreateNoteOption(
+                icon = Icons.Default.Group,
+                title = "Demonstração",
+                subtitle = "Diálogo Publicador/Morador (Faça Seu Melhor)",
+                onClick = onDemo,
+            )
+            CreateNoteOption(
+                icon = Icons.Default.Add,
+                title = "Nota em branco",
+                subtitle = "Nota simples, sem estrutura",
+                onClick = onBlank,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CreateNoteOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

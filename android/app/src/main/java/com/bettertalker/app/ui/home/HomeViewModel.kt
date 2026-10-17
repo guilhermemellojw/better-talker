@@ -35,6 +35,28 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
     fun setFolder(id: String?) { folderId.value = id }
 
     suspend fun newNote(): String = repo.newNote(folderId.value)
+
+    /** Fase 1 "Colar e Pronto": nota pronta do texto colado (detecção V&M dentro). */
+    suspend fun createNoteFromPaste(text: String): String =
+        repo.createPastedNote(folderId.value, com.bettertalker.app.data.util.buildPastedNote(text))
+
+    /** Fase 1: Discurso — nota tipada S-34 vazia. */
+    suspend fun createSpeechNote(): String = repo.createTypedNote(
+        folderId.value, "Nova nota", com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE,
+    )
+
+    /** Fase 1: Demonstração — nota tipada V&M com o BODY vazio pronto. */
+    suspend fun createDemoNote(): String = repo.createPastedNote(
+        folderId.value,
+        com.bettertalker.app.data.util.PastedNote(
+            title = "Demonstração",
+            discourseType = com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART,
+            plainText = "",
+            bodyHtml = "",
+            bodyTitle = "Demonstração",
+            bodyMinutes = 4,
+        ),
+    )
     fun trash(id: String) = viewModelScope.launch { repo.trash(id) }
     fun togglePin(id: String) = viewModelScope.launch { repo.togglePin(id) }
     fun restore(id: String) = viewModelScope.launch { repo.restore(id) }
