@@ -10,6 +10,7 @@ import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
+import com.bettertalker.app.data.copilot.clipboardMatches
 import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.inferIntent
@@ -1585,6 +1586,8 @@ class CopilotViewModel(
                     _lastS34Document == null &&
                     outlines.get(noteId) == null,
                 pasteActive = pasteBuffer != null,
+                // #26-fix-b: só vira "material colado" se veio do clipboard.
+                fromClipboard = clipboardMatches(text, currentClipboardText()),
             )) {
                 // T1 (modo colar e conversar): texto longo colado, sem S-34 nem
                 // esboço vinculado, vira o contexto íntegro da conversa — sem
@@ -2557,6 +2560,18 @@ class CopilotViewModel(
             activeBlockTitle = effBlock,
             noteBody = _noteBody.value.take(2000),
         )
+    }
+
+    /**
+     * #26-fix-b: texto atual do clipboard do sistema (null quando vazio ou
+     * indisponível) — alimenta a detecção real de "material colado".
+     */
+    private fun currentClipboardText(): String? {
+        val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as? android.content.ClipboardManager ?: return null
+        val clip = cm.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        return clip.getItemAt(0)?.coerceToText(app)?.toString()
     }
 
     /**

@@ -57,14 +57,29 @@ class MinimalPasteTest {
 
     @Test
     fun textoLongoECandidato() {
-        assertTrue(ChatRouter.isPasteCandidate("x".repeat(501)))
+        assertTrue(ChatRouter.isPasteCandidate("x".repeat(501), fromClipboard = true))
     }
 
     @Test
     fun textoCurtoNaoECandidato() {
-        assertFalse(ChatRouter.isPasteCandidate("x".repeat(500)))
-        assertFalse(ChatRouter.isPasteCandidate("Desenvolva o ponto 2."))
-        assertFalse(ChatRouter.isPasteCandidate("   "))
+        assertFalse(ChatRouter.isPasteCandidate("x".repeat(500), fromClipboard = true))
+        assertFalse(ChatRouter.isPasteCandidate("Desenvolva o ponto 2.", fromClipboard = true))
+        assertFalse(ChatRouter.isPasteCandidate("   ", fromClipboard = true))
+    }
+
+    @Test
+    fun textoLongoDigitadoNaoECandidato() {
+        // #26-fix-b: sem clipboard real, texto longo NÃO vira "material colado".
+        assertFalse(ChatRouter.isPasteCandidate("x".repeat(501), fromClipboard = false))
+    }
+
+    @Test
+    fun clipboardMatches_exigeTextoIdentico() {
+        assertTrue(clipboardMatches("esboço colado", "esboço colado"))
+        assertTrue(clipboardMatches("  esboço colado  ", "esboço colado"))
+        assertFalse(clipboardMatches("digitado", null))
+        assertFalse(clipboardMatches("digitado", "outra coisa"))
+        assertFalse(clipboardMatches("", ""))
     }
 
     @Test

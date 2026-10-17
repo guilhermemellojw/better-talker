@@ -51,6 +51,16 @@ fun validateOutgoingMessage(raw: String): String? {
 }
 
 /**
+ * #26-fix-b: o texto enviado veio MESMO do clipboard? Comparação exata
+ * (trim) — "material colado" deixa de ser só tamanho. Puro/testável.
+ */
+fun clipboardMatches(text: String, clipText: String?): Boolean {
+    val t = text.trim()
+    val c = clipText?.trim().orEmpty()
+    return t.isNotEmpty() && c == t
+}
+
+/**
  * Intenção interna a partir da linguagem natural. NUNCA exibida ao usuário
  * (§12 F15): serve para escolher a categoria BE/TH a recuperar e o foco do
  * prompt. A ordem importa — a primeira regra que casa vence, então

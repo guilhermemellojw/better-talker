@@ -485,6 +485,7 @@ class ChatRouterTest {
                 "x".repeat(501),
                 canStartPaste = true,
                 pasteActive = false,
+                fromClipboard = true,
             )
         )
     }

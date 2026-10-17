@@ -96,10 +96,12 @@ object ChatRouter {
     const val PASTE_MIN_CHARS = 500
 
     /**
-     * T1 — candidato a colar-e-conversar: texto corrido longo (o usuário
-     * colou um esboço em vez de digitar uma pergunta). Puro/testável.
+     * T1 — candidato a colar-e-conversar: texto corrido longo E vindo do
+     * clipboard (#26-fix-b: o tamanho sozinho capturava texto digitado).
+     * Puro/testável.
      */
-    fun isPasteCandidate(text: String): Boolean = text.trim().length > PASTE_MIN_CHARS
+    fun isPasteCandidate(text: String, fromClipboard: Boolean): Boolean =
+        fromClipboard && text.trim().length > PASTE_MIN_CHARS
 
     // ---------- Normalização de phráse natural → pedido canônico ----------
 
@@ -388,8 +390,13 @@ object ChatRouter {
      */
     enum class Intercept { NEW_PASTE, APPLY_STRUCTURE, PASTE_CHAT, NONE }
 
-    fun interceptFor(text: String, canStartPaste: Boolean, pasteActive: Boolean): Intercept = when {
-        canStartPaste && isPasteCandidate(text) -> Intercept.NEW_PASTE
+    fun interceptFor(
+        text: String,
+        canStartPaste: Boolean,
+        pasteActive: Boolean,
+        fromClipboard: Boolean = false,
+    ): Intercept = when {
+        canStartPaste && isPasteCandidate(text, fromClipboard) -> Intercept.NEW_PASTE
         isApplyStructureCommand(text) -> Intercept.APPLY_STRUCTURE
         pasteActive -> Intercept.PASTE_CHAT
         else -> Intercept.NONE
