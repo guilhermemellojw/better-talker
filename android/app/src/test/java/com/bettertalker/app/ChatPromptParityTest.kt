@@ -128,10 +128,12 @@ class ChatPromptParityTest {
     }
 
     @Test
-    fun semFontesDizQueNaoTemSuporte() {
+    fun semFontesOrientaParafrasearComUltimoRecurso() {
         val out = serializePack(ContextPack(emptyList(), emptyList()))
         assertTrue(out.contains("Nenhuma fonte do acervo local"))
-        assertTrue(out.contains("não há suporte suficiente"))
+        // Makeover: o pack vazio virou convite à paráfrase; recusa = último recurso.
+        assertTrue(out.contains("Não se limite a recusar"))
+        assertTrue(out.contains("frase de insuficiência"))
     }
 
     // ---------- 3. limites de contexto ----------
@@ -268,11 +270,12 @@ class ChatPromptParityTest {
             pack = ContextPack(emptyList(), emptyList()),
             blockTitle = null, blockMinutes = null, blockText = "x",
         )
-        // Regra T4: versículo resolvido é a fonte; sem bloco, sem suporte.
+        // Regra T4: versículo resolvido é a fonte; sem o texto, paráfrase marcada.
         assertTrue(p.contains("referência bíblica"))
         assertTrue(p.contains("## TEXTOS BÍBLICOS") || p.contains("bloco TEXTOS BÍBLICOS"))
         assertTrue(p.contains("palavra por palavra"))
-        assertTrue(p.contains("diga que não há suporte"))
+        // Makeover: sem o texto no bloco, paráfrase calorosa (SEM aspas) — não recusa seca.
+        assertTrue(p.contains("paráfrase calorosa"))
         // Regras de fidelidade existentes permanecem.
         assertTrue(p.contains("sem rótulos internos"))
         assertTrue(p.contains("frase de insuficiência"))
@@ -292,8 +295,8 @@ class ChatPromptParityTest {
         // Complemento T2: mesma citação literal dos versículos.
         assertTrue(p.contains("TRECHOS DE PUBLICAÇÕES"))
         assertTrue(p.contains("palavra-por-palavra"))
-        // Regra do versículo intacta.
+        // Regra do versículo: citação com texto; paráfrase marcada sem texto.
         assertTrue(p.contains("bloco TEXTOS BÍBLICOS"))
-        assertTrue(p.contains("diga que não há suporte"))
+        assertTrue(p.contains("paráfrase calorosa"))
     }
 }

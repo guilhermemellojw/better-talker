@@ -190,7 +190,8 @@ class MinimalPasteTest {
     fun modoCriacaoExplicitoNoSystemMinimalista() {
         val (system, _) = buildMinimalPastePrompts(esboco, "e agora?", emptyList())
         assertTrue(system.contains("〈sugestão〉"))
-        assertTrue(system.contains("é permitido"))
+        // Makeover: a redação virou imperativo ("é permitido" → "marque com").
+        assertTrue(system.contains("conteúdo novo"))
         assertTrue(system.contains("sugestão sua"))
         assertTrue(system.contains(INSUFFICIENT_EVIDENCE_MESSAGE))
     }
