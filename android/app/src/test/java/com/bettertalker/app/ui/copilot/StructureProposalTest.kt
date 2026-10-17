@@ -12,6 +12,7 @@ import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.ui.editor.DraftTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -211,5 +212,58 @@ class StructureProposalTest {
         assertFalse(ChatRouter.isProposeStructureCommand("como usar este texto", focused = true))
         assertFalse(ChatRouter.isProposeStructureCommand("use esta seção como introdução"))
         assertFalse(ChatRouter.isProposeStructureCommand("explique a estrutura do discurso"))
+    }
+
+    // ---------- #23-fix-b (D1/D3): allowEmptyRefs na criação e no aceite ----------
+
+    @Test
+    fun gateSemRefs_allowEmptyPassa_eComRefsMantemEstrito() {
+        val semRefs = buildStructureRequest(section()) // bibleRefs = []
+        val comRefs = buildStructureRequest(section(bibleRefs = listOf("Ec 3:11")))
+        // minutes=5 casa com o totalMinutes do builder `proposal()` (senão o
+        // gate de soma derruba antes do gate de refs).
+        val propostaSemRefs = proposal(plan(minutes = 5, bibleRefs = emptyList()))
+
+        assertTrue(
+            "sem refs no request → regra relaxada passa",
+            validateStructureAccept(propostaSemRefs, semRefs.bibleRefs.isEmpty()),
+        )
+        assertFalse(
+            "com refs no request → drift do LLM continua barrado",
+            validateStructureAccept(propostaSemRefs, comRefs.bibleRefs.isEmpty()),
+        )
+    }
+
+    @Test
+    fun mensagemFalha_semRefs_difereDeComRefs() {
+        assertEquals(
+            "A estrutura veio incompleta. Tente novamente.",
+            structureFailureMessage(hasRefs = true),
+        )
+        assertNotEquals(
+            "A estrutura veio incompleta. Tente novamente.",
+            structureFailureMessage(hasRefs = false),
+        )
+        assertTrue(
+            structureFailureMessage(hasRefs = false).contains("referências", ignoreCase = true),
+        )
+    }
+
+    @Test
+    fun aceite_revalidacaoUsaFlagDaCriacao() {
+        val propostaSemRefs = proposal(plan(minutes = 5, bibleRefs = emptyList()))
+        val criadaSemRefs = CopilotViewModel.StructureProposalUi(
+            id = "sp1",
+            sectionId = "s1",
+            proposal = propostaSemRefs,
+            plan = plan(),
+            summary = "resumo",
+            sectionBaseHash = "hash",
+            allowEmptyRefs = true,
+        )
+        val criadaComRefs = criadaSemRefs.copy(allowEmptyRefs = false)
+
+        assertTrue("flag da criação vale no aceite", validateStructureAccept(criadaSemRefs))
+        assertFalse("estrita continua estrita (regressão D1)", validateStructureAccept(criadaComRefs))
     }
 }

@@ -2229,6 +2229,8 @@ class CopilotViewModel(
         val summary: String,
         /** FNV-1a do bloco da seção na criação (stale real na aceitação). */
         val sectionBaseHash: String,
+        /** Criada sem refs na origem — o aceite revalida com a regra relaxada. */
+        val allowEmptyRefs: Boolean = false,
         val applied: Boolean = false,
         val notice: String? = null,
     )
@@ -2255,6 +2257,8 @@ class CopilotViewModel(
         val currentSectionCount: Int = 0,
         /** FNV-1a da nota (título + seções) na criação (stale real no aceite). */
         val noteBaseHash: String,
+        /** #8f gera com a regra de refs relaxada — o aceite revalida igual. */
+        val allowEmptyRefs: Boolean = false,
         val applied: Boolean = false,
         val notice: String? = null,
     )
@@ -2675,8 +2679,14 @@ class CopilotViewModel(
             ProviderFactory.createFor(remote, app)
         )
         val request = buildStructureRequest(section, principles, subPoints = subPoints)
+        // Refs vazias no request: o prompt manda o LLM não inventar — validar
+        // com a regra relaxada (paridade com o #8f), senão o gate de refs
+        // do validador derruba por design ("veio incompleta" enganoso).
+        val allowEmptyRefs = request.bibleRefs.isEmpty()
         val proposal = try {
             generator.generate(request)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // D6: não engolir cancelamento
         } catch (_: Exception) {
             null
         }
@@ -2684,10 +2694,8 @@ class CopilotViewModel(
             postText("Não consegui gerar a estrutura. Tente novamente.")
             return
         }
-        if (OutlineProposalValidator.validate(proposal) !is
-            com.bettertalker.app.domain.planning.ValidationResult.Valid
-        ) {
-            postText("A estrutura veio incompleta. Tente novamente.")
+        if (!validateStructureAccept(proposal, allowEmptyRefs)) {
+            postText(structureFailureMessage(hasRefs = !allowEmptyRefs))
             return
         }
         val plan = pickSectionPlan(proposal, section.title)
@@ -2702,6 +2710,7 @@ class CopilotViewModel(
             plan = plan,
             summary = proposal.summary,
             sectionBaseHash = hashText(sectionProposalBlock(section.title, section.contentHtml)),
+            allowEmptyRefs = allowEmptyRefs,
         )
         post(
             false,
@@ -2720,9 +2729,7 @@ class CopilotViewModel(
         val ui = _structureProposal.value ?: return
         if (ui.applied) return
         viewModelScope.launch {
-            if (OutlineProposalValidator.validate(ui.proposal) !is
-                com.bettertalker.app.domain.planning.ValidationResult.Valid
-            ) {
+            if (!validateStructureAccept(ui)) {
                 _structureProposal.value = ui.copy(notice = "A estrutura ficou inválida. Gere novamente.")
                 return@launch
             }
@@ -3018,6 +3025,7 @@ class CopilotViewModel(
             hints = emptyList(),
             currentSectionCount = sectionsNow.size,
             noteBaseHash = noteStructureHash(db.noteDao().get(nid)?.title, sectionsNow),
+            allowEmptyRefs = true,
         )
         post(
             false,
@@ -4909,6 +4917,35 @@ internal fun structureTargetError(target: DraftTarget?): String? =
     if (target is DraftTarget.Section) null else STRUCTURE_NEEDS_SECTION_MESSAGE
 
 /**
+ * Aceite da proposta de estrutura: MESMA regra relaxada usada na criação
+ * (#8f/paridade). A flag vem da UI da proposta — nunca reavaliar do zero.
+ * Puro/testável.
+ */
+internal fun validateStructureAccept(
+    proposal: com.bettertalker.app.domain.planning.OutlineProposal,
+    allowEmptyRefs: Boolean,
+): Boolean = com.bettertalker.app.domain.planning.OutlineProposalValidator
+    .validate(proposal, allowEmptyRefs = allowEmptyRefs) is
+    com.bettertalker.app.domain.planning.ValidationResult.Valid
+
+/** Overload para a proposta de seção (flag embutida na UI). */
+internal fun validateStructureAccept(ui: CopilotViewModel.StructureProposalUi): Boolean =
+    validateStructureAccept(ui.proposal, ui.allowEmptyRefs)
+
+/**
+ * Falha do validador em `proposeStructureFor`: com refs no request é drift
+ * do LLM (retry ajuda); sem refs é determinístico — orienta em vez de mentir.
+ * Puro/testável.
+ */
+internal fun structureFailureMessage(hasRefs: Boolean): String =
+    if (hasRefs) {
+        "A estrutura veio incompleta. Tente novamente."
+    } else {
+        "A seção não tem referências bíblicas; a estrutura veio sem refs. " +
+            "Adicione refs ou revise manualmente."
+    }
+
+/**
  * Monta o pedido de estrutura a partir da seção em foco (+ princípios do
  * dossiê, se houver). Escopo por seção: `totalMinutes` = minutos da
  * própria seção; as refs da seção viram o conjunto autorizado (o prompt
@@ -5248,9 +5285,7 @@ internal fun decideNoteStructureAccept(
     converter: OutlineConverter = OutlineConverter(),
 ): NoteStructureAcceptDecision {
     val proposal = noteProposalOf(ui)
-    if (OutlineProposalValidator.validate(proposal) !is
-        com.bettertalker.app.domain.planning.ValidationResult.Valid
-    ) {
+    if (!validateStructureAccept(proposal, ui.allowEmptyRefs)) {
         return NoteStructureAcceptDecision.Invalid
     }
     if (currentHash != ui.noteBaseHash) return NoteStructureAcceptDecision.Stale

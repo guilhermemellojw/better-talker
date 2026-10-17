@@ -188,4 +188,40 @@ class OutlineProposalValidatorTest {
             errors,
         )
     }
+
+    // ---------- #23-fix-b (D3): allowEmptyRefs ----------
+
+    @Test
+    fun allowEmptyRefs_propostaSemBibleRefsComPublicacao_ehValida() {
+        val proposal = OutlineProposal(
+            id = "t-pubonly",
+            angle = OutlineAngle.PRACTICAL,
+            audience = Audience.GENERAL,
+            title = "T",
+            summary = "S",
+            totalMinutes = 10,
+            sections = listOf(
+                SectionPlan(
+                    title = "Seção",
+                    minutes = 5,
+                    mainIdea = "Ideia",
+                    bibleRefs = emptyList(),
+                    publicationRefs = listOf(PublicationRef("lff")),
+                )
+            ),
+        )
+
+        // publicationRefs NÃO conta: sem a flag, o gate de refs morde.
+        assertTrue(
+            OutlineProposalValidator.validate(proposal, allowEmptyRefs = true)
+                is ValidationResult.Valid
+        )
+
+        val invalid = OutlineProposalValidator.validate(proposal, allowEmptyRefs = false)
+        assertTrue(invalid is ValidationResult.Invalid)
+        assertTrue(
+            (invalid as ValidationResult.Invalid).errors
+                .contains(ValidationError.NO_SECTION_WITH_BIBLE_REFS)
+        )
+    }
 }
