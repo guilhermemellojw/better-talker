@@ -829,8 +829,12 @@ private fun SectionContentEditor(
         }
     }
 
+    // #23-fix-c (H1 defensivo): rastreia foco LOCAL (richState.isFocused é
+    // internal da lib). O eco do setHtml não pode atropelar quem digita.
+    var isEditing by remember(editorKey) { mutableStateOf(false) }
+
     LaunchedEffect(editorKey, initialHtml) {
-        if (richState.toHtml() != initialHtml) {
+        if (!isEditing && richState.toHtml() != initialHtml) {
             richState.setHtml(initialHtml)
         }
     }
@@ -889,7 +893,10 @@ private fun SectionContentEditor(
                     color = MaterialTheme.colorScheme.onSurface,
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = modifier.onFocusChanged { onFocusChange(it.isFocused) },
+                modifier = modifier.onFocusChanged {
+                    isEditing = it.isFocused
+                    onFocusChange(it.isFocused)
+                },
             )
         }
     }

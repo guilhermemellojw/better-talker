@@ -132,8 +132,14 @@ fun EditorFormattingToolbar(
             )
         )
     }
-    val onUndo: () -> Unit = { history?.undo() }
-    val onRedo: () -> Unit = { history?.redo() }
+    val onUndo: () -> Unit = {
+        runCatching { history?.undo() }
+            .onFailure { android.util.Log.e("ToolbarCrash", "Erro no Undo", it) }
+    }
+    val onRedo: () -> Unit = {
+        runCatching { history?.redo() }
+            .onFailure { android.util.Log.e("ToolbarCrash", "Erro no Redo", it) }
+    }
 
     Column(modifier) {
         if (isTablet) {
