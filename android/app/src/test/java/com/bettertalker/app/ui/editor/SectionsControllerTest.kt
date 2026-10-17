@@ -841,4 +841,26 @@ class SectionsControllerTest {
             controller.close()
         }
     }
+
+    // ---------- RC1: refs detectadas no título ----------
+
+    @Test
+    fun tituloComRefs_alimentaCamposDaSecao() {
+        val sec = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1", noteId = "n1", order = 0, role = SectionRole.BODY,
+            title = "Sem refs", minutes = 5, contentHtml = "<p>x</p>",
+            bibleRefs = listOf("Ec 3:11"), publicationRefs = emptyList(),
+            methodPrinciple = null, approvedAt = null,
+            createdAt = 1L, updatedAt = 1L,
+        )
+        val out = withTitleRefs(sec, "Jó 38:31 — w25.07 22 §§ 8-9", now = 2L)
+        assertTrue("preserva as existentes", out.bibleRefs.contains("Ec 3:11"))
+        assertTrue("nova do título entra", out.bibleRefs.any { it.contains("38:31") })
+        assertEquals(1, out.publicationRefs.size)
+        assertEquals("w25.07", out.publicationRefs[0].symbol)
+        assertEquals(22, out.publicationRefs[0].page)
+        assertEquals(8, out.publicationRefs[0].paragraph)
+        assertEquals(9, out.publicationRefs[0].paragraphEnd)
+        assertEquals(2L, out.updatedAt)
+    }
 }

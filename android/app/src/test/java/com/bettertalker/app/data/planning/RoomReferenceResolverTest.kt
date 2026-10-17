@@ -49,6 +49,26 @@ class RoomReferenceResolverTest {
         override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> =
             rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
                 .sortedBy { it.ord }.take(limit)
+        override suspend fun byPageParagraph(
+            attachmentId: String,
+            page: Int,
+            start: Int,
+            end: Int,
+        ): List<PassageEntity> =
+            rows.filter {
+                it.attachmentId == attachmentId && it.page == page &&
+                    it.paragraph?.let { p -> p in start..end } == true
+            }.sortedWith(compareBy({ it.paragraph }, { it.ord }))
+        override suspend fun byParagraphRange(
+            attachmentId: String,
+            start: Int,
+            end: Int,
+            limit: Int,
+        ): List<PassageEntity> =
+            rows.filter {
+                it.attachmentId == attachmentId &&
+                    it.paragraph?.let { p -> p in start..end } == true
+            }.sortedBy { it.ord }.take(limit)
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {
@@ -76,9 +96,10 @@ class RoomReferenceResolverTest {
         section: String = "",
         ord: Int = 0,
         paragraph: Int? = null,
+        page: Int? = null,
     ) = PassageEntity(
         id, att, text, normalized, section = section, ref = ref,
-        paragraph = paragraph, ord = ord,
+        paragraph = paragraph, ord = ord, page = page,
     )
 
     private fun attachment(id: String, symbol: String?, indexed: Boolean = true) =
@@ -284,5 +305,78 @@ class RoomReferenceResolverTest {
         val out = resolver(itRows(), listOf(itAtt().copy(indexed = false)))
             .resolvePublication(PublicationRef("it", article = "Gedalias", paragraph = 4))
         assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
+    }
+
+    // ---------- RC1: página + parágrafos (§§ 8-9) sem artigo/capítulo ----------
+
+    private fun wRows() = listOf(
+        passage(
+            "w8", "w25.07", "w25.07 p22 §8", "Texto do parágrafo oito.",
+            "texto do paragrafo oito", ord = 0, paragraph = 8, page = 22,
+        ),
+        passage(
+            "w9", "w25.07", "w25.07 p22 §9", "Texto do parágrafo nove.",
+            "texto do paragrafo nove", ord = 1, paragraph = 9, page = 22,
+        ),
+        passage(
+            "w10", "w25.07", "w25.07 p22 §10", "Outro parágrafo da página.",
+            "outro paragrafo da pagina", ord = 2, paragraph = 10, page = 22,
+        ),
+    )
+
+    @Test
+    fun resolvePublication_paginaEParagrafos_resolvePeloIndice() = runBlocking {
+        val out = resolver(wRows(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 9))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertTrue(out.text!!.contains("parágrafo oito"))
+        assertTrue(out.text!!.contains("parágrafo nove"))
+        assertFalse("fora do range não entra", out.text!!.contains("Outro parágrafo"))
+        assertEquals("w25.07 pág. 22 §8-9", out.canonicalRef)
+        assertEquals("w8", out.passageId)
+    }
+
+    @Test
+    fun resolvePublication_paragrafoUnico_resolveSemRange() = runBlocking {
+        val out = resolver(wRows(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 9))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertTrue(out.text!!.contains("parágrafo nove"))
+        assertFalse(out.text!!.contains("parágrafo oito"))
+        assertEquals("w25.07 pág. 22 §9", out.canonicalRef)
+    }
+
+    @Test
+    fun resolvePublication_paginaSemIndice_returnsUnresolved() = runBlocking {
+        // Página sem linhas indexadas: nunca devolve trecho aleatório.
+        val out = resolver(emptyList(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 8))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_semPaginaNemUnidade_returnsUnresolved() = runBlocking {
+        val out = resolver(wRows(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07"))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_indiceSemPagina_caiNoRangeDeParagrafos() = runBlocking {
+        // Índice antigo (pages NULL): o range de §§ ainda é texto REAL.
+        val rows = listOf(
+            passage("n8", "w25.07", "w25.07 §8", "Parágrafo oito sem página.",
+                "paragrafo oito sem pagina", ord = 0, paragraph = 8),
+            passage("n9", "w25.07", "w25.07 §9", "Parágrafo nove sem página.",
+                "paragrafo nove sem pagina", ord = 1, paragraph = 9),
+        )
+        val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 9))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("oito"))
+        assertTrue(out.text!!.contains("nove"))
+        assertEquals("w25.07 §8-9", out.canonicalRef)
     }
 }

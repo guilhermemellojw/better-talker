@@ -58,6 +58,13 @@ class HardeningTest {
         }
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
+        override suspend fun byPageParagraph(
+            attachmentId: String, page: Int, start: Int, end: Int,
+        ): List<PassageEntity> = emptyList()
+
+        override suspend fun byParagraphRange(
+            attachmentId: String, start: Int, end: Int, limit: Int,
+        ): List<PassageEntity> = emptyList()
     }
 
     private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

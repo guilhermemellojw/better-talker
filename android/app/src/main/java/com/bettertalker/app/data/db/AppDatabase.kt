@@ -229,6 +229,33 @@ interface PassageDao {
     // T4 (refs): passagens de uma seção (unidade citada) pelo rótulo.
     @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND section LIKE '%' || :needle || '%' ORDER BY ord LIMIT :limit")
     suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity>
+
+    /** RC1: parágrafos §start–§end da página citada (índice T4 do JWPUB). */
+    @Query(
+        "SELECT * FROM passages WHERE attachmentId = :attachmentId AND page = :page " +
+            "AND paragraph BETWEEN :start AND :end ORDER BY paragraph ASC, ord ASC"
+    )
+    suspend fun byPageParagraph(
+        attachmentId: String,
+        page: Int,
+        start: Int,
+        end: Int,
+    ): List<PassageEntity>
+
+    /**
+     * RC1-fallback: §start–§end SEM página — para acervo indexado por um
+     * indexador antigo (pages NULL). PARTIAL: texto real, página não verificada.
+     */
+    @Query(
+        "SELECT * FROM passages WHERE attachmentId = :attachmentId " +
+            "AND paragraph BETWEEN :start AND :end ORDER BY ord ASC LIMIT :limit"
+    )
+    suspend fun byParagraphRange(
+        attachmentId: String,
+        start: Int,
+        end: Int,
+        limit: Int,
+    ): List<PassageEntity>
 }
 
 @Database(

@@ -426,4 +426,34 @@ class S34ParserTest {
         assertEquals(5, nbsp.sections.size)
         assertEquals(listOf(3, 5, 5, 15, 2), nbsp.sections.map { it.minutes })
     }
+
+    // ---------- RC1: refs no TÍTULO da seção ----------
+
+    @Test
+    fun refsDoTituloEntramNaSecao() {
+        val raw = """S-34 — TESTE
+
+Tema: Título com refs
+
+Objetivo:
+Testar a varredura do título.
+
+1. Jó 38:31 e a ordem dos céus (5 min)
+   Corpo sem referências.
+
+2. Segundo ponto (3 min)
+   Leia Salmo 103:20.
+"""
+        val doc = S34Parser.parseS34(raw)
+        val s1 = doc.sections[0]
+        assertTrue(
+            "título deve alimentar as refs da seção",
+            s1.references.any { it.normalizedReference.contains("Jó|38|31") },
+        )
+        val s2 = doc.sections[1]
+        assertTrue(
+            "corpo continua sendo varrido",
+            s2.references.any { it.normalizedReference.contains("103|20") },
+        )
+    }
 }

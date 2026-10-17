@@ -263,6 +263,7 @@ class OutlineConverter(
                     symbol = canonicalPublicationSymbol(ref.pubKey, ref.editionKey),
                     page = ref.page ?: page,
                     paragraph = ref.paragraph ?: paragraph,
+                    paragraphEnd = ref.paragraphEnd,
                     article = ref.article,
                     chapter = ref.chapter,
                 )

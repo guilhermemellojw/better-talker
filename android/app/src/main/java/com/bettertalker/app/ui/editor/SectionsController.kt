@@ -151,7 +151,9 @@ class SectionsController(
     // ---------- ações (UI) ----------
 
     fun onSectionTitle(sectionId: String, title: String) {
-        update(sectionId) { it.copy(section = it.section.copy(title = title, updatedAt = clock())) }
+        // RC1: refs digitadas no título (ex.: "w25.07 22 §§ 8-9") entram nos
+        // campos da seção — o resolver de publicações passa a achar o texto.
+        update(sectionId) { it.copy(section = withTitleRefs(it.section, title, clock())) }
     }
 
     fun onSectionMinutes(sectionId: String, minutes: Int) {
@@ -559,4 +561,37 @@ class SectionsController(
      * verificação de stale usa `richHtml`). Resolver na 3.2.5b/c.
      */
     fun aggregateMd(): String = aggregateHtml()
+}
+
+/**
+ * RC1 — refs detectadas no TÍTULO da seção (bíblia + publicações de revista)
+ * entram nos campos da seção, sem remover as existentes e sem duplicar.
+ * Bíblia canonicalizada no formato do índice ("Je 45:5"). Puro/testável.
+ */
+internal fun withTitleRefs(section: SpeechSection, title: String, now: Long): SpeechSection {
+    val bible = com.bettertalker.app.data.util.RefDetector.detectBible(title).mapNotNull { b ->
+        com.bettertalker.app.data.s34.normalizeBibleBookName(b.label)
+            ?.let { abbrev -> "$abbrev ${b.chapter}:${b.verse}" }
+    }
+    val pubs = com.bettertalker.app.data.util.RefDetector.detect(title)
+        .filter { it.kind == com.bettertalker.app.data.util.RefDetector.Kind.MAGAZINE }
+        .map { ref ->
+            // Mesma convenção de armazenamento do V&M/Outline (símbolo canônico).
+            com.bettertalker.app.domain.planning.PublicationRef(
+                symbol = com.bettertalker.app.domain.speech.canonicalPublicationSymbol(
+                    ref.pubKey, ref.editionKey,
+                ),
+                page = ref.page,
+                paragraph = ref.paragraph,
+                paragraphEnd = ref.paragraphEnd,
+                article = ref.article,
+                chapter = ref.chapter,
+            )
+        }
+    return section.copy(
+        title = title,
+        bibleRefs = (section.bibleRefs + bible).distinct(),
+        publicationRefs = (section.publicationRefs + pubs).distinct(),
+        updatedAt = now,
+    )
 }

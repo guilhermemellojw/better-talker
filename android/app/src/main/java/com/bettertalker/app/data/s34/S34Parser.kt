@@ -281,7 +281,9 @@ object S34Parser {
                 minutes = s.minutes,
                 content = s.body.joinToString("\n") { it.text },
                 subsections = subsections,
-                references = s.body.flatMap { bl -> scanRefs(bl.text, bl.lineNo) },
+                // RC1: refs do TÍTULO entram também (o parser só varria o corpo).
+                references = scanRefs(s.title, s.sourceLine) +
+                    s.body.flatMap { bl -> scanRefs(bl.text, bl.lineNo) },
                 sourceLine = s.sourceLine
             )
         }

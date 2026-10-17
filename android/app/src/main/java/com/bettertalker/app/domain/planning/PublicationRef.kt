@@ -13,6 +13,8 @@ data class PublicationRef(
     val symbol: String,
     val page: Int? = null,
     val paragraph: Int? = null,
+    /** RC1: fim do range "§§ 8-9" (null = parágrafo único). */
+    val paragraphEnd: Int? = null,
     val article: String? = null,
     val chapter: String? = null,
 )

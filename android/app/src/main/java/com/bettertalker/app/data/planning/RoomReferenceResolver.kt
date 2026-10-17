@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.db.AttachmentDao
+import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.s34.normalizeBibleBookName
@@ -84,7 +85,11 @@ class RoomReferenceResolver(
         val needle = rawNeedle
             ?.let { normalizeText(it) }
             ?.takeIf { it.length >= 3 }
-            ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        if (needle == null) {
+            // RC1: página + parágrafo SEM artigo/capítulo (ex.: "w25.07 22
+            // §§ 8-9") — resolve direto pelo índice T4 (page/paragraph).
+            return resolveByPageParagraph(ref, hit)
+        }
 
         val slice = unitSliceOf(passageDao, hit.id, needle, rawNeedle)
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
@@ -114,6 +119,55 @@ class RoomReferenceResolver(
             } else {
                 ReferenceStatus.PARTIAL
             },
+        )
+    }
+
+    /**
+     * RC1 — resolve "símbolo pág. N §§ S(–E)" sem artigo/capítulo: busca os
+     * parágrafos da página no índice T4 (JWPUB) e devolve o texto literal.
+     * Sem página/parágrafo ou sem linhas no acervo → UNRESOLVED (nunca lixo).
+     */
+    private suspend fun resolveByPageParagraph(
+        ref: PublicationRef,
+        hit: AttachmentEntity,
+    ): ResolvedReference {
+        val page = ref.page ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        val start = ref.paragraph ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        val end = ref.paragraphEnd ?: start
+        val rows = passageDao.byPageParagraph(hit.id, page, start, end)
+        if (rows.isNotEmpty()) {
+            val text = rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+            if (text.isNotBlank()) {
+                val label = buildString {
+                    append(ref.symbol)
+                    append(" pág. $page")
+                    append(" §$start")
+                    if (end != start) append("-$end")
+                }
+                return ResolvedReference(ref.symbol, label, text, rows.first().id, ReferenceStatus.RESOLVED)
+            }
+        }
+        // Fallback (índice antigo sem `page`): o range de parágrafos ainda é
+        // o melhor recorte disponível — texto REAL, página não verificada.
+        val approx = passageDao.byParagraphRange(hit.id, start, end, UNIT_PASSAGES)
+        if (approx.isEmpty()) {
+            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        }
+        val text = approx.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        if (text.isBlank()) {
+            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        }
+        val label = buildString {
+            append(ref.symbol)
+            append(" §$start")
+            if (end != start) append("-$end")
+        }
+        return ResolvedReference(
+            original = ref.symbol,
+            canonicalRef = label,
+            text = text,
+            passageId = approx.first().id,
+            status = ReferenceStatus.PARTIAL,
         )
     }
 }

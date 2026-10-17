@@ -325,6 +325,7 @@ fun extractRefsFromBody(body: String): Pair<List<String>, List<PublicationRef>> 
                 symbol = canonicalPublicationSymbol(ref.pubKey, ref.editionKey),
                 page = ref.page,
                 paragraph = ref.paragraph,
+                paragraphEnd = ref.paragraphEnd,
                 article = ref.article,
                 chapter = ref.chapter,
             )

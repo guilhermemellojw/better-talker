@@ -48,6 +48,13 @@ private class FakePassageDao(var rows: List<PassageEntity> = emptyList()) : Pass
     override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> =
         rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
             .sortedBy { it.ord }.take(limit)
+        override suspend fun byPageParagraph(
+            attachmentId: String, page: Int, start: Int, end: Int,
+        ): List<PassageEntity> = emptyList()
+
+        override suspend fun byParagraphRange(
+            attachmentId: String, start: Int, end: Int, limit: Int,
+        ): List<PassageEntity> = emptyList()
 }
 
 private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) : AttachmentDao {

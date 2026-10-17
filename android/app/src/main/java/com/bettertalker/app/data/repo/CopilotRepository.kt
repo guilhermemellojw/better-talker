@@ -574,6 +574,7 @@ internal fun publicationRefOf(ref: RefDetector.DetectedRef): PublicationRef =
         symbol = ref.raw,
         page = ref.page,
         paragraph = ref.paragraph,
+        paragraphEnd = ref.paragraphEnd,
         article = ref.article,
         chapter = ref.chapter,
     )
