@@ -12,6 +12,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,8 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
@@ -75,12 +74,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -136,8 +137,6 @@ fun ChatScreen(
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
-    // FOCO: alvo empurrado ("Conversando sobre: …"), resolvido async na entrada.
-    val conversationLabel by vm.conversationLabel.collectAsState()
     // T4: nome do tópico em foco (confirmação da inserção).
     val topicName by vm.topicName.collectAsState()
     // T5: destinos do seletor — tópicos (BODY) da nota; sem seções, headings legados.
@@ -352,17 +351,34 @@ fun ChatScreen(
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
-                    Column {
-                        Text("Copilot")
-                        conversationLabel?.let { label ->
+                    // #25-fix-c: barra única. Em Tópico: título da seção + posição
+                    // N/M (POSIÇÃO, não aprovação). Em Discurso inteiro: "Copilot".
+                    if (scopeMode == ScopeMode.SECTION && guideCurrent != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                label,
-                                style = MaterialTheme.typography.bodySmall,
+                                guideCurrent.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${guideIndex + 1}/${guideSections.size}",
+                                style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                    } else {
+                        Text("Copilot", style = MaterialTheme.typography.titleMedium)
                     }
-                }
+                },
+                actions = {
+                    ScopeChip(
+                        whole = scopeMode == ScopeMode.WHOLE,
+                        onClick = vm::toggleScope,
+                    )
+                },
             )
         },
         snackbarHost = { SnackbarHost(snack) },
@@ -441,38 +457,34 @@ fun ChatScreen(
                         onDismiss = { vm.dismissSetupBanner() },
                     )
                 }
-                // Modo guiado seção-a-seção: barra fixa com o tópico em foco,
-                // gate de aprovação e navegação (mesma lógica dos comandos).
-                // #10c: escopo do chat — em Discurso inteiro a barra some e só
-                // o chip fica; em Tópico, barra + chip lado a lado.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    val sec = guideCurrent
-                    if (scopeMode == ScopeMode.SECTION && sec != null) {
-                        Box(Modifier.weight(1f)) {
-                            GuideBar(
-                                label = guideStripLabel(
-                                    index = guideIndex,
-                                    total = guideSections.size,
-                                    title = sec.title,
-                                    minutes = sec.minutes,
-                                ),
-                                approved = sec.approvedAt != null,
-                                onPrev = vm::previousSection,
-                                onNext = { vm.nextSection() },
-                                onApprove = vm::approveCurrentSection,
+                // #25-fix-c: a antiga Row GuideBar+ScopeChip foi unificada na
+                // TopAppBar (título + N/M + chip). Navegação agora é por swipe.
+                // #25-fix-c: swipe horizontal navega entre seções (só em SECTION;
+                // guardas de limite evitam postar "Não há próxima/anterior").
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(scopeMode, guideIndex, guideSections.size) {
+                            if (scopeMode != ScopeMode.SECTION) return@pointerInput
+                            val threshold = 120.dp.toPx()
+                            var totalDrag = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { totalDrag = 0f },
+                                onHorizontalDrag = { _, dragAmount -> totalDrag += dragAmount },
+                                onDragEnd = {
+                                    when (swipeTarget(totalDrag, threshold)) {
+                                        SwipeAction.Next ->
+                                            if (guideIndex < guideSections.size - 1) vm.nextSection()
+                                        SwipeAction.Previous ->
+                                            if (guideIndex > 0) vm.previousSection()
+                                        SwipeAction.None -> Unit
+                                    }
+                                    totalDrag = 0f
+                                },
+                                onDragCancel = { totalDrag = 0f },
                             )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    ScopeChip(
-                        whole = scopeMode == ScopeMode.WHOLE,
-                        onClick = vm::toggleScope,
-                        modifier = Modifier.padding(end = 4.dp),
-                    )
-                }
+                        },
+                ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -645,6 +657,7 @@ fun ChatScreen(
                         else -> Unit
                     }
                 }
+                } // Box do swipe (#25-fix-c)
             }
         }
     }
@@ -1528,51 +1541,8 @@ private fun BasesBody(
 }
 
 /**
- * Modo guiado seção-a-seção: barra fixa acima da conversa com o tópico em
- * foco, gate de aprovação e navegação. Os botões usam a MESMA lógica dos
- * comandos de texto (`vm.nextSection/previousSection/approveCurrentSection`).
- */
-@Composable
-private fun GuideBar(
-    label: String,
-    approved: Boolean,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onApprove: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-    ) {
-        IconButton(onClick = onPrev) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Seção anterior")
-        }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-            modifier = Modifier.weight(1f),
-        )
-        if (approved) {
-            Icon(
-                Icons.Filled.CheckCircle,
-                "Seção aprovada",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        } else {
-            TextButton(onClick = onApprove) { Text("Aprovar") }
-        }
-        IconButton(onClick = onNext) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, "Próxima seção")
-        }
-    }
-}
-
-/**
  * #10c — chip do escopo do chat: "Tópico" (default) ↔ "Discurso inteiro".
- * Um toque alterna; em WHOLE a GuideBar some e a escrita pede o tópico.
+ * Um toque alterna; em WHOLE a escrita pede o tópico.
  */
 @Composable
 private fun ScopeChip(
@@ -1592,4 +1562,19 @@ private fun ScopeChip(
         },
         modifier = modifier,
     )
+}
+
+// ---------- #25-fix-c: navegação por swipe (pura/testável) ----------
+
+/** Ação decidida por um gesto horizontal no corpo do chat. */
+enum class SwipeAction { Next, Previous, None }
+
+/**
+ * Decide a ação do swipe: arrastar para a ESQUERDA avança (Next), para a
+ * DIREITA volta (Previous); abaixo do threshold (em px), nada. Puro/testável.
+ */
+internal fun swipeTarget(totalDrag: Float, threshold: Float): SwipeAction = when {
+    totalDrag < -threshold -> SwipeAction.Next
+    totalDrag > threshold -> SwipeAction.Previous
+    else -> SwipeAction.None
 }

@@ -1036,18 +1036,15 @@ class CopilotViewModel(
      * Executa a decisão de navegação (comandos de texto e botões da barra
      * usam este mesmo caminho). Retorna true = consumiu.
      */
-    private suspend fun navigateSection(direction: GuideNavDirection, force: Boolean): Boolean {
+    private suspend fun navigateSection(direction: GuideNavDirection): Boolean {
         val sections = _guideSections.value
         val target = resolveNavTarget(
             orderedIds = sections.map { it.id },
             currentId = _chatScope.value,
             direction = direction,
-            force = force,
-            approvedIds = sections.filter { it.approvedAt != null }.map { it.id }.toSet(),
         )
         when (target) {
             is GuideNavTarget.MoveTo -> focusSection(target.sectionId)
-            GuideNavTarget.BlockedNeedsApproval -> postText(GUIDE_NEEDS_APPROVAL_MESSAGE)
             GuideNavTarget.NoNext -> postText(GUIDE_NO_NEXT_MESSAGE)
             GuideNavTarget.NoPrev -> postText(GUIDE_NO_PREV_MESSAGE)
             GuideNavTarget.NoSections -> postText(GUIDE_NO_FOCUS_MESSAGE)
@@ -1055,14 +1052,14 @@ class CopilotViewModel(
         return true
     }
 
-    /** Botão "avançar" da barra (force = long-press/"forçar próximo" por texto). */
-    fun nextSection(force: Boolean = false) = viewModelScope.launch {
-        navigateSection(GuideNavDirection.NEXT, force)
+    /** #25-fix-c: avança sem gate de aprovação (approvedAt virou legado). */
+    fun nextSection() = viewModelScope.launch {
+        navigateSection(GuideNavDirection.NEXT)
     }
 
-    /** Botão "voltar" da barra. */
+    /** Volta uma seção. */
     fun previousSection() = viewModelScope.launch {
-        navigateSection(GuideNavDirection.PREV, false)
+        navigateSection(GuideNavDirection.PREV)
     }
 
     /**
@@ -1104,7 +1101,7 @@ class CopilotViewModel(
         if (_chatScope.value == null) {
             // #10c: em Discurso inteiro, navegação pede o escopo de tópico.
             if (_scopeMode.value == ScopeMode.WHOLE &&
-                (isForceNextCommand(text) || isNextCommand(text) || isPrevCommand(text))
+                (isNextCommand(text) || isPrevCommand(text))
             ) {
                 postText(SCOPE_WHOLE_NAV_NOTICE)
                 return true
@@ -1112,9 +1109,8 @@ class CopilotViewModel(
             if (isApproveCommand(text)) return approveCurrentSectionNow()
             return false
         }
-        if (isForceNextCommand(text)) return navigateSection(GuideNavDirection.NEXT, force = true)
-        if (isNextCommand(text)) return navigateSection(GuideNavDirection.NEXT, force = false)
-        if (isPrevCommand(text)) return navigateSection(GuideNavDirection.PREV, force = false)
+        if (isNextCommand(text)) return navigateSection(GuideNavDirection.NEXT)
+        if (isPrevCommand(text)) return navigateSection(GuideNavDirection.PREV)
         if (isApproveCommand(text)) return approveCurrentSectionNow()
         return false
     }
@@ -4678,8 +4674,6 @@ enum class GuideNavDirection { NEXT, PREV }
 sealed interface GuideNavTarget {
     /** Troca o escopo para a seção indicada. */
     data class MoveTo(val sectionId: String) : GuideNavTarget
-    /** Gate: atual não aprovada e sem `force`. */
-    data object BlockedNeedsApproval : GuideNavTarget
     /** NEXT na última seção. */
     data object NoNext : GuideNavTarget
     /** PREV na primeira (ou sem foco). */
@@ -4688,8 +4682,6 @@ sealed interface GuideNavTarget {
     data object NoSections : GuideNavTarget
 }
 
-const val GUIDE_NEEDS_APPROVAL_MESSAGE =
-    "Esta seção ainda não foi aprovada. Aprove antes de avançar, ou diga 'forçar próximo'."
 const val GUIDE_NO_NEXT_MESSAGE = "Não há próxima seção."
 const val GUIDE_NO_PREV_MESSAGE = "Não há seção anterior."
 
@@ -4720,16 +4712,14 @@ internal fun scopeBlockedNotice(mode: ScopeMode, insert: Boolean, nav: Boolean):
 const val GUIDE_NO_FOCUS_MESSAGE = "Abra um tópico no editor para navegar entre seções."
 
 /**
- * Decide o destino: NEXT avança (gate de aprovação, salvo `force`);
- * PREV sempre permite; sem foco, NEXT começa pela primeira.
- * `orderedIds` na ordem do editor. Puro/testável.
+ * Decide o destino: NEXT avança (sem gate — #25-fix-c), PREV sempre permite;
+ * sem foco, NEXT começa pela primeira. `orderedIds` na ordem do editor.
+ * Puro/testável.
  */
 internal fun resolveNavTarget(
     orderedIds: List<String>,
     currentId: String?,
     direction: GuideNavDirection,
-    force: Boolean,
-    approvedIds: Set<String>,
 ): GuideNavTarget {
     if (orderedIds.isEmpty()) return GuideNavTarget.NoSections
     val idx = orderedIds.indexOf(currentId)
@@ -4737,7 +4727,6 @@ internal fun resolveNavTarget(
         GuideNavDirection.NEXT -> {
             if (idx < 0) return GuideNavTarget.MoveTo(orderedIds.first())
             if (idx + 1 >= orderedIds.size) return GuideNavTarget.NoNext
-            if (!force && currentId !in approvedIds) return GuideNavTarget.BlockedNeedsApproval
             GuideNavTarget.MoveTo(orderedIds[idx + 1])
         }
         GuideNavDirection.PREV -> {
@@ -4746,10 +4735,6 @@ internal fun resolveNavTarget(
         }
     }
 }
-
-/** Rótulo do indicador: "Tópico N de M — [título] (X min)". Puro/testável. */
-internal fun guideStripLabel(index: Int, total: Int, title: String, minutes: Int): String =
-    "Tópico ${index + 1} de $total — $title ($minutes min)"
 
 /** Anúncio de troca de escopo postado na conversa nova. Puro/testável. */
 internal fun guideAnnounceLabel(index: Int, total: Int, title: String, minutes: Int): String =
@@ -4762,12 +4747,6 @@ private fun normalizeNavText(text: String): String =
 internal fun isNextCommand(text: String): Boolean {
     val t = normalizeNavText(text)
     return listOf("proximo", "proxima", "seguinte", "avancar").any { t.contains(it) }
-}
-
-/** "forçar próximo"/"pular". Puro/testável. */
-internal fun isForceNextCommand(text: String): Boolean {
-    val t = normalizeNavText(text)
-    return t.contains("forcar proximo") || t.contains("forca proximo") || t.contains("pular")
 }
 
 /** "anterior"/"voltar"/"volta". Puro/testável. */

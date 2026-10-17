@@ -167,47 +167,4 @@ class SectionApprovalTest {
             controller.close()
         }
     }
-
-    @Test
-    fun progresso_duasDeCinco_mostraFracao() = runBlocking {
-        val secs = FakeSections().apply {
-            rows.value = (1..5).map { section("s$it", it - 1) }
-        }
-        val controller = controller(secs, this)
-        try {
-            controller.sections.first { it.size == 5 }
-
-            controller.approveSection("s1")
-            controller.approveSection("s2")
-            controller.awaitSaves()
-
-            val progress = approvalProgress(controller.sections.value)
-            assertEquals(ApprovalProgress(approved = 2, total = 5), progress)
-            assertEquals("2/5 seções aprovadas", approvalLabel(progress))
-        } finally {
-            controller.close()
-        }
-    }
-
-    @Test
-    fun progresso_todasAprovadas_mostraDiscursoPronto() = runBlocking {
-        val secs = FakeSections().apply {
-            rows.value = (1..3).map { section("s$it", it - 1) }
-        }
-        val controller = controller(secs, this)
-        try {
-            controller.sections.first { it.size == 3 }
-
-            controller.approveSection("s1")
-            controller.approveSection("s2")
-            controller.approveSection("s3")
-            controller.awaitSaves()
-
-            val progress = approvalProgress(controller.sections.value)
-            assertTrue(progress.isComplete)
-            assertEquals("✓ Discurso pronto", approvalLabel(progress))
-        } finally {
-            controller.close()
-        }
-    }
 }

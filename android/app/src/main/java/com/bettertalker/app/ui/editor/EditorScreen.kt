@@ -347,9 +347,6 @@ fun EditorScreen(
     val wordCount = remember(sections, mdText) {
         if (sections.isEmpty()) countWords(mdText) else countSectionWords(sections)
     }
-    // F3a: progresso de aprovação (todas as seções contam — cada card tem o
-    // toggle; regra escondida confundiria o contador).
-    val approval = remember(sections) { approvalProgress(sections) }
 
     // Recolhe a TopAppBar no scroll down; volta em qualquer scroll up.
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -371,14 +368,6 @@ fun EditorScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (approval.total > 0) {
-                            Text(
-                                approvalLabel(approval),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (approval.isComplete) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
                     }
                 },
                 actions = {
@@ -1077,24 +1066,3 @@ private fun ExportOption(
         }
     }
 }
-
-/**
- * F3a: progresso de aprovação do discurso. Conta TODAS as seções (cada
- * card tem o toggle — excluir INTRO/CONCLUSION criaria regra escondida).
- * Puro/testável.
- */
-data class ApprovalProgress(val approved: Int, val total: Int) {
-    val isComplete: Boolean get() = total > 0 && approved >= total
-}
-
-/** Deriva o progresso da lista de seções (aprovada = `approvedAt != null`). Puro/testável. */
-fun approvalProgress(sections: List<SectionUiState>): ApprovalProgress =
-    ApprovalProgress(
-        approved = sections.count { it.section.approvedAt != null },
-        total = sections.size,
-    )
-
-/** Rótulo do topo: "X/Y seções aprovadas" ou "✓ Discurso pronto". Puro/testável. */
-fun approvalLabel(progress: ApprovalProgress): String =
-    if (progress.isComplete) "✓ Discurso pronto"
-    else "${progress.approved}/${progress.total} seções aprovadas"
