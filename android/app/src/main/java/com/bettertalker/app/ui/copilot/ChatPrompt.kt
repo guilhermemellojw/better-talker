@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
@@ -105,6 +106,7 @@ fun ChatPromptBar(
     onInput: (String) -> Unit,
     busy: Boolean,
     onSend: () -> Unit,
+    onStop: () -> Unit = {},
     onAttach: () -> Unit,
     voiceState: VoiceInputState = VoiceInputState.Idle,
     voiceSeconds: Int = 0,
@@ -206,13 +208,25 @@ fun ChatPromptBar(
                         }
                     }
                 }
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = canSend,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) { Icon(Icons.AutoMirrored.Filled.Send, "Enviar") }
+                // #4 (UX S): durante a geração o botão vira "Parar" (cancela
+                // o job; o parcial some e o composer destrava no finally).
+                if (busy) {
+                    FilledIconButton(
+                        onClick = onStop,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        )
+                    ) { Icon(Icons.Default.Stop, "Parar geração") }
+                } else {
+                    FilledIconButton(
+                        onClick = onSend,
+                        enabled = canSend,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, "Enviar") }
+                }
             }
         }
     }

@@ -111,6 +111,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -902,6 +903,9 @@ class CopilotViewModel(
      *  fim do turno (posts fora dele voltam ao escopo vivo). */
     private var turnScope: String? = null
 
+    /** #4 (UX S): job da geração atual — o botão "Parar" cancela por aqui. */
+    private var currentGenerationJob: Job? = null
+
     /**
      * F2.3: alvo atual do chat, para rotear inserções para o tópico certo.
      * null = chat global (mantém o comportamento legado de inserção).
@@ -1190,7 +1194,12 @@ class CopilotViewModel(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val messages = if (noteId != null) {
         _chatScope.flatMapLatest { scope ->
+            // G3 (UX S): o parcial da geração anterior não vaza para o escopo novo.
+            com.bettertalker.app.data.llm.LocalProgress.reset()
+            // G2 (UX S): esvazia a lista antes do novo emit — sem "fantasma"
+            // da conversa da seção anterior por ~150ms.
             db.chatDao().observeScoped(noteId, scope)
+                .onStart { emit(emptyList()) }
         }.map { list ->
             list.map { e ->
                 when (e.kind) {
@@ -1234,6 +1243,14 @@ class CopilotViewModel(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     } else {
         MutableStateFlow(emptyList())
+    }
+
+    /** #4 (UX S): para a geração em andamento — o send trata o cancelamento
+     *  (runState → Cancelled, composer destrava no finally). */
+    fun stopGeneration() {
+        currentGenerationJob?.cancel()
+        currentGenerationJob = null
+        com.bettertalker.app.data.llm.LocalProgress.reset()
     }
 
     private suspend fun post(
@@ -1352,7 +1369,7 @@ class CopilotViewModel(
         lastUserMessage = text
         // #23-fix-c (G1): captura o escopo do turno ANTES de gerar.
         turnScope = _chatScope.value
-        viewModelScope.launch {
+        currentGenerationJob = viewModelScope.launch {
             // T2: qualquer envio conta como primeiro uso (banner some depois).
             settings.setChatSetupSeen()
             _runState.value = ChatRunState.Sending
@@ -1627,6 +1644,7 @@ class CopilotViewModel(
                 // O composer SEMPRE destrava aqui — inclusive depois de erro.
                 // #23-fix-c: turno acabado — posts fora dele usam o escopo vivo.
                 turnScope = null
+                currentGenerationJob = null
                 _chatBusy.value = false
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
                     _runState.value = ChatRunState.Success

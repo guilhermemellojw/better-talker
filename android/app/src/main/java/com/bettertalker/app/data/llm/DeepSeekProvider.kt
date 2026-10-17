@@ -4,6 +4,7 @@ import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.planning.looksTruncated
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -539,6 +540,11 @@ class UrlConnectionDeepSeekStreamClient : DeepSeekStreamClient {
                     conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                         var line = reader.readLine()
                         while (line != null) {
+                            // #4 (UX S): o "Parar" cancela o job; sem esta
+                            // checagem o loop bloqueante consome o stream
+                            // inteiro antes de observar o cancelamento (o
+                            // botão parecia morto por até 1 min).
+                            coroutineContext.ensureActive()
                             onLine(line)
                             line = reader.readLine()
                         }

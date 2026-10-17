@@ -420,6 +420,7 @@ fun ChatScreen(
                     onInput = { input = it },
                     busy = busy,
                     onSend = { doSend(input) },
+                    onStop = vm::stopGeneration,
                     onAttach = { showAttach = true },
                     voiceState = voiceState,
                     voiceSeconds = voiceSeconds,
@@ -853,6 +854,7 @@ private fun MessageActions(
     Column(modifier.fillMaxWidth()) {
         // T1 (P2 estético): háptica leve nos chips de ação.
         val haptic = LocalHapticFeedback.current
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
         // T1 (chat minimalista): ações escondidas em overflow ⋯ — mesma
         // Fase 18 §21 (proposta F5), F2.3 (tópico), T4 (voz) e T2 (mini),
         // sem poluir a conversa.
@@ -898,6 +900,16 @@ private fun MessageActions(
                         haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                         menuOpen = false
                         if (speaking) onStopSpeak() else onSpeak()
+                    }
+                )
+                // #5 (UX S): copia o texto da mensagem (mesmo texto pós-gate
+                // que o TTS lê — sem chrome de render).
+                DropdownMenuItem(
+                    text = { Text("Copiar texto") },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        menuOpen = false
+                        clipboard.setText(AnnotatedString(item.text))
                     }
                 )
                 // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
