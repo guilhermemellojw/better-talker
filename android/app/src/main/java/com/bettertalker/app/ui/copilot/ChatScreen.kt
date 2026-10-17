@@ -249,13 +249,16 @@ fun ChatScreen(
         runState is ChatRunState.Generating &&
             localPhase == LocalPhase.Generating && localPartial.isNotBlank()
     )
+    // #25-fix-a/#26-fix: há card de proposta/estrutura no fim da lista?
+    // (alvo do "fim" E gatilho da pílula quando o turno gera só proposta)
+    val hasProposal = proposal != null || structureProposal != null ||
+        noteStructureProposal != null || multiProposal != null || scopeSuggestion
     val lastItemIndex = chatLastItemIndex(
         messageCount = messages.size,
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
-        hasProposal = proposal != null || structureProposal != null ||
-            noteStructureProposal != null || multiProposal != null || scopeSuggestion,
+        hasProposal = hasProposal,
         runStateItems = runStateItems
     )
 
@@ -277,6 +280,11 @@ fun ChatScreen(
     // pelo botão "novas". Antes, a checagem de layout corria com a própria
     // inserção do item e o fim do texto ficava abaixo do fold.
     var followEnd by remember { mutableStateOf(true) }
+    // #25-fix-a/#26-fix: o que já foi "visto" — distingue CHEGADA de remoção
+    // (fechar proposta não conta como novidade). Inicia em 0/false para o
+    // primeiro efeito rolar até o fim ao abrir a conversa.
+    var seenMessages by remember { mutableStateOf(0) }
+    var seenProposal by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { i ->
             when (i) {
@@ -286,14 +294,23 @@ fun ChatScreen(
             }
         }
     }
-    LaunchedEffect(messages.size) {
-        // #25-fix-a: novo alvo = última MENSAGEM (cards renderizam depois e
-        // escondiam a resposta) e a contagem observa SÓ messages.size — o
-        // busy não conta: um turno que só gera proposta não incrementa.
+    LaunchedEffect(messages.size, hasProposal) {
+        // #25-fix-a/#26-fix: o efeito observa mensagem E proposta, mas conta
+        // UMA vez por evento (mensagem+proposta juntas = 1); a proposta entra
+        // na TRANSIÇÃO falsa→verdadeira (removê-la/fechar não conta). Alvo:
+        // mensagem nova → última MENSAGEM; proposta no fim → último ITEM
+        // (o card renderiza depois das mensagens).
+        val messageAdded = messages.size > seenMessages
+        val proposalAdded = hasProposal && !seenProposal
+        seenMessages = messages.size
+        seenProposal = hasProposal
         when (val action = messagesEffect(
+            messageAdded = messageAdded,
+            proposalAdded = proposalAdded,
             messageCount = messages.size,
             hasContext = messages.isNotEmpty(),
             hasTopicEmpty = messages.isEmpty() && chatScope != null,
+            lastItemIndex = lastItemIndex,
             followEnd = followEnd,
         )) {
             is MessagesEffect.ScrollTo -> listState.animateScrollToItem(action.index)
@@ -525,11 +542,12 @@ fun ChatScreen(
                             ProvenanceDisclosure(evidence, evidenceSummary)
                         }
                     }
-                    // Fase 18 §21: proposta F5 — ANTES/DEPOIS, verificar, aceitar/rejeitar.
+                    // Fase 18 §21: proposta F5 — texto novo em preview formatado
+                    // (#26-fix: sem ANTES; botão adaptativo).
                     val prop = proposal
                     if (prop != null) {
                         item(key = "proposal") {
-                            ProposalCard(prop, vm)
+                            ProposalCard(prop, vm, sectionContentHtml = prop.sectionContentHtml)
                         }
                     }
                     // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
@@ -941,18 +959,26 @@ internal sealed interface MessagesEffect {
 }
 
 /**
- * #25-fix-a — o efeito observa SÓ `messages.size` (busy não conta): mensagem
- * nova com followEnd = rola até a última mensagem; sem followEnd = conta uma
- * nova; lista vazia = nada. Puro/testável.
+ * #25-fix-a / #26-fix — ação do efeito de CONTEÚDO NOVO (mensagem e/ou
+ * proposta). Uma decisão por evento: mensagem+proposta juntas contam 1×.
+ * Com `followEnd`: mensagem → última MENSAGEM; proposta no fim → último ITEM
+ * (o card renderiza DEPOIS das mensagens). Sem `followEnd`: conta uma nova.
+ * Nada novo (remoções) → Nothing. Puro/testável.
  */
 internal fun messagesEffect(
+    messageAdded: Boolean,
+    proposalAdded: Boolean,
     messageCount: Int,
     hasContext: Boolean,
     hasTopicEmpty: Boolean,
+    lastItemIndex: Int,
     followEnd: Boolean,
 ): MessagesEffect = when {
-    messageCount <= 0 -> MessagesEffect.Nothing
-    followEnd -> MessagesEffect.ScrollTo(lastMessageIndex(messageCount, hasContext, hasTopicEmpty))
+    !messageAdded && !proposalAdded -> MessagesEffect.Nothing
+    followEnd -> MessagesEffect.ScrollTo(
+        if (proposalAdded) lastItemIndex
+        else lastMessageIndex(messageCount, hasContext, hasTopicEmpty)
+    )
     else -> MessagesEffect.CountUnseen
 }
 
@@ -1088,10 +1114,11 @@ fun ChatMessageText(
 
 /**
  * #20-fix-a: render de um bloco markdown — extraído do ChatMessageText para
- * ser reusado dentro do `<texto-do-card>` (preview formatado).
+ * ser reusado dentro do `<texto-do-card>` (preview formatado) e no
+ * ProposalCard (#26-fix, mesmo visual).
  */
 @Composable
-private fun RenderBlock(
+internal fun RenderBlock(
     block: MdBlock,
     mark: AnnotatedString?,
     onUseInCard: ((String) -> Unit)?,

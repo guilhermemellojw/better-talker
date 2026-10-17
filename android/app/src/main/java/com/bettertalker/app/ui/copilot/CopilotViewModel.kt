@@ -1879,7 +1879,8 @@ class CopilotViewModel(
                     _proposal.value = ProposalUi(
                         proposal, block, sectionId = secId, sectionBaseHash = secHash,
                         notice = listOfNotNull(notice, removalNotice)
-                            .joinToString(" ").ifBlank { null }
+                            .joinToString(" ").ifBlank { null },
+                        sectionContentHtml = section?.contentHtml.orEmpty(),
                     )
                 }
                 is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
@@ -2202,7 +2203,13 @@ class CopilotViewModel(
         val verification: TextVerification? = null,
         val verifying: Boolean = false,
         val notice: String? = null,
-        val applied: Boolean = false
+        val applied: Boolean = false,
+        /**
+         * #26-fix: contentHtml da seção na GERAÇÃO — define o rótulo do
+         * botão primário ("Usar este texto" × "Adicionar ao final").
+         * Vazio no caminho da nota (sem seção).
+         */
+        val sectionContentHtml: String = "",
     )
 
     private val _proposal = MutableStateFlow<ProposalUi?>(null)
@@ -2411,7 +2418,8 @@ class CopilotViewModel(
                     when (val r = parseEditProposal("", blocks, "focus", mode)) {
                         is com.bettertalker.app.data.edit.ParseResult.Ok ->
                             _proposal.value = ProposalUi(
-                                r.proposal, focus, sectionId = secId, sectionBaseHash = secHash
+                                r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
+                                sectionContentHtml = section?.contentHtml.orEmpty(),
                             )
                         else -> postText("Não consegui montar a proposta agora. Tente novamente.")
                     }
@@ -2459,7 +2467,8 @@ class CopilotViewModel(
                 when (val r = parseEditProposal(res.text, blocks, "focus", mode)) {
                     is com.bettertalker.app.data.edit.ParseResult.Ok ->
                         _proposal.value = ProposalUi(
-                            r.proposal, focus, sectionId = secId, sectionBaseHash = secHash
+                            r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
+                            sectionContentHtml = section?.contentHtml.orEmpty(),
                         )
                     is com.bettertalker.app.data.edit.ParseResult.Invalid -> {
                         android.util.Log.e("CopilotLLM", "proposal parse invalid reason=" + r.reason)
@@ -2523,8 +2532,13 @@ class CopilotViewModel(
      * seção (contentHtml) — o título nunca está no richHtml da nota, então o
      * caminho antigo caía em "Proposta obsoleta" para sempre. O stale continua
      * via FNV-1a (hash do bloco da seção capturado na geração).
+     *
+     * #26-fix: na seção, o botão primário ADICIONA o texto proposto (seção
+     * vazia usa direto; com conteúdo, antigo + "\n\n" + proposto). O
+     * `forceReplace` (⋯ "Substituir a seção") mantém o comportamento clássico
+     * — resultado completo das operações.
      */
-    fun acceptProposal() {
+    fun acceptProposal(forceReplace: Boolean = false) {
         val ui = _proposal.value ?: return
         if (ui.applied) return
         val nid = noteId ?: return
@@ -2549,20 +2563,30 @@ class CopilotViewModel(
                     _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
                     return@launch
                 }
-                val newContent = applyProposalToSectionBlock(
+                val fullContent = applyProposalToSectionBlock(
                     section.title, section.contentHtml, ui.focusText, ui.proposal
                 )
-                if (newContent == null) {
+                if (fullContent == null) {
                     _proposal.value = ui.copy(
                         notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
                     return@launch
                 }
+                // #26-fix: append adaptativo — o trecho proposto (delta das
+                // ops, sem marcadores) é SOMADO à seção; "Substituir a seção"
+                // aplica o resultado completo (comportamento clássico).
+                val proposed = stripInternalTags(proposedAdditionContent(ui.proposal))
+                val newContent = proposalApplyContent(
+                    oldContentHtml = section.contentHtml,
+                    proposedContentHtml = proposed,
+                    fullContentHtml = fullContent,
+                    forceReplace = forceReplace,
+                )
                 proposalUndo.addLast(ProposalSnapshot.Section(section))
                 if (proposalUndo.size > 50) proposalUndo.removeFirst()
                 db.speechSectionDao().upsert(
                     section.copy(contentHtml = newContent, updatedAt = System.currentTimeMillis())
                 )
-                _proposal.value = ui.copy(notice = "Proposta aplicada.", applied = true)
+                _proposal.value = appliedProposalUi(ui)
                 return@launch
             }
             // ---- caminho da nota (seleção/corpo) ----
@@ -2594,7 +2618,7 @@ class CopilotViewModel(
             // #19-fix-a2: o aceite não persiste marcadores internos (mesmo fix do section path).
             notes.save(nid, note.title, applied.second, stripInternalTags(applied.first),
                 note.folderId, note.colorArgb, note.pinned)
-            _proposal.value = ui.copy(notice = "Proposta aplicada.", applied = true)
+            _proposal.value = appliedProposalUi(ui)
         }
     }
 
@@ -5272,3 +5296,49 @@ internal fun applyProposalToSectionBlock(
     // preservando o HTML (stripPromptTags genérico comeria os <p>).
     return stripInternalTags(applied.first.removePrefix(title).trimStart('\n', ' ', '\t'))
 }
+
+/**
+ * #26-fix — trecho (HTML) que o botão primário ADICIONA à seção: o conteúdo
+ * proposto pelas ops. O resultado completo (`renderAfterText`/
+ * `applyProposalToSectionBlock`) já inclui o texto antigo nos Insert e
+ * DUPLICARIA no append; aqui é só o delta. Delete-only → vazio. Puro/testável.
+ */
+internal fun proposedAdditionContent(proposal: CopilotEditProposal): String =
+    proposal.operations.mapNotNull { op ->
+        when (op) {
+            is EditOperation.Insert -> op.contentHtml
+            is EditOperation.Replace -> op.contentHtml
+            is EditOperation.Delete -> null
+        }
+    }.joinToString("\n").trim()
+
+/**
+ * #26-fix — conteúdo final da seção no aceite: seção vazia → proposto;
+ * com conteúdo + botão padrão → antigo + "\n\n" + proposto (append, NÃO
+ * substitui); `forceReplace` (⋯ "Substituir a seção") → resultado completo
+ * das operações (comportamento clássico). Proposto vazio (delete-only) →
+ * completo. Puro/testável.
+ */
+internal fun proposalApplyContent(
+    oldContentHtml: String,
+    proposedContentHtml: String,
+    fullContentHtml: String,
+    forceReplace: Boolean,
+): String = when {
+    forceReplace -> fullContentHtml
+    proposedContentHtml.isBlank() -> fullContentHtml
+    oldContentHtml.isBlank() -> proposedContentHtml
+    else -> oldContentHtml.trimEnd() + "\n\n" + proposedContentHtml
+}
+
+/** #26-fix: rótulo do botão primário (vazia = usar; com conteúdo = adicionar). Puro/testável. */
+internal fun proposalButtonLabel(sectionContentHtml: String): String =
+    if (sectionContentHtml.isBlank()) "Usar este texto" else "Adicionar ao final"
+
+/**
+ * #26-fix: estado do card após o aceite — marca `applied` SEM tocar no
+ * `notice` (o aviso de fidelidade, ex.: "removi uma frase…", permanece
+ * visível depois de aplicar). Puro/testável.
+ */
+internal fun appliedProposalUi(ui: CopilotViewModel.ProposalUi): CopilotViewModel.ProposalUi =
+    ui.copy(applied = true)

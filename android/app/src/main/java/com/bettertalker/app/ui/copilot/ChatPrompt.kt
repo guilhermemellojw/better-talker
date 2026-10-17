@@ -1,6 +1,9 @@
 package com.bettertalker.app.ui.copilot
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,11 +26,16 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -35,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -63,9 +73,9 @@ import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.QuickAction
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
-import com.bettertalker.app.data.edit.stripHtmlToText
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.ByodNotice
+import com.bettertalker.app.ui.components.parseBlocks
 
 /** MIMEs aceitos para importar esboço (DOCX, PDF, RTF, JWPUB genérico). */
 val OUTLINE_MIMES = arrayOf(
@@ -599,96 +609,193 @@ fun SetupBanner(
 }
 
 /**
- * Fase 18 §21 — cartão de proposta F5: ANTES/DEPOIS, Verificar (F6),
- * Aceitar/Rejeitar, Desfazer após aceite. Nunca insere direto.
+ * #26-fix — cartão de proposta de TEXTO no estilo `<texto-do-card>`: borda,
+ * header com ⋯ (Substituir a seção / Verificar / Detalhes / Desfazer /
+ * Fechar), preview FORMATADO (mesmo render das mensagens: títulos, listas,
+ * sub-listas ○) e botão primário adaptativo ("Usar este texto" com seção
+ * vazia; "Adicionar ao final" com conteúdo). Sem ANTES (a seção já está no
+ * editor) e sem truncamento silencioso. Nunca insere direto.
  */
 @Composable
 fun ProposalCard(
     ui: CopilotViewModel.ProposalUi,
     vm: CopilotViewModel,
-    modifier: Modifier = Modifier
+    sectionContentHtml: String,
+    modifier: Modifier = Modifier,
 ) {
-    val afterFull = remember(ui.proposal, ui.focusText) {
-        com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
-    }
-    // T3 — tags 〈sugestão〉 somem do texto exibido; badge sinaliza criação.
-    val after = remember(afterFull) { stripSuggestionTags(afterFull) }
-    val before = remember(ui.focusText) { stripSuggestionTags(ui.focusText) }
-    // #16-fix-b: o bloco de seção carrega HTML — o display mostra texto puro
-    // (sem tags), preservando o badge.
-    val beforeDisplay = remember(before.text) { stripHtmlToText(before.text) }
-    val afterDisplay = remember(after.text) { stripHtmlToText(after.text) }
+    val applied = ui.applied
+    val hasContent = sectionContentHtml.isNotBlank()
+    val shape = MaterialTheme.shapes.medium
+    var menuOpen by remember { mutableStateOf(false) }
+    var showDetails by remember(ui.verification) { mutableStateOf(false) }
+
     Column(
         modifier.fillMaxWidth()
             .padding(vertical = 4.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
     ) {
-        Text("Proposta", style = MaterialTheme.typography.titleSmall)
-        ui.proposal.explanation?.takeIf { it.isNotBlank() }?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary)
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "ANTES" + if (before.hasSuggestion) " · 💡 Sugestão criativa" else "",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary
-        )
-        Text(beforeDisplay.take(600), style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "DEPOIS" + if (after.hasSuggestion) " · 💡 Sugestão criativa" else "",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary
-        )
-        Text(afterDisplay.take(1200), style = MaterialTheme.typography.bodySmall)
-        ui.verification?.let { v ->
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "✓ ${v.summary.supported} · ⚠ ${v.summary.partial} · " +
-                    "? ${v.summary.insufficient} · 💡 ${v.summary.creative}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
-            var expanded by remember { mutableStateOf(false) }
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Ocultar detalhes" else "Ver detalhes")
-            }
-            if (expanded) {
-                v.claims.take(5).forEach { c ->
-                    val glyph = when (c.status) {
-                        com.bettertalker.app.data.verify.SupportStatus.SUPPORTED -> "✓"
-                        com.bettertalker.app.data.verify.SupportStatus.PARTIALLY_SUPPORTED -> "⚠"
-                        com.bettertalker.app.data.verify.SupportStatus.INSUFFICIENT -> "?"
-                        com.bettertalker.app.data.verify.SupportStatus.CREATIVE -> "💡"
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+                .padding(12.dp),
+        ) {
+            // Header: rótulo + ⋯ (ações avançadas).
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Texto proposto",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
+                Box {
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(18.dp))
                     }
-                    Text(
-                        "$glyph “${c.claim.text.take(80)}” — ${c.reason}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        // #26-fix: substituir é a ação AVANÇADA — o padrão do
+                        // botão primário é ADICIONAR (não destrutivo).
+                        if (hasContent && !applied) {
+                            DropdownMenuItem(
+                                text = { Text("Substituir a seção") },
+                                onClick = {
+                                    menuOpen = false
+                                    vm.acceptProposal(forceReplace = true)
+                                },
+                            )
+                        }
+                        if (!applied) {
+                            DropdownMenuItem(
+                                text = { Text(if (ui.verifying) "Verificando..." else "Verificar") },
+                                enabled = !ui.verifying,
+                                onClick = {
+                                    menuOpen = false
+                                    vm.verifyProposal()
+                                },
+                            )
+                        }
+                        if (ui.verification != null) {
+                            DropdownMenuItem(
+                                text = { Text("Ver detalhes de fidelidade") },
+                                onClick = {
+                                    menuOpen = false
+                                    showDetails = true
+                                },
+                            )
+                        }
+                        if (applied && vm.canUndoProposal) {
+                            DropdownMenuItem(
+                                text = { Text("Desfazer") },
+                                onClick = {
+                                    menuOpen = false
+                                    vm.undoProposal()
+                                },
+                            )
+                        }
+                        if (applied) {
+                            DropdownMenuItem(
+                                text = { Text("Fechar") },
+                                onClick = {
+                                    menuOpen = false
+                                    vm.rejectProposal()
+                                },
+                            )
+                        }
+                    }
                 }
             }
-        }
-        ui.notice?.let {
-            Spacer(Modifier.height(4.dp))
-            Text(it, style = MaterialTheme.typography.bodySmall,
-                // P2 (contraste): aviso legível (o amarelo primário falha no claro).
-                color = MaterialTheme.colorScheme.secondary)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!ui.applied) {
-                TextButton(
-                    onClick = { vm.verifyProposal() },
-                    enabled = !ui.verifying
-                ) { Text(if (ui.verifying) "Verificando..." else "Verificar") }
-                TextButton(onClick = { vm.acceptProposal() }) { Text("Aceitar") }
-                TextButton(onClick = { vm.rejectProposal() }) { Text("Rejeitar") }
+            ui.proposal.explanation?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary)
+            }
+            Spacer(Modifier.height(6.dp))
+
+            // Preview FORMATADO — mesmo render dos blocos das mensagens.
+            // Sem truncamento silencioso: o texto inteiro é renderizado.
+            val afterFull = remember(ui.proposal, ui.focusText) {
+                com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
+            }
+            val hasSuggestion = remember(afterFull) { stripSuggestionTags(afterFull).hasSuggestion }
+            if (hasSuggestion) {
+                Text(
+                    "💡 Sugestão criativa",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            val previewBlocks = remember(afterFull) { cleanBlocks(parseBlocks(afterFull)) }
+            previewBlocks.forEach { block ->
+                RenderBlock(block, mark = null, onUseInCard = null)
+            }
+            ui.notice?.let {
+                Spacer(Modifier.height(6.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Spacer(Modifier.height(8.dp))
+            if (!applied) {
+                // A decisão fica FORA do ⋯ (é o caminho principal).
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Button(
+                        onClick = { vm.acceptProposal() },
+                        modifier = Modifier.weight(1f),
+                    ) { Text(proposalButtonLabel(sectionContentHtml)) }
+                    OutlinedButton(
+                        onClick = { vm.rejectProposal() },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Manter atual") }
+                }
             } else {
-                if (vm.canUndoProposal) {
-                    TextButton(onClick = { vm.undoProposal() }) { Text("Desfazer") }
-                }
-                TextButton(onClick = { vm.rejectProposal() }) { Text("Fechar") }
+                Text(
+                    "Aplicado ao card.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
+    }
+
+    // Detalhes de fidelidade (no ⋯ desde o #26-fix).
+    val verification = ui.verification
+    if (showDetails && verification != null) {
+        AlertDialog(
+            onDismissRequest = { showDetails = false },
+            title = { Text("Fidelidade do texto") },
+            text = {
+                Column {
+                    Text(
+                        "✓ ${verification.summary.supported} · ⚠ ${verification.summary.partial} · " +
+                            "? ${verification.summary.insufficient} · 💡 ${verification.summary.creative}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    verification.claims.take(5).forEach { c ->
+                        val glyph = when (c.status) {
+                            com.bettertalker.app.data.verify.SupportStatus.SUPPORTED -> "✓"
+                            com.bettertalker.app.data.verify.SupportStatus.PARTIALLY_SUPPORTED -> "⚠"
+                            com.bettertalker.app.data.verify.SupportStatus.INSUFFICIENT -> "?"
+                            com.bettertalker.app.data.verify.SupportStatus.CREATIVE -> "💡"
+                        }
+                        Text(
+                            "$glyph “${c.claim.text.take(80)}” — ${c.reason}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDetails = false }) { Text("Fechar") }
+            },
+        )
     }
 }

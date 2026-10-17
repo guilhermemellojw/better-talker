@@ -1,31 +1,41 @@
 package com.bettertalker.app.ui.copilot
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * #25-fix-a — a contagem de "N novas" observa SÓ mudança de `messages.size`
- * (o `busy` não é mais key do efeito): um turno rende 1 incremento por
- * mensagem real; um turno que só gera proposta (sem mensagem nova) não
- * incrementa. Espelha o efeito com o mesmo contrato (1 chamada por mudança
- * de tamanho).
+ * #25-fix-a/#26-fix — a contagem de "N novas" é UMA por evento de conteúdo
+ * novo (mensagem e/ou proposta); o `busy` não conta e remoções (fechar a
+ * proposta) não contam. Espelha o efeito com o mesmo contrato (1 chamada por
+ * mudança de `(messages.size, hasProposal)`).
  */
 class PillCountTest {
 
-    /** Espelha o `LaunchedEffect(messages.size)` da tela. */
+    /** Espelha o `LaunchedEffect(messages.size, hasProposal)` da tela. */
     private class Counter {
         var unseen = 0
             private set
+        var scrolledTo: Int? = null
+            private set
 
-        fun onMessagesChanged(
-            size: Int,
+        fun onEvent(
+            messageAdded: Boolean,
+            proposalAdded: Boolean,
+            messageCount: Int,
             followEnd: Boolean,
             hasContext: Boolean = false,
-            topicEmpty: Boolean = false,
+            lastItemIndex: Int = 0,
         ) {
-            when (messagesEffect(size, hasContext, topicEmpty, followEnd)) {
-                is MessagesEffect.ScrollTo -> Unit
+            when (val a = messagesEffect(
+                messageAdded = messageAdded,
+                proposalAdded = proposalAdded,
+                messageCount = messageCount,
+                hasContext = hasContext,
+                hasTopicEmpty = false,
+                lastItemIndex = lastItemIndex,
+                followEnd = followEnd,
+            )) {
+                is MessagesEffect.ScrollTo -> scrolledTo = a.index
                 MessagesEffect.CountUnseen -> unseen++
                 MessagesEffect.Nothing -> Unit
             }
@@ -35,41 +45,41 @@ class PillCountTest {
     @Test
     fun turnoComUmaMensagemNova_contaUm() {
         val c = Counter()
-        c.onMessagesChanged(size = 6, followEnd = false) // única mudança 5→6
-        // busy true→false NÃO gera outra chamada (key = messages.size)
+        // Evento único (5→6 mensagens). O busy true→false NÃO gera outro
+        // evento — por isso não há mais o "3 novas" de antes.
+        c.onEvent(messageAdded = true, proposalAdded = false, messageCount = 6, followEnd = false)
         assertEquals(1, c.unseen)
     }
 
     @Test
-    fun duasMensagensNovas_contamDuas_naoTres() {
+    fun duasMensagens_contamDuas_naoTres() {
         val c = Counter()
-        c.onMessagesChanged(size = 6, followEnd = false) // ME
-        c.onMessagesChanged(size = 7, followEnd = false) // resposta
+        c.onEvent(true, false, 6, false) // ME
+        c.onEvent(true, false, 7, false) // resposta
         assertEquals(2, c.unseen)
     }
 
     @Test
-    fun turnoSemMensagemNova_naoConta() {
+    fun turnoSemMensagemNemProposta_naoConta() {
         val c = Counter()
-        c.onMessagesChanged(size = 6, followEnd = false)
-        val antes = c.unseen
-        // turno só-proposta: messages.size 6→6 → o efeito não roda de novo
-        assertEquals(antes, c.unseen)
+        // Ex.: proposta FECHADA (remoção) — não é novidade.
+        c.onEvent(false, false, 6, false)
+        assertEquals(0, c.unseen)
     }
 
     @Test
     fun seguindoOFim_rolaSemContar() {
         val c = Counter()
-        c.onMessagesChanged(size = 6, followEnd = true, hasContext = true)
+        c.onEvent(true, false, 6, followEnd = true, hasContext = true)
         assertEquals(0, c.unseen)
-        val action = messagesEffect(6, hasContext = true, hasTopicEmpty = false, followEnd = true)
-        assertTrue(action is MessagesEffect.ScrollTo)
-        assertEquals(6, (action as MessagesEffect.ScrollTo).index) // 1 ctx + 6 - 1
+        assertEquals(6, c.scrolledTo) // 1 ctx + 6 - 1
     }
 
     @Test
     fun listaVazia_nada() {
-        assertEquals(MessagesEffect.Nothing, messagesEffect(0, false, false, followEnd = true))
-        assertEquals(MessagesEffect.Nothing, messagesEffect(0, false, false, followEnd = false))
+        assertEquals(
+            MessagesEffect.Nothing,
+            messagesEffect(false, false, 0, false, false, 0, followEnd = true),
+        )
     }
 }
