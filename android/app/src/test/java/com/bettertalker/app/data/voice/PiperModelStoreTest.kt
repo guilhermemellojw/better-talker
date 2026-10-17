@@ -7,45 +7,72 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 
-/** #23-fix-a: download do modelo Piper (fetch fake — sem rede). */
+/** #23-fix-b: provisionamento do Piper a partir dos assets (fake — sem Android). */
 class PiperModelStoreTest {
 
     private fun tempDir(): File =
         File.createTempFile("piperstore", "").let { it.delete(); it.mkdirs(); it }
 
-    private fun fakeFetch(
-        ok: Boolean = true,
-        bytes: Int = 2_000_000,
-    ): suspend (String, File, (Float) -> Unit) -> Unit = { _, dest, onProgress ->
-        if (!ok) error("rede caiu")
-        dest.writeBytes(ByteArray(bytes))
-        onProgress(1f)
+    private fun fakeAssets(): Map<String, ByteArray> {
+        val model = ByteArray(1_000_001) // > 1MB: o gate do ready()
+        val small = ByteArray(16)
+        return mapOf(
+            "piper/jeff/model.onnx" to model,
+            "piper/jeff/tokens.txt" to ByteArray(8),
+            "piper/jeff/espeak-ng-data/phondata" to small,
+            "piper/jeff/espeak-ng-data/phonindex" to small,
+            "piper/jeff/espeak-ng-data/phontab" to small,
+            "piper/jeff/espeak-ng-data/intonations" to small,
+            "piper/jeff/espeak-ng-data/pt_dict" to small,
+            "piper/jeff/espeak-ng-data/lang/roa/pt" to small,
+            "piper/jeff/espeak-ng-data/lang/roa/pt-BR" to small,
+        )
     }
 
+    private fun openAssetFrom(map: Map<String, ByteArray>): (String) -> InputStream =
+        { path -> map[path]?.inputStream() ?: throw IOException("asset ausente: $path") }
+
     @Test
-    fun estadoInicialNaoBaixado() {
-        val store = PiperModelStore(tempDir(), fakeFetch())
+    fun estadoInicialNaoProvisionado() {
+        val store = PiperModelStore(tempDir(), openAssetFrom(fakeAssets()))
         assertFalse(store.state.value.downloaded)
         assertFalse(store.state.value.downloading)
     }
 
     @Test
-    fun downloadSucessoMarcaBaixado() = runBlocking {
+    fun ensureProvisionedCopiaDosAssets() = runBlocking {
         val dir = tempDir()
-        val store = PiperModelStore(dir, fakeFetch())
-        store.download()
+        val store = PiperModelStore(dir, openAssetFrom(fakeAssets()))
+        store.ensureProvisioned()
         assertTrue(store.state.value.downloaded)
         assertFalse(store.state.value.downloading)
         assertNull(store.state.value.error)
         assertTrue(File(dir, "model.onnx").exists())
         assertTrue(File(dir, "tokens.txt").exists())
+        assertTrue(File(dir, "espeak-ng-data/phondata").exists())
+        assertTrue(File(dir, "espeak-ng-data/lang/roa/pt-BR").exists())
+        // .part não sobra depois do rename.
+        assertFalse(File(dir, "model.onnx.part").exists())
     }
 
     @Test
-    fun falhaDeRedeMarcaErro() = runBlocking {
-        val store = PiperModelStore(tempDir(), fakeFetch(ok = false))
-        store.download()
+    fun readyExigeEspeakCompleto() = runBlocking {
+        val dir = tempDir()
+        val store = PiperModelStore(dir, openAssetFrom(fakeAssets()))
+        store.ensureProvisioned()
+        assertTrue(store.ready())
+        // Subset quebrado (sem pt_dict) → não está pronto.
+        File(dir, "espeak-ng-data/pt_dict").delete()
+        assertFalse(store.ready())
+    }
+
+    @Test
+    fun assetAusenteMarcaErro() = runBlocking {
+        val store = PiperModelStore(tempDir(), openAssetFrom(emptyMap()))
+        store.ensureProvisioned()
         assertFalse(store.state.value.downloaded)
         assertNotNull(store.state.value.error)
     }
@@ -53,12 +80,12 @@ class PiperModelStoreTest {
     @Test
     fun deleteRemoveArquivos() = runBlocking {
         val dir = tempDir()
-        val store = PiperModelStore(dir, fakeFetch())
-        store.download()
+        val store = PiperModelStore(dir, openAssetFrom(fakeAssets()))
+        store.ensureProvisioned()
         assertTrue(store.state.value.downloaded)
         store.delete()
         assertFalse(store.state.value.downloaded)
         assertFalse(File(dir, "model.onnx").exists())
-        assertFalse(File(dir, "tokens.txt").exists())
+        assertFalse(File(dir, "espeak-ng-data").exists())
     }
 }

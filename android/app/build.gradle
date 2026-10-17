@@ -37,6 +37,11 @@ android {
         jniLibs { useLegacyPackaging = true }
         resources { excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1'] }
     }
+    androidResources {
+        // #23-fix-b: o model.onnx (~63MB) já é comprimido internamente —
+        // re-comprimir no AAPT só atrasaria o build e a cópia inicial.
+        noCompress 'onnx'
+    }
 }
 
 dependencies {

@@ -50,9 +50,11 @@ class MainActivity : FragmentActivity() {
                 initial = com.bettertalker.app.ui.theme.PaletteId.SAMSUNG
             )
             // #23-fix-a: TTS premium (Piper Jeff) — criado uma vez por processo.
+            // #23-fix-b: 100% offline — o modelo vem de assets (openAsset).
             val voiceStore = androidx.compose.runtime.remember(ctx) {
                 com.bettertalker.app.data.voice.PiperModelStore(
-                    java.io.File(ctx.filesDir, "piper/jeff")
+                    java.io.File(ctx.filesDir, "piper/jeff"),
+                    openAsset = { path -> ctx.assets.open(path) },
                 )
             }
             val voiceRouter = androidx.compose.runtime.remember(ctx) {

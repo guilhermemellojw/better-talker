@@ -9,19 +9,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.InputStream
 
 /**
- * #23-fix-a: download do modelo Piper (voz Jeff) no primeiro uso.
- * Pattern `.part` + rename atômico; progresso via [state]. Se o app fechar
- * no meio, o `.part` fica e o próximo download recomeça do zero (o sherpa
- * não retoma HTTP range nesta versão — reportado).
+ * #23-fix-b: TTS premium 100% offline — o modelo Piper (voz Jeff) e o subset
+ * pt-BR do espeak-ng-data vêm EMBUTIDOS em `assets/piper/jeff/` e são
+ * copiados para [modelDir] no primeiro uso (lazy, quando o toggle é ativado).
+ * O download via HuggingFace morreu: instalação limpa não depende de rede.
+ *
+ * `.part` + rename atômico por arquivo; progresso via [state].
  */
 class PiperModelStore(
     val modelDir: File,
-    private val fetch: suspend (url: String, dest: File, onProgress: (Float) -> Unit) -> Unit =
-        ::httpFetch,
+    private val openAsset: (String) -> InputStream,
 ) {
     data class State(
         val downloaded: Boolean = false,
@@ -33,72 +33,81 @@ class PiperModelStore(
     private val _state = MutableStateFlow(State(downloaded = ready()))
     val state: StateFlow<State> = _state.asStateFlow()
 
-    /** True se o par mínimo (model.onnx + tokens.txt) está em disco. */
-    fun ready(): Boolean =
-        File(modelDir, "model.onnx").let { it.exists() && it.length() > 1_000_000 } &&
-            File(modelDir, "tokens.txt").let { it.exists() && it.length() > 0 }
+    /** True se os 3 artefatos (modelo, tokens e espeak pt-BR) estão em disco. */
+    fun ready(): Boolean {
+        val model = File(modelDir, "model.onnx")
+        val tokens = File(modelDir, "tokens.txt")
+        val espeak = File(modelDir, "espeak-ng-data")
+        return model.exists() && model.length() > 1_000_000 &&
+            tokens.exists() && tokens.length() > 0 &&
+            ESPEAK_FILES.all { File(espeak, it).exists() }
+    }
 
-    suspend fun download() {
-        if (_state.value.downloading) return
+    /**
+     * Copia os assets para [modelDir] (idempotente: no-op se [ready]).
+     * Sem rethrow de falha de cópia — o erro fica no [state] (a UI mostra).
+     * Cancelamento (botão Cancelar) volta o estado ao valor real de [ready].
+     */
+    suspend fun ensureProvisioned() = withContext(Dispatchers.IO) {
+        if (ready()) return@withContext
         _state.value = State(downloaded = ready(), downloading = true)
         try {
             modelDir.mkdirs()
-            val onnxPart = File(modelDir, "model.onnx.part")
-            fetch(URL_ONNX, onnxPart) { p -> _state.value = _state.value.copy(progress = p * 0.98f) }
-            if (!onnxPart.renameTo(File(modelDir, "model.onnx"))) error("rename do onnx falhou")
-            val tokPart = File(modelDir, "tokens.txt.part")
-            fetch(URL_TOKENS, tokPart) { p -> _state.value = _state.value.copy(progress = 0.98f + p * 0.02f) }
-            if (!tokPart.renameTo(File(modelDir, "tokens.txt"))) error("rename do tokens falhou")
+            ASSET_FILES.forEachIndexed { index, path ->
+                currentCoroutineContext().ensureActive()
+                val dest = File(modelDir, path)
+                dest.parentFile?.mkdirs()
+                val part = File(dest.parentFile, "${dest.name}.part")
+                openAsset("$ASSET_ROOT/$path").use { input ->
+                    part.outputStream().use { out -> input.copyTo(out, 64 * 1024) }
+                }
+                if (!part.renameTo(dest)) error("rename de $path falhou")
+                _state.value = State(
+                    downloading = true,
+                    progress = (index + 1).toFloat() / ASSET_FILES.size,
+                )
+            }
             _state.value = State(downloaded = true)
         } catch (e: CancellationException) {
             _state.value = State(downloaded = ready())
             throw e
         } catch (e: Exception) {
-            _state.value = State(downloaded = ready(), error = e.message ?: "Falha no download")
+            _state.value = State(
+                downloaded = ready(),
+                error = e.message ?: "Falha ao preparar a voz",
+            )
         }
     }
 
-    /** Remove o modelo (para "trocar de voz" no futuro). */
+    /** Remove o modelo + espeak (para "trocar de voz" no futuro). */
     fun delete() {
-        listOf("model.onnx", "tokens.txt", "model.onnx.part", "tokens.txt.part")
-            .forEach { runCatching { File(modelDir, it).delete() } }
+        runCatching { File(modelDir, "model.onnx").delete() }
+        runCatching { File(modelDir, "tokens.txt").delete() }
+        runCatching { File(modelDir, "espeak-ng-data").deleteRecursively() }
+        runCatching { File(modelDir, "model.onnx.part").delete() }
+        runCatching { File(modelDir, "tokens.txt.part").delete() }
         _state.value = State(downloaded = ready())
     }
 
     companion object {
-        private const val BASE =
-            "https://huggingface.co/csukuangfj/vits-piper-pt_BR-jeff-medium/resolve/main"
-        const val URL_ONNX = "$BASE/pt_BR-jeff-medium.onnx"
-        const val URL_TOKENS = "$BASE/tokens.txt"
+        const val ASSET_ROOT = "piper/jeff"
 
-        private suspend fun httpFetch(url: String, dest: File, onProgress: (Float) -> Unit) =
-            withContext(Dispatchers.IO) {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 30_000
-                    readTimeout = 60_000
-                    instanceFollowRedirects = true
-                }
-                try {
-                    conn.connect()
-                    if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
-                    val total = conn.contentLengthLong
-                    var read = 0L
-                    conn.inputStream.use { input ->
-                        dest.outputStream().use { out ->
-                            val buf = ByteArray(64 * 1024)
-                            while (true) {
-                                currentCoroutineContext().ensureActive()
-                                val n = input.read(buf)
-                                if (n < 0) break
-                                out.write(buf, 0, n)
-                                read += n
-                                if (total > 0) onProgress((read.toFloat() / total).coerceIn(0f, 1f))
-                            }
-                        }
-                    }
-                } finally {
-                    conn.disconnect()
-                }
-            }
+        /** Ordem importa só para o progresso (o modelo é o maior). */
+        internal val ASSET_FILES = listOf(
+            "model.onnx",
+            "tokens.txt",
+            "espeak-ng-data/phondata",
+            "espeak-ng-data/phonindex",
+            "espeak-ng-data/phontab",
+            "espeak-ng-data/intonations",
+            "espeak-ng-data/pt_dict",
+            "espeak-ng-data/lang/roa/pt",
+            "espeak-ng-data/lang/roa/pt-BR",
+        )
+
+        /** Arquivos cuja ausência invalida o [ready] (subset pt-BR do espeak). */
+        internal val ESPEAK_FILES = listOf(
+            "phondata", "phonindex", "phontab", "intonations", "pt_dict",
+        )
     }
 }

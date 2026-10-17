@@ -96,11 +96,12 @@ fun SettingsScreen(
                 subtitle = "Chave de API e modelo",
                 onClick = onOpenModel,
             )
-            // #23-fix-a: voz premium (Piper Jeff) — baixar / baixando / pronto.
+            // #23-fix-a: voz premium (Piper Jeff) — preparar / preparando / pronto.
+            // #23-fix-b: sem download — o modelo é embutido e provisionado local.
             VoicePremiumTile(
                 state = voiceState,
                 enabled = premiumEnabled,
-                onDownload = { downloadJob = scope.launch { voiceStore.download() } },
+                onDownload = { downloadJob = scope.launch { voiceStore.ensureProvisioned() } },
                 onCancel = { downloadJob?.cancel(); downloadJob = null },
                 onToggle = { desired ->
                     when (
@@ -118,7 +119,7 @@ fun SettingsScreen(
                         }
                         com.bettertalker.app.data.voice.VoicePremiumToggle.NeedsDownload ->
                             android.widget.Toast.makeText(
-                                ctx, "Baixe o modelo primeiro.", android.widget.Toast.LENGTH_SHORT,
+                                ctx, "Prepare a voz primeiro.", android.widget.Toast.LENGTH_SHORT,
                             ).show()
                     }
                 },
@@ -214,11 +215,11 @@ private fun VoicePremiumTile(
                     Text("Voz premium (Piper)", style = MaterialTheme.typography.titleMedium)
                     val subtitle = when {
                         state.downloading ->
-                            "Baixando... ${(state.progress * 100).toInt()}%"
+                            "Preparando voz... ${(state.progress * 100).toInt()}%"
                         state.downloaded ->
-                            "Modelo pronto (63MB). Voz: Jeff."
+                            "Voz pronta (Jeff). Funciona 100% offline."
                         else ->
-                            "Baixe o modelo (63MB) para uma voz mais natural."
+                            "Voz mais natural, incluída no app (63MB)."
                     }
                     Text(
                         subtitle,
@@ -236,7 +237,7 @@ private fun VoicePremiumTile(
                 when {
                     state.downloading -> TextButton(onClick = onCancel) { Text("Cancelar") }
                     state.downloaded -> Switch(checked = enabled, onCheckedChange = onToggle)
-                    else -> TextButton(onClick = onDownload) { Text("Baixar") }
+                    else -> TextButton(onClick = onDownload) { Text("Preparar voz") }
                 }
             }
             if (state.downloaded) {
