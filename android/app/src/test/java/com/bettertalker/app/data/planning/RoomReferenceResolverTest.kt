@@ -364,8 +364,9 @@ class RoomReferenceResolverTest {
     }
 
     @Test
-    fun resolvePublication_indiceSemPagina_caiNoRangeDeParagrafos() = runBlocking {
-        // Índice antigo (pages NULL): o range de §§ ainda é texto REAL.
+    fun resolvePublication_indiceSemPagina_returnsUnresolved() = runBlocking {
+        // Índice antigo (pages NULL): sem página não há como desambiguar os
+        // §§ (repetem por artigo) — UNRESOLVED, nunca trecho de artigo errado.
         val rows = listOf(
             passage("n8", "w25.07", "w25.07 §8", "Parágrafo oito sem página.",
                 "paragrafo oito sem pagina", ord = 0, paragraph = 8),
@@ -374,9 +375,7 @@ class RoomReferenceResolverTest {
         )
         val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
             .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 9))
-        assertEquals(ReferenceStatus.PARTIAL, out.status)
-        assertTrue(out.text!!.contains("oito"))
-        assertTrue(out.text!!.contains("nove"))
-        assertEquals("w25.07 §8-9", out.canonicalRef)
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
     }
 }

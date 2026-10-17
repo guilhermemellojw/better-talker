@@ -135,30 +135,18 @@ class RoomReferenceResolver(
         val start = ref.paragraph ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         val end = ref.paragraphEnd ?: start
         val rows = passageDao.byPageParagraph(hit.id, page, start, end)
-        if (rows.isNotEmpty()) {
-            val text = rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
-            if (text.isNotBlank()) {
-                val label = buildString {
-                    append(ref.symbol)
-                    append(" pág. $page")
-                    append(" §$start")
-                    if (end != start) append("-$end")
-                }
-                return ResolvedReference(ref.symbol, label, text, rows.first().id, ReferenceStatus.RESOLVED)
-            }
-        }
-        // Fallback (índice antigo sem `page`): o range de parágrafos ainda é
-        // o melhor recorte disponível — texto REAL, página não verificada.
-        val approx = passageDao.byParagraphRange(hit.id, start, end, UNIT_PASSAGES)
-        if (approx.isEmpty()) {
+        if (rows.isEmpty()) {
+            // Sem linhas da página: UNRESOLVED (nunca trecho aproximado —
+            // §§ repetem por artigo e o texto errado envenena o dossiê).
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
-        val text = approx.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        val text = rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
         val label = buildString {
             append(ref.symbol)
+            append(" pág. $page")
             append(" §$start")
             if (end != start) append("-$end")
         }
@@ -166,8 +154,8 @@ class RoomReferenceResolver(
             original = ref.symbol,
             canonicalRef = label,
             text = text,
-            passageId = approx.first().id,
-            status = ReferenceStatus.PARTIAL,
+            passageId = rows.first().id,
+            status = ReferenceStatus.RESOLVED,
         )
     }
 }
