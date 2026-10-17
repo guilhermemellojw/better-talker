@@ -286,18 +286,23 @@ fun ChatScreen(
             }
         }
     }
-    LaunchedEffect(messages.size, busy) {
-        if (messages.isNotEmpty()) {
-            if (followEnd) {
-                // T2 (Bug #13): alvo = ÚLTIMO item real da lista (item de ações
-                // da última resposta) — com resposta longa o topo deixava os
-                // botões fora da tela.
-                listState.animateScrollToItem(lastItemIndex)
-            } else {
-                unseenCount++
-            }
+    LaunchedEffect(messages.size) {
+        // #25-fix-a: novo alvo = última MENSAGEM (cards renderizam depois e
+        // escondiam a resposta) e a contagem observa SÓ messages.size — o
+        // busy não conta: um turno que só gera proposta não incrementa.
+        when (val action = messagesEffect(
+            messageCount = messages.size,
+            hasContext = messages.isNotEmpty(),
+            hasTopicEmpty = messages.isEmpty() && chatScope != null,
+            followEnd = followEnd,
+        )) {
+            is MessagesEffect.ScrollTo -> listState.animateScrollToItem(action.index)
+            MessagesEffect.CountUnseen -> unseenCount++
+            MessagesEffect.Nothing -> Unit
         }
     }
+    // #25-fix-a: voltar a seguir o fim (pílula ou arrasto até o fim) zera o contador.
+    LaunchedEffect(followEnd) { if (followEnd) unseenCount = 0 }
     // T3: o parcial do streaming cresce DENTRO do mesmo item — rola junto,
     // instantâneo, alinhando o FIM do item (offset máximo).
     LaunchedEffect(localPartial) {
@@ -356,6 +361,25 @@ fun ChatScreen(
                         onAttach = { showAttach = true },
                         onPrefill = { input = it; composerFocus.requestFocus() }
                     )
+                    Spacer(Modifier.height(6.dp))
+                }
+                // #25-fix-a: pílula "N novas" ACIMA do composer (C2) — não
+                // flutua sobre a lista; o texto nunca fica coberto. Aparece
+                // também durante a geração (busy) para não deixar o usuário
+                // sem indicador enquanto o parcial cresce.
+                if (unseenCount > 0) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        androidx.compose.material3.FilledTonalButton(
+                            onClick = {
+                                unseenCount = 0
+                                followEnd = true
+                                scope.launch { listState.animateScrollToItem(lastItemIndex) }
+                            }
+                        ) { Text(if (unseenCount == 1) "Nova mensagem ↓" else "$unseenCount novas ↓") }
+                    }
                     Spacer(Modifier.height(6.dp))
                 }
                 ChatPromptBar(
@@ -603,16 +627,6 @@ fun ChatScreen(
                         else -> Unit
                     }
                 }
-            }
-            if (unseenCount > 0 && !busy) {
-                androidx.compose.material3.FilledTonalButton(
-                    onClick = {
-                        unseenCount = 0
-                        followEnd = true
-                        scope.launch { listState.animateScrollToItem(lastItemIndex) }
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
-                ) { Text(if (unseenCount == 1) "Nova mensagem ↓" else "$unseenCount novas ↓") }
             }
         }
     }
@@ -903,6 +917,44 @@ private val ACTIONLESS_KINDS = setOf("ideas", "refs", "bases", "sections", "draf
  */
 internal fun shouldShowSuggestions(hasUserMessage: Boolean, inputBlank: Boolean): Boolean =
     !hasUserMessage && inputBlank
+
+/**
+ * #25-fix-a: índice do último ITEM DE MENSAGEM — alvo do auto-scroll quando
+ * chega mensagem nova. Cards (fontes/proposta/estrutura) e estados renderizam
+ * DEPOIS das mensagens e NÃO entram aqui (antes, o alvo era o último item e o
+ * card escondia a resposta). Puro/testável.
+ */
+internal fun lastMessageIndex(
+    messageCount: Int,
+    hasContext: Boolean,
+    hasTopicEmpty: Boolean,
+): Int {
+    val offset = (if (hasContext) 1 else 0) + (if (hasTopicEmpty) 1 else 0)
+    return (offset + messageCount - 1).coerceAtLeast(0)
+}
+
+/** #25-fix-a: ação do efeito de mensagem nova. Puro/testável. */
+internal sealed interface MessagesEffect {
+    data class ScrollTo(val index: Int) : MessagesEffect
+    data object CountUnseen : MessagesEffect
+    data object Nothing : MessagesEffect
+}
+
+/**
+ * #25-fix-a — o efeito observa SÓ `messages.size` (busy não conta): mensagem
+ * nova com followEnd = rola até a última mensagem; sem followEnd = conta uma
+ * nova; lista vazia = nada. Puro/testável.
+ */
+internal fun messagesEffect(
+    messageCount: Int,
+    hasContext: Boolean,
+    hasTopicEmpty: Boolean,
+    followEnd: Boolean,
+): MessagesEffect = when {
+    messageCount <= 0 -> MessagesEffect.Nothing
+    followEnd -> MessagesEffect.ScrollTo(lastMessageIndex(messageCount, hasContext, hasTopicEmpty))
+    else -> MessagesEffect.CountUnseen
+}
 
 /** T2 (Bug #13): resposta do Copilot de texto corrido → tem item de ações. */
 internal fun hasMessageActions(item: CopilotViewModel.ChatItem): Boolean =

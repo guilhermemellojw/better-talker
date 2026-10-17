@@ -90,4 +90,14 @@ class ChatActionsTest {
         // Tópico vazio (sem contexto) = 1 item → índice 0.
         assertEquals(0, chatLastItemIndex(0, false, true, false, false, 0))
     }
+
+    @Test
+    fun ultimaMensagemIgnoraCardsDoFim() {
+        // #25-fix-a: com fontes + cards/proposta após as mensagens, o alvo do
+        // scroll de mensagem nova continua sendo a MENSAGEM; o "último item"
+        // (chatLastItemIndex) aponta o card — era ele que escondia a resposta.
+        assertEquals(2, lastMessageIndex(3, hasContext = false, hasTopicEmpty = false))
+        // 1 ctx + 3 msgs + fontes + proposta = 6 itens → último índice 5.
+        assertEquals(5, chatLastItemIndex(3, true, false, true, true, 0))
+    }
 }
