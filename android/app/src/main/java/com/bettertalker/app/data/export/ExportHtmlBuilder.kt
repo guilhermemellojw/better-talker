@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.export
 
+import com.bettertalker.app.data.util.decodeHtmlEntities
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
@@ -122,14 +123,12 @@ fun buildExportPlainText(
     sections: List<SpeechSection>,
     subPointsBySection: Map<String, List<SubPoint>> = emptyMap(),
 ): String {
-    fun strip(html: String): String = html
-        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-        .replace(Regex("</p>", RegexOption.IGNORE_CASE), "\n")
-        .replace(Regex("<[^>]+>"), "")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
+    fun strip(html: String): String = decodeHtmlEntities(
+        html
+            .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("</p>", RegexOption.IGNORE_CASE), "\n")
+            .replace(Regex("<[^>]+>"), "")
+    )
         .replace(Regex("[ \\t]+"), " ")
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()

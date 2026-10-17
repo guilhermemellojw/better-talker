@@ -1,8 +1,14 @@
 package com.bettertalker.app.data.voice
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import java.io.File
 
 /**
@@ -10,6 +16,11 @@ import java.io.File
  *
  * `active` é lido a cada chamada (nunca cacheado): se o Piper falhar em
  * runtime, o próximo speak cai no nativo sozinho.
+ *
+ * #27-fix: `ready`/`speaking` agora são flows COMBINADOS e estáveis — antes
+ * eram getters do engine ativo no instante da chamada e o Ensaio (que captura
+ * o flow uma vez no ViewModel) ficava preso no nativo quando o warmUp do
+ * Piper ainda não tinha terminado (botão "Ouvir" desabilitado à toa).
  */
 class VoiceRouter(
     private val native: VoiceEngine,
@@ -21,11 +32,22 @@ class VoiceRouter(
     private val _premiumEnabled = MutableStateFlow(false)
     val premiumEnabled: StateFlow<Boolean> = _premiumEnabled.asStateFlow()
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private val active: VoiceEngine
         get() = if (_premiumEnabled.value && piper.ready.value) piper else native
 
-    override val speaking: StateFlow<Boolean> get() = active.speaking
-    override val ready: StateFlow<Boolean> get() = active.ready
+    /** Fala se qualquer engine estiver falando (só um fala por vez). */
+    override val speaking: StateFlow<Boolean> =
+        combine(piper.speaking, native.speaking) { ps, ns -> ps || ns }
+            .stateIn(scope, SharingStarted.Eagerly, false)
+
+    /** Pronto para falar: premium → Piper pronto ou nativo; senão → nativo. */
+    override val ready: StateFlow<Boolean> =
+        combine(_premiumEnabled, piper.ready, native.ready) { premium, pr, nr ->
+            routerReady(premium, pr, nr)
+        }.stateIn(scope, SharingStarted.Eagerly, native.ready.value)
+
     override val initialized: StateFlow<Boolean> get() = active.initialized
 
     override fun speak(text: String, rate: Float, pitch: Float) = active.speak(text, rate, pitch)
@@ -61,6 +83,13 @@ sealed interface VoicePremiumToggle {
     data object Deactivated : VoicePremiumToggle
     data object NeedsDownload : VoicePremiumToggle
 }
+
+/**
+ * #27-fix: regra de prontidão do roteador (pura/testável). Premium ligado
+ * vale Piper pronto OU nativo (fallback); desligado, só o nativo.
+ */
+internal fun routerReady(premium: Boolean, piperReady: Boolean, nativeReady: Boolean): Boolean =
+    if (premium) piperReady || nativeReady else nativeReady
 
 /**
  * Regra do toggle: ligar exige o modelo baixado; desligar é sempre livre.

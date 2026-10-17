@@ -136,21 +136,31 @@ class PiperTtsManager(
                     .build()
                 synchronized(trackLock) { audioTrack = track }
                 track.play()
-                local.generateWithConfigAndCallback(
-                    text = text,
-                    config = GenerationConfig(speed = 1.0f, sid = 0),
-                    // SherpaTtsCallback: o JNI exige invoke([F)Ljava/lang/Integer;
-                    // (lambda Kotlin = primitivo → NoSuchMethodError → SIGABRT).
-                    callback = SherpaTtsCallback { samples ->
-                        if (_speaking.value) {
-                            // Convenção do sherpa: 0 = PARAR; != 0 = continuar.
-                            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                            1
-                        } else {
-                            0
-                        }
-                    },
-                )
+                // #27-fix (P0): síntese POR BLOCO — o sintetizador nativo
+                // estoura (SIGSEGV em generateWithConfigImpl) com o texto
+                // inteiro do Ensaio (~30k chars). Blocos de frase no MESMO
+                // AudioTrack = reprodução contínua + pausa entre blocos.
+                for (chunk in chunkForTts(text)) {
+                    if (!_speaking.value) break
+                    var stopped = false
+                    local.generateWithConfigAndCallback(
+                        text = chunk,
+                        config = GenerationConfig(speed = 1.0f, sid = 0),
+                        // SherpaTtsCallback: o JNI exige invoke([F)Ljava/lang/Integer;
+                        // (lambda Kotlin = primitivo → NoSuchMethodError → SIGABRT).
+                        callback = SherpaTtsCallback { samples ->
+                            if (_speaking.value) {
+                                // Convenção do sherpa: 0 = PARAR; != 0 = continuar.
+                                track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                                1
+                            } else {
+                                stopped = true
+                                0
+                            }
+                        },
+                    )
+                    if (stopped) break
+                }
             } catch (e: Throwable) {
                 Log.e("PiperTts", "speak falhou: ${e.message}", e)
             } finally {
@@ -195,4 +205,48 @@ class PiperTtsManager(
             scope.cancel()
         }
     }
+}
+
+/**
+ * #27-fix (P0): divide o texto em blocos de frase (≤ [maxChars]) para a
+ * síntese sequencial — o sintetizador nativo do sherpa estoura (SIGSEGV)
+ * com texto gigante (o Ensaio manda o discurso inteiro). Nunca perde
+ * conteúdo: blocos maiores que o teto são cortados em espaços. Puro/testável.
+ */
+internal fun chunkForTts(text: String, maxChars: Int = 400): List<String> {
+    if (text.isBlank()) return emptyList()
+    val out = mutableListOf<String>()
+    val sb = StringBuilder()
+    fun flush() {
+        val t = sb.toString().trim()
+        if (t.isNotEmpty()) out += t
+        sb.clear()
+    }
+    for (block in text.split('\n')) {
+        val clean = block.trim()
+        if (clean.isEmpty()) {
+            flush()
+            continue
+        }
+        for (sentence in Regex("(?<=[.!?…:;])\\s+").split(clean)) {
+            val s = sentence.trim()
+            if (s.isEmpty()) continue
+            if (s.length > maxChars) {
+                flush()
+                var rest = s
+                while (rest.length > maxChars) {
+                    val cut = rest.lastIndexOf(' ', maxChars).takeIf { it > 0 } ?: maxChars
+                    out += rest.substring(0, cut).trim()
+                    rest = rest.substring(cut).trim()
+                }
+                if (rest.isNotEmpty()) sb.append(rest)
+            } else {
+                if (sb.isNotEmpty() && sb.length + s.length + 1 > maxChars) flush()
+                if (sb.isNotEmpty()) sb.append(' ')
+                sb.append(s)
+            }
+        }
+    }
+    flush()
+    return out
 }
