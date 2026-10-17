@@ -94,6 +94,7 @@ class PiperTtsManager(
             tts = OfflineTts(config = config)
             _ready.value = true
             _initialized.value = true
+            Log.i("PiperTts", "load ok: ${modelDir.name} (sr=${tts?.sampleRate()})")
             true
         } catch (e: Throwable) {
             Log.e("PiperTts", "load falhou: ${e.message}", e)
@@ -142,11 +143,18 @@ class PiperTtsManager(
                 local.generateWithConfigAndCallback(
                     text = text,
                     config = GenerationConfig(speed = 1.0f, sid = 0),
-                ) { samples ->
-                    if (!_speaking.value) return@generateWithConfigAndCallback 1
-                    track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                    0
-                }
+                    // SherpaTtsCallback: o JNI exige invoke([F)Ljava/lang/Integer;
+                    // (lambda Kotlin = primitivo → NoSuchMethodError → SIGABRT).
+                    callback = SherpaTtsCallback { samples ->
+                        if (_speaking.value) {
+                            // Convenção do sherpa: 0 = PARAR; != 0 = continuar.
+                            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                            1
+                        } else {
+                            0
+                        }
+                    },
+                )
             } catch (e: Throwable) {
                 Log.e("PiperTts", "speak falhou: ${e.message}", e)
             } finally {
@@ -169,6 +177,11 @@ class PiperTtsManager(
     }
 
     override fun isSpeaking(): Boolean = _speaking.value
+
+    /** #23-fix-a: pré-carrega o modelo em background (evita o race do lazy). */
+    override fun warmUp() {
+        scope.launch { ensureLoaded() }
+    }
 
     override fun shutdown() {
         stop()

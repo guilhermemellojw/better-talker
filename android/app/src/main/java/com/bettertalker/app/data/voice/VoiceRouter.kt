@@ -39,6 +39,9 @@ class VoiceRouter(
 
     fun setPremiumEnabled(enabled: Boolean) {
         _premiumEnabled.value = enabled
+        // #23-fix-a: ligar o premium já pré-carrega o Piper (o lazy sozinho
+        // nunca ativava: ready só vira true depois do 1º speak).
+        if (enabled) piper.warmUp()
     }
 
     /**

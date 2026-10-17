@@ -155,6 +155,9 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
 
     override fun isSpeaking(): Boolean = tts?.isSpeaking == true
 
+    /** #23-fix-a: nativo já carrega no init — no-op. */
+    override fun warmUp() {}
+
     override fun shutdown() {
         runCatching { tts?.stop() }
         runCatching { tts?.shutdown() }

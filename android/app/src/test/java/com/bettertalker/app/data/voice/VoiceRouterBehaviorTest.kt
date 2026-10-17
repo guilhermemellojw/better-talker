@@ -13,6 +13,7 @@ class VoiceRouterBehaviorTest {
 
     private class FakeEngine(readyNow: Boolean) : VoiceEngine {
         val spoken = mutableListOf<String>()
+        var warmed = false
         override val speaking: StateFlow<Boolean> = MutableStateFlow(false)
         override val ready: StateFlow<Boolean> = MutableStateFlow(readyNow)
         override val initialized: StateFlow<Boolean> = MutableStateFlow(true)
@@ -21,6 +22,7 @@ class VoiceRouterBehaviorTest {
         }
         override fun stop() {}
         override fun isSpeaking(): Boolean = false
+        override fun warmUp() { warmed = true }
         override fun shutdown() {}
     }
 
@@ -54,6 +56,18 @@ class VoiceRouterBehaviorTest {
         r.speak("z")
         assertEquals(listOf("z"), native.spoken)
         assertTrue(piper.spoken.isEmpty())
+    }
+
+    @Test
+    fun ligarPremiumPreCarregaOPiper() {
+        // Regressão do deadlock: sem warmUp, o lazy nunca carregava e o
+        // router caía no nativo para sempre.
+        val native = FakeEngine(true)
+        val piper = FakeEngine(false)
+        val r = VoiceRouter(native, piper, File("/nao-existe"))
+        r.setPremiumEnabled(true)
+        assertTrue(piper.warmed)
+        r.setPremiumEnabled(false)
     }
 
     @Test

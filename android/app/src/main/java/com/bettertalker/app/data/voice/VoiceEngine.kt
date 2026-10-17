@@ -15,4 +15,7 @@ interface VoiceEngine {
     fun stop()
     fun isSpeaking(): Boolean
     fun shutdown()
+
+    /** #23-fix-a: pré-carrega o motor (Piper é lazy; nativo é no-op). */
+    fun warmUp() {}
 }
