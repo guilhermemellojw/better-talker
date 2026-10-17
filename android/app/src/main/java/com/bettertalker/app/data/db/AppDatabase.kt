@@ -260,7 +260,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -364,18 +364,24 @@ data class ChatEntity(
      * da nota (mensagens antigas, sem migration de conteúdo).
      */
     val sectionId: String? = null,
+    /**
+     * #26-fix-c: soft delete — "Regenerar resposta"/"Editar pergunta"
+     * desativam o turno antigo sem apagar o histórico; toda leitura de
+     * UI/histórico filtra apenas mensagens ativas.
+     */
+    val isActive: Boolean = true,
 )
 
 @Dao
 interface ChatDao {
-    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND isActive = 1 ORDER BY createdAt ASC")
     fun observe(noteId: String): Flow<List<ChatEntity>>
-    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND isActive = 1 ORDER BY createdAt ASC")
     suspend fun all(noteId: String): List<ChatEntity>
     /** F2.3: conversa de um tópico (ou a global, quando [sectionId] é null). */
-    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId AND isActive = 1 ORDER BY createdAt ASC")
     fun observeScoped(noteId: String, sectionId: String?): Flow<List<ChatEntity>>
-    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM chat_messages WHERE noteId = :noteId AND sectionId IS :sectionId AND isActive = 1 ORDER BY createdAt ASC")
     suspend fun allScoped(noteId: String, sectionId: String?): List<ChatEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(m: ChatEntity)
@@ -386,6 +392,24 @@ interface ChatDao {
     suspend fun clearScoped(noteId: String, sectionId: String?)
     @Query("DELETE FROM chat_messages WHERE id = :id")
     suspend fun delete(id: String)
+
+    /** #26-fix-c: soft delete de UMA mensagem (Regenerar resposta). */
+    @Query("UPDATE chat_messages SET isActive = 0 WHERE id = :messageId")
+    suspend fun deactivateMessage(messageId: String)
+
+    /**
+     * #26-fix-c: soft delete da pergunta editada E de tudo que veio depois,
+     * no MESMO escopo da conversa (Editar pergunta).
+     */
+    @Query(
+        "UPDATE chat_messages SET isActive = 0 WHERE noteId = :noteId " +
+            "AND sectionId IS :sectionId AND createdAt >= :fromCreatedAt"
+    )
+    suspend fun deactivateMessagesFrom(noteId: String, sectionId: String?, fromCreatedAt: Long)
+
+    /** #26-fix-c: substitui o payload de uma mensagem (edição inline). */
+    @Query("UPDATE chat_messages SET payload = :newPayload WHERE id = :messageId")
+    suspend fun updateMessagePayload(messageId: String, newPayload: String)
 }
 
 @Dao

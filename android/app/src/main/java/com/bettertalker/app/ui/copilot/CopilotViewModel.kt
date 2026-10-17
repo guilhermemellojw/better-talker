@@ -413,6 +413,14 @@ internal fun enrichedRetrievalQuery(
 }
 
 /**
+ * #26-fix-c — histórico do reenvio (Regenerar/Retry): remove da continuidade
+ * a pergunta atual (último turno do usuário), que vira o "texto atual" do
+ * prompt. Puro/testável.
+ */
+internal fun historyForResend(turns: List<ChatTurn>): List<ChatTurn> =
+    if (turns.lastOrNull()?.fromMe == true) turns.dropLast(1) else turns
+
+/**
  * T5 (Mini Discurso) — destino de uma ideia no editor: tópico (`sectionId`)
  * ou âncora de heading (notas legadas, sem seções). Puro.
  */
@@ -707,6 +715,8 @@ class CopilotViewModel(
         val origin: MessageOrigin = MessageOrigin.COPILOT,
         /** #17-fix: tempo de resposta do assistente (ms), quando informado. */
         val durationMs: Long? = null,
+        /** #26-fix-c: timestamp de criação (alvo do "Editar pergunta"). */
+        val createdAt: Long = 0,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -1184,11 +1194,55 @@ class CopilotViewModel(
         _runState.value = ChatRunState.Idle
     }
 
-    /** Reenvia a última mensagem pelo mesmo pipeline. */
+    /**
+     * #26-fix-c (D2): reenvia o turno SEM duplicar a pergunta — desativa a
+     * resposta anterior (se houver) e refaz a geração com a última pergunta
+     * ativa. Mesmo caminho do "Regenerar resposta".
+     */
     fun retry() {
-        val msg = lastUserMessage ?: return
         dismissError()
-        send(msg)
+        regenerateLastResponse()
+    }
+
+    /**
+     * #26-fix-c (DeepSeek Web): regenera a última resposta — a resposta
+     * ativa mais recente é DESATIVADA (soft delete) e o turno é refeito com
+     * a última pergunta ativa, sem reenviá-la ao banco.
+     */
+    fun regenerateLastResponse() = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        if (_chatBusy.value) return@launch
+        val active = db.chatDao().allScoped(nid, _chatScope.value)
+        val lastUser = active.lastOrNull { it.fromMe } ?: return@launch
+        active.lastOrNull { !it.fromMe }?.let { db.chatDao().deactivateMessage(it.id) }
+        val text = ChatCodec.unescMap(lastUser.payload)["text"].orEmpty()
+        if (text.isBlank()) return@launch
+        lastUserMessage = text
+        send(
+            text,
+            postUserMessage = false,
+            historyOverride = historyForResend(conversationTurnsScoped()),
+        )
+    }
+
+    /**
+     * #26-fix-c (DeepSeek Web): edita a pergunta e refaz o turno — a pergunta
+     * e TUDO que veio depois no MESMO escopo são desativados (soft delete) e
+     * uma nova mensagem com [newText] entra no lugar, disparando a geração.
+     * O histórico anterior à pergunta editada fica intacto.
+     */
+    fun editUserMessage(messageId: String, createdAt: Long, newText: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        if (_chatBusy.value) return@launch
+        // Guarda: só edita pergunta ATIVA do usuário no escopo atual.
+        val ok = db.chatDao().allScoped(nid, _chatScope.value).any {
+            it.id == messageId && it.fromMe && it.createdAt == createdAt
+        }
+        if (!ok) return@launch
+        val text = validateOutgoingMessage(newText) ?: return@launch
+        db.chatDao().deactivateMessagesFrom(nid, _chatScope.value, createdAt)
+        lastUserMessage = text
+        send(text, postUserMessage = true, historyOverride = null)
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -1208,35 +1262,37 @@ class CopilotViewModel(
                         ChatItem(e.id, e.fromMe, e.kind,
                             section = m["section"].orEmpty(),
                             cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()),
-                            origin = messageOriginOf(m))
+                            origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "refs" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
                             detectedJson = m["detected"].orEmpty(),
-                            origin = messageOriginOf(m))
+                            origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "bases" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["text"].orEmpty(),
                             slots = m["slots"].orEmpty().split(",").filter { it.isNotBlank() },
-                            origin = messageOriginOf(m))
+                            origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "sections" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
                             secItems = ChatCodec.sectionsFromJson(m["items"].orEmpty()),
-                            origin = messageOriginOf(m))
+                            origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "draft" -> {
                         val (title, items) = ChatCodec.draftFromJson(e.payload)
-                        ChatItem(e.id, e.fromMe, e.kind, draftTitle = title, draftItems = items)
+                        ChatItem(e.id, e.fromMe, e.kind, draftTitle = title,
+                            draftItems = items, createdAt = e.createdAt)
                     }
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, "text",
                             text = m["text"].orEmpty(), origin = messageOriginOf(m),
-                            durationMs = m["durationMs"]?.toLongOrNull())
+                            durationMs = m["durationMs"]?.toLongOrNull(),
+                            createdAt = e.createdAt)
                     }
                 }
             }
@@ -1360,7 +1416,19 @@ class CopilotViewModel(
      * e sugestão de continuação entram todos por aqui, com o mesmo contexto.
      * Não há caminho alternativo que monte prompt diferente.
      */
-    fun send(raw: String) {
+    fun send(raw: String) = send(raw, postUserMessage = true, historyOverride = null)
+
+    /**
+     * #26-fix-c — núcleo do turno, compartilhado por enviar/Regenerar/Editar:
+     * [postUserMessage] = false evita duplicar a pergunta já persistida;
+     * [historyOverride] fixa o histórico do prompt (ex.: sem o turno reenviado).
+     * Demais fluxos idênticos ao send().
+     */
+    private fun send(
+        raw: String,
+        postUserMessage: Boolean,
+        historyOverride: List<ChatTurn>?,
+    ) {
         // Mensagem vazia nunca sai: mesmo gate do web.
         val text = validateOutgoingMessage(raw) ?: return
         if (noteId == null) return
@@ -1375,7 +1443,8 @@ class CopilotViewModel(
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
-            val historyBefore = conversationTurnsScoped()
+            // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
+            val historyBefore = historyOverride ?: conversationTurnsScoped()
             val isFirst = historyBefore.none { it.fromMe }
             // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
@@ -1401,7 +1470,10 @@ class CopilotViewModel(
             }
             lastDossier = dossier
             val blockText = currentFocusText()
-            post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
+            // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
+            if (postUserMessage) {
+                post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
+            }
             _chatBusy.value = true
             // F2.1-fix: o try cobre TUDO a partir daqui (intenção, RAG,
             // roteamento e geração). Antes, os return@launch das rotas

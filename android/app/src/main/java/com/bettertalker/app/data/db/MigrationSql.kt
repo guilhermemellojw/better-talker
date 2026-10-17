@@ -144,4 +144,13 @@ object MigrationSql {
     val MIGRATION_17_18: List<String> = listOf(
         "ALTER TABLE `speech_sections` ADD COLUMN `tribunaJson` TEXT",
     )
+
+    /**
+     * #26-fix-c (v18 -> v19): soft delete das mensagens do chat
+     * ("Regenerar resposta" / "Editar pergunta"). Aditiva: mensagens antigas
+     * ficam ativas (default 1); as leituras filtram `isActive = 1`.
+     */
+    val MIGRATION_18_19: List<String> = listOf(
+        "ALTER TABLE `chat_messages` ADD COLUMN `isActive` INTEGER NOT NULL DEFAULT 1",
+    )
 }
