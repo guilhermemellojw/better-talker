@@ -49,13 +49,39 @@ class MainActivity : FragmentActivity() {
             val palette by settings.paletteId.collectAsState(
                 initial = com.bettertalker.app.ui.theme.PaletteId.SAMSUNG
             )
-            BetterTalkerTheme(mode = mode, palette = palette) { AppNav(settings) }
+            // #23-fix-a: TTS premium (Piper Jeff) — criado uma vez por processo.
+            val voiceStore = androidx.compose.runtime.remember(ctx) {
+                com.bettertalker.app.data.voice.PiperModelStore(
+                    java.io.File(ctx.filesDir, "piper/jeff")
+                )
+            }
+            val voiceRouter = androidx.compose.runtime.remember(ctx) {
+                com.bettertalker.app.data.voice.VoiceRouter(
+                    com.bettertalker.app.data.voice.TextToSpeechManager(ctx.applicationContext),
+                    com.bettertalker.app.data.voice.PiperTtsManager(
+                        ctx.applicationContext, voiceStore.modelDir
+                    ),
+                    voiceStore.modelDir,
+                )
+            }
+            val premiumPref by settings.voicePremiumEnabled.collectAsState(initial = false)
+            androidx.compose.runtime.LaunchedEffect(premiumPref) {
+                voiceRouter.setPremiumEnabled(premiumPref)
+                voiceRouter.ensurePiperOrFallback()
+            }
+            BetterTalkerTheme(mode = mode, palette = palette) {
+                AppNav(settings, voiceRouter, voiceStore)
+            }
         }
     }
 }
 
 @Composable
-private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
+private fun AppNav(
+    settings: com.bettertalker.app.data.prefs.SettingsStore,
+    voiceRouter: com.bettertalker.app.data.voice.VoiceRouter,
+    voiceStore: com.bettertalker.app.data.voice.PiperModelStore,
+) {
     val nav = rememberNavController()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val db = DbProvider.get(ctx)
@@ -112,6 +138,8 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 settings,
+                voiceStore = voiceStore,
+                voiceRouter = voiceRouter,
                 onBack = { nav.popBackStack() },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
                 onOpenModel = { nav.navigate(Routes.MODEL) },
@@ -127,7 +155,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
-            val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId))
+            val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter))
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
             androidx.compose.runtime.LaunchedEffect(vm) {
                 val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
@@ -181,7 +209,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val noteId = back.arguments?.getString("noteId") ?: return@composable
             val stageVm: StageViewModel = viewModel(
                 key = "stage-$noteId",
-                factory = StageViewModel.Factory(ctx, db, settings, noteId)
+                factory = StageViewModel.Factory(ctx, db, settings, noteId, voiceRouter)
             )
             StageScreen(stageVm, onBack = { nav.popBackStack() })
         }
@@ -194,7 +222,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             val tribunaVm: com.bettertalker.app.ui.tribuna.TribunaViewModel = viewModel(
                 key = "tribuna-$noteId",
                 factory = com.bettertalker.app.ui.tribuna.TribunaViewModel.Factory(
-                    ctx, db, settings, noteId
+                    ctx, db, settings, noteId, voiceRouter
                 ),
             )
             com.bettertalker.app.ui.tribuna.TribunaScreen(
@@ -214,7 +242,7 @@ private fun AppNav(settings: com.bettertalker.app.data.prefs.SettingsStore) {
             // destruía a proposta em exibição.)
             val copilotVm: CopilotViewModel = viewModel(
                 editorEntry, key = "cop-$noteId",
-                factory = CopilotViewModel.Factory(ctx, db, noteId)
+                factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter)
             )
             val editorVm: EditorViewModel = viewModel(
                 editorEntry, key = noteId,

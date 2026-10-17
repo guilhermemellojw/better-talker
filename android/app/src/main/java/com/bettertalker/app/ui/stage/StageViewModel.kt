@@ -62,10 +62,13 @@ class StageViewModel(
     private val settings: SettingsStore,
     private val noteId: String,
     appCtx: android.content.Context,
+    voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null,
 ) : ViewModel() {
 
     // T2 — TTS de ensaio: reaproveita o mesmo gerenciador do chat.
-    private val tts = com.bettertalker.app.data.voice.TextToSpeechManager(appCtx)
+    // #23-fix-a: VoiceEngine injetável (router); default = nativo.
+    private val tts: com.bettertalker.app.data.voice.VoiceEngine =
+        voiceEngine ?: com.bettertalker.app.data.voice.TextToSpeechManager(appCtx)
 
     /** Motor de voz pronto (pt-BR instalado). */
     val ttsReady: StateFlow<Boolean> = tts.ready
@@ -162,9 +165,10 @@ class StageViewModel(
         private val db: AppDatabase,
         private val settings: SettingsStore,
         private val noteId: String,
+        private val voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            StageViewModel(db, settings, noteId, ctx.applicationContext) as T
+            StageViewModel(db, settings, noteId, ctx.applicationContext, voiceEngine) as T
     }
 }

@@ -79,21 +79,21 @@ private val NON_SPEECH_EMOJIS = listOf(
  * - Uma fala por vez: [speak] para a anterior antes de começar.
  * - Ciclo de vida: [shutdown] no `onCleared` do ViewModel.
  */
-class TextToSpeechManager(context: Context) {
+class TextToSpeechManager(context: Context) : VoiceEngine {
 
     private var tts: TextToSpeech? = null
     private var languageOk = false
 
     private val _ready = MutableStateFlow(false)
-    val ready: StateFlow<Boolean> = _ready.asStateFlow()
+    override val ready: StateFlow<Boolean> = _ready.asStateFlow()
 
     private val _initialized = MutableStateFlow(false)
 
     /** A inicialização do motor terminou (independente de a voz pt-BR existir). */
-    val initialized: StateFlow<Boolean> = _initialized.asStateFlow()
+    override val initialized: StateFlow<Boolean> = _initialized.asStateFlow()
 
     private val _speaking = MutableStateFlow(false)
-    val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
+    override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
 
     /** Falso quando o aparelho não tem dados/voz pt-BR. */
     val languageAvailable: Boolean get() = languageOk
@@ -133,7 +133,7 @@ class TextToSpeechManager(context: Context) {
      * Fala [text] (já pós-gate). Para a leitura anterior antes de começar —
      * nunca duas vozes ao mesmo tempo.
      */
-    fun speak(text: String, rate: Float = 1.0f, pitch: Float = 1.0f) {
+    override fun speak(text: String, rate: Float, pitch: Float) {
         val engine = tts ?: return
         if (!languageOk || text.isBlank()) return
         engine.stop()
@@ -143,7 +143,7 @@ class TextToSpeechManager(context: Context) {
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "bt-speech")
     }
 
-    fun stop() {
+    override fun stop() {
         runCatching { tts?.stop() }
         _speaking.value = false
     }
@@ -153,9 +153,9 @@ class TextToSpeechManager(context: Context) {
         _speaking.value = false
     }
 
-    fun isSpeaking(): Boolean = tts?.isSpeaking == true
+    override fun isSpeaking(): Boolean = tts?.isSpeaking == true
 
-    fun shutdown() {
+    override fun shutdown() {
         runCatching { tts?.stop() }
         runCatching { tts?.shutdown() }
         tts = null

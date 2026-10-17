@@ -441,7 +441,12 @@ internal fun insertionDestinations(
 /** Tópico do draft em edição (mesmo formato persistido nas mensagens). */
 typealias DraftSection = ChatCodec.DraftItem
 
-class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase, private val noteId: String? = null) : ViewModel() {
+class CopilotViewModel(
+    ctx: android.content.Context,
+    private val db: AppDatabase,
+    private val noteId: String? = null,
+    private val voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null,
+) : ViewModel() {
     private val app = ctx.applicationContext
     private val repo = CopilotRepository(db)
     private val outlines = OutlineRepository(app, db)
@@ -4512,8 +4517,8 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
 
     // ---------- T2 (voz): TTS nativo (TextToSpeech, pt-BR) ----------
 
-    private val textToSpeech: com.bettertalker.app.data.voice.TextToSpeechManager by lazy {
-        com.bettertalker.app.data.voice.TextToSpeechManager(app)
+    private val textToSpeech: com.bettertalker.app.data.voice.VoiceEngine by lazy {
+        voiceEngine ?: com.bettertalker.app.data.voice.TextToSpeechManager(app)
     }
 
     /** TTS pronto (voz pt-BR instalada no aparelho). */
@@ -4542,10 +4547,11 @@ class CopilotViewModel(ctx: android.content.Context, private val db: AppDatabase
     class Factory(
         private val ctx: android.content.Context,
         private val db: AppDatabase,
-        private val noteId: String? = null
+        private val noteId: String? = null,
+        private val voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = CopilotViewModel(ctx, db, noteId) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = CopilotViewModel(ctx, db, noteId, voiceEngine) as T
     }
 }
 

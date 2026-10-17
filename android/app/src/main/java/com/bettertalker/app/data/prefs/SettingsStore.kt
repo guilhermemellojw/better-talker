@@ -84,6 +84,11 @@ class SettingsStore(private val ctx: Context) {
     suspend fun setStageFontSp(v: Int) {
         ctx.store.edit { it[STAGE_FONT_SP] = v.coerceIn(STAGE_FONT_MIN_SP, STAGE_FONT_MAX_SP) }
     }
+
+    /** #23-fix-a: voz premium (Piper) ligada. Default desligado. */
+    private val VOICE_PREMIUM = booleanPreferencesKey("voice_premium_enabled")
+    val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: false }
+    suspend fun setVoicePremiumEnabled(v: Boolean) { ctx.store.edit { it[VOICE_PREMIUM] = v } }
 }
 
 /** Ensaio (v1): limites do tamanho da fonte de leitura (sp). */

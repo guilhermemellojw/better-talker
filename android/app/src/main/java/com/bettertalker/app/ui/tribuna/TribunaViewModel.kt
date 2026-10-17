@@ -175,10 +175,13 @@ class TribunaViewModel(
         private val db: AppDatabase,
         private val settings: SettingsStore,
         private val noteId: String,
+        private val voiceEngine: com.bettertalker.app.data.voice.VoiceEngine? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            val tts = TextToSpeechManager(ctx.applicationContext)
+            // #23-fix-a: engine injetável (router); default = nativo.
+            val tts: com.bettertalker.app.data.voice.VoiceEngine =
+                voiceEngine ?: TextToSpeechManager(ctx.applicationContext)
             val speaker = object : TribunaSpeaker {
                 override fun speak(text: String) = tts.speak(text)
                 override fun stop() = tts.stop()
