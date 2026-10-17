@@ -44,10 +44,7 @@ fun plainFromMarkdown(md: String): String =
     md.replace(Regex("[#>*`_\\-\\[\\]()!]"), " ")
         .replace(Regex("\\s+"), " ").trim()
 
-fun previewOf(md: String, max: Int = 140): String {
-    val plain = plainFromMarkdown(md)
-    return if (plain.length <= max) plain else plain.take(max).trimEnd() + "…"
-}
+fun previewOf(md: String, max: Int = 140): String = md.toCleanPreview(max)
 
 /** Link oficial para abrir a referência no site — nunca hospedamos conteúdo. */
 fun buildJwUrl(ref: String): String {
