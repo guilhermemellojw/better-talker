@@ -42,7 +42,7 @@ class KokoroVoicesTest {
                         voices = File(dir, "voices.bin").absolutePath,
                         tokens = File(dir, "tokens.txt").absolutePath,
                         dataDir = File(dir, "espeak-ng-data").absolutePath,
-                        lang = "pt",
+                        lang = "pt-br",
                     ),
                     numThreads = 4,
                     debug = false,
@@ -65,7 +65,7 @@ class KokoroVoicesTest {
             val elapsed = System.currentTimeMillis() - a
             val dur = audio.samples.size / sampleRate
             val rtf = elapsed / (dur * 1000.0)
-            val out = File(outDir, "kokoro_$nome.wav")
+            val out = File(outDir, "kokoro_${nome}_ptbr.wav")
             audio.save(out.absolutePath)
             Log.i(
                 tag,
