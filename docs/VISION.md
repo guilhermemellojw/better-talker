@@ -8,7 +8,7 @@ bíblicos, focada no contexto das Testemunhas de Jeová.
 1. Abrir/importar esboço (ex.: S-34) ou começar do zero
 2. Escrever no editor multi-seção WYSIWYG (autosave)
 3. Pedir ajuda ao chat DeepSeek (BYOD, chave do usuário)
-4. Exportar (HTML/PDF) ou apresentar no Modo Palco (TTS/STT)
+4. Exportar (HTML/PDF) ou apresentar no Ensaio (TTS/STT)
 5. Sync opcional via Firebase
 
 ## O que NÃO É (v1.2)
@@ -19,8 +19,8 @@ bíblicos, focada no contexto das Testemunhas de Jeová.
 
 ## Decisões de escopo (2024-Q4)
 - Web v1: REMOVIDO
-- Multi-LLM (Gemini/Groq/Qwen/Gemma/Fallback/CircuitBreaker): A REMOVER
+- Multi-LLM (Gemini/Groq/Qwen/Gemma/Fallback/CircuitBreaker): REMOVIDO (DeepSeek-only)
 - Folders/tags/cores/pin: A REMOVER DA UI (schema Room dormente)
-- Modo Palco + TTS/STT: MANTIDO
+- Ensaio + TTS/STT: MANTIDO
 - Firebase sync: MANTIDO
 - Export PDF/HTML: MANTIDO

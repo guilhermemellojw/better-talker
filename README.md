@@ -1,21 +1,22 @@
 # Better Talker 🎙️
 
-> **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Modo Palco e métricas de fala.**
+> **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
 > **Estágio: pré-release interno.**
 
 Better Talker é um app Android nativo. Este repositório contém apenas o projeto Android em `android/`. O pacote web legado foi removido.
 
-O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Modo Palco → exportar.
+O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
 
 ---
 
 ## 📱 App Android nativo (`android/`)
 
-Projeto Gradle/Kotlin com Jetpack Compose. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta, Modo Palco e modelo de IA.
+Projeto Gradle/Kotlin com Jetpack Compose. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta, Ensaio e TTS.
 
 - **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
-- **Publicações:** extrator próprio de **JWPUB**, extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
-- **IA on-device (Gemma 4 E2B via LiteRT-LM):** provedor local com **download pelo próprio app** (Hugging Face oficial, ~2,59 GB, só Wi-Fi, verificação de integridade SHA-256, licença Apache-2.0 com aceite e atribuições na tela "Modelo IA"). O seletor de provedor tem o modo **Automático**: DeepSeek com chave e online → Gemini/Groq com chave → Gemma local (modelo presente) → motor determinístico. Em desenvolvimento, o atalho `adb push` do `.litertlm` para `files/models` continua funcionando.
+- **Publicações:** extrator próprio de **JWPUB** com **página por § indexada** (`FirstPageNumber`/`LastPageNumber` + `DocumentParagraph`) — o RAG resolve referências como `w25.07 22 §§ 8-9` no texto literal; extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
+- **IA (DeepSeek — BYOD):** a **única IA** do app. Chat com streaming token a token usando a chave pessoal do usuário (fica só no aparelho, DataStore). Sem chave ou offline, o app usa o **motor determinístico 100% offline** (não há LLM on-device).
+- **TTS premium (Piper — voz "Jeff") 100% offline:** o modelo (~63MB) e o `espeak-ng-data` pt-BR (subset ~716KB) vêm **embutidos nos assets** (`assets/piper/jeff/`) e são copiados para `files/piper/jeff` no primeiro uso — sem download e sem rede. Fallback: TTS nativo do sistema.
 - **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
 
 ### DeepSeek (BYOD — chat de raciocínio)
@@ -28,7 +29,7 @@ Para o uso central do app — conversar tópico por tópico, avaliar trade-offs 
 
 - **Custo estimado:** ~US$ 0,50/mês para uso pessoal típico (BYOD: cada usuário usa a própria chave).
 - **Cache de contexto:** o prompt do DeepSeek é montado com **prefixo estável** (regras + S-34 + fontes ordenadas por id + bloco) e a parte volátil (histórico/mensagem) no fim — o cache persistente do provedor (TTL ~72h) reaproveita o prefixo entre turnos e reduz o custo. Campo volátil no prefixo destrói a economia (há teste JVM travando isso).
-- **Fallback automático:** no modo *Automático*, sem chave ou offline o app usa o **Gemma local** (se o modelo estiver baixado) ou o motor determinístico 100% offline.
+- **Fallback automático:** sem chave ou offline o app usa o **motor determinístico 100% offline** (o DeepSeek é a única IA do app).
 - **Uso pessoal + amigos:** a chave é pessoal; não há proxy nem chave central. Nunca comite sua chave de API.
 
 ### Modo criação (ilustrações e exemplos)
@@ -71,7 +72,7 @@ e ao final diga *"insira tudo na nota"*:
 
 ## 🛠️ Tecnologias
 
-**Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, LiteRT-LM (Gemma 4 E2B on-device), DownloadManager.
+**Nativo (`android/`):** Kotlin, Jetpack Compose, Room, Coroutines/Workers, sherpa-onnx (TTS Piper on-device), DownloadManager.
 
 ---
 
