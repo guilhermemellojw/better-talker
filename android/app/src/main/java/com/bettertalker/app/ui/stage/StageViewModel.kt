@@ -83,6 +83,17 @@ class StageViewModel(
     private val _content = MutableStateFlow("")
     val content: StateFlow<String> = _content.asStateFlow()
 
+    /** Modo Teleprompter: turnos do diálogo (vazio = texto corrido). */
+    private val _turns = MutableStateFlow<List<StageTurn>>(emptyList())
+    val turns: StateFlow<List<StageTurn>> = _turns.asStateFlow()
+
+    /** "Modo Dupla": papel em destaque (null = desligado). */
+    private val _duoRole = MutableStateFlow<String?>(null)
+    val duoRole: StateFlow<String?> = _duoRole.asStateFlow()
+
+    /** Texto falado pelo TTS: só as falas (sem rótulos) quando há diálogo. */
+    private var speechText: String = ""
+
     /** Meta global = soma dos minutos das seções (0 = sem meta). */
     private val _totalMinutes = MutableStateFlow(0)
     val totalMinutes: StateFlow<Int> = _totalMinutes.asStateFlow()
@@ -109,9 +120,27 @@ class StageViewModel(
             val subPoints = sections.associate { s ->
                 s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
             }
-            _title.value = db.noteDao().get(noteId)?.title.orEmpty()
+            val note = db.noteDao().get(noteId)
+            _title.value = note?.title.orEmpty()
             _totalMinutes.value = sections.sumOf { it.minutes }
             _content.value = buildExportPlainText(sections, subPoints)
+            // Modo Teleprompter: turnos do diálogo — só demonstrações V&M com
+            // ≥2 papéis distintos (evita falso positivo em negritos de discurso).
+            val isDemo = com.bettertalker.app.domain.speech.DiscourseType
+                .fromNameOrDefault(note?.discourseType) ==
+                com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART
+            val parsed = if (isDemo) {
+                sections.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
+            } else {
+                emptyList()
+            }
+            val turns = if (parsed.map { it.speaker.lowercase() }.distinct().size >= 2) {
+                parsed
+            } else {
+                emptyList()
+            }
+            _turns.value = turns
+            speechText = stageSpeechText(turns, _content.value)
         }
         startTimer()
     }
@@ -148,8 +177,16 @@ class StageViewModel(
         if (tts.speaking.value) tts.stop() else speakContent()
     }
 
+    /** Modo Teleprompter: cicla o papel em destaque (null → 1º → 2º → …). */
+    fun cycleDuoRole() {
+        val speakers = _turns.value.map { it.speaker }.distinct()
+        if (speakers.size < 2) return
+        _duoRole.value = nextDuoRole(_duoRole.value, speakers)
+    }
+
     private fun speakContent() {
-        val text = com.bettertalker.app.data.voice.prepareForSpeech(_content.value)
+        // Modo Teleprompter: fala sem os rótulos de papel ("Publicador:").
+        val text = com.bettertalker.app.data.voice.prepareForSpeech(speechText)
         if (text.isNotBlank()) tts.speak(text)
     }
 

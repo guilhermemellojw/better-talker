@@ -43,8 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
@@ -62,6 +65,16 @@ private val StageBg = Color(0xFF030712)
 private val StageFg = Color(0xFFF8FAFC)
 private val StageDim = Color(0xFF94A3B8)
 private val StageAccent = Color(0xFFF59E0B)
+
+/** Cores dos papéis no teleprompter (pela ordem de entrada em cena). */
+private val StageSpeakerColors = listOf(
+    StageAccent,        // 1º papel — âmbar (cor primária do palco)
+    Color(0xFF5EEAD4),  // 2º papel — teal
+    Color(0xFFC4B5FD),  // 3º+ — violeta
+)
+
+private fun stageSpeakerColor(index: Int): Color =
+    StageSpeakerColors[index.coerceAtLeast(0) % StageSpeakerColors.size]
 private val StageGreen = Color(0xFF22C55E)
 private val StageAmber = Color(0xFFF59E0B)
 private val StageRed = Color(0xFFEF4444)
@@ -80,6 +93,8 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val view = LocalView.current
     val title by vm.title.collectAsState()
     val content by vm.content.collectAsState()
+    val turns by vm.turns.collectAsState()
+    val duoRole by vm.duoRole.collectAsState()
     val totalMinutes by vm.totalMinutes.collectAsState()
     val elapsed by vm.elapsed.collectAsState()
     val running by vm.timerRunning.collectAsState()
@@ -141,13 +156,38 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(18.dp))
             }
-            Text(
-                content.ifBlank { "Esta nota ainda não tem texto para o ensaio." },
-                color = StageFg,
-                fontSize = fontSp.sp,
-                lineHeight = (fontSp * 1.6).sp,
-                fontWeight = FontWeight.Medium,
-            )
+            if (turns.isEmpty()) {
+                Text(
+                    content.ifBlank { "Esta nota ainda não tem texto para o ensaio." },
+                    color = StageFg,
+                    fontSize = fontSp.sp,
+                    lineHeight = (fontSp * 1.6).sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            } else {
+                // Modo Teleprompter: turnos com papel destacado; "Modo Dupla"
+                // escurece as falas que não são do papel selecionado.
+                val speakers = turns.map { it.speaker }.distinct()
+                Column(verticalArrangement = Arrangement.spacedBy((fontSp * 0.7f).dp)) {
+                    turns.forEach { turn ->
+                        val dimmed = duoRole != null && !turn.speaker.equals(duoRole, true)
+                        val accent = if (dimmed) StageDim else stageSpeakerColor(speakers.indexOf(turn.speaker))
+                        Text(
+                            buildAnnotatedString {
+                                withStyle(SpanStyle(color = accent, fontWeight = FontWeight.Bold)) {
+                                    append("${turn.speaker}: ")
+                                }
+                                withStyle(SpanStyle(color = if (dimmed) StageDim else StageFg)) {
+                                    append(turn.text)
+                                }
+                            },
+                            fontSize = fontSp.sp,
+                            lineHeight = (fontSp * 1.6).sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(120.dp))
         }
 
@@ -169,6 +209,9 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 speaking = speaking,
                 speechReady = speechReady,
                 onToggleSpeech = vm::toggleSpeech,
+                hasDuo = turns.size >= 2,
+                duoRole = duoRole,
+                onCycleDuo = vm::cycleDuoRole,
                 onExit = onBack,
             )
         }
@@ -206,6 +249,9 @@ private fun StageControlBar(
     speaking: Boolean,
     speechReady: Boolean,
     onToggleSpeech: () -> Unit,
+    hasDuo: Boolean = false,
+    duoRole: String? = null,
+    onCycleDuo: () -> Unit = {},
     onExit: () -> Unit,
 ) {
     Surface(
@@ -251,6 +297,16 @@ private fun StageControlBar(
                     color = if (speechReady) StageFg else StageDim,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+            // Modo Teleprompter: "Modo Dupla" — destaca um papel (escurece o outro).
+            if (hasDuo) {
+                TextButton(onClick = onCycleDuo) {
+                    Text(
+                        if (duoRole == null) "Dupla" else "Dupla: ${duoRole.take(8)}",
+                        color = if (duoRole != null) StageAccent else StageDim,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
             IconButton(onClick = onExit) {
                 Icon(Icons.Default.Close, "Sair do Ensaio", tint = StageFg)
