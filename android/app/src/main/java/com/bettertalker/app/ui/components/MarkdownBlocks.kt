@@ -45,7 +45,7 @@ const val TEXT_FOR_CARD_OPEN = "<texto-do-card>"
 const val TEXT_FOR_CARD_CLOSE = "</texto-do-card>"
 
 private val CHECK_RE = Regex("^-[ \\t]*\\[([ xX])\\][ \\t]*(.*)$")
-private val ORDERED_RE = Regex("^(\\d{1,3})[.)]\\s+(.*)$")
+private val ORDERED_RE = Regex("^(?:\\*\\*\\s*)?(\\d{1,3})[.)](?:\\*\\*)?\\s+(.*)$")
 private val HR_RE = Regex("^-{3,}$")
 
 fun parseBlocks(md: String): List<MdBlock> {
@@ -130,10 +130,24 @@ fun parseBlocks(md: String): List<MdBlock> {
             }
             ORDERED_RE.matches(t) -> {
                 // T2: preserva o número (lista ordenada), em vez de virar "•".
+                // #25-fix-b: o LLM às vezes embrulha o número em `**` ("**1. ...")
+                // — o regex engole o `**` da abertura. Se o fechamento:
+                //   • sobrou no FIM do item → removido (bold vazaria);
+                //   • fechou NO MEIO ("**2. Título.** resto") → o `**` é
+                //     reaberto no início para envolver o título (preserva a
+                //     ênfase e não deixa o resto do item em negrito).
                 flush()
                 val m = ORDERED_RE.find(t)!!
+                var text = m.groupValues[2].trim()
+                if (t.startsWith("**")) {
+                    text = when {
+                        text.endsWith("**") -> text.dropLast(2).trim()
+                        text.contains("**") -> "**$text"
+                        else -> text
+                    }
+                }
                 out += MdBlock.Bullet(
-                    m.groupValues[2].trim(),
+                    text,
                     m.groupValues[1].toIntOrNull(),
                     depth,
                 )

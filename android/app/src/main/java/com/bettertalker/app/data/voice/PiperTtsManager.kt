@@ -1,6 +1,5 @@
 package com.bettertalker.app.data.voice
 
-import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -32,17 +31,13 @@ import java.io.File
  * - Se o modelo não carregar (arquivo ausente/corrompido), [ready] fica
  *   falso e o [VoiceRouter] cai no nativo — degradação suave.
  *
- * dataDir (espeak-ng-data): procura em `modelDir/espeak-ng-data` (formato
- * do produto) e, como ponte para os testes atuais, em
- * `filesDir/kokoro-pt/espeak-ng-data` (artefato do bench). Sem nenhum,
- * não tenta carregar (evita crash nativo do sherpa).
+ * dataDir (espeak-ng-data): vive em `modelDir/espeak-ng-data` (o
+ * PiperModelStore copia o subset pt-BR dos assets). Sem ele, não tenta
+ * carregar (evita crash nativo do sherpa).
  */
 class PiperTtsManager(
-    ctx: Context,
     private val modelDir: File,
 ) : VoiceEngine {
-
-    private val appCtx = ctx.applicationContext
 
     private val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking.asStateFlow()
@@ -61,11 +56,9 @@ class PiperTtsManager(
     /** Guarda o ciclo de vida do AudioTrack: pause/flush (stop) × release (writer). */
     private val trackLock = Any()
 
-    /** espeak-ng-data: modelDir primeiro; kokoro-pt como ponte legada. */
-    internal fun resolveEspeakDir(): File? = listOf(
-        File(modelDir, "espeak-ng-data"),
-        File(appCtx.filesDir, "kokoro-pt/espeak-ng-data"),
-    ).firstOrNull { it.exists() }
+    /** espeak-ng-data: só o modelDir provisionado (assets → files/piper/jeff). */
+    internal fun resolveEspeakDir(): File? =
+        File(modelDir, "espeak-ng-data").takeIf { it.exists() }
 
     /** Carrega o modelo (lazy, no 1º speak). Falso = router cai no nativo. */
     internal fun ensureLoaded(): Boolean {

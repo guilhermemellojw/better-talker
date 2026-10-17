@@ -166,4 +166,50 @@ class MarkdownBlocksTest {
         assertNotNull("esperava span mono", span)
         assertEquals(Color.Unspecified, span!!.item.background)
     }
+
+    // ---------- #25-fix-b: lista numerada com negrito irregular do LLM ----------
+
+    @Test
+    fun parseBlocks_handlesBoldNumberedLists() {
+        // Payload real: "**1." sem fechar, "**2. Título.**" fechando cedo.
+        val md = """
+            **1. Item com negrito aberto.
+            **2. Item com negrito fechado.**
+            3. Item normal.
+        """.trimIndent()
+
+        val blocks = parseBlocks(md)
+
+        assertEquals(3, blocks.size)
+        assertTrue(blocks[0] is MdBlock.Bullet)
+        assertEquals("Item com negrito aberto.", (blocks[0] as MdBlock.Bullet).text)
+        assertEquals(1, (blocks[0] as MdBlock.Bullet).number)
+
+        assertTrue(blocks[1] is MdBlock.Bullet)
+        assertEquals("Item com negrito fechado.", (blocks[1] as MdBlock.Bullet).text)
+        assertEquals(2, (blocks[1] as MdBlock.Bullet).number)
+
+        assertTrue(blocks[2] is MdBlock.Bullet)
+        assertEquals("Item normal.", (blocks[2] as MdBlock.Bullet).text)
+        assertEquals(3, (blocks[2] as MdBlock.Bullet).number)
+    }
+
+    @Test
+    fun parseBlocks_negritoNoMeioDoItemPermanece() {
+        // "1. **Título** — resto": negrito legítimo do texto NÃO é removido.
+        val blocks = parseBlocks("1. **Título** — resto do item.")
+        val b = blocks.first() as MdBlock.Bullet
+        assertEquals("**Título** — resto do item.", b.text)
+    }
+
+    @Test
+    fun parseBlocks_negritoFechadoNoMeioDoItem_preservaTitulo() {
+        // Payload real: "**2. Contraste de esforço.** 〈sugestão〉..." — o `**`
+        // fechou no meio; o parser reabre envolvendo o título (resto normal,
+        // sem negrito vazando).
+        val blocks = parseBlocks("**2. Contraste de esforço.** resto normal.")
+        val b = blocks.first() as MdBlock.Bullet
+        assertEquals(2, b.number)
+        assertEquals("**Contraste de esforço.** resto normal.", b.text)
+    }
 }

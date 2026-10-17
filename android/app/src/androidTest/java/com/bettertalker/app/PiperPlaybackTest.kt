@@ -11,9 +11,9 @@ import java.io.File
 
 /**
  * #23-fix-b: playback REAL do Piper (AudioTrack + callback JNI) no device.
- * Modelo esperado em filesDir/piper/jeff (baixado pela Settings) e o
- * espeak-ng-data em filesDir/kokoro-pt (ponte) — se faltar, o teste falha
- * com mensagem clara (não crasha: ensureLoaded devolve false).
+ * Modelo e espeak-ng-data esperados em filesDir/piper/jeff (provisionados
+ * dos assets pelo PiperModelStore) — se faltar, o teste falha com mensagem
+ * clara (não crasha: ensureLoaded devolve false).
  */
 @RunWith(AndroidJUnit4::class)
 class PiperPlaybackTest {
@@ -25,9 +25,12 @@ class PiperPlaybackTest {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(ctx.filesDir, "piper/jeff")
         assertTrue("modelo ausente: ${dir.absolutePath}", File(dir, "model.onnx").exists())
-        assertTrue("espeak ponte ausente", File(ctx.filesDir, "kokoro-pt/espeak-ng-data").exists())
+        assertTrue(
+            "espeak ausente: ${File(dir, "espeak-ng-data").absolutePath}",
+            File(dir, "espeak-ng-data").exists(),
+        )
 
-        val engine = PiperTtsManager(ctx, dir)
+        val engine = PiperTtsManager(dir)
         engine.warmUp()
 
         // Aguarda o load (até 20s).
@@ -60,7 +63,7 @@ class PiperPlaybackTest {
     fun speakTextoLongoInicia() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(ctx.filesDir, "piper/jeff")
-        val engine = PiperTtsManager(ctx, dir)
+        val engine = PiperTtsManager(dir)
         engine.warmUp()
         val t0 = System.currentTimeMillis()
         while (!engine.ready.value && System.currentTimeMillis() - t0 < 20_000) Thread.sleep(200)
@@ -89,7 +92,7 @@ class PiperPlaybackTest {
     fun ensaioDoViewModelFala() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val dir = File(ctx.filesDir, "piper/jeff")
-        val engine = PiperTtsManager(ctx, dir)
+        val engine = PiperTtsManager(dir)
         engine.warmUp()
         val t0 = System.currentTimeMillis()
         while (!engine.ready.value && System.currentTimeMillis() - t0 < 20_000) Thread.sleep(200)

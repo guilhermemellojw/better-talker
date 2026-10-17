@@ -61,7 +61,7 @@ class MainActivity : FragmentActivity() {
                 com.bettertalker.app.data.voice.VoiceRouter(
                     com.bettertalker.app.data.voice.TextToSpeechManager(ctx.applicationContext),
                     com.bettertalker.app.data.voice.PiperTtsManager(
-                        ctx.applicationContext, voiceStore.modelDir
+                        voiceStore.modelDir
                     ),
                     voiceStore.modelDir,
                 )

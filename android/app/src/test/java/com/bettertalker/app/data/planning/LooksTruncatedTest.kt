@@ -58,7 +58,8 @@ class LooksTruncatedTest {
             "Segunda parte que foi cortada no meio da palavra sust"
         assertTrue(text.length > 100)
         assertEquals(
-            "Primeira frase completa com contexto suficiente para passar do limite.",
+            // #25-fix-b: o corte agora sinaliza a interrupção com [...].
+            "Primeira frase completa com contexto suficiente para passar do limite. [...]",
             truncateIfCut(text, "stop")
         )
     }
@@ -80,12 +81,49 @@ class LooksTruncatedTest {
     @Test
     fun truncateIfCut_finishReasonLength_truncaMesmoComPontuacao() {
         val text = "Texto completo com ponto. " + "y".repeat(120)
-        assertEquals("Texto completo com ponto.", truncateIfCut(text, "length"))
+        // #25-fix-b: corte sinalizado com [...].
+        assertEquals("Texto completo com ponto. [...]", truncateIfCut(text, "length"))
     }
 
     @Test
     fun truncateIfCut_exatamente100_naoTrunca() {
         val text = "z".repeat(100)
         assertEquals(text, truncateIfCut(text, "stop"))
+    }
+
+    // ---------- #25-fix-b: corte curador (sintaxe pendente fechada) ----------
+
+    @Test
+    fun truncateIfCut_healsUnclosedMarkdown() {
+        val text = "Este é um texto longo o suficiente para passar do limite mínimo de corte " +
+            "e que foi interrompido no meio de uma **palavra importante e sem fechar."
+        assertTrue(text.length > 100)
+        val truncated = truncateIfCut(text, "length")
+
+        assertTrue(truncated.endsWith("** [...]"))
+        assertTrue(truncated.contains("importante e sem fechar.**"))
+    }
+
+    @Test
+    fun truncateIfCut_fechaMarcadoresDeAnotacaoAbertos() {
+        val text = "Uma resposta longa o bastante para o corte entrar em ação no meio dela " +
+            "com uma sugestão aberta: 〈sugestão〉fale de alguém que sobe uma escada longa " +
+            "e continua subindo 〈decisão〉e vamos usar o gancho na abertura."
+        assertTrue(text.length > 100)
+        val truncated = truncateIfCut(text, "length")
+
+        // Fecha a sugestão (e a decisão) antes do sinal de interrupção.
+        assertTrue(truncated.contains("〈/sugestão〉"))
+        assertTrue(truncated.contains("〈/decisão〉"))
+        assertTrue(truncated.endsWith("[...]"))
+        // Sem marcador aberto sobrando.
+        assertTrue(markerCount(truncated, "〈sugestão〉") <= markerCount(truncated, "〈/sugestão〉"))
+    }
+
+    @Test
+    fun markerCount_contaOcorrencias() {
+        assertEquals(0, markerCount("texto limpo", "**"))
+        assertEquals(2, markerCount("a **b** c", "**"))
+        assertEquals(1, markerCount("〈sugestão〉x", "〈sugestão〉"))
     }
 }
