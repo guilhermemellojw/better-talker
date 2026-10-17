@@ -311,24 +311,38 @@ fun splitRawSentences(raw: String): List<String> =
  * Marcadores === arquivo === resetam.
  */
 fun splitWithSections(raw: String): List<Pair<String, String>> =
-    splitWithSectionsAndParagraphs(raw).map { it.first to it.second }
+    splitWithSectionsAndParagraphs(raw).map { it.text to it.section }
+
+/** RC1-pages: trecho extraído (frase, seção, § e página estimada). Puro. */
+data class ExtractedChunk(
+    val text: String,
+    val section: String,
+    val paragraph: Int?,
+    val page: Int?,
+)
 
 /**
- * T4b: divide em (frase, seção, parágrafo). O marcador "§N" emitido pelo
- * extrator de JWPUB (parágrafo numerado do artigo) vale para as frases
- * seguintes até o próximo marcador ou nova seção (artigo/lição). Puro.
+ * T4b: divide em (frase, seção, parágrafo, página). O marcador "§N" emitido
+ * pelo extrator de JWPUB (parágrafo numerado do artigo) vale para as frases
+ * seguintes até o próximo marcador ou nova seção (artigo/lição). O marcador
+ * "=== PAGE: N ===" (RC1-pages) atualiza a página corrente. Puro.
  */
-fun splitWithSectionsAndParagraphs(raw: String): List<Triple<String, String, Int?>> {
-    val out = mutableListOf<Triple<String, String, Int?>>()
+fun splitWithSectionsAndParagraphs(raw: String): List<ExtractedChunk> {
+    val out = mutableListOf<ExtractedChunk>()
     var section = ""
     var paragraph: Int? = null
+    var currentPage: Int? = null
     // RTF/PDF usam \n simples entre parágrafos — trabalha linha a linha
     val lines = raw.split("\n").map { it.replace(Regex("\\s+"), " ").trim() }
         .filter { it.isNotEmpty() }
     val markerRe = Regex("^===.*===$")
+    val pageRe = Regex("^=== PAGE: (\\d+) ===$")
     val parRe = Regex("^§(\\d{1,3})\\s+(.*)$")
     lines.forEachIndexed { idx, rawLine ->
         var line = rawLine
+        // RC1-pages: a página do artigo vale para os §§ seguintes; nova
+        // seção (artigo) reseta — o próximo PAGE vem com o primeiro § dela.
+        pageRe.find(line)?.let { currentPage = it.groupValues[1].toInt(); return@forEachIndexed }
         parRe.find(line)?.let {
             paragraph = it.groupValues[1].toInt()
             line = it.groupValues[2].trim()
@@ -336,6 +350,7 @@ fun splitWithSectionsAndParagraphs(raw: String): List<Triple<String, String, Int
         if (markerRe.matches(line)) {
             section = ""
             paragraph = null
+            currentPage = null
             return@forEachIndexed
         }
         // T4: títulos do extrator de JWPUB ("# Gedalias") são fronteiras
@@ -344,6 +359,7 @@ fun splitWithSectionsAndParagraphs(raw: String): List<Triple<String, String, Int
         if (line.startsWith("# ") && line.length > 3) {
             section = line.removePrefix("# ").take(120)
             paragraph = null
+            currentPage = null
             return@forEachIndexed
         }
         val nextLen = lines.getOrNull(idx + 1)?.length ?: 0
@@ -359,7 +375,7 @@ fun splitWithSectionsAndParagraphs(raw: String): List<Triple<String, String, Int
         line.split(Regex("[.!?]+"))
             .map { it.trim() }
             .filter { it.length > 5 }
-            .forEach { out += Triple(it, section, paragraph) }
+            .forEach { out += ExtractedChunk(it, section, paragraph, currentPage) }
     }
     return out
 }

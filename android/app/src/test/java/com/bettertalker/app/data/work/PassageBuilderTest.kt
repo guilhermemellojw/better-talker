@@ -107,4 +107,20 @@ class PassageBuilderTest {
         assertEquals(listOf(4, 5), result.map { it.paragraph })
         assertEquals(listOf("Gedalias", "Gedalias"), result.map { it.section })
     }
+
+    // ---------- RC1-pages: o marcador vira `page` no entity ----------
+
+    @Test
+    fun marcadorDePagina_viraPageNoEntity() {
+        val raw = "# Artigo\n=== PAGE: 22 ===\n§8 Texto do parágrafo oito com tamanho suficiente."
+        val result = buildPassages("att1", "w", raw, null)
+        assertEquals(22, result.first().page)
+        assertEquals(8, result.first().paragraph)
+    }
+
+    @Test
+    fun semMarcador_pageFicaNula() {
+        val result = buildPassages("att1", "w", rawSimple, null)
+        assertTrue(result.all { it.page == null })
+    }
 }

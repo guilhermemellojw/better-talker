@@ -48,10 +48,11 @@ internal fun buildPassages(
     minNormalizedLength: Int = 5,
     maxTextLength: Int = 500,
 ): List<PassageEntity> {
-    val triples = splitWithSectionsAndParagraphs(raw).take(maxSentences)
+    val chunks = splitWithSectionsAndParagraphs(raw).take(maxSentences)
     val result = mutableListOf<PassageEntity>()
     var ord = 0
-    for ((s, section, paragraph) in triples) {
+    for (chunk in chunks) {
+        val s = chunk.text
         val norm = normalizeText(s)
         if (norm.length <= minNormalizedLength) continue
         val text = s.replace(Regex("\\s+"), " ").trim().take(maxTextLength)
@@ -61,10 +62,12 @@ internal fun buildPassages(
                 attachmentId = attachmentId,
                 text = text,
                 normalized = norm.take(maxTextLength),
-                section = section,
-                ref = buildRef(symbol, section, ord + 1),
+                section = chunk.section,
+                ref = buildRef(symbol, chunk.section, ord + 1),
                 // T4b: parágrafo REAL do JWPUB (marcador §N do extrator).
-                paragraph = paragraph,
+                paragraph = chunk.paragraph,
+                // RC1-pages: página estimada do artigo (JWPUB); null fora dele.
+                page = chunk.page,
                 ord = ord,
                 trainingCategory = trainingCategory,
             )

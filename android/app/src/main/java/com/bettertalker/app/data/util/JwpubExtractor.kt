@@ -176,11 +176,17 @@ object JwpubExtractor {
             val sb = StringBuilder()
             var count = 0
             db.rawQuery(
-                "SELECT Title, TocTitle, Content FROM Document ORDER BY DocumentId", null
+                "SELECT DocumentId, Title, TocTitle, Content, FirstPageNumber, LastPageNumber, " +
+                    "ContentLength FROM Document ORDER BY DocumentId",
+                null
             ).use { c ->
+                val iDoc = c.getColumnIndex("DocumentId")
                 val iTitle = c.getColumnIndex("Title")
                 val iToc = c.getColumnIndex("TocTitle")
                 val iContent = c.getColumnIndex("Content")
+                val iFirst = c.getColumnIndex("FirstPageNumber")
+                val iLast = c.getColumnIndex("LastPageNumber")
+                val iLen = c.getColumnIndex("ContentLength")
                 while (c.moveToNext() && count < MAX_DOCS && sb.length < MAX_TEXT) {
                     val title = (c.getString(iToc)?.takeIf { it.isNotBlank() }
                         ?: c.getString(iTitle).orEmpty()).trim()
@@ -190,7 +196,15 @@ object JwpubExtractor {
                             ?: throw JwpubException(
                                 "Esquema de criptografia não suportado — baixe EPUB ou PDF no site."
                             )
-                        sb.append(markParagraphs(html)).append('\n')
+                        // RC1-pages: §§ do artigo ganham a página estimada
+                        // (Document.First/LastPageNumber + posição do §).
+                        val pages = paragraphPages(
+                            labeledPositions = labeledParagraphPositions(db, c.getLong(iDoc)),
+                            firstPage = c.getInt(iFirst),
+                            lastPage = c.getInt(iLast),
+                            contentLength = c.getInt(iLen),
+                        )
+                        sb.append(withPageMarkers(markParagraphs(html), pages)).append('\n')
                     }
                     count++
                 }
@@ -225,6 +239,52 @@ object JwpubExtractor {
     private val NUMBERED_P_RE = Regex(
         """(<p\b(?![^>]*class="(?:si|sn)")[^>]*>)\s*<strong>(\d{1,3})\.</strong>"""
     )
+
+    /** RC1-pages: posições dos §§ numerados do artigo (label → BeginPosition). */
+    private fun labeledParagraphPositions(db: SQLiteDatabase, docId: Long): List<Pair<Int, Int>> {
+        val out = mutableListOf<Pair<Int, Int>>()
+        db.rawQuery(
+            "SELECT ParagraphNumberLabel, BeginPosition FROM DocumentParagraph " +
+                "WHERE DocumentId = ? AND ParagraphNumberLabel IS NOT NULL",
+            arrayOf(docId.toString()),
+        ).use { c ->
+            while (c.moveToNext()) out += c.getInt(0) to c.getInt(1)
+        }
+        return out
+    }
+
+    /**
+     * RC1-pages: injeta "=== PAGE: N ===" antes de cada "§N" com página no
+     * mapa (o TextNorm lê o marcador e o PassageEntity ganha `page`). Puro.
+     */
+    internal fun withPageMarkers(markedText: String, pageOfLabel: Map<Int, Int>): String =
+        Regex("(?m)^§(\\d{1,3}) ").replace(markedText) { m ->
+            val page = pageOfLabel[m.groupValues[1].toInt()]
+            if (page != null) "=== PAGE: $page ===\n${m.value}" else m.value
+        }
+
+    /**
+     * RC1-pages: página estimada de cada § do artigo — o JWPUB tem a página
+     * POR ARTIGO (First/Last) e a posição de cada §; a fração da posição no
+     * tamanho do artigo mapeia no intervalo. Vazio sem dados. Puro/testável.
+     */
+    internal fun paragraphPages(
+        labeledPositions: List<Pair<Int, Int>>,
+        firstPage: Int,
+        lastPage: Int,
+        contentLength: Int,
+    ): Map<Int, Int> {
+        if (firstPage <= 0 || contentLength <= 0 || lastPage < firstPage) return emptyMap()
+        val span = lastPage - firstPage + 1
+        val out = mutableMapOf<Int, Int>()
+        for ((label, begin) in labeledPositions) {
+            if (label > 0) {
+                out[label] = firstPage +
+                    ((begin.toDouble() / contentLength.toDouble()) * span).toInt()
+            }
+        }
+        return out
+    }
 
     private fun readCard(db: SQLiteDatabase): String {
         db.rawQuery(

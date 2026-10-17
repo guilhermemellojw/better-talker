@@ -112,7 +112,7 @@ private fun AppNav(
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             // v5: Passage.ref populado (proveniência "symbol section §n").
-            if (settings.needsIndexFormat(5)) libRepo.reindexAll()
+            if (settings.needsIndexFormat(6)) libRepo.reindexAll()
         }
     }
 

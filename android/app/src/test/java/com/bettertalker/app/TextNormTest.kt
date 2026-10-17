@@ -183,10 +183,34 @@ class TextNormTest {
             # Gederotaim
             Texto sem número nenhum.
         """.trimIndent()
-        val triples = com.bettertalker.app.data.util.splitWithSectionsAndParagraphs(raw)
-        assertEquals(1, triples.first { it.first.contains("Cantor levita") }.third)
-        assertEquals(4, triples.first { it.first.contains("Filho de Aicão") }.third)
+        val chunks = com.bettertalker.app.data.util.splitWithSectionsAndParagraphs(raw)
+        assertEquals(1, chunks.first { it.text.contains("Cantor levita") }.paragraph)
+        assertEquals(4, chunks.first { it.text.contains("Filho de Aicão") }.paragraph)
         // Nova seção reseta o parágrafo corrente.
-        assertNull(triples.first { it.first.contains("Texto sem número") }.third)
+        assertNull(chunks.first { it.text.contains("Texto sem número") }.paragraph)
+    }
+
+    // ---------- RC1-pages: página do § ----------
+
+    @Test
+    fun splitWithSectionsAndParagraphs_leMarcadorDePagina() {
+        val raw = """
+            # Artigo
+            === PAGE: 21 ===
+            §7 Texto do parágrafo sete com tamanho.
+            === PAGE: 22 ===
+            §8 Texto do parágrafo oito com tamanho.
+        """.trimIndent()
+        val chunks = com.bettertalker.app.data.util.splitWithSectionsAndParagraphs(raw)
+        assertEquals(21, chunks.first { it.text.contains("sete") }.page)
+        assertEquals(22, chunks.first { it.text.contains("oito") }.page)
+        assertEquals(8, chunks.first { it.text.contains("oito") }.paragraph)
+    }
+
+    @Test
+    fun splitWithSectionsAndParagraphs_semPagina_pageNula() {
+        val raw = "§3 Texto sem marcador de página nenhum."
+        val chunks = com.bettertalker.app.data.util.splitWithSectionsAndParagraphs(raw)
+        assertNull(chunks.first().page)
     }
 }

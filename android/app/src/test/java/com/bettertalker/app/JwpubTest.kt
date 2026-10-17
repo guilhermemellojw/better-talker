@@ -89,5 +89,42 @@ class JwpubTest {
         assertTrue(out, !out.contains("§"))
     }
 
+    // ---------- RC1-pages: página estimada dos §§ ----------
+
+    @Test
+    fun withPageMarkers_injetaMarcadorAntesDosParagrafos() {
+        val marked = "§7 Texto sete.\n§8 Texto oito."
+        val out = JwpubExtractor.withPageMarkers(marked, mapOf(7 to 21, 8 to 22))
+        assertTrue(out.contains("=== PAGE: 21 ===\n§7 Texto sete."))
+        assertTrue(out.contains("=== PAGE: 22 ===\n§8 Texto oito."))
+    }
+
+    @Test
+    fun withPageMarkers_semMapa_naoMudaOTexto() {
+        val marked = "§7 Texto sete."
+        assertEquals(marked, JwpubExtractor.withPageMarkers(marked, emptyMap()))
+    }
+
+    @Test
+    fun paragraphPages_matematicaRealDoContentamento() {
+        // Dados reais do w_T_202507: artigo nas págs 20-25, 30.725 chars;
+        // §8 começa em 12.479 → 20 + (12479/30725)*6 = 22.4 → pág. 22.
+        val pages = JwpubExtractor.paragraphPages(
+            labeledPositions = listOf(8 to 12479, 9 to 13822),
+            firstPage = 20,
+            lastPage = 25,
+            contentLength = 30725,
+        )
+        assertEquals(22, pages[8])
+        assertEquals(22, pages[9])
+    }
+
+    @Test
+    fun paragraphPages_semDados_retornaVazio() {
+        assertTrue(
+            JwpubExtractor.paragraphPages(listOf(8 to 100), 0, 0, 0).isEmpty(),
+        )
+    }
+
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 }
