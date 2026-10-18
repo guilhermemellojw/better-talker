@@ -209,11 +209,31 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 speaking = speaking,
                 speechReady = speechReady,
                 onToggleSpeech = vm::toggleSpeech,
-                hasDuo = turns.size >= 2,
-                duoRole = duoRole,
-                onCycleDuo = vm::cycleDuoRole,
                 onExit = onBack,
             )
+        }
+
+        // Modo Teleprompter: chip do "Modo Dupla" (papel em destaque; escurece
+        // as falas do outro) — no rodapé para não lotar a barra de cima.
+        AnimatedVisibility(
+            visible = controls && turns.size >= 2,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomEnd),
+        ) {
+            Surface(
+                color = Color(0xE6101724),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                modifier = Modifier.padding(end = 16.dp, bottom = 24.dp),
+            ) {
+                TextButton(onClick = vm::cycleDuoRole) {
+                    Text(
+                        if (duoRole == null) "Modo Dupla" else "Dupla: $duoRole",
+                        color = if (duoRole != null) StageAccent else StageDim,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
 
         // Progresso da rolagem (rodapé).
@@ -249,9 +269,6 @@ private fun StageControlBar(
     speaking: Boolean,
     speechReady: Boolean,
     onToggleSpeech: () -> Unit,
-    hasDuo: Boolean = false,
-    duoRole: String? = null,
-    onCycleDuo: () -> Unit = {},
     onExit: () -> Unit,
 ) {
     Surface(
@@ -297,16 +314,6 @@ private fun StageControlBar(
                     color = if (speechReady) StageFg else StageDim,
                     fontWeight = FontWeight.Bold,
                 )
-            }
-            // Modo Teleprompter: "Modo Dupla" — destaca um papel (escurece o outro).
-            if (hasDuo) {
-                TextButton(onClick = onCycleDuo) {
-                    Text(
-                        if (duoRole == null) "Dupla" else "Dupla: ${duoRole.take(8)}",
-                        color = if (duoRole != null) StageAccent else StageDim,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
             }
             IconButton(onClick = onExit) {
                 Icon(Icons.Default.Close, "Sair do Ensaio", tint = StageFg)
