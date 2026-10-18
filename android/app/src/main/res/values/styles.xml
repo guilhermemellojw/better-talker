@@ -6,6 +6,8 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- Block 2: fundo do Splash na cor do tema claro (sem flash branco puro). -->
+        <item name="android:windowBackground">#FFFDF5</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="AppTheme" />

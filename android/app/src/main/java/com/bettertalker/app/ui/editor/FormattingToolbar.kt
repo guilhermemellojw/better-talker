@@ -87,6 +87,11 @@ fun EditorFormattingToolbar(
     modifier: Modifier = Modifier,
 ) {
     val enabled = activeEditorState != null
+    // Block 2: cores de fonte conforme o modo (preto → onSurface no escuro).
+    val darkSurface = com.bettertalker.app.ui.theme.relativeLuminance(
+        MaterialTheme.colorScheme.surface
+    ) < 0.5
+    val fontColorList = fontColors(darkSurface, MaterialTheme.colorScheme.onSurface)
     val curSpan = activeEditorState?.currentSpanStyle ?: SpanStyle()
     val isBold = (curSpan.fontWeight?.weight ?: 400) > 400
     val isItalic = curSpan.fontStyle == FontStyle.Italic
@@ -168,7 +173,7 @@ fun EditorFormattingToolbar(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 SheetTitle("Cor de fonte")
-                                ColorGrid(FONT_COLORS, curSpan.color) { onFontColor(it); tabletPicker = null }
+                                ColorGrid(fontColorList, curSpan.color) { onFontColor(it); tabletPicker = null }
                             }
                         }
                     }
@@ -278,7 +283,7 @@ fun EditorFormattingToolbar(
             when (sheetMode) {
                 SheetMode.COLORS -> ColorPickerSheetContent(
                     title = "Cor de fonte",
-                    colors = FONT_COLORS,
+                    colors = fontColorList,
                     current = curSpan.color,
                     onPick = onFontColor,
                     onDismiss = { sheet = null },
@@ -312,10 +317,11 @@ private enum class TabletPicker { COLORS, HIGHLIGHT, SIZE }
 private enum class SheetMode { COLORS, HIGHLIGHT, SIZE, MORE }
 
 // Paleta de cores da fonte (estilo Word) — movida do EditorScreen.
-private val FONT_COLORS = listOf(
+// Block 2: no modo escuro o "preto" vira onSurface (legível no fundo escuro).
+internal fun fontColors(dark: Boolean, onSurface: Color = Color.Black): List<Color> = listOf(
     Color(0xFFD32F2F), Color(0xFFF57C00), Color(0xFFFBC02D),
     Color(0xFF388E3C), Color(0xFF1976D2), Color(0xFF7B1FA2),
-    Color.Black
+    if (dark) onSurface else Color.Black
 )
 // Cores de marca-texto
 private val HIGHLIGHT_COLORS = listOf(

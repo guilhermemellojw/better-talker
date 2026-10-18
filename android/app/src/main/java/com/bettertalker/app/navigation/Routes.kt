@@ -9,6 +9,8 @@ object Routes {
     const val CHAT = "chat/{noteId}"
     const val MODEL = "model"
     const val SETTINGS = "settings"
+    /** Tela de Aparência (tema + paleta com miniaturas). */
+    const val APPEARANCE = "appearance"
     /** #20-fix-b: a Tribuna — mapa de memória do discurso. */
     const val TRIBUNA = "tribuna/{noteId}"
     /** Ensaio — leitor de tribuna em tela cheia (imersivo). */

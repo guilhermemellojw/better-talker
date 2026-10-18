@@ -66,16 +66,26 @@ private val StageFg = Color(0xFFF8FAFC)
 private val StageDim = Color(0xFF94A3B8)
 private val StageAccent = Color(0xFFF59E0B)
 
-/** Cores dos papéis no teleprompter (pela ordem de entrada em cena). */
-private val StageSpeakerColors = listOf(
+/** Cores dos papéis — fundo escuro (Ensaio) e fundo claro (Tribuna). */
+private val StageSpeakerColorsDark = listOf(
     StageAccent,        // 1º papel — âmbar (cor primária do palco)
     Color(0xFF5EEAD4),  // 2º papel — teal
     Color(0xFFC4B5FD),  // 3º+ — violeta
 )
+private val StageSpeakerColorsLight = listOf(
+    Color(0xFFB45309),  // âmbar escuro (contraste sobre fundo claro)
+    Color(0xFF0F766E),  // teal escuro
+    Color(0xFF6D28D9),  // violeta escuro
+)
 
-/** Cores dos papéis reusadas pela Tribuna (roteiro de demos). */
-internal fun stageSpeakerColor(index: Int): Color =
-    StageSpeakerColors[index.coerceAtLeast(0) % StageSpeakerColors.size]
+/**
+ * Cores dos papéis reusadas pela Tribuna (roteiro de demos).
+ * [dark] = fundo escuro (Ensaio sempre; Tribuna conforme o tema).
+ */
+internal fun stageSpeakerColor(index: Int, dark: Boolean = true): Color {
+    val list = if (dark) StageSpeakerColorsDark else StageSpeakerColorsLight
+    return list[index.coerceAtLeast(0) % list.size]
+}
 private val StageGreen = Color(0xFF22C55E)
 private val StageAmber = Color(0xFFF59E0B)
 private val StageRed = Color(0xFFEF4444)

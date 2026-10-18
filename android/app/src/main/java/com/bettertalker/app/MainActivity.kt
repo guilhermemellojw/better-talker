@@ -236,6 +236,13 @@ private fun AppNav(
                 onBack = { nav.popBackStack() },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
                 onOpenModel = { nav.navigate(Routes.MODEL) },
+                onOpenAppearance = { nav.navigate(Routes.APPEARANCE) },
+            )
+        }
+        composable(Routes.APPEARANCE) {
+            com.bettertalker.app.ui.settings.AppearanceScreen(
+                settings,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.ACCOUNT) {

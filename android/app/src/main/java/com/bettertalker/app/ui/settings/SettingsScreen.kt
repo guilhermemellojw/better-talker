@@ -54,11 +54,10 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAccount: () -> Unit,
     onOpenModel: () -> Unit,
+    /** Tela cheia de Aparência (substitui o dialog). */
+    onOpenAppearance: () -> Unit = {},
 ) {
-    val themeMode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
-    val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
     val scope = rememberCoroutineScope()
-    var showAppearance by remember { mutableStateOf(false) }
     // #23-fix-a: voz premium (Piper).
     val voiceState by voiceStore.state.collectAsState()
     val premiumEnabled by settings.voicePremiumEnabled.collectAsState(initial = false)
@@ -88,7 +87,7 @@ fun SettingsScreen(
                 icon = Icons.Default.Contrast,
                 title = "Aparência",
                 subtitle = "Tema e paleta",
-                onClick = { showAppearance = true },
+                onClick = onOpenAppearance,
             )
             SettingsTile(
                 icon = Icons.Default.SmartToy,
@@ -130,16 +129,6 @@ fun SettingsScreen(
                 },
             )
         }
-    }
-
-    if (showAppearance) {
-        AppearanceDialog(
-            themeMode = themeMode,
-            paletteId = paletteId,
-            onThemeChange = { scope.launch { settings.setThemeMode(it) } },
-            onPaletteChange = { scope.launch { settings.setPaletteId(it) } },
-            onDismiss = { showAppearance = false },
-        )
     }
 }
 

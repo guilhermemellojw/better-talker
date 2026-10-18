@@ -226,6 +226,10 @@ private fun DemoScript(turns: List<StageTurn>, fontSp: Int) {
         return
     }
     val speakers = turns.map { it.speaker }.distinct()
+    // Block 2: no tema claro, os papéis usam as variantes escuras (contraste).
+    val darkTheme = com.bettertalker.app.ui.theme.relativeLuminance(
+        MaterialTheme.colorScheme.surface
+    ) < 0.5
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         turns.forEach { turn ->
             val index = speakers.indexOf(turn.speaker).coerceAtLeast(0)
@@ -243,7 +247,7 @@ private fun DemoScript(turns: List<StageTurn>, fontSp: Int) {
                         Text(
                             turn.speaker,
                             style = MaterialTheme.typography.labelSmall,
-                            color = stageSpeakerColor(index),
+                            color = stageSpeakerColor(index, dark = darkTheme),
                             fontWeight = FontWeight.Bold,
                         )
                         Text(

@@ -244,24 +244,15 @@ internal val PuroDark = darkColorScheme(
     outline = Color(0xFF424242)
 )
 
-/** #7d3: paletas curadas disponíveis no dialog "Aparência". */
-enum class PaletteId { SAMSUNG, NEUTRO, QUENTE, PURO }
+/** #7d3: paletas curadas disponíveis na tela "Aparência". */
+enum class PaletteId { SAMSUNG, NEUTRO, QUENTE, PURO, OCEANO, FLORESTA, POR_DO_SOL }
 
-/** Rótulo amigável da paleta (dialog Aparência). Puro/testável. */
-fun paletteLabel(id: PaletteId): String = when (id) {
-    PaletteId.SAMSUNG -> "Samsung"
-    PaletteId.NEUTRO -> "Neutro"
-    PaletteId.QUENTE -> "Quente"
-    PaletteId.PURO -> "Puro"
-}
+/** Rótulo amigável da paleta (tela Aparência). Puro/testável. */
+fun paletteLabel(id: PaletteId): String = AppPalettes.of(id).label
 
 /** Esquema M3 da paleta no modo pedido. Puro/testável. */
-internal fun paletteScheme(id: PaletteId, dark: Boolean): ColorScheme = when (id) {
-    PaletteId.SAMSUNG -> if (dark) SamsungDark else SamsungLight
-    PaletteId.NEUTRO -> if (dark) NeutroDark else NeutroLight
-    PaletteId.QUENTE -> if (dark) QuenteDark else QuenteLight
-    PaletteId.PURO -> if (dark) PuroDark else PuroLight
-}
+internal fun paletteScheme(id: PaletteId, dark: Boolean): ColorScheme =
+    AppPalettes.of(id).scheme(dark)
 
 val AppShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
@@ -293,8 +284,31 @@ fun BetterTalkerTheme(
         ThemeMode.DARK -> true
         ThemeMode.AUTO -> isSystemInDarkTheme()
     }
+    val target = paletteScheme(palette, dark)
+    // Troca de tema/paleta suave: os tokens principais interpolam.
+    val scheme = target.copy(
+        primary = androidx.compose.animation.animateColorAsState(target.primary, label = "primary").value,
+        onPrimary = androidx.compose.animation.animateColorAsState(target.onPrimary, label = "onPrimary").value,
+        primaryContainer = androidx.compose.animation.animateColorAsState(target.primaryContainer, label = "primaryContainer").value,
+        secondary = androidx.compose.animation.animateColorAsState(target.secondary, label = "secondary").value,
+        tertiary = androidx.compose.animation.animateColorAsState(target.tertiary, label = "tertiary").value,
+        surface = androidx.compose.animation.animateColorAsState(target.surface, label = "surface").value,
+        surfaceVariant = androidx.compose.animation.animateColorAsState(target.surfaceVariant, label = "surfaceVariant").value,
+        background = androidx.compose.animation.animateColorAsState(target.background, label = "background").value,
+        outline = androidx.compose.animation.animateColorAsState(target.outline, label = "outline").value,
+        errorContainer = androidx.compose.animation.animateColorAsState(target.errorContainer, label = "errorContainer").value,
+    )
+    // Block 2: a Status Bar segue o tema (ícones claros no escuro).
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.SideEffect {
+            val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
+            androidx.core.view.WindowCompat.getInsetsController(window, view)
+                .isAppearanceLightStatusBars = !dark
+        }
+    }
     MaterialTheme(
-        colorScheme = paletteScheme(palette, dark),
+        colorScheme = scheme,
         shapes = AppShapes,
         typography = AppTypography,
         content = content
