@@ -366,6 +366,13 @@ fun EditorScreen(
                             text = { Text("Exportar / Compartilhar") },
                             onClick = { showMenu = false; showExport = true },
                         )
+                        // #E2E-fix: a GERAÇÃO da Tribuna ficou sem gatilho na UI
+                        // quando o editor foi enxugado (o hub só abre a tela).
+                        // O wiring já existe: gera em background + abre a Tribuna.
+                        DropdownMenuItem(
+                            text = { Text("Gerar Tribuna") },
+                            onClick = { showMenu = false; onGenerateTribuna() },
+                        )
                     }
                 }
             )
