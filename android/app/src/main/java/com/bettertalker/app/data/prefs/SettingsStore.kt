@@ -18,6 +18,11 @@ class SettingsStore(private val ctx: Context) {
     val homeViewMode: Flow<String> = ctx.store.data.map { it[HOME_VIEW_MODE] ?: "GRID" }
     suspend fun setHomeViewMode(v: String) { ctx.store.edit { it[HOME_VIEW_MODE] = v } }
 
+    /** Textura de fundo global (NONE | PAPER | DOTS | GRID | NOISE). */
+    private val HOME_TEXTURE = stringPreferencesKey("home_texture")
+    val homeTexture: Flow<String> = ctx.store.data.map { it[HOME_TEXTURE] ?: "NONE" }
+    suspend fun setHomeTexture(v: String) { ctx.store.edit { it[HOME_TEXTURE] = v } }
+
     private val THEME = stringPreferencesKey("theme_mode")
     val themeMode: Flow<ThemeMode> = ctx.store.data.map {
         runCatching { ThemeMode.valueOf(it[THEME] ?: "AUTO") }.getOrDefault(ThemeMode.AUTO)

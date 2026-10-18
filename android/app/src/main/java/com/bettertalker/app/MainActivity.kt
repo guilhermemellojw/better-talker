@@ -18,6 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.bettertalker.app.ui.theme.texturedBackground
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
 import com.bettertalker.app.navigation.Routes
@@ -134,6 +135,9 @@ private fun AppNav(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
     val showGlobalBar = com.bettertalker.app.navigation.shouldShowGlobalBar(currentRoute) && !imeOpen
+    // Textura de fundo global (Aparência): pintada atrás de TODO o conteúdo.
+    val textureName by settings.homeTexture.collectAsState(initial = "NONE")
+    val homeTexture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
 
     // Hubs de escolha de nota (Treinar/Apresentar) — o usuário escolhe
     // visualmente; nada de "última nota" silenciosa nem sheet.
@@ -160,6 +164,12 @@ private fun AppNav(
 
     androidx.compose.material3.Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        modifier = androidx.compose.ui.Modifier.texturedBackground(
+            texture = homeTexture,
+            background = androidx.compose.material3.MaterialTheme.colorScheme.background,
+            ink = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+        ),
         bottomBar = {
             if (showGlobalBar) {
                 com.bettertalker.app.ui.components.GlobalBottomBar(

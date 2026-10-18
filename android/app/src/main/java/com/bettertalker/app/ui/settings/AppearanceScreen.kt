@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -48,7 +49,10 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.ui.theme.AppPalettes
 import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.PaletteSpec
+import com.bettertalker.app.ui.theme.TextureId
 import com.bettertalker.app.ui.theme.ThemeMode
+import com.bettertalker.app.ui.theme.textureLabel
+import com.bettertalker.app.ui.theme.texturedBackground
 import kotlinx.coroutines.launch
 
 /**
@@ -64,6 +68,8 @@ fun AppearanceScreen(
 ) {
     val mode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
     val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
+    val textureName by settings.homeTexture.collectAsState(initial = "NONE")
+    val texture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
     val scope = rememberCoroutineScope()
     var paletteQuery by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     val dark = when (mode) {
@@ -137,6 +143,28 @@ fun AppearanceScreen(
                     onClick = { scope.launch { settings.setPaletteId(spec.id) } },
                 )
             }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Textura de Fundo", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(
+                            com.bettertalker.app.ui.theme.TextureId.entries.toList(),
+                            key = { it.name },
+                        ) { t ->
+                            TextureCard(
+                                texture = t,
+                                selected = texture == t,
+                                onClick = { scope.launch { settings.setHomeTexture(t.name) } },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(24.dp))
+                }
+            }
         }
     }
 }
@@ -194,5 +222,37 @@ private fun PaletteCard(
                 }
             }
         }
+    }
+}
+
+/** Prévia da textura sobre a superfície atual + rótulo (LazyRow). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TextureCard(
+    texture: com.bettertalker.app.ui.theme.TextureId,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            shape = MaterialTheme.shapes.medium,
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        ) {
+            Box(
+                Modifier
+                    .size(width = 108.dp, height = 76.dp)
+                    .texturedBackground(
+                        texture = texture,
+                        background = MaterialTheme.colorScheme.surface,
+                        ink = MaterialTheme.colorScheme.onSurface,
+                    )
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            com.bettertalker.app.ui.theme.textureLabel(texture),
+            style = MaterialTheme.typography.labelSmall,
+        )
     }
 }
