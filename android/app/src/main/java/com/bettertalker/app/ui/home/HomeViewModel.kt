@@ -53,12 +53,16 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
             discourseType = com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART,
             plainText = "",
             bodyHtml = "",
-            bodyTitle = "Demonstração",
+            bodyTitle = "Parte 1",
             bodyMinutes = 4,
         ),
     )
     fun trash(id: String) = viewModelScope.launch { repo.trash(id) }
     fun togglePin(id: String) = viewModelScope.launch { repo.togglePin(id) }
+    /** UX refactor: mover nota entre pastas (menu do card na Home). */
+    fun moveNote(id: String, folderId: String?) = viewModelScope.launch {
+        repo.moveNote(id, folderId)
+    }
     fun restore(id: String) = viewModelScope.launch { repo.restore(id) }
     fun deleteForever(id: String) = viewModelScope.launch { repo.deleteForever(id) }
     fun newFolder(name: String, color: Long) = viewModelScope.launch { repo.newFolder(name, color) }

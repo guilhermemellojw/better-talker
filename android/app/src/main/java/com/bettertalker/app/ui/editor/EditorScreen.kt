@@ -144,7 +144,6 @@ fun EditorScreen(
     var showMove by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
-    var showColorDialog by remember { mutableStateOf(false) }
     var showAttachmentsSheet by remember { mutableStateOf(false) }
     // Exportação: sheet com Compartilhar / Salvar PDF / Copiar texto.
     var showExport by remember { mutableStateOf(false) }
@@ -300,29 +299,8 @@ fun EditorScreen(
     }
 
     // 3.2.5g.3: cor da nota (item do ⋮; fecha ao escolher).
-    if (showColorDialog) {
-        AlertDialog(
-            onDismissRequest = { showColorDialog = false },
-            title = { Text("Cor da nota") },
-            text = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    NOTE_COLORS.forEach { c ->
-                        NoteColorDot(
-                            color = c,
-                            selected = color == c.value.toLong(),
-                            onClick = {
-                                vm.setColor(c.value.toLong())
-                                showColorDialog = false
-                            },
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showColorDialog = false }) { Text("Fechar") }
-            },
-        )
-    }
+    // UX refactor: "Cor da nota" saiu do ⋮ do Editor (gestão na Home virá
+    // depois; as notas mantêm suas cores atuais).
 
     // 3.2.5g.3: esboço vinculado (item do ⋮; só aparece se houver esboço).
     outlineList.firstOrNull()?.let { o ->
@@ -377,10 +355,9 @@ fun EditorScreen(
                     }
                     IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Cor da nota") },
-                            onClick = { showMenu = false; showColorDialog = true },
-                        )
+                        // UX refactor: o Editor é focado em escrita/exportação —
+                        // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
+                        // atalhos de Ensaio/Tribuna (agora na barra global) saíram.
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
@@ -388,39 +365,6 @@ fun EditorScreen(
                         DropdownMenuItem(
                             text = { Text("Exportar / Compartilhar") },
                             onClick = { showMenu = false; showExport = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ensaio") },
-                            onClick = { showMenu = false; onOpenStage() },
-                        )
-                        // #20-fix-a: Tribuna — mapa de memória do discurso.
-                        DropdownMenuItem(
-                            text = { Text("Gerar Tribuna") },
-                            onClick = { showMenu = false; onGenerateTribuna() },
-                        )
-                        // #20-fix-b: abrir a tela (empty state cobre "não gerada").
-                        DropdownMenuItem(
-                            text = { Text("Abrir Tribuna") },
-                            onClick = { showMenu = false; onOpenTribuna() },
-                        )
-                        outlineList.firstOrNull()?.let { o ->
-                            DropdownMenuItem(
-                                text = { Text("Esboço: ${o.title}") },
-                                onClick = { showMenu = false; showOutlineDialog = true },
-                            )
-                        }
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Mover para pasta") },
-                            onClick = { showMenu = false; showMove = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (notePinned) "Desafixar" else "Fixar") },
-                            onClick = { showMenu = false; vm.togglePin() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Excluir", color = MaterialTheme.colorScheme.error) },
-                            onClick = { showMenu = false; confirmDelete = true }
                         )
                     }
                 }
@@ -443,7 +387,6 @@ fun EditorScreen(
                 // Opera o editor ATIVO; sem foco = desabilitada.
                 EditorFormattingToolbar(
                     activeEditorState = activeEditorState,
-                    isDemonstration = isDemonstration,
                     modifier = Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
@@ -703,7 +646,8 @@ fun EditorScreen(
                             }
                         }
                     }
-                    if (!preview) {
+                    // UX de demonstrações: 1 card único basta — sem "Adicionar parte".
+                    if (!preview && !isDemonstration) {
                         AddSectionButton(
                             onAdd = { role ->
                                 vm.addSection(role, afterSectionId = sections.lastOrNull()?.section?.id)

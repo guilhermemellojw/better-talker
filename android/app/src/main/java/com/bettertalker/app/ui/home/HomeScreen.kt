@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ContentPaste
@@ -94,6 +95,13 @@ fun HomeScreen(
     var showCreateSheet by remember { mutableStateOf(false) }
     var showInsertDialog by remember { mutableStateOf(false) }
     var showScratchDialog by remember { mutableStateOf(false) }
+    // UX refactor: gerenciamento de arquivo no card (confirmação + mover).
+    var confirmDelete by remember {
+        mutableStateOf<com.bettertalker.app.data.db.NoteEntity?>(null)
+    }
+    var moveTarget by remember {
+        mutableStateOf<com.bettertalker.app.data.db.NoteEntity?>(null)
+    }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     // "Inserir material → Escolher arquivo": picker nativo → importa na nota nova.
     val materialPicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -223,6 +231,65 @@ fun HomeScreen(
             },
         )
     }
+    // UX refactor: confirmação de exclusão (vai para a Lixeira, com Desfazer).
+    confirmDelete?.let { note ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Excluir nota?") },
+            text = { Text("\u201C${note.title.ifBlank { "Sem título" }}\u201D vai para a Lixeira.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val id = note.id
+                    confirmDelete = null
+                    vm.trash(id)
+                    scope.launch {
+                        val r = snack.showSnackbar(
+                            "Nota movida para a Lixeira",
+                            actionLabel = "Desfazer",
+                            duration = androidx.compose.material3.SnackbarDuration.Short,
+                        )
+                        if (r == SnackbarResult.ActionPerformed) vm.restore(id)
+                    }
+                }) { Text("Excluir", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) { Text("Cancelar") }
+            },
+        )
+    }
+    // UX refactor: mover para pasta (mesma lista de pastas da Home).
+    moveTarget?.let { note ->
+        AlertDialog(
+            onDismissRequest = { moveTarget = null },
+            title = { Text("Mover para pasta") },
+            text = {
+                Column {
+                    MoveOptionRow(
+                        label = "Sem pasta",
+                        selected = note.folderId == null,
+                        onClick = {
+                            vm.moveNote(note.id, null)
+                            moveTarget = null
+                        },
+                    )
+                    folders.forEach { f ->
+                        MoveOptionRow(
+                            label = f.name,
+                            selected = note.folderId == f.id,
+                            onClick = {
+                                vm.moveNote(note.id, f.id)
+                                moveTarget = null
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { moveTarget = null }) { Text("Cancelar") }
+            },
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -330,17 +397,8 @@ fun HomeScreen(
                             pinned = n.pinned, attachCount = counts[n.id] ?: 0,
                             colorArgb = n.colorArgb,
                             onClick = { onOpenNote(n.id) },
-                            onDelete = {
-                                vm.trash(n.id)
-                                scope.launch {
-                                    val r = snack.showSnackbar(
-                                        "Nota movida para a Lixeira",
-                                        actionLabel = "Desfazer",
-                                        duration = androidx.compose.material3.SnackbarDuration.Short
-                                    )
-                                    if (r == SnackbarResult.ActionPerformed) vm.restore(n.id)
-                                }
-                            },
+                            onDelete = { confirmDelete = n },
+                            onMove = { moveTarget = n },
                             onTogglePin = { vm.togglePin(n.id) }
                         )
                     }
@@ -478,6 +536,32 @@ private fun CreateNoteOption(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** Linha de escolha de pasta (dialog "Mover para pasta"). */
+@Composable
+private fun MoveOptionRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.weight(1f),
+        )
+        if (selected) {
+            Icon(Icons.Default.Check, "Atual", tint = MaterialTheme.colorScheme.primary)
         }
     }
 }

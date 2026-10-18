@@ -61,6 +61,8 @@ fun NoteCard(
     onClick: () -> Unit,
     onDelete: (() -> Unit)? = null,
     onTogglePin: (() -> Unit)? = null,
+    /** UX refactor: mover para pasta (menu do card na Home). */
+    onMove: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = if (colorArgb != 0L) {
@@ -89,7 +91,7 @@ fun NoteCard(
                         maxLines = 2,
                         modifier = Modifier.weight(1f)
                     )
-                    if (onDelete != null || onTogglePin != null) {
+                    if (onDelete != null || onTogglePin != null || onMove != null) {
                         val showMenu = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
                         IconButton(onClick = { showMenu.value = true }) {
                             Icon(Icons.Default.MoreVert, "Opções")
@@ -104,9 +106,17 @@ fun NoteCard(
                                     onClick = { showMenu.value = false; onTogglePin() }
                                 )
                             }
+                            if (onMove != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Mover para pasta") },
+                                    onClick = { showMenu.value = false; onMove() }
+                                )
+                            }
                             if (onDelete != null) {
                                 DropdownMenuItem(
-                                    text = { Text("Excluir") },
+                                    text = {
+                                        Text("Excluir", color = MaterialTheme.colorScheme.error)
+                                    },
                                     onClick = { showMenu.value = false; onDelete() }
                                 )
                             }
