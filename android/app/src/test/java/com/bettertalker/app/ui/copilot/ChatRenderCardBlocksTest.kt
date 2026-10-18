@@ -31,4 +31,20 @@ class ChatRenderCardBlocksTest {
         val inner = cardInnerBlocks("<texto-do-card>x</texto-do-card>")
         assertTrue(inner.isEmpty())
     }
+
+    @Test
+    fun cardHtmlViraMarkdownComPapeisEmNegrito() {
+        // #E2E-fix: HTML do Copilot → markdown para o insert preservar o
+        // negrito dos papéis (senão o Ensaio não reconhece os turnos).
+        val md = cardTextToMarkdown(
+            "<p><b>Publicador:</b> Ol&aacute;, boa tarde&excl;</p>" +
+                "<p><b>Morador:</b> Bom dia&period;</p>"
+        )
+        assertEquals("**Publicador:** Olá, boa tarde!\n\n**Morador:** Bom dia.", md)
+    }
+
+    @Test
+    fun cardMarkdownPassaIntacto() {
+        assertEquals("**Publicador:** oi", cardTextToMarkdown("**Publicador:** oi"))
+    }
 }

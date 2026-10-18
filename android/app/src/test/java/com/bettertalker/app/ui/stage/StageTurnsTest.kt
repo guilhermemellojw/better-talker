@@ -32,6 +32,37 @@ class StageTurnsTest {
     }
 
     @Test
+    fun parseStageTurns_rotuloSemNegrito_viraTurno() {
+        // "Usar no card" pode gravar o papel sem <b> (e ":" como "&colon;").
+        val html = "<p>Publicador&colon; Ol&aacute;, boa tarde&excl;</p>" +
+            "<p>Morador&colon; Bom dia&period;</p>"
+        val turns = parseStageTurns(html)
+        assertEquals(2, turns.size)
+        assertEquals("Publicador", turns[0].speaker)
+        assertEquals("Olá, boa tarde!", turns[0].text)
+        assertEquals("Morador", turns[1].speaker)
+        assertEquals("Bom dia.", turns[1].text)
+    }
+
+    @Test
+    fun parseStageTurns_decodificaPontuacaoDoEditor() {
+        val html = "<p><b>Morador:</b> sem guerra&comma; sem doen&ccedil;a&mldr; " +
+            "&lpar;abre a publica&ccedil;&atilde;o&rpar;</p>"
+        val turns = parseStageTurns(html)
+        assertEquals("sem guerra, sem doença… (abre a publicação)", turns[0].text)
+    }
+
+    @Test
+    fun parseStageTurns_fraseLongaComDoisPontos_naoViraTurno() {
+        // Parágrafo sem rótulo (frase longa com ":") não vira turno.
+        assertTrue(
+            parseStageTurns(
+                "<p>Então deixa eu te perguntar uma coisa: se você pudesse escolher?</p>"
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun parseStageTurns_toleraSpansERestoDeTags() {
         val html = "<p><b>Morador:</b> <span style=\"color: red;\">certo</span>, obrigado.</p>"
         val turns = parseStageTurns(html)

@@ -29,6 +29,8 @@ class TextSanitizerTest {
         assertEquals("Já? Sim.", "J&aacute;&quest; Sim&period;".toCleanPreview())
         assertEquals("a b", "a&nbsp;b".toCleanPreview())
         assertEquals("é", "&#233;".toCleanPreview())
+        // #E2E-fix: pontuação que o editor rich gera em entidades.
+        assertEquals("… (a) 50%", "&mldr; &lpar;a&rpar; 50&percnt;".toCleanPreview())
     }
 
     @Test

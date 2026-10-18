@@ -27,8 +27,12 @@ private val HTML_ENTITIES = mapOf(
     "Oacute" to "Ó", "Otilde" to "Õ",
     "Uacute" to "Ú",
     "quest" to "?", "period" to ".", "comma" to ",", "colon" to ":",
-    "semi" to ";", "excl" to "!", "hellip" to "…", "mdash" to "—",
+    "semi" to ";", "excl" to "!", "hellip" to "…", "mldr" to "…", "mdash" to "—",
     "ndash" to "–", "laquo" to "«", "raquo" to "»",
+    "lpar" to "(", "rpar" to ")", "sol" to "/", "percnt" to "%", "num" to "#",
+    "dollar" to "$", "plus" to "+", "equals" to "=", "ast" to "*",
+    "commat" to "@", "vert" to "|", "bsol" to "\\", "tilde" to "~",
+    "lowbar" to "_", "grave" to "`",
 )
 
 /** Decodifica entidades nomeadas + numéricas (`&#233;` / `&#xE9;`). Puro. */

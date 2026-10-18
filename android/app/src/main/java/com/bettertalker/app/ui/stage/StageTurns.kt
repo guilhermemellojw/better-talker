@@ -7,7 +7,9 @@ import com.bettertalker.app.data.util.decodeHtmlEntities
  *
  * O contentHtml das demonstrações coladas/geradas usa
  * `<p><b>Papel:</b> fala</p>` — este parser separa os turnos para a tela
- * destacar os papéis e para o TTS ler só as falas (sem o rótulo).
+ * destacar os papéis e para o TTS ler só as falas (sem o rótulo). Também
+ * aceita o rótulo SEM negrito (`<p>Papel&colon; fala</p>`), comum em diálogo
+ * digitado ou inserido pelo Copilot ("Usar no card").
  * Sem nenhum turno reconhecido devolve lista vazia (a tela cai no texto
  * corrido). Puro/testável.
  */
@@ -17,6 +19,14 @@ data class StageTurn(val speaker: String, val text: String)
 
 private val P_RE = Regex("""<p\b[^>]*>(.*?)</p>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 private val B_RE = Regex("""^\s*<b>(.*?)</b>\s*:?\s*(.*)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+
+// Rótulo sem negrito: papel de 1–3 palavras (sem tags/entidades) + ":" ou
+// "&colon;". O quantificador mínimo para no 1º separador, então uma fala com
+// dois-pontos no meio ("Publicador: ... uma coisa: ...") não vira papel.
+private val PLAIN_RE = Regex(
+    """^\s*([^:<>&\s]+(?:\s+[^:<>&\s]+){0,2})\s*(?::|&colon;)\s*(.*)$""",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+)
 
 /** Texto puro de um trecho HTML (tags fora, entidades decodificadas, <br> → \n). Puro. */
 internal fun cleanStageText(html: String): String =
@@ -39,7 +49,7 @@ fun parseStageTurns(html: String): List<StageTurn> {
         .ifEmpty { listOf(html) }
     val out = mutableListOf<StageTurn>()
     for (block in blocks) {
-        val m = B_RE.find(block) ?: continue
+        val m = B_RE.find(block) ?: PLAIN_RE.find(block) ?: continue
         val speaker = cleanStageText(m.groupValues[1]).trimEnd(':', '：').trim()
         val text = cleanStageText(m.groupValues[2])
         if (speaker.isNotEmpty() && text.isNotEmpty()) out += StageTurn(speaker, text)

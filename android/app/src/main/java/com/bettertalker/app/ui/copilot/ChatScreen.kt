@@ -74,6 +74,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.bettertalker.app.data.util.decodeHtmlEntities
 import com.bettertalker.app.data.util.stripInternalTags
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -1450,7 +1451,7 @@ private fun RenderTextForCard(
             )
             Spacer(Modifier.weight(1f))
             if (onUseInCard != null) {
-                TextButton(onClick = { onUseInCard(block.text) }) {
+                TextButton(onClick = { onUseInCard(cardTextToMarkdown(block.text)) }) {
                     Text("⤓ Usar no card")
                 }
             }
@@ -1469,6 +1470,26 @@ private fun RenderTextForCard(
  */
 internal fun cardInnerBlocks(text: String): List<MdBlock> =
     parseBlocks(text).filter { it !is MdBlock.TextForCard }
+
+/**
+ * #E2E-fix: o bloco `<texto-do-card>` pode vir em HTML
+ * (`<p><b>Papel:</b> …</p>`), mas o insert no editor é MARKDOWN
+ * (`insertMarkdown`) — HTML cru perdia o negrito dos papéis e o Ensaio não
+ * reconhecia os turnos. Decodifica entidades e converte `<b>/<strong>` →
+ * `**`, `<i>/<em>` → `*`, `<br>`/`<p>` em quebras. Puro/testável.
+ */
+internal fun cardTextToMarkdown(text: String): String {
+    var s = decodeHtmlEntities(text)
+    s = s.replace(Regex("(?i)<br\\s*/?>"), "\n")
+    s = s.replace(Regex("(?i)</p>\\s*<p\\b[^>]*>"), "\n\n")
+    s = s.replace(Regex("(?i)</?p\\b[^>]*>"), "\n\n")
+    s = s.replace(Regex("(?i)</?(b|strong)>"), "**")
+    s = s.replace(Regex("(?i)</?(i|em)>"), "*")
+    s = s.replace(Regex("<[^>]+>"), "")
+    return s.replace(Regex("[ \\t]+"), " ")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+}
 
 /** #22-fix-b: marcador do item de lista (○ em sub-níveis; • no topo). Puro/testável. */
 internal fun bulletMarker(number: Int?, depth: Int): String =
