@@ -83,6 +83,7 @@ import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.components.NoteItem
 import com.bettertalker.app.ui.components.SyncTopBanner
 import com.bettertalker.app.ui.components.SyncUiState
+import com.bettertalker.app.ui.components.ViewModeMenu
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.launch
 
@@ -108,7 +109,6 @@ fun HomeScreen(
     val syncState by vm.syncState.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
     // Modos de visualização: cada container tem seu próprio scroll hoisted.
-    var showViewMenu by remember { mutableStateOf(false) }
     val gridScroll =
         androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
     val compactScroll = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -363,39 +363,7 @@ fun HomeScreen(
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
                     // Modos de visualização (Grade / Lista compacta / Detalhada).
-                    Box {
-                        IconButton(onClick = { showViewMenu = true }) {
-                            Icon(
-                                when (viewMode) {
-                                    HomeViewMode.GRID -> Icons.Default.GridView
-                                    HomeViewMode.LIST_COMPACT -> Icons.Default.ViewList
-                                    HomeViewMode.LIST_DETAILED -> Icons.Default.Article
-                                },
-                                "Modo de visualização",
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showViewMenu,
-                            onDismissRequest = { showViewMenu = false },
-                        ) {
-                            HomeViewMode.entries.forEach { m ->
-                                DropdownMenuItem(
-                                    text = { Text(viewModeLabel(m)) },
-                                    leadingIcon = {
-                                        Icon(
-                                            when (m) {
-                                                HomeViewMode.GRID -> Icons.Default.GridView
-                                                HomeViewMode.LIST_COMPACT -> Icons.Default.ViewList
-                                                HomeViewMode.LIST_DETAILED -> Icons.Default.Article
-                                            },
-                                            null,
-                                        )
-                                    },
-                                    onClick = { showViewMenu = false; vm.setViewMode(m) },
-                                )
-                            }
-                        }
-                    }
+                    ViewModeMenu(viewMode = viewMode, onSelect = vm::setViewMode)
                     // #10b: ⚙ abre a SettingsScreen (Conta/Aparência/IA).
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, "Configurações")

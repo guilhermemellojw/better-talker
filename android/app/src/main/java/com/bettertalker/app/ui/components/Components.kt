@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -63,6 +65,10 @@ fun NoteCard(
     onTogglePin: (() -> Unit)? = null,
     /** UX refactor: mover para pasta (menu do card na Home). */
     onMove: (() -> Unit)? = null,
+    /** Hubs: tipo da nota ("Demonstração"/"Discurso") — null = não mostra. */
+    badgeText: String? = null,
+    /** Hubs: duração ("12 min") — null = não mostra. */
+    durationText: String? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = if (colorArgb != 0L) {
@@ -92,6 +98,22 @@ fun NoteCard(
                         modifier = Modifier.weight(1f)
                     )
                     NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
+                }
+                if (badgeText != null || durationText != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        badgeText?.let { NoteBadgePill(it) }
+                        durationText?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(previewOf(md), style = MaterialTheme.typography.bodySmall, maxLines = 4)

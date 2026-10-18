@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** Card de nota nos hubs Treinar/Apresentar. */
 data class HubNoteCard(
@@ -19,6 +20,11 @@ data class HubNoteCard(
     val isDemonstration: Boolean,
     /** null = sem duração conhecida (nota vazia/legada). */
     val minutes: Int?,
+    /** Modos de lista: mesmos dados do card da Home (data/preview/cor/fixada). */
+    val updatedAt: Long = 0L,
+    val preview: String = "",
+    val pinned: Boolean = false,
+    val colorArgb: Long = 0L,
 )
 
 /** Rótulo do tipo da nota no card ("Demonstração" × "Discurso"). Puro/testável. */
@@ -42,6 +48,20 @@ fun hubMinutesOf(sectionMinutesSum: Int, outlineMinutes: Int?): Int? = when {
 class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
 
     private val repo = NotesRepository(ctx.applicationContext, db)
+    private val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx.applicationContext)
+
+    /** Modo de visualização GLOBAL (mesmo `home_view_mode` da Home). */
+    val viewMode: StateFlow<com.bettertalker.app.ui.home.HomeViewMode> = settings.homeViewMode
+        .map { com.bettertalker.app.ui.home.HomeViewMode.fromNameOrDefault(it) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            com.bettertalker.app.ui.home.HomeViewMode.GRID,
+        )
+
+    fun setViewMode(m: com.bettertalker.app.ui.home.HomeViewMode) = viewModelScope.launch {
+        settings.setHomeViewMode(m.name)
+    }
 
     val cards: StateFlow<List<HubNoteCard>> = repo.observeNotes(folderId = null, q = "")
         .map { notes ->
@@ -53,6 +73,10 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                     title = note.title.ifBlank { "Sem título" },
                     isDemonstration = note.discourseType == DiscourseType.MINISTRY_PART.name,
                     minutes = hubMinutesOf(sectionSum, outlineMinutes),
+                    updatedAt = note.updatedAt,
+                    preview = note.mdText,
+                    pinned = note.pinned,
+                    colorArgb = note.colorArgb,
                 )
             }
         }

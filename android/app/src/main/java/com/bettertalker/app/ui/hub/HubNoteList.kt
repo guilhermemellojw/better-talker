@@ -1,40 +1,43 @@
 package com.bettertalker.app.ui.hub
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.Card
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.ui.components.NoteCard
+import com.bettertalker.app.ui.components.NoteRowCompact
+import com.bettertalker.app.ui.components.NoteRowDetailed
+import com.bettertalker.app.ui.home.HomeViewMode
 
 /**
- * Lista compartilhada dos hubs (Treinar/Apresentar): cards com título, badge
- * de tipo ("Demonstração"/"Discurso") e duração; toque abre o ambiente.
+ * Lista compartilhada dos hubs (Treinar/Apresentar) nos 3 modos de
+ * visualização (o mesmo `HomeViewMode` global da Home): Grade (mosaico),
+ * Lista compacta e Lista detalhada. Cada modo mantém o próprio estado de
+ * rolagem (içado com remember) e a troca anima com fade de 180ms.
  */
 @Composable
 internal fun HubNoteList(
     cards: List<HubNoteCard>,
+    mode: HomeViewMode,
     emptyText: String,
     onOpen: (String) -> Unit,
 ) {
@@ -49,73 +52,74 @@ internal fun HubNoteList(
         }
         return
     }
-    LazyColumn(
+    val gridScroll = rememberLazyStaggeredGridState()
+    val compactScroll = rememberLazyListState()
+    val detailedScroll = rememberLazyListState()
+    AnimatedContent(
+        targetState = mode,
+        transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(180)) },
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(cards, key = { it.id }) { card ->
-            HubNoteRow(card, onOpen)
-        }
-    }
-}
-
-@Composable
-private fun HubNoteRow(card: HubNoteCard, onOpen: (String) -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpen(card.id) },
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    card.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    HubBadge(if (card.isDemonstration) "Demonstração" else "Discurso")
-                    card.minutes?.let {
-                        Text(
-                            "$it min",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+    ) { m ->
+        when (m) {
+            HomeViewMode.GRID -> LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Adaptive(160.dp),
+                contentPadding = PaddingValues(16.dp),
+                verticalItemSpacing = 12.dp,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                state = gridScroll,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(cards, key = { it.id }) { card ->
+                    HubNoteItem(card, HomeViewMode.GRID, onOpen)
                 }
             }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
+            HomeViewMode.LIST_COMPACT -> LazyColumn(
+                state = compactScroll,
+                contentPadding = PaddingValues(vertical = 8.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(cards, key = { it.id }) { card ->
+                    HubNoteItem(card, HomeViewMode.LIST_COMPACT, onOpen)
+                }
+            }
+            HomeViewMode.LIST_DETAILED -> LazyColumn(
+                state = detailedScroll,
+                contentPadding = PaddingValues(vertical = 8.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(cards, key = { it.id }) { card ->
+                    HubNoteItem(card, HomeViewMode.LIST_DETAILED, onOpen)
+                }
+            }
         }
     }
 }
 
+/** Card do hub no modo escolhido: badge (tipo) + duração extras. */
 @Composable
-private fun HubBadge(label: String) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+private fun HubNoteItem(
+    card: HubNoteCard,
+    mode: HomeViewMode,
+    onOpen: (String) -> Unit,
+) {
+    val badge = if (card.isDemonstration) "Demonstração" else "Discurso"
+    val duration = card.minutes?.let { "$it min" }
+    val onClick = { onOpen(card.id) }
+    when (mode) {
+        HomeViewMode.GRID -> NoteCard(
+            title = card.title, md = card.preview, updatedAt = card.updatedAt,
+            pinned = card.pinned, attachCount = 0, colorArgb = card.colorArgb,
+            onClick = onClick, badgeText = badge, durationText = duration,
+        )
+        HomeViewMode.LIST_COMPACT -> NoteRowCompact(
+            title = card.title, updatedAt = card.updatedAt, pinned = card.pinned,
+            colorArgb = card.colorArgb, onClick = onClick,
+            badgeText = badge, durationText = duration,
+        )
+        HomeViewMode.LIST_DETAILED -> NoteRowDetailed(
+            title = card.title, md = card.preview, updatedAt = card.updatedAt,
+            pinned = card.pinned, colorArgb = card.colorArgb, onClick = onClick,
+            badgeText = badge, durationText = duration,
         )
     }
 }
