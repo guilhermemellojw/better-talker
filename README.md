@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: pré-release interno.**
+> **Estágio: v2.0 — release interno (sideload).**
 
 Better Talker é um app Android nativo. Este repositório contém apenas o projeto Android em `android/`. O pacote web legado foi removido.
 
@@ -65,6 +65,44 @@ e ao final diga *"insira tudo na nota"*:
 - **Inserir tudo:** o modelo emite a estrutura em Markdown canônico (`# INTRODUÇÃO`, `# SEÇÃO N`,
   `# CONCLUSÃO`); o app mostra **prévia** (títulos + primeiras linhas) e, ao confirmar, cria as
   seções na nota — **substituindo** tudo ou **adicionando** ao final, à escolha.
+
+### Partes da reunião (V&M) — "Colar e Pronto"
+
+Cole uma parte da reunião (ex.: `5. Cultivando o interesse (4 min) DE CASA EM CASA. Fale sobre…`)
+na Home (**FAB → Inserir material → Colar texto**). O app detecta a parte e cria uma **Demonstração**:
+
+- **Título da nota:** parte + duração (`Cultivando o interesse (4 min)`) — vale também para
+  Discurso (`A ordem nos céus (10 min)`).
+- **Card:** a descrição (cenário + referência, ex. "DE CASA EM CASA… (lmd lição 7 ponto 4)")
+  vira o título do card; o corpo fica livre para o diálogo.
+- **Diálogo:** falas coladas (`Publicador:`/`Morador:`) ou geradas pelo Copilot ("Usar no card")
+  viram turnos; os chips `+ Publicador` / `+ Morador` inserem rótulos em negrito.
+
+### Copilot para partes V&M (S-38)
+
+Quando a nota é uma **Demonstração**, o prompt do Copilot ganha o bloco `## DIRETRIZES DA REUNIÃO (S-38)`:
+
+- **Diretriz por tipo de parte** (iniciando conversas, cultivando o interesse, fazendo discípulos,
+  explicando suas crenças) — tom de conversa, não discurso longo.
+- **Cenário e referência** extraídos do título/corpo do card ("Cenário: De casa em casa",
+  "lmd lição 7 ponto 4") — se o texto da publicação estiver nas FONTES, o Copilot usa-o.
+- A resposta formatada para o card vem em `<p><b>Publicador:</b> …</p>` com o botão **"Usar no card"**.
+
+### Ensaio com turnos (teleprompter)
+
+No hub **Treinar**, demonstrações com diálogo abrem o teleprompter com papéis coloridos:
+
+- Cada papel ganha uma cor; o chip **"Modo Dupla"** (rodapé; toque para mostrar os controles)
+  destaca um papel e escurece as falas do outro, ciclando entre eles.
+- O TTS (**Ouvir**) lê só as falas, sem os rótulos.
+- O parser aceita rótulo com negrito (`<b>Publicador:</b>`) ou sem (`Publicador:`), com
+  entidades do editor (`&mldr;`, `&lpar;`…) decodificadas.
+
+### Tribuna (mapa de memória)
+
+No hub **Apresentar**, a Tribuna mostra cápsulas por seção (IDEIA CENTRAL, TEXTO-CHAVE,
+FRASE-ÂNCORA, TRANSIÇÃO). Para gerar/atualizar: no editor, **⋮ → Gerar Tribuna**
+(usa a IA configurada; abre a tela e as cápsulas aparecem quando ficam prontas).
 
 > **Contexto de uso:** projeto de uso pessoal (poucos amigos), distribuição por APK sideload — sem Play Store nesta fase.
 
