@@ -25,9 +25,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -157,7 +157,8 @@ fun SectionCardEditor(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    maxLines = 3,
+                    // Sem teto de linhas: a descrição da parte ("Colar e
+                    // Pronto" v2) vive aqui — cortar esconderia as referências.
                     modifier = Modifier
                         .weight(1f)
                         .clickable(enabled = !readOnly) { showTitleDialog = true },
@@ -188,7 +189,7 @@ fun SectionCardEditor(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Conversar sobre este tópico")
+                    Text(if (isDemonstration) "Analisar diálogo com IA" else "Conversar sobre este tópico")
                 }
             }
         }
@@ -277,14 +278,18 @@ fun SectionCardEditor(
 
                         SectionRole.BODY -> {
                             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                ReasoningLine(
-                                    subPoints = state.subPoints,
-                                    readOnly = readOnly,
-                                    onUpdateOutlineText = onUpdateSubPointOutlineText,
-                                    onMoveSubPoint = onMoveSubPoint,
-                                    onRemoveSubPoint = onRemoveSubPoint,
-                                    onAddSubPoint = { onAddSubPoint(null) },
-                                )
+                                // UX de demonstrações: a linha de raciocínio
+                                // (sub-pontos) não se aplica ao diálogo.
+                                if (!isDemonstration) {
+                                    ReasoningLine(
+                                        subPoints = state.subPoints,
+                                        readOnly = readOnly,
+                                        onUpdateOutlineText = onUpdateSubPointOutlineText,
+                                        onMoveSubPoint = onMoveSubPoint,
+                                        onRemoveSubPoint = onRemoveSubPoint,
+                                        onAddSubPoint = { onAddSubPoint(null) },
+                                    )
+                                }
 
                                 MiniSpeechBlock(
                                     sectionId = state.section.id,
@@ -294,6 +299,7 @@ fun SectionCardEditor(
                                     editorStates = editorStates,
                                     onContentChange = onContentChange,
                                     onSelectionChange = onSelectionChange,
+                                    isDemonstration = isDemonstration,
                                     onFocusChange = { isFocused, key ->
                                         if (isFocused) {
                                             focusedEditorKey = key
@@ -321,6 +327,27 @@ fun SectionCardEditor(
                         onDrag = onDrag,
                         onDragEnd = onDragEnd,
                     )
+                    // UX de demonstrações: atalhos de papel no rodapé do card
+                    // (inserem o rótulo em negrito no editor do diálogo).
+                    if (isDemonstration && isBody && !readOnly) {
+                        val dialogKey = "section-${state.section.id}"
+                        Spacer(Modifier.width(4.dp))
+                        AssistChip(
+                            onClick = {
+                                editorStates[dialogKey]
+                                    ?.insertHtmlAfterSelection("<b>Publicador:</b> ")
+                            },
+                            label = { Text("+ Publicador") },
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        AssistChip(
+                            onClick = {
+                                editorStates[dialogKey]
+                                    ?.insertHtmlAfterSelection("<b>Morador:</b> ")
+                            },
+                            label = { Text("+ Morador") },
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     if (isBody && state.section.minutes > 0) {
                         // #7d3b-b: toque no chip abre o diálogo de edição
@@ -653,6 +680,7 @@ private fun MiniSpeechBlock(
     editorStates: MutableMap<String, RichTextState>,
     onContentChange: (String) -> Unit,
     onSelectionChange: (SelectionContext?) -> Unit,
+    isDemonstration: Boolean = false,
     onFocusChange: (Boolean, String) -> Unit,
 ) {
     val hasText = contentHtml.isNotBlank()
@@ -661,39 +689,43 @@ private fun MiniSpeechBlock(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "MINI DISCURSO",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                // A11y: primary amarelo falha AA no claro; onSurfaceVariant
-                // passa sobre o card (surfaceContainerHighest) e alinha com
-                // os demais rótulos (OBJETIVO, LINHA DE RACIOCÍNIO).
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (hasText) {
-                // T2: estimativa de tempo (130 palavras/min) comparada à meta
-                // do tópico (minutos do esboço).
-                val estimate = estimateMinutes(contentHtml)
-                val status = miniSpeechTimeStatus(estimate, targetMinutes)
-                Spacer(Modifier.width(6.dp))
+        // UX de demonstrações: sem rótulo "MINI DISCURSO" nem texto de ajuda
+        // — o editor de diálogo é o protagonista do card.
+        if (!isDemonstration) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    miniSpeechTimeLabel(estimate, targetMinutes),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = when (status) {
-                        MiniSpeechTimeStatus.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
-                        MiniSpeechTimeStatus.LONG -> MaterialTheme.colorScheme.error
-                        MiniSpeechTimeStatus.SHORT -> MaterialTheme.colorScheme.outline
-                    },
+                    "MINI DISCURSO",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    // A11y: primary amarelo falha AA no claro; onSurfaceVariant
+                    // passa sobre o card (surfaceContainerHighest) e alinha com
+                    // os demais rótulos (OBJETIVO, LINHA DE RACIOCÍNIO).
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (hasText) {
+                    // T2: estimativa de tempo (130 palavras/min) comparada à meta
+                    // do tópico (minutos do esboço).
+                    val estimate = estimateMinutes(contentHtml)
+                    val status = miniSpeechTimeStatus(estimate, targetMinutes)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        miniSpeechTimeLabel(estimate, targetMinutes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when (status) {
+                            MiniSpeechTimeStatus.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+                            MiniSpeechTimeStatus.LONG -> MaterialTheme.colorScheme.error
+                            MiniSpeechTimeStatus.SHORT -> MaterialTheme.colorScheme.outline
+                        },
+                    )
+                }
+            }
+            if (!hasText) {
+                Text(
+                    "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-        if (!hasText) {
-            Text(
-                "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
         SectionContentEditor(
             editorKey = miniKey,
