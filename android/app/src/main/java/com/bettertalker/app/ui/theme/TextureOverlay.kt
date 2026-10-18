@@ -43,20 +43,26 @@ private val NoisePaper: ImageBitmap by lazy { noiseBitmap(987654321L, 140) }
  * Fundo global texturizado: pinta [background] e a textura por cima (atrás do
  * conteúdo). As telas com superfícies opacas (cards/app bars) ficam nítidas;
  * a textura aparece nas áreas de fundo.
+ *
+ * [intensity] (0..1, default 5%) escala o alpha da textura: 0 = invisível,
+ * 1 = bem evidente. Cada textura tem um peso relativo (o grid é mais suave
+ * que os pontos; o ruído, mais ainda).
  */
 fun Modifier.texturedBackground(
     texture: TextureId,
     background: Color,
     ink: Color,
+    intensity: Float = 0.05f,
 ): Modifier = drawBehind {
     drawRect(color = background)
+    val k = intensity.coerceIn(0f, 1f)
     when (texture) {
         TextureId.NONE -> Unit
 
         TextureId.DOTS -> {
             val step = 22.dp.toPx()
             val radius = 1.4.dp.toPx()
-            val color = ink.copy(alpha = 0.05f)
+            val color = ink.copy(alpha = k)
             var y = step / 2f
             while (y < size.height) {
                 var x = step / 2f
@@ -70,7 +76,7 @@ fun Modifier.texturedBackground(
 
         TextureId.GRID -> {
             val step = 28.dp.toPx()
-            val color = ink.copy(alpha = 0.04f)
+            val color = ink.copy(alpha = k * 0.8f)
             val stroke = 1.dp.toPx()
             var x = step
             while (x < size.width) {
@@ -93,7 +99,7 @@ fun Modifier.texturedBackground(
                         android.graphics.Shader.TileMode.REPEAT,
                     )
                 ),
-                colorFilter = ColorFilter.tint(ink.copy(alpha = 0.05f), BlendMode.SrcIn),
+                colorFilter = ColorFilter.tint(ink.copy(alpha = k), BlendMode.SrcIn),
             )
         }
 
@@ -106,7 +112,7 @@ fun Modifier.texturedBackground(
                         android.graphics.Shader.TileMode.REPEAT,
                     )
                 ),
-                colorFilter = ColorFilter.tint(ink.copy(alpha = 0.035f), BlendMode.SrcIn),
+                colorFilter = ColorFilter.tint(ink.copy(alpha = k * 0.7f), BlendMode.SrcIn),
             )
         }
     }

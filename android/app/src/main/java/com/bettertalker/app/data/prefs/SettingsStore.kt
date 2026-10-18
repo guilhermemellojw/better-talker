@@ -3,6 +3,7 @@ package com.bettertalker.app.data.prefs
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.bettertalker.app.ui.theme.PaletteId
@@ -22,6 +23,13 @@ class SettingsStore(private val ctx: Context) {
     private val HOME_TEXTURE = stringPreferencesKey("home_texture")
     val homeTexture: Flow<String> = ctx.store.data.map { it[HOME_TEXTURE] ?: "NONE" }
     suspend fun setHomeTexture(v: String) { ctx.store.edit { it[HOME_TEXTURE] = v } }
+
+    /** Intensidade da textura de fundo (0..1). Default 5% (sutil). */
+    private val TEXTURE_INTENSITY = floatPreferencesKey("texture_intensity")
+    val textureIntensity: Flow<Float> = ctx.store.data.map { it[TEXTURE_INTENSITY] ?: 0.05f }
+    suspend fun setTextureIntensity(v: Float) {
+        ctx.store.edit { it[TEXTURE_INTENSITY] = v.coerceIn(0f, 1f) }
+    }
 
     private val THEME = stringPreferencesKey("theme_mode")
     val themeMode: Flow<ThemeMode> = ctx.store.data.map {

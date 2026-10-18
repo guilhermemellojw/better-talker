@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -28,22 +27,25 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.ui.theme.AppPalettes
@@ -53,12 +55,37 @@ import com.bettertalker.app.ui.theme.TextureId
 import com.bettertalker.app.ui.theme.ThemeMode
 import com.bettertalker.app.ui.theme.textureLabel
 import com.bettertalker.app.ui.theme.texturedBackground
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /**
- * Tela de Aparência (substitui o AlertDialog): tema (Automático/Claro/Escuro)
- * + paleta com miniaturas reais — tocar aplica em tempo real (live preview,
- * a mudança persiste no SettingsStore e o tema do app recompõe).
+ * Grupos visuais das paletas (definidos à mão — a lista de 27 fica navegável).
+ * A busca ignora os grupos (lista plana filtrada). Puro/testável.
+ */
+internal val PALETTE_GROUPS: List<Pair<String, List<PaletteId>>> = listOf(
+    "Clássicas" to listOf(
+        PaletteId.SAMSUNG, PaletteId.NEUTRO, PaletteId.QUENTE, PaletteId.PURO,
+        PaletteId.VINTAGE, PaletteId.SOLARIZED, PaletteId.ARDOSIA, PaletteId.MEIA_NOITE,
+    ),
+    "Tecnológicas" to listOf(
+        PaletteId.DRACULA, PaletteId.NORD, PaletteId.MONOKAI, PaletteId.CATPPUCCIN,
+        PaletteId.CYBERPUNK, PaletteId.ROSE_PINE,
+    ),
+    "Vibrantes" to listOf(
+        PaletteId.LAVANDA, PaletteId.PESSEGO, PaletteId.CORAL, PaletteId.CARMESIM,
+        PaletteId.RUBI, PaletteId.AMETISTA, PaletteId.SAFIRA,
+    ),
+    "Natureza" to listOf(
+        PaletteId.OCEANO, PaletteId.FLORESTA, PaletteId.POR_DO_SOL, PaletteId.MENTA,
+        PaletteId.ESMERALDA, PaletteId.AREIA,
+    ),
+)
+
+/**
+ * Tela de Aparência: Tema → Textura de Fundo (com intensidade) → Paletas
+ * agrupadas. Tudo num LazyVerticalGrid: cabeçalhos e slider ocupam a linha
+ * inteira (span) e paletas/texturas ficam em 2 colunas. Tocar aplica na hora
+ * (live preview — a mudança persiste no SettingsStore e o app recompõe).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,9 +96,10 @@ fun AppearanceScreen(
     val mode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
     val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
     val textureName by settings.homeTexture.collectAsState(initial = "NONE")
-    val texture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
+    val texture = TextureId.fromNameOrDefault(textureName)
+    val intensity by settings.textureIntensity.collectAsState(initial = 0.05f)
     val scope = rememberCoroutineScope()
-    var paletteQuery by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var paletteQuery by remember { mutableStateOf("") }
     val dark = when (mode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
@@ -97,7 +125,8 @@ fun AppearanceScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(pad),
         ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
+            // ---------- Tema ----------
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header-theme") {
                 Column {
                     Text("Tema", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
@@ -113,10 +142,55 @@ fun AppearanceScreen(
                             ) { Text(themeModeLabel(m)) }
                         }
                     }
-                    Spacer(Modifier.height(20.dp))
+                }
+            }
+
+            // ---------- Textura de Fundo (destaque, logo abaixo do tema) ----------
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header-texture") {
+                Text(
+                    "Textura de Fundo",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            items(TextureId.entries.toList(), key = { "tex-${it.name}" }) { t ->
+                TextureCard(
+                    texture = t,
+                    intensity = intensity,
+                    selected = texture == t,
+                    onClick = { scope.launch { settings.setHomeTexture(t.name) } },
+                )
+            }
+            if (texture != TextureId.NONE) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "texture-intensity") {
+                    Column(Modifier.padding(top = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Intensidade da Textura",
+                                style = MaterialTheme.typography.titleSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${(intensity * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Slider(
+                            value = intensity,
+                            onValueChange = { scope.launch { settings.setTextureIntensity(it) } },
+                            valueRange = 0f..1f,
+                        )
+                    }
+                }
+            }
+
+            // ---------- Paletas ----------
+            item(span = { GridItemSpan(maxLineSpan) }, key = "header-palette") {
+                Column(Modifier.padding(top = 8.dp)) {
                     Text("Paleta", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
-                    androidx.compose.material3.OutlinedTextField(
+                    OutlinedTextField(
                         value = paletteQuery,
                         onValueChange = { paletteQuery = it },
                         placeholder = { Text("Buscar paleta…") },
@@ -129,40 +203,40 @@ fun AppearanceScreen(
                     Spacer(Modifier.height(4.dp))
                 }
             }
-            items(
-                AppPalettes.all.filter {
-                    paletteQuery.isBlank() ||
-                        it.label.contains(paletteQuery.trim(), ignoreCase = true)
-                },
-                key = { it.id.name },
-            ) { spec ->
-                PaletteCard(
-                    spec = spec,
-                    dark = dark,
-                    selected = spec.id == paletteId,
-                    onClick = { scope.launch { settings.setPaletteId(spec.id) } },
-                )
-            }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Textura de Fundo", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    androidx.compose.foundation.lazy.LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        items(
-                            com.bettertalker.app.ui.theme.TextureId.entries.toList(),
-                            key = { it.name },
-                        ) { t ->
-                            TextureCard(
-                                texture = t,
-                                selected = texture == t,
-                                onClick = { scope.launch { settings.setHomeTexture(t.name) } },
-                            )
-                        }
+            val query = paletteQuery.trim()
+            if (query.isBlank()) {
+                PALETTE_GROUPS.forEach { (group, ids) ->
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "group-$group") {
+                        Text(
+                            group,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                     }
-                    Spacer(Modifier.height(24.dp))
+                    items(
+                        ids.mapNotNull { id -> AppPalettes.all.firstOrNull { it.id == id } },
+                        key = { it.id.name },
+                    ) { spec ->
+                        PaletteCard(
+                            spec = spec,
+                            dark = dark,
+                            selected = spec.id == paletteId,
+                            onClick = { scope.launch { settings.setPaletteId(spec.id) } },
+                        )
+                    }
+                }
+            } else {
+                items(
+                    AppPalettes.all.filter { it.label.contains(query, ignoreCase = true) },
+                    key = { it.id.name },
+                ) { spec ->
+                    PaletteCard(
+                        spec = spec,
+                        dark = dark,
+                        selected = spec.id == paletteId,
+                        onClick = { scope.launch { settings.setPaletteId(spec.id) } },
+                    )
                 }
             }
         }
@@ -225,15 +299,16 @@ private fun PaletteCard(
     }
 }
 
-/** Prévia da textura sobre a superfície atual + rótulo (LazyRow). */
+/** Prévia da textura na intensidade atual + rótulo (2 colunas, sem corte). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TextureCard(
-    texture: com.bettertalker.app.ui.theme.TextureId,
+    texture: TextureId,
+    intensity: Float,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             shape = MaterialTheme.shapes.medium,
@@ -241,18 +316,17 @@ private fun TextureCard(
         ) {
             Box(
                 Modifier
-                    .size(width = 108.dp, height = 76.dp)
+                    .fillMaxWidth()
+                    .height(76.dp)
                     .texturedBackground(
                         texture = texture,
                         background = MaterialTheme.colorScheme.surface,
                         ink = MaterialTheme.colorScheme.onSurface,
+                        intensity = intensity,
                     )
             )
         }
         Spacer(Modifier.height(4.dp))
-        Text(
-            com.bettertalker.app.ui.theme.textureLabel(texture),
-            style = MaterialTheme.typography.labelSmall,
-        )
+        Text(textureLabel(texture), style = MaterialTheme.typography.labelSmall)
     }
 }

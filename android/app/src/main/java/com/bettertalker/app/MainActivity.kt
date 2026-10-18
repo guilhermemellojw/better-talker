@@ -138,6 +138,7 @@ private fun AppNav(
     // Textura de fundo global (Aparência): pintada atrás de TODO o conteúdo.
     val textureName by settings.homeTexture.collectAsState(initial = "NONE")
     val homeTexture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
+    val textureIntensity by settings.textureIntensity.collectAsState(initial = 0.05f)
 
     // Hubs de escolha de nota (Treinar/Apresentar) — o usuário escolhe
     // visualmente; nada de "última nota" silenciosa nem sheet.
@@ -169,6 +170,7 @@ private fun AppNav(
             texture = homeTexture,
             background = androidx.compose.material3.MaterialTheme.colorScheme.background,
             ink = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+            intensity = textureIntensity,
         ),
         bottomBar = {
             if (showGlobalBar) {
