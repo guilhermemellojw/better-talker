@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.home
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -56,6 +58,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -70,7 +73,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.bettertalker.app.R
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.components.NoteItem
 import com.bettertalker.app.ui.components.SyncTopBanner
@@ -319,7 +327,38 @@ fun HomeScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         topBar = {
             TopAppBar(
-                title = { Text("Better Talker") },
+                title = {
+                    // Marca: logo mini (quadrado navy + arte, 2 linhas de altura)
+                    // com "BETTER TALKER" em 2 linhas ao lado.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(percent = 26),
+                            color = colorResource(R.color.ic_launcher_background),
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.ic_launcher_foreground),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "BETTER",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 12.sp,
+                            )
+                            Text(
+                                "TALKER",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 12.sp,
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
