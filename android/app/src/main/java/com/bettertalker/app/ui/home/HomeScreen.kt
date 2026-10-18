@@ -314,6 +314,9 @@ fun HomeScreen(
     }
 
     Scaffold(
+        // Mesmo ajuste dos hubs (Treinar/Apresentar): o Scaffold global + a
+        // barra cuidam dos insets — sem inset extra aqui (fim do "buraco").
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         topBar = {
             TopAppBar(
                 title = { Text("Better Talker") },
