@@ -95,7 +95,7 @@ class SyncSectionsRemoteTest {
         assertEquals("Abordagem s1", doc["agreedApproach"])
         assertEquals(123L, doc["approvedAt"])
         assertEquals(50L, doc["createdAt"])
-        assertEquals(100L, doc["updatedAt"])
+        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
         assertEquals(3, secDao.rows.size) // local intacto
     }
 
@@ -144,7 +144,7 @@ class SyncSectionsRemoteTest {
 
         // push: remoto s1 passa a ser o local mais novo.
         assertEquals("Local nova", remote.doc("sections", "s1")!!["title"])
-        assertEquals(300L, remote.doc("sections", "s1")!!["updatedAt"])
+        assertTrue(remote.doc("sections", "s1")!!["updatedAt"] is com.google.firebase.Timestamp)
         // pull: local s2 passa a ser o remoto mais novo.
         assertEquals("Nova", secDao.rows.first { it.id == "s2" }.title)
         assertEquals(500L, secDao.rows.first { it.id == "s2" }.updatedAt)
@@ -259,10 +259,20 @@ class SyncSectionsRemoteTest {
         syncSections(remote, sdB, ndB)
         syncSubPoints(remote, spB, sdB, ndB)
 
-        // Estado pós-pull idêntico ao original (todos os campos).
-        assertEquals(originalNote, ndB.rows.single())
-        assertEquals(originalSections.sortedBy { it.id }, sdB.rows.sortedBy { it.id })
-        assertEquals(originalSubs.sortedBy { it.id }, spB.rows.sortedBy { it.id })
+        // Estado pós-pull idêntico ao original (todos os campos; o updatedAt
+        // volta como Timestamp do servidor — normalizado p/ comparação).
+        assertEquals(
+            originalNote.copy(updatedAt = 0L),
+            ndB.rows.single().copy(updatedAt = 0L),
+        )
+        assertEquals(
+            originalSections.sortedBy { it.id }.map { it.copy(updatedAt = 0L) },
+            sdB.rows.sortedBy { it.id }.map { it.copy(updatedAt = 0L) },
+        )
+        assertEquals(
+            originalSubs.sortedBy { it.id }.map { it.copy(updatedAt = 0L) },
+            spB.rows.sortedBy { it.id }.map { it.copy(updatedAt = 0L) },
+        )
     }
 
     // 7. Cascata bidirecional: local sobe tudo → nota apagada localmente com
@@ -327,6 +337,6 @@ class SyncSectionsRemoteTest {
         assertEquals(listOf("Jo 3:16"), doc["bibleRefs"])
         assertEquals(listOf(mapOf("symbol" to "w13 15/5")), doc["publicationRefs"])
         assertEquals(50L, doc["createdAt"])
-        assertEquals(100L, doc["updatedAt"])
+        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
     }
 }

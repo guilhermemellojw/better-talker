@@ -9,11 +9,20 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.bettertalker.app.data.work.SyncWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 object SyncScheduler {
     private const val NOW = "sync-now"
     private const val PERIODIC = "sync-periodic"
+
+    private val debounceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var debounceJob: Job? = null
 
     /** Sync imediata (debounce via REPLACE) após cada alteração local. */
     fun requestSync(ctx: Context) {
@@ -25,6 +34,19 @@ object SyncScheduler {
                     .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                     .build()
             )
+        }
+    }
+
+    /**
+     * Auto-sync pós-edição (Gap A): coalesce rajadas de save num único worker
+     * (padrão 2s) — o job anterior é cancelado a cada nova edição. O estado é
+     * de PROCESSO (compartilhado por todos os repositórios).
+     */
+    fun requestSyncDebounced(ctx: Context, delayMs: Long = 2_000) {
+        debounceJob?.cancel()
+        debounceJob = debounceScope.launch {
+            delay(delayMs)
+            requestSync(ctx)
         }
     }
 

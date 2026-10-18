@@ -88,6 +88,7 @@ fun HomeScreen(
     val query by vm.query.collectAsState()
     val folderId by vm.folderId.collectAsState()
     val counts by vm.attachCounts.collectAsState()
+    val syncing by vm.isSyncing.collectAsState()
     val scope = rememberCoroutineScope()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -389,6 +390,12 @@ fun HomeScreen(
                     )
                 }
             } else {
+                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                    isRefreshing = syncing,
+                    onRefresh = {
+                        vm.syncNow { msg -> scope.launch { snack.showSnackbar(msg) } }
+                    },
+                ) {
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Adaptive(160.dp),
                     contentPadding = PaddingValues(16.dp),
@@ -407,6 +414,7 @@ fun HomeScreen(
                             onTogglePin = { vm.togglePin(n.id) }
                         )
                     }
+                }
                 }
             }
         }

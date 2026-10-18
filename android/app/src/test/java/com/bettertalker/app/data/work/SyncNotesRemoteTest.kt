@@ -48,7 +48,8 @@ class SyncNotesRemoteTest {
         assertEquals(setOf("n1"), remote.ids("notes"))
         val doc = remote.doc("notes", "n1")!!
         assertEquals("Teste round-trip", doc["title"])
-        assertEquals(1000L, doc["updatedAt"])
+        // Gap C: o push manda serverTimestamp; o fake resolve p/ Timestamp.
+        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
         assertEquals(1, dao.rows.size) // local intacto
     }
 
@@ -77,7 +78,7 @@ class SyncNotesRemoteTest {
         syncNotes(remote, dao, FakeTombstoneDao())
 
         assertEquals("Teste round-trip", remote.doc("notes", "n1")!!["title"])
-        assertEquals(200L, remote.doc("notes", "n1")!!["updatedAt"])
+        assertTrue(remote.doc("notes", "n1")!!["updatedAt"] is com.google.firebase.Timestamp)
         assertEquals("Teste round-trip", dao.rows.single().title)
     }
 
@@ -156,7 +157,33 @@ class SyncNotesRemoteTest {
         syncNotes(remote, localDepois, FakeTombstoneDao())
 
         val restored = localDepois.rows.single()
-        assertEquals(original, restored)
+        // Gap C: o updatedAt volta como Timestamp do servidor — compara o
+        // conteúdo com o campo normalizado.
+        assertEquals(original.copy(updatedAt = 0L), restored.copy(updatedAt = 0L))
         assertNotNull(remote.doc("notes", "rt"))
+    }
+
+    // 7. Matriz de trash (integração, fixture): remoto VIVO mais novo →
+    // restaura nota trashed local (remoteCanTrashLocal=true).
+    @Test
+    fun remotoVivoMaisNovo_localTrashed_restaura() = runBlocking {
+        val dao = FakeNoteDao(listOf(note(id = "n1", trashed = true, updatedAt = 1000L)))
+        remote.set("notes", "n1", mapOf(
+            "title" to "Restaurada", "mdText" to "y", "richHtml" to "<p>y</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 2000L,
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertFalse(dao.get("n1")!!.trashed)
+        assertEquals("Restaurada", dao.get("n1")!!.title)
+    }
+
+    // 8. Gap C: leitura tolerante do updatedAt (serverTimestamp → Timestamp).
+    @Test
+    fun cloudUpdatedAt_aceitaTimestampELongLegado() {
+        assertEquals(123L, cloudUpdatedAt(mapOf("updatedAt" to 123L)))
+        val ts = com.google.firebase.Timestamp(java.util.Date(456L))
+        assertEquals(456L, cloudUpdatedAt(mapOf("updatedAt" to ts)))
+        assertEquals(0L, cloudUpdatedAt(emptyMap()))
     }
 }

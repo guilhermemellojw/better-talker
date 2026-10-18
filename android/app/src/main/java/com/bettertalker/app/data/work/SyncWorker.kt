@@ -82,6 +82,33 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
 
 // ---------- notes ----------
 
+/**
+ * Gap C: no push, `updatedAt` vira `FieldValue.serverTimestamp()` — o relógio
+ * do aparelho pode divergir entre devices e inverter o LWW. Fallback: o valor
+ * local quando o SDK não está disponível (testes JVM sem Firestore).
+ */
+private fun Map<String, Any?>.withServerUpdatedAt(): Map<String, Any?> =
+    this + ("updatedAt" to runCatching {
+        com.google.firebase.firestore.FieldValue.serverTimestamp()
+    }.getOrElse { this["updatedAt"] })
+
+/**
+ * Gap C (volta): o doc remoto traz `Timestamp` (server) ou `Long` (legado).
+ * Leitura tolerante para o LWW. Puro/testável.
+ */
+internal fun cloudUpdatedAt(data: Map<String, Any?>): Long =
+    when (val v = data["updatedAt"]) {
+        is Long -> v
+        is com.google.firebase.Timestamp -> v.toDate().time
+        else -> 0L
+    }
+
+/** Gap C: updatedAt do doc para o PUSH (-1 quando ausente/ilegível = envia). */
+internal fun cloudUpdatedAtOrMinus1(data: Map<String, Any?>?): Long {
+    if (data == null) return -1L
+    return cloudUpdatedAt(data).takeIf { it > 0 } ?: -1L
+}
+
 internal suspend fun syncNotes(
     remote: SyncRemote,
     noteDao: NoteDao,
@@ -100,7 +127,7 @@ internal suspend fun syncNotes(
     for ((id, data) in cloud) {
         if (tombs.contains(id)) continue
         val cur = local.firstOrNull { it.id == id }
-        val cup = (data["updatedAt"] as? Long) ?: 0L
+        val cup = cloudUpdatedAt(data)
         if (cur == null) {
             // Nova nota na nuvem: aceita como veio (inclusive trashed,
             // pois não há local vivo para proteger).
@@ -116,9 +143,9 @@ internal suspend fun syncNotes(
     // push
     for (n in local) {
         val data = cloud[n.id]
-        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || n.updatedAt > cup) {
-            remote.set("notes", n.id, noteMap(n))
+            remote.set("notes", n.id, noteMap(n).withServerUpdatedAt())
         }
     }
 }
@@ -136,7 +163,7 @@ private fun cloudNote(id: String, d: Map<String, Any?>): NoteEntity {
         pinned = (d["pinned"] as? Boolean) ?: false,
         trashed = (d["trashed"] as? Boolean) ?: false,
         createdAt = (d["createdAt"] as? Long) ?: System.currentTimeMillis(),
-        updatedAt = (d["updatedAt"] as? Long) ?: System.currentTimeMillis()
+        updatedAt = cloudUpdatedAt(d).takeIf { it > 0 } ?: System.currentTimeMillis()
     )
 }
 
@@ -255,7 +282,7 @@ internal suspend fun syncOutlines(
     for ((id, data) in cloud) {
         if (tombs.contains(id)) continue
         val cur = local.firstOrNull { it.id == id }
-        val cup = (data["updatedAt"] as? Long) ?: 0L
+        val cup = cloudUpdatedAt(data)
         if (cur == null || cup > cur.updatedAt) {
             outlineDao.upsert(
                 com.bettertalker.app.data.db.OutlineEntity(
@@ -274,7 +301,7 @@ internal suspend fun syncOutlines(
     }
     for (o in local) {
         val data = cloud[o.id]
-        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || o.updatedAt > cup) {
             remote.set(
                 "outlines", o.id,
@@ -283,7 +310,7 @@ internal suspend fun syncOutlines(
                     "title" to o.title, "totalMinutes" to o.totalMinutes,
                     "sectionsJson" to o.sectionsJson, "refsJson" to o.refsJson,
                     "createdAt" to o.createdAt, "updatedAt" to o.updatedAt
-                ).filterValues { it != null }
+                ).filterValues { it != null }.withServerUpdatedAt()
             )
         }
     }
@@ -318,7 +345,7 @@ internal suspend fun syncSections(
         val noteId = data["noteId"] as? String ?: continue
         if (!noteIds.contains(noteId)) continue
         val cur = local.firstOrNull { it.id == id }
-        val cup = (data["updatedAt"] as? Long) ?: 0L
+        val cup = cloudUpdatedAt(data)
         if (cur == null || cup > cur.updatedAt) {
             sectionDao.upsert(cloudSection(id, data))
         }
@@ -326,9 +353,9 @@ internal suspend fun syncSections(
     // push
     for (sec in local) {
         val data = cloud[sec.id]
-        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || sec.updatedAt > cup) {
-            remote.set("sections", sec.id, sectionMap(sec))
+            remote.set("sections", sec.id, sectionMap(sec).withServerUpdatedAt())
         }
     }
 }
@@ -358,7 +385,7 @@ internal suspend fun syncSubPoints(
         val sectionId = data["sectionId"] as? String ?: continue
         if (!sectionIds.contains(sectionId)) continue
         val cur = local.firstOrNull { it.id == id }
-        val cup = (data["updatedAt"] as? Long) ?: 0L
+        val cup = cloudUpdatedAt(data)
         if (cur == null || cup > cur.updatedAt) {
             subPointDao.upsert(cloudSubPoint(id, data))
         }
@@ -366,9 +393,9 @@ internal suspend fun syncSubPoints(
     // push
     for (sp in local) {
         val data = cloud[sp.id]
-        val cup = (data?.get("updatedAt") as? Long) ?: -1L
+        val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || sp.updatedAt > cup) {
-            remote.set("subPoints", sp.id, subPointMap(sp))
+            remote.set("subPoints", sp.id, subPointMap(sp).withServerUpdatedAt())
         }
     }
 }
@@ -424,7 +451,7 @@ internal fun cloudSection(id: String, data: Map<String, Any?>): SpeechSectionEnt
         agreedApproach = data["agreedApproach"] as? String,
         approvedAt = data["approvedAt"] as? Long,
         createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
-        updatedAt = (data["updatedAt"] as? Long) ?: System.currentTimeMillis(),
+        updatedAt = cloudUpdatedAt(data).takeIf { it > 0 } ?: System.currentTimeMillis(),
     )
 
 /** Documento de sub-ponto. O `id` é a chave do doc. */
@@ -452,7 +479,7 @@ internal fun cloudSubPoint(id: String, data: Map<String, Any?>): SubPointEntity 
         instruction = data["instruction"] as? String,
         developedHtml = data["developedHtml"] as? String ?: "",
         createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
-        updatedAt = (data["updatedAt"] as? Long) ?: System.currentTimeMillis(),
+        updatedAt = cloudUpdatedAt(data).takeIf { it > 0 } ?: System.currentTimeMillis(),
     )
 
 private fun publicationRefsToDoc(refs: List<PublicationRef>): List<Map<String, Any?>> =

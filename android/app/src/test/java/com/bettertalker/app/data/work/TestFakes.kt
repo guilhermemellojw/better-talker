@@ -57,6 +57,10 @@ internal class FakeSyncRemote : SyncRemote {
     /** Firestore devolve inteiros como Long; o fake imita (recursivo em mapas/listas). */
     private fun normalize(value: Any?): Any? = when (value) {
         is Int -> value.toLong()
+        // Gap C: simula a resolução do serverTimestamp (o servidor troca o
+        // sentinel por um Timestamp real; aqui usamos "agora").
+        is com.google.firebase.firestore.FieldValue ->
+            com.google.firebase.Timestamp(java.util.Date())
         is Map<*, *> -> value.entries.associate { (k, v) -> k to normalize(v) }
         is List<*> -> value.map { normalize(it) }
         else -> value

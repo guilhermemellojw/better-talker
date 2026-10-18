@@ -102,7 +102,8 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
                 folderId = folderId,
                 colorArgb = color, pinned = pinned, updatedAt = System.currentTimeMillis())
         )
-        SyncScheduler.requestSync(ctx)
+        // Gap A: autosave digita muito — debounce (2s) coalesce num worker só.
+        SyncScheduler.requestSyncDebounced(ctx)
     }
     suspend fun trash(id: String) {
         db.noteDao().trash(id, System.currentTimeMillis())
