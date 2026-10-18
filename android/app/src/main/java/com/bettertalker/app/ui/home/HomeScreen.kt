@@ -66,6 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.ui.components.NoteCard
+import com.bettertalker.app.ui.components.SyncTopBanner
+import com.bettertalker.app.ui.components.SyncUiState
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.launch
 
@@ -88,7 +90,7 @@ fun HomeScreen(
     val query by vm.query.collectAsState()
     val folderId by vm.folderId.collectAsState()
     val counts by vm.attachCounts.collectAsState()
-    val syncing by vm.isSyncing.collectAsState()
+    val syncState by vm.syncState.collectAsState()
     val scope = rememberCoroutineScope()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -391,9 +393,15 @@ fun HomeScreen(
                 }
             } else {
                 androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                    isRefreshing = syncing,
-                    onRefresh = {
-                        vm.syncNow { msg -> scope.launch { snack.showSnackbar(msg) } }
+                    isRefreshing = syncState == SyncUiState.Syncing,
+                    onRefresh = { vm.syncNow() },
+                    // Indicador padrão (disco) substituído pelo banner premium
+                    // que desliza do topo central.
+                    indicator = {
+                        SyncTopBanner(
+                            state = syncState,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        )
                     },
                 ) {
                 LazyVerticalStaggeredGrid(

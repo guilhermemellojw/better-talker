@@ -30,29 +30,30 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
     val query = MutableStateFlow("")
     val folderId = MutableStateFlow<String?>(null)
 
-    /** Pull-to-refresh: spinner enquanto o SyncWorker roda. */
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSyncing.asStateFlow()
+    /** Pull-to-refresh: estados do banner de sincronização do topo. */
+    private val _syncState = MutableStateFlow(com.bettertalker.app.ui.components.SyncUiState.Idle)
+    val syncState: kotlinx.coroutines.flow.StateFlow<com.bettertalker.app.ui.components.SyncUiState> =
+        _syncState.asStateFlow()
 
     /**
-     * Dispara o SyncWorker (pull-to-refresh) e devolve a mensagem do snackbar:
-     * "Sincronizado" / "Sem conexão" / orientação de login.
+     * Dispara o SyncWorker (pull-to-refresh) e conduz o banner do topo:
+     * Syncing → Success ("Tudo atualizado!", recolhe em 2s) / NoLogin / Error.
      */
-    fun syncNow(onDone: (String) -> Unit) = viewModelScope.launch {
+    fun syncNow() = viewModelScope.launch {
         val auth = com.bettertalker.app.data.cloud.AuthRepository(appCtx)
-        if (!auth.isConfigured()) {
-            onDone("Sincronização indisponível neste build.")
+        if (!auth.isConfigured() || auth.currentUser() == null) {
+            _syncState.value = com.bettertalker.app.ui.components.SyncUiState.NoLogin
+            kotlinx.coroutines.delay(3_000)
+            if (_syncState.value == com.bettertalker.app.ui.components.SyncUiState.NoLogin) {
+                _syncState.value = com.bettertalker.app.ui.components.SyncUiState.Idle
+            }
             return@launch
         }
-        if (auth.currentUser() == null) {
-            onDone("Faça login na aba Conta para sincronizar.")
-            return@launch
-        }
-        _isSyncing.value = true
+        _syncState.value = com.bettertalker.app.ui.components.SyncUiState.Syncing
         val start = System.currentTimeMillis()
         com.bettertalker.app.data.cloud.SyncScheduler.requestSync(appCtx)
         // Aguarda o worker terminar (Success/Error com time >= início do pedido;
-        // estados antigos são ignorados para não destravar o spinner à toa).
+        // estados antigos são ignorados para não destravar o banner à toa).
         val result = kotlinx.coroutines.withTimeoutOrNull(60_000) {
             com.bettertalker.app.data.cloud.SyncStatus.state.first { s ->
                 when (s) {
@@ -62,14 +63,18 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
                 }
             }
         }
-        _isSyncing.value = false
-        onDone(
-            when (result) {
-                is com.bettertalker.app.data.cloud.SyncStatus.State.Error -> "Sem conexão"
-                null -> "Sincronização demorou demais"
-                else -> "Sincronizado"
-            }
-        )
+        _syncState.value = when (result) {
+            is com.bettertalker.app.data.cloud.SyncStatus.State.Success ->
+                com.bettertalker.app.ui.components.SyncUiState.Success
+            else -> com.bettertalker.app.ui.components.SyncUiState.Error
+        }
+        // O banner de sucesso/erro recolhe sozinho depois de 2s.
+        kotlinx.coroutines.delay(2_000)
+        if (_syncState.value == com.bettertalker.app.ui.components.SyncUiState.Success ||
+            _syncState.value == com.bettertalker.app.ui.components.SyncUiState.Error
+        ) {
+            _syncState.value = com.bettertalker.app.ui.components.SyncUiState.Idle
+        }
     }
 
     val folders = repo.observeFolders().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
