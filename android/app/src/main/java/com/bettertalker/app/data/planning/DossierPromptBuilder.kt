@@ -100,6 +100,7 @@ class DefaultDossierPromptBuilder(
     private fun StringBuilder.appendContext(d: Dossier, includeSpeakerNote: Boolean = true) {
         appendDiscourse(d)
         appendDemoFormat(d)
+        appendS38Guidelines(d)
         if (includeSpeakerNote) appendSpeakerNote(d)
         appendSection(d)
         appendAgreedApproach(d)
@@ -140,6 +141,39 @@ class DefaultDossierPromptBuilder(
         appendLine(
             "Você está ajudando a escrever um diálogo. Formate as falas usando " +
                 "<p><b>Papel:</b> texto</p>. Não converta em listas."
+        )
+        appendLine()
+    }
+
+    /**
+     * S-38: diretrizes da reunião para partes V&M — só no MINISTRY_PART.
+     * Tipo da parte = título da seção (fallback: título da nota); cenário e
+     * referência saem do texto (mesma extração do "Colar e Pronto").
+     */
+    private fun StringBuilder.appendS38Guidelines(d: Dossier) {
+        if (d.discourseType != com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name) {
+            return
+        }
+        val partType = d.currentSection.title.ifBlank { d.noteTitle.orEmpty() }
+        val content = d.currentSection.contentHtml
+        val scenario = com.bettertalker.app.data.util.vmScenarioOf(content)
+        val reference = com.bettertalker.app.data.util.vmReferenceOf(content)
+        appendLine("## DIRETRIZES DA REUNIÃO (S-38)")
+        s38GuidanceFor(partType)?.let { appendLine(it) }
+        scenario?.let {
+            appendLine("Cenário: ${it.lowercase().replaceFirstChar { c -> c.uppercase() }}")
+        }
+        appendLine(
+            buildString {
+                append("Siga o formato desta parte da reunião (não faça um discurso longo). ")
+                if (reference != null) {
+                    append("Se o texto de $reference estiver nas FONTES, use-o; ")
+                    append("se não, foque em princípios práticos de oratória para este cenário.")
+                } else {
+                    append("Se a publicação da parte não estiver nas FONTES, ")
+                    append("foque em princípios práticos de oratória para este cenário.")
+                }
+            }
         )
         appendLine()
     }
@@ -423,4 +457,28 @@ internal fun miniSpeechFormatLine(minutes: Int?): String {
     }
     return "Texto corrido em português, cerca de $words palavras ($paragraphs), " +
         "separados por linha em branco."
+}
+
+/**
+ * Diretriz S-38 por tipo de parte da reunião (substring normalizada —
+ * acentos/caixa indiferentes). null = sem diretriz específica (o bloco sai
+ * com a instrução geral). Puro/testável.
+ */
+internal fun s38GuidanceFor(partType: String): String? {
+    val t = com.bettertalker.app.data.util.normalizeText(partType)
+    return when {
+        t.contains("iniciando conversas") || t.contains("comece uma conversa") ->
+            "O objetivo é iniciar uma conversa amigável, despertar interesse e " +
+                "deixar um assunto para a próxima visita. Use um tom natural e não faça discursos."
+        t.contains("cultivando o interesse") || t.contains("cultive o interesse") ->
+            "O objetivo é cultivar o interesse demonstrado anteriormente, usando " +
+                "uma pergunta de transição e oferecendo uma publicação."
+        t.contains("fazendo discipulos") || t.contains("faca discipulos") ->
+            "O objetivo é ajudar a pessoa a progredir rumo ao batismo — use a " +
+                "Bíblia com respeito e ofereça um estudo bíblico."
+        t.contains("explicando suas crencas") ->
+            "O objetivo é explicar uma crença de forma simples e respeitosa, " +
+                "com base na Bíblia, sem entrar em discussão."
+        else -> null
+    }
 }

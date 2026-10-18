@@ -29,6 +29,12 @@ data class VmPart(
     val minutes: Int,
     val nature: VmNature,
     val body: String,
+    /** UX "Colar e Pronto": cenário real (ex.: "DE CASA EM CASA"), se houver. */
+    val scenario: String? = null,
+    /** UX "Colar e Pronto": tipo da parte (ex.: "Cultivando o interesse"). */
+    val partType: String? = null,
+    /** S-38: referência da publicação da parte (ex.: "lmd lição 7 ponto 4"). */
+    val reference: String? = null,
 )
 
 fun VmSection.label(): String = when (this) {
@@ -96,6 +102,71 @@ private val GLUED_PART_RE = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+// UX "Colar e Pronto": parte V&M SOLTA sem cabeçalho — "5. Título (4 min)"
+// (rótulo/cenário/descrição podem seguir na mesma linha ou nas seguintes).
+private val LOOSE_PART_RE = Regex(
+    """^\s*(\d{1,2})[.)]?\s+(.+?)\s*\((\d{1,2})\s*min(?:utos?)?\)\s*(.*)$""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** Tipos/rótulos de parte do "Faça Seu Melhor no Ministério". */
+private val VM_PART_TYPES = listOf(
+    "Iniciando conversas",
+    "Cultivando o interesse",
+    "Fazendo discípulos",
+    "Explicando suas crenças",
+    "Discurso",
+)
+
+/** Cenários reais das apostilas (canônicos na saída; case-insensitive na busca). */
+private val VM_SCENARIOS = listOf(
+    "DE CASA EM CASA",
+    "TESTEMUNHO INFORMAL",
+    "TESTEMUNHO PÚBLICO",
+)
+
+/** Tipos que são demonstração quando há cenário (mesmo sem a palavra). */
+private val VM_DEMO_PART_TYPES = listOf(
+    "Iniciando conversas",
+    "Cultivando o interesse",
+    "Fazendo discípulos",
+)
+
+/**
+ * S-38: referência de publicação no texto da parte — "(lmd lição 7 ponto 4)",
+ * "lff 3:1-3". Puro/testável (reusado pelo DossierPromptBuilder).
+ */
+private val VM_REFERENCE_RE = Regex(
+    """\(?\b((?:lmd|lff|th|be)\s+(?:li[çc][ãa]o\s*\d+(?:\s*,?\s*(?:ponto|par[áa]grafo)s?\s*\d+)?|\d+:\d+(?:-\d+)?))\)?""",
+    RegexOption.IGNORE_CASE,
+)
+
+/** Cenário canônico do texto da parte ("DE CASA EM CASA"…), se houver. Puro. */
+fun vmScenarioOf(text: String): String? {
+    val haystack = text.lowercase()
+    return VM_SCENARIOS.firstOrNull { haystack.contains(it.lowercase()) }
+}
+
+/** Referência da publicação no texto ("lmd lição 7 ponto 4"), se houver. Puro. */
+fun vmReferenceOf(text: String): String? =
+    VM_REFERENCE_RE.find(text)?.groupValues?.get(1)?.trim()
+
+/** Rótulos explícitos de natureza no texto da parte. */
+private val VM_LABELS = listOf("demonstração", "discurso", "consideração")
+
+/** Termos que confirmam contexto V&M (apêndice ou papéis do diálogo). */
+private val VM_CONTEXT_MARKERS = listOf(
+    "de casa em casa",
+    "testemunho informal",
+    "testemunho público",
+    "apêndice a",
+    "faça seu melhor",
+    "nossa vida cristã",
+    "tesouros da palavra",
+    "publicador:",
+    "morador:",
+)
+
 /** Título e minutos de uma linha ("Discurso: X (5 min)" → "Discurso: X" + 5). */
 private fun titleAndMinutes(line: String): Pair<String, Int?> {
     val m = MIN_RE.find(line) ?: return line.trim() to null
@@ -130,10 +201,73 @@ private fun titleFirstMaterial(text: String): VmPart? {
     )
 }
 
+/**
+ * UX "Colar e Pronto" — parte V&M SOLTA (sem cabeçalho de seção):
+ * "N. Título (M min) rótulo/cenário/descrição". Extrai o cenário e o tipo da
+ * parte e classifica a natureza:
+ * - rótulo "Demonstração" → DEMO; "Discurso"/"Consideração" → TALK;
+ * - tipos Iniciando conversas/Cultivando o interesse/Fazendo discípulos com
+ *   cenário → DEMO (mesmo sem a palavra "Demonstração");
+ * - "Explicando suas crenças" → DEMO só com "Demonstração"; senão TALK.
+ * A seção é inferida pelo número (1-3 Tesouros, 4-6 Ministério, 7-8 Nossa
+ * Vida). Puro/testável.
+ */
+private fun loosePartMaterial(text: String): VmPart? {
+    val lines = text.split("\n").map { it.trim() }
+    val firstIdx = lines.indexOfFirst { it.isNotEmpty() }
+    if (firstIdx < 0) return null
+    // Formatos com cabeçalho/título-first têm precedência.
+    if (lines.any { l -> SECTION_HEADERS.any { l.uppercase().startsWith(it.first) } }) return null
+    val first = lines[firstIdx]
+    val m = LOOSE_PART_RE.find(first) ?: return null
+    val number = m.groupValues[1].toInt()
+    val title = m.groupValues[2].trim()
+    val minutes = m.groupValues[3].toIntOrNull() ?: 0
+    val tail = m.groupValues[4].trim()
+    val rest = listOf(tail, lines.drop(firstIdx + 1).joinToString("\n").trim())
+        .filter { it.isNotEmpty() }
+        .joinToString("\n")
+    val haystack = (first + "\n" + rest).lowercase()
+    val partType = VM_PART_TYPES.firstOrNull { title.startsWith(it, ignoreCase = true) }
+    val scenario = VM_SCENARIOS.firstOrNull { haystack.contains(it.lowercase()) }
+    val hasSignal = partType != null || scenario != null ||
+        VM_LABELS.any { haystack.contains(it) } ||
+        VM_CONTEXT_MARKERS.any { haystack.contains(it) }
+    if (!hasSignal) return null
+    val section = when (number) {
+        in 1..3 -> VmSection.TREASURES
+        in 4..6 -> VmSection.MINISTRY
+        in 7..8 -> VmSection.CHRISTIAN_LIFE
+        else -> VmSection.MINISTRY
+    }
+    val lowerRest = rest.lowercase()
+    val nature = when {
+        lowerRest.contains("demonstração") -> VmNature.DEMO
+        lowerRest.contains("consideração") -> VmNature.TALK
+        lowerRest.contains("discurso") -> VmNature.TALK
+        partType in VM_DEMO_PART_TYPES && scenario != null -> VmNature.DEMO
+        partType == "Explicando suas crenças" -> VmNature.TALK
+        else -> vmNatureOf(section, number, title) ?: VmNature.DEMO
+    }
+    return VmPart(
+        section = section,
+        partNumber = number,
+        title = title,
+        minutes = minutes,
+        nature = nature,
+        body = rest,
+        scenario = scenario,
+        partType = partType,
+        reference = vmReferenceOf(rest.ifBlank { first }),
+    )
+}
+
 /** Detecta material V&M; vazio quando não parece V&M. */
 fun detectVmMaterial(text: String): List<VmPart> {
     // #24-fix A1: o formato real ("Título:" + "Tópico N:") não tem cabeçalho.
     titleFirstMaterial(text)?.let { return listOf(it) }
+    // UX "Colar e Pronto": parte solta ("5. Título (4 min)" + cenário/papéis).
+    loosePartMaterial(text)?.let { return listOf(it) }
     val out = mutableListOf<VmPart>()
     var section: VmSection? = null
     var started = false
@@ -154,6 +288,11 @@ fun detectVmMaterial(text: String): List<VmPart> {
                     minutes = minutes ?: 0,
                     nature = nat,
                     body = body.joinToString("\n").trim(),
+                    scenario = vmScenarioOf(body.joinToString("\n")),
+                    partType = VM_PART_TYPES.firstOrNull {
+                        title.trim().startsWith(it, ignoreCase = true)
+                    },
+                    reference = vmReferenceOf(body.joinToString("\n")),
                 )
             }
         }

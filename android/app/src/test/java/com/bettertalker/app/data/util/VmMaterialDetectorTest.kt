@@ -2,6 +2,7 @@ package com.bettertalker.app.data.util
 
 import com.bettertalker.app.S34Fixture
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -209,5 +210,86 @@ class VmMaterialDetectorTest {
         assertEquals("Faça discípulos", part.title)
         assertEquals(15, part.minutes)
         assertEquals(VmNature.TALK, part.nature)
+    }
+
+    // ---------- UX "Colar e Pronto": parte solta (sem cabeçalho) ----------
+
+    @Test
+    fun parteSolta_textoRealFalho_detectaDemoComCenarioETipo() {
+        val part = single(
+            "5. Cultivando o interesse (4 min) DE CASA EM CASA. Fale sobre uma das verdades " +
+                "do apêndice A da brochura Ame as Pessoas. (lmd lição 7 ponto 4)"
+        )
+        assertEquals(VmNature.DEMO, part.nature)
+        assertEquals("DE CASA EM CASA", part.scenario)
+        assertEquals("Cultivando o interesse", part.partType)
+        assertEquals("lmd lição 7 ponto 4", part.reference)
+        assertEquals(5, part.partNumber)
+        assertEquals(4, part.minutes)
+        assertEquals(VmSection.MINISTRY, part.section)
+    }
+
+    @Test
+    fun referencia_lffComIntervaloDeVersiculos() {
+        val part = single("4. Iniciando conversas (3 min) DE CASA EM CASA. Leia lff 3:1-3 com a pessoa.")
+        assertEquals("lff 3:1-3", part.reference)
+    }
+
+    @Test
+    fun referencia_ausente_ficaNula() {
+        val part = single("5. Cultivando o interesse (4 min) DE CASA EM CASA. Fale livremente.")
+        assertNull(part.reference)
+    }
+
+    @Test
+    fun parte6_comDemonstracao_detectaDemo() {
+        val part = single("6. Explicando suas crenças (5 min) Demonstração.")
+        assertEquals(VmNature.DEMO, part.nature)
+        assertEquals("Explicando suas crenças", part.partType)
+    }
+
+    @Test
+    fun parte6_discurso_detectaTalk() {
+        val part = single("6. Discurso (5 min)")
+        assertEquals(VmNature.TALK, part.nature)
+        assertEquals("Discurso", part.partType)
+    }
+
+    @Test
+    fun parte4_testemunhoInformal_detectaDemo() {
+        val part = single("4. Iniciando conversas (3 min) TESTEMUNHO INFORMAL.")
+        assertEquals(VmNature.DEMO, part.nature)
+        assertEquals("TESTEMUNHO INFORMAL", part.scenario)
+        assertEquals("Iniciando conversas", part.partType)
+    }
+
+    @Test
+    fun parte7_consideracao_detectaTalk() {
+        val part = single("7. A luz dos justos brilha intensamente (8 min) Consideração.")
+        assertEquals(VmNature.TALK, part.nature)
+    }
+
+    @Test
+    fun parteSolta_comPapeisSemCenario_detectaDemo() {
+        val part = single(
+            """
+            5. Visita inicial (4 min)
+            Publicador: Olá, tudo bem?
+            Morador: Tudo bem, obrigado.
+            """.trimIndent()
+        )
+        assertEquals(VmSection.MINISTRY, part.section)
+        assertEquals(5, part.partNumber)
+        assertEquals(VmNature.DEMO, part.nature)
+        assertTrue(part.body.contains("Publicador:"))
+    }
+
+    @Test
+    fun numeroEMinutosSemContextoVm_naoDetecta() {
+        assertTrue(
+            detectVmMaterial(
+                "5. Reunião de pais (4 min)\nFalar sobre a escola e as notas."
+            ).isEmpty()
+        )
     }
 }

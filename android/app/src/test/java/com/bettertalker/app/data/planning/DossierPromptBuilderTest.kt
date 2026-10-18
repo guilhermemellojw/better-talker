@@ -33,10 +33,12 @@ class DossierPromptBuilderTest {
         sectionSubPoints: List<SubPoint> = emptyList(),
         minutes: Int = 5,
         discourseType: String? = null,
+        sectionTitle: String = "Título teste",
+        contentHtml: String = "",
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
-            title = "Título teste", minutes = minutes, contentHtml = "",
+            title = sectionTitle, minutes = minutes, contentHtml = contentHtml,
             bibleRefs = emptyList(), publicationRefs = emptyList(),
             methodPrinciple = null, objective = objective, agreedApproach = agreedApproach,
             createdAt = 0, updatedAt = 0,
@@ -357,5 +359,46 @@ class DossierPromptBuilderTest {
 
         val semTipo = builder.buildContextBlock(dossier(), includeSpeakerNote = false)
         assertFalse(semTipo, semTipo.contains("FORMATO DE DEMONSTRAÇÃO"))
+    }
+
+    // ---------- S-38: diretrizes da reunião para partes V&M ----------
+
+    @Test
+    fun s38_apareceSoNoMinistryPartComTipoECenario() {
+        val demo = builder.buildContextBlock(
+            dossier(
+                discourseType = "MINISTRY_PART",
+                sectionTitle = "Cultivando o interesse",
+                contentHtml = "<p>5. Cultivando o interesse (4 min) DE CASA EM CASA. " +
+                    "Fale sobre uma das verdades do apêndice A (lmd lição 7 ponto 4).</p>",
+            ),
+            includeSpeakerNote = false,
+        )
+        assertTrue(demo, demo.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(demo, demo.contains("cultivar o interesse demonstrado anteriormente"))
+        assertTrue(demo, demo.contains("Cenário: De casa em casa"))
+        assertTrue(demo, demo.contains("lmd lição 7 ponto 4"))
+
+        val s34 = builder.buildContextBlock(
+            dossier(discourseType = "S34_DISCOURSE"),
+            includeSpeakerNote = false,
+        )
+        assertFalse(s34, s34.contains("DIRETRIZES DA REUNIÃO"))
+    }
+
+    @Test
+    fun s38_promptCompletoImprimeParaInspecao() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                discourseType = "MINISTRY_PART",
+                sectionTitle = "Iniciando conversas",
+                contentHtml = "<p>4. Iniciando conversas (3 min) TESTEMUNHO INFORMAL. " +
+                    "Publicador: Ola, bom dia!</p>",
+            ),
+            includeSpeakerNote = false,
+        )
+        println("=== PROMPT S-38 (fixture) ===\n$prompt")
+        assertTrue(prompt.contains("iniciar uma conversa amigável"))
+        assertTrue(prompt.contains("Cenário: Testemunho informal"))
     }
 }
