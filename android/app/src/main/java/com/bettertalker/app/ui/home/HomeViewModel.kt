@@ -17,7 +17,11 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel() {
+class HomeViewModel(
+    ctx: android.content.Context,
+    db: AppDatabase,
+    private val settings: com.bettertalker.app.data.prefs.SettingsStore,
+) : ViewModel() {
     private val appCtx = ctx.applicationContext
     private val repo = NotesRepository(ctx.applicationContext, db)
     // "Colar e Pronto" v3: persistência atômica do esboço convertido (mesma
@@ -29,6 +33,15 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
     )
     val query = MutableStateFlow("")
     val folderId = MutableStateFlow<String?>(null)
+
+    /** Modo de visualização da Home (persistido; default GRID). */
+    val viewMode: kotlinx.coroutines.flow.StateFlow<HomeViewMode> = settings.homeViewMode
+        .map { HomeViewMode.fromNameOrDefault(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeViewMode.GRID)
+
+    fun setViewMode(m: HomeViewMode) = viewModelScope.launch {
+        settings.setHomeViewMode(m.name)
+    }
 
     /** Pull-to-refresh: estados do banner de sincronização do topo. */
     private val _syncState = MutableStateFlow(com.bettertalker.app.ui.components.SyncUiState.Idle)
@@ -159,8 +172,13 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
         if (folderId.value == id) folderId.value = null
     }
 
-    class Factory(private val ctx: android.content.Context, private val db: AppDatabase) : ViewModelProvider.Factory {
+    class Factory(
+        private val ctx: android.content.Context,
+        private val db: AppDatabase,
+        private val settings: com.bettertalker.app.data.prefs.SettingsStore,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeViewModel(ctx, db) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            HomeViewModel(ctx, db, settings) as T
     }
 }

@@ -91,37 +91,7 @@ fun NoteCard(
                         maxLines = 2,
                         modifier = Modifier.weight(1f)
                     )
-                    if (onDelete != null || onTogglePin != null || onMove != null) {
-                        val showMenu = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-                        IconButton(onClick = { showMenu.value = true }) {
-                            Icon(Icons.Default.MoreVert, "Opções")
-                        }
-                        DropdownMenu(
-                            expanded = showMenu.value,
-                            onDismissRequest = { showMenu.value = false }
-                        ) {
-                            if (onTogglePin != null) {
-                                DropdownMenuItem(
-                                    text = { Text(if (pinned) "Desafixar" else "Fixar") },
-                                    onClick = { showMenu.value = false; onTogglePin() }
-                                )
-                            }
-                            if (onMove != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Mover para pasta") },
-                                    onClick = { showMenu.value = false; onMove() }
-                                )
-                            }
-                            if (onDelete != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("Excluir", color = MaterialTheme.colorScheme.error)
-                                    },
-                                    onClick = { showMenu.value = false; onDelete() }
-                                )
-                            }
-                        }
-                    }
+                    NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(previewOf(md), style = MaterialTheme.typography.bodySmall, maxLines = 4)

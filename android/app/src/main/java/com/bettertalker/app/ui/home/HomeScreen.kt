@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,13 +32,18 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -66,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.ui.components.NoteCard
+import com.bettertalker.app.ui.components.NoteItem
 import com.bettertalker.app.ui.components.SyncTopBanner
 import com.bettertalker.app.ui.components.SyncUiState
 import com.bettertalker.app.ui.theme.NOTE_COLORS
@@ -91,6 +98,13 @@ fun HomeScreen(
     val folderId by vm.folderId.collectAsState()
     val counts by vm.attachCounts.collectAsState()
     val syncState by vm.syncState.collectAsState()
+    val viewMode by vm.viewMode.collectAsState()
+    // Modos de visualização: cada container tem seu próprio scroll hoisted.
+    var showViewMenu by remember { mutableStateOf(false) }
+    val gridScroll =
+        androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
+    val compactScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    val detailedScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var showNewFolder by remember { mutableStateOf(false) }
@@ -306,6 +320,40 @@ fun HomeScreen(
                 actions = {
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
+                    // Modos de visualização (Grade / Lista compacta / Detalhada).
+                    Box {
+                        IconButton(onClick = { showViewMenu = true }) {
+                            Icon(
+                                when (viewMode) {
+                                    HomeViewMode.GRID -> Icons.Default.GridView
+                                    HomeViewMode.LIST_COMPACT -> Icons.Default.ViewList
+                                    HomeViewMode.LIST_DETAILED -> Icons.Default.Article
+                                },
+                                "Modo de visualização",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showViewMenu,
+                            onDismissRequest = { showViewMenu = false },
+                        ) {
+                            HomeViewMode.entries.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(viewModeLabel(m)) },
+                                    leadingIcon = {
+                                        Icon(
+                                            when (m) {
+                                                HomeViewMode.GRID -> Icons.Default.GridView
+                                                HomeViewMode.LIST_COMPACT -> Icons.Default.ViewList
+                                                HomeViewMode.LIST_DETAILED -> Icons.Default.Article
+                                            },
+                                            null,
+                                        )
+                                    },
+                                    onClick = { showViewMenu = false; vm.setViewMode(m) },
+                                )
+                            }
+                        }
+                    }
                     // #10b: ⚙ abre a SettingsScreen (Conta/Aparência/IA).
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, "Configurações")
@@ -404,23 +452,60 @@ fun HomeScreen(
                         )
                     },
                 ) {
-                LazyVerticalStaggeredGrid(
-                    columns = StaggeredGridCells.Adaptive(160.dp),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalItemSpacing = 12.dp,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(notes, key = { it.id }) { n ->
-                        NoteCard(
-                            title = n.title, md = n.mdText, updatedAt = n.updatedAt,
-                            pinned = n.pinned, attachCount = counts[n.id] ?: 0,
-                            colorArgb = n.colorArgb,
-                            onClick = { onOpenNote(n.id) },
-                            onDelete = { confirmDelete = n },
-                            onMove = { moveTarget = n },
-                            onTogglePin = { vm.togglePin(n.id) }
+                androidx.compose.animation.AnimatedContent(
+                    targetState = viewMode,
+                    transitionSpec = {
+                        androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core.tween(180)
+                        ) togetherWith androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core.tween(180)
                         )
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                ) { mode ->
+                    when (mode) {
+                        HomeViewMode.GRID -> LazyVerticalStaggeredGrid(
+                            columns = StaggeredGridCells.Adaptive(160.dp),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalItemSpacing = 12.dp,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            state = gridScroll,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(notes, key = { it.id }) { n ->
+                                NoteItem(
+                                    n, HomeViewMode.GRID, counts[n.id] ?: 0,
+                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
+                                    { moveTarget = n }, { confirmDelete = n },
+                                )
+                            }
+                        }
+                        HomeViewMode.LIST_COMPACT -> androidx.compose.foundation.lazy.LazyColumn(
+                            state = compactScroll,
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(notes, key = { it.id }) { n ->
+                                NoteItem(
+                                    n, HomeViewMode.LIST_COMPACT, counts[n.id] ?: 0,
+                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
+                                    { moveTarget = n }, { confirmDelete = n },
+                                )
+                            }
+                        }
+                        HomeViewMode.LIST_DETAILED -> androidx.compose.foundation.lazy.LazyColumn(
+                            state = detailedScroll,
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(notes, key = { it.id }) { n ->
+                                NoteItem(
+                                    n, HomeViewMode.LIST_DETAILED, counts[n.id] ?: 0,
+                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
+                                    { moveTarget = n }, { confirmDelete = n },
+                                )
+                            }
+                        }
                     }
                 }
                 }

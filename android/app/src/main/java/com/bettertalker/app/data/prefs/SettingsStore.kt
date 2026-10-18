@@ -13,9 +13,10 @@ import kotlinx.coroutines.flow.map
 private val Context.store by preferencesDataStore("settings")
 
 class SettingsStore(private val ctx: Context) {
-    private val SORT = stringPreferencesKey("sort")
-    val sort: Flow<String> = ctx.store.data.map { it[SORT] ?: "updated" }
-    suspend fun setSort(v: String) { ctx.store.edit { it[SORT] = v } }
+    /** Home: modo de visualização (GRID | LIST_COMPACT | LIST_DETAILED). */
+    private val HOME_VIEW_MODE = stringPreferencesKey("home_view_mode")
+    val homeViewMode: Flow<String> = ctx.store.data.map { it[HOME_VIEW_MODE] ?: "GRID" }
+    suspend fun setHomeViewMode(v: String) { ctx.store.edit { it[HOME_VIEW_MODE] = v } }
 
     private val THEME = stringPreferencesKey("theme_mode")
     val themeMode: Flow<ThemeMode> = ctx.store.data.map {
@@ -87,7 +88,12 @@ class SettingsStore(private val ctx: Context) {
 
     /** #23-fix-a: voz premium (Piper) ligada. Default desligado. */
     private val VOICE_PREMIUM = booleanPreferencesKey("voice_premium_enabled")
-    val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: false }
+    /**
+     * Voz premium (Piper) — default LIGADA: o modelo vem nos assets e é
+     * provisionado no 1º Ensaio; sem UI de gerenciamento. Um "false" salvo
+     * (legado do toggle removido) ainda é respeitado.
+     */
+    val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: true }
     suspend fun setVoicePremiumEnabled(v: Boolean) { ctx.store.edit { it[VOICE_PREMIUM] = v } }
 
     /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */

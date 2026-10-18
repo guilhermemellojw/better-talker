@@ -36,6 +36,7 @@ import com.bettertalker.app.ui.library.LibraryViewModel
 import com.bettertalker.app.ui.stage.StageScreen
 import com.bettertalker.app.ui.stage.StageViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -177,7 +178,7 @@ private fun AppNav(
             modifier = androidx.compose.ui.Modifier.padding(pad),
         ) {
         composable(Routes.HOME) {
-            val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(ctx, db))
+            val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(ctx, db, settings))
             // compartilha o mesmo VM com a Lixeira (mesmo ciclo da Home)
             HomeScreen(
                 vm,
@@ -224,15 +225,12 @@ private fun AppNav(
         }
         composable(Routes.TRASH) { back ->
             val parent = remember(back) { nav.getBackStackEntry(Routes.HOME) }
-            val vm: HomeViewModel = viewModel(parent, factory = HomeViewModel.Factory(ctx, db))
+            val vm: HomeViewModel = viewModel(parent, factory = HomeViewModel.Factory(ctx, db, settings))
             TrashScreen(vm, onBack = { nav.popBackStack() })
         }
         // #10b: Settings centralizada (Conta/Aparência/IA) — ⚙ da Home.
         composable(Routes.SETTINGS) {
             SettingsScreen(
-                settings,
-                voiceStore = voiceStore,
-                voiceRouter = voiceRouter,
                 onBack = { nav.popBackStack() },
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
                 onOpenModel = { nav.navigate(Routes.MODEL) },
@@ -318,6 +316,15 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // Voz premium (Piper): provisionada no 1º Ensaio (sem UI de
+            // gerenciamento) e reaplicada depois — o roteador pode ter caído
+            // no nativo no boot por falta do modelo no disco.
+            androidx.compose.runtime.LaunchedEffect(noteId) {
+                runCatching { voiceStore.ensureProvisioned() }
+                runCatching {
+                    voiceRouter.setPremiumEnabled(settings.voicePremiumEnabled.first())
+                }
+            }
             val stageVm: StageViewModel = viewModel(
                 key = "stage-$noteId",
                 factory = StageViewModel.Factory(ctx, db, settings, noteId, voiceRouter)
