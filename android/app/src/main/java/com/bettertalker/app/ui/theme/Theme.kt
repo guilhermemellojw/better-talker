@@ -244,8 +244,13 @@ internal val PuroDark = darkColorScheme(
     outline = Color(0xFF424242)
 )
 
-/** #7d3: paletas curadas disponíveis na tela "Aparência". */
-enum class PaletteId { SAMSUNG, NEUTRO, QUENTE, PURO, OCEANO, FLORESTA, POR_DO_SOL }
+/** #7d3: paletas curadas disponíveis na tela "Aparência" (27 no total). */
+enum class PaletteId {
+    SAMSUNG, NEUTRO, QUENTE, PURO, OCEANO, FLORESTA, POR_DO_SOL,
+    DRACULA, NORD, SOLARIZED, MONOKAI, ROSE_PINE, CATPPUCCIN, CYBERPUNK,
+    VINTAGE, LAVANDA, PESSEGO, MENTA, CARMESIM, ARDOSIA, AREIA, MEIA_NOITE,
+    CORAL, ESMERALDA, AMETISTA, RUBI, SAFIRA,
+}
 
 /** Rótulo amigável da paleta (tela Aparência). Puro/testável. */
 fun paletteLabel(id: PaletteId): String = AppPalettes.of(id).label

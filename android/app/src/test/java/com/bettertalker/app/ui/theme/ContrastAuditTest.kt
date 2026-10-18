@@ -53,6 +53,16 @@ class ContrastAuditTest {
     }
 
     @Test
+    fun catalogoTem27Paletas() {
+        org.junit.Assert.assertEquals(27, AppPalettes.all.size)
+        // Sem ids duplicados (a grade da Aparência usa o id como key).
+        org.junit.Assert.assertEquals(
+            AppPalettes.all.size,
+            AppPalettes.all.map { it.id }.distinct().size,
+        )
+    }
+
+    @Test
     fun todasAsPaletas_paresDeTextoPassamAa() {
         AppPalettes.all.forEach { spec ->
             auditParesDeTexto(spec, dark = false)

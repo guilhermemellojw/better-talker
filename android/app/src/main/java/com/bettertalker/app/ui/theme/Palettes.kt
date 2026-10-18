@@ -187,8 +187,135 @@ object AppPalettes {
         PaletteSpec(PaletteId.OCEANO, "Oceano", OceanoLight, OceanoDark),
         PaletteSpec(PaletteId.FLORESTA, "Floresta", FlorestaLight, FlorestaDark),
         PaletteSpec(PaletteId.POR_DO_SOL, "Pôr do Sol", PorDoSolLight, PorDoSolDark),
-    )
+    ) + GENERATED.map { g ->
+        val (light, dark) = generatedSchemes(g.seed)
+        PaletteSpec(g.id, g.label, light, dark)
+    }
 
     fun of(id: PaletteId): PaletteSpec =
         all.firstOrNull { it.id == id } ?: all.first()
 }
+
+// ---------------------------------------------------------------------------
+// Gerador de paletas (20 temas inspirados em editores/design systems).
+//
+// As âncoras de LUMINÂNCIA abaixo são escolhidas para o par de contraste
+// WCAG AA passar por construção (o ContrastAuditTest é a rede de segurança):
+// - claro: superfícies 97/92%, títulos 12/22%, primárias 22% (o pior matiz,
+//   amarelo, fica ~0.13 de luminância → branco passa com folga);
+// - escuro: superfícies 12/18%, textos 90/75%, primárias 75%.
+// O par onPrimary usa preto/branco pela luminância do fundo (nunca quebra).
+// ---------------------------------------------------------------------------
+
+internal data class PaletteSeed(val hue: Float, val sat: Float, val tertiaryHue: Float)
+private data class GeneratedPalette(val id: PaletteId, val label: String, val seed: PaletteSeed)
+
+/** HSL → Color (h/s/l em 0..1; h em graus). Puro/testável. */
+internal fun hsl(h: Float, s: Float, l: Float): Color {
+    val hp = (((h % 360f) + 360f) % 360f) / 60f
+    val c = (1f - kotlin.math.abs(2f * l - 1f)) * s.coerceIn(0f, 1f)
+    val x = c * (1f - kotlin.math.abs(hp % 2f - 1f))
+    val (r1, g1, b1) = when (hp.toInt()) {
+        0 -> Triple(c, x, 0f)
+        1 -> Triple(x, c, 0f)
+        2 -> Triple(0f, c, x)
+        3 -> Triple(0f, x, c)
+        4 -> Triple(x, 0f, c)
+        else -> Triple(c, 0f, x)
+    }
+    val m = l.coerceIn(0f, 1f) - c / 2f
+    return Color(r1 + m, g1 + m, b1 + m, 1f)
+}
+
+/** Texto sobre [bg] pela luminância (branco ou quase-preto, sempre AA). Puro. */
+internal fun onFor(bg: Color): Color =
+    if (relativeLuminance(bg) > 0.22) Color(0xFF1A1A1A) else Color(0xFFFFFFFF)
+
+/** Esquema claro gerado de uma semente (âncoras de luminância p/ AA). Puro. */
+internal fun generatedLight(seed: PaletteSeed): ColorScheme {
+    val primary = hsl(seed.hue, seed.sat, 0.22f)
+    val secondary = hsl(seed.hue + 15f, seed.sat * 0.65f, 0.22f)
+    val tertiary = hsl(seed.tertiaryHue, seed.sat, 0.22f)
+    val surface = hsl(seed.hue, seed.sat * 0.25f, 0.97f)
+    val variant = hsl(seed.hue, seed.sat * 0.25f, 0.92f)
+    val onSurface = hsl(seed.hue, seed.sat * 0.3f, 0.12f)
+    val onVariant = hsl(seed.hue, seed.sat * 0.3f, 0.22f)
+    return lightColorScheme(
+        primary = primary, onPrimary = onFor(primary),
+        primaryContainer = hsl(seed.hue, seed.sat * 0.7f, 0.88f),
+        onPrimaryContainer = hsl(seed.hue, seed.sat * 0.5f, 0.20f),
+        secondary = secondary,
+        secondaryContainer = hsl(seed.hue + 15f, seed.sat * 0.4f, 0.88f),
+        onSecondaryContainer = hsl(seed.hue + 15f, seed.sat * 0.4f, 0.20f),
+        tertiary = tertiary,
+        tertiaryContainer = hsl(seed.tertiaryHue, seed.sat * 0.5f, 0.88f),
+        onTertiaryContainer = hsl(seed.tertiaryHue, seed.sat * 0.4f, 0.20f),
+        surface = surface, onSurface = onSurface,
+        surfaceVariant = variant, onSurfaceVariant = onVariant,
+        surfaceContainerLow = hsl(seed.hue, seed.sat * 0.25f, 0.955f),
+        surfaceContainer = hsl(seed.hue, seed.sat * 0.25f, 0.94f),
+        surfaceContainerHigh = hsl(seed.hue, seed.sat * 0.25f, 0.925f),
+        surfaceContainerHighest = hsl(seed.hue, seed.sat * 0.25f, 0.90f),
+        background = surface, onBackground = onSurface,
+        outline = hsl(seed.hue, seed.sat * 0.3f, 0.75f),
+        errorContainer = Color(0xFFFDE8E8),
+    )
+}
+
+/** Esquema escuro gerado de uma semente (âncoras de luminância p/ AA). Puro. */
+internal fun generatedDark(seed: PaletteSeed): ColorScheme {
+    val primary = hsl(seed.hue, seed.sat * 0.9f, 0.75f)
+    val secondary = hsl(seed.hue + 15f, seed.sat * 0.55f, 0.78f)
+    val tertiary = hsl(seed.tertiaryHue, seed.sat * 0.85f, 0.75f)
+    val surface = hsl(seed.hue, seed.sat * 0.25f, 0.12f)
+    val variant = hsl(seed.hue, seed.sat * 0.25f, 0.18f)
+    val onSurface = hsl(seed.hue, seed.sat * 0.2f, 0.90f)
+    val onVariant = hsl(seed.hue, seed.sat * 0.25f, 0.75f)
+    return darkColorScheme(
+        primary = primary, onPrimary = onFor(primary),
+        primaryContainer = hsl(seed.hue, seed.sat * 0.5f, 0.22f),
+        onPrimaryContainer = hsl(seed.hue, seed.sat * 0.6f, 0.88f),
+        secondary = secondary,
+        secondaryContainer = hsl(seed.hue + 15f, seed.sat * 0.35f, 0.22f),
+        onSecondaryContainer = hsl(seed.hue + 15f, seed.sat * 0.4f, 0.86f),
+        tertiary = tertiary,
+        tertiaryContainer = hsl(seed.tertiaryHue, seed.sat * 0.45f, 0.22f),
+        onTertiaryContainer = hsl(seed.tertiaryHue, seed.sat * 0.5f, 0.88f),
+        surface = surface, onSurface = onSurface,
+        surfaceVariant = variant, onSurfaceVariant = onVariant,
+        surfaceContainerLow = hsl(seed.hue, seed.sat * 0.25f, 0.14f),
+        surfaceContainer = hsl(seed.hue, seed.sat * 0.25f, 0.16f),
+        surfaceContainerHigh = hsl(seed.hue, seed.sat * 0.25f, 0.18f),
+        surfaceContainerHighest = hsl(seed.hue, seed.sat * 0.25f, 0.21f),
+        background = hsl(seed.hue, seed.sat * 0.25f, 0.08f), onBackground = onSurface,
+        outline = hsl(seed.hue, seed.sat * 0.3f, 0.35f),
+        errorContainer = Color(0xFF4A1F1F),
+    )
+}
+
+private fun generatedSchemes(seed: PaletteSeed): Pair<ColorScheme, ColorScheme> =
+    generatedLight(seed) to generatedDark(seed)
+
+/** As 20 paletas-tema (seeds de matiz/satura). */
+private val GENERATED: List<GeneratedPalette> = listOf(
+    GeneratedPalette(PaletteId.DRACULA, "Dracula", PaletteSeed(270f, 0.45f, 330f)),
+    GeneratedPalette(PaletteId.NORD, "Nord", PaletteSeed(210f, 0.18f, 175f)),
+    GeneratedPalette(PaletteId.SOLARIZED, "Solarized", PaletteSeed(45f, 0.35f, 195f)),
+    GeneratedPalette(PaletteId.MONOKAI, "Monokai", PaletteSeed(330f, 0.55f, 75f)),
+    GeneratedPalette(PaletteId.ROSE_PINE, "Rosé Pine", PaletteSeed(330f, 0.35f, 265f)),
+    GeneratedPalette(PaletteId.CATPPUCCIN, "Catppuccin", PaletteSeed(265f, 0.35f, 190f)),
+    GeneratedPalette(PaletteId.CYBERPUNK, "Cyberpunk", PaletteSeed(60f, 0.85f, 310f)),
+    GeneratedPalette(PaletteId.VINTAGE, "Vintage", PaletteSeed(35f, 0.30f, 90f)),
+    GeneratedPalette(PaletteId.LAVANDA, "Lavanda", PaletteSeed(270f, 0.35f, 300f)),
+    GeneratedPalette(PaletteId.PESSEGO, "Pêssego", PaletteSeed(25f, 0.55f, 340f)),
+    GeneratedPalette(PaletteId.MENTA, "Menta", PaletteSeed(160f, 0.40f, 140f)),
+    GeneratedPalette(PaletteId.CARMESIM, "Carmesim", PaletteSeed(350f, 0.55f, 15f)),
+    GeneratedPalette(PaletteId.ARDOSIA, "Ardósia", PaletteSeed(215f, 0.15f, 190f)),
+    GeneratedPalette(PaletteId.AREIA, "Areia", PaletteSeed(40f, 0.35f, 25f)),
+    GeneratedPalette(PaletteId.MEIA_NOITE, "Meia-noite", PaletteSeed(225f, 0.45f, 250f)),
+    GeneratedPalette(PaletteId.CORAL, "Coral", PaletteSeed(12f, 0.65f, 340f)),
+    GeneratedPalette(PaletteId.ESMERALDA, "Esmeralda", PaletteSeed(155f, 0.55f, 45f)),
+    GeneratedPalette(PaletteId.AMETISTA, "Ametista", PaletteSeed(275f, 0.50f, 290f)),
+    GeneratedPalette(PaletteId.RUBI, "Rubi", PaletteSeed(345f, 0.65f, 10f)),
+    GeneratedPalette(PaletteId.SAFIRA, "Safira", PaletteSeed(220f, 0.70f, 205f)),
+)

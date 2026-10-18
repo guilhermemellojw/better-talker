@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -36,6 +37,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +65,7 @@ fun AppearanceScreen(
     val mode by settings.themeMode.collectAsState(initial = ThemeMode.AUTO)
     val paletteId by settings.paletteId.collectAsState(initial = PaletteId.SAMSUNG)
     val scope = rememberCoroutineScope()
+    var paletteQuery by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     val dark = when (mode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
@@ -106,10 +109,27 @@ fun AppearanceScreen(
                     }
                     Spacer(Modifier.height(20.dp))
                     Text("Paleta", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = paletteQuery,
+                        onValueChange = { paletteQuery = it },
+                        placeholder = { Text("Buscar paleta…") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, null, modifier = Modifier.size(20.dp))
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Spacer(Modifier.height(4.dp))
                 }
             }
-            items(AppPalettes.all, key = { it.id.name }) { spec ->
+            items(
+                AppPalettes.all.filter {
+                    paletteQuery.isBlank() ||
+                        it.label.contains(paletteQuery.trim(), ignoreCase = true)
+                },
+                key = { it.id.name },
+            ) { spec ->
                 PaletteCard(
                     spec = spec,
                     dark = dark,
