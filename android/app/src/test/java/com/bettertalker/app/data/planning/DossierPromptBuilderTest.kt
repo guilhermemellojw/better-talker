@@ -35,6 +35,7 @@ class DossierPromptBuilderTest {
         discourseType: String? = null,
         sectionTitle: String = "Título teste",
         contentHtml: String = "",
+        noteTitle: String? = null,
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
@@ -54,6 +55,7 @@ class DossierPromptBuilderTest {
         transitionContext = transitionContext,
         sectionSubPoints = sectionSubPoints,
         discourseType = discourseType,
+        noteTitle = noteTitle,
     )
 
     private val builder = DefaultDossierPromptBuilder()
@@ -384,6 +386,29 @@ class DossierPromptBuilderTest {
             includeSpeakerNote = false,
         )
         assertFalse(s34, s34.contains("DIRETRIZES DA REUNIÃO"))
+    }
+
+    @Test
+    fun s38_leDescricaoNoTituloDoCardComCorpoVazio() {
+        // "Colar e Pronto" v2: descrição no título do card, corpo vazio (o
+        // diálogo é que vai no corpo). O tipo da parte sai do título da nota.
+        val prompt = builder.buildContextBlock(
+            dossier(
+                discourseType = "MINISTRY_PART",
+                noteTitle = "Cultivando o interesse (4 min)",
+                sectionTitle = "DE CASA EM CASA. Fale sobre uma das verdades " +
+                    "do apêndice A da brochura Ame as Pessoas. (lmd lição 7 ponto 4)",
+                contentHtml = "",
+            ),
+            includeSpeakerNote = false,
+        )
+        assertTrue(prompt, prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(prompt, prompt.contains("cultivar o interesse demonstrado anteriormente"))
+        assertTrue(prompt, prompt.contains("Cenário: De casa em casa"))
+        assertTrue(
+            prompt,
+            prompt.contains("Se o texto de lmd lição 7 ponto 4 estiver nas FONTES"),
+        )
     }
 
     @Test

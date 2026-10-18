@@ -124,23 +124,33 @@ fun buildPastedNote(text: String): PastedNote {
     if (demo != null) {
         val body = demo.body.ifBlank { trimmed }
         val turns = splitDemonstrationTurns(body)
-        val distinctSpeakers = turns.map { it.speaker.lowercase() }.distinct().size
-        val html = if (turns.size >= 2 && distinctSpeakers >= 2) {
-            turnsToHtml(turns)
+        val isDialogue = turns.size >= 2 &&
+            turns.map { it.speaker.lowercase() }.distinct().size >= 2
+        // Diálogo: descrição = texto antes do 1º turno (cenário/instrução).
+        // Sem diálogo válido: o texto inteiro é a descrição da parte.
+        val description = if (isDialogue) {
+            val idx = body.indexOf("${turns.first().speaker}:")
+            if (idx > 0) body.substring(0, idx).trim() else ""
         } else {
-            paragraphsToHtml(body)
+            body
         }
+        val partTitle = demo.title.ifBlank { "Demonstração" }
+        val minutes = demo.minutes.takeIf { it > 0 } ?: 4
         return PastedNote(
-            title = demo.title.ifBlank { "Demonstração" },
+            // Título da NOTA: parte + duração ("Cultivando o interesse (4 min)").
+            title = "$partTitle ($minutes min)",
             discourseType = DiscourseType.MINISTRY_PART,
-            plainText = if (turns.isNotEmpty()) {
-                normalizePastedText(turns.joinToString(" ") { "${it.speaker}: ${it.text}" })
-            } else {
-                normalizePastedText(body)
-            },
-            bodyHtml = html,
-            bodyTitle = demo.title.ifBlank { "Demonstração" },
-            bodyMinutes = demo.minutes.takeIf { it > 0 } ?: 4,
+            plainText = normalizePastedText(
+                description.ifBlank {
+                    turns.joinToString(" ") { "${it.speaker}: ${it.text}" }
+                }
+            ),
+            // Corpo: só o diálogo (vazio quando não há turnos) — a descrição
+            // vira o título do card da seção.
+            bodyHtml = if (isDialogue) turnsToHtml(turns) else "",
+            // Título do CARD da seção: a descrição (cenário/instrução).
+            bodyTitle = description.ifBlank { partTitle },
+            bodyMinutes = minutes,
         )
     }
     // Genérico: nota simples com o texto no corpo (sem seção).

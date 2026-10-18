@@ -2,7 +2,6 @@ package com.bettertalker.app.data.util
 
 import com.bettertalker.app.domain.speech.DiscourseType
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,7 +31,9 @@ class PasteNoteBuilderTest {
     fun demo_criaNotaTipadaComTituloEMinutosDaParte() {
         val built = buildPastedNote(demoText)
         assertEquals(DiscourseType.MINISTRY_PART, built.discourseType)
-        assertEquals("Comece uma conversa", built.title)
+        // Nota: parte + duração; card da seção: descrição (aqui, sem pré-turno).
+        assertEquals("Comece uma conversa (3 min)", built.title)
+        assertEquals("Comece uma conversa", built.bodyTitle)
         assertEquals(3, built.bodyMinutes)
     }
 
@@ -65,9 +66,10 @@ class PasteNoteBuilderTest {
         val built = buildPastedNote(
             "FAÇA SEU MELHOR NO MINISTÉRIO\n4. Visita (3 min)\nPublicador: só eu falando aqui."
         )
-        val html = built.bodyHtml ?: error("demo deve ter corpo")
-        assertFalse(html, html.contains("<b>"))
-        assertTrue(html, html.contains("<p>Publicador: só eu falando aqui.</p>"))
+        // Sem diálogo válido, o texto inteiro é a descrição (título do card)
+        // e o corpo fica vazio para a redação.
+        assertEquals("Publicador: só eu falando aqui.", built.bodyTitle)
+        assertEquals("", built.bodyHtml)
     }
 
     @Test
@@ -109,5 +111,21 @@ class PasteNoteBuilderTest {
         val built = buildPastedNote("   ")
         assertEquals("Nota colada", built.title)
         assertNull(built.bodyHtml)
+    }
+
+    // ---------- UX "Colar e Pronto": parte solta vira MINISTRY_PART ----------
+
+    @Test
+    fun parteSolta_viraNotaDemonstracaoComDescricaoNoCard() {
+        val built = buildPastedNote(
+            "5. Cultivando o interesse (4 min) DE CASA EM CASA. " +
+                "Fale sobre como iniciar uma conversa."
+        )
+        assertEquals(DiscourseType.MINISTRY_PART, built.discourseType)
+        // Nota: parte + duração; card da seção: a descrição; corpo vazio.
+        assertEquals("Cultivando o interesse (4 min)", built.title)
+        assertEquals("DE CASA EM CASA. Fale sobre como iniciar uma conversa.", built.bodyTitle)
+        assertEquals("", built.bodyHtml)
+        assertEquals(4, built.bodyMinutes)
     }
 }

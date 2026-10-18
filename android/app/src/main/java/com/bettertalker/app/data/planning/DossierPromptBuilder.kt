@@ -147,19 +147,30 @@ class DefaultDossierPromptBuilder(
 
     /**
      * S-38: diretrizes da reunião para partes V&M — só no MINISTRY_PART.
-     * Tipo da parte = título da seção (fallback: título da nota); cenário e
-     * referência saem do texto (mesma extração do "Colar e Pronto").
+     * "Colar e Pronto" v2: a descrição (cenário + referência) vira o título do
+     * card e o corpo guarda só o diálogo; notas antigas mantêm a descrição no
+     * corpo. Cenário/referência saem do título + corpo. O tipo da parte vive no
+     * título da nota ("Cultivando o interesse (4 min)"); fallback no título da
+     * seção (notas antigas).
      */
     private fun StringBuilder.appendS38Guidelines(d: Dossier) {
         if (d.discourseType != com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name) {
             return
         }
-        val partType = d.currentSection.title.ifBlank { d.noteTitle.orEmpty() }
-        val content = d.currentSection.contentHtml
-        val scenario = com.bettertalker.app.data.util.vmScenarioOf(content)
-        val reference = com.bettertalker.app.data.util.vmReferenceOf(content)
+        val section = d.currentSection
+        val description = buildString {
+            append(section.title)
+            if (section.contentHtml.isNotBlank()) append(' ').append(section.contentHtml)
+        }
+        // "Cultivando o interesse (4 min)" -> "Cultivando o interesse"
+        val partTypeFromNote = d.noteTitle.orEmpty()
+            .replace(Regex("\\s*\\(\\d+\\s*min\\)\\s*$"), "")
+            .trim()
+        val scenario = com.bettertalker.app.data.util.vmScenarioOf(description)
+        val reference = com.bettertalker.app.data.util.vmReferenceOf(description)
         appendLine("## DIRETRIZES DA REUNIÃO (S-38)")
-        s38GuidanceFor(partType)?.let { appendLine(it) }
+        (s38GuidanceFor(section.title) ?: s38GuidanceFor(partTypeFromNote))
+            ?.let { appendLine(it) }
         scenario?.let {
             appendLine("Cenário: ${it.lowercase().replaceFirstChar { c -> c.uppercase() }}")
         }
