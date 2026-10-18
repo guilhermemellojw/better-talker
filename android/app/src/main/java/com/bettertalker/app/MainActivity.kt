@@ -122,23 +122,21 @@ private fun AppNav(
         }
     }
 
-    // Navegação global: barra só na Home/Tribuna (o Ensaio é imersivo);
+    // Navegação global: barra na Home/hubs/Tribuna (o Ensaio é imersivo);
     // esconde com o teclado aberto (IME).
     val backEntry by nav.currentBackStackEntryAsState()
     val currentRoute = backEntry?.destination?.route
-    val lastNoteId by settings.lastNoteId.collectAsState(initial = null)
-    var pickFor by androidx.compose.runtime.mutableStateOf<String?>(null)
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
     val showGlobalBar = com.bettertalker.app.navigation.shouldShowGlobalBar(currentRoute) && !imeOpen
 
-    fun goTrainOrPick() {
-        val id = lastNoteId
-        if (id != null) nav.navigate(Routes.stage(id)) else pickFor = "stage"
+    // Hubs de escolha de nota (Treinar/Apresentar) — o usuário escolhe
+    // visualmente; nada de "última nota" silenciosa nem sheet.
+    fun goTrain() {
+        nav.navigate(Routes.TRAIN_HOME) { launchSingleTop = true }
     }
-    fun goPresentOrPick() {
-        val id = lastNoteId
-        if (id != null) nav.navigate(Routes.tribuna(id)) else pickFor = "tribuna"
+    fun goPresent() {
+        nav.navigate(Routes.PRESENT_HOME) { launchSingleTop = true }
     }
 
     // "Inserir material → Escolher arquivo": a nota nasce aqui e o editor
@@ -160,8 +158,8 @@ private fun AppNav(
                             popUpTo(Routes.HOME)
                         }
                     },
-                    onTrain = ::goTrainOrPick,
-                    onPresent = ::goPresentOrPick,
+                    onTrain = ::goTrain,
+                    onPresent = ::goPresent,
                 )
             }
         },
@@ -188,6 +186,27 @@ private fun AppNav(
                         nav.navigate(Routes.editor(id))
                     }
                 },
+            )
+        }
+        // Hubs de escolha (Treinar/Apresentar): lista visual das notas.
+        composable(Routes.TRAIN_HOME) {
+            val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
+                factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
+            )
+            com.bettertalker.app.ui.hub.TrainHomeScreen(
+                hubVm,
+                onBack = { nav.popBackStack() },
+                onOpenNote = { nav.navigate(Routes.stage(it)) },
+            )
+        }
+        composable(Routes.PRESENT_HOME) {
+            val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
+                factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
+            )
+            com.bettertalker.app.ui.hub.PresentHomeScreen(
+                hubVm,
+                onBack = { nav.popBackStack() },
+                onOpenNote = { nav.navigate(Routes.tribuna(it)) },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -398,18 +417,5 @@ private fun AppNav(
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
     }
-    }
-
-    // Sheet de escolha (Treinar/Apresentar sem `last_note_id`).
-    pickFor?.let { target ->
-        com.bettertalker.app.ui.components.NotePickerSheet(
-            db = db,
-            title = if (target == "stage") "Escolha a nota para treinar" else "Escolha a nota para apresentar",
-            onDismiss = { pickFor = null },
-            onPick = { id ->
-                pickFor = null
-                if (target == "stage") nav.navigate(Routes.stage(id)) else nav.navigate(Routes.tribuna(id))
-            },
-        )
     }
 }

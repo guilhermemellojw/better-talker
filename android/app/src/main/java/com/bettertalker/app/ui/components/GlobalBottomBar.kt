@@ -9,12 +9,13 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import com.bettertalker.app.navigation.Routes
+import com.bettertalker.app.navigation.BottomTab
+import com.bettertalker.app.navigation.activeTab
 
 /**
- * Navegação global (HOME · TREINAR · APRESENTAR). Visível só na Home e na
- * Tribuna (o Ensaio é imersivo — a barra some); Treinar/Apresentar abrem a
- * última nota (`last_note_id`) ou o sheet de escolha quando não há nenhuma.
+ * Navegação global (HOME · TREINAR · APRESENTAR). Visível na Home, nos hubs
+ * e na Tribuna (o Ensaio é imersivo — a barra some). Treinar/Apresentar abrem
+ * os hubs de escolha visual da nota (nada de "última nota" silenciosa).
  */
 @Composable
 fun GlobalBottomBar(
@@ -23,21 +24,22 @@ fun GlobalBottomBar(
     onTrain: () -> Unit,
     onPresent: () -> Unit,
 ) {
+    val tab = activeTab(currentRoute)
     NavigationBar {
         NavigationBarItem(
-            selected = currentRoute == Routes.HOME,
+            selected = tab == BottomTab.HOME,
             onClick = onHome,
             icon = { Icon(Icons.Default.Home, "Home") },
             label = { Text("Home") },
         )
         NavigationBarItem(
-            selected = currentRoute == Routes.STAGE,
+            selected = tab == BottomTab.TRAIN,
             onClick = onTrain,
             icon = { Icon(Icons.Default.RecordVoiceOver, "Treinar") },
             label = { Text("Treinar") },
         )
         NavigationBarItem(
-            selected = currentRoute == Routes.TRIBUNA,
+            selected = tab == BottomTab.PRESENT,
             onClick = onPresent,
             icon = { Icon(Icons.Default.MenuBook, "Apresentar") },
             label = { Text("Apresentar") },
