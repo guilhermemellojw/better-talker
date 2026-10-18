@@ -615,7 +615,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             "",
         )
 
-    fun unlinkOutline() = viewModelScope.launch { outlines.unlink(noteId) }
+    // Bloco 3 (higiene): unlinkOutline saiu do editor — o desvínculo do esboço
+    // segue disponível no chat (CopilotViewModel.unlinkOutline).
 
     /**
      * Lê o estado de prontidão da nota (on-demand). Delega para o
@@ -686,19 +687,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         )
     }
 
-    fun moveToFolder(fid: String?) = viewModelScope.launch {
-        repo.moveNote(noteId, fid)
-        curFolderId = fid
-        _folderId.value = fid
-    }
-
-    fun togglePin() = viewModelScope.launch {
-        repo.togglePin(noteId)
-        curPinned = !curPinned
-        _pinned.value = curPinned
-    }
-
-    fun trashNote() = viewModelScope.launch { repo.trash(noteId) }
+    // Bloco 3 (higiene): moveToFolder/togglePin/trashNote/unlinkOutline saíram —
+    // as ações de arquivo vivem na Home (repo direto) e o unlink no chat.
 
     private fun getAppCtx(): android.content.Context = appCtx
 
