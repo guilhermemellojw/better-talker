@@ -1,17 +1,30 @@
 package com.bettertalker.app.data.util
 
 import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SectionRole
 
 /**
  * Fase 1 "Colar e Pronto" (Home): transforma o texto colado numa nota pronta.
  *
- * - TALK (V&M detectado) → nota tipada com o título da parte + BODY com o texto;
- * - DEMO (V&M) → BODY com o texto quebrado em turnos (`<p><b>Papel:</b> fala</p>`);
- * - Genérico → nota simples com o texto no corpo (sem seção).
+ * - TALK (V&M detectado) → template de discurso: INTRO + BODY (o texto colado)
+ *   + CONCLUSION vazias — abertura/fechamento prontos para preencher ou pedir
+ *   ao Copilot;
+ * - DEMO (V&M) → BODY com a descrição no título e o diálogo em turnos;
+ * - Esboço estruturado (seções com "(N min)") → `outline` preenchido — o
+ *   caller cria as seções via OutlineConverter;
+ * - Genérico → BODY "Corpo" com o texto (nota visível/editável no editor).
  *
  * Decisões do Discovery: contentHtml no MVP, splitter flexível, sem geração
  * automática (o texto colado É o conteúdo). Puro/testável — sem IO.
  */
+
+/** Uma seção pronta do "Colar e Pronto". */
+data class PastedSection(
+    val role: SectionRole,
+    val title: String,
+    val minutes: Int,
+    val contentHtml: String,
+)
 
 /** Nota pronta construída a partir do texto colado. */
 data class PastedNote(
@@ -19,11 +32,23 @@ data class PastedNote(
     val discourseType: DiscourseType,
     /** Texto puro (preview/busca da nota). */
     val plainText: String,
-    /** Corpo estruturado (demo/discurso) — null = nota simples (sem seção). */
-    val bodyHtml: String?,
-    val bodyTitle: String,
-    val bodyMinutes: Int,
+    /** Seções prontas (vazio = nota sem seção, ex.: texto em branco). */
+    val sections: List<PastedSection> = emptyList(),
+    /** TALK cru: template de discurso aplicado (aviso de criação na Home). */
+    val speechTemplate: Boolean = false,
+    /**
+     * "Colar e Pronto" v3: esboço estruturado (S-34) detectado pelo
+     * [OutlineParser] — o caller cria a nota + seções via OutlineConverter
+     * (Introdução + corpos + Conclusão). Null = não é esboço.
+     */
+    val outline: ParsedOutline? = null,
 )
+
+/** Minutos dos cards vazios de abertura/fechamento (igual ao "Adicionar parte"). */
+internal const val EDGE_SECTION_MINUTES = 1
+
+/** Duração assumida para texto corrido sem tempo declarado (igual ao fallback do esboço). */
+internal const val GENERIC_SECTION_MINUTES = 5
 
 /** Um turno da demonstração (papel + fala). */
 data class PasteTurn(val speaker: String, val text: String)
@@ -118,9 +143,15 @@ fun buildPastedNote(text: String): PastedNote {
             title = "$partTitle ($minutes min)",
             discourseType = discourseTypeFor(talk),
             plainText = normalizePastedText(body),
-            bodyHtml = paragraphsToHtml(body),
-            bodyTitle = partTitle,
-            bodyMinutes = minutes,
+            // Template de discurso: abertura e fechamento vazios para o
+            // orador (ou o Copilot) preencherem; o texto colado fica no
+            // desenvolvimento. Minutos iguais ao "Adicionar parte" manual.
+            sections = listOf(
+                PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
+                PastedSection(SectionRole.BODY, partTitle, minutes, paragraphsToHtml(body)),
+                PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
+            ),
+            speechTemplate = true,
         )
     }
     val demo = parts.firstOrNull { it.nature == VmNature.DEMO }
@@ -148,21 +179,41 @@ fun buildPastedNote(text: String): PastedNote {
                     turns.joinToString(" ") { "${it.speaker}: ${it.text}" }
                 }
             ),
-            // Corpo: só o diálogo (vazio quando não há turnos) — a descrição
-            // vira o título do card da seção.
-            bodyHtml = if (isDialogue) turnsToHtml(turns) else "",
-            // Título do CARD da seção: a descrição (cenário/instrução).
-            bodyTitle = description.ifBlank { partTitle },
-            bodyMinutes = minutes,
+            sections = listOf(
+                PastedSection(
+                    role = SectionRole.BODY,
+                    // Título do CARD: a descrição (cenário/instrução); o
+                    // corpo guarda só o diálogo (vazio quando não há turnos).
+                    title = description.ifBlank { partTitle },
+                    minutes = minutes,
+                    contentHtml = if (isDialogue) turnsToHtml(turns) else "",
+                ),
+            ),
         )
     }
-    // Genérico: nota simples com o texto no corpo (sem seção).
+    // "Colar e Pronto" v3: esboço estruturado (S-34 ou texto com seções
+    // temporizadas "(N min)") → o caller cria a nota + seções via
+    // OutlineConverter (Introdução + corpos + Conclusão). Puro: só o parse.
+    val parsed = OutlineParser.parse(trimmed, "texto colado")
+    if (parsed.sections.size >= 2) {
+        return PastedNote(
+            title = parsed.title.ifBlank { pastedTitleOf(trimmed) },
+            discourseType = DiscourseType.S34_DISCOURSE,
+            plainText = normalizePastedText(trimmed),
+            outline = parsed,
+        )
+    }
+    // Genérico: nota simples — o texto vira uma seção BODY (visível/editável
+    // no editor; antes o texto ficava só no mdText, invisível).
     return PastedNote(
         title = pastedTitleOf(trimmed),
         discourseType = DiscourseType.S34_DISCOURSE,
         plainText = normalizePastedText(trimmed),
-        bodyHtml = null,
-        bodyTitle = "",
-        bodyMinutes = 0,
+        sections = if (trimmed.isBlank()) emptyList() else listOf(
+            PastedSection(
+                SectionRole.BODY, "Corpo", GENERIC_SECTION_MINUTES,
+                paragraphsToHtml(trimmed),
+            ),
+        ),
     )
 }

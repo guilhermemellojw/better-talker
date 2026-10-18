@@ -80,6 +80,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     /** "Inserir material → Escolher arquivo": importa o arquivo numa nota nova. */
     onImportMaterial: (android.net.Uri) -> Unit = {},
+    /** "Colar texto": nota criada + aviso opcional (estrutura aplicada). */
+    onPasteCreated: (String, String?) -> Unit = { id, _ -> onOpenNote(id) },
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -209,7 +211,10 @@ fun HomeScreen(
                 if (clip.isEmpty()) {
                     scope.launch { snack.showSnackbar("Nada para colar na área de transferência.") }
                 } else {
-                    scope.launch { onOpenNote(vm.createNoteFromPaste(clip)) }
+                    scope.launch {
+                        val outcome = vm.createNoteFromPaste(clip)
+                        onPasteCreated(outcome.noteId, outcome.notice)
+                    }
                 }
             },
             onPickFile = {

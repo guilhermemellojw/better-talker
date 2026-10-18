@@ -141,7 +141,14 @@ private fun AppNav(
 
     // "Inserir material → Escolher arquivo": a nota nasce aqui e o editor
     // consome o uri pendente ao abrir (importa o esboço).
-    var pendingImport by androidx.compose.runtime.mutableStateOf<Pair<String, android.net.Uri>?>(null)
+    var pendingImport by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<Pair<String, android.net.Uri>?>(null)
+    }
+    // "Colar e Pronto" v3: aviso de estrutura (esboço/template de discurso)
+    // exibido no editor recém-aberto — par nota→aviso, como o pendingImport.
+    var editorNotice by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<Pair<String, String>?>(null)
+    }
     val notesRepo = remember {
         com.bettertalker.app.data.repo.NotesRepository(ctx.applicationContext, db)
     }
@@ -185,6 +192,12 @@ private fun AppNav(
                         pendingImport = id to uri
                         nav.navigate(Routes.editor(id))
                     }
+                },
+                // "Colar texto": abre o editor já estruturado + aviso quando a
+                // estrutura foi aplicada (esboço S-34 ou template de discurso).
+                onPasteCreated = { id, notice ->
+                    if (notice != null) editorNotice = id to notice
+                    nav.navigate(Routes.editor(id))
                 },
             )
         }
@@ -243,7 +256,9 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(noteId, pending) {
                 if (pending != null && pending.first == noteId) {
                     pendingImport = null
-                    copilotVm.importOutlineFile(pending.second)
+                    // autoLink: a Home importa e a nota já abre com as seções
+                    // (Introdução + corpos + Conclusão) em vez de só o draft.
+                    copilotVm.importOutlineFile(pending.second, autoLink = true)
                 }
             }
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
@@ -277,19 +292,18 @@ private fun AppNav(
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
-                // Ensaio: rota própria (rota declarada aqui para não tocar
-                // os arquivos de navegação fora do escopo do handoff).
-                onOpenStage = { nav.navigate(Routes.stage(noteId)) },
                 onGenerateTribuna = {
                     // #20-fix-c: gera em background e abre a tela — os cards
                     // reagem ao tribunaJson (observe live) quando chega.
                     copilotVm.generateTribuna()
                     nav.navigate(Routes.tribuna(noteId))
                 },
-                onOpenTribuna = { nav.navigate(Routes.tribuna(noteId)) },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
                 onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
                 onPasteOutline = { text -> copilotVm.pasteOutline(text) },
+                // "Colar e Pronto" v3: aviso de estrutura aplicada (uma vez).
+                notice = editorNotice?.takeIf { it.first == noteId }?.second,
+                onNoticeShown = { editorNotice = null },
             )
         }
         composable(

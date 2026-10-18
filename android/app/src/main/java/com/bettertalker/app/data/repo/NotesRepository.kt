@@ -52,8 +52,8 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
 
     /**
      * Fase 1 "Colar e Pronto": nota pronta do texto colado — título/tipo do
-     * [built]; TALK/DEMO ganham a seção BODY (contentHtml dos turnos);
-     * genérico fica com o texto no corpo da nota. Atômico (nota + seção).
+     * [built] + as seções do template (TALK: Intro/Desenvolvimento/Conclusão;
+     * DEMO/genérico: 1 BODY). Atômico (nota + seções).
      */
     suspend fun createPastedNote(
         folderId: String?,
@@ -69,17 +69,16 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
                     discourseType = built.discourseType.name,
                 )
             )
-            val bodyHtml = built.bodyHtml
-            if (bodyHtml != null) {
+            built.sections.forEachIndexed { i, s ->
                 db.speechSectionDao().upsert(
                     com.bettertalker.app.domain.speech.SpeechSection(
                         id = newId("sec"),
                         noteId = id,
-                        order = 0,
-                        role = com.bettertalker.app.domain.speech.SectionRole.BODY,
-                        title = built.bodyTitle.ifBlank { "Corpo" },
-                        minutes = built.bodyMinutes,
-                        contentHtml = bodyHtml,
+                        order = i,
+                        role = s.role,
+                        title = s.title.ifBlank { "Corpo" },
+                        minutes = s.minutes,
+                        contentHtml = s.contentHtml,
                         bibleRefs = emptyList(),
                         publicationRefs = emptyList(),
                         methodPrinciple = null,

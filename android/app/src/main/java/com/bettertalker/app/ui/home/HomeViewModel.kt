@@ -17,6 +17,13 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel() {
     private val repo = NotesRepository(ctx.applicationContext, db)
+    // "Colar e Pronto" v3: persistência atômica do esboço convertido (mesma
+    // máquina do import de arquivo).
+    private val outlineImports = com.bettertalker.app.data.repo.OutlineImportService(
+        transactionRunner = com.bettertalker.app.data.db.RoomTransactionRunner(db),
+        sectionDao = db.speechSectionDao(),
+        subPointDao = db.subPointDao(),
+    )
     val query = MutableStateFlow("")
     val folderId = MutableStateFlow<String?>(null)
 
@@ -36,9 +43,37 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
 
     suspend fun newNote(): String = repo.newNote(folderId.value)
 
-    /** Fase 1 "Colar e Pronto": nota pronta do texto colado (detecção V&M dentro). */
-    suspend fun createNoteFromPaste(text: String): String =
-        repo.createPastedNote(folderId.value, com.bettertalker.app.data.util.buildPastedNote(text))
+    /** Resultado do "Colar e Pronto": nota criada + aviso opcional (estrutura). */
+    data class PasteOutcome(val noteId: String, val notice: String? = null)
+
+    /**
+     * Fase 1 "Colar e Pronto": nota pronta do texto colado.
+     *
+     * - Esboço estruturado (S-34, `outline` do builder) → nota tipada + seções
+     *   via [com.bettertalker.app.domain.speech.OutlineConverter] (Introdução +
+     *   corpos + Conclusão) — mesma máquina do import de arquivo;
+     * - TALK → template de discurso (Intro/Desenvolvimento/Conclusão);
+     * - DEMO/genérico → seções do builder.
+     */
+    suspend fun createNoteFromPaste(text: String): PasteOutcome {
+        val built = com.bettertalker.app.data.util.buildPastedNote(text)
+        val outline = built.outline
+        if (outline != null) {
+            val type = com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE
+            val id = repo.createTypedNote(folderId.value, built.title, type)
+            val conversion = com.bettertalker.app.domain.speech.OutlineConverter()
+                .convert(outline, id, type)
+            val persisted = outlineImports.persist(conversion, type)
+            return PasteOutcome(id, "Esboço reconhecido e estruturado! ($persisted seções)")
+        }
+        val id = repo.createPastedNote(folderId.value, built)
+        val notice = if (built.speechTemplate) {
+            "Estrutura de discurso criada (Introdução, Desenvolvimento, Conclusão)."
+        } else {
+            null
+        }
+        return PasteOutcome(id, notice)
+    }
 
     /** Fase 1: Discurso — nota tipada S-34 vazia. */
     suspend fun createSpeechNote(): String = repo.createTypedNote(
@@ -52,9 +87,11 @@ class HomeViewModel(ctx: android.content.Context, db: AppDatabase) : ViewModel()
             title = "Demonstração",
             discourseType = com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART,
             plainText = "",
-            bodyHtml = "",
-            bodyTitle = "Parte 1",
-            bodyMinutes = 4,
+            sections = listOf(
+                com.bettertalker.app.data.util.PastedSection(
+                    com.bettertalker.app.domain.speech.SectionRole.BODY, "Parte 1", 4, "",
+                ),
+            ),
         ),
     )
     fun trash(id: String) = viewModelScope.launch { repo.trash(id) }

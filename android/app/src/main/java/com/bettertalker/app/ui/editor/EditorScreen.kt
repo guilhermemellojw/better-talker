@@ -61,6 +61,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -116,24 +118,21 @@ fun EditorScreen(
     onBack: () -> Unit,
     onAttach: () -> Unit,
     onOpenChat: () -> Unit,
-    onOpenStage: () -> Unit,
     // #7e2: empty state — o pipeline de esboço/paste vive no chat
     // (CopilotViewModel); a tela só dispara.
     onImportOutline: (Uri) -> Unit,
     onPasteOutline: (String) -> Unit,
+    /** "Colar e Pronto" v3: aviso de estrutura aplicada (exibido uma vez). */
+    notice: String? = null,
+    onNoticeShown: () -> Unit = {},
     /** #20-fix-a: gera a Tribuna da nota (cápsulas por seção). */
     onGenerateTribuna: () -> Unit = {},
-    /** #20-fix-b: abre a tela da Tribuna. */
-    onOpenTribuna: () -> Unit = {},
 ) {
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
     val saving by vm.saving.collectAsState()
     val color by vm.color.collectAsState()
     val attachments by vm.attachments.collectAsState(initial = emptyList())
-    val outlineList by vm.outline.collectAsState(initial = emptyList())
-    val folders by vm.folders.collectAsState(initial = emptyList())
-    val noteFolderId by vm.folderId.collectAsState()
     val notePinned by vm.pinned.collectAsState()
     val sections by vm.sections.collectAsState()
     val isDemonstration by vm.isDemonstration.collectAsState()
@@ -141,8 +140,6 @@ fun EditorScreen(
     val draftState by vm.draftState.collectAsState()
     var preview by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var showMove by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
     var showAttachmentsSheet by remember { mutableStateOf(false) }
     // Exportação: sheet com Compartilhar / Salvar PDF / Copiar texto.
@@ -155,7 +152,6 @@ fun EditorScreen(
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var showOutlineDialog by remember { mutableStateOf(false) }
     // #7e2: "Anexar esboço" reusa o pipeline do chat — mesmo contrato do
     // picker do ChatScreen (OpenDocument → CopilotViewModel.importOutlineFile).
     val outlinePicker = rememberLauncherForActivityResult(
@@ -245,82 +241,8 @@ fun EditorScreen(
     // 3.2.5e: inserts programáticos (Copilot/atalhos) são consumidos pelos
     // cards via sectionPendingInserts; a fila legada foi removida do VM.
 
-
-    if (showMove) {
-        AlertDialog(
-            onDismissRequest = { showMove = false },
-            title = { Text("Mover para") },
-            text = {
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            vm.moveToFolder(null); showMove = false
-                        }.padding(vertical = 8.dp)
-                    ) {
-                        RadioButton(selected = noteFolderId == null, onClick = {
-                            vm.moveToFolder(null); showMove = false
-                        })
-                        Spacer(Modifier.width(8.dp))
-                        Text("Todas")
-                    }
-                    folders.forEach { f ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                vm.moveToFolder(f.id); showMove = false
-                            }.padding(vertical = 8.dp)
-                        ) {
-                            RadioButton(selected = noteFolderId == f.id, onClick = {
-                                vm.moveToFolder(f.id); showMove = false
-                            })
-                            Spacer(Modifier.width(8.dp))
-                            Text(f.name)
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showMove = false }) { Text("Fechar") } }
-        )
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Excluir nota?") },
-            text = { Text("A nota vai para a Lixeira.") },
-            confirmButton = {
-                TextButton(onClick = { vm.trashNote(); confirmDelete = false; onBack() }) {
-                    Text("Excluir", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancelar") } }
-        )
-    }
-
-    // 3.2.5g.3: cor da nota (item do ⋮; fecha ao escolher).
-    // UX refactor: "Cor da nota" saiu do ⋮ do Editor (gestão na Home virá
-    // depois; as notas mantêm suas cores atuais).
-
-    // 3.2.5g.3: esboço vinculado (item do ⋮; só aparece se houver esboço).
-    outlineList.firstOrNull()?.let { o ->
-        if (showOutlineDialog) {
-            AlertDialog(
-                onDismissRequest = { showOutlineDialog = false },
-                title = { Text("Esboço vinculado") },
-                text = { Text(o.title) },
-                confirmButton = {
-                    TextButton(onClick = {
-                        vm.unlinkOutline()
-                        showOutlineDialog = false
-                    }) { Text("Desvincular") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showOutlineDialog = false }) { Text("Fechar") }
-                },
-            )
-        }
-    }
+    // Bloco 3 (higiene): diálogos de Mover/Excluir/Cor/Esboço removidos —
+    // essas ações vivem na Home (menu do card) ou na Biblioteca.
 
     // Contador de palavras: vivo das seções; fallback no mdText (sem seções).
     val wordCount = remember(sections, mdText) {
@@ -329,6 +251,15 @@ fun EditorScreen(
 
     // Recolhe a TopAppBar no scroll down; volta em qualquer scroll up.
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    // "Colar e Pronto" v3: aviso de estrutura (esboço S-34/template de
+    // discurso) exibido uma vez ao abrir a nota recém-criada.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(notice) {
+        if (!notice.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(notice)
+            onNoticeShown()
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -376,7 +307,8 @@ fun EditorScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { pad ->
         Column(
             Modifier
@@ -801,29 +733,6 @@ fun EditorScreen(
             },
         )
     }
-}
-
-/** 3.2.5g.3: bolinha de cor da nota (dialog do ⋮; sem swatch de "limpar"). */
-@Composable
-private fun NoteColorDot(
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(color)
-            .then(
-                if (selected) Modifier.border(
-                    2.dp,
-                    MaterialTheme.colorScheme.onSurface,
-                    CircleShape
-                ) else Modifier
-            )
-            .clickable { onClick() }
-    )
 }
 
 /**

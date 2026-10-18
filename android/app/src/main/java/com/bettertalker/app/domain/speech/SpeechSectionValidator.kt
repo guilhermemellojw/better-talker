@@ -34,9 +34,10 @@ enum class SectionValidationError {
  * última tem order `size - 1`.
  *
  * O [discourseType] (default [DiscourseType.S34_DISCOURSE], compatível com
- * chamadas existentes) seleciona o conjunto de regras: S-34 exige
- * INTRO + N BODY + CONCLUSION; demais tipos exigem exatamente 1 BODY,
- * sem intro nem conclusion.
+ * chamadas existentes) seleciona o conjunto de regras: S-34 e discursos de
+ * Tesouros (TALK) usam a estrutura clássica de oratória (INTRO? + N BODY +
+ * CONCLUSION? — o "Colar e Pronto" já entrega esse template); demais tipos
+ * exigem exatamente 1 BODY, sem intro nem conclusion.
  */
 object SpeechSectionValidator {
 
@@ -53,8 +54,9 @@ object SpeechSectionValidator {
         }
 
         when (discourseType) {
-            DiscourseType.S34_DISCOURSE -> validateS34(sections, errors)
-            DiscourseType.TREASURES_TALK,
+            // TALK = discurso (Tesouros): mesma estrutura clássica do S-34.
+            DiscourseType.S34_DISCOURSE,
+            DiscourseType.TREASURES_TALK -> validateS34(sections, errors)
             DiscourseType.MINISTRY_PART,
             DiscourseType.AVULSO -> validateSingleBody(sections, errors)
         }

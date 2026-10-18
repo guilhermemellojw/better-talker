@@ -168,37 +168,69 @@ class SpeechSectionValidatorTest {
     }
 
     @Test
-    fun treasures_withIntro_returnsUnexpectedIntro() {
+    fun treasures_comTemplateDeDiscurso_returnsValid() {
+        // TALK = discurso: aceita a estrutura clássica (o "Colar e Pronto"
+        // entrega Intro/Desenvolvimento/Conclusão).
+        assertEquals(
+            SectionValidationResult.Valid,
+            SpeechSectionValidator.validate(
+                listOf(
+                    section("i", SectionRole.INTRO, 0),
+                    section("b", SectionRole.BODY, 1),
+                    section("c", SectionRole.CONCLUSION, 2),
+                ),
+                DiscourseType.TREASURES_TALK,
+            ),
+        )
+    }
+
+    @Test
+    fun treasures_comDoisPontos_returnsValid() {
+        // Discurso pode ter mais de um ponto de desenvolvimento.
+        assertEquals(
+            SectionValidationResult.Valid,
+            SpeechSectionValidator.validate(
+                listOf(
+                    section("b1", SectionRole.BODY, 0),
+                    section("b2", SectionRole.BODY, 1),
+                ),
+                DiscourseType.TREASURES_TALK,
+            ),
+        )
+    }
+
+    @Test
+    fun ministry_withIntro_returnsUnexpectedIntro() {
         val errors = (SpeechSectionValidator.validate(
             listOf(
                 section("i", SectionRole.INTRO, 0),
                 section("b", SectionRole.BODY, 1),
             ),
-            DiscourseType.TREASURES_TALK,
+            DiscourseType.MINISTRY_PART,
         ) as SectionValidationResult.Invalid).errors
         assertEquals(true, errors.contains(SectionValidationError.UNEXPECTED_INTRO))
     }
 
     @Test
-    fun treasures_withConclusion_returnsUnexpectedConclusion() {
+    fun ministry_withConclusion_returnsUnexpectedConclusion() {
         val errors = (SpeechSectionValidator.validate(
             listOf(
                 section("b", SectionRole.BODY, 0),
                 section("c", SectionRole.CONCLUSION, 1),
             ),
-            DiscourseType.TREASURES_TALK,
+            DiscourseType.MINISTRY_PART,
         ) as SectionValidationResult.Invalid).errors
         assertEquals(true, errors.contains(SectionValidationError.UNEXPECTED_CONCLUSION))
     }
 
     @Test
-    fun treasures_twoBodies_returnsWrongBodyCount() {
+    fun ministry_twoBodies_returnsWrongBodyCount() {
         val errors = (SpeechSectionValidator.validate(
             listOf(
                 section("b1", SectionRole.BODY, 0),
                 section("b2", SectionRole.BODY, 1),
             ),
-            DiscourseType.TREASURES_TALK,
+            DiscourseType.MINISTRY_PART,
         ) as SectionValidationResult.Invalid).errors
         assertEquals(true, errors.contains(SectionValidationError.WRONG_BODY_COUNT))
     }

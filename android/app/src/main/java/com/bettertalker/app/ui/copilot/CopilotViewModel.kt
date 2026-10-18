@@ -4188,7 +4188,15 @@ class CopilotViewModel(
         return pair.joinToString("||")
     }
 
-    fun importOutlineFile(uri: Uri) = viewModelScope.launch {
+    /**
+     * Importa DOCX/PDF/JWPUB como esboço.
+     *
+     * [autoLink] (FAB da Home): além do draft no chat, VINCULA na hora — a
+     * nota abre com as seções (Introdução + corpos + Conclusão) no editor. No
+     * picker do editor fica false: o usuário revisa o draft no chat e clica
+     * "Vincular" quando quiser.
+     */
+    fun importOutlineFile(uri: Uri, autoLink: Boolean = false) = viewModelScope.launch {
         try {
             val preview = outlines.previewFile(uri)
             _draftName.value = preview.fileName
@@ -4201,6 +4209,8 @@ class CopilotViewModel(
             // T1 (Bug #8): S-34 importado precisa persistir na estrutura
             // (s34_*), não só no draft legado. Nunca derruba o import.
             persistS34FromImport(uri, preview.fileName)
+            // Paridade com o "Colar e Pronto": Home cria as seções na hora.
+            if (autoLink) linkDraft()
         } catch (e: ImportException) {
             // T2: falha de import visível (nada de silêncio).
             android.util.Log.i("Import", "falha no import: reason=${e.reason}")
