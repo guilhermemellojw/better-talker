@@ -89,6 +89,11 @@ class SettingsStore(private val ctx: Context) {
     private val VOICE_PREMIUM = booleanPreferencesKey("voice_premium_enabled")
     val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: false }
     suspend fun setVoicePremiumEnabled(v: Boolean) { ctx.store.edit { it[VOICE_PREMIUM] = v } }
+
+    /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */
+    private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
+    val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }
+    suspend fun setLastNoteId(id: String) { ctx.store.edit { it[LAST_NOTE_ID] = id } }
 }
 
 /** Ensaio (v1): limites do tamanho da fonte de leitura (sp). */

@@ -8,10 +8,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.padding
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bettertalker.app.data.db.DbProvider
@@ -118,7 +122,48 @@ private fun AppNav(
         }
     }
 
-    NavHost(nav, startDestination = Routes.HOME) {
+    // Navegação global: barra só na Home/Tribuna (o Ensaio é imersivo);
+    // esconde com o teclado aberto (IME).
+    val backEntry by nav.currentBackStackEntryAsState()
+    val currentRoute = backEntry?.destination?.route
+    val lastNoteId by settings.lastNoteId.collectAsState(initial = null)
+    var pickFor by androidx.compose.runtime.mutableStateOf<String?>(null)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val imeOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
+    val showGlobalBar = com.bettertalker.app.navigation.shouldShowGlobalBar(currentRoute) && !imeOpen
+
+    fun goTrainOrPick() {
+        val id = lastNoteId
+        if (id != null) nav.navigate(Routes.stage(id)) else pickFor = "stage"
+    }
+    fun goPresentOrPick() {
+        val id = lastNoteId
+        if (id != null) nav.navigate(Routes.tribuna(id)) else pickFor = "tribuna"
+    }
+
+    androidx.compose.material3.Scaffold(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
+        bottomBar = {
+            if (showGlobalBar) {
+                com.bettertalker.app.ui.components.GlobalBottomBar(
+                    currentRoute = currentRoute,
+                    onHome = {
+                        nav.navigate(Routes.HOME) {
+                            launchSingleTop = true
+                            popUpTo(Routes.HOME)
+                        }
+                    },
+                    onTrain = ::goTrainOrPick,
+                    onPresent = ::goPresentOrPick,
+                )
+            }
+        },
+    ) { pad ->
+        NavHost(
+            nav,
+            startDestination = Routes.HOME,
+            modifier = androidx.compose.ui.Modifier.padding(pad),
+        ) {
         composable(Routes.HOME) {
             val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(ctx, db))
             // compartilha o mesmo VM com a Lixeira (mesmo ciclo da Home)
@@ -156,6 +201,8 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // Navegação global: memoriza a última nota aberta (Treinar/Apresentar).
+            androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
             val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter))
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
@@ -191,7 +238,7 @@ private fun AppNav(
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 // Ensaio: rota própria (rota declarada aqui para não tocar
                 // os arquivos de navegação fora do escopo do handoff).
-                onOpenStage = { nav.navigate("stage/$noteId") },
+                onOpenStage = { nav.navigate(Routes.stage(noteId)) },
                 onGenerateTribuna = {
                     // #20-fix-c: gera em background e abre a tela — os cards
                     // reagem ao tribunaJson (observe live) quando chega.
@@ -205,7 +252,7 @@ private fun AppNav(
             )
         }
         composable(
-            "stage/{noteId}",
+            Routes.STAGE,
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
@@ -328,5 +375,19 @@ private fun AppNav(
                 viewModel(factory = com.bettertalker.app.ui.aimodel.ModelViewModel.Factory(ctx))
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
+    }
+    }
+
+    // Sheet de escolha (Treinar/Apresentar sem `last_note_id`).
+    pickFor?.let { target ->
+        com.bettertalker.app.ui.components.NotePickerSheet(
+            db = db,
+            title = if (target == "stage") "Escolha a nota para treinar" else "Escolha a nota para apresentar",
+            onDismiss = { pickFor = null },
+            onPick = { id ->
+                pickFor = null
+                if (target == "stage") nav.navigate(Routes.stage(id)) else nav.navigate(Routes.tribuna(id))
+            },
+        )
     }
 }
