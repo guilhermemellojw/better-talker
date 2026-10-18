@@ -850,11 +850,12 @@ private fun SectionContentEditor(
         snapshotFlow { richState.selection }
             .debounce(200)
             .collect { sel ->
+                // P1 (crash StringIndexOutOfBounds): o debounce pode entregar a
+                // seleção defasada em relação ao texto atual — o corte usa
+                // índices clampados E ordenados (nunca estoura).
                 val full = richState.annotatedString.text
                 val text = if (sel.collapsed) "" else {
-                    val start = sel.start.coerceIn(0, full.length)
-                    val end = sel.end.coerceIn(0, full.length)
-                    full.substring(start, end).take(2000)
+                    safeSelectionSlice(full, sel.start, sel.end)
                 }
                 val fullHtml = richState.toHtml()
                 if (text.isBlank() && fullHtml.isBlank()) {
@@ -900,4 +901,21 @@ private fun SectionContentEditor(
             )
         }
     }
+}
+
+/**
+ * P1 (crash do editor — `StringIndexOutOfBoundsException: begin 633, end 464`):
+ * trecho selecionado com índices SEMPRE seguros — clampa ao texto atual E
+ * ordena (o debounce da seleção pode entregar start/end defasados do texto,
+ * inclusive invertidos; clamp individual não bastava). Puro/testável.
+ */
+internal fun safeSelectionSlice(
+    text: String,
+    start: Int,
+    end: Int,
+    maxChars: Int = 2000,
+): String {
+    val a = start.coerceIn(0, text.length)
+    val b = end.coerceIn(0, text.length)
+    return text.substring(minOf(a, b), maxOf(a, b)).take(maxChars)
 }
