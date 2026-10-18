@@ -139,4 +139,46 @@ class GroundednessVerifierTest {
         assertFalse(r.hasRemovals)
         assertEquals(resposta, r.text)
     }
+
+    // ---------- Bloco 1 (UX): remoção cirúrgica + pontuação limpa ----------
+
+    @Test
+    fun citacao_inventada_no_meio_da_frase_remove_so_a_citacao() {
+        // Exemplo do pedido ("A vida é bela, "frase inventada", e o sol
+        // brilha.") — com citação ≥ MIN_QUOTE_CHARS (20), como o gate exige.
+        val resposta =
+            "A vida é bela, \"uma frase totalmente inventada aqui\", e o sol brilha."
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertTrue(r.hasRemovals)
+        assertEquals(
+            "A vida é bela, e o sol brilha.",
+            r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim(),
+        )
+    }
+
+    @Test
+    fun remocao_no_inicio_nao_deixa_virgula_orfa() {
+        val resposta = "\"Uma frase totalmente inventada aqui\", e o sol brilha."
+        val r = GroundednessVerifier.verify(resposta, fontes)
+        assertTrue(r.hasRemovals)
+        assertEquals(
+            "e o sol brilha.",
+            r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim(),
+        )
+    }
+
+    @Test
+    fun limpeza_de_pontuacao_orfa() {
+        // Costuras comuns depois da remoção: vírgula dupla, ",." e espaços.
+        assertEquals(
+            "A vida é bela, e o sol brilha.",
+            GroundednessVerifier.cleanupAfterRemoval("A vida é bela, , e o sol brilha."),
+        )
+        assertEquals("Fim.", GroundednessVerifier.cleanupAfterRemoval("Fim, ."))
+        assertEquals(
+            "A vida é bela. E o sol brilha.",
+            GroundednessVerifier.cleanupAfterRemoval("A vida é bela.  E o sol brilha."),
+        )
+        assertEquals("Ele diz.", GroundednessVerifier.cleanupAfterRemoval("Ele diz: ."))
+    }
 }

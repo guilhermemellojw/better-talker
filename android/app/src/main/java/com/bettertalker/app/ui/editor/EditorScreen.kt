@@ -704,7 +704,12 @@ fun EditorScreen(
     // (CopilotViewModel.pasteOutline). "Analisar" segue para o chat, onde o
     // rascunho do esboço é exibido.
     if (showPasteDialog) {
-        var pasteText by remember { mutableStateOf("") }
+        // Bloco 1 (UX): o diálogo abre já com o texto do clipboard (editável
+        // antes de confirmar) — antes abria vazio mesmo com texto copiado.
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+        var pasteText by remember {
+            mutableStateOf(clipboard.getText()?.text?.trim().orEmpty())
+        }
         AlertDialog(
             onDismissRequest = { showPasteDialog = false },
             title = { Text("Analisar com IA") },

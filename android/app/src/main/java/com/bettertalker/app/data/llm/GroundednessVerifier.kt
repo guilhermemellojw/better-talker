@@ -87,7 +87,11 @@ object GroundednessVerifier {
             if (inSuggestion(m.range.first, spans)) return@forEach
             val quote = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
             if (quote.length >= MIN_QUOTE_CHARS && corpus.none { it.contains(normalize(quote)) }) {
-                ranges += sentenceAround(text, m.range)
+                // Bloco 1 (UX): remoção CIRÚRGICA — sai só a citação (com as
+                // aspas) + pontuação adjacente; a frase legítima ao redor fica
+                // ("A vida é bela, "frase inventada", e o sol brilha." →
+                // "A vida é bela, e o sol brilha.").
+                ranges += quoteRemovalRange(text, m.range)
             }
         }
         REF.findAll(text).forEach { m ->
@@ -142,9 +146,42 @@ object GroundednessVerifier {
             cursor = r.last + 1
         }
         if (cursor < text.length) kept.append(text.substring(cursor))
-        val cleaned = kept.toString().trim().replace(Regex(" {2,}"), " ")
+        val cleaned = cleanupAfterRemoval(kept.toString())
         return VerificationResult(cleaned + REMOVAL_NOTICE, removed)
     }
+
+    /**
+     * Bloco 1 (UX) — faixa de remoção de uma citação: as aspas + pontuação
+     * imediatamente adjacente (vírgula/ponto-e-vírgula/fecha-parêntese depois;
+     * vírgula/dois-pontos/abre-parêntese antes), para não deixar órfãos como
+     * `, ,` ou `")`. Puro/testável.
+     */
+    private fun quoteRemovalRange(text: String, range: IntRange): IntRange {
+        var start = range.first
+        var end = range.last
+        while (end < text.lastIndex && text[end + 1] in ",;:)]") end++
+        while (start > 0 && text[start - 1] in ",;:([") start--
+        return start..end
+    }
+
+    /**
+     * Bloco 1 (UX) — limpeza pós-remoção: pontuação órfã nas costuras
+     * (vírgula dupla `, ,`, ponto depois de vírgula `,.`, pontos repetidos,
+     * parênteses vazio) + espaços horizontais normalizados. NUNCA colapsa
+     * quebras de linha (markdown preservado). Puro/testável.
+     */
+    internal fun cleanupAfterRemoval(raw: String): String = raw
+        .replace(Regex("[ \\t]+([,.;:!?])"), "$1")   // espaço antes de pontuação
+        .replace(Regex(",[ \\t]*,"), ",")             // vírgula dupla ", ,"
+        .replace(Regex(",[ \\t]*([.;:!?])"), "$1")    // ",." / ",:" / ",;" → só o ponto
+        .replace(Regex("([.;:!?])[ \\t]*,"), "$1")    // ".," → "."
+        .replace(Regex("[:;][ \\t]*([.!?])"), "$1")   // ":. / ;." → "."
+        .replace(Regex("([.!?])[ \\t]*\\1+"), "$1")   // ".." / "!!" → um
+        .replace(Regex("\\([ \\t]*\\)"), "")          // "()" órfão
+        .replace(Regex("[ \\t]{2,}"), " ")            // espaços duplos
+        .replace(Regex("^[ \\t]*[,;:]+[ \\t]*"), "")  // vírgula sobrando no início
+        .replace(Regex("[,;:][ \\t]*$"), "")          // pontuação sobrando no fim
+        .trim()
 
     /**
      * Expande o trecho problemático até as bordas da(s) frase(s) que o contém.
