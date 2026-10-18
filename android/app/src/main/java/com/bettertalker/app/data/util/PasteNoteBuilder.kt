@@ -111,13 +111,16 @@ fun buildPastedNote(text: String): PastedNote {
     val talk = parts.firstOrNull { it.nature == VmNature.TALK }
     if (talk != null) {
         val body = talk.body.ifBlank { trimmed }
+        val partTitle = talk.title.ifBlank { "Discurso" }
+        val minutes = talk.minutes.takeIf { it > 0 } ?: 10
         return PastedNote(
-            title = talk.title.ifBlank { "Discurso" },
+            // Título da NOTA: parte + duração ("A ordem nos céus (10 min)").
+            title = "$partTitle ($minutes min)",
             discourseType = discourseTypeFor(talk),
             plainText = normalizePastedText(body),
             bodyHtml = paragraphsToHtml(body),
-            bodyTitle = talk.title.ifBlank { "Discurso" },
-            bodyMinutes = talk.minutes.takeIf { it > 0 } ?: 10,
+            bodyTitle = partTitle,
+            bodyMinutes = minutes,
         )
     }
     val demo = parts.firstOrNull { it.nature == VmNature.DEMO }

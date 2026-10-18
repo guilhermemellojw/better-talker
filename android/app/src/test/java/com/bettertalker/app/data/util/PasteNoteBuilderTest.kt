@@ -88,7 +88,9 @@ class PasteNoteBuilderTest {
     fun talk_criaNotaComTituloDaParteECorpo() {
         val built = buildPastedNote(talkText)
         assertEquals(DiscourseType.TREASURES_TALK, built.discourseType)
-        assertEquals("A ordem nos céus", built.title)
+        // Nota: parte + duração; card da seção mantém o nome da parte.
+        assertEquals("A ordem nos céus (10 min)", built.title)
+        assertEquals("A ordem nos céus", built.bodyTitle)
         assertEquals(10, built.bodyMinutes)
         val html = built.bodyHtml ?: error("talk deve ter corpo")
         assertTrue(html, html.contains("<p>Vamos começar com uma pergunta simples.</p>"))
