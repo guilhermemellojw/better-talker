@@ -1,5 +1,9 @@
 package com.bettertalker.app.ui.components
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MenuBook
@@ -9,6 +13,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.bettertalker.app.navigation.BottomTab
 import com.bettertalker.app.navigation.activeTab
 
@@ -25,7 +31,14 @@ fun GlobalBottomBar(
     onPresent: () -> Unit,
 ) {
     val tab = activeTab(currentRoute)
-    NavigationBar {
+    NavigationBar(
+        // Barra compacta: 72dp de CONTEÚDO + a área de gestos do sistema por
+        // fora (o inset não infla a barra — nada de barra "gorda").
+        modifier = Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .height(72.dp),
+        windowInsets = WindowInsets(0),
+    ) {
         NavigationBarItem(
             selected = tab == BottomTab.HOME,
             onClick = onHome,
