@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.ui.stage.StageTurn
+import com.bettertalker.app.ui.stage.stageSpeakerColor
 
 /**
  * #20-fix-b: a Tribuna — leitura do mapa de memória por seção. Cards
@@ -53,6 +57,7 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
     val fontSp by vm.fontSp.collectAsState()
     val speakingId by vm.speakingId.collectAsState()
     val noteTitle by vm.noteTitle.collectAsState()
+    val isDemonstration by vm.isDemonstration.collectAsState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -135,6 +140,7 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
                         card = card,
                         fontSp = fontSp,
                         speaking = speakingId == card.sectionId,
+                        isDemonstration = isDemonstration,
                         onMainIdea = { vm.updateMainIdea(card.sectionId, it) },
                         onBibleRef = { vm.updateBibleRef(card.sectionId, it) },
                         onAnchor = { vm.updateAnchorPhrase(card.sectionId, it) },
@@ -156,6 +162,7 @@ private fun TribunaCard(
     card: TribunaViewModel.TribunaCardUi,
     fontSp: Int,
     speaking: Boolean,
+    isDemonstration: Boolean,
     onMainIdea: (String) -> Unit,
     onBibleRef: (String) -> Unit,
     onAnchor: (String) -> Unit,
@@ -177,7 +184,11 @@ private fun TribunaCard(
                 fontWeight = FontWeight.Bold,
             )
             val capsule = card.capsule
-            if (capsule == null) {
+            if (isDemonstration) {
+                // Bloco 2 (demos): a Tribuna vira roteiro — turnos alternados;
+                // cápsulas de discurso (ideia/âncora/transição) ficam ocultas.
+                DemoScript(card.turns, fontSp)
+            } else if (capsule == null) {
                 Text(
                     "Tribuna não gerada para esta seção.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -194,6 +205,54 @@ private fun TribunaCard(
                     }
                 }
                 TribunaField("➡ TRANSIÇÃO (opcional)", capsule.transition.orEmpty(), fontSp, onTransition)
+            }
+        }
+    }
+}
+
+/**
+ * Bloco 2 (demos): roteiro com turnos alternados — 1º papel à direita, 2º à
+ * esquerda (como um chat), com as cores de papel do Ensaio. Sem turnos
+ * reconhecidos: placeholder discreto.
+ */
+@Composable
+private fun DemoScript(turns: List<StageTurn>, fontSp: Int) {
+    if (turns.isEmpty()) {
+        Text(
+            "Diálogo ainda não escrito — edite no editor.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val speakers = turns.map { it.speaker }.distinct()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        turns.forEach { turn ->
+            val index = speakers.indexOf(turn.speaker).coerceAtLeast(0)
+            val alignRight = index % 2 == 0
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = if (alignRight) Arrangement.End else Arrangement.Start,
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(0.86f),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Text(
+                            turn.speaker,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = stageSpeakerColor(index),
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            turn.text,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSp.sp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
             }
         }
     }

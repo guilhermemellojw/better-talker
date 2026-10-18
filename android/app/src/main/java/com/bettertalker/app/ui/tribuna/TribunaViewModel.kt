@@ -11,6 +11,8 @@ import com.bettertalker.app.data.voice.TextToSpeechManager
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.toJson
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
+import com.bettertalker.app.ui.stage.StageTurn
+import com.bettertalker.app.ui.stage.parseStageTurns
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -55,6 +57,8 @@ class TribunaViewModel(
     private val scope: CoroutineScope? = null,
     /** #20-fix-c: título da nota (export). Testes usam o default. */
     private val noteTitleProvider: suspend () -> String = { "" },
+    /** Bloco 2 (demos): nota MINISTRY_PART → a Tribuna vira roteiro (turnos). */
+    private val isDemonstrationProvider: suspend () -> Boolean = { false },
 ) : ViewModel() {
 
     private val workScope: CoroutineScope get() = scope ?: viewModelScope
@@ -66,10 +70,16 @@ class TribunaViewModel(
         val minutes: Int,
         /** null = Tribuna ainda não gerada para esta seção. */
         val capsule: TribunaCapsule?,
+        /** Bloco 2 (demos): turnos do diálogo (vazio nos discursos). */
+        val turns: List<StageTurn> = emptyList(),
     )
 
     private val _cards = MutableStateFlow<List<TribunaCardUi>>(emptyList())
     val cards: StateFlow<List<TribunaCardUi>> = _cards.asStateFlow()
+
+    private val _isDemonstration = MutableStateFlow(false)
+    /** Bloco 2 (demos): true = MINISTRY_PART → a tela vira roteiro (turnos). */
+    val isDemonstration: StateFlow<Boolean> = _isDemonstration.asStateFlow()
 
     private val _speakingId = MutableStateFlow<String?>(null)
 
@@ -91,13 +101,17 @@ class TribunaViewModel(
     /** Título da nota (para o export); vazio até o load. */
     val noteTitle: StateFlow<String> = _noteTitle.asStateFlow()
 
-    /** Lê as seções da nota (live) + parse dos tribunaJson. */
+    /** Lê as seções da nota (live) + parse dos tribunaJson e turnos (demo). */
     fun load() {
         workScope.launch {
             _noteTitle.value = noteTitleProvider().ifBlank { "" }
         }
         workScope.launch {
             dao.observeForNote(noteId).collect { rows ->
+                // Bloco 2 (demos): o tipo é relido a cada emissão — se a nota
+                // for demonstração, a tela renderiza como roteiro.
+                val demo = isDemonstrationProvider()
+                _isDemonstration.value = demo
                 _cards.value = rows
                     .sortedBy { it.order }
                     .map { e ->
@@ -107,6 +121,7 @@ class TribunaViewModel(
                             sectionTitle = e.title,
                             minutes = e.minutes,
                             capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
+                            turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
                         )
                     }
             }
@@ -195,6 +210,10 @@ class TribunaViewModel(
             return TribunaViewModel(
                 db.speechSectionDao(), noteId, speaker, prefs,
                 noteTitleProvider = { db.noteDao().get(noteId)?.title.orEmpty() },
+                isDemonstrationProvider = {
+                    db.noteDao().get(noteId)?.discourseType ==
+                        com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name
+                },
             ) as T
         }
     }

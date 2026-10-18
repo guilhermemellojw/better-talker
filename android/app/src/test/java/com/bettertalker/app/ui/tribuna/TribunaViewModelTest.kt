@@ -78,11 +78,15 @@ class TribunaViewModelTest {
     private fun withVm(
         dao: FakeDao,
         speaker: FakeSpeaker = FakeSpeaker(),
+        isDemonstration: Boolean = false,
         block: suspend (TribunaViewModel, FakeSpeaker, FakeDao) -> Unit,
     ) = runBlocking {
         val scope = CoroutineScope(Dispatchers.Default)
         try {
-            val vm = TribunaViewModel(dao, "n1", speaker, FakePrefs(), debounceMs = 0, scope = scope)
+            val vm = TribunaViewModel(
+                dao, "n1", speaker, FakePrefs(), debounceMs = 0, scope = scope,
+                isDemonstrationProvider = { isDemonstration },
+            )
             block(vm, speaker, dao)
             delay(60)
         } finally {
@@ -161,5 +165,41 @@ class TribunaViewModelTest {
         delay(40)
         assertTrue(speaker.spoken.isEmpty())
         assertNull(vm.speakingId.value)
+    }
+
+    // ---------- Bloco 2 (demos): a Tribuna vira roteiro ----------
+
+    @Test
+    fun demo_carregaTurnosDoDialogo() = withVm(
+        FakeDao(
+            listOf(
+                entity("s1", 0, null).copy(
+                    contentHtml = "<p><b>Publicador:</b> Ola, bom dia!</p>" +
+                        "<p><b>Morador:</b> Bom dia, tudo bem?</p>",
+                ),
+            )
+        ),
+        isDemonstration = true,
+    ) { vm, _, _ ->
+        vm.load()
+        delay(30)
+        assertTrue(vm.isDemonstration.value)
+        val turns = vm.cards.value[0].turns
+        assertEquals(2, turns.size)
+        assertEquals("Publicador", turns[0].speaker)
+        assertEquals("Ola, bom dia!", turns[0].text)
+        assertEquals("Morador", turns[1].speaker)
+        assertEquals("Bom dia, tudo bem?", turns[1].text)
+    }
+
+    @Test
+    fun discurso_naoCarregaTurnos() = withVm(
+        FakeDao(listOf(entity("s1", 0, capsule("s1").toJson())))
+    ) { vm, _, _ ->
+        vm.load()
+        delay(30)
+        assertTrue(!vm.isDemonstration.value)
+        assertTrue(vm.cards.value[0].turns.isEmpty())
+        assertEquals("Âncora s1", vm.cards.value[0].capsule?.anchorPhrase)
     }
 }

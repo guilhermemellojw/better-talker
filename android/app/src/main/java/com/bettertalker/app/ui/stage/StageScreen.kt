@@ -73,7 +73,8 @@ private val StageSpeakerColors = listOf(
     Color(0xFFC4B5FD),  // 3º+ — violeta
 )
 
-private fun stageSpeakerColor(index: Int): Color =
+/** Cores dos papéis reusadas pela Tribuna (roteiro de demos). */
+internal fun stageSpeakerColor(index: Int): Color =
     StageSpeakerColors[index.coerceAtLeast(0) % StageSpeakerColors.size]
 private val StageGreen = Color(0xFF22C55E)
 private val StageAmber = Color(0xFFF59E0B)
