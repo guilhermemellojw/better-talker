@@ -136,6 +136,7 @@ fun EditorScreen(
     val noteFolderId by vm.folderId.collectAsState()
     val notePinned by vm.pinned.collectAsState()
     val sections by vm.sections.collectAsState()
+    val isDemonstration by vm.isDemonstration.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
     val draftState by vm.draftState.collectAsState()
     var preview by remember { mutableStateOf(false) }
@@ -442,6 +443,7 @@ fun EditorScreen(
                 // Opera o editor ATIVO; sem foco = desabilitada.
                 EditorFormattingToolbar(
                     activeEditorState = activeEditorState,
+                    isDemonstration = isDemonstration,
                     modifier = Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
@@ -612,6 +614,7 @@ fun EditorScreen(
                                     readOnly = preview,
                                     isFirstSection = index == 0,
                                     isLastSection = index == sections.lastIndex,
+                                    isDemonstration = isDemonstration,
                                     onActivate = {
                                         activeSectionId = sectionState.section.id
                                         vm.setActiveSectionTitle(sectionState.section.title)

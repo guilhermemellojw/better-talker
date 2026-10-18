@@ -114,6 +114,8 @@ fun SectionCardEditor(
     onMoveSectionDown: () -> Unit = {},
     onRemoveSection: () -> Unit = {},
     onChatAbout: (DraftTarget) -> Unit = {},
+    /** UX de demonstrações (V&M): badge "Demonstração" no cabeçalho. */
+    isDemonstration: Boolean = false,
     onApproveSection: () -> Unit = {},
     onUnapproveSection: () -> Unit = {},
     // #7d4: D&D de seções — o gesto vive no handle (≡); o EditorScreen é dono do estado.
@@ -146,19 +148,35 @@ fun SectionCardEditor(
                     } else Modifier
                 ),
         ) {
-            Text(
-                text = state.section.title.ifBlank { "Título do tópico" },
-                style = MaterialTheme.typography.titleLarge,
-                color = if (state.section.title.isBlank()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 3,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !readOnly) { showTitleDialog = true },
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = state.section.title.ifBlank { "Título do tópico" },
+                    style = MaterialTheme.typography.titleLarge,
+                    color = if (state.section.title.isBlank()) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 3,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = !readOnly) { showTitleDialog = true },
+                )
+                if (isDemonstration) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = MaterialTheme.shapes.small,
+                    ) {
+                        Text(
+                            "Demonstração",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(12.dp))
             if (!readOnly) {
                 OutlinedButton(

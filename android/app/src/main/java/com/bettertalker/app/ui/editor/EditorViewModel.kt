@@ -39,6 +39,10 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val copilotRepo = com.bettertalker.app.data.repo.CopilotRepository(db)
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
+
+    /** UX de demonstrações (V&M): true quando a nota é MINISTRY_PART. */
+    private val _isDemonstration = MutableStateFlow(false)
+    val isDemonstration: StateFlow<Boolean> = _isDemonstration.asStateFlow()
     private val _mdText = MutableStateFlow("")
     /**
      * incrementado a cada escrita externa (load, sync).
@@ -127,9 +131,12 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             db.noteDao().observeById(noteId).collect { note ->
                 if (note == null) return@collect
                 // 3.2.5f-pre: tipo da nota alimenta a revalidação do controller.
-                sectionsController.discourseType = runCatching {
+                val type = runCatching {
                     DiscourseType.valueOf(note.discourseType)
                 }.getOrDefault(DiscourseType.S34_DISCOURSE)
+                sectionsController.discourseType = type
+                // UX de demonstrações (V&M): chips de papel + badge no card.
+                _isDemonstration.value = type == DiscourseType.MINISTRY_PART
                 if (!loadedOnce) {
                     applyExternal(note.title, note.richHtml, note.mdText,
                         note.folderId, note.colorArgb, note.pinned)

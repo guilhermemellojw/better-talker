@@ -99,6 +99,7 @@ class DefaultDossierPromptBuilder(
 
     private fun StringBuilder.appendContext(d: Dossier, includeSpeakerNote: Boolean = true) {
         appendDiscourse(d)
+        appendDemoFormat(d)
         if (includeSpeakerNote) appendSpeakerNote(d)
         appendSection(d)
         appendAgreedApproach(d)
@@ -124,6 +125,22 @@ class DefaultDossierPromptBuilder(
         // G: o S-34 carrega o "# " do markdown — limpa para o prompt.
         appendLine("Título: ${title.removePrefix("# ").trimStart()}")
         appendLine("Tipo: $type")
+        appendLine()
+    }
+
+    /**
+     * UX de demonstrações (V&M): instrução de formato de diálogo — só no
+     * MINISTRY_PART (as falas viram `<p><b>Papel:</b> texto</p>`, sem listas).
+     */
+    private fun StringBuilder.appendDemoFormat(d: Dossier) {
+        if (d.discourseType != com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name) {
+            return
+        }
+        appendLine("## FORMATO DE DEMONSTRAÇÃO")
+        appendLine(
+            "Você está ajudando a escrever um diálogo. Formate as falas usando " +
+                "<p><b>Papel:</b> texto</p>. Não converta em listas."
+        )
         appendLine()
     }
 

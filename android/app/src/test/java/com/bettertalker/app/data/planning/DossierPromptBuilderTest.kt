@@ -32,6 +32,7 @@ class DossierPromptBuilderTest {
         agreedApproach: String? = null,
         sectionSubPoints: List<SubPoint> = emptyList(),
         minutes: Int = 5,
+        discourseType: String? = null,
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
@@ -50,6 +51,7 @@ class DossierPromptBuilderTest {
         unresolvedRefs = unresolvedRefs,
         transitionContext = transitionContext,
         sectionSubPoints = sectionSubPoints,
+        discourseType = discourseType,
     )
 
     private val builder = DefaultDossierPromptBuilder()
@@ -333,5 +335,27 @@ class DossierPromptBuilderTest {
         // Regras de fidelidade permanecem.
         assertTrue(prompt.contains("NÃO invente fatos"))
         assertTrue(prompt.contains("MINI DISCURSO"))
+    }
+
+    // ---------- UX de demonstrações (V&M): formato de diálogo ----------
+
+    @Test
+    fun demoFormat_apareceSoNoMinistryPart() {
+        val demo = builder.buildContextBlock(
+            dossier(discourseType = "MINISTRY_PART"),
+            includeSpeakerNote = false,
+        )
+        assertTrue(demo, demo.contains("## FORMATO DE DEMONSTRAÇÃO"))
+        assertTrue(demo, demo.contains("<p><b>Papel:</b> texto</p>"))
+        assertTrue(demo, demo.contains("Não converta em listas"))
+
+        val s34 = builder.buildContextBlock(
+            dossier(discourseType = "S34_DISCOURSE"),
+            includeSpeakerNote = false,
+        )
+        assertFalse(s34, s34.contains("FORMATO DE DEMONSTRAÇÃO"))
+
+        val semTipo = builder.buildContextBlock(dossier(), includeSpeakerNote = false)
+        assertFalse(semTipo, semTipo.contains("FORMATO DE DEMONSTRAÇÃO"))
     }
 }

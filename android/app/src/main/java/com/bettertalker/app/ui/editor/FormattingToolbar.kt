@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Highlight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -85,6 +86,8 @@ import com.mohamedrejeb.richeditor.model.RichTextState
 fun EditorFormattingToolbar(
     activeEditorState: RichTextState?,
     modifier: Modifier = Modifier,
+    /** UX de demonstrações (V&M): atalhos [+ Publicador] / [+ Morador]. */
+    isDemonstration: Boolean = false,
 ) {
     val enabled = activeEditorState != null
     val curSpan = activeEditorState?.currentSpanStyle ?: SpanStyle()
@@ -142,6 +145,28 @@ fun EditorFormattingToolbar(
     }
 
     Column(modifier) {
+        // UX de demonstrações (V&M): linha de papéis acima da toolbar normal —
+        // insere o rótulo em negrito na posição do cursor (insertHtmlAfterSelection).
+        if (isDemonstration) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AssistChip(
+                    onClick = {
+                        activeEditorState?.insertHtmlAfterSelection("<b>Publicador:</b> ")
+                    },
+                    label = { Text("+ Publicador") },
+                )
+                AssistChip(
+                    onClick = {
+                        activeEditorState?.insertHtmlAfterSelection("<b>Morador:</b> ")
+                    },
+                    label = { Text("+ Morador") },
+                )
+            }
+        }
         if (isTablet) {
             // Tablet: tudo inline (sem ⋮); pickers em popup com grid 48dp.
             LazyRow(
