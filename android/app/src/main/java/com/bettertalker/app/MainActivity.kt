@@ -36,11 +36,15 @@ import com.bettertalker.app.ui.library.LibraryViewModel
 import com.bettertalker.app.ui.stage.StageScreen
 import com.bettertalker.app.ui.stage.StageViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Splash Screen (Android 12+): mostra o tema de abertura (navy + ícone)
+        // e troca para o tema principal quando o app está pronto.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
