@@ -38,7 +38,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -556,7 +556,7 @@ fun EditorScreen(
                                         style = MaterialTheme.typography.titleSmall,
                                     )
                                     Text(
-                                        "Importar arquivo ou colar texto",
+                                        "Importar arquivo ou analisar material",
                                         style = MaterialTheme.typography.labelSmall,
                                     )
                                 }
@@ -798,10 +798,10 @@ fun EditorScreen(
                         }
                         .padding(vertical = 10.dp),
                 ) {
-                    Icon(Icons.Default.ContentPaste, null, modifier = Modifier.size(22.dp))
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Colar texto", style = MaterialTheme.typography.titleSmall)
+                        Text("Analisar com IA", style = MaterialTheme.typography.titleSmall)
                         Text(
                             "Cole aqui o material da reunião",
                             style = MaterialTheme.typography.labelSmall,
@@ -814,14 +814,14 @@ fun EditorScreen(
         }
     }
 
-    // #7e2: "Colar texto" do empty state — mesmo pipeline do chat
+    // #7e2: "Analisar com IA" do empty state — mesmo pipeline do chat
     // (CopilotViewModel.pasteOutline). "Analisar" segue para o chat, onde o
     // rascunho do esboço é exibido.
     if (showPasteDialog) {
         var pasteText by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showPasteDialog = false },
-            title = { Text("Colar esboço") },
+            title = { Text("Analisar com IA") },
             text = {
                 OutlinedTextField(
                     value = pasteText,

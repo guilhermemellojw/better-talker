@@ -20,9 +20,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Stop
@@ -448,8 +448,8 @@ fun AttachSheet(
                 onClick = onImport
             )
             AttachOption(
-                icon = Icons.Default.ContentPaste,
-                title = "Colar texto",
+                icon = Icons.Default.AutoAwesome,
+                title = "Analisar material",
                 desc = "Ex: ponto da apostila",
                 onClick = onPaste
             )
@@ -607,7 +607,7 @@ fun SetupBanner(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onImportOutline) { Text("Importar esboço") }
-                    TextButton(onClick = onPaste) { Text("Colar texto") }
+                    TextButton(onClick = onPaste) { Text("Analisar material") }
                 }
             }
             if (readiness.hasMissingBases) {

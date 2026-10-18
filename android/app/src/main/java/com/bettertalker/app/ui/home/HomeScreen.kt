@@ -24,15 +24,18 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -74,6 +77,8 @@ fun HomeScreen(
     onOpenTrash: () -> Unit,
     // #10b: Conta/Aparência/IA agora vivem na SettingsScreen (⚙).
     onOpenSettings: () -> Unit,
+    /** "Inserir material → Escolher arquivo": importa o arquivo numa nota nova. */
+    onImportMaterial: (android.net.Uri) -> Unit = {},
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -87,7 +92,13 @@ fun HomeScreen(
     var confirmDelFolder by remember { mutableStateOf(false) }
     // Fase 1 "Colar e Pronto": FAB abre as opções de criação.
     var showCreateSheet by remember { mutableStateOf(false) }
+    var showInsertDialog by remember { mutableStateOf(false) }
+    var showScratchDialog by remember { mutableStateOf(false) }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    // "Inserir material → Escolher arquivo": picker nativo → importa na nota nova.
+    val materialPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri -> if (uri != null) onImportMaterial(uri) }
     val snack = remember { SnackbarHostState() }
     val selectedFolder = folders.firstOrNull { it.id == folderId }
 
@@ -163,11 +174,29 @@ fun HomeScreen(
         )
     }
 
-    // Fase 1 "Colar e Pronto": opções de criação (Colar/Discurso/Demonstração/Branco).
+    // Fase 1 "Colar e Pronto": opções de criação agrupadas por intenção.
     if (showCreateSheet) {
         CreateNoteSheet(
             onDismiss = { showCreateSheet = false },
-            onPaste = {
+            onInsertMaterial = {
+                showCreateSheet = false
+                showInsertDialog = true
+            },
+            onStartFromScratch = {
+                showCreateSheet = false
+                showScratchDialog = true
+            },
+            onQuickNote = {
+                showCreateSheet = false
+                scope.launch { onOpenNote(vm.newNote()) }
+            },
+        )
+    }
+    if (showInsertDialog) {
+        InsertMaterialDialog(
+            onDismiss = { showInsertDialog = false },
+            onPasteText = {
+                showInsertDialog = false
                 val clip = clipboard.getText()?.text?.trim().orEmpty()
                 if (clip.isEmpty()) {
                     scope.launch { snack.showSnackbar("Nada para colar na área de transferência.") }
@@ -175,9 +204,23 @@ fun HomeScreen(
                     scope.launch { onOpenNote(vm.createNoteFromPaste(clip)) }
                 }
             },
-            onSpeech = { scope.launch { onOpenNote(vm.createSpeechNote()) } },
-            onDemo = { scope.launch { onOpenNote(vm.createDemoNote()) } },
-            onBlank = { scope.launch { onOpenNote(vm.newNote()) } },
+            onPickFile = {
+                showInsertDialog = false
+                materialPicker.launch(arrayOf("*/*"))
+            },
+        )
+    }
+    if (showScratchDialog) {
+        StartFromScratchDialog(
+            onDismiss = { showScratchDialog = false },
+            onSpeech = {
+                showScratchDialog = false
+                scope.launch { onOpenNote(vm.createSpeechNote()) }
+            },
+            onDemo = {
+                showScratchDialog = false
+                scope.launch { onOpenNote(vm.createDemoNote()) }
+            },
         )
     }
 
@@ -308,17 +351,17 @@ fun HomeScreen(
 }
 
 /**
- * Fase 1 "Colar e Pronto": opções de criação de nota (FAB → sheet).
- * "Colar" lê a área de transferência e deixa a detecção V&M decidir o formato.
+ * Fase 1 "Colar e Pronto" (UX refactor): criação agrupada por intenção —
+ * Inserir material (colar/arquivo) · Começar do zero (discurso/demo) ·
+ * Nota rápida (discreta).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateNoteSheet(
     onDismiss: () -> Unit,
-    onPaste: () -> Unit,
-    onSpeech: () -> Unit,
-    onDemo: () -> Unit,
-    onBlank: () -> Unit,
+    onInsertMaterial: () -> Unit,
+    onStartFromScratch: () -> Unit,
+    onQuickNote: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
@@ -328,31 +371,88 @@ private fun CreateNoteSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
             )
             CreateNoteOption(
-                icon = Icons.Default.ContentPaste,
-                title = "Colar",
-                subtitle = "Da área de transferência — detecta discurso ou demonstração",
-                onClick = onPaste,
+                icon = Icons.Default.UploadFile,
+                title = "Inserir material",
+                subtitle = "Cole um texto ou escolha um arquivo",
+                onClick = onInsertMaterial,
             )
             CreateNoteOption(
-                icon = Icons.Default.RecordVoiceOver,
-                title = "Discurso",
-                subtitle = "Estrutura de discurso (S-34)",
-                onClick = onSpeech,
+                icon = Icons.Default.Create,
+                title = "Começar do zero",
+                subtitle = "Discurso ou demonstração",
+                onClick = onStartFromScratch,
             )
-            CreateNoteOption(
-                icon = Icons.Default.Group,
-                title = "Demonstração",
-                subtitle = "Diálogo Publicador/Morador (Faça Seu Melhor)",
-                onClick = onDemo,
-            )
-            CreateNoteOption(
-                icon = Icons.Default.Add,
-                title = "Nota em branco",
-                subtitle = "Nota simples, sem estrutura",
-                onClick = onBlank,
-            )
+            // Ação secundária: discreta, alinhada à direita.
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onQuickNote) { Text("Nota rápida") }
+            }
         }
     }
+}
+
+/** "Inserir material": colar texto (detecção V&M) ou escolher arquivo. */
+@Composable
+private fun InsertMaterialDialog(
+    onDismiss: () -> Unit,
+    onPasteText: () -> Unit,
+    onPickFile: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Inserir material") },
+        text = {
+            Column {
+                CreateNoteOption(
+                    icon = Icons.Default.ContentPaste,
+                    title = "Colar texto",
+                    subtitle = "Da área de transferência — detecta discurso ou demonstração",
+                    onClick = onPasteText,
+                )
+                CreateNoteOption(
+                    icon = Icons.Default.AttachFile,
+                    title = "Escolher arquivo",
+                    subtitle = "DOCX, PDF ou texto do esboço",
+                    onClick = onPickFile,
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/** "Começar do zero": discurso (S-34) ou demonstração (V&M). */
+@Composable
+private fun StartFromScratchDialog(
+    onDismiss: () -> Unit,
+    onSpeech: () -> Unit,
+    onDemo: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Começar do zero") },
+        text = {
+            Column {
+                CreateNoteOption(
+                    icon = Icons.Default.RecordVoiceOver,
+                    title = "Discurso",
+                    subtitle = "Estrutura de discurso (S-34)",
+                    onClick = onSpeech,
+                )
+                CreateNoteOption(
+                    icon = Icons.Default.Group,
+                    title = "Demonstração",
+                    subtitle = "Diálogo Publicador/Morador (Faça Seu Melhor)",
+                    onClick = onDemo,
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
 }
 
 @Composable

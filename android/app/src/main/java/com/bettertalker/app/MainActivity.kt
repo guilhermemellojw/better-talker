@@ -141,6 +141,13 @@ private fun AppNav(
         if (id != null) nav.navigate(Routes.tribuna(id)) else pickFor = "tribuna"
     }
 
+    // "Inserir material → Escolher arquivo": a nota nasce aqui e o editor
+    // consome o uri pendente ao abrir (importa o esboço).
+    var pendingImport by androidx.compose.runtime.mutableStateOf<Pair<String, android.net.Uri>?>(null)
+    val notesRepo = remember {
+        com.bettertalker.app.data.repo.NotesRepository(ctx.applicationContext, db)
+    }
+
     androidx.compose.material3.Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         bottomBar = {
@@ -174,6 +181,13 @@ private fun AppNav(
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 // #10b: ⚙ → SettingsScreen (Conta/Aparência/IA).
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onImportMaterial = { uri ->
+                    scope.launch {
+                        val id = notesRepo.newNote(null)
+                        pendingImport = id to uri
+                        nav.navigate(Routes.editor(id))
+                    }
+                },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -205,6 +219,14 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
             val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter))
+            // "Escolher arquivo" da Home: importa o esboço na nota recém-criada.
+            val pending = pendingImport
+            androidx.compose.runtime.LaunchedEffect(noteId, pending) {
+                if (pending != null && pending.first == noteId) {
+                    pendingImport = null
+                    copilotVm.importOutlineFile(pending.second)
+                }
+            }
             // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
             androidx.compose.runtime.LaunchedEffect(vm) {
                 val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
