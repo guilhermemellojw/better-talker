@@ -62,26 +62,26 @@ import com.bettertalker.app.data.util.DocExtractors
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
+import com.bettertalker.app.data.util.PasteKind
+import com.bettertalker.app.data.util.PastePlan
+import com.bettertalker.app.data.util.PasteTextNormalizer
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.PublicationDetector
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.S34Detector
-import com.bettertalker.app.data.util.VmPastePlan
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.extractSnippet
 import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.parseInsertSnippet
+import com.bettertalker.app.data.util.planPaste
 import com.bettertalker.app.data.util.snippetLabel
 import com.bettertalker.app.data.util.stripInternalTags
 import com.bettertalker.app.data.util.stripMetaPreamble
 import com.bettertalker.app.data.util.stripPromptTags
 import com.bettertalker.app.domain.speech.toJson
-import com.bettertalker.app.data.util.vmPastePlan
 import com.bettertalker.app.data.util.vmRejectionMessage
-import com.bettertalker.app.data.util.vmTalkMessage
-import com.bettertalker.app.data.util.vmTalkSection
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.data.planning.OutlineGeneratorImpl
 import com.bettertalker.app.data.planning.OutlineProposerFactory
@@ -2975,37 +2975,80 @@ class CopilotViewModel(
     // ---------- F5b (Modo C): estruturar texto colado de publicação ----------
 
     /**
-     * F5b (Modo C): divide o texto colado na seção em foco num esboço de
-     * nota inteira. Gatilho determinístico; a IA só estrutura o conteúdo
-     * (nunca inventa refs — o request leva as refs extraídas do texto).
+     * Fase A — aplica na nota atual o MESMO plano do FAB:
+     * TALK = Intro + BODY + Conclusão; DEMO = 1 BODY. Atualiza o tipo da nota
+     * (MINISTRY_TALK/MINISTRY_PART/…) para o draft usar a persona correta.
+     * Não chama o LLM: a estrutura já veio determinística do plano — o que
+     * elimina a divergência de cards entre FAB e Editor.
      */
-    /**
-     * #8b: materializa a parte TALK colada como seção BODY (fonte do gerador)
-     * e pede a estrutura completa com o hint V&M ("TALK:Nmin").
-     */
-    private suspend fun handleVmTalkPaste(plan: VmPastePlan.Talk) {
+    private suspend fun applyVmPastePlan(plan: PastePlan) {
         val nid = noteId
         if (nid == null) {
             postText(STRUCTURE_PASTED_NEEDS_SECTION_MESSAGE)
             return
         }
         val now = System.currentTimeMillis()
-        val order = (db.speechSectionDao().forNote(nid).maxOfOrNull { it.order } ?: -1) + 1
-        val section = vmTalkSection(
-            talk = plan.talk,
-            noteId = nid,
-            order = order,
-            id = newId("sec"),
-            now = now,
-        )
-        db.speechSectionDao().upsert(section.toEntity())
-        postText(vmTalkMessage(plan.talk, plan.ignored))
-        structureFromPasted(
-            target = DraftTarget.Section(section.id),
-            materialNature = "TALK:${plan.talk.minutes}min",
+        val existing = db.speechSectionDao().forNote(nid)
+        // Nota vazia (empty state do Editor): cria os cards do plano inteiro
+        // (Intro/BODY/Conclusão). Nota que já tem estrutura: anexa só o corpo
+        // da parte — não duplica abertura/fechamento existentes.
+        val toApply = if (existing.isEmpty()) {
+            plan.sections
+        } else {
+            plan.sections.filter { it.role == SectionRole.BODY }
+        }
+        var order = (existing.maxOfOrNull { it.order } ?: -1) + 1
+        toApply.forEach { s ->
+            db.speechSectionDao().upsert(
+                SpeechSection(
+                    id = newId("sec"),
+                    noteId = nid,
+                    order = order++,
+                    role = s.role,
+                    title = s.title.ifBlank { "Corpo" },
+                    minutes = s.minutes,
+                    contentHtml = s.contentHtml,
+                    bibleRefs = s.bibleRefs,
+                    publicationRefs = s.publicationRefs,
+                    methodPrinciple = null,
+                    createdAt = now,
+                    updatedAt = now,
+                ).toEntity()
+            )
+        }
+        db.noteDao().get(nid)?.let { note ->
+            // Paridade com o FAB: nota nova ("Nova nota"/vazia) recebe o
+            // título do plano ("Cultivando o interesse (4 min)"). Notas com
+            // título real são preservadas.
+            val placeholder = note.title.isBlank() ||
+                note.title == "Nova nota" || note.title == "Sem título"
+            val title = if (placeholder) plan.noteTitle else note.title
+            if (note.discourseType != plan.discourseType.name || note.title != title) {
+                db.noteDao().upsert(
+                    note.copy(discourseType = plan.discourseType.name, title = title)
+                )
+            }
+        }
+        val base = if (existing.isEmpty()) {
+            plan.notice ?: "Material V&M reconhecido."
+        } else {
+            val bodyTitle = toApply.firstOrNull { it.role == SectionRole.BODY }?.title
+                ?: plan.noteTitle
+            "Parte adicionada à nota: $bodyTitle."
+        }
+        // Princípio de mentoria: os cards já existem; a IA orienta sob demanda
+        // e só escreve quando o usuário pedir (nada de geração automática).
+        postText(
+            "$base\n\nPeça ao Copilot para orientar a preparação — " +
+                "o texto só é escrito quando você pedir."
         )
     }
 
+    /**
+     * F5b (Modo C): divide o texto colado na seção em foco num esboço de
+     * nota inteira. Gatilho determinístico; a IA só estrutura o conteúdo
+     * (nunca inventa refs — o request leva as refs extraídas do texto).
+     */
     private suspend fun structureFromPasted(
         target: DraftTarget?,
         materialNature: String? = null,
@@ -4303,20 +4346,24 @@ class CopilotViewModel(
     }
 
     fun pasteOutline(text: String) = viewModelScope.launch {
-        // #8b: material V&M roteia por natureza (TALK gera; demais rejeitam).
-        when (val plan = vmPastePlan(text)) {
-            is VmPastePlan.Talk -> {
-                handleVmTalkPaste(plan)
+        // Fase A: normaliza UMA vez e consome o cérebro único (o mesmo do FAB).
+        val normalized = PasteTextNormalizer.normalize(text)
+        val plan = planPaste(normalized)
+        when (val kind = plan.kind) {
+            is PasteKind.VmTalk,
+            is PasteKind.VmDemo -> {
+                applyVmPastePlan(plan)
                 return@launch
             }
-            is VmPastePlan.Rejected -> {
-                postText(vmRejectionMessage(plan.parts))
+            is PasteKind.VmRejected -> {
+                postText(plan.notice ?: vmRejectionMessage(kind.parts))
                 return@launch
             }
-            VmPastePlan.Generic -> Unit
+            is PasteKind.S34,
+            is PasteKind.FreeText -> Unit
         }
-        val (titled, rest) = PastedOutlineAnalyzer.splitTitle(text)
-        val (cands, droppedCount) = PastedOutlineAnalyzer.candidates(rest.ifBlank { text })
+        val (titled, rest) = PastedOutlineAnalyzer.splitTitle(normalized)
+        val (cands, droppedCount) = PastedOutlineAnalyzer.candidates(rest.ifBlank { normalized })
         if (cands.isEmpty()) {
             return@launch
         }
@@ -4332,7 +4379,7 @@ class CopilotViewModel(
         _draftName.value = "texto colado"
         _draftTitle.value = titled ?: cands.firstOrNull()?.text?.take(60) ?: "Esboço"
         _draftTotal.value = null
-        _previewRefsJson.value = RefDetector.detectedToJson(RefDetector.detect(text))
+        _previewRefsJson.value = RefDetector.detectedToJson(RefDetector.detect(normalized))
         syncDraftMessage()
     }
 

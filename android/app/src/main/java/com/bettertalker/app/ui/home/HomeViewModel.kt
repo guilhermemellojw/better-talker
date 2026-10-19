@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.repo.NotesRepository
+import com.bettertalker.app.data.util.toPastedNote
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -106,36 +107,36 @@ class HomeViewModel(
 
     suspend fun newNote(): String = repo.newNote(folderId.value)
 
-    /** Resultado do "Colar e Pronto": nota criada + aviso opcional (estrutura). */
-    data class PasteOutcome(val noteId: String, val notice: String? = null)
+    /**
+     * Resultado do "Colar e Pronto": nota criada + aviso opcional.
+     * `noteId` nulo = material V&M reconhecido mas rejeitado (ex.: Joias /
+     * Leitura da Bíblia): a Home mostra o aviso e NÃO cria nota.
+     */
+    data class PasteOutcome(val noteId: String?, val notice: String? = null)
 
     /**
-     * Fase 1 "Colar e Pronto": nota pronta do texto colado.
-     *
-     * - Esboço estruturado (S-34, `outline` do builder) → nota tipada + seções
-     *   via [com.bettertalker.app.domain.speech.OutlineConverter] (Introdução +
-     *   corpos + Conclusão) — mesma máquina do import de arquivo;
-     * - TALK → template de discurso (Intro/Desenvolvimento/Conclusão);
-     * - DEMO/genérico → seções do builder.
+     * Fase A — cérebro único: [planPaste] decide S-34, TALK, DEMO, rejeição
+     * ou texto livre. A Home consome exatamente o mesmo plano do Editor/Chat.
      */
     suspend fun createNoteFromPaste(text: String): PasteOutcome {
-        val built = com.bettertalker.app.data.util.buildPastedNote(text)
-        val outline = built.outline
-        if (outline != null) {
+        val plan = com.bettertalker.app.data.util.planPaste(text)
+        val kind = plan.kind
+        if (kind is com.bettertalker.app.data.util.PasteKind.VmRejected) {
+            return PasteOutcome(null, plan.notice)
+        }
+        if (kind is com.bettertalker.app.data.util.PasteKind.S34) {
             val type = com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE
-            val id = repo.createTypedNote(folderId.value, built.title, type)
+            val id = repo.createTypedNote(folderId.value, plan.noteTitle, type)
             val conversion = com.bettertalker.app.domain.speech.OutlineConverter()
-                .convert(outline, id, type)
+                .convert(kind.outline, id, type)
             val persisted = outlineImports.persist(conversion, type)
-            return PasteOutcome(id, "Esboço reconhecido e estruturado! ($persisted seções)")
+            return PasteOutcome(
+                id,
+                (plan.notice ?: "Esboço reconhecido e estruturado!") + " ($persisted seções)",
+            )
         }
-        val id = repo.createPastedNote(folderId.value, built)
-        val notice = if (built.speechTemplate) {
-            "Estrutura de discurso criada (Introdução, Desenvolvimento, Conclusão)."
-        } else {
-            null
-        }
-        return PasteOutcome(id, notice)
+        val id = repo.createPastedNote(folderId.value, plan.toPastedNote())
+        return PasteOutcome(id, plan.notice)
     }
 
     /** Fase 1: Discurso — nota tipada S-34 vazia. */

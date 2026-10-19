@@ -238,7 +238,16 @@ fun HomeScreen(
                 } else {
                     scope.launch {
                         val outcome = vm.createNoteFromPaste(clip)
-                        onPasteCreated(outcome.noteId, outcome.notice)
+                        val noteId = outcome.noteId
+                        if (noteId != null) {
+                            onPasteCreated(noteId, outcome.notice)
+                        } else {
+                            // V&M reconhecido mas sem TALK/DEMO (Joias, Leitura,
+                            // Estudo): nada é criado; o usuário recebe o porquê.
+                            snack.showSnackbar(
+                                outcome.notice ?: "Não consegui reconhecer o material.",
+                            )
+                        }
                     }
                 }
             },
