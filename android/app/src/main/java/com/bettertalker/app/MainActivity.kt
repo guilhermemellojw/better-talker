@@ -393,17 +393,8 @@ private fun AppNav(
                     copilotVm.consumeTitle()
                 }
             }
-            // T2 (Mini Discurso P2): pedido do chat → gera no editor (mesma sheet).
             val draftState by editorVm.draftState.collectAsState()
             val editorSections by editorVm.sections.collectAsState()
-            val draftReq by copilotVm.draftReq.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(draftReq) {
-                val req = draftReq
-                if (req != null) {
-                    editorVm.requestDraftForSection(req.sectionId)
-                    copilotVm.consumeDraftRequest()
-                }
-            }
             ChatScreen(
                 copilotVm,
                 onBack = { nav.popBackStack() },

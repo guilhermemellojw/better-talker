@@ -1192,17 +1192,6 @@ private fun MessageActions(
                         }
                     )
                 }
-                // T2 (Mini Discurso P2): gera o mini discurso do tópico em foco.
-                if (hasScope) {
-                    DropdownMenuItem(
-                        text = { Text("Gerar mini discurso") },
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                            menuOpen = false
-                            vm.requestMiniSpeech()
-                        }
-                    )
-                }
                 // T6 (Fase 2.1): "Limpar conversa" veio do sheet Ferramentas
                 // (com diálogo de confirmação do ChatScreen).
                 DropdownMenuItem(
