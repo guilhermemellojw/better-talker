@@ -87,7 +87,7 @@ data class PassageEntity(
 @Entity(tableName = "tombstones")
 data class TombstoneEntity(
     @PrimaryKey val id: String,
-    val type: String, // note | folder | attachment | outline
+    val type: String, // note | folder | attachment | outline | section | subPoint
     val deletedAt: Long
 )
 

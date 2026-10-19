@@ -27,6 +27,20 @@ class FirestoreSyncRemote(private val root: DocumentReference) : SyncRemote {
     override suspend fun delete(collection: String, id: String) {
         root.collection(collection).document(id).delete().await()
     }
+
+    /**
+     * Heartbeat em `users/{uid}/_sync/clock`: grava um serverTimestamp e lê
+     * de volta o valor resolvido. Custa 1 write + 1 read por sync.
+     */
+    override suspend fun serverNow(): Long? {
+        val ref = root.collection("_sync").document("clock")
+        ref.set(
+            mapOf("at" to com.google.firebase.firestore.FieldValue.serverTimestamp()),
+            SetOptions.merge(),
+        ).await()
+        val data = ref.get().await().data ?: return null
+        return (data["at"] as? com.google.firebase.Timestamp)?.toDate()?.time
+    }
 }
 
 /** Await de Task do Play Services (mesma implementação que o worker usava). */

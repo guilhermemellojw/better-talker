@@ -47,15 +47,46 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
     val confirmWipe by vm.confirmWipe.collectAsState()
+    val accountConflict by vm.accountConflict.collectAsState()
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(error) { if (error.isNotEmpty()) { snack.showSnackbar(error); vm.consumeError() } }
+
+    if (accountConflict != null) {
+        AlertDialog(
+            onDismissRequest = vm::cancelAccountConflict,
+            title = { Text("Outra conta neste aparelho") },
+            text = {
+                Text(
+                    "Este aparelho já está vinculado a outra conta. Para entrar " +
+                        "com a conta nova, é preciso apagar os dados locais " +
+                        "(notas, pastas, anexos e conversas). O que já foi " +
+                        "sincronizado continua na nuvem da conta anterior."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::wipeLocalAndRetry, enabled = !busy) {
+                    Text("Apagar dados locais e entrar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = vm::cancelAccountConflict) { Text("Cancelar") }
+            }
+        )
+    }
 
     if (confirmWipe) {
         AlertDialog(
             onDismissRequest = vm::cancelWipe,
             title = { Text("Apagar nuvem?") },
-            text = { Text("Apaga todas as suas notas, pastas e metadados no servidor. O aparelho mantém tudo.") },
+            text = {
+                Text(
+                    "Apaga notas, pastas, metadados, seções e esboços no servidor. " +
+                        "O aparelho mantém tudo — e o próximo sync reenvia o que " +
+                        "ainda estiver no local. Para zerar de verdade, apague " +
+                        "também os dados locais."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = vm::wipeCloud) {
                     Text("Apagar", color = MaterialTheme.colorScheme.error)

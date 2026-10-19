@@ -28,6 +28,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     private val settings = SettingsStore(app)
 
     val user = auth.user
+    val accountConflict = auth.accountConflict
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     /** F5g: estado volátil do sync (Idle/Running/Success/Error) — observável na tela. */
@@ -50,13 +51,41 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     fun signIn() = viewModelScope.launch {
         _busy.value = true
-        _error.value = auth.signIn() ?: ""
+        val err = auth.signIn()
+        // Com conflito de conta, o diálogo dedicado explica e oferece a
+        // limpeza; evita snackbar duplicado.
+        _error.value = if (auth.accountConflict.value != null) "" else err ?: ""
         _busy.value = false
     }
 
     fun signOut() = auth.signOut()
     fun syncNow() = SyncScheduler.requestSync(app)
     fun consumeError() { _error.value = "" }
+
+    fun cancelAccountConflict() = auth.clearAccountConflict()
+
+    /**
+     * Guard mínimo de multi-conta: apaga o banco local + arquivos de
+     * publicação e tenta entrar de novo. A conta anterior continua na nuvem.
+     */
+    fun wipeLocalAndRetry() = viewModelScope.launch {
+        _busy.value = true
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.bettertalker.app.data.db.DbProvider.get(app).clearAllTables()
+                java.io.File(app.filesDir, "publicacoes").deleteRecursively()
+                settings.setLastUid(null)
+                settings.setLastSync(0L)
+                settings.clearLastNoteId()
+            }
+            auth.clearLastUidBinding()
+            auth.clearAccountConflict()
+            _error.value = auth.signIn() ?: ""
+        } catch (e: Exception) {
+            _error.value = e.message?.take(160) ?: "Falha ao apagar os dados locais."
+        }
+        _busy.value = false
+    }
 
     fun askWipe() { _confirmWipe.value = true }
     fun cancelWipe() { _confirmWipe.value = false }
@@ -68,7 +97,10 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         try {
             val uid = auth.currentUser()?.uid ?: throw Exception("Sem login")
             val root = FirebaseFirestore.getInstance().collection("users").document(uid)
-            for (col in listOf("notes", "folders", "attachments", "tombstones")) {
+            for (col in listOf(
+                "notes", "folders", "attachments", "outlines",
+                "sections", "subPoints", "tombstones",
+            )) {
                 val snap: QuerySnapshot = suspendTask { cb -> root.collection(col).get().addOnCompleteListener(cb) }
                 if (snap.documents.isNotEmpty()) {
                     val batch = FirebaseFirestore.getInstance().batch()

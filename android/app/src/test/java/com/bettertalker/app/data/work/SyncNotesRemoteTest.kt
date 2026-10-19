@@ -48,8 +48,8 @@ class SyncNotesRemoteTest {
         assertEquals(setOf("n1"), remote.ids("notes"))
         val doc = remote.doc("notes", "n1")!!
         assertEquals("Teste round-trip", doc["title"])
-        // Gap C: o push manda serverTimestamp; o fake resolve p/ Timestamp.
-        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
+        // LWW com horário de edição (o guard de skew valida o relógio).
+        assertEquals(1000L, doc["updatedAt"])
         assertEquals(1, dao.rows.size) // local intacto
     }
 
@@ -78,7 +78,7 @@ class SyncNotesRemoteTest {
         syncNotes(remote, dao, FakeTombstoneDao())
 
         assertEquals("Teste round-trip", remote.doc("notes", "n1")!!["title"])
-        assertTrue(remote.doc("notes", "n1")!!["updatedAt"] is com.google.firebase.Timestamp)
+        assertEquals(200L, remote.doc("notes", "n1")!!["updatedAt"])
         assertEquals("Teste round-trip", dao.rows.single().title)
     }
 
@@ -157,8 +157,8 @@ class SyncNotesRemoteTest {
         syncNotes(remote, localDepois, FakeTombstoneDao())
 
         val restored = localDepois.rows.single()
-        // Gap C: o updatedAt volta como Timestamp do servidor — compara o
-        // conteúdo com o campo normalizado.
+        // O updatedAt volta do push como Long (horário de edição validado
+        // pelo guard); compara o conteúdo com o campo normalizado.
         assertEquals(original.copy(updatedAt = 0L), restored.copy(updatedAt = 0L))
         assertNotNull(remote.doc("notes", "rt"))
     }
@@ -178,12 +178,49 @@ class SyncNotesRemoteTest {
         assertEquals("Restaurada", dao.get("n1")!!.title)
     }
 
-    // 8. Gap C: leitura tolerante do updatedAt (serverTimestamp → Timestamp).
+    // 8. Leitura tolerante do updatedAt (Timestamp legado e Long novo).
     @Test
     fun cloudUpdatedAt_aceitaTimestampELongLegado() {
         assertEquals(123L, cloudUpdatedAt(mapOf("updatedAt" to 123L)))
         val ts = com.google.firebase.Timestamp(java.util.Date(456L))
         assertEquals(456L, cloudUpdatedAt(mapOf("updatedAt" to ts)))
         assertEquals(0L, cloudUpdatedAt(emptyMap()))
+    }
+
+    // 9. Guard de skew: 2h falha; 4min passa.
+    @Test
+    fun clockSkew_duasHoras_falha() {
+        val now = 1_700_000_000_000L
+        assertTrue(clockSkewExceeded(serverMs = now, localMs = now - 2 * 60 * 60 * 1000L))
+        assertTrue(clockSkewExceeded(serverMs = now, localMs = now + 2 * 60 * 60 * 1000L))
+    }
+
+    @Test
+    fun clockSkew_quatroMinutos_passa() {
+        val now = 1_700_000_000_000L
+        assertFalse(clockSkewExceeded(serverMs = now, localMs = now - 4 * 60 * 1000L))
+        assertFalse(clockSkewExceeded(serverMs = now, localMs = now + 4 * 60 * 1000L))
+    }
+
+    // 10. Delete forever em A -> B não ressuscita.
+    @Test
+    fun tombstoneRemoto_apagaNotaLocalENaoRessuscita() = runBlocking {
+        remote.set("notes", "n1", mapOf("title" to "X", "updatedAt" to 10L))
+        remote.set("sections", "s1", mapOf("noteId" to "n1", "updatedAt" to 10L))
+        remote.set("subPoints", "p1", mapOf("sectionId" to "s1", "updatedAt" to 10L))
+        remote.set(
+            "tombstones", "n1",
+            mapOf("type" to "note", "deletedAt" to 20L),
+        )
+        val remoteTombs = remote.getAll("tombstones")
+        val dao = FakeNoteDao(listOf(note(id = "n1", updatedAt = 30L)))
+
+        syncNotes(remote, dao, FakeTombstoneDao(), remoteTombs)
+
+        assertTrue(dao.rows.isEmpty())
+        assertNull(remote.doc("notes", "n1"))
+        assertNull(remote.doc("sections", "s1"))
+        assertNull(remote.doc("subPoints", "p1"))
+        assertNotNull(remote.doc("tombstones", "n1"))
     }
 }

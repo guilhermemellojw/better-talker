@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.store by preferencesDataStore("settings")
@@ -66,6 +67,20 @@ class SettingsStore(private val ctx: Context) {
     suspend fun setLastSync(v: Long) { ctx.store.edit { it[LAST_SYNC] = v } }
 
     /**
+     * Conta vinculada a este aparelho. Guard mínimo de multi-conta: enquanto
+     * não houver ownerUid completo, trocar de conta exige apagar os dados
+     * locais para não vazar notas para outra conta.
+     */
+    private val LAST_UID = stringPreferencesKey("last_uid")
+    val lastUid: Flow<String?> = ctx.store.data.map { it[LAST_UID] }
+    suspend fun lastUidValue(): String? = lastUid.first()
+    suspend fun setLastUid(v: String?) {
+        ctx.store.edit {
+            if (v == null) it.remove(LAST_UID) else it[LAST_UID] = v
+        }
+    }
+
+    /**
      * T3 (DeepSeek) — chave BYOD do DeepSeek. Única chave de IA do app
      * (cleanup multi-LLM). DataStore local, nunca em log/erro/telemetria —
      * só sai do aparelho no POST HTTPS.
@@ -113,6 +128,7 @@ class SettingsStore(private val ctx: Context) {
     private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
     val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }
     suspend fun setLastNoteId(id: String) { ctx.store.edit { it[LAST_NOTE_ID] = id } }
+    suspend fun clearLastNoteId() { ctx.store.edit { it.remove(LAST_NOTE_ID) } }
 }
 
 /** Ensaio (v1): limites do tamanho da fonte de leitura (sp). */

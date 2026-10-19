@@ -234,6 +234,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                         if (a.status == "downloading") "Baixando… ${a.fileName}"
                                         else "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
                                             "ready" -> "Indexado"
+                                            "missing" -> "Falta o arquivo neste aparelho"
                                             "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
                                             else -> "Indexando…"
                                         },
@@ -247,6 +248,21 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+                                }
+                                if (a.status == "missing" && !a.sourceUrl.isNullOrBlank()) {
+                                    // Metadados vieram de outro aparelho; o
+                                    // binário nunca sobe. Reimporta da fonte.
+                                    TextButton(onClick = {
+                                        val src = a.sourceUrl.orEmpty()
+                                        if (src.startsWith("http") &&
+                                            !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
+                                        ) {
+                                            vm.redownloadDirect(a.id)
+                                        } else {
+                                            jwUrl = src.ifBlank { JW_FINDER_HOME }
+                                            showJw = true
+                                        }
+                                    }) { Text("Importar da fonte") }
                                 }
                                 if (a.status == "failed" && a.appPath.isBlank()) {
                                     // nunca importado: retenta o registro ou baixa de novo

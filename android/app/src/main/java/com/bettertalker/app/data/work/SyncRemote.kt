@@ -25,4 +25,13 @@ interface SyncRemote {
     suspend fun get(collection: String, id: String): Map<String, Any?>?
     suspend fun set(collection: String, id: String, data: Map<String, Any?>)
     suspend fun delete(collection: String, id: String)
+
+    /**
+     * Relógio autoritativo do Firestore (serverTimestamp resolvido).
+     *
+     * Usado pelo guard de skew do SyncWorker: se o relógio local divergir
+     * mais de 5 min, o sync aborta em vez de inverter o LWW. Null = não foi
+     * possível resolver o timestamp do servidor.
+     */
+    suspend fun serverNow(): Long?
 }

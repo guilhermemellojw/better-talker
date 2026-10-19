@@ -47,6 +47,8 @@ class MainActivity : FragmentActivity() {
         // e troca para o tema principal quando o app está pronto.
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // Sync periódica independe de o usuário abrir a tela de Conta.
+        com.bettertalker.app.data.cloud.SyncScheduler.ensurePeriodic(applicationContext)
         enableEdgeToEdge()
         setContent {
             val ctx = androidx.compose.ui.platform.LocalContext.current

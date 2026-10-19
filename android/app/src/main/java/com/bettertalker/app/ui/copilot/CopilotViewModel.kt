@@ -485,6 +485,7 @@ class CopilotViewModel(
         transactionRunner = RoomTransactionRunner(db),
         sectionDao = db.speechSectionDao(),
         subPointDao = db.subPointDao(),
+        tombstoneDao = db.tombstoneDao(),
     )
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)

@@ -51,6 +51,11 @@ internal class FakeSyncRemote : SyncRemote {
         col(collection).remove(id)
     }
 
+    /** Relógio do servidor fake; configurável para testar o guard de skew. */
+    var serverTimeMs: Long = System.currentTimeMillis()
+
+    override suspend fun serverNow(): Long? = serverTimeMs
+
     fun doc(collection: String, id: String): Map<String, Any?>? = col(collection)[id]
     fun ids(collection: String): Set<String> = col(collection).keys.toSet()
 

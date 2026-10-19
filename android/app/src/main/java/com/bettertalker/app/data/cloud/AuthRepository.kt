@@ -14,15 +14,33 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+
+/** Puro/testável: troca de conta bloqueada pelo guard de 1 conta/aparelho. */
+internal fun accountSwitchBlocked(lastUid: String?, newUid: String?): Boolean =
+    lastUid != null && newUid != null && lastUid != newUid
 
 /** Login Google -> Firebase Auth. Inativo sem google-services.json (100% local). */
 class AuthRepository(private val ctx: Context) {
 
     private val _user = MutableStateFlow<FirebaseUser?>(null)
     val user = _user.asStateFlow()
+
+    /**
+     * UID da conta que tentou entrar em um aparelho já vinculado a outra.
+     * A UI usa isso para oferecer "apagar dados locais e tentar de novo".
+     */
+    private val _accountConflict = MutableStateFlow<String?>(null)
+    val accountConflict = _accountConflict.asStateFlow()
+
+    private val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
+
+    /** Espelho em memória do vínculo; o DataStore guarda o valor durável. */
+    @Volatile
+    private var lastUidHint: String? = null
 
     private var listener: FirebaseAuth.AuthStateListener? = null
 
@@ -33,7 +51,11 @@ class AuthRepository(private val ctx: Context) {
 
     fun start() {
         val auth = authOrNull() ?: return
-        _user.value = auth.currentUser
+        val current = auth.currentUser
+        _user.value = current
+        // Upgrade de versão anterior: mantém o vínculo em memória para
+        // bloquear troca silenciosa; o SyncWorker persiste no 1º sync.
+        lastUidHint = current?.uid
         listener = FirebaseAuth.AuthStateListener { _user.value = it.currentUser }
         auth.addAuthStateListener(listener!!)
     }
@@ -56,6 +78,7 @@ class AuthRepository(private val ctx: Context) {
     suspend fun signIn(): String? {
         if (!isConfigured()) return "Firebase não configurado neste build."
         val serverId = webClientId() ?: return "Client ID OAuth ausente (google-services.json)."
+        _accountConflict.value = null
         return try {
             val option = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
@@ -66,7 +89,25 @@ class AuthRepository(private val ctx: Context) {
             val google = GoogleIdTokenCredential.createFrom(res.credential.data)
             val fbCred = GoogleAuthProvider.getCredential(google.idToken, null)
             awaitTask { cb -> authOrNull()!!.signInWithCredential(fbCred).addOnCompleteListener(cb) }
-            _user.value = authOrNull()?.currentUser
+
+            val signed = authOrNull()?.currentUser
+            val uid = signed?.uid
+            val lastUid = settings.lastUidValue() ?: lastUidHint
+            if (accountSwitchBlocked(lastUid, uid)) {
+                // Guard mínimo de multi-conta: não deixa as notas locais
+                // subirem para a conta nova. O usuário pode apagar os dados
+                // locais e tentar de novo.
+                runCatching { authOrNull()?.signOut() }
+                _user.value = null
+                _accountConflict.value = uid
+                return "Este aparelho está vinculado a outra conta. " +
+                    "Apague os dados locais para entrar com outra conta."
+            }
+            if (uid != null) {
+                lastUidHint = uid
+                settings.setLastUid(uid)
+            }
+            _user.value = signed
             SyncScheduler.requestSync(ctx)
             null
         } catch (e: GetCredentialCancellationException) {
@@ -80,8 +121,31 @@ class AuthRepository(private val ctx: Context) {
     }
 
     fun signOut() {
-        runCatching { authOrNull()?.signOut() }
+        val auth = authOrNull()
+        val uid = auth?.currentUser?.uid
+        runCatching { auth?.signOut() }
         _user.value = null
+        _accountConflict.value = null
+        if (uid != null) {
+            // Upgrade de versão anterior: persiste o vínculo mesmo se o
+            // usuário sair antes do primeiro sync. O check de hint evita
+            // ressuscitar o vínculo depois de um wipe local.
+            if (lastUidHint == null) lastUidHint = uid
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                if (lastUidHint == uid && settings.lastUidValue() == null) {
+                    settings.setLastUid(uid)
+                }
+            }
+        }
+    }
+
+    fun clearAccountConflict() {
+        _accountConflict.value = null
+    }
+
+    /** Limpeza local explícita: desfaz o vínculo deste aparelho. */
+    fun clearLastUidBinding() {
+        lastUidHint = null
     }
 
     companion object {

@@ -5,6 +5,7 @@ import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointDao
 import com.bettertalker.app.data.db.SubPointEntity
 import com.bettertalker.app.data.db.TransactionRunner
+import com.bettertalker.app.data.work.FakeTombstoneDao
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SectionValidationError
@@ -475,11 +476,13 @@ class SectionsControllerTest {
         subs: FakeSubPoints,
         scope: kotlinx.coroutines.CoroutineScope,
         ids: MutableList<String> = mutableListOf(),
+        tombs: FakeTombstoneDao = FakeTombstoneDao(),
     ) = SectionsController(
         nid, secs, subs, FakeTransactionRunner(), scope,
         debounceMs = 0,
         idProvider = { "new-${ids.size.also { ids.add("x$it") }}" },
         clock = { 1000L },
+        tombstoneDao = tombs,
     ).also { secs.cascadeSubs = subs }
 
     @Test
@@ -556,6 +559,41 @@ class SectionsControllerTest {
             } finally {
                 controller.close()
             }
+        }
+    }
+
+    @Test
+    fun removeSection_gravaTombstoneDeSecaoParaSync() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("s1", 0, "BODY"), section("s2", 1, "BODY"))
+        }
+        val tombs = FakeTombstoneDao()
+        val controller = crudController(secs, FakeSubPoints(), this, tombs = tombs)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            controller.removeSection("s1")
+            controller.awaitSaves()
+            assertTrue(tombs.rows.any { it.id == "s1" && it.type == "section" })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun removeSubPoint_gravaTombstoneDeSubPontoParaSync() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
+        val subs = FakeSubPoints().apply {
+            rows.value = listOf(subPoint("sp1", "s1", 0), subPoint("sp2", "s1", 1))
+        }
+        val tombs = FakeTombstoneDao()
+        val controller = crudController(secs, subs, this, tombs = tombs)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            controller.removeSubPoint("sp1")
+            controller.awaitSaves()
+            assertTrue(tombs.rows.any { it.id == "sp1" && it.type == "subPoint" })
+        } finally {
+            controller.close()
         }
     }
 

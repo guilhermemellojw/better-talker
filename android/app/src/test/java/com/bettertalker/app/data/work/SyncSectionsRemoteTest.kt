@@ -95,7 +95,7 @@ class SyncSectionsRemoteTest {
         assertEquals("Abordagem s1", doc["agreedApproach"])
         assertEquals(123L, doc["approvedAt"])
         assertEquals(50L, doc["createdAt"])
-        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
+        assertEquals(100L, doc["updatedAt"])
         assertEquals(3, secDao.rows.size) // local intacto
     }
 
@@ -144,7 +144,7 @@ class SyncSectionsRemoteTest {
 
         // push: remoto s1 passa a ser o local mais novo.
         assertEquals("Local nova", remote.doc("sections", "s1")!!["title"])
-        assertTrue(remote.doc("sections", "s1")!!["updatedAt"] is com.google.firebase.Timestamp)
+        assertEquals(300L, remote.doc("sections", "s1")!!["updatedAt"])
         // pull: local s2 passa a ser o remoto mais novo.
         assertEquals("Nova", secDao.rows.first { it.id == "s2" }.title)
         assertEquals(500L, secDao.rows.first { it.id == "s2" }.updatedAt)
@@ -259,8 +259,7 @@ class SyncSectionsRemoteTest {
         syncSections(remote, sdB, ndB)
         syncSubPoints(remote, spB, sdB, ndB)
 
-        // Estado pós-pull idêntico ao original (todos os campos; o updatedAt
-        // volta como Timestamp do servidor — normalizado p/ comparação).
+        // Estado pós-pull idêntico ao original (todos os campos).
         assertEquals(
             originalNote.copy(updatedAt = 0L),
             ndB.rows.single().copy(updatedAt = 0L),
@@ -337,6 +336,62 @@ class SyncSectionsRemoteTest {
         assertEquals(listOf("Jo 3:16"), doc["bibleRefs"])
         assertEquals(listOf(mapOf("symbol" to "w13 15/5")), doc["publicationRefs"])
         assertEquals(50L, doc["createdAt"])
-        assertTrue(doc["updatedAt"] is com.google.firebase.Timestamp)
+        assertEquals(100L, doc["updatedAt"])
+    }
+
+    // 8. Delete de seção em A -> B não ressuscita (tombstone remoto).
+    @Test
+    fun tombstoneRemotoDeSecao_apagaLocalECascataRemota() = runBlocking {
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(section("s1")))
+        remote.set("sections", "s1", mapOf("noteId" to "n1", "updatedAt" to 10L))
+        remote.set("subPoints", "p1", mapOf("sectionId" to "s1", "updatedAt" to 10L))
+        remote.set(
+            "tombstones", "s1",
+            mapOf("type" to "section", "deletedAt" to 20L),
+        )
+        val remoteTombs = remote.getAll("tombstones")
+
+        syncSections(remote, secDao, noteDao, FakeTombstoneDao(), remoteTombs)
+
+        assertTrue(secDao.rows.isEmpty())
+        assertNull(remote.doc("sections", "s1"))
+        assertNull(remote.doc("subPoints", "p1"))
+        assertNotNull(remote.doc("tombstones", "s1"))
+    }
+
+    // 9. Delete de sub-ponto em A -> B não ressuscita.
+    @Test
+    fun tombstoneRemotoDeSubPonto_apagaLocalERemoto() = runBlocking {
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(section("s1")))
+        val spDao = FakeSubPointDao(listOf(subPoint("p1", sectionId = "s1")))
+        remote.set("subPoints", "p1", mapOf("sectionId" to "s1", "updatedAt" to 10L))
+        remote.set(
+            "tombstones", "p1",
+            mapOf("type" to "subPoint", "deletedAt" to 20L),
+        )
+        val remoteTombs = remote.getAll("tombstones")
+
+        syncSubPoints(remote, spDao, secDao, noteDao, FakeTombstoneDao(), remoteTombs)
+
+        assertTrue(spDao.rows.isEmpty())
+        assertNull(remote.doc("subPoints", "p1"))
+        assertNotNull(remote.doc("tombstones", "p1"))
+    }
+
+    // 10. Delete local de seção publica o tombstone remoto.
+    @Test
+    fun tombstoneLocalDeSecao_publicaEDeletaRemoto() = runBlocking {
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao()
+        val tombs = FakeTombstoneDao(listOf(TombstoneEntity("s1", "section", 99L)))
+        remote.set("sections", "s1", mapOf("noteId" to "n1", "updatedAt" to 10L))
+
+        syncSections(remote, secDao, noteDao, tombs)
+
+        assertNull(remote.doc("sections", "s1"))
+        assertEquals("section", remote.doc("tombstones", "s1")!!["type"])
+        assertEquals(99L, remote.doc("tombstones", "s1")!!["deletedAt"])
     }
 }

@@ -2,6 +2,8 @@ package com.bettertalker.app.ui.editor
 
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SubPointDao
+import com.bettertalker.app.data.db.TombstoneDao
+import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.db.TransactionRunner
 import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.db.toEntity
@@ -59,6 +61,8 @@ class SectionsController(
     private val idProvider: () -> String = { java.util.UUID.randomUUID().toString() },
     private val clock: () -> Long = { System.currentTimeMillis() },
     private val onSaved: suspend () -> Unit = {},
+    /** Opcional em testes; produção passa `db.tombstoneDao()`. */
+    private val tombstoneDao: TombstoneDao? = null,
 ) {
     private val _sections = MutableStateFlow<List<SectionUiState>>(emptyList())
     val sections: StateFlow<List<SectionUiState>> = _sections.asStateFlow()
@@ -469,6 +473,20 @@ class SectionsController(
      * colidia com o de outra seção existente.
      */
     private suspend fun persistSectionsAtomically(sections: List<SectionUiState>) {
+        // Ids antigos para tombstones de exclusão estrutural. Sem isso o
+        // pull do sync recria a seção/sub-ponto apagado.
+        val oldSections = sectionDao.forNote(noteId)
+        val oldSubPoints = if (oldSections.isEmpty()) {
+            emptyList()
+        } else {
+            subPointDao.forSections(oldSections.map { it.id })
+        }
+        val newSectionIds = sections.map { it.section.id }.toSet()
+        val newSubPointIds = sections.flatMap { state ->
+            state.subPoints.map { it.id }
+        }.toSet()
+        val now = clock()
+
         transactionRunner.run {
             // CASCADE no schema apaga sub-pontos junto com as seções.
             sectionDao.deleteForNote(noteId)
@@ -478,6 +496,14 @@ class SectionsController(
             }
             if (allSubPoints.isNotEmpty()) {
                 subPointDao.upsertAll(allSubPoints)
+            }
+            tombstoneDao?.let { dao ->
+                oldSections.filter { it.id !in newSectionIds }.forEach {
+                    dao.put(TombstoneEntity(it.id, "section", now))
+                }
+                oldSubPoints.filter { it.id !in newSubPointIds }.forEach {
+                    dao.put(TombstoneEntity(it.id, "subPoint", now))
+                }
             }
         }
     }

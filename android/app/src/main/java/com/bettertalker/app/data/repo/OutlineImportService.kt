@@ -2,6 +2,8 @@ package com.bettertalker.app.data.repo
 
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SubPointDao
+import com.bettertalker.app.data.db.TombstoneDao
+import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.db.TransactionRunner
 import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -33,6 +35,8 @@ class OutlineImportService(
     private val transactionRunner: TransactionRunner,
     private val sectionDao: SpeechSectionDao,
     private val subPointDao: SubPointDao,
+    /** Opcional em testes; produção passa `db.tombstoneDao()`. */
+    private val tombstoneDao: TombstoneDao? = null,
 ) {
 
     /**
@@ -79,12 +83,26 @@ class OutlineImportService(
             // Deleção explícita dos sub-pontos antigos (além do FK CASCADE,
             // garante comportamento idêntico em fakes e produção).
             val oldSections = sectionDao.forNote(noteId)
+            val oldSubPoints = oldSections.flatMap { subPointDao.forSection(it.id) }
+            val newSectionIds = allSections.map { it.id }.toSet()
+            val newSubPointIds = allSubPoints.map { it.id }.toSet()
+            val now = System.currentTimeMillis()
             sectionDao.deleteForNote(noteId)
             oldSections.forEach { subPointDao.deleteForSection(it.id) }
 
             sectionDao.upsertAll(allSections.map { it.toEntity() })
             if (allSubPoints.isNotEmpty()) {
                 subPointDao.upsertAll(allSubPoints.map { it.toEntity() })
+            }
+            // Substituição de esboço também é delete estrutural: sem o
+            // tombstone, o sync recria as seções antigas.
+            tombstoneDao?.let { dao ->
+                oldSections.filter { it.id !in newSectionIds }.forEach {
+                    dao.put(TombstoneEntity(it.id, "section", now))
+                }
+                oldSubPoints.filter { it.id !in newSubPointIds }.forEach {
+                    dao.put(TombstoneEntity(it.id, "subPoint", now))
+                }
             }
         }
         return allSections.size

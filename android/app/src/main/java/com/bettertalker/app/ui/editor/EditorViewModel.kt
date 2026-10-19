@@ -96,13 +96,19 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         transactionRunner = RoomTransactionRunner(db),
         scope = viewModelScope,
         debounceMs = 400L,
+        tombstoneDao = db.tombstoneDao(),
         onSaved = {
             if (_sections.value.isNotEmpty()) {
                 _html.value = sectionsController.aggregateHtml()
                 _mdText.value = sectionsController.aggregateMd()
-                repo.save(noteId, _title.value, _mdText.value, _html.value,
-                    curFolderId, _color.value, curPinned)
+            } else {
+                // Última seção removida: zera o cache agregado e ainda salva
+                // a nota para bumpar updatedAt e disparar o sync.
+                _html.value = ""
+                _mdText.value = ""
             }
+            repo.save(noteId, _title.value, _mdText.value, _html.value,
+                curFolderId, _color.value, curPinned)
         },
     )
 

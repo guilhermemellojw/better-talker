@@ -31,6 +31,7 @@ class HomeViewModel(
         transactionRunner = com.bettertalker.app.data.db.RoomTransactionRunner(db),
         sectionDao = db.speechSectionDao(),
         subPointDao = db.subPointDao(),
+        tombstoneDao = db.tombstoneDao(),
     )
     val query = MutableStateFlow("")
     val folderId = MutableStateFlow<String?>(null)
