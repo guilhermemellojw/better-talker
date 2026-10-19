@@ -6,15 +6,29 @@ import org.junit.Test
 class DiscourseTypeTest {
 
     @Test
-    fun enum_has4Values() {
+    fun enum_has5Values() {
         assertEquals(
             listOf(
                 DiscourseType.S34_DISCOURSE,
                 DiscourseType.TREASURES_TALK,
                 DiscourseType.MINISTRY_PART,
+                DiscourseType.MINISTRY_TALK,
                 DiscourseType.AVULSO,
             ),
             DiscourseType.values().toList(),
+        )
+    }
+
+    @Test
+    fun ministryTalk_isDistinctFromDemo() {
+        // Fase A: a parte 6 "Discurso" não pode ser confundida com diálogo.
+        assertEquals(
+            DiscourseType.MINISTRY_TALK,
+            DiscourseType.fromNameOrDefault("MINISTRY_TALK"),
+        )
+        assertEquals(
+            DiscourseType.MINISTRY_PART,
+            DiscourseType.fromNameOrDefault("MINISTRY_PART"),
         )
     }
 

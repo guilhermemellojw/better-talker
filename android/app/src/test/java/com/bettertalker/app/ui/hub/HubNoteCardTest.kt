@@ -17,6 +17,8 @@ class HubNoteCardTest {
     fun badge_demaisTiposEDiscurso() {
         assertEquals("Discurso", hubBadgeLabel(DiscourseType.S34_DISCOURSE.name))
         assertEquals("Discurso", hubBadgeLabel(DiscourseType.TREASURES_TALK.name))
+        // Fase A: parte 6 "Discurso" é discurso, não diálogo.
+        assertEquals("Discurso", hubBadgeLabel(DiscourseType.MINISTRY_TALK.name))
         assertEquals("Discurso", hubBadgeLabel(DiscourseType.AVULSO.name))
         assertEquals("Discurso", hubBadgeLabel(null))
     }

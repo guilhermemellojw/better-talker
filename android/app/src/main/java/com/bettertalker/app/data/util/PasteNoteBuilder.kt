@@ -1,18 +1,17 @@
 package com.bettertalker.app.data.util
 
+import com.bettertalker.app.domain.planning.GenerationProfile
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.SectionRole
 
 /**
- * Fase 1 "Colar e Pronto" (Home): transforma o texto colado numa nota pronta.
+ * Fase 1 "Colar e Pronto" + Fase A (cérebro único).
  *
- * - TALK (V&M detectado) → template de discurso: INTRO + BODY (o texto colado)
- *   + CONCLUSION vazias — abertura/fechamento prontos para preencher ou pedir
- *   ao Copilot;
- * - DEMO (V&M) → BODY com a descrição no título e o diálogo em turnos;
- * - Esboço estruturado (seções com "(N min)") → `outline` preenchido — o
- *   caller cria as seções via OutlineConverter;
- * - Genérico → BODY "Corpo" com o texto (nota visível/editável no editor).
+ * [planPaste] decide o destino de qualquer texto colado (Home, Editor, Chat):
+ * S-34, V&M Discurso, V&M Demo, rejeição V&M ou texto livre. A estrutura de
+ * cards, as refs e o [GenerationProfile] saem daqui — não há mais um builder
+ * para a Home e outro para o Editor.
  *
  * Decisões do Discovery: contentHtml no MVP, splitter flexível, sem geração
  * automática (o texto colado É o conteúdo). Puro/testável — sem IO.
@@ -24,6 +23,9 @@ data class PastedSection(
     val title: String,
     val minutes: Int,
     val contentHtml: String,
+    /** Fase A: refs extraídas do texto desta seção (paridade FAB/Editor). */
+    val bibleRefs: List<String> = emptyList(),
+    val publicationRefs: List<PublicationRef> = emptyList(),
 )
 
 /** Nota pronta construída a partir do texto colado. */
@@ -42,6 +44,37 @@ data class PastedNote(
      * (Introdução + corpos + Conclusão). Null = não é esboço.
      */
     val outline: ParsedOutline? = null,
+) {
+    /** Refs agregadas das seções (conveniência p/ testes e feedback). */
+    val bibleRefs: List<String> get() = sections.flatMap { it.bibleRefs }.distinct()
+    val publicationRefs: List<PublicationRef>
+        get() = sections.flatMap { it.publicationRefs }.distinct()
+}
+
+/** Destino único de uma colagem (Fase A). */
+sealed interface PasteKind {
+    data class S34(val outline: ParsedOutline) : PasteKind
+    data class VmTalk(val part: VmPart, val ignored: List<VmPart>) : PasteKind
+    data class VmDemo(val part: VmPart, val ignored: List<VmPart>) : PasteKind
+    data class VmRejected(val parts: List<VmPart>) : PasteKind
+    data object FreeText : PasteKind
+}
+
+/**
+ * Plano completo da colagem — a única fonte para estrutura de cards, refs,
+ * persona de geração e feedback. Puro/testável.
+ */
+data class PastePlan(
+    val kind: PasteKind,
+    val noteTitle: String,
+    val discourseType: DiscourseType,
+    val sections: List<PastedSection>,
+    val plainText: String,
+    val bibleRefs: List<String>,
+    val publicationRefs: List<PublicationRef>,
+    val generationProfile: GenerationProfile,
+    val notice: String?,
+    val ignoredParts: List<VmPart> = emptyList(),
 )
 
 /** Minutos dos cards vazios de abertura/fechamento (igual ao "Adicionar parte"). */
@@ -113,7 +146,8 @@ fun paragraphsToHtml(text: String): String =
 internal fun discourseTypeFor(part: VmPart): DiscourseType = when {
     part.nature == VmNature.DEMO -> DiscourseType.MINISTRY_PART
     part.section == VmSection.TREASURES -> DiscourseType.TREASURES_TALK
-    part.section == VmSection.MINISTRY -> DiscourseType.MINISTRY_PART
+    // Fase A: parte 6 "Discurso" NÃO é mais MINISTRY_PART (diálogo).
+    part.section == VmSection.MINISTRY -> DiscourseType.MINISTRY_TALK
     else -> DiscourseType.AVULSO
 }
 
@@ -126,36 +160,58 @@ internal fun pastedTitleOf(text: String): String =
     text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
         ?.take(80)?.trimEnd().orEmpty().ifBlank { "Nota colada" }
 
+/** Sufixo de feedback para partes ignoradas (nunca descartar em silêncio). */
+private fun ignoredSuffix(ignored: List<VmPart>): String =
+    if (ignored.isEmpty()) "" else "\nIgnorei: " +
+        ignored.joinToString("; ") { "parte ${it.partNumber} — ${it.nature.label()}" } + "."
+
 /**
- * Constrói a [PastedNote] a partir do texto colado (detecção V&M → TALK/DEMO;
- * senão genérico). Puro/testável.
+ * CÉREBRO ÚNICO da colagem: normaliza, classifica e devolve o plano completo.
+ * Prioridade: TALK > DEMO > Rejected > S-34 > texto livre — a mesma do fluxo
+ * do Editor/Chat, agora também no FAB.
  */
-fun buildPastedNote(text: String): PastedNote {
+fun planPaste(raw: String): PastePlan {
+    val text = PasteTextNormalizer.normalize(raw)
     val trimmed = text.trim()
     val parts = detectVmMaterial(trimmed)
+
     val talk = parts.firstOrNull { it.nature == VmNature.TALK }
     if (talk != null) {
+        val ignored = parts - talk
         val body = talk.body.ifBlank { trimmed }
         val partTitle = talk.title.ifBlank { "Discurso" }
         val minutes = talk.minutes.takeIf { it > 0 } ?: 10
-        return PastedNote(
-            // Título da NOTA: parte + duração ("A ordem nos céus (10 min)").
-            title = "$partTitle ($minutes min)",
-            discourseType = discourseTypeFor(talk),
-            plainText = normalizePastedText(body),
-            // Template de discurso: abertura e fechamento vazios para o
-            // orador (ou o Copilot) preencherem; o texto colado fica no
-            // desenvolvimento. Minutos iguais ao "Adicionar parte" manual.
-            sections = listOf(
-                PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
-                PastedSection(SectionRole.BODY, partTitle, minutes, paragraphsToHtml(body)),
-                PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
+        val (bible, pubs) = extractRefsFromBody(body)
+        val sections = listOf(
+            PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
+            PastedSection(
+                role = SectionRole.BODY,
+                title = partTitle,
+                minutes = minutes,
+                contentHtml = paragraphsToHtml(body),
+                bibleRefs = bible,
+                publicationRefs = pubs,
             ),
-            speechTemplate = true,
+            PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
+        )
+        return PastePlan(
+            kind = PasteKind.VmTalk(talk, ignored),
+            noteTitle = "$partTitle ($minutes min)",
+            discourseType = discourseTypeFor(talk),
+            sections = sections,
+            plainText = normalizePastedText(body),
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            generationProfile = GenerationProfile.SPEECH_MENTOR,
+            notice = "Estrutura de discurso criada (Introdução, Desenvolvimento, " +
+                "Conclusão)." + ignoredSuffix(ignored),
+            ignoredParts = ignored,
         )
     }
+
     val demo = parts.firstOrNull { it.nature == VmNature.DEMO }
     if (demo != null) {
+        val ignored = parts - demo
         val body = demo.body.ifBlank { trimmed }
         val turns = splitDemonstrationTurns(body)
         val isDialogue = turns.size >= 2 &&
@@ -170,50 +226,123 @@ fun buildPastedNote(text: String): PastedNote {
         }
         val partTitle = demo.title.ifBlank { "Demonstração" }
         val minutes = demo.minutes.takeIf { it > 0 } ?: 4
-        return PastedNote(
-            // Título da NOTA: parte + duração ("Cultivando o interesse (4 min)").
-            title = "$partTitle ($minutes min)",
+        val (bible, pubs) = extractRefsFromBody(body.ifBlank { demo.title })
+        val sections = listOf(
+            PastedSection(
+                role = SectionRole.BODY,
+                // Título do CARD: a descrição (cenário/instrução); o corpo
+                // guarda só o diálogo (vazio quando não há turnos).
+                title = description.ifBlank { partTitle },
+                minutes = minutes,
+                contentHtml = if (isDialogue) turnsToHtml(turns) else "",
+                bibleRefs = bible,
+                publicationRefs = pubs,
+            ),
+        )
+        return PastePlan(
+            kind = PasteKind.VmDemo(demo, ignored),
+            noteTitle = "$partTitle ($minutes min)",
             discourseType = DiscourseType.MINISTRY_PART,
+            sections = sections,
             plainText = normalizePastedText(
                 description.ifBlank {
                     turns.joinToString(" ") { "${it.speaker}: ${it.text}" }
                 }
             ),
-            sections = listOf(
-                PastedSection(
-                    role = SectionRole.BODY,
-                    // Título do CARD: a descrição (cenário/instrução); o
-                    // corpo guarda só o diálogo (vazio quando não há turnos).
-                    title = description.ifBlank { partTitle },
-                    minutes = minutes,
-                    contentHtml = if (isDialogue) turnsToHtml(turns) else "",
-                ),
-            ),
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            generationProfile = GenerationProfile.DEMO_SCRIPTWRITER,
+            notice = "Demonstração reconhecida: parte ${demo.partNumber} " +
+                "(${minutes} min)." + ignoredSuffix(ignored),
+            ignoredParts = ignored,
         )
     }
+
+    // V&M reconhecido, mas sem TALK/DEMO (Joias, Leitura, Estudo): rejeição
+    // explícita — nunca criar nota genérica silenciosamente.
+    if (parts.isNotEmpty()) {
+        val (bible, pubs) = extractRefsFromBody(trimmed)
+        return PastePlan(
+            kind = PasteKind.VmRejected(parts),
+            noteTitle = pastedTitleOf(trimmed),
+            discourseType = DiscourseType.S34_DISCOURSE,
+            sections = emptyList(),
+            plainText = normalizePastedText(trimmed),
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            generationProfile = GenerationProfile.CHAT,
+            notice = vmRejectionMessage(parts),
+        )
+    }
+
     // "Colar e Pronto" v3: esboço estruturado (S-34 ou texto com seções
     // temporizadas "(N min)") → o caller cria a nota + seções via
     // OutlineConverter (Introdução + corpos + Conclusão). Puro: só o parse.
     val parsed = OutlineParser.parse(trimmed, "texto colado")
     if (parsed.sections.size >= 2) {
-        return PastedNote(
-            title = parsed.title.ifBlank { pastedTitleOf(trimmed) },
+        val (bible, pubs) = extractRefsFromBody(trimmed)
+        return PastePlan(
+            kind = PasteKind.S34(parsed),
+            noteTitle = parsed.title.ifBlank { pastedTitleOf(trimmed) },
             discourseType = DiscourseType.S34_DISCOURSE,
+            sections = emptyList(),
             plainText = normalizePastedText(trimmed),
-            outline = parsed,
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            generationProfile = GenerationProfile.SPEECH_MENTOR,
+            notice = "Esboço reconhecido e estruturado!",
         )
     }
+
     // Genérico: nota simples — o texto vira uma seção BODY (visível/editável
     // no editor; antes o texto ficava só no mdText, invisível).
-    return PastedNote(
-        title = pastedTitleOf(trimmed),
+    val (bible, pubs) = extractRefsFromBody(trimmed)
+    return PastePlan(
+        kind = PasteKind.FreeText,
+        noteTitle = pastedTitleOf(trimmed),
         discourseType = DiscourseType.S34_DISCOURSE,
-        plainText = normalizePastedText(trimmed),
         sections = if (trimmed.isBlank()) emptyList() else listOf(
             PastedSection(
-                SectionRole.BODY, "Corpo", GENERIC_SECTION_MINUTES,
-                paragraphsToHtml(trimmed),
+                role = SectionRole.BODY,
+                title = "Corpo",
+                minutes = GENERIC_SECTION_MINUTES,
+                contentHtml = paragraphsToHtml(trimmed),
+                bibleRefs = bible,
+                publicationRefs = pubs,
             ),
         ),
+        plainText = normalizePastedText(trimmed),
+        bibleRefs = bible,
+        publicationRefs = pubs,
+        generationProfile = GenerationProfile.CHAT,
+        notice = null,
     )
 }
+
+/** Converte o plano no formato histórico consumido pelo HomeViewModel. */
+fun PastePlan.toPastedNote(): PastedNote = when (val k = kind) {
+    is PasteKind.S34 -> PastedNote(
+        title = noteTitle,
+        discourseType = discourseType,
+        plainText = plainText,
+        outline = k.outline,
+    )
+    is PasteKind.VmRejected -> PastedNote(
+        title = noteTitle,
+        discourseType = discourseType,
+        plainText = plainText,
+    )
+    else -> PastedNote(
+        title = noteTitle,
+        discourseType = discourseType,
+        plainText = plainText,
+        sections = sections,
+        speechTemplate = kind is PasteKind.VmTalk,
+    )
+}
+
+/**
+ * Constrói a [PastedNote] a partir do texto colado. Mantido como fachada do
+ * [planPaste] para os consumidores/testes legados.
+ */
+fun buildPastedNote(text: String): PastedNote = planPaste(text).toPastedNote()

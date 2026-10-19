@@ -54,9 +54,11 @@ object SpeechSectionValidator {
         }
 
         when (discourseType) {
-            // TALK = discurso (Tesouros): mesma estrutura clássica do S-34.
+            // TALK = discurso (Tesouros / parte 6): mesma estrutura clássica
+            // do S-34 (Intro + corpos + Conclusão).
             DiscourseType.S34_DISCOURSE,
-            DiscourseType.TREASURES_TALK -> validateS34(sections, errors)
+            DiscourseType.TREASURES_TALK,
+            DiscourseType.MINISTRY_TALK -> validateS34(sections, errors)
             DiscourseType.MINISTRY_PART,
             DiscourseType.AVULSO -> validateSingleBody(sections, errors)
         }

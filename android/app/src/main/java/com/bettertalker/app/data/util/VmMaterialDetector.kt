@@ -9,11 +9,14 @@ import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 /**
  * #8b — detecção de material da reunião Vida e Ministério (V&M).
  *
- * O texto colado é reconhecido por cabeçalhos de seção (TESOUROS / FAÇA SEU
- * MELHOR / NOSSA VIDA) e cada parte ganha uma natureza:
- * - TALK gera discurso completo (TESOUROS 1, FAÇA 6-discurso, NOSSA VIDA 7);
- * - DEMO é reconhecido mas avisa "em breve";
- * - GEMS / BIBLE_READING / CONGREGATION_STUDY são rejeitados com mensagem.
+ * Fase A: parser ÚNICO. A mesma linha de parte (com ou sem cabeçalho de
+ * seção) passa por [parsePartLine] e produz o mesmo título/cauda/corpo.
+ * Antes o caminho com cabeçalho usava `titleAndMinutes` e engolia a cauda
+ * (`DE CASA EM CASA...`) no título; o caminho solto usava outra regex.
+ *
+ * O detector também aceita múltiplas partes soltas, minutos na linha
+ * seguinte/variantes (`4 min.`, `4 minutos`, sem parênteses) e texto
+ * normalizado por [PasteTextNormalizer] (NBSP, bullets de PDF).
  *
  * Puro/testável — o CopilotViewModel só consome o plano.
  */
@@ -81,33 +84,49 @@ private val SECTION_HEADERS = listOf(
     "FAÇA SEU MELHOR NO MINISTÉRIO" to VmSection.MINISTRY,
     "NOSSA VIDA CRISTÃ" to VmSection.CHRISTIAN_LIFE,
 )
-private val PART_LINE_RE = Regex("""^(\d{1,2})\.\s*(.*)$""")
+
+/** "ponto 4" no próprio cabeçalho da seção. */
 private val INLINE_POINT_RE = Regex("""ponto\s+(\d{1,2})""", RegexOption.IGNORE_CASE)
+
+/** Minutos em qualquer posição (usado no título/cabeçalho legado). */
 private val MIN_RE = Regex("""(\d{1,3})\s*(?:min|minutos?)\b""", RegexOption.IGNORE_CASE)
-private val TIME_ONLY_RE = Regex("""^\(?\s*\d{1,3}\s*(?:min|minutos?)\s*\)?\.?$""", RegexOption.IGNORE_CASE)
+
+/** Linha composta só de "(4 min)" / "4 minutos". */
+private val TIME_ONLY_RE = Regex(
+    """^\(?\s*\d{1,3}\s*(?:min|minutos?)\.?\s*\)?\.?$""",
+    RegexOption.IGNORE_CASE,
+)
 
 // #24-fix A1/A3: "Título: X (N min)" — formato real da apostila sem o
 // cabeçalho de seção ou logo após ele.
 private val TITULO_RE = Regex(
-    """^Título:\s*(.+?)\s*\((\d{1,3})\s*min(?:utos?)?\)\s*$""",
+    """^Título:\s*(.+?)\s*\((\d{1,3})\s*min(?:utos?)?\.?\)\s*$""",
     RegexOption.IGNORE_CASE,
 )
 
 // #24-fix A4: "Tópico N:" é corpo da parte — nunca vira número/título.
 private val TOPICO_LINE_RE = Regex("""^Tópico\s+\d{1,2}\s*:""", RegexOption.IGNORE_CASE)
 
-// #24-fix A2: cabeçalho colado ao título da parte ("…DEUS 1. Título (10 min)").
-private val GLUED_PART_RE = Regex(
-    """^[,\s.:–—-]*(\d{1,2})\.\s*(.+?)\s*\((\d{1,3})\s*min(?:utos?)?\)\s*$""",
+/**
+ * Prefixo de parte: `5.`, `5)`, `5 -`, `5 .` ou `5 `.
+ * O número é limitado a 2 dígitos para não sequestrar anos/medidas.
+ */
+private val PART_PREFIX_RE = Regex("""^\s*(\d{1,2})\s*[.)\-–—:]?\s+(.+)$""")
+
+/** Minutos entre parênteses: "(4 min)", "(4 min.)", "(4 minutos)". */
+private val PAREN_MIN_RE = Regex(
+    """\(\s*(\d{1,3})\s*min(?:utos?)?\.?\s*\)""",
     RegexOption.IGNORE_CASE,
 )
 
-// UX "Colar e Pronto": parte V&M SOLTA sem cabeçalho — "5. Título (4 min)"
-// (rótulo/cenário/descrição podem seguir na mesma linha ou nas seguintes).
-private val LOOSE_PART_RE = Regex(
-    """^\s*(\d{1,2})[.)]?\s+(.+?)\s*\((\d{1,2})\s*min(?:utos?)?\)\s*(.*)$""",
+/** Minutos sem parênteses: "4 min", "4 min.". */
+private val BARE_MIN_RE = Regex(
+    """(?:^|\s)(\d{1,3})\s*min(?:utos?)?\.?(?=\s|$|[,;:)])""",
     RegexOption.IGNORE_CASE,
 )
+
+private val EMPTY_PARENS_RE = Regex("""\(\s*\)""")
+private val MULTI_SPACE_RE = Regex("""\s{2,}""")
 
 /** Tipos/rótulos de parte do "Faça Seu Melhor no Ministério". */
 private val VM_PART_TYPES = listOf(
@@ -167,10 +186,92 @@ private val VM_CONTEXT_MARKERS = listOf(
     "morador:",
 )
 
-/** Título e minutos de uma linha ("Discurso: X (5 min)" → "Discurso: X" + 5). */
+/**
+ * Naturezas/títulos típicos que confirmam V&M mesmo sem o cabeçalho — cobre
+ * a apostila solta com Joias/Leitura/parte 7 (as demais já têm partType ou
+ * cenário).
+ */
+private val VM_NATURE_MARKERS = listOf(
+    "joias espirituais",
+    "leitura da bíblia",
+    "estudo bíblico de congregação",
+    "faça discípulos",
+)
+
+/** Cabeçalho de seção no início da linha, se houver. */
+private fun headerOf(line: String): Pair<String, VmSection>? {
+    val upper = line.trim().uppercase()
+    return SECTION_HEADERS.firstOrNull { upper.startsWith(it.first) }
+}
+
+private fun sectionForNumber(number: Int): VmSection = when (number) {
+    in 1..3 -> VmSection.TREASURES
+    in 4..6 -> VmSection.MINISTRY
+    in 7..8 -> VmSection.CHRISTIAN_LIFE
+    else -> VmSection.MINISTRY
+}
+
+/**
+ * Resultado do parse de UMA linha de parte (único para os dois caminhos).
+ *
+ * `tail` é o texto que sobra na mesma linha depois dos minutos. É ele que
+ * antes se perdia no caminho com cabeçalho (ex.: "DE CASA EM CASA").
+ */
+internal data class ParsedPartLine(
+    val number: Int,
+    val title: String,
+    val minutes: Int?,
+    val tail: String,
+)
+
+/**
+ * Interpreta `N. Título (M min) cauda` / `N) Título M min cauda` / `N. Título`.
+ * Aceita parênteses, minutos sem parênteses e "min." — sempre escolhendo a
+ * PRIMEIRA ocorrência de minutos. Puro/testável.
+ */
+internal fun parsePartLine(line: String): ParsedPartLine? {
+    val trimmed = line.trim()
+    val prefix = PART_PREFIX_RE.matchEntire(trimmed) ?: return null
+    val number = prefix.groupValues[1].toIntOrNull() ?: return null
+    val rest = prefix.groupValues[2].trim()
+    if (rest.isEmpty()) return ParsedPartLine(number, "", null, "")
+
+    val paren = PAREN_MIN_RE.find(rest)
+    val bare = BARE_MIN_RE.find(rest)
+    val match = listOfNotNull(paren, bare).minByOrNull { it.range.first }
+
+    var title: String
+    var minutes: Int?
+    var tail: String
+    if (match != null) {
+        title = rest.substring(0, match.range.first)
+        minutes = match.groupValues[1].toIntOrNull()
+        tail = rest.substring(match.range.last + 1)
+    } else {
+        title = rest
+        minutes = null
+        tail = ""
+    }
+
+    title = title.replace(EMPTY_PARENS_RE, "")
+        .trim()
+        .trim('(', ')', '-', '–', '—', ':', '.', ',', ' ')
+        .replace(MULTI_SPACE_RE, " ")
+        .trim()
+    tail = tail.trim().trimStart('-', '–', '—', ':', '.', ',', ' ').trim()
+    // Só título e cauda? A cauda é o título (parte sem título explícito).
+    if (title.isBlank() && tail.isNotBlank()) {
+        title = tail
+        tail = ""
+    }
+    return ParsedPartLine(number, title, minutes, tail)
+}
+
+/** Título/minutos de uma linha sem número de parte (título no corpo). */
 private fun titleAndMinutes(line: String): Pair<String, Int?> {
     val m = MIN_RE.find(line) ?: return line.trim() to null
     val cleaned = line.removeRange(m.range)
+        .replace(EMPTY_PARENS_RE, "")
         .trim()
         .trimEnd('(', ')', ' ', '-', '–', ':', '.', ',')
         .trim()
@@ -187,7 +288,7 @@ private fun titleFirstMaterial(text: String): VmPart? {
     val firstIdx = lines.indexOfFirst { it.isNotEmpty() }
     if (firstIdx < 0) return null
     // Formato com cabeçalho tem precedência: A1 só vale sem cabeçalho.
-    if (lines.any { l -> SECTION_HEADERS.any { l.uppercase().startsWith(it.first) } }) return null
+    if (lines.any { l -> headerOf(l) != null }) return null
     val m = TITULO_RE.find(lines[firstIdx]) ?: return null
     if (lines.none { TOPICO_LINE_RE.containsMatchIn(it) }) return null
     val body = lines.drop(firstIdx + 1).joinToString("\n").trim()
@@ -201,183 +302,294 @@ private fun titleFirstMaterial(text: String): VmPart? {
     )
 }
 
+/** Construtor de uma parte enquanto as linhas de corpo são coletadas. */
+private class PartBuilder(
+    val section: VmSection,
+    val number: Int,
+    var title: String,
+    var minutes: Int?,
+) {
+    val body = mutableListOf<String>()
+
+    fun build(): VmPart? = buildPart(
+        section = section,
+        number = number,
+        title = title,
+        minutes = minutes,
+        bodyLines = body,
+    )
+}
+
 /**
- * UX "Colar e Pronto" — parte V&M SOLTA (sem cabeçalho de seção):
- * "N. Título (M min) rótulo/cenário/descrição". Extrai o cenário e o tipo da
- * parte e classifica a natureza:
- * - rótulo "Demonstração" → DEMO; "Discurso"/"Consideração" → TALK;
- * - tipos Iniciando conversas/Cultivando o interesse/Fazendo discípulos com
- *   cenário → DEMO (mesmo sem a palavra "Demonstração");
- * - "Explicando suas crenças" → DEMO só com "Demonstração"; senão TALK.
- * A seção é inferida pelo número (1-3 Tesouros, 4-6 Ministério, 7-8 Nossa
- * Vida). Puro/testável.
+ * Natureza: o mapeamento seção+número manda (igual nos dois caminhos);
+ * rótulos no corpo são fallback para números fora da tabela.
  */
-private fun loosePartMaterial(text: String): VmPart? {
-    val lines = text.split("\n").map { it.trim() }
-    val firstIdx = lines.indexOfFirst { it.isNotEmpty() }
-    if (firstIdx < 0) return null
-    // Formatos com cabeçalho/título-first têm precedência.
-    if (lines.any { l -> SECTION_HEADERS.any { l.uppercase().startsWith(it.first) } }) return null
-    val first = lines[firstIdx]
-    val m = LOOSE_PART_RE.find(first) ?: return null
-    val number = m.groupValues[1].toInt()
-    val title = m.groupValues[2].trim()
-    val minutes = m.groupValues[3].toIntOrNull() ?: 0
-    val tail = m.groupValues[4].trim()
-    val rest = listOf(tail, lines.drop(firstIdx + 1).joinToString("\n").trim())
-        .filter { it.isNotEmpty() }
-        .joinToString("\n")
-    val haystack = (first + "\n" + rest).lowercase()
-    val partType = VM_PART_TYPES.firstOrNull { title.startsWith(it, ignoreCase = true) }
-    val scenario = VM_SCENARIOS.firstOrNull { haystack.contains(it.lowercase()) }
-    val hasSignal = partType != null || scenario != null ||
-        VM_LABELS.any { haystack.contains(it) } ||
-        VM_CONTEXT_MARKERS.any { haystack.contains(it) }
-    if (!hasSignal) return null
-    val section = when (number) {
-        in 1..3 -> VmSection.TREASURES
-        in 4..6 -> VmSection.MINISTRY
-        in 7..8 -> VmSection.CHRISTIAN_LIFE
-        else -> VmSection.MINISTRY
+private fun classifyNature(
+    section: VmSection,
+    number: Int,
+    title: String,
+    body: String,
+): VmNature? {
+    vmNatureOf(section, number, title)?.let { return it }
+    val lower = body.lowercase()
+    return when {
+        lower.contains("demonstração") -> VmNature.DEMO
+        lower.contains("consideração") -> VmNature.TALK
+        lower.contains("discurso") -> VmNature.TALK
+        else -> null
     }
-    val lowerRest = rest.lowercase()
-    val nature = when {
-        lowerRest.contains("demonstração") -> VmNature.DEMO
-        lowerRest.contains("consideração") -> VmNature.TALK
-        lowerRest.contains("discurso") -> VmNature.TALK
-        partType in VM_DEMO_PART_TYPES && scenario != null -> VmNature.DEMO
-        partType == "Explicando suas crenças" -> VmNature.TALK
-        else -> vmNatureOf(section, number, title) ?: VmNature.DEMO
-    }
+}
+
+/** Materializa uma [VmPart] a partir do corpo coletado. */
+private fun buildPart(
+    section: VmSection,
+    number: Int,
+    title: String,
+    minutes: Int?,
+    bodyLines: List<String>,
+): VmPart? {
+    val cleanTitle = title.trim()
+    val body = bodyLines.joinToString("\n").trim()
+    val nature = classifyNature(section, number, cleanTitle, body) ?: return null
+    val partType = VM_PART_TYPES.firstOrNull { cleanTitle.startsWith(it, ignoreCase = true) }
     return VmPart(
         section = section,
         partNumber = number,
-        title = title,
-        minutes = minutes,
+        title = cleanTitle,
+        minutes = minutes ?: 0,
         nature = nature,
-        body = rest,
-        scenario = scenario,
+        body = body,
+        scenario = vmScenarioOf(cleanTitle + "\n" + body),
         partType = partType,
-        reference = vmReferenceOf(rest.ifBlank { first }),
+        reference = vmReferenceOf(body.ifBlank { cleanTitle }),
     )
+}
+
+/** A linha seguinte confirma minutos (usado para iniciar parte sem "(N min)"). */
+private fun startsPartWithoutMinutes(
+    parsed: ParsedPartLine,
+    nextNonEmpty: String?,
+): Boolean {
+    if (nextNonEmpty != null && TIME_ONLY_RE.matches(nextNonEmpty)) return true
+    return VM_PART_TYPES.any { parsed.title.startsWith(it, ignoreCase = true) } ||
+        VM_SCENARIOS.any { parsed.title.contains(it, ignoreCase = true) } ||
+        VM_LABELS.any { parsed.title.contains(it, ignoreCase = true) }
+}
+
+/** Uma linha numerada é uma NOVA parte dentro da seção? */
+private fun isNewPart(
+    parsed: ParsedPartLine,
+    current: PartBuilder?,
+    nextNonEmpty: String?,
+): Boolean {
+    if (current == null) return true
+    // Partes da apostila são ascendentes; listas numeradas do corpo (1,2,3)
+    // não podem "reabrir" uma parte anterior.
+    if (parsed.number <= current.number) return false
+    if (parsed.minutes != null) return true
+    return startsPartWithoutMinutes(parsed, nextNonEmpty)
+}
+
+/**
+ * Caminho com cabeçalho de seção: percorre TODAS as linhas, aceita múltiplas
+ * partes por seção e usa [parsePartLine] para título/minutos/cauda.
+ */
+private fun detectFromHeaders(text: String): List<VmPart> {
+    val out = mutableListOf<VmPart>()
+    val lines = text.split("\n")
+    var section: VmSection? = null
+    var current: PartBuilder? = null
+
+    fun flush() {
+        current?.build()?.let { out += it }
+        current = null
+    }
+
+    var i = 0
+    while (i < lines.size) {
+        val raw = lines[i]
+        val line = raw.trim()
+
+        val header = if (line.isEmpty()) null else headerOf(line)
+        if (header != null) {
+            flush()
+            section = header.second
+            val remainder = line.substring(header.first.length)
+            val glued = parsePartLine(remainder)
+            if (glued != null) {
+                current = PartBuilder(header.second, glued.number, glued.title, glued.minutes)
+                if (glued.tail.isNotBlank()) current!!.body += glued.tail
+            } else {
+                // Cabeçalho + "ponto N" (o título pode vir na linha seguinte).
+                val inline = INLINE_POINT_RE.find(line)
+                if (inline != null) {
+                    val n = inline.groupValues[1].toIntOrNull() ?: 1
+                    val m = MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                    current = PartBuilder(header.second, n, "", m)
+                }
+            }
+            i++
+            continue
+        }
+
+        val sec = section
+        if (sec == null) {
+            i++
+            continue
+        }
+
+        if (line.isEmpty()) {
+            current?.body?.add(raw)
+            i++
+            continue
+        }
+
+        val parsed = parsePartLine(line)
+        val nextNonEmpty = lines.asSequence().drop(i + 1)
+            .firstOrNull { it.isNotBlank() }?.trim()
+        if (parsed != null && isNewPart(parsed, current, nextNonEmpty)) {
+            flush()
+            current = PartBuilder(sec, parsed.number, parsed.title, parsed.minutes)
+            if (parsed.tail.isNotBlank()) current!!.body += parsed.tail
+            i++
+            continue
+        }
+
+        val cur = current
+        if (cur == null) {
+            // A3: cabeçalho + "Título: X (N min)" sem número — parte 1.
+            val titulo = TITULO_RE.find(line)
+            if (titulo != null) {
+                current = PartBuilder(
+                    sec, 1, titulo.groupValues[1].trim(),
+                    titulo.groupValues[2].toIntOrNull(),
+                )
+            }
+            i++
+            continue
+        }
+
+        if (cur.title.isBlank()) {
+            if (TIME_ONLY_RE.matches(line)) {
+                cur.minutes = cur.minutes ?: MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                i++
+                continue
+            }
+            if (TOPICO_LINE_RE.containsMatchIn(line)) {
+                cur.body += raw
+                i++
+                continue
+            }
+            val (t, m) = titleAndMinutes(line)
+            cur.title = t
+            cur.minutes = cur.minutes ?: m
+            i++
+            continue
+        }
+
+        if (cur.minutes == null && TIME_ONLY_RE.matches(line)) {
+            cur.minutes = MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
+            i++
+            continue
+        }
+
+        cur.body += raw
+        i++
+    }
+    flush()
+    return out
+}
+
+/** Sinal V&M em um trecho (tipo/cenário/rótulo/contexto/papéis). */
+private fun hasPartSignal(text: String): Boolean {
+    val lower = text.lowercase()
+    return VM_PART_TYPES.any { lower.contains(it.lowercase()) } ||
+        VM_SCENARIOS.any { lower.contains(it.lowercase()) } ||
+        VM_LABELS.any { lower.contains(it) } ||
+        VM_CONTEXT_MARKERS.any { lower.contains(it) } ||
+        VM_NATURE_MARKERS.any { lower.contains(it) }
+}
+
+/**
+ * Caminho SEM cabeçalho: varre TODAS as linhas (não só a primeira), aceita
+ * múltiplas partes soltas e usa o mesmo [parsePartLine] do caminho com
+ * cabeçalho. Exige sinal V&M para não sequestrar listas numeradas comuns.
+ */
+private fun detectLoose(text: String): List<VmPart> {
+    val lines = text.split("\n")
+    val parsedLines = lines.map { parsePartLine(it) }
+    val candidates = parsedLines.indices.filter { i ->
+        val p = parsedLines[i] ?: return@filter false
+        p.number in 1..8
+    }
+    if (candidates.isEmpty()) return emptyList()
+
+    // 1) filtra candidatos com sinal V&M na própria linha ou nas 3 seguintes
+    //    (até o próximo candidato). Números devem ser ascendentes para não
+    //    confundir listas numeradas do corpo com novas partes.
+    val accepted = mutableListOf<Int>()
+    var lastNumber = 0
+    for (i in candidates) {
+        val p = parsedLines[i]!!
+        if (p.number <= lastNumber) continue
+        val nextCandidate = candidates.firstOrNull { it > i } ?: lines.size
+        val window = buildString {
+            appendLine(p.title)
+            appendLine(p.tail)
+            lines.subList(i + 1, nextCandidate)
+                .asSequence()
+                .filter { it.isNotBlank() }
+                .take(3)
+                .forEach { appendLine(it) }
+        }
+        if (!hasPartSignal(window)) continue
+        accepted += i
+        lastNumber = p.number
+    }
+    if (accepted.isEmpty()) return emptyList()
+
+    // 2) corpo de cada parte vai até o próximo candidato aceito
+    val out = mutableListOf<VmPart>()
+    accepted.forEachIndexed { idx, i ->
+        val p = parsedLines[i]!!
+        val end = accepted.getOrNull(idx + 1) ?: lines.size
+        val bodyLines = mutableListOf<String>()
+        if (p.tail.isNotBlank()) bodyLines += p.tail
+        var title = p.title
+        var minutes = p.minutes
+        for (j in i + 1 until end) {
+            val l = lines[j].trim()
+            if (l.isEmpty()) {
+                bodyLines += lines[j]
+                continue
+            }
+            if (minutes == null && TIME_ONLY_RE.matches(l)) {
+                minutes = MIN_RE.find(l)?.groupValues?.get(1)?.toIntOrNull()
+                continue
+            }
+            if (title.isBlank()) {
+                title = l
+                continue
+            }
+            bodyLines += lines[j]
+        }
+        val section = sectionForNumber(p.number)
+        buildPart(section, p.number, title, minutes, bodyLines)?.let { out += it }
+    }
+    return out
 }
 
 /** Detecta material V&M; vazio quando não parece V&M. */
 fun detectVmMaterial(text: String): List<VmPart> {
+    val normalized = PasteTextNormalizer.normalize(text)
+    if (normalized.isBlank()) return emptyList()
     // #24-fix A1: o formato real ("Título:" + "Tópico N:") não tem cabeçalho.
-    titleFirstMaterial(text)?.let { return listOf(it) }
-    // UX "Colar e Pronto": parte solta ("5. Título (4 min)" + cenário/papéis).
-    loosePartMaterial(text)?.let { return listOf(it) }
-    val out = mutableListOf<VmPart>()
-    var section: VmSection? = null
-    var started = false
-    var number = 0
-    var title = ""
-    var minutes: Int? = null
-    val body = mutableListOf<String>()
-
-    fun flush() {
-        if (started) {
-            val sec = section
-            val nat = sec?.let { vmNatureOf(it, number, title) }
-            if (sec != null && nat != null) {
-                out += VmPart(
-                    section = sec,
-                    partNumber = number,
-                    title = title.trim(),
-                    minutes = minutes ?: 0,
-                    nature = nat,
-                    body = body.joinToString("\n").trim(),
-                    scenario = vmScenarioOf(body.joinToString("\n")),
-                    partType = VM_PART_TYPES.firstOrNull {
-                        title.trim().startsWith(it, ignoreCase = true)
-                    },
-                    reference = vmReferenceOf(body.joinToString("\n")),
-                )
-            }
-        }
-        started = false
-        number = 0
-        title = ""
-        minutes = null
-        body.clear()
+    titleFirstMaterial(normalized)?.let { return listOf(it) }
+    return if (normalized.lineSequence().any { headerOf(it) != null }) {
+        detectFromHeaders(normalized)
+    } else {
+        detectLoose(normalized)
     }
-
-    for (raw in text.split("\n")) {
-        val line = raw.trim()
-        val upper = line.uppercase()
-        val header = SECTION_HEADERS.firstOrNull { upper.startsWith(it.first) }
-        if (header != null) {
-            flush()
-            section = header.second
-            // Formato 1: número e minutos no próprio cabeçalho.
-            val inline = INLINE_POINT_RE.find(line)
-            if (inline != null) {
-                started = true
-                number = inline.groupValues[1].toInt()
-                minutes = MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
-            } else {
-                // #24-fix A2: cabeçalho colado ao título da parte
-                // ("TESOUROS DA PALAVRA DE DEUS 1. Título (10 min)").
-                val glued = GLUED_PART_RE.find(line.substring(header.first.length))
-                if (glued != null) {
-                    started = true
-                    number = glued.groupValues[1].toInt()
-                    title = glued.groupValues[2].trim()
-                    minutes = glued.groupValues[3].toIntOrNull()
-                }
-            }
-            continue
-        }
-        if (section == null) continue
-        if (!started) {
-            // Aguardando o início de uma parte ("1. Título" ou "1.").
-            val part = PART_LINE_RE.find(line)
-            if (part != null) {
-                started = true
-                number = part.groupValues[1].toInt()
-                val (t, m) = titleAndMinutes(part.groupValues[2])
-                title = t
-                minutes = m
-                continue
-            }
-            // #24-fix A3: cabeçalho + "Título: X (N min)" sem número —
-            // trata como parte 1 (a natureza decide: TESOUROS 1 = TALK).
-            val titulo = TITULO_RE.find(line)
-            if (titulo != null) {
-                started = true
-                number = 1
-                title = titulo.groupValues[1].trim()
-                minutes = titulo.groupValues[2].toIntOrNull()
-                continue
-            }
-            continue
-        }
-        // Coletando: título pendente / linha de tempo / corpo.
-        if (title.isEmpty()) {
-            if (line.isEmpty()) continue
-            // #24-fix A4: "Tópico N:" é corpo da parte — nunca título/número.
-            if (TOPICO_LINE_RE.containsMatchIn(line)) {
-                body += raw
-                continue
-            }
-            if (TIME_ONLY_RE.matches(line)) {
-                minutes = minutes ?: MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
-                continue
-            }
-            val (t, m) = titleAndMinutes(line)
-            title = t
-            minutes = minutes ?: m
-            continue
-        }
-        if (minutes == null && TIME_ONLY_RE.matches(line)) {
-            minutes = MIN_RE.find(line)?.groupValues?.get(1)?.toIntOrNull()
-            continue
-        }
-        body += raw
-    }
-    flush()
-    return out
 }
 
 /** #8b: roteamento do paste de material V&M. */
@@ -385,7 +597,10 @@ sealed interface VmPastePlan {
     /** Discurso: gera a partir da primeira parte TALK; as demais são ignoradas. */
     data class Talk(val talk: VmPart, val ignored: List<VmPart>) : VmPastePlan
 
-    /** Material V&M sem nenhuma parte TALK: rejeição limpa (sem draft). */
+    /** S-38: demonstração (diálogo) — aceita quando não há TALK no material. */
+    data class Demo(val demo: VmPart, val ignored: List<VmPart>) : VmPastePlan
+
+    /** Material V&M sem TALK nem DEMO: rejeição limpa (sem draft). */
     data class Rejected(val parts: List<VmPart>) : VmPastePlan
 
     /** Não é V&M: fluxo genérico (S-34/candidatos) intacto. */
@@ -395,9 +610,15 @@ sealed interface VmPastePlan {
 fun vmPastePlan(text: String): VmPastePlan {
     val parts = detectVmMaterial(text)
     if (parts.isEmpty()) return VmPastePlan.Generic
-    val talk = parts.firstOrNull { it.nature == VmNature.TALK }
-        ?: return VmPastePlan.Rejected(parts)
-    return VmPastePlan.Talk(talk, parts - talk)
+    parts.firstOrNull { it.nature == VmNature.TALK }?.let { talk ->
+        return VmPastePlan.Talk(talk, parts - talk)
+    }
+    // S-38: sem discurso, uma demonstração é aceita — inclusive colada sem o
+    // cabeçalho da seção (detecção solta "5. Título (4 min)" + cenário).
+    parts.firstOrNull { it.nature == VmNature.DEMO }?.let { demo ->
+        return VmPastePlan.Demo(demo, parts - demo)
+    }
+    return VmPastePlan.Rejected(parts)
 }
 
 /** Mensagem do chat quando há TALK (com o resto ignorado, se houver). */
@@ -414,20 +635,29 @@ fun vmTalkMessage(talk: VmPart, ignored: List<VmPart>): String = buildString {
     }
 }
 
-/** Mensagem do chat quando nenhuma parte é discurso (rejeição limpa). */
+/** Mensagem do chat quando há DEMO (com o resto ignorado, se houver). */
+fun vmDemoMessage(demo: VmPart, ignored: List<VmPart>): String = buildString {
+    append("Reconheci material V&M.\n")
+    append(
+        "✓ Parte ${demo.partNumber} (${demo.section.label()}): ${demo.title} " +
+            "(${demo.minutes} min) — vou gerar a demonstração (diálogo)."
+    )
+    if (ignored.isNotEmpty()) {
+        append("\n\nIgnorei: ")
+        append(ignored.joinToString("; ") { "parte ${it.partNumber} — ${it.nature.label()}" })
+        append(".")
+    }
+}
+
+/** Mensagem do chat quando nenhuma parte gera (sem discurso nem demonstração). */
 fun vmRejectionMessage(parts: List<VmPart>): String = buildString {
-    append("Reconheci material V&M, mas nenhuma das partes é um discurso:\n")
+    append("Reconheci material V&M, mas nenhuma das partes gera discurso ou demonstração:\n")
     parts.forEach { p ->
-        val nat = if (p.nature == VmNature.DEMO) {
-            "${p.nature.label()} (em breve)"
-        } else {
-            p.nature.label()
-        }
-        append("- ${p.section.label()} parte ${p.partNumber} — $nat\n")
+        append("- ${p.section.label()} parte ${p.partNumber} — ${p.nature.label()}\n")
     }
     append(
-        "\nO app processa apenas discursos (TESOUROS 1, NOSSA VIDA 7, " +
-            "FAÇA SEU MELHOR parte 6 quando é discurso)."
+        "\nO app processa discursos (TESOUROS 1, NOSSA VIDA 7, FAÇA SEU MELHOR " +
+            "parte 6 quando é discurso) e demonstrações (FAÇA SEU MELHOR 4-6)."
     )
 }
 
@@ -473,25 +703,25 @@ fun extractRefsFromBody(body: String): Pair<List<String>, List<PublicationRef>> 
     return bible to pubs
 }
 
-/** Seção BODY que materializa a parte TALK colada (fonte do gerador). */
-fun vmTalkSection(
-    talk: VmPart,
+/** Seção BODY que materializa a parte V&M colada (TALK ou DEMO) — fonte do gerador. */
+fun vmPartSection(
+    part: VmPart,
     noteId: String,
     order: Int,
     id: String,
     now: Long,
 ): SpeechSection {
-    // #24-fix C: as refs do corpo viram refs estruturadas da seção — o
-    // dossiê do chat sobre a seção TALK funciona antes do apply.
-    val (bibleRefs, publicationRefs) = extractRefsFromBody(talk.body)
+    // #24-fix C: as refs do corpo viram refs estruturadas da seção — o dossiê
+    // do chat sobre a seção TALK funciona antes do apply.
+    val (bibleRefs, publicationRefs) = extractRefsFromBody(part.body)
     return SpeechSection(
         id = id,
         noteId = noteId,
         order = order,
         role = SectionRole.BODY,
-        title = talk.title,
-        minutes = talk.minutes,
-        contentHtml = htmlFromText(talk.body),
+        title = part.title,
+        minutes = part.minutes,
+        contentHtml = htmlFromText(part.body),
         bibleRefs = bibleRefs,
         publicationRefs = publicationRefs,
         methodPrinciple = null,

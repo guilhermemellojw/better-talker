@@ -38,7 +38,7 @@ class VmPasteFlowTest {
         assertEquals(1, talk.talk.partNumber)
         assertTrue(talk.ignored.isEmpty())
 
-        val section = vmTalkSection(talk.talk, noteId = "n1", order = 0, id = "s1", now = 1L)
+        val section = vmPartSection(talk.talk, noteId = "n1", order = 0, id = "s1", now = 1L)
         assertEquals(SectionRole.BODY, section.role)
         assertEquals("Eles perguntaram: \"Por que vocês fazem isso?\"", section.title)
         assertEquals(10, section.minutes)
@@ -56,9 +56,9 @@ class VmPasteFlowTest {
         val plan = vmPastePlan(gemsText)
         assertTrue("esperava Rejected: $plan", plan is VmPastePlan.Rejected)
         val msg = vmRejectionMessage((plan as VmPastePlan.Rejected).parts)
-        assertTrue(msg.contains("nenhuma das partes é um discurso"))
+        assertTrue(msg.contains("nenhuma das partes gera discurso ou demonstração"))
         assertTrue(msg.contains("Joias espirituais"))
-        assertTrue(msg.contains("O app processa apenas discursos"))
+        assertTrue(msg.contains("demonstrações (FAÇA SEU MELHOR 4-6)"))
     }
 
     @Test
@@ -75,7 +75,7 @@ class VmPasteFlowTest {
     }
 
     @Test
-    fun demo_reconhecido_comAvisoEmBreve() {
+    fun demo_comCabecalho_geraDemonstracao() {
         val plan = vmPastePlan(
             """
             FAÇA SEU MELHOR NO MINISTÉRIO, ponto 4. (3 min)
@@ -83,9 +83,35 @@ class VmPasteFlowTest {
             Corpo.
             """.trimIndent()
         )
-        assertTrue(plan is VmPastePlan.Rejected)
-        val msg = vmRejectionMessage((plan as VmPastePlan.Rejected).parts)
-        assertTrue(msg.contains("demonstração (em breve)"))
+        assertTrue("esperava Demo: $plan", plan is VmPastePlan.Demo)
+        val demo = plan as VmPastePlan.Demo
+        assertEquals(4, demo.demo.partNumber)
+        assertEquals(VmNature.DEMO, demo.demo.nature)
+
+        val section = vmPartSection(demo.demo, noteId = "n1", order = 0, id = "s1", now = 1L)
+        assertEquals(SectionRole.BODY, section.role)
+        assertEquals(3, section.minutes)
+
+        val msg = vmDemoMessage(demo.demo, demo.ignored)
+        assertTrue(msg.contains("vou gerar a demonstração (diálogo)"))
+        assertTrue(msg.contains("Parte 4 (FAÇA SEU MELHOR NO MINISTÉRIO)"))
+    }
+
+    @Test
+    fun demo_semCabecalho_tambemAceita() {
+        // Bug do usuário: parte solta de demonstração sem o cabeçalho da seção.
+        val plan = vmPastePlan(
+            """
+            5. Cultivando o interesse (4 min)
+            DE CASA EM CASA
+            Fale sobre uma das verdades do apêndice A (lmd lição 7 ponto 4).
+            """.trimIndent()
+        )
+        assertTrue("esperava Demo: $plan", plan is VmPastePlan.Demo)
+        val demo = plan as VmPastePlan.Demo
+        assertEquals(5, demo.demo.partNumber)
+        assertEquals(VmNature.DEMO, demo.demo.nature)
+        assertEquals(4, demo.demo.minutes)
     }
 
     @Test
@@ -97,6 +123,7 @@ class VmPasteFlowTest {
     fun materialNature_minutosDoHint() {
         assertEquals(10, materialMinutesOf("TALK:10min"))
         assertEquals(15, materialMinutesOf("TALK:15 min"))
+        assertEquals(7, materialMinutesOf("DEMO:7min"))
         assertEquals(null, materialMinutesOf(null))
         assertEquals(null, materialMinutesOf("TALK:min"))
     }

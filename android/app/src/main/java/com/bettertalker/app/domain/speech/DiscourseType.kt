@@ -23,6 +23,9 @@ package com.bettertalker.app.domain.speech
  *   1 BODY único; sub-pontos representam os 2-3 pontos da apostila.
  * - [MINISTRY_PART]: Faça Seu Melhor no Ministério (3-5 min):
  *   1 BODY único; sub-ponto único representa o ponto de estudo.
+ * - [MINISTRY_TALK]: parte 6 "Discurso" (3-5 min) — fala de mentor,
+ *   NÃO diálogo. Separado de [MINISTRY_PART] na Fase A para impedir que o
+ *   gerador aplique o formato `<b>Publicador:</b>`.
  * - [AVULSO]: parte standalone (leitura da Bíblia, discurso avulso):
  *   1 BODY único sem sub-pontos obrigatórios.
  */
@@ -30,6 +33,7 @@ enum class DiscourseType {
     S34_DISCOURSE,
     TREASURES_TALK,
     MINISTRY_PART,
+    MINISTRY_TALK,
     AVULSO,
     ;
 

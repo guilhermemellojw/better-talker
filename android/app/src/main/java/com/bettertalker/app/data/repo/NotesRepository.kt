@@ -79,8 +79,10 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
                         title = s.title.ifBlank { "Corpo" },
                         minutes = s.minutes,
                         contentHtml = s.contentHtml,
-                        bibleRefs = emptyList(),
-                        publicationRefs = emptyList(),
+                        // Fase A: mesmas refs que o Editor extrai do texto —
+                        // sem isto o FAB criava discursos "sem fonte".
+                        bibleRefs = s.bibleRefs,
+                        publicationRefs = s.publicationRefs,
                         methodPrinciple = null,
                         createdAt = now,
                         updatedAt = now,

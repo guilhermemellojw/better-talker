@@ -21,7 +21,7 @@ class VmTalkSectionRefsTest {
 
     @Test
     fun talkSection_populaRefsBiblicasDoCorpo() {
-        val section = vmTalkSection(
+        val section = vmPartSection(
             part("Tópico 1: Parece que Baruque não estava satisfeito. (Jer. 45:3)"),
             noteId = "n1", order = 0, id = "s1", now = 1L,
         )
@@ -30,7 +30,7 @@ class VmTalkSectionRefsTest {
 
     @Test
     fun talkSection_populaRefsDePublicacaoDoCorpo() {
-        val section = vmTalkSection(
+        val section = vmPartSection(
             part("Tópico 1: Parece que Baruque não estava satisfeito. (w25.07 22 §§ 8-9)"),
             noteId = "n1", order = 0, id = "s1", now = 1L,
         )
@@ -42,7 +42,7 @@ class VmTalkSectionRefsTest {
 
     @Test
     fun talkSection_semRefsNoCorpo_ficaVazia() {
-        val section = vmTalkSection(
+        val section = vmPartSection(
             part("Corpo sem referências."),
             noteId = "n1", order = 0, id = "s1", now = 1L,
         )
