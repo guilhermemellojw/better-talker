@@ -153,4 +153,19 @@ object MigrationSql {
     val MIGRATION_18_19: List<String> = listOf(
         "ALTER TABLE `chat_messages` ADD COLUMN `isActive` INTEGER NOT NULL DEFAULT 1",
     )
+
+    /**
+     * Fase A (v19 -> v20): parte 6 "Discurso" deixa de ser MINISTRY_PART.
+     *
+     * Não há mudança de schema (`discourseType` já é TEXT); a migração é
+     * apenas de DADOS. O sinal seguro disponível é o título gerado pelo
+     * "Colar e Pronto" para a parte 6: "Discurso..." (a demo tem título de
+     * cenário/tipo, nunca começa com "Discurso"). Notas criadas pelo Editor
+     * em uma nota já existente não são tocadas (não há como inferir a parte).
+     */
+    val MIGRATION_19_20: List<String> = listOf(
+        "UPDATE notes SET discourseType = 'MINISTRY_TALK' " +
+            "WHERE discourseType = 'MINISTRY_PART' " +
+            "AND LOWER(TRIM(title)) LIKE 'discurso%'",
+    )
 }
