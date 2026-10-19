@@ -1,11 +1,18 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.0 — release interno (sideload).**
+> **Estágio: v2.2 — release interno (sideload).**
 
 Better Talker é um app Android nativo. Este repositório contém apenas o projeto Android em `android/`. O pacote web legado foi removido.
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
+
+## 🆕 Novidades da v2.2
+
+- **Reasoning visual:** durante a geração, o chat mostra o bloco **“Pensando…”** (colapsado por padrão, expansível ao toque) com o raciocínio do DeepSeek. O texto é **transitório**, não entra na resposta final nem no histórico. Funciona em **Rápido** e **Profundo**; o chip controla o esforço, não a existência do reasoning.
+- **Fase B — colar unificado:** uma única folha para colar material, com prévia, classificação V&M e escolha de destino.
+- **Sync v2.2:** guard de conta (`lastUid`), aborto por relógio fora de 5 min, tombstones de seção/sub-ponto/anexo/outline e `sourceUrl` para reimportar da fonte anexos “missing”.
+- **Pendente:** Language Guide (linguagem simples preservando termos TJ) e auditoria de acessibilidade/privacidade.
 
 ---
 
@@ -17,7 +24,7 @@ Projeto Gradle/Kotlin com Jetpack Compose. Telas: Home (notas, lixeira), Editor 
 - **Publicações:** extrator próprio de **JWPUB** com **página por § indexada** (`FirstPageNumber`/`LastPageNumber` + `DocumentParagraph`) — o RAG resolve referências como `w25.07 22 §§ 8-9` no texto literal; extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
 - **IA (DeepSeek — BYOD):** a **única IA** do app. Chat com streaming token a token usando a chave pessoal do usuário (fica só no aparelho, DataStore). Sem chave ou offline, o app usa o **motor determinístico 100% offline** (não há LLM on-device).
 - **TTS premium (Piper — voz "Jeff") 100% offline:** o modelo (~63MB) e o `espeak-ng-data` pt-BR (subset ~716KB) vêm **embutidos nos assets** (`assets/piper/jeff/`) e são copiados para `files/piper/jeff` no primeiro uso — sem download e sem rede. Fallback: TTS nativo do sistema.
-- **Cloud/sync** com agendador próprio (`SyncWorker`, `SyncScheduler`).
+- **Cloud/sync v2.2** com agendador próprio (`SyncWorker`, `SyncScheduler`): guard de conta (`lastUid`), clock skew de 5 min, tombstones de seção/sub-ponto/anexo/outline e `sourceUrl` para reimportar anexos da fonte.
 
 ### DeepSeek (BYOD — chat de raciocínio)
 
@@ -30,6 +37,7 @@ Para o uso central do app — conversar tópico por tópico, avaliar trade-offs 
 - **Custo estimado:** ~US$ 0,50/mês para uso pessoal típico (BYOD: cada usuário usa a própria chave).
 - **Cache de contexto:** o prompt do DeepSeek é montado com **prefixo estável** (regras + S-34 + fontes ordenadas por id + bloco) e a parte volátil (histórico/mensagem) no fim — o cache persistente do provedor (TTL ~72h) reaproveita o prefixo entre turnos e reduz o custo. Campo volátil no prefixo destrói a economia (há teste JVM travando isso).
 - **Fallback automático:** sem chave ou offline o app usa o **motor determinístico 100% offline** (o DeepSeek é a única IA do app).
+- **Reasoning visual:** o provider separa `reasoning_content` do `content`; o chat mostra o bloco transitório **“Pensando…”** (colapsável) e **nunca** mistura o raciocínio à resposta persistida.
 - **Uso pessoal + amigos:** a chave é pessoal; não há proxy nem chave central. Nunca comite sua chave de API.
 
 ### Modo criação (ilustrações e exemplos)
