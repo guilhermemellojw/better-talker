@@ -267,6 +267,16 @@ class GroundednessVerifierTest {
     }
 
     @Test
+    fun warnOnlyMantemFraseComReferenciaIntacta() {
+        // #verifier-ref: no chat nem a REF é removida; a frase fica inteira e
+        // o aviso conta a referência não verificada.
+        val input = "Conforme a Sentinela de julho, página 22, o contentamento vem de Deus."
+        val r = GroundednessVerifier.verify(input, fontes, warnOnly = true)
+        assertEquals(input, r.text)
+        assertEquals(1, r.metrics.flaggedByCategory[VerificationCategory.REF])
+    }
+
+    @Test
     fun numerosTecnicosDentroDeSugestaoNaoSaoSinalizados() {
         val input = "〈sugestão〉Use 14 passos e 16 minutos; " +
             "cite 20 exemplos e 30 ilustrações.〈/sugestão〉"

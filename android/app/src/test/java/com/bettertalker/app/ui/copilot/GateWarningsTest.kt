@@ -59,6 +59,26 @@ class GateWarningsTest {
     }
 
     @Test
+    fun politicaDoChatMantemTextoEAnexaUmAviso() {
+        val text = "O texto fala de esperança. " +
+            "\"Todos os justos herdarão a terra para sempre.\""
+        val out = verifyChatText(text, corpus)
+        assertEquals(text, out.text)
+        assertNotNull(out.notice)
+        assertTrue(out.result.metrics.hasFlags)
+        assertEquals(1, Regex("⚠️").findAll(out.notice!!).count())
+    }
+
+    @Test
+    fun politicaDoChatLimpoNaoAnexaAviso() {
+        val text = "Deus criou os humanos para viver para sempre."
+        val out = verifyChatText(text, corpus)
+        assertEquals(text, out.text)
+        assertNull(out.notice)
+        assertFalse(out.result.metrics.hasFlags)
+    }
+
+    @Test
     fun fidelidadeInventadaGeraAvisoComMotivo() {
         val notice = fidelityRevisionNotice(
             OratoryFidelityCheck.Report(

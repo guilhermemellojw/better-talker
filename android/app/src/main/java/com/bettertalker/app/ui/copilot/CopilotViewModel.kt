@@ -274,6 +274,23 @@ fun chatVerificationNotice(
     return "⚠️ Revise: " + reasons.joinToString("; ") + ". O texto foi mantido."
 }
 
+/** Resultado da política do chat: texto intacto + aviso único (se houver). */
+data class ChatVerificationOutcome(
+    val result: VerificationResult,
+    val notice: String?,
+) {
+    val text: String get() = result.text
+}
+
+/**
+ * Política do chat remoto: warn-only, texto sempre intacto e um único aviso.
+ * Pura/testável — o ViewModel só publica o resultado.
+ */
+fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome {
+    val result = GroundednessVerifier.verify(text, corpus, warnOnly = true)
+    return ChatVerificationOutcome(result, chatVerificationNotice(text, corpus, result))
+}
+
 /**
  * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
  * acervo (o modelo vai citar 600 chars + comentar; 1000 é apertado). Puro.
@@ -2212,7 +2229,8 @@ class CopilotViewModel(
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
-        val verified = GroundednessVerifier.verify(outText, corpus, warnOnly = true)
+        val outcome = verifyChatText(outText, corpus)
+        val verified = outcome.result
         // Nível 0: o strict shadow mede o “antes” (o que seria removido) sem
         // alterar o texto entregue. Só métricas, nunca conteúdo.
         val strictShadow = GroundednessVerifier.verify(outText, corpus)
@@ -2226,7 +2244,7 @@ class CopilotViewModel(
                     "keptChars=${verified.text.length} strictChars=$strictChars",
             )
         }
-        val notice = chatVerificationNotice(verified.text, corpus, verified)
+        val notice = outcome.notice
         val finalText = if (notice == null) verified.text else verified.text + "\n\n" + notice
         post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT,
             durationMs = res.meta.durationMs, truncated = truncated)
@@ -2334,7 +2352,8 @@ class CopilotViewModel(
                 questionVerseLines(questionVerses, text) +
                 questionPubs.map { it.passage.text },
         )
-        val verified = GroundednessVerifier.verify(text, corpus, warnOnly = true)
+        val outcome = verifyChatText(text, corpus)
+        val verified = outcome.result
         // Nível 0: mede o “antes” (strict) e o “depois” (warn-only) no mesmo
         // turno. O strict shadow NÃO é usado como resposta — só métricas.
         val strictShadow = GroundednessVerifier.verify(text, corpus)
@@ -2349,7 +2368,7 @@ class CopilotViewModel(
             )
         }
         // Aviso ÚNICO: substitui o REMOVAL_NOTICE e o citationRevisionNotice.
-        val notice = chatVerificationNotice(verified.text, corpus, verified)
+        val notice = outcome.notice
         if (notice != null) {
             android.util.Log.w("CopilotLLM", "chat remoto: aviso único do verifier exibido")
         }
