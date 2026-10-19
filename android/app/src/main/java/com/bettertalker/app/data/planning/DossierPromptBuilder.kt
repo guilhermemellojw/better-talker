@@ -1,8 +1,11 @@
 package com.bettertalker.app.data.planning
 
+import com.bettertalker.app.data.copilot.GenerationPrompts
 import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.ReferenceStatus
+import com.bettertalker.app.domain.planning.SpeechPacing
+import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.SectionRole
 
 /** Teto da prosa da seção no dossiê (B1). */
@@ -34,20 +37,10 @@ interface DossierPromptBuilder {
      *
      * F5c: `includeSpeakerNote = false` omite "## ORIENTAÇÃO DO ORADOR"
      * quando o bloco estrutural do S-34 já carrega a orientação (evita a
-     * mesma instrução em dois blocos do mesmo prompt). Draft/mini discurso
-     * mantêm o default `true`.
+     * mesma instrução em dois blocos do mesmo prompt). Draft mantém o
+     * default `true`.
      */
     fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean = true): String
-
-    /**
-     * F2.3: prompt de redação do mini discurso do tópico. Texto puro (sem
-     * JSON) — compatível com respostas em texto puro. Usa o
-     * mesmo contexto do chat (objetivo, linha de raciocínio, abordagem
-     * acordada, fontes).
-     *
-     * Default: degrada para o bloco de contexto (implementações antigas).
-     */
-    fun buildMiniSpeech(dossier: Dossier): String = buildContextBlock(dossier)
 }
 
 /**
@@ -65,7 +58,9 @@ class DefaultDossierPromptBuilder(
         return buildString {
             appendLine(HEADER.trimIndent())
             appendLine()
-            appendContext(dossier)
+            // Draft (JSON): a persona vem do system prompt do provider; o
+            // bloco de chat "MODO MENTOR" não entra aqui.
+            appendContext(dossier, includeMentorHint = false)
             appendTask(dossier)
             appendJsonFormat()
         }.trim()
@@ -73,32 +68,21 @@ class DefaultDossierPromptBuilder(
 
     override fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean): String {
         return buildString {
-            appendContext(dossier, includeSpeakerNote)
+            appendContext(
+                dossier,
+                includeSpeakerNote = includeSpeakerNote,
+                includeMentorHint = true,
+            )
         }.trim()
     }
 
-    /**
-     * F2.3: mini discurso do tópico — UM texto contínuo, em texto puro
-     * (texto puro, sem schema). O objetivo, a linha de
-     * raciocínio e a abordagem acordada já entram no contexto.
-     */
-    override fun buildMiniSpeech(dossier: Dossier): String {
-        return buildString {
-            appendLine(MINI_HEADER.trimIndent())
-            appendLine()
-            appendContext(dossier)
-            appendLine("## TAREFA")
-            appendLine(MINI_TASK.trimIndent())
-            appendLine()
-            appendLine("## FORMATO")
-            // T3 (Mini Discurso P2): meta proporcional ao tempo do tópico.
-            appendLine(miniSpeechFormatLine(dossier.currentSection.minutes))
-            appendLine("Sem títulos, sem listas, sem JSON e sem markdown.")
-        }.trim()
-    }
-
-    private fun StringBuilder.appendContext(d: Dossier, includeSpeakerNote: Boolean = true) {
+    private fun StringBuilder.appendContext(
+        d: Dossier,
+        includeSpeakerNote: Boolean = true,
+        includeMentorHint: Boolean = false,
+    ) {
         appendDiscourse(d)
+        if (includeMentorHint) appendMentorHint(d)
         appendDemoFormat(d)
         appendS38Guidelines(d)
         if (includeSpeakerNote) appendSpeakerNote(d)
@@ -110,6 +94,47 @@ class DefaultDossierPromptBuilder(
         appendMethodPrinciples(d)
         appendTransition(d)
         appendUnresolved(d)
+    }
+
+    /**
+     * Fase A — princípio de MENTORIA no chat: a primeira resposta orienta;
+     * o texto só sai quando o usuário pedir. Só entra no contextBlock (chat),
+     * nunca no prompt JSON de draft.
+     */
+    private fun StringBuilder.appendMentorHint(d: Dossier) {
+        val type = d.discourseType ?: return
+        val isSpeech = type == DiscourseType.S34_DISCOURSE.name ||
+            type == DiscourseType.TREASURES_TALK.name ||
+            type == DiscourseType.MINISTRY_TALK.name ||
+            type == DiscourseType.AVULSO.name
+        // Texto livre também é persistido como S34_DISCOURSE (uma única seção
+        // "Corpo"); não trate uma nota avulsa como discurso. `overview` vazio
+        // = dossiê de teste/legado: mantém a orientação (comportamento seguro).
+        val structuredSpeech = d.overview.isEmpty() || d.overview.size > 1 ||
+            type == DiscourseType.TREASURES_TALK.name ||
+            type == DiscourseType.MINISTRY_TALK.name
+        val hint = when {
+            type == DiscourseType.MINISTRY_PART.name ->
+                GenerationPrompts.DEMO_SCRIPTWRITER_CHAT_HINT
+            isSpeech && structuredSpeech -> GenerationPrompts.SPEECH_MENTOR_CHAT_HINT
+            else -> return
+        }
+        appendLine(hint)
+        val minutes = d.currentSection.minutes
+        if (minutes > 0) {
+            if (type == DiscourseType.MINISTRY_PART.name) {
+                appendLine(
+                    "Duração da seção: $minutes min ≈ " +
+                        "${SpeechPacing.targetTurns(minutes)} réplicas.",
+                )
+            } else {
+                appendLine(
+                    "Duração da seção: $minutes min ≈ " +
+                        "${SpeechPacing.targetWords(minutes)} palavras.",
+                )
+            }
+        }
+        appendLine()
     }
 
     // ---------- seções ----------
@@ -134,7 +159,8 @@ class DefaultDossierPromptBuilder(
      * MINISTRY_PART (as falas viram `<p><b>Papel:</b> texto</p>`, sem listas).
      */
     private fun StringBuilder.appendDemoFormat(d: Dossier) {
-        if (d.discourseType != com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name) {
+        // Fase A: MINISTRY_TALK (parte 6 "Discurso") NÃO é diálogo.
+        if (d.discourseType != DiscourseType.MINISTRY_PART.name) {
             return
         }
         appendLine("## FORMATO DE DEMONSTRAÇÃO")
@@ -142,11 +168,23 @@ class DefaultDossierPromptBuilder(
             "Você está ajudando a escrever um diálogo. Formate as falas usando " +
                 "<p><b>Papel:</b> texto</p>. Não converta em listas."
         )
+        val minutes = d.currentSection.minutes
+        if (minutes > 0) {
+            appendLine(
+                "Duração alvo: $minutes min ≈ ${SpeechPacing.targetTurns(minutes)} réplicas. " +
+                    "Falas curtas (máx. 3 frases por turno)."
+            )
+        }
         appendLine()
     }
 
     /**
-     * S-38: diretrizes da reunião para partes V&M — só no MINISTRY_PART.
+     * S-38: diretrizes da reunião para partes V&M.
+     *
+     * Fase A: vale para MINISTRY_PART (demonstração) e MINISTRY_TALK (parte 6
+     * "Discurso"). O bloco de formato muda: demonstração = diálogo curto;
+     * discurso = fala contínua de mentor, com meta de palavras.
+     *
      * "Colar e Pronto" v2: a descrição (cenário + referência) vira o título do
      * card e o corpo guarda só o diálogo; notas antigas mantêm a descrição no
      * corpo. Cenário/referência saem do título + corpo. O tipo da parte vive no
@@ -154,9 +192,9 @@ class DefaultDossierPromptBuilder(
      * seção (notas antigas).
      */
     private fun StringBuilder.appendS38Guidelines(d: Dossier) {
-        if (d.discourseType != com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name) {
-            return
-        }
+        val isDemo = d.discourseType == DiscourseType.MINISTRY_PART.name
+        val isTalk = d.discourseType == DiscourseType.MINISTRY_TALK.name
+        if (!isDemo && !isTalk) return
         val section = d.currentSection
         val description = buildString {
             append(section.title)
@@ -176,13 +214,24 @@ class DefaultDossierPromptBuilder(
         }
         appendLine(
             buildString {
-                append("Siga o formato desta parte da reunião (não faça um discurso longo). ")
+                if (isTalk) {
+                    append("Esta é uma parte de DISCURSO da reunião (fala contínua, não diálogo). ")
+                    if (section.minutes > 0) {
+                        append(
+                            "Duração alvo: ${section.minutes} min ≈ " +
+                                "${SpeechPacing.targetWords(section.minutes)} palavras. "
+                        )
+                    }
+                } else {
+                    append("Siga o formato desta parte da reunião (não faça um discurso longo). ")
+                }
+                val focus = if (isTalk) "este tema" else "este cenário"
                 if (reference != null) {
                     append("Se o texto de $reference estiver nas FONTES, use-o; ")
-                    append("se não, foque em princípios práticos de oratória para este cenário.")
+                    append("se não, foque em princípios práticos de oratória para $focus.")
                 } else {
                     append("Se a publicação da parte não estiver nas FONTES, ")
-                    append("foque em princípios práticos de oratória para este cenário.")
+                    append("foque em princípios práticos de oratória para $focus.")
                 }
             }
         )
@@ -352,13 +401,19 @@ class DefaultDossierPromptBuilder(
     private fun StringBuilder.appendTask(d: Dossier) {
         appendLine("## TAREFA")
         val hasSubPoint = d.currentSubPoint != null
+        val minutes = d.currentSection.minutes
         when (d.currentSection.role) {
             SectionRole.BODY -> appendLine(
-                if (hasSubPoint) BODY_SUBPOINT_TASK.trimIndent()
-                else BODY_SECTION_TASK.trimIndent()
+                if (hasSubPoint) {
+                    bodySubPointTask(
+                        targetWords = subPointTargetWords(minutes, d.sectionSubPoints.size),
+                    )
+                } else {
+                    bodySectionTask(targetWords = targetWordsForMinutes(minutes))
+                }
             )
-            SectionRole.INTRO -> appendLine(INTRO_TASK.trimIndent())
-            SectionRole.CONCLUSION -> appendLine(CONCLUSION_TASK.trimIndent())
+            SectionRole.INTRO -> appendLine(introTask(targetWordsForMinutes(minutes)))
+            SectionRole.CONCLUSION -> appendLine(conclusionTask(targetWordsForMinutes(minutes)))
         }
         appendLine()
     }
@@ -381,32 +436,11 @@ class DefaultDossierPromptBuilder(
 
     private companion object {
         val HEADER = """
-            Você é um assistente de redação de discursos.
             Gere APENAS o texto da seção indicada. NÃO invente fatos, citações,
             referências ou doutrina. Use SOMENTE o material fornecido abaixo.
         """
 
-        val MINI_HEADER = """
-            Você é um assistente de redação de discursos.
-            Escreva o MINI DISCURSO do tópico indicado. NÃO invente fatos,
-            citações, referências ou doutrina. Use SOMENTE o material fornecido
-            abaixo.
-        """
-
-        val MINI_TASK = """
-            Escreva UM texto único e contínuo para este tópico (um mini discurso).
-            - Trate os sub-pontos como partes de UMA linha de raciocínio; NÃO
-              escreva um texto separado por sub-ponto.
-            - Se houver "ABORDAGEM ACORDADA", siga-a como instrução principal.
-            - Se houver "Objetivo", o texto deve cumpri-lo.
-            - Use os textos bíblicos e trechos de publicações literalmente quando citar.
-            - Se um texto não foi fornecido, NÃO invente; escreva
-              "[desenvolver com base em {ref}]".
-            - Encerre com ponto final; nunca pare no meio de uma frase.
-        """
-
-        val BODY_SUBPOINT_TASK = """
-            Desenvolva o sub-ponto acima em 2-3 parágrafos curtos (100 a 200 palavras).
+        val BODY_SUBPOINT_BULLETS = """
             - Use os textos bíblicos literalmente quando citar.
             - NÃO repita o outlineText literalmente; desenvolva a ideia.
             - Se um texto bíblico não foi fornecido, NÃO invente; escreva
@@ -415,8 +449,7 @@ class DefaultDossierPromptBuilder(
               nunca deixe texto cortado no meio de uma palavra.
         """
 
-        val BODY_SECTION_TASK = """
-            Desenvolva a seção acima em 2-3 parágrafos curtos (150 a 250 palavras).
+        val BODY_SECTION_BULLETS = """
             - Use os textos bíblicos literalmente quando citar.
             - NÃO repita o título literalmente; desenvolva a ideia.
             - Se um texto bíblico não foi fornecido, NÃO invente; escreva
@@ -425,8 +458,16 @@ class DefaultDossierPromptBuilder(
               nunca deixe texto cortado no meio de uma palavra.
         """
 
-        val INTRO_TASK = """
-            Escreva uma abertura (~100-150 palavras) que:
+        fun bodySubPointTask(targetWords: Int?): String =
+            "Desenvolva o sub-ponto acima em ${goalLine(targetWords)}.\n" +
+                BODY_SUBPOINT_BULLETS.trimIndent()
+
+        fun bodySectionTask(targetWords: Int?): String =
+            "Desenvolva a seção acima em ${goalLine(targetWords)}.\n" +
+                BODY_SECTION_BULLETS.trimIndent()
+
+        fun introTask(targetWords: Int?): String = """
+            Escreva uma abertura (${goalLine(targetWords)}) que:
             1. Capture a atenção (gancho ou pergunta).
             2. Apresente o tema.
             3. Transicione para o primeiro ponto.
@@ -434,10 +475,10 @@ class DefaultDossierPromptBuilder(
             - NÃO cubra argumentos dos pontos do corpo.
             - Se estiver se aproximando do limite, encerre a frase atual —
               nunca deixe texto cortado no meio de uma palavra.
-        """
+        """.trimIndent()
 
-        val CONCLUSION_TASK = """
-            Escreva um fechamento (~100-150 palavras) que:
+        fun conclusionTask(targetWords: Int?): String = """
+            Escreva um fechamento (${goalLine(targetWords)}) que:
             1. Recapitule brevemente os pontos principais.
             2. Aplique à vida da assistência.
             3. Termine com um convite ou chamada.
@@ -445,30 +486,33 @@ class DefaultDossierPromptBuilder(
             - NÃO introduza argumentos novos.
             - Se estiver se aproximando do limite, encerre a frase atual —
               nunca deixe texto cortado no meio de uma palavra.
-        """
+        """.trimIndent()
+
+        /** Meta proporcional → "cerca de N palavras"; sem minutos → parágrafos. */
+        fun goalLine(targetWords: Int?): String =
+            if (targetWords != null) "cerca de $targetWords palavras"
+            else "2-3 parágrafos curtos"
     }
 }
 
 /**
- * T3 (Mini Discurso P2): meta de tamanho do mini discurso proporcional ao
- * tempo do tópico (~130 palavras/min, ritmo de fala médio). Sem minutos
- * (ou ≤ 0), mantém o fallback "3 a 5 parágrafos". Puro/testável.
+ * P0 (alinhamento persona/tempo): meta de palavras proporcional ao tempo de
+ * fala do tópico (~130 palavras/min — mesmo ritmo do editor/WordCount).
+ * Sem minutos (null ou ≤ 0) → null: a tarefa usa o fallback em parágrafos.
+ * Puro/testável.
  */
-internal fun miniSpeechFormatLine(minutes: Int?): String {
-    if (minutes == null || minutes <= 0) {
-        return "Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco."
-    }
-    val words = minutes * 130
-    val paragraphs = when {
-        words <= 300 -> "2 a 3 parágrafos"
-        words <= 500 -> "3 a 4 parágrafos"
-        words <= 700 -> "4 a 5 parágrafos"
-        words <= 1000 -> "5 a 7 parágrafos"
-        else -> "8 a 12 parágrafos"
-    }
-    return "Texto corrido em português, cerca de $words palavras ($paragraphs), " +
-        "separados por linha em branco."
-}
+internal fun targetWordsForMinutes(minutes: Int?): Int? =
+    minutes?.takeIf { it > 0 }?.let { SpeechPacing.targetWords(it) }
+
+/**
+ * Meta do sub-ponto: fatia proporcional do tempo da seção entre os
+ * sub-pontos (piso 80 palavras para não pedir fragmentos irrisórios).
+ * Puro/testável.
+ */
+internal fun subPointTargetWords(sectionMinutes: Int?, subPoints: Int): Int? =
+    targetWordsForMinutes(sectionMinutes)
+        ?.div(subPoints.coerceAtLeast(1))
+        ?.coerceAtLeast(80)
 
 /**
  * Diretriz S-38 por tipo de parte da reunião (substring normalizada —

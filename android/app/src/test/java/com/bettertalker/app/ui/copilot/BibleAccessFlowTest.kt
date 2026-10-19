@@ -135,7 +135,7 @@ class BibleAccessFlowTest {
             SelectionContextContract("s1", null, "", ""),
             doc,
         )
-        val prompt = DefaultDossierPromptBuilder().buildMiniSpeech(dossier)
+        val prompt = DefaultDossierPromptBuilder().buildContextBlock(dossier)
 
         assertTrue(prompt.contains("## TEXTOS BÍBLICOS"))
         assertTrue(prompt.contains("Ele fez tudo belo a seu tempo"))

@@ -73,15 +73,22 @@ class DossierPromptBuilderTest {
     }
 
     @Test
-    fun build_bodySubPoint_targets100to200Words() {
-        val prompt = builder.build(dossier(role = SectionRole.BODY, subPoint = subPoint()))
-        assertTrue(prompt.contains("100 a 200"))
+    fun build_bodySubPoint_metaProporcionalAoMinutos() {
+        // 4 min de seção → 520 palavras; 2 sub-pontos → 260 para o atual.
+        val prompt = builder.build(dossier(
+            role = SectionRole.BODY,
+            subPoint = subPoint(),
+            minutes = 4,
+            sectionSubPoints = listOf(subPoint(), subPoint()),
+        ))
+        assertTrue(prompt.contains("cerca de 260 palavras"))
     }
 
     @Test
-    fun build_bodySection_targets150to250Words() {
-        val prompt = builder.build(dossier(role = SectionRole.BODY))
-        assertTrue(prompt.contains("150 a 250"))
+    fun build_bodySection_metaProporcionalAoMinutos() {
+        // 3 min × 130 palavras/min = 390.
+        val prompt = builder.build(dossier(role = SectionRole.BODY, minutes = 3))
+        assertTrue(prompt.contains("cerca de 390 palavras"))
     }
 
     @Test
@@ -291,54 +298,36 @@ class DossierPromptBuilderTest {
         assertTrue(prompt.contains("já desenvolvido: texto já desenvolvido"))
     }
 
-    @Test
-    fun buildMiniSpeech_asksForSingleContinuousText() {
-        val prompt = builder.buildMiniSpeech(
-            dossier(role = SectionRole.BODY, agreedApproach = "situação → princípio → aplicação")
-        )
-        // contexto do tópico entra
-        assertTrue(prompt.contains("ABORDAGEM ACORDADA"))
-        // tarefa de mini discurso, sem JSON
-        assertTrue(prompt.contains("MINI DISCURSO"))
-        assertTrue(prompt.contains("UM texto único e contínuo"))
-        assertTrue(prompt.contains("NÃO"))
-        assertTrue(prompt.contains("um texto separado por sub-ponto"))
-        assertFalse(prompt.contains("usedSources"))
-    }
-
-    // ---------- T3 (Mini Discurso P2): meta proporcional ao tempo ----------
+    // ---------- P0 (alinhamento): meta proporcional ao tempo ----------
 
     @Test
-    fun miniSpeechFormatLine_metaProporcionalAoMinutos() {
-        assertTrue(miniSpeechFormatLine(5).contains("650 palavras"))
-        assertTrue(miniSpeechFormatLine(5).contains("4 a 5 parágrafos"))
-        assertTrue(miniSpeechFormatLine(3).contains("390 palavras"))
-        assertTrue(miniSpeechFormatLine(1).contains("130 palavras"))
+    fun targetWordsForMinutes_ritmo130() {
+        assertEquals(650, targetWordsForMinutes(5))
+        assertEquals(130, targetWordsForMinutes(1))
+        assertEquals(3900, targetWordsForMinutes(30))
     }
 
     @Test
-    fun miniSpeechFormatLine_semMinutos_mantemFallback() {
-        val fallback =
-            "Texto corrido em português, 3 a 5 parágrafos, separados por linha em branco."
-        assertEquals(fallback, miniSpeechFormatLine(null))
-        assertEquals(fallback, miniSpeechFormatLine(0))
-        assertEquals(fallback, miniSpeechFormatLine(-2))
+    fun targetWordsForMinutes_semMinutos_retornaNull() {
+        assertEquals(null, targetWordsForMinutes(null))
+        assertEquals(null, targetWordsForMinutes(0))
+        assertEquals(null, targetWordsForMinutes(-2))
     }
 
     @Test
-    fun miniSpeechFormatLine_valorExtremo_escalaSemQuebrar() {
-        val p = miniSpeechFormatLine(30)
-        assertTrue(p.contains("3900 palavras"))
-        assertTrue(p.contains("8 a 12 parágrafos"))
+    fun subPointTargetWords_fatiaEntreSubPontos() {
+        // 10 min → 1300; 4 sub-pontos → 325.
+        assertEquals(325, subPointTargetWords(10, 4))
+        // Piso de 80 para não pedir fragmentos irrisórios.
+        assertEquals(80, subPointTargetWords(1, 4))
+        assertEquals(1300, subPointTargetWords(10, 0))
+        assertEquals(null, subPointTargetWords(null, 3))
     }
 
     @Test
-    fun buildMiniSpeech_usaAMetaDoTopico() {
-        val prompt = builder.buildMiniSpeech(dossier(role = SectionRole.BODY, minutes = 3))
-        assertTrue(prompt.contains("390 palavras"))
-        // Regras de fidelidade permanecem.
-        assertTrue(prompt.contains("NÃO invente fatos"))
-        assertTrue(prompt.contains("MINI DISCURSO"))
+    fun build_semMinutos_mantemFallbackEmParagrafos() {
+        val prompt = builder.build(dossier(role = SectionRole.BODY, minutes = 0))
+        assertTrue(prompt.contains("2-3 parágrafos curtos"))
     }
 
     // ---------- UX de demonstrações (V&M): formato de diálogo ----------

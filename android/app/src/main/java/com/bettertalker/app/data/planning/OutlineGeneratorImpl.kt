@@ -37,6 +37,8 @@ class OutlineGeneratorImpl(
             maxAttempts = 1, // sem retry automático — evita queimar cota em 429
             timeoutMs = 30_000L, // 30s (free tier é rápido)
             maxOutputTokens = 1500, // cabe no TPM de 8K
+            generationProfile =
+                com.bettertalker.app.domain.planning.GenerationProfile.STRUCTURE_PLANNER,
         )
         val response = try {
             llmProvider.generate(llmRequest)

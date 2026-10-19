@@ -47,6 +47,13 @@ data class LlmRequest(
      * usa o prompt especializado do modo em vez do prompt genérico de edição.
      */
     val oratorySpec: com.bettertalker.app.data.copilot.OratoryGeneration.Spec? = null,
+    /**
+     * Fase A: persona de geração. `CHAT` mantém o caminho histórico; os demais
+     * profiles usam o system prompt de [com.bettertalker.app.data.copilot.GenerationPrompts]
+     * e enviam `text` direto, sem cauda/duplicação de chat.
+     */
+    val generationProfile: com.bettertalker.app.domain.planning.GenerationProfile =
+        com.bettertalker.app.domain.planning.GenerationProfile.CHAT,
     val timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     val maxAttempts: Int = DEFAULT_LLM_MAX_ATTEMPTS,
     /**

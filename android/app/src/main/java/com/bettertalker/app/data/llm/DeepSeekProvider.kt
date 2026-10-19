@@ -567,6 +567,24 @@ class UrlConnectionDeepSeekStreamClient : DeepSeekStreamClient {
  * chat para separar prefixo estável (cache) do volátil.
  */
 private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<String, String> {
+    // Fase A: geração com persona própria — system = persona, user = prompt
+    // direto (sem chatBriefToText, sem blockText duplicado, sem tail).
+    if (request.generationProfile !=
+        com.bettertalker.app.domain.planning.GenerationProfile.CHAT
+    ) {
+        val base = com.bettertalker.app.data.copilot.GenerationPrompts
+            .systemPromptFor(request.generationProfile)
+            .orEmpty()
+        // A persona fala em <texto-do-card> (chat), mas o draft é JSON: nesta
+        // chamada o texto vai no campo `text`, sem marcadores de chat.
+        val system = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) {
+            base + "\n\nFORMATO DESTA CHAMADA: responda APENAS com o JSON solicitado; " +
+                "não use <texto-do-card>, cercas de código ou texto fora do JSON."
+        } else {
+            base
+        }
+        return system to request.text
+    }
     // T1 (modo colar e conversar): prompt minimalista, sem TAIL/regras/RAG.
     request.minimalPaste?.let { pasted ->
         return com.bettertalker.app.data.copilot.buildMinimalPastePrompts(

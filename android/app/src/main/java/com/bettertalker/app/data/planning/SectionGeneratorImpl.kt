@@ -6,8 +6,10 @@ import com.bettertalker.app.data.llm.LlmResponse
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DossierFidelityCheck
+import com.bettertalker.app.domain.planning.GenerationProfile
 import com.bettertalker.app.domain.planning.SectionDraft
 import com.bettertalker.app.domain.planning.SectionGenerator
+import com.bettertalker.app.domain.planning.SpeechPacing
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -35,7 +37,10 @@ class SectionGeneratorImpl(
 
     override suspend fun generate(dossier: Dossier): SectionDraft? {
         val prompt = promptBuilder.build(dossier)
-        val first = callLlm(prompt) ?: return null
+        val budget = draftOutputBudget(dossier.currentSection.minutes)
+        // Fase A: persona pelo tipo persistido — MINISTRY_TALK é discurso.
+        val profile = GenerationProfile.forDiscourseType(dossier.discourseType)
+        val first = callLlm(prompt, budget, profile) ?: return null
         val firstParsed = parse(first) ?: return null
         if (!looksTruncated(firstParsed.textHtml, first.meta.finishReason)) {
             return draftOf(firstParsed, dossier, truncated = false)
@@ -44,7 +49,7 @@ class SectionGeneratorImpl(
         val retryPrompt = prompt + "\n\n## ATENÇÃO\n" +
             "A resposta anterior foi cortada antes do fim. Escreva o " +
             "rascunho completo, encerrando com ponto final. Não pare no meio."
-        val second = callLlm(retryPrompt)
+        val second = callLlm(retryPrompt, budget, profile)
             ?: return draftOf(firstParsed, dossier, truncated = true)
         val secondParsed = parse(second)
             ?: return draftOf(firstParsed, dossier, truncated = true)
@@ -64,14 +69,19 @@ class SectionGeneratorImpl(
         return draftOf(secondParsed.copy(textHtml = clean), dossier, truncated = true)
     }
 
-    private suspend fun callLlm(prompt: String): LlmResponse? {
+    private suspend fun callLlm(
+        prompt: String,
+        maxOutputTokens: Int,
+        profile: GenerationProfile,
+    ): LlmResponse? {
         val llmRequest = LlmRequest(
             text = prompt,
             responseFormat = ResponseFormat.JSON_SCHEMA,
             jsonSchema = SECTION_DRAFT_SCHEMA,
             maxAttempts = 1, // sem retry automático — evita queimar cota em 429
             timeoutMs = 30_000L,
-            maxOutputTokens = 500, // alvo maior (BODY ~250 palavras) + JSON cabem; o teto é safety net
+            maxOutputTokens = maxOutputTokens,
+            generationProfile = profile,
         )
         return try {
             llmProvider.generate(llmRequest)
@@ -121,4 +131,17 @@ class SectionGeneratorImpl(
                 "\"required\":[\"text\",\"usedSources\"]," +
                 "\"additionalProperties\":false}}"
     }
+}
+
+/**
+ * P0 (alinhamento persona/tempo): orçamento de saída proporcional à meta de
+ * palavras da seção (~130 palavras/min; ~1,45 tokens/palavra + folga do
+ * JSON). Piso 500 (comportamento antigo) e teto 1280 — o mesmo comprovado
+ * no fluxo oratório (2048 sempre toma 429 no OTPM 1000/min do plano
+ * gratuito; 1280 nunca truncou em execuções reais). Puro/testável.
+ */
+internal fun draftOutputBudget(minutes: Int?): Int {
+    val words = minutes?.takeIf { it > 0 }?.let { SpeechPacing.targetWords(it) } ?: 0
+    val tokens = words * 145 / 100 + 120
+    return tokens.coerceIn(500, 1280)
 }
