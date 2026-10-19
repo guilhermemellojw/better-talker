@@ -130,11 +130,19 @@ class DefaultOutlinePromptBuilder : OutlinePromptBuilder {
             {"title":"string","summary":"string","sections":[{"title":"string","minutes":0,"mainIdea":"string","bibleRefs":["string"],"publicationRefs":[{"symbol":"string","page":0,"paragraph":0}],"methodPrinciple":"string"}]}
         """.trimIndent()
         // #8b: hint V&M — discurso completo com a duração da parte.
+        // S-38: DEMO gera a demonstração (diálogo), não um discurso.
         val vmHint = request.materialNature?.let { nature ->
             val minutes = materialMinutesOf(nature) ?: request.totalMinutes
-            "Este material é da reunião Vida e Ministério (discurso).\n" +
-                "Gere um discurso COMPLETO: introdução, desenvolvimento e conclusão.\n" +
-                "Duração alvo: $minutes minutos."
+            if (nature.startsWith("DEMO")) {
+                "Este material é uma demonstração da reunião Vida e Ministério (diálogo).\n" +
+                    "Gere a estrutura completa da demonstração: abertura, desenvolvimento " +
+                    "do diálogo e conclusão.\n" +
+                    "Duração alvo: $minutes minutos."
+            } else {
+                "Este material é da reunião Vida e Ministério (discurso).\n" +
+                    "Gere um discurso COMPLETO: introdução, desenvolvimento e conclusão.\n" +
+                    "Duração alvo: $minutes minutos."
+            }
         }
         return if (vmHint == null) {
             prompt
