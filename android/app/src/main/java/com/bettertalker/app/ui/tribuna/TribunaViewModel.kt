@@ -181,7 +181,8 @@ class TribunaViewModel(
     }
 
     override fun onCleared() {
-        speaker.shutdown()
+        // Ownership é do processo (TtsLifecycle); a tela só para a fala.
+        speaker.stop()
         super.onCleared()
     }
 
@@ -200,7 +201,7 @@ class TribunaViewModel(
             val speaker = object : TribunaSpeaker {
                 override fun speak(text: String) = tts.speak(text)
                 override fun stop() = tts.stop()
-                override fun shutdown() = tts.shutdown()
+                override fun shutdown() = tts.stop()
                 override val speaking: Flow<Boolean> = tts.speaking
             }
             val prefs = object : TribunaFontPrefs {

@@ -4899,7 +4899,8 @@ class CopilotViewModel(
 
     override fun onCleared() {
         speechRecognizer.destroy()
-        textToSpeech.shutdown()
+        // Ownership é do processo (TtsLifecycle); a tela só para a fala.
+        textToSpeech.stop()
         super.onCleared()
     }
 
