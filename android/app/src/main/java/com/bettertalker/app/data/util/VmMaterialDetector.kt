@@ -23,7 +23,7 @@ import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 
 enum class VmSection { TREASURES, MINISTRY, CHRISTIAN_LIFE }
 
-enum class VmNature { TALK, DEMO, GEMS, BIBLE_READING, CONGREGATION_STUDY }
+enum class VmNature { TALK, DEMO, CONSIDERATION, GEMS, BIBLE_READING, CONGREGATION_STUDY }
 
 data class VmPart(
     val section: VmSection,
@@ -49,35 +49,76 @@ fun VmSection.label(): String = when (this) {
 fun VmNature.label(): String = when (this) {
     VmNature.TALK -> "discurso"
     VmNature.DEMO -> "demonstração"
+    VmNature.CONSIDERATION -> "consideração"
     VmNature.GEMS -> "Joias espirituais"
     VmNature.BIBLE_READING -> "Leitura da Bíblia"
     VmNature.CONGREGATION_STUDY -> "Estudo bíblico de congregação"
 }
 
-/** Natureza pela seção+número; null = fora da tabela (parte ignorada). */
-fun vmNatureOf(section: VmSection, partNumber: Int, title: String): VmNature? =
-    when (section) {
-        VmSection.TREASURES -> when (partNumber) {
-            1 -> VmNature.TALK
-            2 -> VmNature.GEMS
-            3 -> VmNature.BIBLE_READING
-            else -> null
-        }
-        VmSection.MINISTRY -> when (partNumber) {
-            4, 5 -> VmNature.DEMO
-            6 -> if (title.contains("discurso", ignoreCase = true)) {
-                VmNature.TALK
-            } else {
-                VmNature.DEMO
+/**
+ * Natureza da parte. Para MINISTRY, a classificação é por **título + rótulo**
+ * (o que a apostila diz), não pela posição 4/5/6.
+ *
+ * Casos reais cobertos:
+ * - "5. Explicar as suas crenças (5 min) Discurso" → TALK;
+ * - "6. Explicar as suas crenças (5 min) Demonstração" → DEMO;
+ * - "6. Discurso (5 min)" → TALK;
+ * - "6. O que você diria? (6 min) Consideração" → CONSIDERATION;
+ * - "4. Perseverança – O que Paulo fez (7 min) Discurso..." → TALK.
+ *
+ * `body` é necessário para ler o rótulo quando ele vem depois dos minutos.
+ * O parâmetro tem default para preservar chamadas antigas. Puro/testável.
+ */
+fun vmNatureOf(
+    section: VmSection,
+    partNumber: Int,
+    title: String,
+    body: String = "",
+): VmNature? = when (section) {
+    VmSection.TREASURES -> when (partNumber) {
+        1 -> VmNature.TALK
+        2 -> VmNature.GEMS
+        3 -> VmNature.BIBLE_READING
+        else -> null
+    }
+    VmSection.MINISTRY -> {
+        val t = normalizeText(title)
+        val haystack = normalizeText("$title $body")
+        when {
+            // Tipos de demonstração (título é o tipo da parte).
+            VM_DEMO_PART_TYPES.any { t.startsWith(it) } -> VmNature.DEMO
+
+            // "Explicando/Explicar as suas crenças" pode ser demo OU discurso;
+            // o rótulo manda. Sem rótulo, mantém o default histórico (DEMO).
+            t.startsWith("explicando suas crencas") ||
+            t.startsWith("explicando as suas crencas") ||
+            t.startsWith("explicar as suas crencas") ||
+            t.startsWith("explicar suas crencas") -> when {
+                haystack.contains("consideracao") -> VmNature.CONSIDERATION
+                haystack.contains("demonstracao") -> VmNature.DEMO
+                haystack.contains("discurso") -> VmNature.TALK
+                else -> VmNature.DEMO
             }
-            else -> null
-        }
-        VmSection.CHRISTIAN_LIFE -> when (partNumber) {
-            7 -> VmNature.TALK
-            8 -> VmNature.CONGREGATION_STUDY
+
+            t.startsWith("discurso") -> VmNature.TALK
+
+            // "O que você diria?" é a consideração; o rótulo também confirma.
+            t.startsWith("o que voce diria") ||
+            haystack.contains("consideracao") -> VmNature.CONSIDERATION
+
+            // Rótulos explícitos no título/corpo (ex.: Perseverança + Discurso).
+            haystack.contains("demonstracao") -> VmNature.DEMO
+            haystack.contains("discurso") -> VmNature.TALK
+
             else -> null
         }
     }
+    VmSection.CHRISTIAN_LIFE -> when (partNumber) {
+        7 -> VmNature.TALK
+        8 -> VmNature.CONGREGATION_STUDY
+        else -> null
+    }
+}
 
 private val SECTION_HEADERS = listOf(
     "TESOUROS DA PALAVRA DE DEUS" to VmSection.TREASURES,
@@ -133,8 +174,16 @@ private val VM_PART_TYPES = listOf(
     "Iniciando conversas",
     "Cultivando o interesse",
     "Fazendo discípulos",
+    "Fazer discípulos",
+    "Faça discípulos",
+    "Comece uma conversa",
+    "Começar uma conversa",
+    "Faça revisitas",
     "Explicando suas crenças",
+    "Explicar as suas crenças",
     "Discurso",
+    "O que você diria?",
+    "Perseverança",
 )
 
 /** Cenários reais das apostilas (canônicos na saída; case-insensitive na busca). */
@@ -144,11 +193,24 @@ private val VM_SCENARIOS = listOf(
     "TESTEMUNHO PÚBLICO",
 )
 
-/** Tipos que são demonstração quando há cenário (mesmo sem a palavra). */
+/**
+ * Prefixos (normalizados: sem acento/caixa) que identificam uma demonstração
+ * pelo título da parte, mesmo sem cenário. Inclui as variações reais das
+ * apostilas ("Comece uma conversa", "Faça revisitas", "Visita inicial").
+ */
 private val VM_DEMO_PART_TYPES = listOf(
-    "Iniciando conversas",
-    "Cultivando o interesse",
-    "Fazendo discípulos",
+    "iniciando conversas",
+    "cultivando o interesse",
+    "fazendo discipulos",
+    "fazer discipulos",
+    "faca discipulos",
+    "comece uma conversa",
+    "comecar uma conversa",
+    "inicie uma conversa",
+    "faca revisitas",
+    "fazer revisitas",
+    "visita",
+    "revisita",
 )
 
 /**
@@ -170,8 +232,12 @@ fun vmScenarioOf(text: String): String? {
 fun vmReferenceOf(text: String): String? =
     VM_REFERENCE_RE.find(text)?.groupValues?.get(1)?.trim()
 
-/** Rótulos explícitos de natureza no texto da parte. */
-private val VM_LABELS = listOf("demonstração", "discurso", "consideração")
+/** Rótulos explícitos de natureza no texto da parte (com e sem acento). */
+private val VM_LABELS = listOf(
+    "demonstração", "demonstracao",
+    "discurso",
+    "consideração", "consideracao",
+)
 
 /** Termos que confirmam contexto V&M (apêndice ou papéis do diálogo). */
 private val VM_CONTEXT_MARKERS = listOf(
@@ -330,12 +396,17 @@ private fun classifyNature(
     title: String,
     body: String,
 ): VmNature? {
-    vmNatureOf(section, number, title)?.let { return it }
+    // A classificação por título+rótulo manda; o fallback abaixo só existe
+    // para títulos fora da tabela (ex.: descrição no lugar do tipo da parte).
+    vmNatureOf(section, number, title, body)?.let { return it }
     val lower = body.lowercase()
+    val normalized = normalizeText(body)
     return when {
-        lower.contains("demonstração") -> VmNature.DEMO
-        lower.contains("consideração") -> VmNature.TALK
-        lower.contains("discurso") -> VmNature.TALK
+        normalized.contains("consideracao") -> VmNature.CONSIDERATION
+        normalized.contains("demonstracao") -> VmNature.DEMO
+        normalized.contains("discurso") -> VmNature.TALK
+        // Papéis do diálogo são um sinal forte de demonstração.
+        lower.contains("publicador:") || lower.contains("morador:") -> VmNature.DEMO
         else -> null
     }
 }
@@ -600,7 +671,16 @@ sealed interface VmPastePlan {
     /** S-38: demonstração (diálogo) — aceita quando não há TALK no material. */
     data class Demo(val demo: VmPart, val ignored: List<VmPart>) : VmPastePlan
 
-    /** Material V&M sem TALK nem DEMO: rejeição limpa (sem draft). */
+    /**
+     * Consideração (ex.: "O que você diria?"): UM card único, sem a estrutura
+     * de 3 cards do discurso.
+     */
+    data class Consideration(
+        val consideration: VmPart,
+        val ignored: List<VmPart>,
+    ) : VmPastePlan
+
+    /** Material V&M sem TALK, DEMO ou CONSIDERATION: rejeição limpa. */
     data class Rejected(val parts: List<VmPart>) : VmPastePlan
 
     /** Não é V&M: fluxo genérico (S-34/candidatos) intacto. */
@@ -617,6 +697,10 @@ fun vmPastePlan(text: String): VmPastePlan {
     // cabeçalho da seção (detecção solta "5. Título (4 min)" + cenário).
     parts.firstOrNull { it.nature == VmNature.DEMO }?.let { demo ->
         return VmPastePlan.Demo(demo, parts - demo)
+    }
+    // Consideração: card único (ex.: "O que você diria?").
+    parts.firstOrNull { it.nature == VmNature.CONSIDERATION }?.let { consideration ->
+        return VmPastePlan.Consideration(consideration, parts - consideration)
     }
     return VmPastePlan.Rejected(parts)
 }
@@ -649,15 +733,35 @@ fun vmDemoMessage(demo: VmPart, ignored: List<VmPart>): String = buildString {
     }
 }
 
-/** Mensagem do chat quando nenhuma parte gera (sem discurso nem demonstração). */
+/** Mensagem do chat quando há CONSIDERATION (com o resto ignorado). */
+fun vmConsiderationMessage(
+    consideration: VmPart,
+    ignored: List<VmPart>,
+): String = buildString {
+    append("Reconheci material V&M.\n")
+    append(
+        "✓ Parte ${consideration.partNumber} (${consideration.section.label()}): " +
+            "${consideration.title} (${consideration.minutes} min) — vou preparar a consideração."
+    )
+    if (ignored.isNotEmpty()) {
+        append("\n\nIgnorei: ")
+        append(ignored.joinToString("; ") { "parte ${it.partNumber} — ${it.nature.label()}" })
+        append(".")
+    }
+}
+
+/** Mensagem do chat quando nenhuma parte gera (sem discurso/demo/consideração). */
 fun vmRejectionMessage(parts: List<VmPart>): String = buildString {
+    // Mantém a frase histórica consumida pelos testes/UX; as considerações
+    // entram na lista de partes e na explicação final.
     append("Reconheci material V&M, mas nenhuma das partes gera discurso ou demonstração:\n")
     parts.forEach { p ->
         append("- ${p.section.label()} parte ${p.partNumber} — ${p.nature.label()}\n")
     }
     append(
         "\nO app processa discursos (TESOUROS 1, NOSSA VIDA 7, FAÇA SEU MELHOR " +
-            "parte 6 quando é discurso) e demonstrações (FAÇA SEU MELHOR 4-6)."
+            "parte 6 quando é discurso), demonstrações (FAÇA SEU MELHOR 4-6) " +
+            "e considerações (O que você diria?)."
     )
 }
 

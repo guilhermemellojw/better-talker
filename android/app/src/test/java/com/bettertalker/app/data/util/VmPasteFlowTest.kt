@@ -115,6 +115,28 @@ class VmPasteFlowTest {
     }
 
     @Test
+    fun consideracao_geraCardUnicoEMensagem() {
+        val plan = vmPastePlan(
+            """
+            6. O que você diria? (6 min) Consideração.
+            Pergunte à assistência como cada um responderia.
+            """.trimIndent()
+        )
+        assertTrue("esperava Consideration: $plan", plan is VmPastePlan.Consideration)
+        val consideration = plan as VmPastePlan.Consideration
+        assertEquals(6, consideration.consideration.partNumber)
+        assertEquals(VmNature.CONSIDERATION, consideration.consideration.nature)
+        assertEquals(6, consideration.consideration.minutes)
+
+        val message = vmConsiderationMessage(
+            consideration.consideration,
+            consideration.ignored,
+        )
+        assertTrue(message.contains("vou preparar a consideração"))
+        assertTrue(message.contains("Parte 6"))
+    }
+
+    @Test
     fun s34_naoEhVm_fluxoGenerico() {
         assertTrue(vmPastePlan(S34Fixture.TEXT) is VmPastePlan.Generic)
     }

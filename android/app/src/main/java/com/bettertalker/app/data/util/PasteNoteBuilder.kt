@@ -56,6 +56,10 @@ sealed interface PasteKind {
     data class S34(val outline: ParsedOutline) : PasteKind
     data class VmTalk(val part: VmPart, val ignored: List<VmPart>) : PasteKind
     data class VmDemo(val part: VmPart, val ignored: List<VmPart>) : PasteKind
+    data class VmConsideration(
+        val part: VmPart,
+        val ignored: List<VmPart>,
+    ) : PasteKind
     data class VmRejected(val parts: List<VmPart>) : PasteKind
     data object FreeText : PasteKind
 }
@@ -258,8 +262,43 @@ fun planPaste(raw: String): PastePlan {
         )
     }
 
-    // V&M reconhecido, mas sem TALK/DEMO (Joias, Leitura, Estudo): rejeição
-    // explícita — nunca criar nota genérica silenciosamente.
+    // Consideração (ex.: "O que você diria?"): UM card único, sem a estrutura
+    // de Intro/Corpo/Conclusão do discurso. Persistida como AVULSO (single
+    // BODY) para o gerador usar a persona de mentor, não o roteirista de demo.
+    val consideration = parts.firstOrNull { it.nature == VmNature.CONSIDERATION }
+    if (consideration != null) {
+        val ignored = parts - consideration
+        val body = consideration.body.ifBlank { trimmed }
+        val partTitle = consideration.title.ifBlank { "Consideração" }
+        val minutes = consideration.minutes.takeIf { it > 0 } ?: 5
+        val (bible, pubs) = extractRefsFromBody(body)
+        val sections = listOf(
+            PastedSection(
+                role = SectionRole.BODY,
+                title = partTitle,
+                minutes = minutes,
+                contentHtml = paragraphsToHtml(body),
+                bibleRefs = bible,
+                publicationRefs = pubs,
+            ),
+        )
+        return PastePlan(
+            kind = PasteKind.VmConsideration(consideration, ignored),
+            noteTitle = "$partTitle ($minutes min)",
+            discourseType = DiscourseType.AVULSO,
+            sections = sections,
+            plainText = normalizePastedText(body),
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            generationProfile = GenerationProfile.SPEECH_MENTOR,
+            notice = "Consideração reconhecida: parte ${consideration.partNumber} " +
+                "(${minutes} min)." + ignoredSuffix(ignored),
+            ignoredParts = ignored,
+        )
+    }
+
+    // V&M reconhecido, mas sem TALK/DEMO/Consideração (Joias, Leitura,
+    // Estudo): rejeição explícita — nunca criar nota genérica silenciosamente.
     if (parts.isNotEmpty()) {
         val (bible, pubs) = extractRefsFromBody(trimmed)
         return PastePlan(

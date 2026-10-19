@@ -522,16 +522,20 @@ internal fun subPointTargetWords(sectionMinutes: Int?, subPoints: Int): Int? =
 internal fun s38GuidanceFor(partType: String): String? {
     val t = com.bettertalker.app.data.util.normalizeText(partType)
     return when {
-        t.contains("iniciando conversas") || t.contains("comece uma conversa") ->
+        t.contains("iniciando conversas") || t.contains("iniciar conversas") ||
+            t.contains("comece uma conversa") || t.contains("inicie uma conversa") ->
             "O objetivo é iniciar uma conversa amigável, despertar interesse e " +
                 "deixar um assunto para a próxima visita. Use um tom natural e não faça discursos."
-        t.contains("cultivando o interesse") || t.contains("cultive o interesse") ->
+        t.contains("cultivando o interesse") || t.contains("cultivar o interesse") ||
+            t.contains("cultive o interesse") ->
             "O objetivo é cultivar o interesse demonstrado anteriormente, usando " +
                 "uma pergunta de transição e oferecendo uma publicação."
-        t.contains("fazendo discipulos") || t.contains("faca discipulos") ->
+        t.contains("fazendo discipulos") || t.contains("fazer discipulos") ||
+            t.contains("faca discipulos") ->
             "O objetivo é ajudar a pessoa a progredir rumo ao batismo — use a " +
                 "Bíblia com respeito e ofereça um estudo bíblico."
-        t.contains("explicando suas crencas") ->
+        t.contains("explicando suas crencas") || t.contains("explicar as suas crencas") ||
+            t.contains("explicar suas crencas") ->
             "O objetivo é explicar uma crença de forma simples e respeitosa, " +
                 "com base na Bíblia, sem entrar em discussão."
         else -> null

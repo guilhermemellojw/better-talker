@@ -4351,7 +4351,8 @@ class CopilotViewModel(
         val plan = planPaste(normalized)
         when (val kind = plan.kind) {
             is PasteKind.VmTalk,
-            is PasteKind.VmDemo -> {
+            is PasteKind.VmDemo,
+            is PasteKind.VmConsideration -> {
                 applyVmPastePlan(plan)
                 return@launch
             }

@@ -139,6 +139,60 @@ class PastePlanTest {
     }
 
     @Test
+    fun consideracao_criaUmCardUnicoComPersonaDeMentor() {
+        val text = """
+            6. O que você diria? (6 min) Consideração.
+            Pergunte à assistência como cada um responderia.
+        """.trimIndent()
+
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmConsideration)
+        assertEquals(DiscourseType.AVULSO, plan.discourseType)
+        assertEquals(GenerationProfile.SPEECH_MENTOR, plan.generationProfile)
+        assertEquals("O que você diria? (6 min)", plan.noteTitle)
+        assertEquals(1, plan.sections.size)
+        val card = plan.sections.single()
+        assertEquals("O que você diria?", card.title)
+        assertEquals(6, card.minutes)
+        assertTrue(card.contentHtml.contains("assistência"))
+        assertTrue(plan.notice.orEmpty().contains("Consideração"))
+    }
+
+    @Test
+    fun explicarCrencasDiscurso_viraTalkComTresCards() {
+        val text = "5. Explicar as suas crenças (5 min) Discurso. " +
+            "Use uma abordagem simples e respeitosa."
+
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmTalk)
+        assertEquals(DiscourseType.MINISTRY_TALK, plan.discourseType)
+        assertEquals(GenerationProfile.SPEECH_MENTOR, plan.generationProfile)
+        assertEquals(3, plan.sections.size)
+    }
+
+    @Test
+    fun perseverancaDiscurso_viraTalkComTresCards() {
+        val text = "4. Perseverança – O que Paulo fez (7 min) Discurso com participação. " +
+            "Convide a assistência a comentar."
+
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmTalk)
+        assertEquals(3, plan.sections.size)
+    }
+
+    @Test
+    fun explicarCrencasDemonstracao_viraDemoComUmCard() {
+        val text = "6. Explicar as suas crenças (5 min) Demonstração. " +
+            "Prepare uma resposta respeitosa sobre a esperança."
+
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmDemo)
+        assertEquals(DiscourseType.MINISTRY_PART, plan.discourseType)
+        assertEquals(GenerationProfile.DEMO_SCRIPTWRITER, plan.generationProfile)
+        assertEquals(1, plan.sections.size)
+    }
+
+    @Test
     fun demo_continuaMinistryPartComPersonaDeRoteirista() {
         val text = """
             FAÇA SEU MELHOR NO MINISTÉRIO

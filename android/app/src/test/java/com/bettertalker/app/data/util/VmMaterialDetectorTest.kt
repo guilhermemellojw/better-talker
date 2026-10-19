@@ -256,6 +256,46 @@ class VmMaterialDetectorTest {
     }
 
     @Test
+    fun parte6_explicarCrencas_comDemonstracao_detectaDemo() {
+        val part = single(
+            "6. Explicar as suas crenças (5 min) Demonstração. " +
+                "Prepare uma resposta respeitosa sobre a esperança."
+        )
+        assertEquals(VmNature.DEMO, part.nature)
+        assertEquals("Explicar as suas crenças", part.partType)
+    }
+
+    @Test
+    fun parte6_oQueVoceDiria_comConsideracao_detectaConsideration() {
+        val part = single(
+            "6. O que você diria? (6 min) Consideração. " +
+                "Pergunte à assistência como responderiam."
+        )
+        assertEquals(VmNature.CONSIDERATION, part.nature)
+        assertEquals("O que você diria?", part.partType)
+    }
+
+    @Test
+    fun parte5_explicarCrencas_comDiscurso_detectaTalk() {
+        val part = single(
+            "5. Explicar as suas crenças (5 min) Discurso. " +
+                "Use uma abordagem simples e respeitosa."
+        )
+        assertEquals(VmNature.TALK, part.nature)
+        assertEquals("Explicar as suas crenças", part.partType)
+    }
+
+    @Test
+    fun parte4_perseveranca_comDiscurso_detectaTalk() {
+        val part = single(
+            "4. Perseverança – O que Paulo fez (7 min) Discurso com participação. " +
+                "Convide a assistência a comentar."
+        )
+        assertEquals(VmNature.TALK, part.nature)
+        assertEquals("Perseverança", part.partType)
+    }
+
+    @Test
     fun parte4_testemunhoInformal_detectaDemo() {
         val part = single("4. Iniciando conversas (3 min) TESTEMUNHO INFORMAL.")
         assertEquals(VmNature.DEMO, part.nature)
