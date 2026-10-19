@@ -138,6 +138,11 @@ private val TIME_ONLY_RE = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+/** Ref bíblica "Livro C:V" — inclusive abreviações fora do mapa do RefDetector. */
+private val BIBLE_REF_HINT_RE = Regex(
+    """\b(?:[1-3]\s*)?[A-Za-zÀ-ÿ]{2,}\.?\s+\d{1,3}\s*:\s*\d{1,3}\b""",
+)
+
 // #24-fix A1/A3: "Título: X (N min)" — formato real da apostila sem o
 // cabeçalho de seção ou logo após ele.
 private val TITULO_RE = Regex(
@@ -581,6 +586,91 @@ private fun hasPartSignal(text: String): Boolean {
         VM_NATURE_MARKERS.any { lower.contains(it) }
 }
 
+/** O trecho tem pelo menos 2 refs (Bíblia + publicação) no corpo? */
+private fun hasRefSignal(text: String): Boolean {
+    val (bible, pubs) = extractRefsFromBody(text)
+    return bible.size + pubs.size >= 2
+}
+
+/**
+ * Título + `(N min)` no mesmo bloco, com ou sem quebras de linha:
+ * cobre o Formato 5 (tudo inline) e os Formatos 1/4 depois que o
+ * [PasteTextNormalizer] junta `(N min)` à linha do título.
+ *
+ * Só aceita com `(N min)` entre parênteses, título curto, 3–15 min, ≥2 sinais
+ * de ref (Bíblia + publicação). O sinal de publicação é a mitigação extra
+ * contra texto livre com minutos e refs bíblicas esporádicas.
+ */
+private fun detectSingleLineVmPart(text: String): VmPart? {
+    val time = PAREN_MIN_RE.find(text) ?: return null
+    val minutes = time.groupValues[1].toIntOrNull() ?: return null
+    if (minutes !in 3..15) return null
+    val title = text.substring(0, time.range.first).trim()
+    if (title.isEmpty() || title.length >= 80) return null
+    val firstLine = title.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    if (firstLine.isBlank()) return null
+    if (headerOf(firstLine) != null) return null
+    // Formato numerado (2/3) tem tratamento próprio em detectLoose/headers.
+    if (parsePartLine(firstLine) != null) return null
+    val body = text.substring(time.range.last + 1).trim()
+    if (body.isBlank()) return null
+    if (PAREN_MIN_RE.containsMatchIn(body)) return null
+    val (bible, pubs) = extractRefsFromBody(body)
+    if (pubs.isEmpty()) return null
+    // ≥2 sinais de ref: Bíblia reconhecida/abreviação comum OU 2 publicações.
+    // "Sl 19:1" não está no mapa do RefDetector, mas é uma ref bíblica óbvia.
+    val hasBible = bible.isNotEmpty() || BIBLE_REF_HINT_RE.containsMatchIn(body)
+    if (!hasBible && pubs.size < 2) return null
+    val (section, partNumber) = when (minutes) {
+        10 -> VmSection.TREASURES to 1
+        in 3..4 -> VmSection.MINISTRY to 4
+        in 5..6 -> VmSection.MINISTRY to 6
+        else -> VmSection.TREASURES to 1
+    }
+    return buildPart(section, partNumber, title, minutes, body.lines())
+        ?: VmPart(section, partNumber, title, minutes, VmNature.TALK, body)
+}
+
+/**
+ * Parte 1 de Tesouros colada SEM número e SEM cabeçalho:
+ * `Título curto` + linha `(N min)` + corpo com ≥2 refs.
+ *
+ * Estrutura + minutos + refs — nunca keyword do título. Só aceita 10 min
+ * (âncora da parte 1) ou 3–15 min (outras partes sem número), e rejeita
+ * textos com outra linha de minutos (provável esboço S-34).
+ */
+private fun detectSinglePart(text: String): VmPart? {
+    val lines = text.split("\n")
+    val nonEmpty = lines.withIndex().filter { it.value.isNotBlank() }
+    if (nonEmpty.size < 3) return null
+    val title = nonEmpty[0].value.trim()
+    if (title.isBlank() || title.length >= 80) return null
+    if (headerOf(title) != null) return null
+    // Formato numerado (2/3) tem tratamento próprio (parsePartLine/detectLoose).
+    if (parsePartLine(title) != null) return null
+
+    val timeLine = nonEmpty[1].value.trim()
+    if (!TIME_ONLY_RE.matches(timeLine)) return null
+    val minutes = MIN_RE.find(timeLine)?.groupValues?.get(1)?.toIntOrNull() ?: return null
+    if (minutes != 10 && minutes !in 3..15) return null
+
+    val bodyStart = nonEmpty[1].index + 1
+    val bodyLines = lines.drop(bodyStart)
+    val body = bodyLines.joinToString("\n").trim()
+    if (body.isBlank()) return null
+    // Outra linha "(N min)" indica esboço com múltiplas seções, não parte única.
+    if (bodyLines.any { TIME_ONLY_RE.matches(it.trim()) }) return null
+    if (!hasRefSignal(body)) return null
+
+    return buildPart(
+        section = VmSection.TREASURES,
+        number = 1,
+        title = title,
+        minutes = minutes,
+        bodyLines = bodyLines,
+    )
+}
+
 /**
  * Caminho SEM cabeçalho: varre TODAS as linhas (não só a primeira), aceita
  * múltiplas partes soltas e usa o mesmo [parsePartLine] do caminho com
@@ -613,7 +703,24 @@ private fun detectLoose(text: String): List<VmPart> {
                 .take(3)
                 .forEach { appendLine(it) }
         }
-        if (!hasPartSignal(window)) continue
+        val nextNonEmpty = lines.asSequence().drop(i + 1)
+            .firstOrNull { it.isNotBlank() }?.trim()
+        val explicitMinutes = p.minutes ?: nextNonEmpty?.let {
+            if (TIME_ONLY_RE.matches(it)) {
+                MIN_RE.find(it)?.groupValues?.get(1)?.toIntOrNull()
+            } else {
+                null
+            }
+        }
+        val plausibleMinutes = explicitMinutes != null &&
+            (explicitMinutes == 10 || explicitMinutes in 3..15)
+        // Estrutura (número 1–8 + minutos plausíveis + ≥2 refs) vale mesmo
+        // sem keyword no título. Restrito a minutos na LINHA SEGUINTE ou a um
+        // único candidato: um esboço S-34 tem várias seções numeradas com
+        // minutos na própria linha e refs — não pode virar parte V&M.
+        val structural = plausibleMinutes && hasRefSignal(window) &&
+            (p.minutes == null || candidates.size == 1)
+        if (!hasPartSignal(window) && !structural) continue
         accepted += i
         lastNumber = p.number
     }
@@ -656,6 +763,10 @@ fun detectVmMaterial(text: String): List<VmPart> {
     if (normalized.isBlank()) return emptyList()
     // #24-fix A1: o formato real ("Título:" + "Tópico N:") não tem cabeçalho.
     titleFirstMaterial(normalized)?.let { return listOf(it) }
+    // Formato 5: tudo inline, sem quebra de linha.
+    detectSingleLineVmPart(normalized)?.let { return listOf(it) }
+    // Parte única sem número/cabeçalho: título curto + "(N min)" + refs.
+    detectSinglePart(normalized)?.let { return listOf(it) }
     return if (normalized.lineSequence().any { headerOf(it) != null }) {
         detectFromHeaders(normalized)
     } else {

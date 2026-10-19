@@ -17,6 +17,13 @@ import com.bettertalker.app.domain.speech.SectionRole
  * automática (o texto colado É o conteúdo). Puro/testável — sem IO.
  */
 
+/** Subtópico da linha de raciocínio (uma afirmação do corpo V&M). */
+data class PastedSubPoint(
+    val text: String,
+    val bibleRefs: List<String> = emptyList(),
+    val publicationRefs: List<PublicationRef> = emptyList(),
+)
+
 /** Uma seção pronta do "Colar e Pronto". */
 data class PastedSection(
     val role: SectionRole,
@@ -26,6 +33,11 @@ data class PastedSection(
     /** Fase A: refs extraídas do texto desta seção (paridade FAB/Editor). */
     val bibleRefs: List<String> = emptyList(),
     val publicationRefs: List<PublicationRef> = emptyList(),
+    /**
+     * V&M TALK: cada frase do corpo vira um subtópico da LINHA DE RACIOCÍNIO
+     * (com as refs da própria frase).
+     */
+    val subPoints: List<PastedSubPoint> = emptyList(),
 )
 
 /** Nota pronta construída a partir do texto colado. */
@@ -113,7 +125,11 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
             detailLines += "${kind.outline.sections.size} seções no esboço"
             kind.outline.totalMinutes?.let { detailLines += "Duração total: $it min" }
         }
-        is PasteKind.VmTalk -> detailLines += vmPartPreviewLines(kind.part)
+        is PasteKind.VmTalk -> {
+            detailLines += vmPartPreviewLines(kind.part)
+            val subCount = plan.sections.sumOf { it.subPoints.size }
+            if (subCount > 0) detailLines += "$subCount subtópicos na linha de raciocínio"
+        }
         is PasteKind.VmDemo -> detailLines += vmPartPreviewLines(kind.part)
         is PasteKind.VmConsideration -> detailLines += vmPartPreviewLines(kind.part)
         is PasteKind.VmRejected ->
@@ -311,6 +327,54 @@ private fun ignoredSuffix(ignored: List<VmPart>): String =
     if (ignored.isEmpty()) "" else "\nIgnorei: " +
         ignored.joinToString("; ") { "parte ${it.partNumber} — ${it.nature.label()}" } + "."
 
+/** Abreviações que não encerram frase quando seguidas de maiúscula. */
+private val SUBTOPIC_ABBREVIATIONS = setOf(
+    "sr", "sra", "dr", "dra", "prof", "etc", "ex", "cap", "pag", "p", "n", "v", "vv",
+)
+
+/**
+ * Divide o corpo de uma parte V&M em frases/subtópicos. A âncora é a
+ * pontuação final seguida de espaço + maiúscula (ou fecha parêntese de ref).
+ * Evita quebrar refs como `Jer. 45:3`, `w25.07 22` e `p. 22`.
+ * Puro/testável.
+ */
+fun splitVmSubtopics(body: String): List<PastedSubPoint> {
+    val normalized = body.replace(Regex("\\s+"), " ").trim()
+    if (normalized.isBlank()) return emptyList()
+    val sentences = mutableListOf<String>()
+    var start = 0
+    var i = 0
+    while (i < normalized.length) {
+        val c = normalized[i]
+        val isEnd = c in ".!?…" || c == ')' || c == '"' || c == '”'
+        if (isEnd) {
+            var j = i + 1
+            while (j < normalized.length && normalized[j].isWhitespace()) j++
+            if (j < normalized.length && normalized[j].isUpperCase() && isSubtopicBoundary(normalized, i)) {
+                sentences += normalized.substring(start, i + 1).trim()
+                start = j
+                i = j
+                continue
+            }
+        }
+        i++
+    }
+    val last = normalized.substring(start).trim()
+    if (last.isNotBlank()) sentences += last
+    return sentences.map { sentence ->
+        val (bible, pubs) = extractRefsFromBody(sentence)
+        PastedSubPoint(sentence, bible, pubs)
+    }
+}
+
+private fun isSubtopicBoundary(text: String, end: Int): Boolean {
+    if (text[end] != '.') return true
+    var k = end - 1
+    while (k >= 0 && (text[k].isLetterOrDigit() || text[k] == '§')) k--
+    val word = text.substring(k + 1, end).lowercase()
+    return word !in SUBTOPIC_ABBREVIATIONS
+}
+
 /**
  * CÉREBRO ÚNICO da colagem: normaliza, classifica e devolve o plano completo.
  * Prioridade: TALK > DEMO > Rejected > S-34 > texto livre — a mesma do fluxo
@@ -328,6 +392,7 @@ fun planPaste(raw: String): PastePlan {
         val partTitle = talk.title.ifBlank { "Discurso" }
         val minutes = talk.minutes.takeIf { it > 0 } ?: 10
         val (bible, pubs) = extractRefsFromBody(body)
+        val subtopics = splitVmSubtopics(body)
         val sections = listOf(
             PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
             PastedSection(
@@ -337,6 +402,7 @@ fun planPaste(raw: String): PastePlan {
                 contentHtml = paragraphsToHtml(body),
                 bibleRefs = bible,
                 publicationRefs = pubs,
+                subPoints = subtopics,
             ),
             PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
         )

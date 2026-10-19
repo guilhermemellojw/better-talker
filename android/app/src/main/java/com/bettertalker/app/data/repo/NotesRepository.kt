@@ -70,9 +70,10 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
                 )
             )
             built.sections.forEachIndexed { i, s ->
+                val sectionId = newId("sec")
                 db.speechSectionDao().upsert(
                     com.bettertalker.app.domain.speech.SpeechSection(
-                        id = newId("sec"),
+                        id = sectionId,
                         noteId = id,
                         order = i,
                         role = s.role,
@@ -88,6 +89,24 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
                         updatedAt = now,
                     ).toEntity()
                 )
+                if (s.subPoints.isNotEmpty()) {
+                    db.subPointDao().upsertAll(
+                        s.subPoints.mapIndexed { j, sp ->
+                            com.bettertalker.app.domain.speech.SubPoint(
+                                id = newId("sub"),
+                                sectionId = sectionId,
+                                order = j,
+                                outlineText = sp.text,
+                                bibleRefs = sp.bibleRefs,
+                                publicationRefs = sp.publicationRefs,
+                                instruction = null,
+                                developedHtml = "",
+                                createdAt = now,
+                                updatedAt = now,
+                            ).toEntity()
+                        }
+                    )
+                }
             }
         }
         return id

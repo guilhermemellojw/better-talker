@@ -2,6 +2,7 @@ package com.bettertalker.app.data.util
 
 import com.bettertalker.app.domain.planning.GenerationProfile
 import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SectionRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -276,5 +277,244 @@ class PastePlanTest {
         assertEquals(1, plan.sections.size)
         assertEquals("Corpo", plan.sections.single().title)
         assertFalse(plan.sections.single().bibleRefs.isNotEmpty())
+    }
+
+    // ---------- Diagnóstico/regressão: 3 formatos reais da parte 1 de Tesouros ----------
+
+    private val treasuresBody = """
+        Parece que Baruque não estava satisfeito com sua situação na vida. (Jer. 45:3; w25.07 22 §§ 8-9)
+
+        Sem contentamento, podemos perder nossa alegria e tomar decisões ruins. (w25.07 20 § 2)
+
+        Jeová ajudou Baruque a mudar o seu ponto de vista dando a ele uma esperança. (Jer. 45:5; w25.07 24 §§ 13-14)
+    """.trimIndent()
+
+    @Test
+    fun format1_semNumeroSemCabecalho_retornaVmTalk() {
+        val text = "Ter esperança é o segredo para o contentamento\n\n(10 min)\n\n$treasuresBody"
+        val plan = planPaste(text)
+        assertEquals(PasteKind.VmTalk::class, plan.kind::class)
+    }
+
+    @Test
+    fun format2_comNumeroMinutosLinhaSeguinte_retornaVmTalk() {
+        val text = "1. Ter esperança é o segredo para o contentamento\n\n(10 min)\n\n$treasuresBody"
+        val plan = planPaste(text)
+        assertEquals(PasteKind.VmTalk::class, plan.kind::class)
+    }
+
+    @Test
+    fun format3_comCabecalho_retornaVmTalk() {
+        val text = "TESOUROS DA PALAVRA DE DEUS\n" +
+            "1. Ter esperança é o segredo para o contentamento\n\n(10 min)\n\n$treasuresBody"
+        val plan = planPaste(text)
+        assertEquals(PasteKind.VmTalk::class, plan.kind::class)
+    }
+
+    @Test
+    fun format4_singleLineMultiParagrafo_retornaVmTalk() {
+        val body = "Parece que Baruque não estava satisfeito com sua situação na vida. " +
+            "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder nossa " +
+            "alegria e tomar decisões ruins. (w25.07 20 § 2) Jeová ajudou Baruque a " +
+            "mudar o seu ponto de vista dando a ele uma esperança. (Jer. 45:5; w25.07 24 §§ 13-14)"
+        val text = "Ter esperança é o segredo para o contentamento\n\n(10 min)\n\n$body"
+        val plan = planPaste(text)
+        assertEquals(PasteKind.VmTalk::class, plan.kind::class)
+        val part = (plan.kind as PasteKind.VmTalk).part
+        assertEquals(VmSection.TREASURES, part.section)
+        assertEquals(1, part.partNumber)
+        assertEquals(10, part.minutes)
+    }
+
+    @Test
+    fun format5_singleLineTudoInline_retornaVmTalk() {
+        val text = "Ter esperança é o segredo para o contentamento (10 min) " +
+            "Parece que Baruque não estava satisfeito com sua situação na vida. " +
+            "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder nossa " +
+            "alegria e tomar decisões ruins. (w25.07 20 § 2) Jeová ajudou Baruque a " +
+            "mudar o seu ponto de vista dando a ele uma esperança. (Jer. 45:5; w25.07 24 §§ 13-14)"
+        val plan = planPaste(text)
+        assertEquals(PasteKind.VmTalk::class, plan.kind::class)
+        val part = (plan.kind as PasteKind.VmTalk).part
+        assertEquals(VmSection.TREASURES, part.section)
+        assertEquals(1, part.partNumber)
+        assertEquals(10, part.minutes)
+        assertEquals("Ter esperança é o segredo para o contentamento", part.title)
+    }
+
+    @Test
+    fun format5_cadaFraseViraSubtopicoDaLinhaDeRaciocinio() {
+        val text = "Ter esperança é o segredo para o contentamento (10 min) " +
+            "Parece que Baruque não estava satisfeito com sua situação " +
+            "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +
+            "alegria (w25.07 20 § 2) Jeová ajudou Baruque a mudar o ponto de " +
+            "vista (Jer. 45:5; w25.07 24 §§ 13-14)"
+        val plan = planPaste(text)
+        val body = plan.sections.first { it.role == SectionRole.BODY }
+        assertEquals(3, body.subPoints.size)
+        assertTrue(body.subPoints[0].text.startsWith("Parece que Baruque"))
+        assertTrue(body.subPoints[1].text.startsWith("Sem contentamento"))
+        assertTrue(body.subPoints[2].text.startsWith("Jeová ajudou"))
+        assertTrue(body.subPoints[0].bibleRefs.any { it.contains("45:3") })
+        assertTrue(body.subPoints[0].publicationRefs.isNotEmpty())
+    }
+
+    @Test
+    fun splitVmSubtopics_naoQuebraRefsNemAbbreviacoes() {
+        val body = "Parece que Baruque não estava satisfeito " +
+            "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +
+            "alegria (w25.07 20 § 2) Jeová ajudou Baruque a mudar o ponto de " +
+            "vista (Jer. 45:5; w25.07 24 §§ 13-14)"
+        val subs = splitVmSubtopics(body)
+        assertEquals(3, subs.size)
+        assertTrue(subs[0].text.contains("Jer. 45:3"))
+        assertTrue(subs[0].text.endsWith(")"))
+        assertTrue(subs[1].text.startsWith("Sem contentamento"))
+        assertTrue(subs[2].text.startsWith("Jeová ajudou"))
+    }
+
+    private val singleNewlineBody =
+        "Parece que Baruque não estava satisfeito com sua situação " +
+            "(Jeremias 45:3; lmd licao 7 ponto 4)\n" +
+            "Sem contentamento, podemos perder a alegria (lmd licao 7 ponto 4)\n" +
+            "Jeova ajudou Baruque a mudar o ponto de vista " +
+            "(Jeremias 45:5; lmd licao 7 ponto 4)"
+
+    @Test
+    fun format1_semLinhasEmBranco_retornaVmTalk() {
+        val text = "Ter esperança é o segredo para o contentamento\n" +
+            "(10 min)\n$singleNewlineBody"
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmTalk)
+        assertEquals(1, (plan.kind as PasteKind.VmTalk).part.partNumber)
+        assertEquals(10, (plan.kind as PasteKind.VmTalk).part.minutes)
+    }
+
+    @Test
+    fun format2_semLinhasEmBranco_retornaVmTalk() {
+        val text = "1. Ter esperança é o segredo para o contentamento\n" +
+            "(10 min)\n$singleNewlineBody"
+        assertTrue(planPaste(text).kind is PasteKind.VmTalk)
+    }
+
+    @Test
+    fun format3_semLinhasEmBranco_retornaVmTalk() {
+        val text = "TESOUROS DA PALAVRA DE DEUS\n" +
+            "1. Ter esperança é o segredo para o contentamento\n" +
+            "(10 min)\n$singleNewlineBody"
+        assertTrue(planPaste(text).kind is PasteKind.VmTalk)
+    }
+
+    @Test
+    fun normalizadorJuntaMinutosQuandoNaoHaLinhaEmBranco() {
+        val normalized = PasteTextNormalizer.normalize(
+            "Ter esperança é o segredo para o contentamento\n(10 min)\nCorpo."
+        )
+        assertTrue(normalized.contains("contentamento (10 min)"))
+    }
+
+    @Test
+    fun format5_titulosVariados_naoUsamKeyword() {
+        val body = "O texto mostra o poder de Deus. (Sl 19:1) " +
+            "A publicação explica o tema. (w24.01 5 § 2)"
+        val titles = listOf(
+            "A ordem nos céus revela a glória de Deus",
+            "Como podemos imitar a fé de Abraão",
+            "Perseverança – O que Paulo fez",
+            "A criação revela o poder de Deus",
+        )
+        titles.forEach { title ->
+            val text = "$title (10 min) $body"
+            val plan = planPaste(text)
+            assertTrue(text, plan.kind is PasteKind.VmTalk)
+            val part = (plan.kind as PasteKind.VmTalk).part
+            assertEquals(text, VmSection.TREASURES, part.section)
+            assertEquals(text, 1, part.partNumber)
+        }
+    }
+
+    @Test
+    fun textoLivreComMinutosSemParenteses_retornaFreeText() {
+        val plan = planPaste(
+            "Vou falar por 10 min sobre João 3:16 e Salmos 23:1, então..."
+        )
+        assertTrue(plan.kind is PasteKind.FreeText)
+    }
+
+    @Test
+    fun singleLineComRefsSoBiblicas_naoSequestraTexto() {
+        val text = "Reflexão sobre a esperança (10 min) " +
+            "O texto cita João 3:16. Também cita Salmos 23:1."
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.FreeText)
+    }
+
+    @Test
+    fun format1_titulosVariados_naoUsamKeyword() {
+        val cases = listOf(
+            "A ordem nos céus revela a glória de Deus" to 10,
+            "Como podemos imitar a fé de Abraão" to 10,
+            "Perseverança – O que Paulo fez" to 7,
+        )
+        cases.forEach { (title, minutes) ->
+            val text = "$title\n\n($minutes min)\n\n$treasuresBody"
+            val plan = planPaste(text)
+            assertTrue(text, plan.kind is PasteKind.VmTalk)
+            val part = (plan.kind as PasteKind.VmTalk).part
+            assertEquals(text, VmSection.TREASURES, part.section)
+            assertEquals(text, 1, part.partNumber)
+            assertEquals(text, minutes, part.minutes)
+        }
+    }
+
+    @Test
+    fun parte4IniciandoConversas_retornaVmDemo() {
+        val text = "4. Iniciando conversas (3 min) TESTEMUNHO INFORMAL\n" +
+            "Publicador: Olá, tudo bem?\nMorador: Tudo bem.\n" +
+            "Publicador: Gostaria de conversar sobre a Bíblia."
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.VmDemo)
+        val part = (plan.kind as PasteKind.VmDemo).part
+        assertEquals(VmSection.MINISTRY, part.section)
+        assertEquals(4, part.partNumber)
+        assertEquals(VmNature.DEMO, part.nature)
+    }
+
+    @Test
+    fun parte6DiscursoSemCabecalho_retornaVmTalk() {
+        val plan = planPaste(
+            "6. Discurso (5 min) Tema: seja corajoso\n\nCorpo do discurso."
+        )
+        assertTrue(plan.kind is PasteKind.VmTalk)
+        assertEquals(DiscourseType.MINISTRY_TALK, plan.discourseType)
+    }
+
+    @Test
+    fun parte6ConsideracaoSemCabecalho_retornaVmConsideration() {
+        val plan = planPaste(
+            "6. O que você diria? (6 min) Consideração\n\nPergunte à assistência."
+        )
+        assertTrue(plan.kind is PasteKind.VmConsideration)
+    }
+
+    @Test
+    fun textoLivreComRefEsporadica_retornaFreeText() {
+        val plan = planPaste("Olá, tudo bem? Vou falar sobre João 3:16 hoje.")
+        assertTrue(plan.kind is PasteKind.FreeText)
+    }
+
+    @Test
+    fun parteSemRefsSuficientes_naoSequestraTexto() {
+        val text = "Ter esperança é o segredo para o contentamento\n\n(10 min)\n\n" +
+            "Parece que Baruque não estava satisfeito. (Jer. 45:3)"
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.FreeText)
+    }
+
+    @Test
+    fun parteComMinutosForaDaFaixa_naoSequestraTexto() {
+        val text = "Ter esperança é o segredo para o contentamento\n\n(20 min)\n\n$treasuresBody"
+        val plan = planPaste(text)
+        assertTrue(plan.kind is PasteKind.FreeText)
     }
 }
