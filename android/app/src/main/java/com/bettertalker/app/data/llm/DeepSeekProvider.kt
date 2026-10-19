@@ -651,7 +651,10 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             request.oratorySpec,
             request.message.ifBlank { request.brief }
         )
-        "" to user
+        // P0 (alinhamento persona): a geração oratória também fala com a voz
+        // do mentor — antes o system ia vazio e só as regras frias guiavam.
+        (com.bettertalker.app.data.copilot.CHAT_PERSONA +
+            com.bettertalker.app.data.copilot.GENERATION_VOICE_LINE) to user
     } else if (request.responseFormat == ResponseFormat.EDIT_PROPOSAL && request.editMode != null) {
         val user = com.bettertalker.app.data.copilot.buildEditProposalPrompt(
             mode = request.editMode,

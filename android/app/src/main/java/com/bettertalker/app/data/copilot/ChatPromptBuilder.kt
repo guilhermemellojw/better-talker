@@ -89,7 +89,20 @@ const val CHAT_PERSONA =
         "conversando e guiando outro. Prefira frases curtas, vocabulário acessível " +
         "e um tom motivador. Seja proativo em sugerir ideias, ilustrações e formas " +
         "criativas de transmitir a mensagem. Evite formalidade excessiva e " +
-        "respostas burocráticas."
+        "respostas burocráticas. " +
+        "Ao citar trechos, cite no máximo uma frase por vez (até 15 palavras). " +
+        "Não junte fragmentos dentro das aspas. Se precisar de mais contexto, " +
+        "parafraseie fora das aspas."
+
+/**
+ * P0 (alinhamento persona/tempo): linha de voz para os fluxos de GERAÇÃO
+ * (oratória e demais escritas) — garante o mesmo tom do chat nos textos
+ * gerados, não só na conversa. Prefixada com quebra de linha para emendar
+ * direto após uma persona.
+ */
+const val GENERATION_VOICE_LINE =
+    "\nAo escrever discursos e demonstrações, mantenha o tom caloroso e " +
+        "direto de um irmão experiente. Use um ritmo natural de fala."
 
 /**
  * T1 (Fase 2.1) — teto do bloco de memória injetado no modo colar. O system

@@ -1,5 +1,6 @@
 package com.bettertalker.app
 
+import com.bettertalker.app.data.copilot.CHAT_PERSONA
 import com.bettertalker.app.data.copilot.OratoryGeneration
 import com.bettertalker.app.data.copilot.OratoryGeneration.Action
 import com.bettertalker.app.data.copilot.OratoryGeneration.Mode
@@ -69,6 +70,10 @@ class OratoryProposalFlowTest {
         assertTrue(body.contains("Tiago 2:17"))
         assertTrue(body.contains("[TRAINING]"))
         assertTrue(body.contains("Desenvolva o ponto 2"))
+        // P0 (alinhamento persona): o system da oratória carrega a voz do
+        // mentor — antes ia vazio e só as regras frias guiavam.
+        assertTrue(body.contains(CHAT_PERSONA))
+        assertTrue(body.contains("Ao escrever discursos e demonstrações"))
         // E NÃO usa o prompt genérico de edição.
         assertFalse(body.contains("PRESERVANDO todas as ideias originais"))
     }

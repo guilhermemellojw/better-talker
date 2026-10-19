@@ -46,4 +46,14 @@ class ChatPersonaTest {
         )
         assertFalse(MINIMAL_SYSTEM_PROMPT.contains(CHAT_PERSONA))
     }
+
+    @Test
+    fun linhaDeVozDaGeracao_emendaNaPersona() {
+        // P0: a linha de voz dos fluxos de geração começa com quebra de linha
+        // para emendar direto após a persona.
+        assertTrue(GENERATION_VOICE_LINE.startsWith("\n"))
+        assertTrue(GENERATION_VOICE_LINE.contains("tom caloroso"))
+        assertTrue(GENERATION_VOICE_LINE.contains("ritmo natural de fala"))
+        assertTrue(GENERATION_VOICE_LINE.contains("demonstrações"))
+    }
 }
