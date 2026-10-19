@@ -118,8 +118,11 @@ class PasteNoteBuilderTest {
         assertEquals(SectionRole.BODY, body.role)
         assertEquals("A ordem nos céus", body.title)
         assertEquals(10, body.minutes)
-        assertTrue(body.contentHtml, body.contentHtml.contains("<p>Vamos começar com uma pergunta simples.</p>"))
-        assertTrue(body.contentHtml, body.contentHtml.contains("<p>Quando você olha para o céu, o que sente?</p>"))
+        // O MINI DISCURSO nasce vazio; o corpo vira LINHA DE RACIOCÍNIO.
+        assertEquals("", body.contentHtml)
+        assertEquals(2, body.subPoints.size)
+        assertTrue(body.subPoints[0].text.contains("Vamos começar com uma pergunta simples."))
+        assertTrue(body.subPoints[1].text.contains("Quando você olha para o céu, o que sente?"))
         assertEquals(SectionRole.CONCLUSION, conclusion.role)
         assertEquals("Conclusão", conclusion.title)
         assertEquals(EDGE_SECTION_MINUTES, conclusion.minutes)

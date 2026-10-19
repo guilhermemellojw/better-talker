@@ -360,6 +360,21 @@ class PastePlanTest {
     }
 
     @Test
+    fun format5_miniDiscursoNasceVazioComSubtopicos() {
+        val text = "Ter esperança é o segredo para o contentamento (10 min) " +
+            "Parece que Baruque não estava satisfeito com sua situação " +
+            "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +
+            "alegria (w25.07 20 § 2) Jeová ajudou Baruque a mudar o ponto de " +
+            "vista (Jer. 45:5; w25.07 24 §§ 13-14)"
+        val plan = planPaste(text)
+        val body = plan.sections.first { it.role == SectionRole.BODY }
+        assertTrue("MINI DISCURSO deve nascer vazio", body.contentHtml.isBlank())
+        assertEquals(3, body.subPoints.size)
+        // O texto colado continua disponível para busca/preview da nota.
+        assertTrue(plan.plainText.contains("Parece que Baruque"))
+    }
+
+    @Test
     fun splitVmSubtopics_naoQuebraRefsNemAbbreviacoes() {
         val body = "Parece que Baruque não estava satisfeito " +
             "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +

@@ -399,7 +399,9 @@ fun planPaste(raw: String): PastePlan {
                 role = SectionRole.BODY,
                 title = partTitle,
                 minutes = minutes,
-                contentHtml = paragraphsToHtml(body),
+                // O corpo colado é a LINHA DE RACIOCÍNIO (subtópicos); o
+                // MINI DISCURSO nasce vazio para ser gerado a partir dela.
+                contentHtml = "",
                 bibleRefs = bible,
                 publicationRefs = pubs,
                 subPoints = subtopics,
