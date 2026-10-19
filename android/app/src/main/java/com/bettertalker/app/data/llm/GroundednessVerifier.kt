@@ -144,6 +144,14 @@ object GroundednessVerifier {
         for (r in merged) {
             if (r.first > cursor) kept.append(text.substring(cursor, r.first))
             cursor = r.last + 1
+            // #verifier-join: garante separação entre o texto que ficou antes
+            // e depois do trecho removido. Sem isto, `fuga."citação"Mas` vira
+            // `fuga.Mas` (e `fuga"citação"Mas` vira `fugaMas`).
+            if (kept.isNotEmpty() && cursor < text.length &&
+                !kept.last().isWhitespace() && !text[cursor].isWhitespace()
+            ) {
+                kept.append(' ')
+            }
         }
         if (cursor < text.length) kept.append(text.substring(cursor))
         val cleaned = cleanupAfterRemoval(kept.toString())
@@ -177,6 +185,9 @@ object GroundednessVerifier {
         .replace(Regex("([.;:!?])[ \\t]*,"), "$1")    // ".," → "."
         .replace(Regex("[:;][ \\t]*([.!?])"), "$1")   // ":. / ;." → "."
         .replace(Regex("([.!?])[ \\t]*\\1+"), "$1")   // ".." / "!!" → um
+        // #verifier-join: pontuação terminal colada na frase seguinte
+        // ("fuga.Mas" / "claro.Isso") ganha o espaço perdido.
+        .replace(Regex("([.!?…])(?=[A-Za-zÀ-ÿ])"), "$1 ")
         .replace(Regex("\\([ \\t]*\\)"), "")          // "()" órfão
         .replace(Regex("[ \\t]{2,}"), " ")            // espaços duplos
         .replace(Regex("^[ \\t]*[,;:]+[ \\t]*"), "")  // vírgula sobrando no início

@@ -181,4 +181,63 @@ class GroundednessVerifierTest {
         )
         assertEquals("Ele diz.", GroundednessVerifier.cleanupAfterRemoval("Ele diz: ."))
     }
+
+    // ---------- #verifier-join: não concatenar frases nas costuras ----------
+
+    @Test
+    fun remocaoDeCitacaoNaoConcatenaFrases() {
+        val input = "A esperança é fuga. \"Esperança é ilusão, disse alguém.\" Mas a Bíblia promete."
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.hasRemovals)
+        val out = r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim()
+        assertFalse(out.contains("fugaEsperança"))
+        assertTrue(out.contains("fuga. Mas") || out.contains("fuga.  Mas"))
+    }
+
+    @Test
+    fun remocaoDeCitacaoSemEspacoNaoColaPalavras() {
+        // Caso real de modelo: fecha a frase e abre aspas/segue texto sem
+        // espaço. A remoção não pode produzir "fuga.Mas".
+        val input = "A esperança é fuga.\"Todos os justos herdarão a terra para sempre.\"Mas a Bíblia promete."
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.hasRemovals)
+        val out = r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim()
+        assertFalse(out.contains("fuga.Mas"))
+        assertTrue(out.contains("fuga. Mas"))
+    }
+
+    @Test
+    fun remocaoDeFraseComReferenciaNaoConcatena() {
+        val input =
+            "A esperança é fuga.Como mostra a página 99, o tema é central.O próximo ponto é claro."
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.hasRemovals)
+        val out = r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim()
+        assertFalse(out.contains("fuga.O"))
+        assertTrue(out.contains("fuga. O"))
+    }
+
+    @Test
+    fun citacaoComVersiculoSemEspacoNaoConcatena() {
+        val input = "Como diz João 3:16, isso é claro." +
+            "\"Deus amou tanto que enviou seu Filho para morrer por todos os pecados do mundo.\"" +
+            "Isso confirma."
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.hasRemovals)
+        val out = r.text.removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).trim()
+        assertFalse(out.contains("claro.Isso"))
+        assertTrue(out.contains("claro. Isso"))
+    }
+
+    @Test
+    fun limpeza_insere_espaco_apos_pontuacao_colada() {
+        assertEquals(
+            "A esperança é fuga. Mas a Bíblia promete.",
+            GroundednessVerifier.cleanupAfterRemoval("A esperança é fuga.Mas a Bíblia promete."),
+        )
+        assertEquals(
+            "Fim. O próximo.",
+            GroundednessVerifier.cleanupAfterRemoval("Fim.O próximo."),
+        )
+    }
 }

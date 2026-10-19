@@ -775,6 +775,12 @@ class CopilotViewModel(
         com.bettertalker.app.data.llm.LocalProgress.phase
     val localPartial: kotlinx.coroutines.flow.StateFlow<String> =
         com.bettertalker.app.data.llm.LocalProgress.partialText
+    /** Aviso de retry (orçamento/rede) — transitório, nunca persistido. */
+    val localRetry: kotlinx.coroutines.flow.StateFlow<String?> =
+        com.bettertalker.app.data.llm.LocalProgress.retryNotice
+    /** Reasoning da tentativa atual — transitório, só UI durante o streaming. */
+    val localReasoning: kotlinx.coroutines.flow.StateFlow<String> =
+        com.bettertalker.app.data.llm.LocalProgress.reasoningText
 
     /** Mensagem que originou o turno atual, para "Tentar novamente". */
     private var lastUserMessage: String? = null
@@ -1281,6 +1287,8 @@ class CopilotViewModel(
         turnScope = _chatScope.value
         currentGenerationJob = viewModelScope.launch {
             _chatBusy.value = true
+            // #streaming-fix: o parcial da resposta anterior não vaza.
+            com.bettertalker.app.data.llm.LocalProgress.reset()
             _runState.value = ChatRunState.Sending
             try {
                 val target = db.chatDao().allScoped(nid, _chatScope.value)
@@ -1295,6 +1303,10 @@ class CopilotViewModel(
                     remote, app, thinkingEffortFor(_thinkingMode.value)
                 )
                 val history = conversationTurnsScoped()
+                // #streaming-fix: entra em Generating ANTES do provider — antes
+                // o parcial era emitido com runState ainda Sending e não
+                // aparecia na tela (a resposta só "surgia" no fim).
+                _runState.value = ChatRunState.Generating
                 val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     provider.generate(
                         com.bettertalker.app.data.llm.LlmRequest(
@@ -1306,7 +1318,6 @@ class CopilotViewModel(
                         )
                     )
                 }
-                _runState.value = ChatRunState.Generating
                 val cont = truncateIfCut(res.text, res.meta.finishReason)
                 if (cont.isBlank()) {
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
@@ -1319,6 +1330,8 @@ class CopilotViewModel(
                     if (cont != res.text) put("truncated", "1") else remove("truncated")
                 }
                 db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
+                // #streaming-fix: a bolha existente já recebeu o texto novo.
+                com.bettertalker.app.data.llm.LocalProgress.clearPartial()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 _runState.value = ChatRunState.Cancelled()
                 throw e
@@ -1431,6 +1444,9 @@ class CopilotViewModel(
                 sectionId = targetScope,
             )
         )
+        // #streaming-fix: o parcial morre no mesmo instante em que a resposta
+        // final entra no banco — sem texto duplicado nem camada fantasma.
+        if (!fromMe) com.bettertalker.app.data.llm.LocalProgress.clearPartial()
     }
 
     private fun postText(t: String, origin: MessageOrigin = MessageOrigin.COPILOT) = viewModelScope.launch {
@@ -1537,6 +1553,9 @@ class CopilotViewModel(
         currentGenerationJob = viewModelScope.launch {
             // T2: qualquer envio conta como primeiro uso (banner some depois).
             settings.setChatSetupSeen()
+            // #streaming-fix: zera o parcial do turno anterior ANTES de mostrar
+            // "Sending"; sem isso o texto antigo reaparece durante o RAG.
+            com.bettertalker.app.data.llm.LocalProgress.reset()
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
@@ -4704,6 +4723,8 @@ class CopilotViewModel(
             postText("Configure a chave de IA na tela Modelo IA para gerar a estrutura.")
             return
         }
+        // #streaming-fix: parcial da rota anterior não contamina a estrutura.
+        com.bettertalker.app.data.llm.LocalProgress.reset()
         _runState.value = ChatRunState.Generating
         try {
             val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)

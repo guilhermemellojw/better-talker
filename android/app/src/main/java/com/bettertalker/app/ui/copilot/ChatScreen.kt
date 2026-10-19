@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,6 +16,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
@@ -39,8 +44,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -61,6 +68,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -84,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -119,6 +128,9 @@ import kotlinx.coroutines.launch
  * Conversa com o Copilot (exclusiva do FAB do editor). Histórico salvo por nota.
  * Todo o guia (seções, draft, refs, bases) vive aqui como mensagem/comando.
  */
+/** Duração do fade de entrada/saída das mensagens (inclui a resposta final). */
+private const val STREAM_CROSSFADE_MS = 300
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -143,10 +155,31 @@ fun ChatScreen(
     // Fases de progresso do provider (o DeepSeek alimenta Generating/parcial).
     val localPhase by vm.localPhase.collectAsState()
     val localPartial by vm.localPartial.collectAsState()
+    val localRetry by vm.localRetry.collectAsState()
+    val localReasoning by vm.localReasoning.collectAsState()
     val thinkingMode by vm.thinkingMode.collectAsState()
     // #17-fix: parcial limpo durante o streaming (só marcadores internos —
     // HTML/markdown intactos; marcador sem par = removido como órfão).
     val cleanedPartial = remember(localPartial) { stripInternalTags(localPartial) }
+    // #reasoning-ui: estado do bloco "Pensando…" (transitório, por turno).
+    // Fica no escopo da tela para o auto-scroll enxergar o auto-colapso.
+    var reasoningExpanded by remember { mutableStateOf(false) }
+    var reasoningDone by remember { mutableStateOf(false) }
+    var reasoningVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(localReasoning.isNotBlank(), cleanedPartial.isNotBlank()) {
+        if (localReasoning.isNotBlank()) {
+            reasoningVisible = true
+            reasoningDone = false
+            reasoningExpanded = false
+        }
+        if (localReasoning.isNotBlank() && cleanedPartial.isNotBlank()) {
+            // Conteúdo começou: colapsa e mantém só o cabeçalho por 2s.
+            reasoningDone = true
+            reasoningExpanded = false
+            delay(2_000)
+            if (!reasoningExpanded) reasoningVisible = false
+        }
+    }
     // Onboarding F2a: prontidão da nota (banner de setup) + refresh na entrada.
     val readiness by vm.readiness.collectAsState()
     // T2 (chat minimalista): visibilidade combinada no VM (só 1ª vez).
@@ -341,10 +374,24 @@ fun ChatScreen(
     }
     // #25-fix-a: voltar a seguir o fim (pílula ou arrasto até o fim) zera o contador.
     LaunchedEffect(followEnd) { if (followEnd) unseenCount = 0 }
-    // T3: o parcial do streaming cresce DENTRO do mesmo item — rola junto,
-    // instantâneo, alinhando o FIM do item (offset máximo).
-    LaunchedEffect(localPartial) {
+    // T3: o parcial do streaming cresce DENTRO do mesmo item — rola junto.
+    // #reasoning-ui: enquanto o cabeçalho "Pensando…" está na janela de 2s
+    // após o content começar, ancora no TOPO do item para o usuário ver o
+    // auto-colapso; depois volta a seguir o FIM do texto.
+    LaunchedEffect(localPartial, reasoningVisible, localReasoning) {
         if (localPartial.isNotBlank() && followEnd) {
+            val keepHeader = reasoningVisible && localReasoning.isNotBlank()
+            listState.scrollToItem(
+                lastItemIndex,
+                if (keepHeader) 0 else Int.MAX_VALUE,
+            )
+        }
+    }
+    // #reasoning-ui: o bloco "Pensando…" pode ser o primeiro conteúdo do item
+    // (antes do partial). Sem este scroll ele nasce abaixo da viewport e o
+    // usuário nunca vê o cabeçalho. Alinha o fim do item, como o parcial.
+    LaunchedEffect(localReasoning) {
+        if (localReasoning.isNotBlank() && localPartial.isBlank() && followEnd) {
             listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
@@ -576,11 +623,11 @@ fun ChatScreen(
                     }
                     messages.forEach { m ->
                         item(key = m.id) {
-                            // T5: entrada com fade sutil (~150ms) + placement.
+                            // T5: entrada com fade sutil (~300ms) + placement.
                             Box(
                                 Modifier.animateItem(
-                                    fadeInSpec = tween(150),
-                                    fadeOutSpec = tween(150)
+                                    fadeInSpec = tween(STREAM_CROSSFADE_MS),
+                                    fadeOutSpec = tween(STREAM_CROSSFADE_MS)
                                 )
                             ) {
                                 MessageBubble(
@@ -669,20 +716,34 @@ fun ChatScreen(
                     // (load/RAG/geração); remotos mantêm o texto legado.
                     when (val s = runState) {
                         is ChatRunState.Sending, is ChatRunState.Generating -> {
-                            // #26-fix-c (UI): o parcial SUBSTITUI o indicador
-                            // quando o primeiro token chega (mesmo slot).
-                            val partialShown = s is ChatRunState.Generating &&
-                                localPhase == LocalPhase.Generating &&
-                                cleanedPartial.isNotBlank()
-                            if (!partialShown) {
+                            // #streaming-fix (UI): o parcial permanece visível
+                            // do primeiro token ATÉ a resposta final ser postada
+                            // (inclusive durante Done/verificação). Antes ele
+                            // sumia quando o provider terminava e a tela voltava
+                            // ao "Pensando…" antes da mensagem existir.
+                            val partialShown = cleanedPartial.isNotBlank()
+                            // #reasoning-ui: o raciocínio aparece antes do
+                            // primeiro token de conteúdo e colapsa sozinho
+                            // quando a resposta começa. Transitório: não entra
+                            // na mensagem persistida.
+                            val reasoningShown = localReasoning.isNotBlank()
+                            if (!partialShown && !reasoningShown) {
                                 item {
-                                    when (localPhase) {
-                                        LocalPhase.LoadingModel -> Text(
+                                    // Retry honesto: o parcial anterior foi
+                                    // limpo de propósito para a nova tentativa.
+                                    val retry = localRetry
+                                    when {
+                                        retry != null -> Text(
+                                            retry,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                        localPhase == LocalPhase.LoadingModel -> Text(
                                             "Carregando modelo…",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.secondary,
                                         )
-                                        LocalPhase.ReadingSources -> Text(
+                                        localPhase == LocalPhase.ReadingSources -> Text(
                                             "Lendo as fontes…",
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.secondary,
@@ -695,44 +756,57 @@ fun ChatScreen(
                             }
                             // Texto parcial transitório (não persiste; some
                             // quando a resposta final é postada).
-                            if (partialShown) {
-                                // #ui-polish (Item 3): o parcial entra e SAI
-                                // com fade — a resposta formatada (item novo,
-                                // com animateItem próprio) completa o
-                                // crossfade quando o token final chega.
+                            if (partialShown || reasoningShown) {
+                                // #streaming-fix: SEM animateItem aqui. A
+                                // animação de desaparecimento deixava uma
+                                // camada fantasma do parcial sobre a resposta
+                                // final (o cursor pulsante mantinha a layer).
+                                // A mensagem final entra com fade próprio.
                                 item(key = "streaming") {
-                                    Box(
-                                        Modifier.animateItem(
-                                            fadeInSpec = tween(150),
-                                            fadeOutSpec = tween(150),
-                                        )
-                                    ) {
-                                        // T3: cursor pulsante no fim do parcial —
-                                        // continua texto puro (sem parser); some
-                                        // quando a resposta final chega.
-                                        val cursorAlpha by rememberInfiniteTransition(label = "cursor")
-                                            .animateFloat(
-                                                initialValue = 0.2f,
-                                                targetValue = 1f,
-                                                animationSpec = infiniteRepeatable(
-                                                    animation = tween(400, easing = LinearEasing),
-                                                    repeatMode = RepeatMode.Reverse
-                                                ),
-                                                label = "cursorAlpha"
-                                            )
-                                        val cursorColor = MaterialTheme.colorScheme.onSurface
-                                        Row(Modifier.fillMaxWidth()) {
-                                            Text(
-                                                buildAnnotatedString {
-                                                    append(cleanedPartial)
-                                                    withStyle(
-                                                        SpanStyle(
-                                                            color = cursorColor.copy(alpha = cursorAlpha)
-                                                        )
-                                                    ) { append("▍") }
+                                    Column(Modifier.fillMaxWidth()) {
+                                        AnimatedVisibility(
+                                            visible = reasoningShown && reasoningVisible,
+                                            enter = fadeIn(tween(200)),
+                                            exit = fadeOut(tween(250)),
+                                        ) {
+                                            ReasoningSection(
+                                                text = localReasoning,
+                                                completed = reasoningDone,
+                                                expanded = reasoningExpanded,
+                                                onToggle = {
+                                                    reasoningExpanded = !reasoningExpanded
                                                 },
-                                                style = MaterialTheme.typography.bodyLarge
+                                                modifier = Modifier.padding(bottom = 8.dp),
                                             )
+                                        }
+                                        if (partialShown) {
+                                            // T3: cursor pulsante no fim do parcial —
+                                            // continua texto puro (sem parser); some
+                                            // quando a resposta final chega.
+                                            val cursorAlpha by rememberInfiniteTransition(label = "cursor")
+                                                .animateFloat(
+                                                    initialValue = 0.2f,
+                                                    targetValue = 1f,
+                                                    animationSpec = infiniteRepeatable(
+                                                        animation = tween(400, easing = LinearEasing),
+                                                        repeatMode = RepeatMode.Reverse
+                                                    ),
+                                                    label = "cursorAlpha"
+                                                )
+                                            val cursorColor = MaterialTheme.colorScheme.onSurface
+                                            Row(Modifier.fillMaxWidth()) {
+                                                Text(
+                                                    buildAnnotatedString {
+                                                        append(cleanedPartial)
+                                                        withStyle(
+                                                            SpanStyle(
+                                                                color = cursorColor.copy(alpha = cursorAlpha)
+                                                            )
+                                                        ) { append("▍") }
+                                                    },
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -955,6 +1029,85 @@ private fun TypingIndicator(modifier: Modifier = Modifier) {
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
             )
+        }
+    }
+}
+
+/**
+ * #reasoning-ui: bloco transitório de raciocínio ("Pensando…").
+ *
+ * Colapsado por padrão; o usuário expande tocando no cabeçalho. O chamador
+ * auto-colapsa quando o `content` começa e esconde o bloco depois de 2 s.
+ * Nunca persiste: `LocalProgress.reasoningText` é limpo ao fim do turno.
+ */
+@Composable
+private fun ReasoningSection(
+    text: String,
+    completed: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "reasoning")
+    val pulse by transition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "reasoningPulse",
+    )
+    val alpha = if (completed) 1f else pulse
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+    ) {
+        Column(
+            Modifier
+                .animateContentSize()
+                .padding(12.dp)
+        ) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        onClickLabel = if (expanded) "Recolher raciocínio" else "Expandir raciocínio",
+                        onClick = onToggle,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Psychology,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Pensando…",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    modifier = Modifier.weight(1f),
+                )
+                if (completed) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "Raciocínio concluído",
+                        tint = Color(0xFF2E7D32),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            if (expanded) {
+                Text(
+                    text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
     }
 }

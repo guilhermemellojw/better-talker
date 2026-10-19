@@ -17,8 +17,9 @@ import kotlinx.coroutines.withContext
  *
  * Streaming: cada delta SSE é publicado no canal de parciais já observado pela
  * UI ([LocalProgress]) e o texto final é devolvido em [LlmResponse], mantendo
- * o contrato do [LlmProvider]. O gate de alucinação do chat roda depois,
- * inalterado.
+ * o contrato do [LlmProvider]. `reasoning_content` é separado em
+ * [LocalProgress.reasoningText] e NUNCA entra no texto da resposta. O gate de
+ * alucinação do chat roda depois, inalterado.
  *
  * A chave nunca aparece em log/erro/exceção. Sem chave => UNAVAILABLE honesto.
  */
@@ -87,14 +88,19 @@ class DeepSeekProvider(
         )
         var attempts = 0
         var lastError: Exception? = null
+        // Aviso da PRÓXIMA tentativa (definido no fim da anterior). A UI mostra
+        // "Tentando novamente…" em vez de assistir ao parcial sumir em silêncio.
+        var retryNotice: String? = null
         val tries = request.maxAttempts.coerceIn(1, 4)
         while (attempts < tries) {
             attempts++
             val sb = StringBuilder()
             var streamStarted = false
+            var sawReasoning = false
             var usageJson: String? = null
             var finish: String? = null
-            LocalProgress.reset()
+            LocalProgress.beginAttempt(attempts, retryNotice)
+            retryNotice = null
             val mode = modes[modeIndex]
             // T1 (Bug #15): a instrução JSON vale SÓ para requisições
             // estruturadas — o enum TEXT é compartilhado com o 3º passo do
@@ -121,23 +127,31 @@ class DeepSeekProvider(
                         request.timeoutMs.takeIf { it > 0 } ?: timeoutMs,
                         headers
                     ) { line ->
-                        when (val ev = parseSseLine(line)) {
-                            is SseEvent.Delta -> {
-                                if (!streamStarted) {
-                                    streamStarted = true
-                                    LocalProgress.set(LocalPhase.Generating)
+                        // #reasoning: uma linha pode trazer reasoning_content
+                        // e content juntos; processa os dois eventos.
+                        val events = parseSseEvents(line)
+                        // Metadados (usage/finish_reason) podem vir na mesma
+                        // linha de um delta ou em chunk próprio.
+                        if (line.contains("\"usage\"")) {
+                            usageJson = line.removePrefix("data:").trim()
+                        }
+                        Regex("\"finish_reason\"\\s*:\\s*\"([^\"]+)\"")
+                            .find(line)?.let { finish = it.groupValues[1].ifBlank { null } }
+                        events.forEach { ev ->
+                            when (ev) {
+                                is SseEvent.ReasoningDelta -> {
+                                    sawReasoning = true
+                                    LocalProgress.appendReasoning(ev.text)
                                 }
-                                sb.append(ev.text)
-                                LocalProgress.appendPartial(ev.text)
-                            }
-                            SseEvent.Done -> Unit
-                            null -> {
-                                // Chunk de metadados (usage/finish_reason): guarda o último.
-                                if (line.contains("\"usage\"")) {
-                                    usageJson = line.removePrefix("data:").trim()
+                                is SseEvent.Delta -> {
+                                    if (!streamStarted) {
+                                        streamStarted = true
+                                        LocalProgress.set(LocalPhase.Generating)
+                                    }
+                                    sb.append(ev.text)
+                                    LocalProgress.appendPartial(ev.text)
                                 }
-                                Regex("\"finish_reason\"\\s*:\\s*\"([^\"]+)\"")
-                                    .find(line)?.let { finish = it.groupValues[1].ifBlank { null } }
+                                SseEvent.Done -> Unit
                             }
                         }
                     }
@@ -162,6 +176,7 @@ class DeepSeekProvider(
                                 ProviderErrorCode.INVALID_RESPONSE,
                                 "Orçamento de tokens esgotado antes da resposta.", id, attempts
                             )
+                            retryNotice = "Tentando novamente com mais espaço…"
                             continue
                         }
                         if (vazio) {
@@ -177,6 +192,15 @@ class DeepSeekProvider(
                             android.util.Log.w(
                                 "DeepSeek",
                                 "resposta cortada por length: ${text.length} chars"
+                            )
+                        }
+                        // #reasoning: diagnóstico honesto (sem conteúdo, sem
+                        // chave) para validar no device se o modelo emite.
+                        if (sawReasoning) {
+                            log(
+                                "deepseek reasoning_content presente " +
+                                    "(${LocalProgress.reasoningText.value.length} chars); " +
+                                    "descartado da resposta"
                             )
                         }
                         LocalProgress.set(LocalPhase.Done)
@@ -268,7 +292,10 @@ class DeepSeekProvider(
                     ProviderErrorCode.NETWORK, "Sem conexão com o provedor.", id, attempts
                 )
             }
-            if (attempts < tries) delay(RETRY_BACKOFF_MS * attempts)
+            if (attempts < tries) {
+                retryNotice = "Tentando novamente…"
+                delay(RETRY_BACKOFF_MS * attempts)
+            }
         }
         LocalProgress.set(LocalPhase.Idle)
         throw lastError ?: ProviderError(
@@ -385,20 +412,43 @@ class DeepSeekProvider(
         }
 
         /**
-         * Interpreta uma linha SSE. `data:` com delta de conteúdo vira
-         * [SseEvent.Delta]; `[DONE]` vira [SseEvent.Done]; o resto (role,
-         * usage, finish_reason, linhas vazias) vira `null`. Puro/testável.
+         * Interpreta TODOS os eventos de uma linha SSE. `reasoning_content`
+         * vira [SseEvent.ReasoningDelta] e `content` vira [SseEvent.Delta];
+         * quando os dois vêm no mesmo delta, a ordem é raciocínio → conteúdo.
+         * `[DONE]` vira [SseEvent.Done]; o resto (role, usage, finish_reason,
+         * linhas vazias) vira lista vazia. Puro/testável.
+         */
+        fun parseSseEvents(line: String): List<SseEvent> {
+            val trimmed = line.trim()
+            if (!trimmed.startsWith("data:")) return emptyList()
+            val payload = trimmed.removePrefix("data:").trim()
+            if (payload == "[DONE]") return listOf(SseEvent.Done)
+            return buildList {
+                sseStringField(payload, "reasoning_content")
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { add(SseEvent.ReasoningDelta(it)) }
+                sseStringField(payload, "content")
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { add(SseEvent.Delta(it)) }
+            }
+        }
+
+        /**
+         * Compatibilidade: devolve UM evento por linha, com prioridade para
+         * [SseEvent.Delta] quando a linha traz raciocínio e conteúdo juntos.
+         * O provider usa [parseSseEvents] para não perder o raciocínio.
+         * Puro/testável.
          */
         fun parseSseLine(line: String): SseEvent? {
-            val trimmed = line.trim()
-            if (!trimmed.startsWith("data:")) return null
-            val payload = trimmed.removePrefix("data:").trim()
-            if (payload == "[DONE]") return SseEvent.Done
-            if (!payload.contains("\"content\"")) return null
-            val m = Regex("\"content\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(payload)
+            val events = parseSseEvents(line)
+            return events.firstOrNull { it is SseEvent.Delta } ?: events.firstOrNull()
+        }
+
+        /** Extrai um campo string JSON do payload SSE (null quando ausente/nulo). */
+        private fun sseStringField(payload: String, field: String): String? {
+            val m = Regex("\"$field\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(payload)
                 ?: return null
-            val text = JsonCodec.unescape(m.groupValues[1])
-            return if (text.isEmpty()) null else SseEvent.Delta(text)
+            return JsonCodec.unescape(m.groupValues[1])
         }
 
         /** Tokens do bloco `usage` (último chunk do stream); null quando ausente. */
@@ -493,6 +543,9 @@ private fun String.withStructuredInstruction(mode: DeepSeekStructuredMode): Stri
 
 /** Evento interpretado de uma linha SSE. */
 sealed interface SseEvent {
+    /** Delta de `reasoning_content` (raciocínio interno; nunca entra na resposta). */
+    data class ReasoningDelta(val text: String) : SseEvent
+    /** Delta de `content` (a resposta exibida/persistida). */
     data class Delta(val text: String) : SseEvent
     data object Done : SseEvent
 }

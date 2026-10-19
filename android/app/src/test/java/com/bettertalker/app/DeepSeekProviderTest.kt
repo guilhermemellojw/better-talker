@@ -9,6 +9,8 @@ import com.bettertalker.app.data.llm.DeepSeekStreamClient
 import com.bettertalker.app.data.llm.JsonCodec
 import com.bettertalker.app.data.llm.LlmHttpClient
 import com.bettertalker.app.data.llm.LlmRequest
+import com.bettertalker.app.data.llm.LocalPhase
+import com.bettertalker.app.data.llm.LocalProgress
 import com.bettertalker.app.data.llm.ProviderError
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.SseEvent
@@ -40,6 +42,10 @@ class DeepSeekProviderTest {
         val bodies = mutableListOf<String>()
         val urls = mutableListOf<String>()
         val headers = mutableListOf<Map<String, String>>()
+        /** Estado do aviso de retry no instante de cada tentativa. */
+        val retryNotices = mutableListOf<String?>()
+        /** Parcial visível no instante de cada tentativa (deve zerar no retry). */
+        val partialsAtCall = mutableListOf<String>()
         var calls = 0
 
         override suspend fun postStream(
@@ -53,6 +59,8 @@ class DeepSeekProviderTest {
             urls += url
             bodies += body
             this.headers += headers
+            retryNotices += LocalProgress.retryNotice.value
+            partialsAtCall += LocalProgress.partialText.value
             return when (val next = script.removeAt(0)) {
                 is Scripted -> {
                     next.lines.forEach(onLine)
@@ -68,6 +76,9 @@ class DeepSeekProviderTest {
 
     private fun delta(text: String): String =
         "data: {\"choices\":[{\"delta\":{\"content\":${JsonCodec.escape(text)}}}]}"
+
+    private fun reasoning(text: String): String =
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":${JsonCodec.escape(text)}}}]}"
 
     private fun okStream(vararg parts: String) = Scripted(
         LlmHttpClient.HttpResult(200, "", mapOf("x-ratelimit-remaining-requests" to "9")),
@@ -122,7 +133,79 @@ class DeepSeekProviderTest {
         assertNull(DeepSeekProvider.parseSseLine(""))
     }
 
+    @Test
+    fun parseSseEventsSeparaReasoningEConteudo() {
+        val both = "data: {\"choices\":[{\"delta\":{" +
+            "\"reasoning_content\":\"penso\",\"content\":\"oi\"}}]}"
+        assertEquals(
+            listOf(SseEvent.ReasoningDelta("penso"), SseEvent.Delta("oi")),
+            DeepSeekProvider.parseSseEvents(both),
+        )
+        // Compat: com os dois na mesma linha, parseSseLine prioriza o conteúdo.
+        val one = DeepSeekProvider.parseSseLine(both)
+        assertTrue(one is SseEvent.Delta && one.text == "oi")
+    }
+
+    @Test
+    fun parseSseReasoningComEscapes() {
+        val ev = DeepSeekProvider.parseSseLine(reasoning("diz \"oi\"\n"))
+        assertTrue(ev is SseEvent.ReasoningDelta && ev.text == "diz \"oi\"\n")
+    }
+
+    @Test
+    fun parseSseVazioNaoViraEvento() {
+        val line = "data: {\"choices\":[{\"delta\":{" +
+            "\"reasoning_content\":\"\",\"content\":\"\"}}]}"
+        assertTrue(DeepSeekProvider.parseSseEvents(line).isEmpty())
+    }
+
+    @Test
+    fun reasoningNaoEntraNaRespostaFinal() = runBlocking {
+        val http = FakeStream(
+            mutableListOf(
+                Scripted(
+                    LlmHttpClient.HttpResult(200, ""),
+                    lines = listOf(
+                        reasoning("penso "),
+                        reasoning("mais"),
+                        delta("Olá"),
+                        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}",
+                        "data: [DONE]",
+                    ),
+                )
+            )
+        )
+        val res = provider(http).generate(req())
+        assertEquals("Olá", res.text)
+        assertEquals("Olá", LocalProgress.partialText.value)
+        assertEquals("penso mais", LocalProgress.reasoningText.value)
+    }
+
     // ---------- retry / erros ----------
+
+    @Test
+    fun beginAttemptLimpaParciaisEAvisaRetry() {
+        LocalProgress.appendPartial("antigo")
+        LocalProgress.appendReasoning("raciocínio")
+        LocalProgress.beginAttempt(2, "Tentando novamente…")
+        assertEquals("", LocalProgress.partialText.value)
+        assertEquals("", LocalProgress.reasoningText.value)
+        assertEquals("Tentando novamente…", LocalProgress.retryNotice.value)
+        // O primeiro delta da nova tentativa encerra o aviso.
+        LocalProgress.set(LocalPhase.Generating)
+        assertNull(LocalProgress.retryNotice.value)
+    }
+
+    @Test
+    fun clearPartialEncerraStreamingSemTocarNaFase() {
+        LocalProgress.appendPartial("antigo")
+        LocalProgress.appendReasoning("raciocínio")
+        LocalProgress.set(LocalPhase.Done)
+        LocalProgress.clearPartial()
+        assertEquals("", LocalProgress.partialText.value)
+        assertEquals("", LocalProgress.reasoningText.value)
+        assertEquals(LocalPhase.Done, LocalProgress.phase.value)
+    }
 
     @Test
     fun retryEm429DepoisSucesso() = runBlocking {
@@ -131,6 +214,8 @@ class DeepSeekProviderTest {
         assertEquals("ok", res.text)
         assertEquals(2, res.meta.attempts)
         assertEquals(2, http.calls)
+        // A 2ª tentativa anuncia o retry em vez de sumir em silêncio.
+        assertEquals("Tentando novamente…", http.retryNotices[1])
     }
 
     @Test
@@ -246,7 +331,12 @@ class DeepSeekProviderTest {
     fun vazioPorLengthRefazComOrcamentoMaior() = runBlocking {
         val onlyLength = Scripted(
             LlmHttpClient.HttpResult(200, ""),
-            lines = listOf("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}", "data: [DONE]"),
+            lines = listOf(
+                // O parcial da 1ª tentativa precisa sumir no retry.
+                delta("parcial"),
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}",
+                "data: [DONE]",
+            ),
         )
         val http = FakeStream(mutableListOf(onlyLength, okStream("ok")))
         val res = provider(http).generate(req())
@@ -254,6 +344,11 @@ class DeepSeekProviderTest {
         assertEquals(2, res.meta.attempts)
         assertTrue(http.bodies[0].contains("\"max_tokens\":1000"))
         assertTrue(http.bodies[1].contains("\"max_tokens\":2000"))
+        assertEquals("", http.partialsAtCall[1])
+        assertEquals(
+            "Tentando novamente com mais espaço…",
+            http.retryNotices[1],
+        )
     }
 
     @Test
@@ -350,11 +445,13 @@ class DeepSeekProviderTest {
     @Before
     fun limpaCacheSchema() {
         DeepSeekProvider.jsonSchemaRejected = false
+        LocalProgress.reset()
     }
 
     @After
     fun restauraCacheSchema() {
         DeepSeekProvider.jsonSchemaRejected = false
+        LocalProgress.reset()
     }
 
     @Test
