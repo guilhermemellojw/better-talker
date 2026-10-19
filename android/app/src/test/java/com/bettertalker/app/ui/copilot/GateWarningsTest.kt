@@ -1,6 +1,8 @@
 package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.copilot.OratoryFidelityCheck
+import com.bettertalker.app.data.llm.GroundednessVerifier
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -33,6 +35,27 @@ class GateWarningsTest {
     fun textoLimpoNaoGeraAviso() {
         assertNull(citationRevisionNotice("Deus criou os humanos para viver para sempre.", corpus))
         assertNull(citationRevisionNotice("Como diz Gên 1:26, devemos confiar.", corpus))
+    }
+
+    @Test
+    fun avisoUnicoDoChatResumeCategorias() {
+        val text = "O texto fala de esperança. " +
+            "\"Todos os justos herdarão a terra para sempre.\""
+        val verified = GroundednessVerifier.verify(text, corpus, warnOnly = true)
+        val notice = chatVerificationNotice(text, corpus, verified)
+        assertNotNull(notice)
+        assertTrue(notice!!.startsWith("⚠️ Revise:"))
+        assertTrue(notice.contains("1 trecho sinalizado"))
+        assertTrue(notice.contains("1 citação"))
+        assertTrue(notice.contains("O texto foi mantido"))
+        assertEquals(1, Regex("⚠️").findAll(notice).count())
+    }
+
+    @Test
+    fun avisoUnicoSomeQuandoNaoHaFlagNemCitacao() {
+        val text = "Deus criou os humanos para viver para sempre."
+        val verified = GroundednessVerifier.verify(text, corpus, warnOnly = true)
+        assertNull(chatVerificationNotice(text, corpus, verified))
     }
 
     @Test

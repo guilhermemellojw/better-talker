@@ -13,9 +13,37 @@ import com.bettertalker.app.data.util.RefCanonicalizer
  *
  * Puro/testável: sem Android, sem IO.
  */
+/**
+ * Categoria de um trecho sinalizado pelo verificador. Usada só para métricas
+ * e para o aviso único do chat — nunca para logar conteúdo.
+ */
+enum class VerificationCategory { QUOTE, REF, VERSE, NUMBER }
+
+/**
+ * Métricas agregadas de uma verificação (sem conteúdo).
+ *
+ * - [flaggedChars]: caracteres cobertos pelos intervalos sinalizados (após
+ *   merge; é o que o modo estrito removeria).
+ * - [flaggedByCategory]: ocorrências por categoria, antes do merge (duas
+ *   regras podem cobrir o mesmo intervalo).
+ */
+data class VerificationMetrics(
+    val flaggedChars: Int = 0,
+    val flaggedByCategory: Map<VerificationCategory, Int> = emptyMap(),
+) {
+    val total: Int get() = flaggedByCategory.values.sum()
+    val hasFlags: Boolean get() = total > 0
+
+    /** Resumo estável para logcat, ex.: `number=1,quote=2`. */
+    fun summary(): String = flaggedByCategory.entries
+        .sortedBy { it.key.name }
+        .joinToString(",") { "${it.key.name.lowercase()}=${it.value}" }
+}
+
 data class VerificationResult(
     val text: String,
     val removed: List<String>,
+    val metrics: VerificationMetrics = VerificationMetrics(),
 ) {
     val hasRemovals: Boolean get() = removed.isNotEmpty()
 }
@@ -66,6 +94,44 @@ object GroundednessVerifier {
     private val NUMBER = Regex("""\b(\d{1,4}(?:[.,]\d{1,2})?)\b""")
 
     /**
+     * Unidades que expressam técnica/estrutura, não dado factual. Números
+     * seguidos delas dentro de 〈sugestão〉 não são sinalizados (ex.: "3
+     * passos", "2 minutos"). Anos, tribos, percentuais e alimentos ficam de
+     * fora de propósito.
+     */
+    private val TECHNICAL_UNITS = listOf(
+        "min", "minuto", "minutos",
+        "segundo", "segundos",
+        "passo", "passos",
+        "bloco", "blocos",
+        "ilustração", "ilustrações", "ilustracao", "ilustracoes",
+        "exemplo", "exemplos",
+        "parte", "partes",
+        "ponto", "pontos",
+        "palavra", "palavras",
+        "frase", "frases",
+        "fala", "falas",
+        "pergunta", "perguntas",
+    )
+
+    private data class VerificationHit(
+        val range: IntRange,
+        val category: VerificationCategory,
+    )
+
+    /** O número em [endExclusive] é seguido de uma unidade técnica? */
+    private fun isTechnicalUnit(text: String, endExclusive: Int): Boolean {
+        var i = endExclusive
+        while (i < text.length && text[i].isWhitespace()) i++
+        if (i >= text.length) return false
+        val rest = text.substring(i).lowercase()
+        return TECHNICAL_UNITS.any { unit ->
+            rest.startsWith(unit) &&
+                (rest.length == unit.length || !rest[unit.length].isLetterOrDigit())
+        }
+    }
+
+    /**
      * T1 (modo colar e conversar) — modo aviso: detecta os mesmos trechos,
      * mas NÃO remove nada (texto intacto + lista de removidos para o aviso
      * "⚠️ Revise"). O modo padrão (remoção) continua inalterado.
@@ -81,7 +147,7 @@ object GroundednessVerifier {
         val canonCorpus = corpus.flatMap { RefCanonicalizer.canonicalize(it) }
         val spans = suggestionSpans(text)
 
-        val ranges = mutableListOf<IntRange>()
+        val hits = mutableListOf<VerificationHit>()
         QUOTE.findAll(text).forEach { m ->
             // T2: prosa criativa marcada é isenta; criação sem marcador continua gate normal.
             if (inSuggestion(m.range.first, spans)) return@forEach
@@ -91,7 +157,10 @@ object GroundednessVerifier {
                 // aspas) + pontuação adjacente; a frase legítima ao redor fica
                 // ("A vida é bela, "frase inventada", e o sol brilha." →
                 // "A vida é bela, e o sol brilha.").
-                ranges += quoteRemovalRange(text, m.range)
+                hits += VerificationHit(
+                    quoteRemovalRange(text, m.range),
+                    VerificationCategory.QUOTE,
+                )
             }
         }
         REF.findAll(text).forEach { m ->
@@ -100,7 +169,10 @@ object GroundednessVerifier {
             // o modelo escreveu "páginas 26 a 28").
             val number = m.groupValues[3]
             if (canonCorpus.none { it.contains(number) }) {
-                ranges += sentenceAround(text, m.range)
+                hits += VerificationHit(
+                    sentenceAround(text, m.range),
+                    VerificationCategory.REF,
+                )
             }
         }
         // T2 — dentro de 〈sugestão〉 a prosa é isenta, mas versículo e número NÃO:
@@ -114,7 +186,10 @@ object GroundednessVerifier {
                 // #16-fix-f: canonicaliza o livro ("1 Coríntios" → "1co") e
                 // aceita versículo individual dentro de range autorizado.
                 if (canonCorpus.none { it.contains(RefCanonicalizer.canonicalBook(m.value)) }) {
-                    ranges += sentenceAround(text, g)
+                    hits += VerificationHit(
+                        sentenceAround(text, g),
+                        VerificationCategory.VERSE,
+                    )
                 }
             }
             NUMBER.findAll(slice).forEach { m ->
@@ -126,19 +201,28 @@ object GroundednessVerifier {
                 ) return@forEach
                 val g = (span.first + m.range.first)..(span.first + m.range.last)
                 if (verseRanges.any { g.first in it }) return@forEach
+                // #verifier-units: "3 passos"/"2 minutos" são técnica, não fato.
+                if (isTechnicalUnit(slice, m.range.last + 1)) return@forEach
                 if (canonCorpus.none { it.contains(n) }) {
-                    ranges += sentenceAround(text, g)
+                    hits += VerificationHit(
+                        sentenceAround(text, g),
+                        VerificationCategory.NUMBER,
+                    )
                 }
             }
         }
-        if (ranges.isEmpty()) return VerificationResult(text, emptyList())
+        if (hits.isEmpty()) return VerificationResult(text, emptyList())
 
-        val merged = merge(ranges)
+        val merged = merge(hits.map { it.range })
         val removed = merged
             .map { text.substring(it.first, it.last + 1).trim() }
             .filter { it.isNotBlank() }
+        val metrics = VerificationMetrics(
+            flaggedChars = merged.sumOf { it.last - it.first + 1 },
+            flaggedByCategory = hits.groupingBy { it.category }.eachCount(),
+        )
         // T1 (modo aviso): o chamador exibe o aviso; o texto segue intacto.
-        if (warnOnly) return VerificationResult(text, removed)
+        if (warnOnly) return VerificationResult(text, removed, metrics)
         val kept = StringBuilder()
         var cursor = 0
         for (r in merged) {
@@ -155,7 +239,7 @@ object GroundednessVerifier {
         }
         if (cursor < text.length) kept.append(text.substring(cursor))
         val cleaned = cleanupAfterRemoval(kept.toString())
-        return VerificationResult(cleaned + REMOVAL_NOTICE, removed)
+        return VerificationResult(cleaned + REMOVAL_NOTICE, removed, metrics)
     }
 
     /**

@@ -240,4 +240,46 @@ class GroundednessVerifierTest {
             GroundednessVerifier.cleanupAfterRemoval("Fim.O próximo."),
         )
     }
+
+    // ---------- Nível 0/1: métricas, warn-only e unidades técnicas ----------
+
+    @Test
+    fun metricasPorCategoriaEChars() {
+        val input = "O texto fala de esperança. " +
+            "\"Todos os justos herdarão a terra para sempre.\" " +
+            "Como mostra a página 99, o tema é central."
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.metrics.flaggedChars > 0)
+        assertEquals(1, r.metrics.flaggedByCategory[VerificationCategory.QUOTE])
+        assertEquals(1, r.metrics.flaggedByCategory[VerificationCategory.REF])
+        assertEquals(2, r.metrics.total)
+        assertEquals("quote=1,ref=1", r.metrics.summary())
+    }
+
+    @Test
+    fun warnOnlyPreservaTextoEMantemMetricas() {
+        val input = "O texto fala de esperança. " +
+            "\"Todos os justos herdarão a terra para sempre.\""
+        val r = GroundednessVerifier.verify(input, fontes, warnOnly = true)
+        assertEquals(input, r.text)
+        assertTrue(r.hasRemovals)
+        assertEquals(1, r.metrics.flaggedByCategory[VerificationCategory.QUOTE])
+    }
+
+    @Test
+    fun numerosTecnicosDentroDeSugestaoNaoSaoSinalizados() {
+        val input = "〈sugestão〉Use 14 passos e 16 minutos; " +
+            "cite 20 exemplos e 30 ilustrações.〈/sugestão〉"
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertFalse(r.hasRemovals)
+        assertFalse(r.metrics.hasFlags)
+    }
+
+    @Test
+    fun numerosFactuaisDentroDeSugestaoContinuamSinalizados() {
+        val input = "〈sugestão〉Em 1994, ele tinha 10 pães e 14 peixes.〈/sugestão〉"
+        val r = GroundednessVerifier.verify(input, fontes)
+        assertTrue(r.hasRemovals)
+        assertEquals(3, r.metrics.flaggedByCategory[VerificationCategory.NUMBER])
+    }
 }

@@ -40,6 +40,8 @@ import com.bettertalker.app.data.llm.GroundednessVerifier
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.llm.ProviderFactory
 import com.bettertalker.app.data.llm.ResponseFormat
+import com.bettertalker.app.data.llm.VerificationCategory
+import com.bettertalker.app.data.llm.VerificationResult
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.verify.TextVerification
@@ -234,6 +236,42 @@ fun citationRevisionNotice(text: String, corpus: List<String>): String? {
     val check = com.bettertalker.app.data.ai.checkCitations(text, corpus)
     if (check.ok) return null
     return "⚠️ Revise: " + check.violations.first()
+}
+
+private fun categoryLabel(category: VerificationCategory, count: Int): String = when (category) {
+    VerificationCategory.QUOTE -> if (count == 1) "1 citação" else "$count citações"
+    VerificationCategory.REF -> if (count == 1) "1 referência" else "$count referências"
+    VerificationCategory.VERSE -> if (count == 1) "1 versículo" else "$count versículos"
+    VerificationCategory.NUMBER -> if (count == 1) "1 número" else "$count números"
+}
+
+/**
+ * Aviso ÚNICO do chat (warn-only): o texto é mantido; a linha resume o que
+ * foi sinalizado e o que a checagem de citações viu, sem repetir o aviso
+ * genérico de remoção. Puro/testável.
+ */
+fun chatVerificationNotice(
+    text: String,
+    corpus: List<String>,
+    result: VerificationResult,
+): String? {
+    val flags = result.metrics.flaggedByCategory
+    val check = com.bettertalker.app.data.ai.checkCitations(text, corpus)
+    val reasons = buildList {
+        if (flags.isNotEmpty()) {
+            val total = result.metrics.total
+            val head = if (total == 1) "1 trecho sinalizado" else "$total trechos sinalizados"
+            val parts = flags.entries
+                .sortedBy { it.key.name }
+                .joinToString(", ") { categoryLabel(it.key, it.value) }
+            add("$head: $parts")
+        }
+        if (!check.ok) {
+            add("há citação(ões)/versículo(s) fora dos trechos")
+        }
+    }
+    if (reasons.isEmpty()) return null
+    return "⚠️ Revise: " + reasons.joinToString("; ") + ". O texto foi mantido."
 }
 
 /**
@@ -2056,10 +2094,14 @@ class CopilotViewModel(
                             stripHtmlToText(block).takeIf { it.isNotBlank() },
                         ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
                     )
-                    if (verified.hasRemovals) {
-                        android.util.Log.w(
+                    if (verified.metrics.hasFlags) {
+                        val strictChars = verified.text
+                            .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
+                        android.util.Log.i(
                             "CopilotLLM",
-                            "oratória: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+                            "verifier oratory: flags=${verified.metrics.summary()} " +
+                                "flaggedChars=${verified.metrics.flaggedChars} " +
+                                "strictChars=$strictChars",
                         )
                     }
                     // Com remoções, o texto da proposta vira o verificado
@@ -2171,19 +2213,21 @@ class CopilotViewModel(
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
         val verified = GroundednessVerifier.verify(outText, corpus, warnOnly = true)
-        if (verified.removed.isNotEmpty()) {
-            android.util.Log.w(
+        // Nível 0: o strict shadow mede o “antes” (o que seria removido) sem
+        // alterar o texto entregue. Só métricas, nunca conteúdo.
+        val strictShadow = GroundednessVerifier.verify(outText, corpus)
+        if (verified.metrics.hasFlags || strictShadow.metrics.hasFlags) {
+            val strictChars = strictShadow.text
+                .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
+            android.util.Log.i(
                 "CopilotLLM",
-                "chat minimalista: ${verified.removed.size} trecho(s) sem apoio (só aviso)"
+                "verifier minimal: flags=${verified.metrics.summary()} " +
+                    "flaggedChars=${verified.metrics.flaggedChars} " +
+                    "keptChars=${verified.text.length} strictChars=$strictChars",
             )
         }
-        val revision = citationRevisionNotice(verified.text, corpus)
-            ?: if (verified.removed.isNotEmpty()) {
-                com.bettertalker.app.data.llm.GroundednessVerifier.WARN_ONLY_NOTICE
-            } else {
-                null
-            }
-        val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
+        val notice = chatVerificationNotice(verified.text, corpus, verified)
+        val finalText = if (notice == null) verified.text else verified.text + "\n\n" + notice
         post(false, "text", ChatCodec.escMap(mapOf("text" to finalText)), MessageOrigin.COPILOT,
             durationMs = res.meta.durationMs, truncated = truncated)
     }
@@ -2290,19 +2334,26 @@ class CopilotViewModel(
                 questionVerseLines(questionVerses, text) +
                 questionPubs.map { it.passage.text },
         )
-        val verified = GroundednessVerifier.verify(text, corpus)
-        if (verified.hasRemovals) {
-            android.util.Log.w(
+        val verified = GroundednessVerifier.verify(text, corpus, warnOnly = true)
+        // Nível 0: mede o “antes” (strict) e o “depois” (warn-only) no mesmo
+        // turno. O strict shadow NÃO é usado como resposta — só métricas.
+        val strictShadow = GroundednessVerifier.verify(text, corpus)
+        if (verified.metrics.hasFlags || strictShadow.metrics.hasFlags) {
+            val strictChars = strictShadow.text
+                .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
+            android.util.Log.i(
                 "CopilotLLM",
-                "chat remoto: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+                "verifier chat: flags=${verified.metrics.summary()} " +
+                    "flaggedChars=${verified.metrics.flaggedChars} " +
+                    "keptChars=${verified.text.length} strictChars=$strictChars",
             )
         }
-        // T2 — aviso não bloqueante de citações (padrão "⚠️ Revise").
-        val revision = citationRevisionNotice(verified.text, corpus)
-        if (revision != null) {
-            android.util.Log.w("CopilotLLM", "chat remoto: aviso de citação exibido")
+        // Aviso ÚNICO: substitui o REMOVAL_NOTICE e o citationRevisionNotice.
+        val notice = chatVerificationNotice(verified.text, corpus, verified)
+        if (notice != null) {
+            android.util.Log.w("CopilotLLM", "chat remoto: aviso único do verifier exibido")
         }
-        val finalText = if (revision == null) verified.text else verified.text + "\n\n" + revision
+        val finalText = if (notice == null) verified.text else verified.text + "\n\n" + notice
         // T3 — dica contextual: insuficiência + acervo com publicações soltas.
         val tip = com.bettertalker.app.data.copilot.contextualScopeTip(
             responseText = verified.text,
@@ -4713,10 +4764,14 @@ class CopilotViewModel(
                 }
             }.filter { it.isNotBlank() }
             val verified = verifyGeneratedText(res.text, null, corpus)
-            if (verified.hasRemovals) {
-                android.util.Log.w(
+            if (verified.metrics.hasFlags) {
+                val strictChars = verified.text
+                    .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
+                android.util.Log.i(
                     "CopilotLLM",
-                    "insira tudo: verificador removeu ${verified.removed.size} trecho(s) sem apoio"
+                    "verifier structure: flags=${verified.metrics.summary()} " +
+                        "flaggedChars=${verified.metrics.flaggedChars} " +
+                        "strictChars=$strictChars",
                 )
             }
             // #7e-fix: o aviso do verificador não entra no markdown — é
