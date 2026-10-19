@@ -79,8 +79,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.R
+import com.bettertalker.app.data.util.PasteKind
+import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.components.NoteItem
+import com.bettertalker.app.ui.components.PasteDestination
+import com.bettertalker.app.ui.components.PastePreviewSheet
+import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.SyncTopBanner
 import com.bettertalker.app.ui.components.SyncUiState
 import com.bettertalker.app.ui.components.ViewModeMenu
@@ -121,6 +126,8 @@ fun HomeScreen(
     // Fase 1 "Colar e Pronto": FAB abre as opções de criação.
     var showCreateSheet by remember { mutableStateOf(false) }
     var showInsertDialog by remember { mutableStateOf(false) }
+    // Fase B: porta única de colar material (prévia antes de criar).
+    var showPasteSheet by remember { mutableStateOf(false) }
     var showScratchDialog by remember { mutableStateOf(false) }
     // UX refactor: gerenciamento de arquivo no card (confirmação + mover).
     var confirmDelete by remember {
@@ -129,7 +136,6 @@ fun HomeScreen(
     var moveTarget by remember {
         mutableStateOf<com.bettertalker.app.data.db.NoteEntity?>(null)
     }
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     // "Inserir material → Escolher arquivo": picker nativo → importa na nota nova.
     val materialPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
@@ -232,28 +238,42 @@ fun HomeScreen(
             onDismiss = { showInsertDialog = false },
             onPasteText = {
                 showInsertDialog = false
-                val clip = clipboard.getText()?.text?.trim().orEmpty()
-                if (clip.isEmpty()) {
-                    scope.launch { snack.showSnackbar("Nada para colar na área de transferência.") }
-                } else {
-                    scope.launch {
-                        val outcome = vm.createNoteFromPaste(clip)
-                        val noteId = outcome.noteId
-                        if (noteId != null) {
-                            onPasteCreated(noteId, outcome.notice)
-                        } else {
-                            // V&M reconhecido mas sem TALK/DEMO (Joias, Leitura,
-                            // Estudo): nada é criado; o usuário recebe o porquê.
-                            snack.showSnackbar(
-                                outcome.notice ?: "Não consegui reconhecer o material.",
-                            )
-                        }
-                    }
-                }
+                showPasteSheet = true
             },
             onPickFile = {
                 showInsertDialog = false
                 materialPicker.launch(arrayOf("*/*"))
+            },
+        )
+    }
+    if (showPasteSheet) {
+        PastePreviewSheet(
+            request = PasteSheetRequest(
+                defaultDestination = PasteDestination.NEW_NOTE,
+                folderName = selectedFolder?.name,
+            ),
+            onDismiss = { showPasteSheet = false },
+            onApply = { plan, text ->
+                showPasteSheet = false
+                scope.launch {
+                    val outcome = vm.createNoteFromPaste(text)
+                    val noteId = outcome.noteId
+                    if (noteId != null) {
+                        val feedback = if (plan.kind is PasteKind.S34) {
+                            // O VM tem a contagem exata de seções convertidas.
+                            outcome.notice ?: pasteApplyFeedback(plan)
+                        } else {
+                            pasteApplyFeedback(plan)
+                        }
+                        onPasteCreated(noteId, feedback)
+                    } else {
+                        // Rejeição que escapou da prévia (texto mudou no último
+                        // instante): nada é criado; o usuário recebe o porquê.
+                        snack.showSnackbar(
+                            outcome.notice ?: "Não consegui reconhecer o material.",
+                        )
+                    }
+                }
             },
         )
     }
@@ -590,8 +610,8 @@ private fun InsertMaterialDialog(
             Column {
                 CreateNoteOption(
                     icon = Icons.Default.ContentPaste,
-                    title = "Colar texto",
-                    subtitle = "Da área de transferência — detecta discurso ou demonstração",
+                    title = "Colar material",
+                    subtitle = "Revise a prévia antes de criar a nota",
                     onClick = onPasteText,
                 )
                 CreateNoteOption(

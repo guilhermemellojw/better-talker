@@ -74,7 +74,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.decodeHtmlEntities
+import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.data.util.stripInternalTags
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -105,6 +107,9 @@ import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.MdBlock
+import com.bettertalker.app.ui.components.PasteDestination
+import com.bettertalker.app.ui.components.PastePreviewSheet
+import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.inline
 import com.bettertalker.app.ui.components.parseBlocks
 import kotlinx.coroutines.delay
@@ -198,9 +203,9 @@ fun ChatScreen(
     }
     var showAttach by remember { mutableStateOf(false) }
     var showPublications by remember { mutableStateOf(false) }
-    var showPaste by remember { mutableStateOf(false) }
+    // Fase B: porta única de colar material (prévia antes de aplicar).
+    var showPasteSheet by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
-    var pasteText by rememberSaveable { mutableStateOf("") }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
     var voiceSeconds by remember { mutableIntStateOf(0) }
@@ -754,7 +759,7 @@ fun ChatScreen(
                 showAttach = false
                 outlinePicker.launch(OUTLINE_MIMES)
             },
-            onPaste = { showAttach = false; showPaste = true },
+            onPaste = { showAttach = false; showPasteSheet = true },
             // T3: atalho para o catálogo (Biblioteca abre com a seção no topo).
             onPublications = { showAttach = false; onOpenLibrary() },
             // T2: vincular publicação do acervo sem sair do chat.
@@ -778,26 +783,30 @@ fun ChatScreen(
         )
     }
 
-    if (showPaste) {
-        var t by rememberSaveable(pasteText) { mutableStateOf(pasteText) }
-        AlertDialog(
-            onDismissRequest = { showPaste = false },
-            title = { Text("Colar esboço") },
-            text = {
-                OutlinedTextField(
-                    value = t, onValueChange = { t = it },
-                    placeholder = { Text("Cole o texto do esboço (ex: ponto da apostila)…") },
-                    modifier = Modifier.fillMaxWidth().height(220.dp)
-                )
+    if (showPasteSheet) {
+        PastePreviewSheet(
+            request = PasteSheetRequest(
+                defaultDestination = PasteDestination.CURRENT_NOTE,
+                currentNoteHasSections = draftSections.isNotEmpty(),
+            ),
+            onDismiss = { showPasteSheet = false },
+            onApply = { plan, text ->
+                showPasteSheet = false
+                val reviewInChat = plan.kind is PasteKind.S34 ||
+                    plan.kind == PasteKind.FreeText
+                // Reusa o pipeline existente: V&M aplica na nota; S34/FreeText
+                // abre o draft/revisão no próprio chat.
+                vm.pasteOutline(text)
+                scope.launch {
+                    snack.showSnackbar(
+                        pasteApplyFeedback(
+                            plan,
+                            reviewInChat = reviewInChat,
+                            currentNoteHasSections = draftSections.isNotEmpty(),
+                        )
+                    )
+                }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    pasteText = t
-                    showPaste = false
-                    vm.pasteOutline(t)
-                }) { Text("Analisar") }
-            },
-            dismissButton = { TextButton(onClick = { showPaste = false }) { Text("Cancelar") } }
         )
     }
 

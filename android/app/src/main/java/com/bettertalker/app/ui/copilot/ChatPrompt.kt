@@ -449,8 +449,8 @@ fun AttachSheet(
             )
             AttachOption(
                 icon = Icons.Default.AutoAwesome,
-                title = "Analisar material",
-                desc = "Ex: ponto da apostila",
+                title = "Colar material",
+                desc = "Revise a prévia antes de aplicar",
                 onClick = onPaste
             )
             AttachOption(
@@ -464,6 +464,14 @@ fun AttachSheet(
                 title = "Anexar do acervo",
                 desc = "Vincule uma publicação já importada",
                 onClick = onAttachFromLibrary
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Dica: colar no campo de mensagem abre o modo conversar. " +
+                    "Para criar cards, use \"Colar material\".",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp),
             )
             Spacer(Modifier.height(8.dp))
             ByodNotice()

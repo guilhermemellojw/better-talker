@@ -81,6 +81,148 @@ data class PastePlan(
     val ignoredParts: List<VmPart> = emptyList(),
 )
 
+/**
+ * Resumo puro da colagem para a `PastePreviewSheet` (Fase B).
+ * Não inclui destino (é decisão da tela); não faz IO.
+ */
+data class PastePreview(
+    val kindLabel: String,
+    val detailLines: List<String>,
+    val cardsLabel: String,
+    val ignoredParts: List<VmPart>,
+    val ignoredLabel: String?,
+    val canApply: Boolean,
+    val rejectionMessage: String?,
+)
+
+/** Monta o resumo de UI a partir do plano (S34/TALK/DEMO/Consideração/etc.). */
+fun pastePreviewOf(plan: PastePlan): PastePreview {
+    val kind = plan.kind
+    val kindLabel = when (kind) {
+        is PasteKind.S34 -> "Esboço S-34"
+        is PasteKind.VmTalk -> "V&M · Discurso"
+        is PasteKind.VmDemo -> "V&M · Demonstração"
+        is PasteKind.VmConsideration -> "V&M · Consideração"
+        is PasteKind.VmRejected -> "V&M · sem parte aplicável"
+        PasteKind.FreeText -> "Texto livre"
+    }
+
+    val detailLines = mutableListOf<String>()
+    when (kind) {
+        is PasteKind.S34 -> {
+            detailLines += "${kind.outline.sections.size} seções no esboço"
+            kind.outline.totalMinutes?.let { detailLines += "Duração total: $it min" }
+        }
+        is PasteKind.VmTalk -> detailLines += vmPartPreviewLines(kind.part)
+        is PasteKind.VmDemo -> detailLines += vmPartPreviewLines(kind.part)
+        is PasteKind.VmConsideration -> detailLines += vmPartPreviewLines(kind.part)
+        is PasteKind.VmRejected ->
+            detailLines += kind.parts.map { "Parte ${it.partNumber} · ${it.nature.label()}" }
+        PasteKind.FreeText -> detailLines += "Sem V&M/S-34 detectado"
+    }
+    if (plan.bibleRefs.isNotEmpty()) {
+        detailLines += "Bíblia: ${plan.bibleRefs.joinToString(", ")}"
+    }
+    if (plan.publicationRefs.isNotEmpty()) {
+        detailLines += "Publicações: ${formatPublicationRefs(plan.publicationRefs)}"
+    }
+
+    val cardsLabel = when (kind) {
+        is PasteKind.S34 -> "Introdução + ${kind.outline.sections.size} corpos + Conclusão"
+        is PasteKind.VmTalk -> "3 cards (Introdução · Corpo · Conclusão)"
+        is PasteKind.VmDemo -> "1 card (diálogo)"
+        is PasteKind.VmConsideration -> "1 card (consideração)"
+        is PasteKind.VmRejected -> "0 cards"
+        PasteKind.FreeText -> "1 card (Corpo)"
+    }
+    val ignored = plan.ignoredParts
+    val ignoredLabel = if (ignored.isEmpty()) {
+        null
+    } else {
+        "${ignored.size} parte${if (ignored.size > 1) "s" else ""} " +
+            "ignorada${if (ignored.size > 1) "s" else ""}"
+    }
+    return PastePreview(
+        kindLabel = kindLabel,
+        detailLines = detailLines,
+        cardsLabel = cardsLabel,
+        ignoredParts = ignored,
+        ignoredLabel = ignoredLabel,
+        canApply = kind !is PasteKind.VmRejected,
+        rejectionMessage = if (kind is PasteKind.VmRejected) plan.notice else null,
+    )
+}
+
+private fun vmPartPreviewLines(part: VmPart): List<String> = buildList {
+    add(
+        "Parte ${part.partNumber} · " +
+            if (part.minutes > 0) "${part.minutes} min" else "duração não declarada"
+    )
+    part.title.takeIf { it.isNotBlank() }?.let { add("Título: $it") }
+    part.partType?.takeIf { it.isNotBlank() }?.let { add("Tipo: $it") }
+    part.scenario?.let {
+        add("Cenário: ${it.lowercase().replaceFirstChar { c -> c.uppercase() }}")
+    }
+    part.reference?.let { add("Referência: $it") }
+}
+
+private fun formatPublicationRefs(refs: List<PublicationRef>): String =
+    refs.joinToString("; ") { ref ->
+        buildString {
+            append(ref.symbol)
+            ref.page?.let { append(" p. $it") }
+            ref.paragraph?.let { append(" §$it") }
+        }
+    }
+
+/**
+ * Mensagem curta de feedback após aplicar (Fase B). `reviewInChat` é true
+ * quando o Editor/Chat mantém o draft de S34/FreeText para revisão.
+ */
+fun pasteApplyFeedback(
+    plan: PastePlan,
+    reviewInChat: Boolean = false,
+    currentNoteHasSections: Boolean = false,
+): String {
+    val kind = plan.kind
+    if (kind is PasteKind.VmRejected) {
+        return plan.notice ?: "Material V&M sem parte aplicável."
+    }
+    if (reviewInChat && (kind is PasteKind.S34 || kind == PasteKind.FreeText)) {
+        return "Material enviado para revisão no chat."
+    }
+    val cards = when (kind) {
+        is PasteKind.S34 -> kind.outline.sections.size + 2
+        is PasteKind.VmTalk -> if (currentNoteHasSections) 1 else 3
+        is PasteKind.VmDemo, is PasteKind.VmConsideration, PasteKind.FreeText -> 1
+        is PasteKind.VmRejected -> 0
+    }
+    val feminine = kind is PasteKind.S34
+    val noun = when {
+        cards == 1 && feminine -> "seção"
+        cards == 1 -> "card"
+        feminine -> "seções"
+        else -> "cards"
+    }
+    val action = when {
+        currentNoteHasSections && feminine && cards == 1 -> "adicionada"
+        currentNoteHasSections && feminine -> "adicionadas"
+        currentNoteHasSections && cards == 1 -> "adicionado"
+        currentNoteHasSections -> "adicionados"
+        feminine && cards == 1 -> "criada"
+        feminine -> "criadas"
+        cards == 1 -> "criado"
+        else -> "criados"
+    }
+    val ignored = if (plan.ignoredParts.isEmpty()) {
+        ""
+    } else {
+        " · ${plan.ignoredParts.size} parte${if (plan.ignoredParts.size > 1) "s" else ""} " +
+            "ignorada${if (plan.ignoredParts.size > 1) "s" else ""}"
+    }
+    return "$cards $noun $action$ignored"
+}
+
 /** Minutos dos cards vazios de abertura/fechamento (igual ao "Adicionar parte"). */
 internal const val EDGE_SECTION_MINUTES = 1
 

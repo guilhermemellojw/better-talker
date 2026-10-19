@@ -103,7 +103,12 @@ import com.bettertalker.app.data.export.buildExportHtml
 import com.bettertalker.app.data.export.buildExportPlainText
 import com.bettertalker.app.data.export.exportFileBaseName
 import com.bettertalker.app.data.export.PdfExportManager
+import com.bettertalker.app.data.util.PasteKind
+import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.ui.components.PasteDestination
+import com.bettertalker.app.ui.components.PastePreviewSheet
+import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
 import java.io.File
@@ -145,7 +150,8 @@ fun EditorScreen(
     // Exportação: sheet com Compartilhar / Salvar PDF / Copiar texto.
     var showExport by remember { mutableStateOf(false) }
     // #7e2: empty state — "Colar texto" e o menu do "Começar do zero".
-    var showPasteDialog by remember { mutableStateOf(false) }
+    // Fase B: porta única de colar material (prévia antes de aplicar).
+    var showPasteSheet by remember { mutableStateOf(false) }
     var showAddSectionMenu by remember { mutableStateOf(false) }
     // #8a: "Anexar esboço" virou sheet com 2 caminhos (importar/colar).
     var showAttachSheet by remember { mutableStateOf(false) }
@@ -436,11 +442,11 @@ fun EditorScreen(
                                 Spacer(Modifier.width(12.dp))
                                 Column(horizontalAlignment = Alignment.Start) {
                                     Text(
-                                        "Anexar esboço",
+                                        "Anexar material",
                                         style = MaterialTheme.typography.titleSmall,
                                     )
                                     Text(
-                                        "Importar arquivo ou analisar material",
+                                        "Importar arquivo ou colar material",
                                         style = MaterialTheme.typography.labelSmall,
                                     )
                                 }
@@ -651,7 +657,7 @@ fun EditorScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Anexar esboço", style = MaterialTheme.typography.titleMedium)
+                Text("Anexar material", style = MaterialTheme.typography.titleMedium)
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -680,16 +686,16 @@ fun EditorScreen(
                         .fillMaxWidth()
                         .clickable {
                             showAttachSheet = false
-                            showPasteDialog = true
+                            showPasteSheet = true
                         }
                         .padding(vertical = 10.dp),
                 ) {
                     Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Analisar com IA", style = MaterialTheme.typography.titleSmall)
+                        Text("Colar material", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Cole aqui o material da reunião",
+                            "Revise a prévia antes de aplicar",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -700,41 +706,31 @@ fun EditorScreen(
         }
     }
 
-    // #7e2: "Analisar com IA" do empty state — mesmo pipeline do chat
-    // (CopilotViewModel.pasteOutline). "Analisar" segue para o chat, onde o
-    // rascunho do esboço é exibido.
-    if (showPasteDialog) {
-        // Bloco 1 (UX): o diálogo abre já com o texto do clipboard (editável
-        // antes de confirmar) — antes abria vazio mesmo com texto copiado.
-        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
-        var pasteText by remember {
-            mutableStateOf(clipboard.getText()?.text?.trim().orEmpty())
-        }
-        AlertDialog(
-            onDismissRequest = { showPasteDialog = false },
-            title = { Text("Analisar com IA") },
-            text = {
-                OutlinedTextField(
-                    value = pasteText,
-                    onValueChange = { pasteText = it },
-                    minLines = 6,
-                    maxLines = 15,
-                    placeholder = { Text("Cole aqui o texto do esboço ou da publicação...") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val t = pasteText
-                    showPasteDialog = false
-                    if (t.isNotBlank()) {
-                        onPasteOutline(t)
-                        onOpenChat()
-                    }
-                }) { Text("Analisar") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPasteDialog = false }) { Text("Cancelar") }
+    // Fase B: a mesma folha do FAB, com destino "Nota atual". O apply chama
+    // o pipeline existente (V&M aplica; S34/FreeText abre o draft no chat).
+    if (showPasteSheet) {
+        PastePreviewSheet(
+            request = PasteSheetRequest(
+                defaultDestination = PasteDestination.CURRENT_NOTE,
+                currentNoteTitle = title,
+                currentNoteHasSections = sections.isNotEmpty(),
+            ),
+            onDismiss = { showPasteSheet = false },
+            onApply = { plan, text ->
+                showPasteSheet = false
+                val reviewInChat = plan.kind is PasteKind.S34 ||
+                    plan.kind == PasteKind.FreeText
+                onPasteOutline(text)
+                onOpenChat()
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        pasteApplyFeedback(
+                            plan,
+                            reviewInChat = reviewInChat,
+                            currentNoteHasSections = sections.isNotEmpty(),
+                        )
+                    )
+                }
             },
         )
     }
