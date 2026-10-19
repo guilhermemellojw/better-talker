@@ -6,6 +6,7 @@ import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.s34.S34StructuralRetrieval
 import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.domain.planning.SpeechPacing
 
 /**
  * Fase 20-B — geração oratória guiada por estrutura + BE/TH.
@@ -48,9 +49,6 @@ object OratoryGeneration {
                 )
             }
     }
-
-    /** Ritmo de fala (palavras/min) — mesma taxa do editor (WordCount.kt). */
-    private const val WORDS_PER_MINUTE = 130
 
     /** Teto de segurança do limite de palavras (#16-fix-c). */
     private const val MAX_WORDS = 2000
@@ -96,7 +94,7 @@ object OratoryGeneration {
      * absurdas.
      */
     fun maxWords(mode: Mode, minutes: Int?): Int =
-        ((minutes ?: 1).coerceAtLeast(1) * WORDS_PER_MINUTE).coerceAtMost(MAX_WORDS)
+        SpeechPacing.targetWords(minutes ?: 1).coerceAtMost(MAX_WORDS)
 
     /** O que o pedido quer fazer com o conteúdo existente (§26). */
     enum class Action { INSERT, REPLACE }

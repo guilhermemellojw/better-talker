@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.editor
 
+import com.bettertalker.app.domain.planning.SpeechPacing
 import com.bettertalker.app.domain.speech.SectionRole
 import kotlin.math.roundToInt
 
@@ -29,17 +30,15 @@ fun countSectionWords(sections: List<SectionUiState>): Int = sections.sumOf { s 
     }
 }
 
-/** Ritmo de fala médio (palavras por minuto) para a estimativa do mini discurso. */
-const val WORDS_PER_MINUTE = 130
-
 /**
- * Estimativa de duração do texto em minutos (130 palavras/min, arredondado).
- * Vazio = 0; qualquer texto não vazio conta ao menos 1 min. Puro/testável.
+ * Estimativa de duração do texto em minutos (ritmo único de [SpeechPacing],
+ * arredondado). Vazio = 0; qualquer texto não vazio conta ao menos 1 min.
+ * Puro/testável.
  */
 fun estimateMinutes(text: String): Int {
     val words = countWords(text)
     if (words <= 0) return 0
-    return maxOf(1, (words / WORDS_PER_MINUTE.toDouble()).roundToInt())
+    return maxOf(1, (words / SpeechPacing.WORDS_PER_MINUTE.toDouble()).roundToInt())
 }
 
 /** Situação do mini discurso em relação à meta de minutos do tópico. */
