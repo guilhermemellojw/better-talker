@@ -72,6 +72,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -441,6 +442,9 @@ fun ChatScreen(
         containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
                     // #25-fix-c: barra única. Em Tópico: título da seção + posição
@@ -772,11 +776,19 @@ fun ChatScreen(
                                     fadeOutSpec = tween(200),
                                 )
                             ) {
-                                Column(
-                                    Modifier
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
                                         .fillMaxWidth()
-                                        .animateContentSize(tween(250))
+                                        .padding(vertical = 4.dp),
                                 ) {
+                                    Column(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                                            .animateContentSize(tween(250))
+                                    ) {
                                     AnimatedVisibility(
                                         visible = reasoningShown && reasoningVisible,
                                         enter = fadeIn(tween(200)),
@@ -820,6 +832,7 @@ fun ChatScreen(
                                                 style = MaterialTheme.typography.bodyLarge
                                             )
                                         }
+                                    }
                                     }
                                 }
                             }
@@ -966,19 +979,27 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> Column(
-                Modifier
+            else -> Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
                     .fillMaxWidth()
-                    .animateContentSize(tween(250))
+                    .padding(vertical = 4.dp),
             ) {
-                // #22-fix (P1): selo "BT · " inline no primeiro bloco —
-                // sem coluna de avatar (texto em x=0).
-                ChatMessageText(
-                    item.text,
-                    Modifier.fillMaxWidth(),
-                    onUseInCard = { vm.insertTextIntoScope(it) },
-                    leadingMark = assistantInlineMark(),
-                )
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .animateContentSize(tween(250))
+                ) {
+                    // #22-fix (P1): selo "BT · " inline no primeiro bloco —
+                    // sem coluna de avatar (texto em x=0).
+                    ChatMessageText(
+                        item.text,
+                        Modifier.fillMaxWidth(),
+                        onUseInCard = { vm.insertTextIntoScope(it) },
+                        leadingMark = assistantInlineMark(),
+                    )
                 // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
                 item.durationMs?.let { ms ->
                     if (ms > 0) {
@@ -1002,8 +1023,9 @@ private fun MessageBubble(
                 }
                 // #26-fix-c (UI): ações rápidas ABAIXO da resposta (estilo
                 // DeepSeek) — 1 toque, sem abrir menu.
-                if (hasMessageActions(item) && actions != null) {
-                    actions(Modifier.padding(top = 2.dp))
+                    if (hasMessageActions(item) && actions != null) {
+                        actions(Modifier.padding(top = 2.dp))
+                    }
                 }
             }
         }
