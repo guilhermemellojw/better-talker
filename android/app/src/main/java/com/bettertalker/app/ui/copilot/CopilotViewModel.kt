@@ -1021,6 +1021,19 @@ class CopilotViewModel(
     private var currentGenerationJob: Job? = null
 
     /**
+     * Quick win visual: o parcial/reasoning não morre no mesmo frame em que a
+     * resposta final entra no banco. A UI mantém o item de streaming por um
+     * curto fade; depois limpamos. Qualquer nova geração cancela este job.
+     */
+    private var clearPartialJob: Job? = null
+
+    private fun resetLocalProgress() {
+        clearPartialJob?.cancel()
+        clearPartialJob = null
+        com.bettertalker.app.data.llm.LocalProgress.reset()
+    }
+
+    /**
      * F2.3: alvo atual do chat, para rotear inserções para o tópico certo.
      * null = chat global (mantém o comportamento legado de inserção).
      */
@@ -1363,7 +1376,7 @@ class CopilotViewModel(
         currentGenerationJob = viewModelScope.launch {
             _chatBusy.value = true
             // #streaming-fix: o parcial da resposta anterior não vaza.
-            com.bettertalker.app.data.llm.LocalProgress.reset()
+            resetLocalProgress()
             _runState.value = ChatRunState.Sending
             try {
                 val target = db.chatDao().allScoped(nid, _chatScope.value)
@@ -1429,7 +1442,7 @@ class CopilotViewModel(
     val messages = if (noteId != null) {
         _chatScope.flatMapLatest { scope ->
             // G3 (UX S): o parcial da geração anterior não vaza para o escopo novo.
-            com.bettertalker.app.data.llm.LocalProgress.reset()
+            resetLocalProgress()
             // G2 (UX S): esvazia a lista antes do novo emit — sem "fantasma"
             // da conversa da seção anterior por ~150ms.
             db.chatDao().observeScoped(noteId, scope)
@@ -1487,7 +1500,7 @@ class CopilotViewModel(
     fun stopGeneration() {
         currentGenerationJob?.cancel()
         currentGenerationJob = null
-        com.bettertalker.app.data.llm.LocalProgress.reset()
+        resetLocalProgress()
     }
 
     private suspend fun post(
@@ -1519,9 +1532,20 @@ class CopilotViewModel(
                 sectionId = targetScope,
             )
         )
-        // #streaming-fix: o parcial morre no mesmo instante em que a resposta
-        // final entra no banco — sem texto duplicado nem camada fantasma.
-        if (!fromMe) com.bettertalker.app.data.llm.LocalProgress.clearPartial()
+        // Quick win visual: o parcial/reasoning fica no item de streaming
+        // enquanto o fade do final acontece; só então limpamos. Uma nova
+        // geração cancela este job em resetLocalProgress().
+        if (fromMe) {
+            clearPartialJob?.cancel()
+            clearPartialJob = null
+        } else {
+            clearPartialJob?.cancel()
+            clearPartialJob = viewModelScope.launch {
+                delay(400)
+                com.bettertalker.app.data.llm.LocalProgress.clearPartial()
+                clearPartialJob = null
+            }
+        }
     }
 
     private fun postText(t: String, origin: MessageOrigin = MessageOrigin.COPILOT) = viewModelScope.launch {
@@ -1630,7 +1654,7 @@ class CopilotViewModel(
             settings.setChatSetupSeen()
             // #streaming-fix: zera o parcial do turno anterior ANTES de mostrar
             // "Sending"; sem isso o texto antigo reaparece durante o RAG.
-            com.bettertalker.app.data.llm.LocalProgress.reset()
+            resetLocalProgress()
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
@@ -4814,7 +4838,7 @@ class CopilotViewModel(
             return
         }
         // #streaming-fix: parcial da rota anterior não contamina a estrutura.
-        com.bettertalker.app.data.llm.LocalProgress.reset()
+        resetLocalProgress()
         _runState.value = ChatRunState.Generating
         try {
             val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)

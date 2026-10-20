@@ -381,10 +381,13 @@ fun ChatScreen(
     LaunchedEffect(localPartial, reasoningVisible, localReasoning) {
         if (localPartial.isNotBlank() && followEnd) {
             val keepHeader = reasoningVisible && localReasoning.isNotBlank()
-            listState.scrollToItem(
-                lastItemIndex,
-                if (keepHeader) 0 else Int.MAX_VALUE,
-            )
+            if (keepHeader) {
+                // Âncora de topo é imediata (o cabeçalho precisa ficar visível).
+                listState.scrollToItem(lastItemIndex, 0)
+            } else {
+                // Transição do reasoning para o fim: anima em vez de saltar.
+                listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
+            }
         }
     }
     // #reasoning-ui: o bloco "Pensando…" pode ser o primeiro conteúdo do item
@@ -392,7 +395,7 @@ fun ChatScreen(
     // usuário nunca vê o cabeçalho. Alinha o fim do item, como o parcial.
     LaunchedEffect(localReasoning) {
         if (localReasoning.isNotBlank() && localPartial.isBlank() && followEnd) {
-            listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
+            listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
     // #ui-polish (Item 4): teclado — se o usuário já acompanhava o fim, a
@@ -712,22 +715,15 @@ fun ChatScreen(
                         }
                     }
                     // Estados legíveis: nada de spinner mudo (§30 F15).
-                    // Fase real do progresso (parcial do streaming)
-                    // (load/RAG/geração); remotos mantêm o texto legado.
+                    // O parcial/reasoning agora sobrevive ao runState Success
+                    // por um curto fade, para não desaparecer no mesmo frame
+                    // em que a resposta final entra no banco.
+                    val partialShown = cleanedPartial.isNotBlank()
+                    val reasoningShown = localReasoning.isNotBlank()
+                    val liveVisible = partialShown || reasoningShown
                     when (val s = runState) {
                         is ChatRunState.Sending, is ChatRunState.Generating -> {
-                            // #streaming-fix (UI): o parcial permanece visível
-                            // do primeiro token ATÉ a resposta final ser postada
-                            // (inclusive durante Done/verificação). Antes ele
-                            // sumia quando o provider terminava e a tela voltava
-                            // ao "Pensando…" antes da mensagem existir.
-                            val partialShown = cleanedPartial.isNotBlank()
-                            // #reasoning-ui: o raciocínio aparece antes do
-                            // primeiro token de conteúdo e colapsa sozinho
-                            // quando a resposta começa. Transitório: não entra
-                            // na mensagem persistida.
-                            val reasoningShown = localReasoning.isNotBlank()
-                            if (!partialShown && !reasoningShown) {
+                            if (!liveVisible) {
                                 item {
                                     // Retry honesto: o parcial anterior foi
                                     // limpo de propósito para a nova tentativa.
@@ -754,63 +750,6 @@ fun ChatScreen(
                                     }
                                 }
                             }
-                            // Texto parcial transitório (não persiste; some
-                            // quando a resposta final é postada).
-                            if (partialShown || reasoningShown) {
-                                // #streaming-fix: SEM animateItem aqui. A
-                                // animação de desaparecimento deixava uma
-                                // camada fantasma do parcial sobre a resposta
-                                // final (o cursor pulsante mantinha a layer).
-                                // A mensagem final entra com fade próprio.
-                                item(key = "streaming") {
-                                    Column(Modifier.fillMaxWidth()) {
-                                        AnimatedVisibility(
-                                            visible = reasoningShown && reasoningVisible,
-                                            enter = fadeIn(tween(200)),
-                                            exit = fadeOut(tween(250)),
-                                        ) {
-                                            ReasoningSection(
-                                                text = localReasoning,
-                                                completed = reasoningDone,
-                                                expanded = reasoningExpanded,
-                                                onToggle = {
-                                                    reasoningExpanded = !reasoningExpanded
-                                                },
-                                                modifier = Modifier.padding(bottom = 8.dp),
-                                            )
-                                        }
-                                        if (partialShown) {
-                                            // T3: cursor pulsante no fim do parcial —
-                                            // continua texto puro (sem parser); some
-                                            // quando a resposta final chega.
-                                            val cursorAlpha by rememberInfiniteTransition(label = "cursor")
-                                                .animateFloat(
-                                                    initialValue = 0.2f,
-                                                    targetValue = 1f,
-                                                    animationSpec = infiniteRepeatable(
-                                                        animation = tween(400, easing = LinearEasing),
-                                                        repeatMode = RepeatMode.Reverse
-                                                    ),
-                                                    label = "cursorAlpha"
-                                                )
-                                            val cursorColor = MaterialTheme.colorScheme.onSurface
-                                            Row(Modifier.fillMaxWidth()) {
-                                                Text(
-                                                    buildAnnotatedString {
-                                                        append(cleanedPartial)
-                                                        withStyle(
-                                                            SpanStyle(
-                                                                color = cursorColor.copy(alpha = cursorAlpha)
-                                                            )
-                                                        ) { append("▍") }
-                                                    },
-                                                    style = MaterialTheme.typography.bodyLarge
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         }
                         is ChatRunState.Error -> item {
                             ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
@@ -819,6 +758,70 @@ fun ChatScreen(
                             ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
                         }
                         else -> Unit
+                    }
+                    if (liveVisible) {
+                        // O item de streaming entra/sai com fade. O cursor é
+                        // filho do mesmo item, então seu desaparecimento é
+                        // coberto por este fade (sem camada fantasma).
+                        item(key = "streaming") {
+                            Box(
+                                Modifier.animateItem(
+                                    fadeInSpec = tween(200),
+                                    fadeOutSpec = tween(200),
+                                )
+                            ) {
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .animateContentSize(tween(250))
+                                ) {
+                                    AnimatedVisibility(
+                                        visible = reasoningShown && reasoningVisible,
+                                        enter = fadeIn(tween(200)),
+                                        exit = fadeOut(tween(250)),
+                                    ) {
+                                        ReasoningSection(
+                                            text = localReasoning,
+                                            completed = reasoningDone,
+                                            expanded = reasoningExpanded,
+                                            onToggle = {
+                                                reasoningExpanded = !reasoningExpanded
+                                            },
+                                            modifier = Modifier.padding(bottom = 8.dp),
+                                        )
+                                    }
+                                    if (partialShown) {
+                                        // T3: cursor pulsante no fim do parcial —
+                                        // continua texto puro (sem parser); o item
+                                        // inteiro faz fadeOut quando o final chega.
+                                        val cursorAlpha by rememberInfiniteTransition(label = "cursor")
+                                            .animateFloat(
+                                                initialValue = 0.2f,
+                                                targetValue = 1f,
+                                                animationSpec = infiniteRepeatable(
+                                                    animation = tween(400, easing = LinearEasing),
+                                                    repeatMode = RepeatMode.Reverse
+                                                ),
+                                                label = "cursorAlpha"
+                                            )
+                                        val cursorColor = MaterialTheme.colorScheme.onSurface
+                                        Row(Modifier.fillMaxWidth()) {
+                                            Text(
+                                                buildAnnotatedString {
+                                                    append(cleanedPartial)
+                                                    withStyle(
+                                                        SpanStyle(
+                                                            color = cursorColor.copy(alpha = cursorAlpha)
+                                                        )
+                                                    ) { append("▍") }
+                                                },
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 } // Box do swipe (#25-fix-c)
@@ -961,7 +964,11 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
-            else -> Column(Modifier.fillMaxWidth()) {
+            else -> Column(
+                Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(tween(250))
+            ) {
                 // #22-fix (P1): selo "BT · " inline no primeiro bloco —
                 // sem coluna de avatar (texto em x=0).
                 ChatMessageText(
