@@ -284,11 +284,19 @@ fun chatVerificationNotice(
     corpus: List<String>,
     result: VerificationResult,
 ): String? {
-    val flags = result.metrics.flaggedByCategory
+    val flags = result.metrics.flaggedByCategory.toMutableMap()
+    // 3: falas de role-play (Morador/Publicador) não contam como citação;
+    // o texto já é mantido pelo warn-only. Só a categoria QUOTE é descontada.
+    val rolePlayQuotes = com.bettertalker.app.data.ai.rolePlayQuoteCount(text, result.removed)
+    if (rolePlayQuotes > 0) {
+        val remaining = (flags[VerificationCategory.QUOTE] ?: 0) - rolePlayQuotes
+        if (remaining > 0) flags[VerificationCategory.QUOTE] = remaining
+        else flags.remove(VerificationCategory.QUOTE)
+    }
     val check = com.bettertalker.app.data.ai.checkCitations(text, corpus)
     val reasons = buildList {
         if (flags.isNotEmpty()) {
-            val total = result.metrics.total
+            val total = flags.values.sum()
             val head = if (total == 1) "1 trecho sinalizado" else "$total trechos sinalizados"
             val parts = flags.entries
                 .sortedBy { it.key.name }

@@ -434,6 +434,37 @@ object ChatRouter {
     /** Palavras de meta-linguagem: falam SOBRE o termo, não pedem geração. */
     private val META_WORDS = Regex("\\b(termo|palavra|significa|significado|quer dizer)\\b")
 
+    /**
+     * Intenção de explicação/análise: conversa, não geração de texto de card.
+     * Um verbo explícito de escrita ("escreva", "redija", "monte", "desenvolva")
+     * vence — aí sim é oratória.
+     */
+    private val EXPLANATION_INTENT = Regex(
+        "\\b(explique|explicar|entenda|entender|analise|analisar|compreenda|compreender)\\b"
+    )
+    private val WRITING_INTENT = Regex(
+        "\\b(escreva|escrever|redija|redigir|monte|montar|desenvolva|desenvolver|" +
+            "crie|criar|elabore|elaborar|produza|produzir)\\b"
+    )
+    /** "explique o ponto 2" continua sendo iteração de oratória. */
+    private val SECTION_CONTEXT = Regex(
+        "\\b(ponto|pontos|secao|secoes|discurso|discursos|texto|textos|bloco|blocos|" +
+            "introducao|conclusao|transicao)\\b"
+    )
+    /** Follow-up curto de uma geração já existente ("explique melhor"). */
+    private val ITERATION_HINT = Regex(
+        "\\b(melhor|mais|continue|continuar|detalhe|detalhar|aprofunde|aprofundar|" +
+            "refaca|refazer|outra|outro)\\b"
+    )
+
+    /** Puro/testável: explicação geral, sem escrita nem foco de seção. */
+    fun isExplanationOnly(text: String): Boolean {
+        val n = " ${normalizeText(text)} "
+        return EXPLANATION_INTENT.containsMatchIn(n) &&
+            !WRITING_INTENT.containsMatchIn(n) &&
+            !SECTION_CONTEXT.containsMatchIn(n)
+    }
+
     private val TOPIC_OBJECTIVE = Regex("\\b(objetivo|proposito|meta|tema)\\b")
     private val TOPIC_POINTS = Regex("\\b(pontos principais|pontos|topicos|secoes|estrutura)\\b")
     private val TOPIC_SEQUENCE = Regex("\\b(sequencia|ordem|primeiro|ultimo|antes|depois)\\b")
@@ -495,6 +526,15 @@ object ChatRouter {
         // Meta-linguagem ("o termo desenvolvimento", "o significado de X"):
         // o usuário fala SOBRE a palavra, não pede geração (§41).
         if (META_WORDS.containsMatchIn(t)) return Route.General("meta-linguagem sobre um termo")
+
+        // Correção 1: explicar/analisar é conversa, não proposta de texto.
+        // Exceção: follow-up curto de uma geração já existente ("explique
+        // melhor") continua a iteração oratória. Uma explicação nova vence
+        // o estado `last`, mesmo depois de uma geração anterior.
+        val shortIteration = last != null && ITERATION_HINT.containsMatchIn(t)
+        if (isExplanationOnly(text) && !shortIteration) {
+            return Route.General("pedido de explicação/análise")
+        }
 
         // 2)/3) Oratória: pedido explícito, phráse natural ou iteração.
         val canonical = normalizePhrasing(text)

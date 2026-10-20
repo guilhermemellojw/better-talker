@@ -79,6 +79,24 @@ class GateWarningsTest {
     }
 
     @Test
+    fun falaDeRolePlayNaoGeraAvisoDeCitacao() {
+        val text = "<p><b>Morador:</b> “você condena quem comemora a festa de aniversário?”</p>" +
+            "<p><b>Publicador:</b> “não condeno; só quero explicar minha razão.”</p>"
+        val out = verifyChatText(text, corpus)
+        assertEquals(text, out.text)
+        assertNull(out.notice)
+    }
+
+    @Test
+    fun citacaoRealSemFonteContinuaAvisando() {
+        val text = "Como diz João 3:16, " +
+            "“Deus amou tanto que enviou seu Filho para morrer por todos os pecados do mundo.”"
+        val out = verifyChatText(text, corpus)
+        assertNotNull(out.notice)
+        assertTrue(out.notice!!.contains("citação"))
+    }
+
+    @Test
     fun fidelidadeInventadaGeraAvisoComMotivo() {
         val notice = fidelityRevisionNotice(
             OratoryFidelityCheck.Report(

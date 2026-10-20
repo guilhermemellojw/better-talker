@@ -33,6 +33,18 @@ class ChatRenderCardBlocksTest {
     }
 
     @Test
+    fun cardHtmlPreviewViraMarkdownFormatado() {
+        val inner = cardInnerBlocks(
+            "<p><b>Morador:</b> Posso perguntar por que você não vai?</p>" +
+                "<p><b>Publicador:</b> Claro, obrigado por perguntar com respeito.</p>"
+        )
+        val all = inner.joinToString(" ") { it.toString() }
+        assertTrue(all.contains("**Morador:**"))
+        assertTrue(all.contains("**Publicador:**"))
+        assertTrue(!all.contains("<p>") && !all.contains("<b>"))
+    }
+
+    @Test
     fun cardHtmlViraMarkdownComPapeisEmNegrito() {
         // #E2E-fix: HTML do Copilot → markdown para o insert preservar o
         // negrito dos papéis (senão o Ensaio não reconhece os turnos).

@@ -48,6 +48,21 @@ class OratoryFidelityTest {
     }
 
     @Test
+    fun referenciaDaSubsecaoNaoEhInventada() {
+        // 2.1: a ref está numa subseção do ponto; o corpus autorizado precisa
+        // incluí-la (buildSpec agrega section.references + subseções).
+        val doc2 = S34Parser.parseS34(S34Fixture.TIMED_TITLES)
+        val sec = doc2.sections.first { it.title.contains("estudos", ignoreCase = true) }
+        val view = S34StructuralRetrieval.scopeToSection(doc2, sec.id)!!
+        val spec2 = (OratoryGeneration.spec(
+            Mode.DEVELOPMENT, doc2, view, Action.INSERT
+        ) as Result.Ready).spec
+        val r = OratoryFidelityCheck.check("Provérbios 21:5 fala de planejamento.", spec2)
+        assertTrue(r.inventedReferences.isEmpty())
+        assertTrue(r.leakedReferences.isEmpty())
+    }
+
+    @Test
     fun publicacaoForaDoPontoEreportada() {
         val r = OratoryFidelityCheck.check("Veja a publicação w24.01 para mais.", spec())
         assertFalse(r.ok)

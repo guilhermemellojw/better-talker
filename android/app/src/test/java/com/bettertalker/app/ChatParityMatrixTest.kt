@@ -204,16 +204,17 @@ class ChatParityMatrixTest {
     // ---------- T1 (polimento visual): instrução de markdown na cauda ----------
 
     @Test
-    fun linha15_instrucaoDeMarkdownNaCaudaDoChat() {
+    fun linha15_caudaNaoPrescreveMarkdown() {
+        // Versão A: o chat livre não força molde markdown; a estrutura vem
+        // da persona/contexto e do pedido do usuário.
         val p = buildChatPrompt(
             message = "explique", history = emptyList(), isFirstMessage = true,
             pack = ContextPack(emptyList(), emptyList()),
             blockTitle = null, blockMinutes = null, blockText = "x"
         )
-        assertTrue(p.contains("use ## para seções"))
-        assertTrue(p.contains("-/1. para listas"))
-        assertTrue(p.contains("Sem código, tabelas ou HTML"))
-        // A cauda fecha o prompt: a instrução é a última coisa enviada.
-        assertTrue(p.trimEnd().endsWith("Sem código, tabelas ou HTML."))
+        assertFalse(p.contains("use ## para seções"))
+        assertFalse(p.contains("Sem código, tabelas ou HTML"))
+        assertTrue(p.contains("〈sugestão〉"))
+        assertTrue(p.contains("ANTES de qualquer aspas"))
     }
 }

@@ -1617,10 +1617,23 @@ private fun RenderTextForCard(
 
 /**
  * #20-fix-a: blocos do preview do card — cards aninhados são ignorados
- * (nunca existem na prática). Puro/testável.
+ * (nunca existem na prática). Cada bloco passa por `cardTextToMarkdown`
+ * para o preview renderizar HTML (`<p><b>Papel:</b>…`) como markdown,
+ * exatamente como o insert no editor. Puro/testável.
  */
 internal fun cardInnerBlocks(text: String): List<MdBlock> =
-    parseBlocks(text).filter { it !is MdBlock.TextForCard }
+    parseBlocks(text)
+        .filter { it !is MdBlock.TextForCard }
+        .map(::cardBlockToMarkdown)
+
+private fun cardBlockToMarkdown(block: MdBlock): MdBlock = when (block) {
+    is MdBlock.Title -> block.copy(text = cardTextToMarkdown(block.text))
+    is MdBlock.Quote -> block.copy(text = cardTextToMarkdown(block.text))
+    is MdBlock.Bullet -> block.copy(text = cardTextToMarkdown(block.text))
+    is MdBlock.Check -> block.copy(text = cardTextToMarkdown(block.text))
+    is MdBlock.Para -> block.copy(text = cardTextToMarkdown(block.text))
+    else -> block
+}
 
 /**
  * #E2E-fix: o bloco `<texto-do-card>` pode vir em HTML
