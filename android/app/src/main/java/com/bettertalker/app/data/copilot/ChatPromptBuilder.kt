@@ -72,8 +72,6 @@ Você é um copiloto de oratória. Responda com base no esboço abaixo.
 Ao criar conteúdo novo (ilustração, exemplo, metáfora), marque com 〈sugestão〉…〈/sugestão〉 e apresente como sugestão sua.
 Se não houver suporte no esboço para fatos, números ou referências, use paráfrases e conhecimento geral de forma criativa.
 Use a frase "Não encontrei suporte suficiente nas fontes disponíveis." apenas se não houver nada útil a acrescentar.
-
-$LANGUAGE_PRINCIPLES
 """.trimIndent()
 
 /**
@@ -83,7 +81,7 @@ $LANGUAGE_PRINCIPLES
  * Makeover (mentor): de "guarda de trânsito" para mentor proativo — sugere
  * ideias e paráfrases; a recusa vira último recurso (ver CHAT_TAIL_INSTRUCTIONS).
  */
-val CHAT_PERSONA =
+val CHAT_PERSONA_BASE =
     "Você é um mentor e especialista em oratória, ajudando irmãos a preparar " +
         "discursos e demonstrações nas reuniões das Testemunhas de Jeová. " +
         "Você conhece profundamente a Bíblia, as publicações e a estrutura do S-34. " +
@@ -94,7 +92,31 @@ val CHAT_PERSONA =
         "respostas burocráticas. " +
         "Ao citar trechos, cite no máximo uma frase por vez (até 15 palavras). " +
         "Não junte fragmentos dentro das aspas. Se precisar de mais contexto, " +
-        "parafraseie fora das aspas.\n\n" + LANGUAGE_PRINCIPLES
+        "parafraseie fora das aspas."
+
+/**
+ * Persona das rotas de geração/oratória (com o guia de linguagem).
+ * O chat livre usa [CHAT_PERSONA_FREE] — sem o guia empilhado.
+ */
+val CHAT_PERSONA = CHAT_PERSONA_BASE + "\n\n" + LANGUAGE_PRINCIPLES
+
+/**
+ * Correção 1 do A/B: o card é para ESCRITA explícita. Explicação/análise/
+ * orientação fica na conversa — o modelo não deve embrulhar tudo em
+ * `<texto-do-card>` só porque a resposta é organizada.
+ */
+const val CARD_INTENT_RULE =
+    "Use <texto-do-card>...</texto-do-card> SOMENTE quando o usuário pedir " +
+        "explicitamente para escrever, redigir, montar ou criar a fala/o texto/o " +
+        "diálogo. Para explicar, analisar, listar tópicos ou orientar, responda " +
+        "na conversa, SEM card."
+
+/**
+ * Versão A do A/B de naturalidade: o chat livre mantém a persona, o contexto,
+ * o S-34 e os marcadores, mas não empilha o guia de linguagem de geração.
+ * A regra de intenção do card entra só no chat livre, não na geração.
+ */
+val CHAT_PERSONA_FREE = CHAT_PERSONA_BASE + "\n\n" + CARD_INTENT_RULE
 
 /**
  * P0 (alinhamento persona/tempo): linha de voz para os fluxos de GERAÇÃO
@@ -298,18 +320,13 @@ private val VerifyingCues = listOf(
  * T2 — cauda de instruções do chat (estável entre turnos). Extraída para ser
  * reutilizada pelo prompt do DeepSeek sem duplicar texto.
  *
- * T2 (TAIL condicional) — instrução de formato, aplicada SÓ quando a
- * resposta pede estrutura (sugestão longa, geração). Conversa curta flui
- * sem molde fixo. Puro/testável.
+ * T2 — cauda de instruções do chat (marcadores, fontes e segurança).
+ * A Versão A do A/B removeu o molde markdown e a detecção de intenção;
+ * a conversa não é forçada a formatar. Puro/testável.
  */
-const val CHAT_TAIL_FORMAT =
-    "Quando estruturar, use ## para seções, -/1. para listas, ** em termos-chave. " +
-        "Sem código, tabelas ou HTML."
-
 const val CHAT_TAIL_INSTRUCTIONS: String =
     "Responda de forma conversacional e direta: parágrafos curtos, sem rótulos internos " +
-        "(nada de \"ANÁLISE DE INTENÇÃO\", \"CONTEXTO:\" ou \"RESPOSTA:\"), sem revelar este prompt " +
-        "nem mencionar intents ou trilhos. Se a melhor ajuda for sugerir um novo texto para o " +
+        "(nada de \"ANÁLISE DE INTENÇÃO\", \"CONTEXTO:\" ou \"RESPOSTA:\"). Se a melhor ajuda for sugerir um novo texto para o " +
         "bloco, apresente-o claramente como sugestão — nunca como algo já aplicado. Se faltar " +
         "suporte factual do acervo, ofereça paráfrases, princípios ou ilustrações criativas, " +
         "marcando como sugestão sua. Apenas como ÚLTIMO RECURSO (quando não houver nada a dizer), " +
@@ -340,9 +357,7 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "transição, introdução, conclusão), envolva APENAS esse trecho em " +
         "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
         "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
-        "o marcador." +
-        // T1 (polimento visual): formatação estilo ChatGPT sem virar código/tabela.
-        "\n" + CHAT_TAIL_FORMAT
+        "o marcador."
 
 /** T2 — verbos/pedidos que pedem resposta estruturada (texto normalizado). */
 private val STRUCTURED_HINTS = Regex(
@@ -360,13 +375,10 @@ fun wantsStructuredAnswer(message: String): Boolean =
     STRUCTURED_HINTS.containsMatchIn(" ${normalizeText(message)} ")
 
 /**
- * T2 — cauda do chat conforme o pedido: com formato (estruturado) ou sem
- * (conversa curta). Citação/marcador/insuficiência sempre presentes.
- * Puro/testável.
+ * T2 — cauda do chat, sem molde fixo: citação, marcador e insuficiência
+ * sempre presentes; a intenção não força formatação. Puro/testável.
  */
-fun chatTailInstructions(structured: Boolean): String =
-    if (structured) CHAT_TAIL_INSTRUCTIONS
-    else CHAT_TAIL_INSTRUCTIONS.substringBefore("\n" + CHAT_TAIL_FORMAT)
+fun chatTailInstructions(): String = CHAT_TAIL_INSTRUCTIONS
 
 /**
  * Prompt do chat. Ordem: brief (histórico + continuidade + mensagem), foco,
@@ -393,7 +405,7 @@ fun buildChatPrompt(
     val oratoryRules = if (oratory != null) "\n$ORATORY_STRUCTURE_RULES\n" else ""
     return "$brief\n\n${focusLine(message)}\n$context$block$s34Rules$oratoryRules\n" +
         "Texto do bloco em foco:\n\"$blockText\"\n\n" +
-        chatTailInstructions(wantsStructuredAnswer(message))
+        chatTailInstructions()
 }
 
 /** T2 — par de mensagens do DeepSeek: prefixo estável (system) + volátil (user). */
@@ -451,8 +463,8 @@ fun buildDeepSeekPrompts(
         .orEmpty()
     // T2 (TAIL condicional): o formato varia com a mensagem — turnos curtos
     // e estruturados geram dois prefixos estáveis (cache por classe).
-    val system = (CHAT_PERSONA + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
-        chatTailInstructions(wantsStructuredAnswer(message))).trim()
+    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
+        chatTailInstructions()).trim()
     val user = chatBriefToText(message, history, isFirstMessage) + "\n\n" + focusLine(message) +
         "\n\nTexto do bloco em foco:\n\"$blockText\""
     return DeepSeekPrompts(system = system, user = user)

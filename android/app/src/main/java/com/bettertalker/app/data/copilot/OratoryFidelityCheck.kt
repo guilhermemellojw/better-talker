@@ -38,6 +38,41 @@ object OratoryFidelityCheck {
     private val NUMBER_RE = Regex("""\b(\d{1,4}(?:[.,]\d{1,2})?)\b""")
 
     /**
+     * Unidades de técnica/estrutura: "4 minutos", "3 passos", "12 falas"
+     * não são dados factuais. Anos, tribos, percentuais e alimentos ficam
+     * fora de propósito.
+     */
+    private val TECHNICAL_UNITS = listOf(
+        "min", "minuto", "minutos",
+        "segundo", "segundos",
+        "passo", "passos",
+        "bloco", "blocos",
+        "ilustração", "ilustrações", "ilustracao", "ilustracoes",
+        "exemplo", "exemplos",
+        "parte", "partes",
+        "ponto", "pontos",
+        "palavra", "palavras",
+        "frase", "frases",
+        "fala", "falas",
+        "pergunta", "perguntas",
+        "ideia", "ideias",
+        "linha", "linhas",
+        "tópico", "tópicos", "topico", "topicos",
+    )
+
+    /** O número em [endExclusive] é seguido de uma unidade técnica? */
+    private fun isTechnicalUnit(text: String, endExclusive: Int): Boolean {
+        var i = endExclusive
+        while (i < text.length && text[i].isWhitespace()) i++
+        if (i >= text.length) return false
+        val rest = text.substring(i).lowercase()
+        return TECHNICAL_UNITS.any { unit ->
+            rest.startsWith(unit) &&
+                (rest.length == unit.length || !rest[unit.length].isLetterOrDigit())
+        }
+    }
+
+    /**
      * Inspeciona [generatedText] contra o [spec]. `authorizedText` é o texto
      * das fontes de conteúdo disponíveis (Bíblia/publicações/section body);
      * números que não aparecem lá são reportados.
@@ -82,7 +117,12 @@ object OratoryFidelityCheck {
         }
 
         // Números: só os que existem no conteúdo autorizado contam como apoiados.
+        // 2.2: números dentro de uma ref bíblica ("Efésios 4:22") são metadado
+        // da ref, não dado factual; a ref em si continua checada acima.
+        val verseRanges = VERSE_RE.findAll(generatedText).map { it.range }.toList()
         val unsupported = NUMBER_RE.findAll(generatedText)
+            .filter { m -> verseRanges.none { m.range.first in it } }
+            .filter { m -> !isTechnicalUnit(generatedText, m.range.last + 1) }
             .filter { m ->
                 // #16-fix-a: número precedido de contexto de prosa
                 // ("versículo 32", "capítulo 3") não é dado inventado.
@@ -125,7 +165,12 @@ object OratoryFidelityCheck {
      */
     private fun authorizedCorpus(spec: OratoryGeneration.Spec): String = buildString {
         append(spec.current?.content.orEmpty()).append(' ')
-        spec.current?.subsections?.forEach { append(it).append(' ') }
+        // 2.1: as refs das subseções já entram em current.references via
+        // buildSpec; aqui os próprios índices dos subpontos também são
+        // autorizados ("ideias 7–11").
+        spec.current?.subsections?.forEachIndexed { index, sub ->
+            append(index + 1).append(' ').append(sub).append(' ')
+        }
         spec.current?.references?.forEach { r -> append(r.label).append(' ') }
         spec.current?.references?.forEach { r -> r.text?.let { append(it).append(' ') } }
         spec.contentSources.forEach { append(it.text).append(' ') }

@@ -72,4 +72,24 @@ class NumberFidelityTest {
         assertFalse(r.unsupportedNumbers.contains("2011"))
         assertEquals(listOf("42"), r.unsupportedNumbers)
     }
+
+    @Test
+    fun numeroDentroDeVersiculoNaoEhDadoInventado() {
+        val r = OratoryFidelityCheck.check(
+            "Efésios 4:22 mostra a mudança.",
+            spec("Efésios 4:22"),
+        )
+        assertFalse(r.unsupportedNumbers.contains("4"))
+        assertFalse(r.unsupportedNumbers.contains("22"))
+    }
+
+    @Test
+    fun numeroTecnicoNaoEhDadoInventado() {
+        val r = OratoryFidelityCheck.check(
+            "Gaste 4 minutos no primeiro movimento e 12 minutos no segundo.",
+            spec(),
+        )
+        assertFalse(r.unsupportedNumbers.contains("4"))
+        assertFalse(r.unsupportedNumbers.contains("12"))
+    }
 }

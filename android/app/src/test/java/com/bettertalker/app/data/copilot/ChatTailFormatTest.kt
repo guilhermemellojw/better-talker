@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * T2 (TAIL condicional) — formato só quando a resposta pede estrutura.
+ * T2 — cauda do chat sem molde fixo; a intenção não força formatação.
  * Puro: sem LLM, rede, banco.
  */
 class ChatTailFormatTest {
@@ -40,16 +40,17 @@ class ChatTailFormatTest {
     }
 
     @Test
-    fun caudaComEstruturaTemFormato() {
-        val tail = chatTailInstructions(true)
-        assertTrue(tail.contains("Quando estruturar"))
+    fun caudaDeChatNaoPrescreveFormato() {
+        val tail = chatTailInstructions()
+        assertFalse(tail.contains("Quando estruturar"))
+        assertFalse(tail.contains("## para seções"))
         assertTrue(tail.contains("〈sugestão〉"))
         assertTrue(tail.contains("frase de insuficiência"))
     }
 
     @Test
-    fun caudaSemEstruturaMantemRegrasSemMolde() {
-        val tail = chatTailInstructions(false)
+    fun caudaMantemRegrasSemMolde() {
+        val tail = chatTailInstructions()
         assertFalse(tail.contains("Abra com 1 frase"))
         assertTrue(tail.contains("〈sugestão〉"))
         assertTrue(tail.contains("ANTES de qualquer aspas"))
@@ -65,22 +66,9 @@ class ChatTailFormatTest {
     }
 
     @Test
-    fun promptDeGeracaoMantemFormato() {
+    fun promptDeGeracaoNaoPrescreveFormato() {
         val p = prompt("desenvolva esse ponto")
-        assertTrue(p.contains("Quando estruturar"))
-    }
-
-    // ---------- #18-fix: formato sem abertura/fechamento prescritos ----------
-
-    @Test
-    fun formatoNaoPrescreveAberturaNemFechamento() {
-        assertFalse(CHAT_TAIL_FORMAT.contains("Abra com 1 frase"))
-        assertFalse(CHAT_TAIL_FORMAT.contains("feche com o próximo passo"))
-    }
-
-    @Test
-    fun formatoMantemEstruturaEHigieneTecnica() {
-        assertTrue(CHAT_TAIL_FORMAT.contains("##"))
-        assertTrue(CHAT_TAIL_FORMAT.contains("Sem código"))
+        assertFalse(p.contains("Quando estruturar"))
+        assertTrue(p.contains("〈sugestão〉"))
     }
 }

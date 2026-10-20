@@ -44,6 +44,8 @@ fun checkCitations(generated: String, passages: List<String>): CitationCheck {
     val quoteRe = Regex("[\"“]([^\"”]{20,})[\"”]")
     for (m in quoteRe.findAll(generated)) {
         if (inSuggestion(m.range.first, spans)) continue
+        // 3: fala de role-play (Morador/Publicador) não é citação factual.
+        if (isRolePlayQuote(generated, m.range.first)) continue
         val q = normalizeText(m.groupValues[1])
         val words = q.split(" ").filter { it.length > 2 }
         if (words.size >= 8 && normPassages.none { p -> words.count { p.contains(it) } >= 6 }) {
@@ -51,6 +53,35 @@ fun checkCitations(generated: String, passages: List<String>): CitationCheck {
         }
     }
     return CitationCheck(problems.isEmpty(), problems)
+}
+
+/**
+ * 3 — a citação está logo após um papel de diálogo (`Morador:`/`Publicador:`)?
+ * Serve para não tratar falas de role-play como citações sem fonte. Puro.
+ */
+private val ROLE_PREFIX = Regex("(?is)(morador|publicador)\\s*:\\s*(</?(?:b|strong)>)?\\s*$")
+
+fun isRolePlayQuote(text: String, quoteStart: Int): Boolean {
+    val from = (quoteStart - 160).coerceAtLeast(0)
+    return ROLE_PREFIX.containsMatchIn(text.substring(from, quoteStart))
+}
+
+/**
+ * Quantas citações sinalizadas pelo verifier são falas de role-play?
+ * Usado para descontar só a categoria QUOTE do aviso; o texto nunca é
+ * alterado. Puro/testável.
+ */
+fun rolePlayQuoteCount(text: String, removed: List<String>): Int {
+    var count = 0
+    for (raw in removed) {
+        if (raw.isBlank()) continue
+        val start = text.indexOf(raw)
+        if (start < 0) continue
+        val quoteAt = raw.indexOfFirst { it == '"' || it == '“' }
+        if (quoteAt < 0) continue
+        if (isRolePlayQuote(text, start + quoteAt)) count++
+    }
+    return count
 }
 
 /**
