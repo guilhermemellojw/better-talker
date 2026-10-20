@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.bettertalker.app.ui.components.ViewModeMenu
 
 /**
@@ -32,6 +33,7 @@ fun PresentHomeScreen(
     val cards by vm.cards.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
     Scaffold(
+        containerColor = Color.Transparent,
         // O Scaffold global (MainActivity) + a barra cuidam dos insets do
         // sistema — sem inset extra aqui (some o "buraco" no fim da lista).
         contentWindowInsets = WindowInsets(0),

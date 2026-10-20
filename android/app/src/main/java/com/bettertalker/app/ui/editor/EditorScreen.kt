@@ -268,6 +268,8 @@ fun EditorScreen(
     }
 
     Scaffold(
+        // Deixa a textura global aparecer atrás dos cards do editor.
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(

@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.catalog.RecommendedPub
@@ -99,6 +100,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
     if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar") } },

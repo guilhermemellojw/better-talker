@@ -437,6 +437,8 @@ fun ChatScreen(
     )
 
     Scaffold(
+        // Deixa a textura global aparecer atrás das bolhas/cards do chat.
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
