@@ -779,7 +779,7 @@ object RefDetector {
                     "Abre a edição ${ref.label} com download.", true
                 )
                 else if (parts.size == 3 && m in 1..12) Triple(
-                    REVISTAS + "sentinela-estudo-" + monthSlug(m) + "-de-" + parts[1] + "/",
+                    REVISTAS + "sentinela-estudo-" + monthSlug(m) + "-" + parts[1] + "/",
                     "Abre a edição ${ref.label} com download.", true
                 )
                 else Triple(MAGAZINES_LANDING, "Procure a edição ${ref.label} e baixe em PDF ou EPUB.", false)
