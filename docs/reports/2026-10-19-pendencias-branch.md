@@ -10,13 +10,13 @@
 - **APK release:** `android/app/build/outputs/apk/release/app-release.apk` (98 MB, debug-signed para sideload)
 - **SHA-256 do APK:** `970c9ecb2c936310be30d39c128a02b015a43852fdf71119dbf4018c97eb6d16`
 - **`main`:** permaneceu em `ad15d07`; nenhum merge, nenhum push, nenhuma tag.
-- **Status para revisão:** ⚠️ **pronto para revisão de código; validação em device pendente** (A34 bloqueado por PIN).
+- **Status para revisão:** ✅ **código/testes + validação no A34 em 20/10**; ⚠️ Fase 2 medida apenas parcialmente (a nota validada não tem S-34; 1 citação sinalizada, dentro de 0–2).
 
 ---
 
 ## Fase 1 — TTS Ownership
 
-- **Status:** ✅ código + JVM; ⚠️ validação audível no device bloqueada.
+- **Status:** ✅ código + JVM + validação no A34.
 - **Commit:** `75c18d0` — `fix(tts): ownership por processo — sair da tela não mata o TTS`
 - **Problema:** `StageViewModel`, `TribunaViewModel` e `CopilotViewModel` chamavam `shutdown()` no `onCleared()`. Como o `VoiceRouter` era compartilhado, sair de uma tela matava o TTS/Piper para o app inteiro.
 - **Solução:** variante **singleton** (permitida no prompt):
@@ -27,13 +27,17 @@
   - `TribunaSpeaker.shutdown()` do wrapper virou `stop()` (compatibilidade);
   - `MainActivity.onDestroy()` só para a fala quando `isFinishing`.
 - **Teste:** `TtsLifecycleTest` cobre acquire 2×, release 1×, release 1×, release extra (clampa em 0) e reacquire.
-- **Validação no tablet:** bloqueada — o A34 está com PIN ativo e a tela não pôde ser desbloqueada. Não foi possível confirmar o áudio saindo de uma tela e voltando.
+- **Validação no A34 (20/10/2026):**
+  - Ensaio → “▶ Ouvir” iniciou áudio real: `AudioTrack` a 22.050 Hz, `state:started`, pid do app.
+  - Saí do Ensaio para o hub, passei por Home e Editor e voltei ao Ensaio; o botão continuou “▶ Ouvir” e uma nova reprodução iniciou, novamente com `AudioTrack state:started`.
+  - Ao sair do Ensaio, a fala parou (`stop` via `onDispose`/`onCleared`) e o engine continuou vivo.
+  - Evidência: `/tmp/opencode/a34-tts-after-return.png` + `dumpsys audio`.
 
 ---
 
 ## Fase 2 — Verifier Nível 2: cobertura de fonte
 
-- **Status:** ✅ código + JVM; ⚠️ métrica “13 → N” não medida no device.
+- **Status:** ✅ código + JVM; ⚠️ device parcial (a nota validada não tem S-34).
 - **Commit:** `36026ca` — `feat(verifier): resolve versículos do S-34 no corpus de verificação`
 - **Commit de teste complementar:** `8b6ccf8` — citação resolvida não é sinalizada.
 - **O que foi feito:**
@@ -46,13 +50,13 @@
   - refs do S-34 só incluem Bíblia e deduplicam;
   - resolução injeta texto e omite ref não resolvida;
   - **caminho completo:** sem o versículo o gate remove a citação; com o texto resolvido a citação é preservada.
-- **Antes/depois no device:** não medido. O A34 estava bloqueado por PIN. Além disso, o efeito depende de o índice TNM local conter o versículo; se não contiver, a linha é omitida e o comportamento antigo permanece — isso é intencional e está documentado.
+- **Antes/depois no device (20/10/2026):** a nota usada é uma parte V&M (`Jer. 45:3`, `Jer. 45:5`, `w25.07 22 §§ 8-9`), **sem S-34 vinculado**; portanto `structuralBibleRefs` retornou vazio (não houve log “chat remoto: N versículos”). O chat existente mostrava **2 citações sinalizadas**; uma nova resposta no RC 2.3 teve **1** (`flags=quote=1 flaggedChars=39 keptChars=2809`), dentro do esperado 0–2. Não é uma comparação controlada — a resposta é nova —, mas confirma que o gate não regrediu. Para medir o Nível 2 literalmente, é preciso uma nota com S-34 **e** o índice TNM com os versículos; refs não indexadas continuam omitidas por desenho.
 
 ---
 
 ## Fase 3 — Language Guide
 
-- **Status:** ✅ código + JVM; ⚠️ validação de respostas no device bloqueada.
+- **Status:** ✅ código + JVM + validação no A34 (chat).
 - **Commit:** `b6d3ef5` — `feat(language): guia de linguagem simples preservando termos TJ`
 - **Novo arquivo:** `data/copilot/LanguageGuide.kt`
   - `TJ_TERMS_TO_PRESERVE`: termos que nunca devem ser traduzidos/trocados.
@@ -68,7 +72,7 @@
 - **Ajustes em testes existentes (intencionais):**
   - `OratoryProposalFlowTest`: o body JSON escapa as quebras de linha da persona; a asserção passou a comparar o prefixo estável + o guia, em vez da constante inteira.
   - `MinimalPasteTest`: o system mínimo deixou de ter “≤ 4 linhas” porque o guia entra de propósito; o teste agora garante que não voltaram TAIL, regras do S-34 ou contexto de dossiê.
-- **Validação no tablet:** bloqueada pelo PIN.
+- **Validação no A34 (20/10/2026):** pergunta “Me ajude a pensar neste ponto” no tópico BODY gerou resposta calorosa e curta (“Boa, irmão. Vamos pensar juntos nesse corpo.”), com “Jeová” preservado e sem academicismos. A resposta teve 1 citação sinalizada (`flags=quote=1`). Evidência: `/tmp/opencode/a34-chat-input.png`.
 
 ---
 
@@ -81,7 +85,8 @@
 - **APK:** `android/app/build/outputs/apk/release/app-release.apk`
   - `assembleRelease`: **BUILD SUCCESSFUL** (2m17s)
   - Assinado com a keystore de debug (sideload), conforme `android/app/build.gradle`.
-  - Instalado no A34 para smoke test; `dumpsys package` confirmou `versionCode=6`, `versionName=2.3`.
+  - Instalado no A34; `dumpsys package` confirmou `versionCode=6`, `versionName=2.3`.
+  - Smoke test em 20/10: UI abriu, Ensaio falou com Piper e o chat respondeu.
   - **APK não foi commitado.**
 - **Não feito (por segurança):**
   - ❌ `git tag v2.3`
@@ -99,8 +104,8 @@
 
 ## Bloqueios encontrados
 
-1. **A34 bloqueado por PIN.** O APK 2.3 foi instalado com sucesso, mas a tela permaneceu no keyguard (`Inserir PIN`). Não tentei adivinhar o PIN. Consequência: as validações de TTS, do verifier e das respostas do Language Guide não puderam ser feitas no device nesta sessão.
-2. **Métrica do verifier depende do índice TNM.** Mesmo com o device desbloqueado, a redução de 13 citações sinalizadas só acontece se o texto do versículo estiver indexado. O teste JVM cobre o caminho “texto resolvido → corpus → citação preservada”; a contagem real precisa ser medida com o acervo bíblico indexado.
+1. **A34 (resolvido em 20/10).** O aparelho estava bloqueado por PIN na sessão anterior. Nesta sessão foi desbloqueado e o smoke test de TTS/chat foi concluído; não foi necessário adivinhar o PIN.
+2. **Métrica do verifier depende do índice TNM e de uma nota com S-34.** A nota validada é V&M e não tem S-34; o resolvedor estrutural não foi exercitado no device. A redução de citações só acontece se o texto do versículo estiver indexado. O teste JVM cobre “texto resolvido → corpus → citação preservada”; a contagem real com S-34 ainda precisa ser medida.
 3. **Estado do `main` diferente do prompt.** O prompt assumia `origin/main = b0ce722` e o fix de paste como WIP. Na realidade, o `main` já estava em `ad15d07`, com os commits `7ea6fcd` e `ad15d07` publicados antes desta tarefa. A branch foi criada a partir desse estado; **nenhum push para `main` foi feito agora**.
 
 ---
@@ -118,7 +123,7 @@ git diff main..tests/pendencias-2026-10-19
 cd android
 taskset -c 4-7 ./gradlew --no-daemon --max-workers=2 :app:testDebugUnitTest
 
-# 4. Instalar o APK de teste (após desbloquear o tablet)
+# 4. Instalar o APK de teste
 adb install -r android/app/build/outputs/apk/release/app-release.apk
 
 # 5. Se aprovado, merge manual para main
@@ -139,7 +144,7 @@ git push origin --delete tests/pendencias-2026-10-19
 
 ## Recomendação para amanhã
 
-1. Desbloquear o A34 e repetir a validação de TTS: Ensaio → Ouvir → Home → outra nota/Ensaio → Ouvir. O esperado é o botão continuar funcional e o áudio sair na segunda tela.
-2. Verificar se o índice TNM local tem os versículos do S-34 usado no teste. Se não tiver, indexar antes de medir a redução de citações; sem isso, o Nível 2 não tem texto para injetar.
+1. **TTS e Language Guide já validados no A34** (Ensaio → Ouvir → Home/Editor → Ensaio → Ouvir; chat com linguagem simples e “Jeová” preservado).
+2. **Falta a validação literal do Verifier Nível 2 com S-34.** Criar/abrir uma nota com S-34 vinculado e versículos no índice TNM; medir as citações sinalizadas antes/depois. Sem S-34, o caminho estrutural novo não é exercitado no device (os testes JVM cobrem).
 3. Revisar o diff e, se aprovado, fazer o merge manual + tag. A branch está pushada como backup; nada em `main` foi alterado nesta tarefa.
 4. Se quiser a validação literal do prompt (guia completo também em `GENERATION_VOICE_LINE`), é uma mudança de uma linha; hoje a linha referencia o guia que já está em `CHAT_PERSONA`, para não duplicar tokens no prompt de oratória.
