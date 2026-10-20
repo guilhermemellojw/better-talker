@@ -215,9 +215,9 @@ class MinimalPasteTest {
     fun insuficienciaFicaRestritaAFatosNumerosEReferencias() {
         val (system, _) = buildMinimalPastePrompts(esboco, "e agora?", emptyList())
         assertTrue(system.contains("fatos, números ou referências"))
-        // O guia de linguagem entra de propósito; o que não pode voltar é a
-        // cauda de chat, as regras do S-34 ou o contexto de dossiê.
-        assertTrue(system.contains("DIRETRIZES DE LINGUAGEM"))
+        // Versão A: o chat livre não empilha o guia de linguagem; o que não
+        // pode voltar é a cauda de chat, as regras do S-34 ou o dossiê.
+        assertFalse(system.contains("DIRETRIZES DE LINGUAGEM"))
         assertFalse(system.contains("Abra com 1 frase"))
         assertFalse(system.contains("REGRAS DO S-34"))
         assertFalse(system.contains("CONTEXTO DO DOSSIÊ"))

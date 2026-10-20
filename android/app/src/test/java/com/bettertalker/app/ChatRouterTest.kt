@@ -56,6 +56,26 @@ class ChatRouterTest {
     }
 
     @Test
+    fun explicacaoGeralNaoViraPropostaDeTexto() {
+        assertTrue(ChatRouter.isExplanationOnly("Explique em tópicos como começar a andar neste caminho."))
+        assertTrue(ChatRouter.isExplanationOnly("Me ajude a entender este tópico."))
+        assertFalse(ChatRouter.isExplanationOnly("Explique melhor o ponto 2."))
+        assertFalse(ChatRouter.isExplanationOnly("Escreva uma introdução."))
+        val r = route("Explique em tópicos como começar a andar neste caminho.")
+        assertFalse(r is Route.Oratory)
+        assertTrue(r is Route.General)
+    }
+
+    @Test
+    fun explicacaoNovaVenceIteracaoAnterior() {
+        val last = OratorySession.LastGeneration(Mode.DEVELOPMENT, "sec-2")
+        val r = route("Explique em tópicos como começar a andar neste caminho.", last = last)
+        assertTrue(r is Route.General)
+        val iter = route("Explique melhor.", last = last)
+        assertTrue(iter is Route.Oratory)
+    }
+
+    @Test
     fun comandoDeTransicaoParaOPonto3() {
         val r = oratory(route("Faça uma transição para o ponto 3."))
         assertEquals(Mode.TRANSITION, r.mode)

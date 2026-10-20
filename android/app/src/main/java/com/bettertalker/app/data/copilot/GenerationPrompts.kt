@@ -5,9 +5,9 @@ import com.bettertalker.app.domain.planning.GenerationProfile
 /**
  * Fase A — system prompts de geração.
  *
- * O chat livre continua com `CHAT_PERSONA`; estes prompts são usados apenas
- * quando `LlmRequest.generationProfile != CHAT`, sem a cauda de chat
- * (markdown, marcadores de decisão, etc.).
+ * O chat livre usa `CHAT_PERSONA_FREE` (persona sem o guia empilhado);
+ * estes prompts são usados apenas quando `LlmRequest.generationProfile != CHAT`,
+ * sem a cauda de chat (markdown, marcadores de decisão, etc.).
  *
  * Princípio-guia: o LLM ORIENTA antes de escrever. A primeira resposta deve
  * ser análise/estratégia; o texto só sai quando o usuário pedir.
@@ -73,7 +73,7 @@ object GenerationPrompts {
     /**
      * Instrução de chat para notas de discurso: o Copilot orienta antes de
      * escrever. Entra no bloco de contexto do dossiê (não substitui
-     * `CHAT_PERSONA` — o chat livre continua igual).
+     * `CHAT_PERSONA_FREE` — o chat livre usa a persona sem o guia).
      */
     val SPEECH_MENTOR_CHAT_HINT = """
         ## MODO MENTOR (ORATÓRIA)

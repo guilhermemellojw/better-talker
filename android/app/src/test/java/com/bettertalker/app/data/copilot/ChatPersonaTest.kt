@@ -21,9 +21,11 @@ class ChatPersonaTest {
     @Test
     fun systemDoChatContemAPersona() {
         val s = system()
-        assertTrue(s.startsWith(CHAT_PERSONA))
+        assertTrue(s.startsWith(CHAT_PERSONA_FREE))
         assertTrue(s.contains("Testemunhas de Jeová"))
         assertTrue(s.contains("Evite formalidade excessiva"))
+        assertTrue(s.contains("SOMENTE quando o usuário pedir"))
+        assertFalse(CHAT_PERSONA.contains("SOMENTE quando o usuário pedir"))
     }
 
     @Test
@@ -31,8 +33,8 @@ class ChatPersonaTest {
         // Sem interpolação dinâmica: idêntica para mensagens diferentes.
         val a = system("o que acha?")
         val b = system("desenvolva esse ponto para 6 minutos")
-        assertTrue(a.startsWith(CHAT_PERSONA))
-        assertTrue(b.startsWith(CHAT_PERSONA))
+        assertTrue(a.startsWith(CHAT_PERSONA_FREE))
+        assertTrue(b.startsWith(CHAT_PERSONA_FREE))
         assertFalse(CHAT_PERSONA.contains("$"))
     }
 

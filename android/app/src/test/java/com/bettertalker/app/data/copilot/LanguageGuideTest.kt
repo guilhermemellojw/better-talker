@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Fase 3 — guia de linguagem em todas as rotas de chat/geração. Puro. */
+/** Fase 3 — guia de linguagem nas rotas de geração; chat livre sem empilhar. Puro. */
 class LanguageGuideTest {
 
     @Test
@@ -21,13 +21,12 @@ class LanguageGuideTest {
     }
 
     @Test
-    fun cincoPersonasRecebemGuia() {
+    fun personasDeGeracaoRecebemGuia() {
         val personas = mapOf(
             "CHAT_PERSONA" to CHAT_PERSONA,
             "GENERATION_VOICE_LINE" to GENERATION_VOICE_LINE,
             "SPEECH_MENTOR" to GenerationPrompts.SPEECH_MENTOR,
             "DEMO_SCRIPTWRITER" to GenerationPrompts.DEMO_SCRIPTWRITER,
-            "MINIMAL_SYSTEM_PROMPT" to MINIMAL_SYSTEM_PROMPT,
         )
         personas.forEach { (name, persona) ->
             assertTrue("$name sem DIRETRIZES", persona.contains("DIRETRIZES DE LINGUAGEM"))
@@ -36,7 +35,13 @@ class LanguageGuideTest {
     }
 
     @Test
-    fun systemDoChatEEsqueletoDeGeracaoTemGuia() {
+    fun chatLivreNaoEmpilhaGuiaDeLinguagem() {
+        assertFalse(CHAT_PERSONA_FREE.contains("DIRETRIZES DE LINGUAGEM"))
+        assertFalse(MINIMAL_SYSTEM_PROMPT.contains("DIRETRIZES DE LINGUAGEM"))
+    }
+
+    @Test
+    fun chatLivreNaoTemGuiaEEsqueletoDeGeracaoTemGuia() {
         val chat = buildDeepSeekPrompts(
             message = "melhore a transição",
             history = emptyList(),
@@ -46,7 +51,7 @@ class LanguageGuideTest {
             blockMinutes = null,
             blockText = "x",
         ).system
-        assertTrue(chat.contains("## DIRETRIZES DE LINGUAGEM"))
+        assertFalse(chat.contains("## DIRETRIZES DE LINGUAGEM"))
         assertTrue(chat.contains("Jeová"))
         assertTrue(GenerationPrompts.systemPromptFor(
             com.bettertalker.app.domain.planning.GenerationProfile.SPEECH_MENTOR
