@@ -35,7 +35,7 @@ object GenerationPrompts {
         - Se faltar fonte para um fato, sinalize ao invés de inventar.
 
         Tom: caloroso, didático, encorajador, como um irmão experiente sentado ao lado do orador.
-    """.trimIndent()
+    """.trimIndent() + "\n\n" + LANGUAGE_PRINCIPLES
 
     /** Demonstrações V&M (diálogo Publicador/Morador). */
     val DEMO_SCRIPTWRITER = """
@@ -57,7 +57,7 @@ object GenerationPrompts {
         - Baseie-se nas fontes da apostila fornecidas (referência, lição, cenário).
 
         Tom: prático, realista, encorajador, como um superintendente treinando publicadores.
-    """.trimIndent()
+    """.trimIndent() + "\n\n" + LANGUAGE_PRINCIPLES
 
     /** Apenas o esqueleto JSON (outline). */
     val STRUCTURE_PLANNER = """

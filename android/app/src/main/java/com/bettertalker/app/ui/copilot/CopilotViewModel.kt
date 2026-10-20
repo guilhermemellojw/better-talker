@@ -42,7 +42,9 @@ import com.bettertalker.app.data.llm.ProviderFactory
 import com.bettertalker.app.data.llm.ResponseFormat
 import com.bettertalker.app.data.llm.VerificationCategory
 import com.bettertalker.app.data.llm.VerificationResult
+import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.domain.planning.ReferenceResolver
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.verify.TextVerification
 import com.bettertalker.app.data.verify.verifyText
@@ -55,6 +57,7 @@ import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.ScopedHit
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.s34.S34ImportHook
+import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BasePub
@@ -158,6 +161,32 @@ fun verificationCorpus(
     }
     extra.forEach { add(it) }
 }.filter { it.isNotBlank() }
+
+/**
+ * Fase 2 — refs bíblicas da seção atual do S-34 (ponto + subpontos), sem
+ * duplicar. Puro/testável.
+ */
+internal fun structuralBibleRefs(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+): List<String> = buildList {
+    val sec = turnContext.structural?.currentSection ?: return@buildList
+    sec.references.filter { it.type == S34RefType.BIBLE }.forEach { add(it.rawText) }
+    sec.subsections.forEach { sub ->
+        sub.references.filter { it.type == S34RefType.BIBLE }.forEach { add(it.rawText) }
+    }
+}.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+/**
+ * Fase 2 — resolve refs bíblicas em linhas `[ref] texto` para o corpus do
+ * verifier. Injetável (fake nos testes); refs não resolvidas são omitidas.
+ */
+internal suspend fun resolveBibleRefLines(
+    refs: List<String>,
+    resolver: ReferenceResolver,
+): List<String> = refs.mapNotNull { ref ->
+    val resolved = resolver.resolveBible(ref)
+    resolved.text?.takeIf { it.isNotBlank() }?.let { "[$ref] $it" }
+}
 
 /**
  * T3 (acesso bíblico) — linhas "ref + texto" para o CORPUS do gate: cobre a
@@ -2255,6 +2284,21 @@ class CopilotViewModel(
      * Sem fallback silencioso para o motor legado: se o provider falhar,
      * o erro honesto sobe para o catch do send() (§5).
      */
+    /**
+     * Fase 2 — versículos literais do S-34 atual para o corpus do verifier.
+     * Usa o índice TNM local; refs não encontradas são omitidas.
+     */
+    private suspend fun resolveStructuralBibleLines(
+        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    ): List<String> {
+        val refs = structuralBibleRefs(turnContext)
+        if (refs.isEmpty()) return emptyList()
+        return resolveBibleRefLines(
+            refs,
+            RoomReferenceResolver(db.passageDao(), db.attachmentDao()),
+        )
+    }
+
     private suspend fun answerRemote(
         text: String,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
@@ -2346,9 +2390,17 @@ class CopilotViewModel(
         // de publicação da pergunta. Sem o dossiê, citar uma ref do PRÓPRIO
         // tópico dispara o aviso falso "fora dos trechos" (visto no device
         // com "ec 3:11").
+        val structuralVerseLines = resolveStructuralBibleLines(turnContext)
+        if (structuralVerseLines.isNotEmpty()) {
+            android.util.Log.i(
+                "CopilotLLM",
+                "chat remoto: ${structuralVerseLines.size} versículo(s) do S-34 no corpus do verifier",
+            )
+        }
         val corpus = verificationCorpus(
             turnContext,
             listOfNotNull(effectiveContextBlock) +
+                structuralVerseLines +
                 questionVerseLines(questionVerses, text) +
                 questionPubs.map { it.passage.text },
         )
@@ -4899,7 +4951,8 @@ class CopilotViewModel(
 
     override fun onCleared() {
         speechRecognizer.destroy()
-        textToSpeech.shutdown()
+        // Ownership é do processo (TtsLifecycle); a tela só para a fala.
+        textToSpeech.stop()
         super.onCleared()
     }
 

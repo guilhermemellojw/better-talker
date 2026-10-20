@@ -61,22 +61,16 @@ class MainActivity : FragmentActivity() {
             val palette by settings.paletteId.collectAsState(
                 initial = com.bettertalker.app.ui.theme.PaletteId.SAMSUNG
             )
-            // #23-fix-a: TTS premium (Piper Jeff) — criado uma vez por processo.
+            // #23-fix-a: TTS premium (Piper Jeff) — singleton de PROCESSO.
             // #23-fix-b: 100% offline — o modelo vem de assets (openAsset).
-            val voiceStore = androidx.compose.runtime.remember(ctx) {
-                com.bettertalker.app.data.voice.PiperModelStore(
-                    java.io.File(ctx.filesDir, "piper/jeff"),
-                    openAsset = { path -> ctx.assets.open(path) },
-                )
-            }
-            val voiceRouter = androidx.compose.runtime.remember(ctx) {
-                com.bettertalker.app.data.voice.VoiceRouter(
-                    com.bettertalker.app.data.voice.TextToSpeechManager(ctx.applicationContext),
-                    com.bettertalker.app.data.voice.PiperTtsManager(
-                        voiceStore.modelDir
-                    ),
-                    voiceStore.modelDir,
-                )
+            // Nenhuma tela derruba o engine; só [TtsLifecycle.stop] ao sair.
+            val voiceStore = com.bettertalker.app.data.voice.TtsLifecycle.store(ctx)
+            val voiceRouter = com.bettertalker.app.data.voice.TtsLifecycle.router(ctx)
+            // Contador de usuários do TTS: no último, apenas stop() — o
+            // engine de processo continua vivo para a próxima tela.
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                com.bettertalker.app.data.voice.TtsLifecycle.acquire()
+                onDispose { com.bettertalker.app.data.voice.TtsLifecycle.release() }
             }
             val premiumPref by settings.voicePremiumEnabled.collectAsState(initial = false)
             androidx.compose.runtime.LaunchedEffect(premiumPref) {
@@ -87,6 +81,12 @@ class MainActivity : FragmentActivity() {
                 AppNav(settings, voiceRouter, voiceStore)
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Fim real do app (não rotação): para a fala sem derrubar o engine.
+        if (isFinishing) com.bettertalker.app.data.voice.TtsLifecycle.stop()
+        super.onDestroy()
     }
 }
 

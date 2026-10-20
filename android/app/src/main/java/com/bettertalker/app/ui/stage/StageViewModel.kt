@@ -193,7 +193,8 @@ class StageViewModel(
     fun stopSpeech() = tts.stop()
 
     override fun onCleared() {
-        tts.shutdown()
+        // Ownership é do processo (TtsLifecycle); a tela só para a fala.
+        tts.stop()
         super.onCleared()
     }
 

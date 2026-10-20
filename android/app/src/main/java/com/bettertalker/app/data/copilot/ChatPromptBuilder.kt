@@ -72,6 +72,8 @@ Você é um copiloto de oratória. Responda com base no esboço abaixo.
 Ao criar conteúdo novo (ilustração, exemplo, metáfora), marque com 〈sugestão〉…〈/sugestão〉 e apresente como sugestão sua.
 Se não houver suporte no esboço para fatos, números ou referências, use paráfrases e conhecimento geral de forma criativa.
 Use a frase "Não encontrei suporte suficiente nas fontes disponíveis." apenas se não houver nada útil a acrescentar.
+
+$LANGUAGE_PRINCIPLES
 """.trimIndent()
 
 /**
@@ -81,7 +83,7 @@ Use a frase "Não encontrei suporte suficiente nas fontes disponíveis." apenas 
  * Makeover (mentor): de "guarda de trânsito" para mentor proativo — sugere
  * ideias e paráfrases; a recusa vira último recurso (ver CHAT_TAIL_INSTRUCTIONS).
  */
-const val CHAT_PERSONA =
+val CHAT_PERSONA =
     "Você é um mentor e especialista em oratória, ajudando irmãos a preparar " +
         "discursos e demonstrações nas reuniões das Testemunhas de Jeová. " +
         "Você conhece profundamente a Bíblia, as publicações e a estrutura do S-34. " +
@@ -92,7 +94,7 @@ const val CHAT_PERSONA =
         "respostas burocráticas. " +
         "Ao citar trechos, cite no máximo uma frase por vez (até 15 palavras). " +
         "Não junte fragmentos dentro das aspas. Se precisar de mais contexto, " +
-        "parafraseie fora das aspas."
+        "parafraseie fora das aspas.\n\n" + LANGUAGE_PRINCIPLES
 
 /**
  * P0 (alinhamento persona/tempo): linha de voz para os fluxos de GERAÇÃO
@@ -100,9 +102,11 @@ const val CHAT_PERSONA =
  * gerados, não só na conversa. Prefixada com quebra de linha para emendar
  * direto após uma persona.
  */
-const val GENERATION_VOICE_LINE =
+val GENERATION_VOICE_LINE =
     "\nAo escrever discursos e demonstrações, mantenha o tom caloroso e " +
-        "direto de um irmão experiente. Use um ritmo natural de fala."
+        "direto de um irmão experiente. Use um ritmo natural de fala." +
+        "\nSiga também as DIRETRIZES DE LINGUAGEM do system: simplicidade, " +
+        "voz ativa e termos bíblicos preservados (Jeová, as Escrituras, publicador)."
 
 /**
  * T1 (Fase 2.1) — teto do bloco de memória injetado no modo colar. O system
