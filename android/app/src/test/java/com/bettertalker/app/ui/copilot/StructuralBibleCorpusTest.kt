@@ -10,6 +10,7 @@ import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.planning.ResolvedReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -88,5 +89,19 @@ class StructuralBibleCorpusTest {
         assertEquals(1, lines.size)
         assertTrue(lines.single().startsWith("[Jer. 45:3]"))
         assertTrue(lines.single().contains("Bendito o homem"))
+    }
+
+    @Test
+    fun citacaoDoVersiculoResolvidoNaoEhSinalizada() = runBlocking {
+        val verse = "Bendito o homem que confia em Jeová e cuja esperança é Jeová."
+        val resolver = FakeResolver(mapOf("Jer. 45:3" to verse))
+        val resolved = resolveBibleRefLines(listOf("Jer. 45:3"), resolver)
+        val text = "A resposta é: “$verse”."
+        val sem = com.bettertalker.app.data.llm.GroundednessVerifier.verify(
+            text, listOf("fonte sem o versículo"),
+        )
+        val com = com.bettertalker.app.data.llm.GroundednessVerifier.verify(text, resolved)
+        assertTrue("sem o versículo o gate remove a citação", sem.hasRemovals)
+        assertFalse("com o versículo resolvido a citação é legítima", com.hasRemovals)
     }
 }
