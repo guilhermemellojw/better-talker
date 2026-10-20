@@ -373,12 +373,12 @@ TEMPO TOTAL: 30 MINUTOS
         }
         // estudo mensal moderna (verificado dez/2024)
         assertEquals(
-            "https://www.jw.org/pt/biblioteca/revistas/sentinela-estudo-dezembro-de-2024/",
+            "https://www.jw.org/pt/biblioteca/revistas/sentinela-estudo-dezembro-2024/",
             url("conforme w24.12 sobre o tema").first
         )
         // estudo por extenso (verificado mar/2019)
         assertEquals(
-            "https://www.jw.org/pt/biblioteca/revistas/sentinela-estudo-marco-de-2019/",
+            "https://www.jw.org/pt/biblioteca/revistas/sentinela-estudo-marco-2019/",
             url("A Sentinela de março de 2019 traz o ponto").first
         )
         // Despertai! mensal antiga (verificado g201308)
@@ -399,6 +399,30 @@ TEMPO TOTAL: 30 MINUTOS
         val (oldUrl, _, oldExact) = url("Sentinela número 3 de 2019, páginas 6-7")
         assertTrue(!oldExact)
         assertEquals("https://www.jw.org/pt/biblioteca/revistas/", oldUrl)
+    }
+
+    @Test
+    fun sentinelaEstudoJulho2025SemDe() {
+        val ref = RefDetector.detect("w25.07").first()
+        val url = RefDetector.downloadUrl(ref).first
+        assertTrue(url.endsWith("/sentinela-estudo-julho-2025/"))
+        assertFalse(url.contains("-de-"))
+    }
+
+    @Test
+    fun sentinelaEstudoMarco2019SemDe() {
+        val ref = RefDetector.detect("w19.03").first()
+        val url = RefDetector.downloadUrl(ref).first
+        assertTrue(url.endsWith("/sentinela-estudo-marco-2019/"))
+        assertFalse(url.contains("-de-"))
+    }
+
+    @Test
+    fun sentinelaEstudoDezembro2024SemDe() {
+        val ref = RefDetector.detect("w24.12").first()
+        val url = RefDetector.downloadUrl(ref).first
+        assertTrue(url.endsWith("/sentinela-estudo-dezembro-2024/"))
+        assertFalse(url.contains("-de-"))
     }
 
     @Test
