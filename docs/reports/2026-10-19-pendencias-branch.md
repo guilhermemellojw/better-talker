@@ -10,13 +10,13 @@
 - **APK release:** `android/app/build/outputs/apk/release/app-release.apk` (98 MB, debug-signed para sideload)
 - **SHA-256 do APK:** `970c9ecb2c936310be30d39c128a02b015a43852fdf71119dbf4018c97eb6d16`
 - **`main`:** permaneceu em `ad15d07`; nenhum merge, nenhum push, nenhuma tag.
-- **Status para revisão:** ✅ **código/testes + validação física completa em 20/10** (TTS no A34; S-34/TNM e Language Guide no Redmi Pad 2).
+- **Status para revisão:** ✅ **código/testes + validação física completa em 20/10** (TTS no A34 e no Redmi Pad 2; S-34/TNM e Language Guide no Redmi).
 
 ---
 
 ## Fase 1 — TTS Ownership
 
-- **Status:** ✅ código + JVM + validação no A34.
+- **Status:** ✅ código + JVM + validação no A34 e no Redmi Pad 2.
 - **Commit:** `75c18d0` — `fix(tts): ownership por processo — sair da tela não mata o TTS`
 - **Problema:** `StageViewModel`, `TribunaViewModel` e `CopilotViewModel` chamavam `shutdown()` no `onCleared()`. Como o `VoiceRouter` era compartilhado, sair de uma tela matava o TTS/Piper para o app inteiro.
 - **Solução:** variante **singleton** (permitida no prompt):
@@ -32,6 +32,10 @@
   - Saí do Ensaio para o hub, passei por Home e Editor e voltei ao Ensaio; o botão continuou “▶ Ouvir” e uma nova reprodução iniciou, novamente com `AudioTrack state:started`.
   - Ao sair do Ensaio, a fala parou (`stop` via `onDispose`/`onCleared`) e o engine continuou vivo.
   - Evidência: `/tmp/opencode/a34-tts-after-return.png` + `dumpsys audio`.
+- **Validação no Redmi Pad 2 (20/10/2026):**
+  - Ensaio → “▶ Ouvir” iniciou áudio real (`AudioTrack` a 22.050 Hz, `state:started`, label “⏸ Parar”).
+  - Ao sair do Ensaio, a fala parou; ao reentrar, uma nova reprodução iniciou, ainda com `AudioTrack started`.
+  - Evidência: `/tmp/opencode/redmi-tts-after-return.png`.
 
 ---
 
@@ -154,7 +158,7 @@ git push origin --delete tests/pendencias-2026-10-19
 
 ## Recomendação para amanhã
 
-1. **TTS validado no A34:** Ensaio → Ouvir → Home/Editor → Ensaio → Ouvir, com áudio real e engine sobrevivendo.
+1. **TTS validado no A34 e no Redmi:** Ensaio → Ouvir → Home/Editor → Ensaio → Ouvir, com áudio real e engine sobrevivendo.
 2. **Verifier Nível 2 validado no Redmi Pad 2:** TNM indexada, S-34 real vinculado, 3 versículos no corpus e 2 citações sinalizadas (texto mantido). O critério 0–2 foi atendido.
 3. **Language Guide validado no A34 e no Redmi:** respostas curtas, calorosas, com “Jeová” preservado.
 4. Revisar o diff e, se aprovado, fazer o merge manual + tag. A branch está pushada como backup; nada em `main` foi alterado nesta tarefa.
