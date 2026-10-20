@@ -1,18 +1,26 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.2 — release interno (sideload).**
+> **Estágio: v2.3 — RC interno (sideload; aguarda revisão humana).**
 
 Better Talker é um app Android nativo. Este repositório contém apenas o projeto Android em `android/`. O pacote web legado foi removido.
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
+
+## 🆕 Novidades da v2.3 (RC — 2026-10-19)
+
+- **TTS com ownership de processo:** o `VoiceRouter`/Piper agora é um singleton (`TtsLifecycle`). Sair do Ensaio, do Chat ou da Tribuna **não derruba mais** o TTS; a tela só chama `stop()`, e o engine continua vivo para a próxima tela. O contador de usuários tolera release extra (rotação/onDispose duplicado).
+- **Verifier Nível 2:** as referências bíblicas do ponto atual do S-34 são resolvidas no índice TNM local e injetadas no corpus do `GroundednessVerifier` como `[ref] texto`. Citações reais deixam de ser sinalizadas; refs não resolvidas são omitidas (sem fallback fantasma).
+- **Language Guide:** guia de linguagem simples injetado nas personas de chat, geração, discurso, demonstração e modo colar. Frases curtas, voz ativa e termos TJ preservados (`Jeová`, `as Escrituras`, `publicador` etc.); academicismos como `outrossim` entram na lista de termos a evitar.
+- **Colar V&M — 5 formatos:** a detecção da parte de Tesouros passou a usar estrutura + posição + minutos + refs (sem depender do título), e cada frase do corpo vira um subtópico na **LINHA DE RACIOCÍNIO**. O **MINI DISCURSO** nasce vazio para geração; o texto colado permanece no `plainText` da nota para busca/prévia.
+- **Testes:** 2124 testes JVM verdes na branch de revisão.
 
 ## 🆕 Novidades da v2.2
 
 - **Reasoning visual:** durante a geração, o chat mostra o bloco **“Pensando…”** (colapsado por padrão, expansível ao toque) com o raciocínio do DeepSeek. O texto é **transitório**, não entra na resposta final nem no histórico. Funciona em **Rápido** e **Profundo**; o chip controla o esforço, não a existência do reasoning.
 - **Fase B — colar unificado:** uma única folha para colar material, com prévia, classificação V&M e escolha de destino.
 - **Sync v2.2:** guard de conta (`lastUid`), aborto por relógio fora de 5 min, tombstones de seção/sub-ponto/anexo/outline e `sourceUrl` para reimportar da fonte anexos “missing”.
-- **Pendente:** Language Guide (linguagem simples preservando termos TJ) e auditoria de acessibilidade/privacidade.
+- **Pendente:** auditoria de acessibilidade/privacidade.
 
 ---
 
