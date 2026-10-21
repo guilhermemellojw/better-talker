@@ -247,6 +247,29 @@ fun blockSection(blockTitle: String?, blockMinutes: Int?): String {
 private fun categorySerial(c: TrainingCategory?): String = c?.serial ?: TrainingCategory.UNKNOWN.serial
 
 /**
+ * exp/chat-quality (2026-10-21): rótulo da fonte para o prompt.
+ *
+ * A `reference` do acervo é "símbolo seção §N" com N = posição SEQUENCIAL da
+ * passagem (dava "w25.07 Sua resposta §424" — número que não existe na
+ * revista). Quando a fonte tem página/parágrafo REAIS (o índice T4 do JWPUB),
+ * o rótulo passa a ser "w25.07 Sua resposta pág. 22 §8" — o mesmo formato da
+ * citação do usuário. Puro/testável.
+ */
+fun sourceLabel(source: com.bettertalker.app.data.domain.EvidenceSource): String {
+    val page = source.page
+    val par = source.paragraph
+    if (page == null && par == null) return source.reference
+    // O "§N" da reference é a posição SEQUENCIAL da passagem (dava
+    // "w25.07 Sua resposta §605" — número que não existe na revista). Com
+    // página/parágrafo REAIS, o rótulo vira "w25.07 Sua resposta pág. 22 §8".
+    val base = source.reference.replace(Regex("""\s*§\d+\s*$"""), "").trim()
+    val parts = mutableListOf(base)
+    if (page != null) parts += "pág. $page"
+    if (par != null) parts += "§$par"
+    return parts.filter { it.isNotBlank() }.joinToString(" ")
+}
+
+/**
  * Serializa o ContextPack em dois blocos explicitamente separados, para que
  * conteúdo e treinamento nunca se confundam no prompt. Trechos antigos (sem
  * metadados estruturados) entram como "legado" e completam o orçamento.
@@ -275,7 +298,7 @@ fun serializePack(
     if (content.isNotEmpty() || legacy.isNotEmpty()) {
         val lines = buildList {
             content.forEachIndexed { i, s ->
-                add("[Fonte ${i + 1}: ${s.reference}] ${s.text}")
+                add("[Fonte ${i + 1}: ${sourceLabel(s)}] ${s.text}")
             }
             legacy.forEachIndexed { i, p ->
                 add("[Fonte ${content.size + i + 1}] $p")

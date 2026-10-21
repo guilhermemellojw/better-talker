@@ -125,8 +125,10 @@ private fun AppNav(
             }
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            // v5: Passage.ref populado (proveniência "symbol section §n").
-            if (settings.needsIndexFormat(6)) libRepo.reindexAll()
+            // v7: parágrafo do JWPUB indexado pelo número REAL (data-pnum) —
+            // antes o §N caía na PERGUNTA do esboço e o texto do parágrafo
+            // ficava sem numeração (a citação devolvia o título).
+            if (settings.needsIndexFormat(7)) libRepo.reindexAll()
         }
     }
 

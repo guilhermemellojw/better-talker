@@ -17,7 +17,6 @@ import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
 import com.bettertalker.app.data.copilot.provenanceSummary
-import com.bettertalker.app.data.copilot.shouldInjectDossier
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
@@ -1770,18 +1769,16 @@ class CopilotViewModel(
             // quando o bloco estrutural do S-34 (que já a carrega) não está
             // presente neste turno.
             //
-            // exp/chat-quality (H1): o dossiê só entra quando a pergunta fala
-            // do conteúdo (ref/seção/publicação/tópico). Pergunta genérica não
-            // precisa dele — A/B 2026-10-21 no prompt real do app.
-            val contextBlock = if (shouldInjectDossier(text)) {
-                dossier?.let {
-                    dossierPromptBuilder.buildContextBlock(
-                        it,
-                        includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                    )
-                }
-            } else {
-                null
+            // exp/chat-quality (2026-10-21): o dossiê entra SEMPRE. O gate
+            // "só quando a mensagem cita ref/seção" (H1 do A/B) rendia ~10%
+            // na pergunta genérica, mas tirava do modelo o TRECHO LITERAL da
+            // publicação — que é exatamente o que o Web entrega. Sem dossiê
+            // o modelo responde "a fonte não traz esse texto" (medido no A34).
+            val contextBlock = dossier?.let {
+                dossierPromptBuilder.buildContextBlock(
+                    it,
+                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                )
             }
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating

@@ -228,17 +228,39 @@ object JwpubExtractor {
      * subtítulos (`class="sn"`) ficam de fora (números de lista não são
      * parágrafos do artigo). O index então guarda `paragraph` e a citação
      * "it “Gedalias” n.° 4" resolve no parágrafo exato. Puro/testável.
+     *
+     * exp/chat-quality (2026-10-21): a regra acima acerta a PERGUNTA do
+     * esboço (`<p class="qu"><strong>8.</strong> Em que armadilha Baruque
+     * caiu?</p>`), NÃO o texto do parágrafo — e o texto do § ficava sem
+     * numeração (o `<span class="parNum" data-pnum="8">` do corpo não era
+     * reconhecido). Resultado: "w25.07 22 §§ 8-9" resolvia para o TÍTULO do
+     * parágrafo, e o corpo saía com `paragraph = null`.
+     *
+     * A regra nova (PAR_NUM_RE) marca o CORPO pelo atributo `data-pnum`, que
+     * é o número REAL do parágrafo (`ParagraphNumberLabel` no banco interno).
+     * As duas regras convivem: a antiga cobre publicações sem `data-pnum`.
      */
     internal fun markParagraphs(html: String): String =
         stripXml(
-            NUMBERED_P_RE.replace(html) { m ->
-                m.groupValues[1] + "\n§" + m.groupValues[2] + " "
+            PAR_NUM_RE.replace(
+                NUMBERED_P_RE.replace(html) { m ->
+                    m.groupValues[1] + "\n§" + m.groupValues[2] + " "
+                }
+            ) { m ->
+                "§" + m.groupValues[1] + " "
             }
         )
 
     private val NUMBERED_P_RE = Regex(
         """(<p\b(?![^>]*class="(?:si|sn)")[^>]*>)\s*<strong>(\d{1,3})\.</strong>"""
     )
+
+    /**
+     * exp/chat-quality (2026-10-21): o número do parágrafo no JWPUB vem em
+     * `<span class="parNum" data-pnum="N">…</span>` (o `N` é o
+     * ParagraphNumberLabel — o mesmo número impresso na revista).
+     */
+    private val PAR_NUM_RE = Regex("""<span[^>]*data-pnum="(\d{1,3})"[^>]*>.*?</span>""")
 
     /** RC1-pages: posições dos §§ numerados do artigo (label → BeginPosition). */
     private fun labeledParagraphPositions(db: SQLiteDatabase, docId: Long): List<Pair<Int, Int>> {
