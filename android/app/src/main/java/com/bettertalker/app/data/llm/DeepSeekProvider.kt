@@ -343,10 +343,15 @@ class DeepSeekProvider(
         /**
          * #8f: teto efetivo de saída — sobe para [DEEP_OUTPUT_TOKENS] só no
          * modo Profundo e só quando o pedido não trouxe um teto maior.
+         *
+         * exp/chat-quality (2026-10-21): a comparação passa a ser com o teto
+         * do CHAT (2048), não com o default antigo (1000) — senão o modo
+         * "Profundo" ficava com 2048 e o reasoning comia o orçamento todo
+         * (medido: `high`@2048 → content vazio; `high`@4096 → resposta completa).
          * Puro/testável.
          */
         fun outputBudgetFor(effort: String, requested: Int): Int =
-            if (effort == REASONING_EFFORT_DEEP && requested <= DEFAULT_LLM_MAX_OUTPUT_TOKENS) {
+            if (effort == REASONING_EFFORT_DEEP && requested <= CHAT_MAX_OUTPUT_TOKENS) {
                 DEEP_OUTPUT_TOKENS
             } else {
                 requested
