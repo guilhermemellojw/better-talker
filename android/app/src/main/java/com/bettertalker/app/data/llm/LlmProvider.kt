@@ -88,6 +88,9 @@ data class LlmRequest(
      * Null = modo padrão (comportamento anterior).
      */
     val minimalPaste: String? = null,
+    /** exp/chat-diagnostics: flags do A/B (default = comportamento atual). */
+    val chatFlags: com.bettertalker.app.data.copilot.ChatExperimentFlags =
+        com.bettertalker.app.data.copilot.ChatExperimentFlags.DEFAULT,
 )
 
 enum class ResponseFormat { TEXT, EDIT_PROPOSAL, JSON_SCHEMA }

@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -63,9 +65,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -83,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.bettertalker.app.data.copilot.ChatExperimentFlags
 import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.decodeHtmlEntities
 import com.bettertalker.app.data.util.pasteApplyFeedback
@@ -224,6 +230,9 @@ fun ChatScreen(
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    val experimentFlags by vm.experimentFlags.collectAsState()
+    var showExperiments by remember { mutableStateOf(false) }
+    var experimentsMenuOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
@@ -474,6 +483,23 @@ fun ChatScreen(
                         whole = scopeMode == ScopeMode.WHOLE,
                         onClick = vm::toggleScope,
                     )
+                    Box {
+                        IconButton(onClick = { experimentsMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, "Experimentos")
+                        }
+                        DropdownMenu(
+                            expanded = experimentsMenuOpen,
+                            onDismissRequest = { experimentsMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("🧪 Experimentos") },
+                                onClick = {
+                                    experimentsMenuOpen = false
+                                    showExperiments = true
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -924,6 +950,101 @@ fun ChatScreen(
             onReplace = { vm.applyStructure(replace = true) },
             onAppend = { vm.applyStructure(replace = false) },
         )
+    }
+
+    if (showExperiments) {
+        ModalBottomSheet(onDismissRequest = { showExperiments = false }) {
+            ExperimentPanel(
+                flags = experimentFlags,
+                onChange = vm::setExperimentFlags,
+                onReset = { vm.setExperimentFlags(ChatExperimentFlags.DEFAULT) },
+                onDismiss = { showExperiments = false },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExperimentPanel(
+    flags: ChatExperimentFlags,
+    onChange: (ChatExperimentFlags) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        Text("🧪 Experimentos", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Branch exp/chat-diagnostics — não é produção. As flags valem no próximo envio.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Spacer(Modifier.height(12.dp))
+        ExperimentSwitch(
+            label = "Dossiê sempre (H1)",
+            checked = flags.injectDossierAlways,
+            onChange = { onChange(flags.copy(injectDossierAlways = it)) },
+        )
+        ExperimentSwitch(
+            label = "Card intent <texto-do-card> (H2)",
+            checked = flags.enableCardIntent,
+            onChange = { onChange(flags.copy(enableCardIntent = it)) },
+        )
+        Text(
+            "Temperature (H3): %.2f".format(flags.temperature),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Slider(
+            value = flags.temperature,
+            onValueChange = { onChange(flags.copy(temperature = it)) },
+            valueRange = 0f..1f,
+        )
+        ExperimentSwitch(
+            label = "Histórico completo da nota (H4)",
+            checked = flags.useFullHistory,
+            onChange = { onChange(flags.copy(useFullHistory = it)) },
+        )
+        ExperimentSwitch(
+            label = "Mentor hint no dossiê (H5)",
+            checked = flags.includeMentorHint,
+            onChange = { onChange(flags.copy(includeMentorHint = it)) },
+        )
+        ExperimentSwitch(
+            label = "Persona unificada (H7)",
+            checked = flags.useUnifiedPersona,
+            onChange = { onChange(flags.copy(useUnifiedPersona = it)) },
+        )
+        Text(
+            "H6 (modelo) é controlado na tela Modelo IA; o padrão do app é deepseek-flash.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onReset) { Text("Resetar padrão") }
+            TextButton(onClick = onDismiss) { Text("Fechar") }
+        }
+        Spacer(Modifier.height(20.dp))
+    }
+}
+
+@Composable
+private fun ExperimentSwitch(
+    label: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

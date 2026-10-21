@@ -40,7 +40,12 @@ interface DossierPromptBuilder {
      * mesma instrução em dois blocos do mesmo prompt). Draft mantém o
      * default `true`.
      */
-    fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean = true): String
+    fun buildContextBlock(
+        dossier: Dossier,
+        includeSpeakerNote: Boolean = true,
+        /** exp/chat-diagnostics (H5): remove o SPEECH_MENTOR_CHAT_HINT. */
+        includeMentorHint: Boolean = true,
+    ): String
 }
 
 /**
@@ -66,12 +71,16 @@ class DefaultDossierPromptBuilder(
         }.trim()
     }
 
-    override fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean): String {
+    override fun buildContextBlock(
+        dossier: Dossier,
+        includeSpeakerNote: Boolean,
+        includeMentorHint: Boolean,
+    ): String {
         return buildString {
             appendContext(
                 dossier,
                 includeSpeakerNote = includeSpeakerNote,
-                includeMentorHint = true,
+                includeMentorHint = includeMentorHint,
             )
         }.trim()
     }

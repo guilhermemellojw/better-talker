@@ -119,6 +119,12 @@ const val CARD_INTENT_RULE =
 val CHAT_PERSONA_FREE = CHAT_PERSONA_BASE + "\n\n" + CARD_INTENT_RULE
 
 /**
+ * exp/chat-diagnostics (H7): persona única, sem a fragmentação
+ * chat-livre × geração. O card intent entra por fora quando a flag H2 está ON.
+ */
+val CHAT_PERSONA_UNIFIED = CHAT_PERSONA_BASE + "\n\n" + LANGUAGE_PRINCIPLES
+
+/**
  * P0 (alinhamento persona/tempo): linha de voz para os fluxos de GERAÇÃO
  * (oratória e demais escritas) — garante o mesmo tom do chat nos textos
  * gerados, não só na conversa. Prefixada com quebra de linha para emendar
@@ -324,6 +330,13 @@ private val VerifyingCues = listOf(
  * A Versão A do A/B removeu o molde markdown e a detecção de intenção;
  * a conversa não é forçada a formatar. Puro/testável.
  */
+private const val CARD_TOOL_TAIL =
+    "\nQuando devolver texto pronto para aplicar no card (discurso, desenvolvimento, " +
+        "transição, introdução, conclusão), envolva APENAS esse trecho em " +
+        "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
+        "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
+        "o marcador."
+
 const val CHAT_TAIL_INSTRUCTIONS: String =
     "Responda de forma conversacional e direta: parágrafos curtos, sem rótulos internos " +
         "(nada de \"ANÁLISE DE INTENÇÃO\", \"CONTEXTO:\" ou \"RESPOSTA:\"). Se a melhor ajuda for sugerir um novo texto para o " +
@@ -353,11 +366,7 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "〈decisão〉…〈/decisão〉." +
         // #21-fix: distinção texto-aplicável vs conversa — o app destaca o
         // bloco com botão próprio ("Usar no card").
-        "\nQuando devolver texto pronto para aplicar no card (discurso, desenvolvimento, " +
-        "transição, introdução, conclusão), envolva APENAS esse trecho em " +
-        "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
-        "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
-        "o marcador."
+        CARD_TOOL_TAIL
 
 /** T2 — verbos/pedidos que pedem resposta estruturada (texto normalizado). */
 private val STRUCTURED_HINTS = Regex(
@@ -378,7 +387,9 @@ fun wantsStructuredAnswer(message: String): Boolean =
  * T2 — cauda do chat, sem molde fixo: citação, marcador e insuficiência
  * sempre presentes; a intenção não força formatação. Puro/testável.
  */
-fun chatTailInstructions(): String = CHAT_TAIL_INSTRUCTIONS
+fun chatTailInstructions(cardIntent: Boolean = true): String =
+    if (cardIntent) CHAT_TAIL_INSTRUCTIONS
+    else CHAT_TAIL_INSTRUCTIONS.removeSuffix(CARD_TOOL_TAIL).trimEnd()
 
 /**
  * Prompt do chat. Ordem: brief (histórico + continuidade + mensagem), foco,
@@ -453,6 +464,10 @@ fun buildDeepSeekPrompts(
     structural: OutlineStructureContext? = null,
     oratory: OratoryStructure.Inferred? = null,
     contextBlock: String? = null,
+    /** exp/chat-diagnostics (H2): remove a regra de <texto-do-card>. */
+    cardIntent: Boolean = true,
+    /** exp/chat-diagnostics (H7): usa uma única persona para o chat. */
+    unifiedPersona: Boolean = false,
 ): DeepSeekPrompts {
     val context = serializePackStable(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
@@ -461,10 +476,16 @@ fun buildDeepSeekPrompts(
     val dossier = contextBlock?.takeIf { it.isNotBlank() }
         ?.let { "\n## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$it\n" }
         .orEmpty()
+    val persona = when {
+        unifiedPersona && cardIntent -> CHAT_PERSONA_UNIFIED + "\n\n" + CARD_INTENT_RULE
+        unifiedPersona -> CHAT_PERSONA_UNIFIED
+        cardIntent -> CHAT_PERSONA_FREE
+        else -> CHAT_PERSONA_BASE
+    }
     // T2 (TAIL condicional): o formato varia com a mensagem — turnos curtos
     // e estruturados geram dois prefixos estáveis (cache por classe).
-    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
-        chatTailInstructions()).trim()
+    val system = (persona + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
+        chatTailInstructions(cardIntent)).trim()
     val user = chatBriefToText(message, history, isFirstMessage) + "\n\n" + focusLine(message) +
         "\n\nTexto do bloco em foco:\n\"$blockText\""
     return DeepSeekPrompts(system = system, user = user)

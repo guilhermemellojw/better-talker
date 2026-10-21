@@ -4,9 +4,11 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.data.copilot.ChatExperimentFlags
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
+import com.bettertalker.app.data.copilot.shouldInjectDossier
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -563,6 +565,15 @@ class CopilotViewModel(
     )
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
+
+    /** exp/chat-diagnostics: flags persistidas para o painel de experimentos. */
+    val experimentFlags: StateFlow<ChatExperimentFlags> = settings.experimentFlags
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ChatExperimentFlags.DEFAULT)
+
+    fun setExperimentFlags(flags: ChatExperimentFlags) {
+        viewModelScope.launch { settings.setExperimentFlags(flags) }
+    }
+
     private val _query = MutableStateFlow("")
     private val _busy = MutableStateFlow(false)
     private val _summary = MutableStateFlow("")
@@ -1652,6 +1663,7 @@ class CopilotViewModel(
         currentGenerationJob = viewModelScope.launch {
             // T2: qualquer envio conta como primeiro uso (banner some depois).
             settings.setChatSetupSeen()
+            val experimentFlags = settings.experimentFlags.first()
             // #streaming-fix: zera o parcial do turno anterior ANTES de mostrar
             // "Sending"; sem isso o texto antigo reaparece durante o RAG.
             resetLocalProgress()
@@ -1659,7 +1671,11 @@ class CopilotViewModel(
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
             // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
-            val historyBefore = historyOverride ?: conversationTurnsScoped()
+            val historyBefore = historyOverride ?: if (experimentFlags.useFullHistory) {
+                conversationTurnsAll()
+            } else {
+                conversationTurnsScoped()
+            }
             val isFirst = historyBefore.none { it.fromMe }
             // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
@@ -1765,11 +1781,18 @@ class CopilotViewModel(
             // F5c: dedupe da ORIENTAÇÃO DO ORADOR — o dossiê só a repete
             // quando o bloco estrutural do S-34 (que já a carrega) não está
             // presente neste turno.
-            val contextBlock = dossier?.let {
-                dossierPromptBuilder.buildContextBlock(
-                    it,
-                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                )
+            val contextBlock = if (
+                experimentFlags.injectDossierAlways || shouldInjectDossier(text)
+            ) {
+                dossier?.let {
+                    dossierPromptBuilder.buildContextBlock(
+                        it,
+                        includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                        includeMentorHint = experimentFlags.includeMentorHint,
+                    )
+                }
+            } else {
+                null
             }
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
@@ -1814,6 +1837,7 @@ class CopilotViewModel(
                     if (shouldDegradeOratoryToChat(hasS34Document = _lastS34Document != null)) {
                         answerRemote(
                             text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                            flags = experimentFlags,
                             noS34Warning = true,
                         )
                         return@launch
@@ -1876,7 +1900,10 @@ class CopilotViewModel(
                         else answerCheckRefs()
                         return@launch
                     }
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
+                    answerRemote(
+                        text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                        flags = experimentFlags,
+                    )
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -2339,6 +2366,8 @@ class CopilotViewModel(
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        /** exp/chat-diagnostics: H2/H3/H7 no provider. */
+        flags: ChatExperimentFlags = ChatExperimentFlags.DEFAULT,
         /** #15a: rota sem S-34 degradada → aviso suave no fim da resposta. */
         noS34Warning: Boolean = false,
     ) {
@@ -2406,6 +2435,7 @@ class CopilotViewModel(
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = effectiveContextBlock,
+                    chatFlags = flags,
                 )
             )
         }
@@ -2533,6 +2563,18 @@ class CopilotViewModel(
     private suspend fun conversationTurnsScoped(): List<ChatTurn> {
         val nid = noteId ?: return emptyList()
         return db.chatDao().allScoped(nid, _chatScope.value).mapNotNull { e ->
+            val t = when (e.kind) {
+                "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
+                else -> e.kind
+            }
+            if (t.isBlank()) null else ChatTurn(e.fromMe, t)
+        }
+    }
+
+    /** exp/chat-diagnostics (H4): histórico da nota inteira, não só da seção. */
+    private suspend fun conversationTurnsAll(): List<ChatTurn> {
+        val nid = noteId ?: return emptyList()
+        return db.chatDao().all(nid).mapNotNull { e ->
             val t = when (e.kind) {
                 "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
                 else -> e.kind

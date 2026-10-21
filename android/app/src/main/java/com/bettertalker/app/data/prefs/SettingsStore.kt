@@ -99,6 +99,37 @@ class SettingsStore(private val ctx: Context) {
         }
     }
 
+    // ---------- exp/chat-diagnostics: flags de A/B (remover no fix) ----------
+    private val EXP_DOSSIER = booleanPreferencesKey("exp_dossier_always")
+    private val EXP_CARD = booleanPreferencesKey("exp_card_intent")
+    private val EXP_TEMP = floatPreferencesKey("exp_temperature")
+    private val EXP_FULL_HISTORY = booleanPreferencesKey("exp_full_history")
+    private val EXP_MENTOR_HINT = booleanPreferencesKey("exp_mentor_hint")
+    private val EXP_UNIFIED_PERSONA = booleanPreferencesKey("exp_unified_persona")
+
+    val experimentFlags: Flow<com.bettertalker.app.data.copilot.ChatExperimentFlags> =
+        ctx.store.data.map { p ->
+            com.bettertalker.app.data.copilot.ChatExperimentFlags(
+                injectDossierAlways = p[EXP_DOSSIER] ?: true,
+                enableCardIntent = p[EXP_CARD] ?: true,
+                temperature = (p[EXP_TEMP] ?: 0.2f).coerceIn(0f, 1f),
+                useFullHistory = p[EXP_FULL_HISTORY] ?: false,
+                includeMentorHint = p[EXP_MENTOR_HINT] ?: true,
+                useUnifiedPersona = p[EXP_UNIFIED_PERSONA] ?: false,
+            )
+        }
+
+    suspend fun setExperimentFlags(v: com.bettertalker.app.data.copilot.ChatExperimentFlags) {
+        ctx.store.edit {
+            it[EXP_DOSSIER] = v.injectDossierAlways
+            it[EXP_CARD] = v.enableCardIntent
+            it[EXP_TEMP] = v.temperature.coerceIn(0f, 1f)
+            it[EXP_FULL_HISTORY] = v.useFullHistory
+            it[EXP_MENTOR_HINT] = v.includeMentorHint
+            it[EXP_UNIFIED_PERSONA] = v.useUnifiedPersona
+        }
+    }
+
     /** T2 (chat minimalista): o usuário já usou o chat ao menos uma vez. */
     private val CHAT_SETUP_SEEN = booleanPreferencesKey("chat_setup_seen")
     val chatSetupSeen: Flow<Boolean> = ctx.store.data.map { it[CHAT_SETUP_SEEN] ?: false }

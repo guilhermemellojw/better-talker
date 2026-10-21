@@ -118,6 +118,7 @@ class DeepSeekProvider(
                 editProposal = wantProposal,
                 jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
                 reasoningEffort = effort,
+                temperature = request.chatFlags.temperature,
                 structured = mode,
             )
             try {
@@ -373,6 +374,7 @@ class DeepSeekProvider(
             editProposal: Boolean = false,
             jsonSchema: String? = null,
             reasoningEffort: String = REASONING_EFFORT,
+            temperature: Float = 0.2f,
             stream: Boolean = true,
             /** T1 (P0): modo do `response_format` na cascata de fallback. */
             structured: DeepSeekStructuredMode = DeepSeekStructuredMode.SCHEMA,
@@ -383,7 +385,9 @@ class DeepSeekProvider(
             sb.append(JsonCodec.escape(system))
             sb.append("},{\"role\":\"user\",\"content\":")
             sb.append(JsonCodec.escape(user))
-            sb.append("}],\"temperature\":0.2,\"max_tokens\":")
+            sb.append("}],\"temperature\":")
+            sb.append(temperature.coerceIn(0f, 2f))
+            sb.append(",\"max_tokens\":")
             sb.append(maxOutputTokens)
             sb.append(",\"reasoning_effort\":")
             sb.append(JsonCodec.escape(reasoningEffort))
@@ -683,6 +687,8 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             structural = request.structural,
             oratory = request.oratory,
             contextBlock = request.contextBlock,
+            cardIntent = request.chatFlags.enableCardIntent,
+            unifiedPersona = request.chatFlags.useUnifiedPersona,
         )
         return parts.system to parts.user
     }
