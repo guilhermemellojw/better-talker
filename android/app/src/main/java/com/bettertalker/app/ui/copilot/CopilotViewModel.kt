@@ -429,9 +429,15 @@ internal fun appendInsertInstruction(finalText: String, responseText: String): S
 /**
  * #15a: aviso suave quando a resposta é gerada SEM S-34 vinculado — o gate
  * duro ("Importe o S-34") foi removido; isto só informa. Nunca bloqueia.
+ *
+ * exp/mentoria-e-verifier (2026-10-21): o texto antigo ("o texto pode não
+ * seguir a estrutura original") era FALSO para a nota colada — a estrutura
+ * do esboço está no dossiê ("## ESTRUTURA DO DISCURSO", "## SEÇÃO ATUAL",
+ * "## LINHA DE RACIOCÍNIO") e foi usada de verdade (A/B 2026-10-21: o app
+ * identificou os 3 movimentos e as refs). Agora o aviso diz o que aconteceu.
  */
 internal const val NO_S34_WARNING =
-    "_⚠️ Sem esboço S-34 vinculado — o texto pode não seguir a estrutura original._"
+    "_⚠️ O arquivo S-34 não está vinculado — usei a estrutura do seu esboço na nota._"
 
 /** #15a: anexa o aviso suave ao fim da resposta. Idempotente — nunca duplica. Puro/testável. */
 internal fun appendNoS34Warning(finalText: String): String {
@@ -1990,7 +1996,7 @@ class CopilotViewModel(
                 question = text,
                 sectionTitle = scopeBlockTitle(),
                 noteTitle = noteId?.let { db.noteDao().get(it)?.title },
-                s34SectionTitles = _lastS34Document?.sections?.map { it.title }.orEmpty(),
+                s34SectionTitles = s34SectionTitlesForRetrieval(),
             ),
             scope = scope,
             includeTraining = trainingCategory != null,
@@ -2010,6 +2016,23 @@ class CopilotViewModel(
             structural = structural,
             oratory = oratory
         )
+    }
+
+    /**
+     * Títulos das seções para enriquecer a busca do RAG.
+     *
+     * exp/mentoria-e-verifier (2026-10-21): antes só o S-34 IMPORTADO
+     * (arquivo) fornecia os títulos — numa nota criada COLANDO o esboço
+     * (Tesouros) a busca ficava sem o contexto das seções, e o app
+     * "não via" as partes ("ponto 2"). Agora, sem S-34 importado, entram os
+     * títulos das seções DA NOTA (é a estrutura que ela tem).
+     */
+    private suspend fun s34SectionTitlesForRetrieval(): List<String> {
+        _lastS34Document?.sections?.map { it.title }?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        val nid = noteId ?: return emptyList()
+        return db.speechSectionDao().forNote(nid).map { it.title }.filter { it.isNotBlank() }
     }
 
     /**
@@ -2443,7 +2466,14 @@ class CopilotViewModel(
             listOfNotNull(effectiveContextBlock) +
                 structuralVerseLines +
                 questionVerseLines(questionVerses, text) +
-                questionPubs.map { it.passage.text },
+                questionPubs.map { it.passage.text } +
+                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
+                // usuário e o rótulo das refs citadas também são fonte — citar
+                // a hipótese do usuário ("Baruque perdeu prestígio social")
+                // para refutá-la NÃO é inventar (falso positivo do A/B).
+                listOfNotNull(text.takeIf { it.isNotBlank() }) +
+                history.filter { it.fromMe }.map { it.text } +
+                questionPubs.map { it.source },
         )
         val outcome = verifyChatText(text, corpus)
         val verified = outcome.result

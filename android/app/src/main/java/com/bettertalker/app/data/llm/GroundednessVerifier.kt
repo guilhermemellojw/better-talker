@@ -146,13 +146,23 @@ object GroundednessVerifier {
         // expandidos + páginas) — a comparação de refs usa estas.
         val canonCorpus = corpus.flatMap { RefCanonicalizer.canonicalize(it) }
         val spans = suggestionSpans(text)
+        // exp/mentoria-e-verifier (2026-10-21): o corpus vem PARTIDO (uma
+        // entrada por passagem/frase do acervo). Uma citação literal que
+        // atravessa duas entradas ("Em que armadilha Baruque caiu" + o corpo
+        // do §8) não cabia em nenhuma — e era sinalizada como invenção.
+        // A comparação passa a ser feita sobre o corpus CORRIDO, e sem
+        // pontuação (aspas/traços do original não podem invalidar a citação).
+        val corpusJoined = corpus.joinToString(" ")
+        val corpusFlat = normalizeForComparison(corpusJoined)
 
         val hits = mutableListOf<VerificationHit>()
         QUOTE.findAll(text).forEach { m ->
             // T2: prosa criativa marcada é isenta; criação sem marcador continua gate normal.
             if (inSuggestion(m.range.first, spans)) return@forEach
             val quote = m.groupValues[1].ifBlank { m.groupValues[2] }.trim()
-            if (quote.length >= MIN_QUOTE_CHARS && corpus.none { it.contains(normalize(quote)) }) {
+            if (quote.length >= MIN_QUOTE_CHARS &&
+                !corpusFlat.contains(normalizeForComparison(quote))
+            ) {
                 // Bloco 1 (UX): remoção CIRÚRGICA — sai só a citação (com as
                 // aspas) + pontuação adjacente; a frase legítima ao redor fica
                 // ("A vida é bela, "frase inventada", e o sol brilha." →
@@ -332,5 +342,24 @@ object GroundednessVerifier {
         .replace('ç', 'c')
         .replace('“', '"').replace('”', '"')
         .replace('‘', '\'').replace('’', '\'')
+        .trim()
+
+    /**
+     * exp/mentoria-e-verifier (2026-10-21) — normalização para COMPARAR
+     * citação × corpus sem falso positivo.
+     *
+     * A citação literal do acervo vem com a pontuação original ("despojo'." vs
+     * "despojo.") e pode atravessar a fronteira entre duas entradas do corpus
+     * (o acervo é indexado por frase). Aqui a comparação ignora pontuação e
+     * aspas, colapsa espaços e usa a MESMA normalização dos dois lados
+     * ([normalize]: minúsculas, sem acento, hífen/daspas normalizados) — assim
+     * "Jeová" e "Jeova" casam (o acervo é citado sem acento), sem inventar
+     * que "Deus" == "Jeová".
+     *
+     * Puro/testável.
+     */
+    internal fun normalizeForComparison(s: String): String = normalize(s)
+        .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+        .replace(Regex("[\\s\\u00A0\\u2007\\u2009\\u202F\\uFEFF]+"), " ")
         .trim()
 }
