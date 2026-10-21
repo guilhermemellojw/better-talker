@@ -437,7 +437,7 @@ internal fun appendInsertInstruction(finalText: String, responseText: String): S
  * identificou os 3 movimentos e as refs). Agora o aviso diz o que aconteceu.
  */
 internal const val NO_S34_WARNING =
-    "_⚠️ Sem esboço S-34 vinculado — o texto pode não seguir a estrutura original._"
+    "_⚠️ O arquivo S-34 não está vinculado — usei a estrutura do seu esboço na nota._"
 
 /** #15a: anexa o aviso suave ao fim da resposta. Idempotente — nunca duplica. Puro/testável. */
 internal fun appendNoS34Warning(finalText: String): String {
@@ -1996,7 +1996,7 @@ class CopilotViewModel(
                 question = text,
                 sectionTitle = scopeBlockTitle(),
                 noteTitle = noteId?.let { db.noteDao().get(it)?.title },
-                s34SectionTitles = _lastS34Document?.sections?.map { it.title }.orEmpty(),
+                s34SectionTitles = s34SectionTitlesForRetrieval(),
             ),
             scope = scope,
             includeTraining = trainingCategory != null,
@@ -2016,6 +2016,23 @@ class CopilotViewModel(
             structural = structural,
             oratory = oratory
         )
+    }
+
+    /**
+     * Títulos das seções para enriquecer a busca do RAG.
+     *
+     * exp/mentoria-e-verifier (2026-10-21): antes só o S-34 IMPORTADO
+     * (arquivo) fornecia os títulos — numa nota criada COLANDO o esboço
+     * (Tesouros) a busca ficava sem o contexto das seções, e o app
+     * "não via" as partes ("ponto 2"). Agora, sem S-34 importado, entram os
+     * títulos das seções DA NOTA (é a estrutura que ela tem).
+     */
+    private suspend fun s34SectionTitlesForRetrieval(): List<String> {
+        _lastS34Document?.sections?.map { it.title }?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        val nid = noteId ?: return emptyList()
+        return db.speechSectionDao().forNote(nid).map { it.title }.filter { it.isNotBlank() }
     }
 
     /**
