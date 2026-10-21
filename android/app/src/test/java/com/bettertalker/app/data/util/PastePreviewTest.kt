@@ -18,6 +18,18 @@ class PastePreviewTest {
         """.trimIndent()
     )
 
+    private val talkLong = planPaste(
+        """
+        TESOUROS DA PALAVRA DE DEUS
+        1. A ordem nos céus (10 min)
+        Primeiro ponto (Gên. 1:1).
+
+        Segundo ponto (Sal. 19:1).
+
+        Terceiro ponto (Rom. 8:18).
+        """.trimIndent()
+    )
+
     private val demo = planPaste(
         "FAÇA SEU MELHOR NO MINISTÉRIO\n" +
             "5. Cultivando o interesse (4 min) DE CASA EM CASA. " +
@@ -57,10 +69,22 @@ class PastePreviewTest {
         assertEquals("V&M · Discurso", p.kindLabel)
         assertTrue(p.detailLines.any { it.contains("Parte 1") })
         assertTrue(p.detailLines.any { it.contains("10 min") })
-        assertEquals("3 cards (Introdução · Corpo · Conclusão)", p.cardsLabel)
+        assertEquals("3 cards", p.cardsLabel)
         assertTrue(p.canApply)
         assertNull(p.rejectionMessage)
         assertNull(p.ignoredLabel)
+    }
+
+    @Test
+    fun preview_talk_comTresTopicos_mostraCincoCards() {
+        val p = pastePreviewOf(talkLong)
+        assertEquals("5 cards", p.cardsLabel)
+        assertTrue(p.detailLines.any { it.contains("3 tópicos de desenvolvimento") })
+        assertEquals("5 cards criados", pasteApplyFeedback(talkLong))
+        assertEquals(
+            "3 cards adicionados",
+            pasteApplyFeedback(talkLong, currentNoteHasSections = true),
+        )
     }
 
     @Test

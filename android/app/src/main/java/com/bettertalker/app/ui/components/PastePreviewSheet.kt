@@ -42,10 +42,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.PastePlan
-import com.bettertalker.app.data.util.label
 import com.bettertalker.app.data.util.PastePreview
+import com.bettertalker.app.data.util.label
 import com.bettertalker.app.data.util.pastePreviewOf
 import com.bettertalker.app.data.util.planPaste
+import com.bettertalker.app.domain.speech.SectionRole
 import kotlinx.coroutines.delay
 
 /** Onde a colagem vai ser aplicada (decisão da tela, não do parser). */
@@ -99,7 +100,10 @@ fun PastePreviewSheet(
     val reviewInChat = request.defaultDestination == PasteDestination.CURRENT_NOTE &&
         (plan.kind is PasteKind.S34 || plan.kind == PasteKind.FreeText)
     val cardsLabel = if (currentHasSections && plan.kind is PasteKind.VmTalk) {
-        "1 card (corpo da parte — a nota já tem estrutura)"
+        val bodyCount = plan.sections.count { it.role == SectionRole.BODY }
+        val noun = if (bodyCount == 1) "card" else "cards"
+        val bodyNoun = if (bodyCount == 1) "corpo" else "corpos"
+        "$bodyCount $noun ($bodyNoun da parte — a nota já tem estrutura)"
     } else {
         preview.cardsLabel
     }
