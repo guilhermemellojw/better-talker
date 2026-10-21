@@ -167,6 +167,9 @@ class HomeViewModel(
     }
     fun restore(id: String) = viewModelScope.launch { repo.restore(id) }
     fun deleteForever(id: String) = viewModelScope.launch { repo.deleteForever(id) }
+
+    /** Exclui em lote todas as notas da lixeira; retorna o total. */
+    suspend fun emptyTrash(): Int = repo.emptyTrash()
     fun newFolder(name: String, color: Long) = viewModelScope.launch { repo.newFolder(name, color) }
     fun renameFolder(id: String, name: String) = viewModelScope.launch { repo.renameFolder(id, name) }
     fun deleteFolder(id: String) = viewModelScope.launch {

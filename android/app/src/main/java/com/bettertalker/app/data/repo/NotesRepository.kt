@@ -6,6 +6,7 @@ import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.FolderEntity
+import com.bettertalker.app.data.db.NoteDao
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.db.toEntity
@@ -152,9 +153,20 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
             db.outlineDao().deleteForNote(id)
             db.tombstoneDao().put(TombstoneEntity(it.id, "outline", System.currentTimeMillis()))
         }
+        // chat_messages não tem FK para notes; apaga explicitamente.
+        db.chatDao().clear(id)
         db.noteDao().delete(id)
         db.tombstoneDao().put(TombstoneEntity(id, "note", System.currentTimeMillis()))
         SyncScheduler.requestSync(ctx)
+    }
+
+    /**
+     * Esvazia a lixeira. Reusa [deleteForever] por nota para preservar a
+     * cascata de anexos/passages/S-34/outline, os tombstones de sync e a
+     * limpeza de chat. O [db.withTransaction] mantém o lote atômico.
+     */
+    suspend fun emptyTrash(): Int = db.withTransaction {
+        emptyTrashSelection(db.noteDao()) { deleteForever(it) }
     }
 
     suspend fun newFolder(name: String, color: Long) {
@@ -177,4 +189,17 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
     }
     fun attachmentsFor(noteId: String): Flow<List<AttachmentEntity>> =
         db.attachmentDao().observeForNote(noteId)
+}
+
+/**
+ * Seleção pura do "esvaziar lixeira": aplica [deleteForever] somente às notas
+ * `trashed == true` e devolve o total. Testável sem Room/Android.
+ */
+internal suspend fun emptyTrashSelection(
+    noteDao: NoteDao,
+    deleteForever: suspend (String) -> Unit,
+): Int {
+    val trashed = noteDao.trashed()
+    trashed.forEach { deleteForever(it.id) }
+    return trashed.size
 }

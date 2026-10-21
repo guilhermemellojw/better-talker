@@ -136,6 +136,15 @@ class NoteUpsertCascadeTest {
      * bytecode gerado denuncia e este teste falha.
      */
     @Test
+    fun deleteDeNotaCascateiaSecoesESubPontos() {
+        conn.createStatement().use { st ->
+            st.execute("DELETE FROM notes WHERE id = 'n1'")
+        }
+        assertEquals(0, count("SELECT COUNT(*) FROM speech_sections"))
+        assertEquals(0, count("SELECT COUNT(*) FROM sub_points"))
+    }
+
+    @Test
     fun sqlGeradoDoRoomNaoUsaReplaceEmNotes() {
         val nomes = buildList {
             add("com/bettertalker/app/data/db/NoteDao_Impl.class")
