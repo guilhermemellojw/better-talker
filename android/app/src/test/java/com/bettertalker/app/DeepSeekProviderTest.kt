@@ -114,7 +114,9 @@ class DeepSeekProviderTest {
         val body = http.bodies.single()
         assertTrue(body.contains("\"model\":\"deepseek-flash\""))
         assertTrue(body.contains("\"stream\":true"))
-        assertTrue(body.contains("\"reasoning_effort\":\"low\""))
+        // exp/chat-quality (2026-10-21): o chat livre vai sem thinking — com
+        // "low" o reasoning comia o orçamento e a resposta voltava em 37 chars.
+        assertTrue(body.contains("\"reasoning_effort\":\"none\""))
         assertTrue(body.contains("\"role\":\"system\""))
         assertTrue(body.contains("\"role\":\"user\""))
         assertTrue(body.contains("\"temperature\":0.2"))
@@ -539,7 +541,7 @@ class DeepSeekProviderTest {
         provider(http).generate(proposalReq())
         assertTrue(http.bodies[0].contains("\"reasoning_effort\":\"none\""))
         provider(http).generate(req())
-        assertTrue(http.bodies[1].contains("\"reasoning_effort\":\"low\""))
+        assertTrue(http.bodies[1].contains("\"reasoning_effort\":\"none\""))
     }
 
     // ---------- T1 (Bug #15): instrução JSON só em requisições estruturadas ----------
@@ -637,8 +639,15 @@ class DeepSeekProviderTest {
             DeepSeekProvider.reasoningEffortFor(structured = false, minimalPaste = true, configured = "low")
         )
         assertEquals(
-            "low",
+            "none",
+            // exp/chat-quality (2026-10-21): o chat livre roda sem thinking —
+            // com "low" + 1000 tokens a resposta voltava em 37 caracteres.
             DeepSeekProvider.reasoningEffortFor(structured = false, minimalPaste = false, configured = "low")
+        )
+        assertEquals(
+            "high",
+            // O chip "Profundo" continua com thinking (e com teto maior).
+            DeepSeekProvider.reasoningEffortFor(structured = false, minimalPaste = false, configured = "high")
         )
     }
 }

@@ -321,8 +321,24 @@ class DeepSeekProvider(
         /**
          * #8f: orçamento do turno no modo "Profundo" — o reasoning consome o
          * teto default (1000) e o content volta vazio (retry + delay no A34).
+         *
+         * exp/chat-quality (2026-10-21): medido na matriz A/B com o prompt real
+         * do app — "high" a 2000 tokens ainda devolvia content VAZIO (reasoning
+         * consumiu tudo). A 4096 o mesmo pedido fecha com finish=stop.
          */
-        const val DEEP_OUTPUT_TOKENS = 2000
+        const val DEEP_OUTPUT_TOKENS = 4096
+
+        /**
+         * exp/chat-quality (2026-10-21): o chat livre roda SEM thinking.
+         *
+         * Medido com o system prompt real do app (nota "Ter esperança…"):
+         * `reasoning_effort=low` + `max_tokens=1000` devolveu 37 caracteres
+         * ("Ótimo, a ideia é abrir leve e curto —") com finish=length — o
+         * thinking consumiu o orçamento antes do conteúdo. Com "none" o mesmo
+         * pedido devolveu 1964 caracteres completos (e 3 s mais rápido).
+         * O chip "Profundo" continua valendo "high" (com orçamento maior).
+         */
+        const val CHAT_REASONING_EFFORT = "none"
 
         /**
          * #8f: teto efetivo de saída — sobe para [DEEP_OUTPUT_TOKENS] só no
@@ -357,7 +373,11 @@ class DeepSeekProvider(
             when {
                 structured -> STRUCTURED_REASONING_EFFORT
                 minimalPaste -> MINIMAL_REASONING_EFFORT
-                else -> configured
+                // exp/chat-quality: "low" no chat livre comia o orçamento de
+                // saída (content vazio/fragmento). Só o "Profundo" mantém
+                // thinking — e ele sobe o teto (ver [outputBudgetFor]).
+                configured == REASONING_EFFORT_DEEP -> REASONING_EFFORT_DEEP
+                else -> CHAT_REASONING_EFFORT
             }
 
         /**

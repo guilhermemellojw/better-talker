@@ -8,7 +8,9 @@ class BudgetEffortTest {
 
     @Test
     fun profundoSobePara2000() {
-        assertEquals(2000, DeepSeekProvider.outputBudgetFor("high", 1000))
+        // exp/chat-quality (2026-10-21): a 2000 o "high" ainda devolvia content
+        // vazio (reasoning consumiu tudo) — o teto do Profundo sobe para 4096.
+        assertEquals(4096, DeepSeekProvider.outputBudgetFor("high", 1000))
     }
 
     @Test

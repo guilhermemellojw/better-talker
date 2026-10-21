@@ -92,7 +92,13 @@ val CHAT_PERSONA_BASE =
         "respostas burocráticas. " +
         "Ao citar trechos, cite no máximo uma frase por vez (até 15 palavras). " +
         "Não junte fragmentos dentro das aspas. Se precisar de mais contexto, " +
-        "parafraseie fora das aspas."
+        "parafraseie fora das aspas. " +
+        // exp/chat-quality (2026-10-21): no A/B com o prompt real do app, o
+        // modelo trocou "Jeová" por "Deus" na introdução (1 ocorrência em 212
+        // palavras). A regra de preservação entra na persona do chat.
+        "Preserve os termos bíblicos e publicationais (Jeová, Escrituras, " +
+        "publicador, Armagedom): nunca troque 'Jeová' por 'Deus' nem " +
+        "'Escrituras' por 'Bíblia'."
 
 /**
  * Persona das rotas de geração/oratória (com o guia de linguagem).

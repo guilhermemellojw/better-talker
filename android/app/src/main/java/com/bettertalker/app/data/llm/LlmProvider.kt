@@ -142,6 +142,18 @@ const val DEFAULT_LLM_TIMEOUT_MS: Long = 30_000L
 const val DEFAULT_LLM_MAX_ATTEMPTS: Int = 2
 const val DEFAULT_LLM_MAX_OUTPUT_TOKENS: Int = 1000
 
+/**
+ * exp/chat-quality (2026-10-21): orçamento de saída do CHAT LIVRE.
+ *
+ * 1000 tokens cortavam a resposta no meio (medido: 37 caracteres com
+ * finish=length). 2048 cabe uma introdução de discurso (~1300 palavras) e
+ * com fontes resolvidas sobe para 4096.
+ */
+const val CHAT_MAX_OUTPUT_TOKENS: Int = 2048
+
+/** exp/chat-quality: com fontes resolvidas, a resposta cita e comenta → teto maior. */
+const val CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES: Int = 4096
+
 /** Backoff entre tentativas transitórias: 400ms × tentativa (mesmo do web). */
 const val RETRY_BACKOFF_MS: Long = 400L
 

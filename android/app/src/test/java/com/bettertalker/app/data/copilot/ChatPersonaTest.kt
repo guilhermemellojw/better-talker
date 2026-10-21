@@ -39,6 +39,14 @@ class ChatPersonaTest {
     }
 
     @Test
+    fun personaPreservaTermosBiblicos() {
+        // exp/chat-quality (2026-10-21): no A/B o modelo trocou "Jeová" por
+        // "Deus" na introdução. A persona do chat agora proíbe a troca.
+        assertTrue(CHAT_PERSONA_FREE.contains("Jeová"))
+        assertTrue(CHAT_PERSONA_FREE.contains("nunca troque 'Jeová' por 'Deus'"))
+    }
+
+    @Test
     fun minimalSystemPromptIntocado() {
         assertTrue(MINIMAL_SYSTEM_PROMPT.contains("Você é um copiloto de oratória."))
         assertTrue(

@@ -17,6 +17,7 @@ import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
 import com.bettertalker.app.data.copilot.provenanceSummary
+import com.bettertalker.app.data.copilot.shouldInjectDossier
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
@@ -331,12 +332,15 @@ fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome 
 /**
  * #11-fix: orçamento de saída do chat — maior quando a pergunta cita refs do
  * acervo (o modelo vai citar 600 chars + comentar; 1000 é apertado). Puro.
+ *
+ * exp/chat-quality (2026-10-21): 1000 tokens devolviam fragmento (37 chars,
+ * finish=length). Base sobe para 2048 e 4096 quando há fontes resolvidas.
  */
 internal fun answerOutputBudget(hasResolvedRefs: Boolean): Int =
     if (hasResolvedRefs) {
-        maxOf(com.bettertalker.app.data.llm.DEFAULT_LLM_MAX_OUTPUT_TOKENS, 2048)
+        com.bettertalker.app.data.llm.CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES
     } else {
-        com.bettertalker.app.data.llm.DEFAULT_LLM_MAX_OUTPUT_TOKENS
+        com.bettertalker.app.data.llm.CHAT_MAX_OUTPUT_TOKENS
     }
 
 /**
@@ -1765,11 +1769,19 @@ class CopilotViewModel(
             // F5c: dedupe da ORIENTAÇÃO DO ORADOR — o dossiê só a repete
             // quando o bloco estrutural do S-34 (que já a carrega) não está
             // presente neste turno.
-            val contextBlock = dossier?.let {
-                dossierPromptBuilder.buildContextBlock(
-                    it,
-                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                )
+            //
+            // exp/chat-quality (H1): o dossiê só entra quando a pergunta fala
+            // do conteúdo (ref/seção/publicação/tópico). Pergunta genérica não
+            // precisa dele — A/B 2026-10-21 no prompt real do app.
+            val contextBlock = if (shouldInjectDossier(text)) {
+                dossier?.let {
+                    dossierPromptBuilder.buildContextBlock(
+                        it,
+                        includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                    )
+                }
+            } else {
+                null
             }
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
