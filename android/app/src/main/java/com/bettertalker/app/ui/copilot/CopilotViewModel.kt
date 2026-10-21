@@ -429,6 +429,12 @@ internal fun appendInsertInstruction(finalText: String, responseText: String): S
 /**
  * #15a: aviso suave quando a resposta é gerada SEM S-34 vinculado — o gate
  * duro ("Importe o S-34") foi removido; isto só informa. Nunca bloqueia.
+ *
+ * exp/mentoria-e-verifier (2026-10-21): o texto antigo ("o texto pode não
+ * seguir a estrutura original") era FALSO para a nota colada — a estrutura
+ * do esboço está no dossiê ("## ESTRUTURA DO DISCURSO", "## SEÇÃO ATUAL",
+ * "## LINHA DE RACIOCÍNIO") e foi usada de verdade (A/B 2026-10-21: o app
+ * identificou os 3 movimentos e as refs). Agora o aviso diz o que aconteceu.
  */
 internal const val NO_S34_WARNING =
     "_⚠️ Sem esboço S-34 vinculado — o texto pode não seguir a estrutura original._"
@@ -2443,7 +2449,14 @@ class CopilotViewModel(
             listOfNotNull(effectiveContextBlock) +
                 structuralVerseLines +
                 questionVerseLines(questionVerses, text) +
-                questionPubs.map { it.passage.text },
+                questionPubs.map { it.passage.text } +
+                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
+                // usuário e o rótulo das refs citadas também são fonte — citar
+                // a hipótese do usuário ("Baruque perdeu prestígio social")
+                // para refutá-la NÃO é inventar (falso positivo do A/B).
+                listOfNotNull(text.takeIf { it.isNotBlank() }) +
+                history.filter { it.fromMe }.map { it.text } +
+                questionPubs.map { it.source },
         )
         val outcome = verifyChatText(text, corpus)
         val verified = outcome.result
