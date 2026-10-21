@@ -4,9 +4,14 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.data.copilot.ChatExportMessage
+import com.bettertalker.app.data.copilot.ChatExportResult
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
+import com.bettertalker.app.data.copilot.buildChatExportMarkdown
+import com.bettertalker.app.data.copilot.buildDeepSeekPrompts
+import com.bettertalker.app.data.copilot.capExportSystemPrompt
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -1493,6 +1498,94 @@ class CopilotViewModel(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     } else {
         MutableStateFlow(emptyList())
+    }
+
+    /**
+     * Exporta a conversa da seção atual com o system prompt que seria enviado
+     * agora. Read-only: não grava o prompt nem altera o estado do chat.
+     *
+     * O system é reconstruído com o mesmo [buildDeepSeekPrompts] do provider
+     * DeepSeek, usando a última pergunta do escopo como query de RAG e o dossiê
+     * da seção atual. Se passar de 10k chars, o dossiê é truncado.
+     */
+    suspend fun exportChatWithPrompt(): ChatExportResult? {
+        val nid = noteId ?: return null
+        val scopeId = _chatScope.value
+        val entities = db.chatDao().allScoped(nid, scopeId)
+        val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val exportMessages = entities.mapNotNull { e ->
+            if (e.kind != "text") return@mapNotNull null
+            val text = ChatCodec.unescMap(e.payload)["text"]?.trim().orEmpty()
+            if (text.isBlank()) return@mapNotNull null
+            ChatExportMessage(
+                fromMe = e.fromMe,
+                text = text,
+                timeLabel = timeFmt.format(java.util.Date(e.createdAt)),
+            )
+        }
+        val turns = exportMessages.map { ChatTurn(it.fromMe, it.text) }
+        val isFirst = turns.none { it.fromMe }
+        val sectionTitle = scopeId?.let { db.speechSectionDao().get(it)?.title }
+        val noteTitle = db.noteDao().get(nid)?.title.orEmpty()
+        val focusText = currentFocusText()
+        val query = exportMessages.lastOrNull { it.fromMe }?.text
+            ?: focusText.ifBlank { sectionTitle.orEmpty() }.ifBlank { "discurso" }
+
+        val oldDoc = _lastS34Document
+        val capped = try {
+            val intent = inferIntent(query, isFirst)
+            val turnContext = buildTurnFor(query, intent.trainingCategory, turns, isFirst, focusText)
+            val target = currentTarget() ?: scopeId?.let { DraftTarget.Section(it) }
+            val dossier = try {
+                dossierProvider?.invoke(target)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            val contextBlock = dossier?.let {
+                dossierPromptBuilder.buildContextBlock(
+                    it,
+                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                )
+            }
+            val systemBuilder: (String?) -> String = { block ->
+                buildDeepSeekPrompts(
+                    message = query,
+                    history = turns,
+                    isFirstMessage = isFirst,
+                    pack = turnContext.pack,
+                    blockTitle = scopeBlockTitle(),
+                    blockMinutes = null,
+                    blockText = focusText,
+                    structural = turnContext.structural,
+                    oratory = turnContext.oratory,
+                    contextBlock = block,
+                ).system
+            }
+            capExportSystemPrompt(systemBuilder(contextBlock), contextBlock, rebuild = systemBuilder)
+        } finally {
+            _lastS34Document = oldDoc
+        }
+
+        val exportedAt = java.text.SimpleDateFormat(
+            "yyyy-MM-dd HH:mm",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date())
+        val markdown = buildChatExportMarkdown(
+            noteTitle = noteTitle,
+            sectionTitle = sectionTitle,
+            exportedAt = exportedAt,
+            systemPrompt = capped.text,
+            dossierTruncated = capped.truncated,
+            messages = exportMessages,
+        )
+        return ChatExportResult(
+            markdown = markdown,
+            messageCount = exportMessages.size,
+            systemPromptChars = capped.text.length,
+            dossierTruncated = capped.truncated,
+        )
     }
 
     /** #4 (UX S): para a geração em andamento — o send trata o cancelamento

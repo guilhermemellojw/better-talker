@@ -1,7 +1,10 @@
 package com.bettertalker.app.ui.copilot
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -122,6 +125,7 @@ import com.bettertalker.app.ui.components.PastePreviewSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.inline
 import com.bettertalker.app.ui.components.parseBlocks
+import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -224,6 +228,8 @@ fun ChatScreen(
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    var exportMenuOpen by remember { mutableStateOf(false) }
+    var exportBusy by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
@@ -430,6 +436,30 @@ fun ChatScreen(
         input = ""
     }
 
+    fun exportChat() {
+        if (exportBusy) return
+        exportBusy = true
+        scope.launch {
+            try {
+                val result = vm.exportChatWithPrompt()
+                if (result == null) {
+                    snack.showSnackbar("Nada para exportar nesta seção.")
+                    return@launch
+                }
+                shareChatExport(ctx, result.markdown)
+                val suffix = if (result.dossierTruncated) " · dossiê truncado" else ""
+                snack.showSnackbar(
+                    "Conversa exportada (${result.messageCount} mensagens, " +
+                        "${result.systemPromptChars} chars de system prompt)$suffix"
+                )
+            } catch (_: Exception) {
+                snack.showSnackbar("Não consegui exportar a conversa.")
+            } finally {
+                exportBusy = false
+            }
+        }
+    }
+
     // T1 (chat minimalista): sugestões do olá só até a primeira mensagem do
     // usuário (regra pura em shouldShowSuggestions, testável sem Compose).
     val showSuggestions = shouldShowSuggestions(
@@ -474,6 +504,23 @@ fun ChatScreen(
                         whole = scopeMode == ScopeMode.WHOLE,
                         onClick = vm::toggleScope,
                     )
+                    Box {
+                        IconButton(onClick = { exportMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, "Mais opções")
+                        }
+                        DropdownMenu(
+                            expanded = exportMenuOpen,
+                            onDismissRequest = { exportMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Exportar conversa (com prompt)") },
+                                onClick = {
+                                    exportMenuOpen = false
+                                    exportChat()
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },
@@ -1257,6 +1304,22 @@ private fun rememberCopyToClipboard(): (String) -> Unit {
             )
         }
     }
+}
+
+/** Gera um .md no cache e abre o seletor de compartilhamento (ACTION_SEND). */
+private fun shareChatExport(ctx: Context, markdown: String) {
+    val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+    val file = File(dir, "copilot_export.md")
+    file.writeText(markdown, Charsets.UTF_8)
+    val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/markdown"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_TEXT, markdown)
+        putExtra(Intent.EXTRA_SUBJECT, "Conversa Copilot")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    ctx.startActivity(Intent.createChooser(send, "Compartilhar conversa"))
 }
 
 /** #26-fix-c (UI): botão de ação rápida — alvo 32dp, ícone 16dp, cinza. */
