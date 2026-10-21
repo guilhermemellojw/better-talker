@@ -152,6 +152,10 @@ interface NoteDao {
     suspend fun move(id: String, folderId: String?, now: Long)
     @Query("SELECT * FROM notes WHERE trashed = 1 ORDER BY updatedAt DESC")
     fun observeTrashed(): Flow<List<NoteEntity>>
+    @Query("SELECT * FROM notes WHERE trashed = 1 ORDER BY updatedAt DESC")
+    suspend fun trashed(): List<NoteEntity>
+    @Query("SELECT COUNT(*) FROM notes WHERE trashed = 1")
+    suspend fun countTrashed(): Int
     @Query("SELECT * FROM notes")
     suspend fun allIncludingTrashed(): List<NoteEntity>
     @Query("DELETE FROM notes WHERE id = :id")

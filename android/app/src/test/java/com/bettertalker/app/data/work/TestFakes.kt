@@ -109,6 +109,10 @@ internal class FakeNoteDao(rows: List<NoteEntity> = emptyList()) : NoteDao {
 
     override fun observeTrashed(): Flow<List<NoteEntity>> = flowOf(rows.filter { it.trashed })
 
+    override suspend fun trashed(): List<NoteEntity> = rows.filter { it.trashed }
+
+    override suspend fun countTrashed(): Int = rows.count { it.trashed }
+
     override suspend fun allIncludingTrashed(): List<NoteEntity> = rows.toList()
 
     override suspend fun delete(id: String) {
