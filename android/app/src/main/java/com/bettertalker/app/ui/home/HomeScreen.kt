@@ -62,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -351,11 +352,16 @@ fun HomeScreen(
     }
 
     Scaffold(
+        // Deixa a textura global (MainActivity) aparecer atrás dos cards.
+        containerColor = Color.Transparent,
         // Mesmo ajuste dos hubs (Treinar/Apresentar): o Scaffold global + a
         // barra cuidam dos insets — sem inset extra aqui (fim do "buraco").
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
                 title = {
                     // Marca: logo mini (quadrado navy + arte, 2 linhas de altura)
                     // com "BETTER TALKER" em 2 linhas ao lado.

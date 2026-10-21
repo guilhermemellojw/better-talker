@@ -268,9 +268,14 @@ fun EditorScreen(
     }
 
     Scaffold(
+        // Deixa a textura global aparecer atrás dos cards do editor.
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {

@@ -9,13 +9,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.bettertalker.app.ui.components.ViewModeMenu
 
 /**
@@ -32,11 +35,15 @@ fun PresentHomeScreen(
     val cards by vm.cards.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
     Scaffold(
+        containerColor = Color.Transparent,
         // O Scaffold global (MainActivity) + a barra cuidam dos insets do
         // sistema — sem inset extra aqui (some o "buraco" no fim da lista).
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                ),
                 title = { Text("Apresentar") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
