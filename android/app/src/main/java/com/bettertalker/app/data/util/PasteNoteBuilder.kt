@@ -127,8 +127,10 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
         }
         is PasteKind.VmTalk -> {
             detailLines += vmPartPreviewLines(kind.part)
-            val subCount = plan.sections.sumOf { it.subPoints.size }
-            if (subCount > 0) detailLines += "$subCount subtópicos na linha de raciocínio"
+            val bodyCount = plan.sections.count { it.role == SectionRole.BODY }
+            if (bodyCount > 0) {
+                detailLines += "$bodyCount tópico${if (bodyCount > 1) "s" else ""} de desenvolvimento"
+            }
         }
         is PasteKind.VmDemo -> detailLines += vmPartPreviewLines(kind.part)
         is PasteKind.VmConsideration -> detailLines += vmPartPreviewLines(kind.part)
@@ -145,7 +147,7 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
 
     val cardsLabel = when (kind) {
         is PasteKind.S34 -> "Introdução + ${kind.outline.sections.size} corpos + Conclusão"
-        is PasteKind.VmTalk -> "3 cards (Introdução · Corpo · Conclusão)"
+        is PasteKind.VmTalk -> "${plan.sections.size} cards"
         is PasteKind.VmDemo -> "1 card (diálogo)"
         is PasteKind.VmConsideration -> "1 card (consideração)"
         is PasteKind.VmRejected -> "0 cards"
@@ -209,7 +211,11 @@ fun pasteApplyFeedback(
     }
     val cards = when (kind) {
         is PasteKind.S34 -> kind.outline.sections.size + 2
-        is PasteKind.VmTalk -> if (currentNoteHasSections) 1 else 3
+        is PasteKind.VmTalk -> if (currentNoteHasSections) {
+            plan.sections.count { it.role == SectionRole.BODY }
+        } else {
+            plan.sections.size
+        }
         is PasteKind.VmDemo, is PasteKind.VmConsideration, PasteKind.FreeText -> 1
         is PasteKind.VmRejected -> 0
     }
@@ -376,6 +382,83 @@ private fun isSubtopicBoundary(text: String, end: Int): Boolean {
 }
 
 /**
+ * Fim de uma referência bíblica/publicação. Usado para segmentar um corpo
+ * single-line em subtópicos, quando não há parágrafos separados por linha em
+ * branco. Puro.
+ */
+private val REF_BOUNDARY_RE = Regex(
+    """(?:\([^)]*?(?:\d{1,3}:\d{1,3}|(?:w|wp|g|gn|be|th|lff)\s*\d{2}(?:[./]\d{1,2})?)[^)]*\)|\b(?:[1-3]\s*)?[A-Za-zÀ-ÿ]+\.?\s+\d{1,3}:\d{1,3}(?:[a-z])?\b|\b(?:w|wp|g|gn|be|th|lff)\s*\d{2}(?:[./]\d{1,2})?\b)(?:[.)]+\s*)?""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * Divide o corpo de um discurso V&M em blocos que virarão BODYs independentes.
+ *
+ * Prioridade:
+ * 1. parágrafos separados por linha em branco;
+ * 2. refs bíblicas/publicações (fim de subtópico);
+ * 3. refs entre parênteses (fallback);
+ * 4. frases agrupadas de 2 em 2 (quando há pelo menos 4).
+ *
+ * Texto curto (1–3 frases sem refs/parágrafos) permanece um único BODY.
+ * Puro/testável.
+ */
+internal fun splitIntoBodyChunks(body: String): List<String> {
+    val trimmed = body.trim()
+    if (trimmed.isEmpty()) return emptyList()
+
+    val byParagraph = trimmed.split(Regex("\\n\\s*\\n"))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+    if (byParagraph.size >= 2) return byParagraph
+
+    if (REF_BOUNDARY_RE.findAll(trimmed).count() >= 2) {
+        val byRef = splitByRefPattern(trimmed, REF_BOUNDARY_RE)
+        if (byRef.size >= 2) return byRef
+    }
+
+    val parentheticalRefPattern = Regex("""\([^)]+\)\.?\s+""")
+    if (parentheticalRefPattern.findAll(trimmed).count() >= 2) {
+        val byParentheticalRef = splitByRefPattern(trimmed, parentheticalRefPattern)
+        if (byParentheticalRef.size >= 2) return byParentheticalRef
+    }
+
+    val sentences = splitVmSubtopics(trimmed).map { it.text }
+    return if (sentences.size >= 4) {
+        sentences.chunked(2).map { it.joinToString(" ") }
+    } else {
+        listOf(trimmed)
+    }
+}
+
+/** Corta o texto depois de cada match de [refPattern]. Puro/testável. */
+internal fun splitByRefPattern(body: String, refPattern: Regex): List<String> {
+    val chunks = mutableListOf<String>()
+    var lastEnd = 0
+    refPattern.findAll(body).forEach { match ->
+        val chunk = body.substring(lastEnd, match.range.last + 1).trim()
+        if (chunk.isNotEmpty()) chunks += chunk
+        lastEnd = match.range.last + 1
+    }
+    if (lastEnd < body.length) {
+        val trailing = body.substring(lastEnd).trim()
+        if (trailing.isNotEmpty()) chunks += trailing
+    }
+    return chunks
+}
+
+/**
+ * Se houver mais chunks do que minutos disponíveis para BODYs, agrupa os
+ * chunks vizinhos para que todo BODY continue com pelo menos 1 minuto.
+ * Preserva a ordem e o conteúdo. Puro.
+ */
+private fun fitBodyChunks(chunks: List<String>, maxBodies: Int): List<String> {
+    if (chunks.size <= maxBodies) return chunks
+    val groupSize = (chunks.size + maxBodies - 1) / maxBodies
+    return chunks.chunked(groupSize).map { it.joinToString("\n\n") }
+}
+
+/**
  * CÉREBRO ÚNICO da colagem: normaliza, classifica e devolve o plano completo.
  * Prioridade: TALK > DEMO > Rejected > S-34 > texto livre — a mesma do fluxo
  * do Editor/Chat, agora também no FAB.
@@ -392,22 +475,34 @@ fun planPaste(raw: String): PastePlan {
         val partTitle = talk.title.ifBlank { "Discurso" }
         val minutes = talk.minutes.takeIf { it > 0 } ?: 10
         val (bible, pubs) = extractRefsFromBody(body)
-        val subtopics = splitVmSubtopics(body)
-        val sections = listOf(
-            PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
-            PastedSection(
-                role = SectionRole.BODY,
-                title = partTitle,
-                minutes = minutes,
-                // O corpo colado é a LINHA DE RACIOCÍNIO (subtópicos); o
-                // MINI DISCURSO nasce vazio para ser gerado a partir dela.
-                contentHtml = "",
-                bibleRefs = bible,
-                publicationRefs = pubs,
-                subPoints = subtopics,
-            ),
-            PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
-        )
+
+        // Segmenta os subtópicos em BODYs independentes. O texto colado vira o
+        // conteúdo do card (contentHtml), não a linha de raciocínio: assim o
+        // Ensaio/Export/Tribuna já leem o discurso pronto.
+        val chunks = splitIntoBodyChunks(body).ifEmpty { listOf(body) }
+        val bodyMinutes = (minutes - EDGE_SECTION_MINUTES * 2).coerceAtLeast(1)
+        val fittedChunks = fitBodyChunks(chunks, bodyMinutes)
+        val baseBodyMinutes = bodyMinutes / fittedChunks.size
+        val remainderMinutes = bodyMinutes % fittedChunks.size
+
+        val sections = buildList {
+            add(PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""))
+            fittedChunks.forEachIndexed { index, chunk ->
+                val (chunkBible, chunkPubs) = extractRefsFromBody(chunk)
+                add(
+                    PastedSection(
+                        role = SectionRole.BODY,
+                        title = if (fittedChunks.size == 1) partTitle else "Ponto ${index + 1}",
+                        minutes = baseBodyMinutes + if (index == 0) remainderMinutes else 0,
+                        contentHtml = paragraphsToHtml(chunk),
+                        bibleRefs = chunkBible,
+                        publicationRefs = chunkPubs,
+                    )
+                )
+            }
+            add(PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""))
+        }
+        val bodyLabel = if (fittedChunks.size == 1) "1 tópico" else "${fittedChunks.size} tópicos"
         return PastePlan(
             kind = PasteKind.VmTalk(talk, ignored),
             noteTitle = "$partTitle ($minutes min)",
@@ -417,7 +512,7 @@ fun planPaste(raw: String): PastePlan {
             bibleRefs = bible,
             publicationRefs = pubs,
             generationProfile = GenerationProfile.SPEECH_MENTOR,
-            notice = "Estrutura de discurso criada (Introdução, Desenvolvimento, " +
+            notice = "Estrutura de discurso criada (Introdução, $bodyLabel, " +
                 "Conclusão)." + ignoredSuffix(ignored),
             ignoredParts = ignored,
         )

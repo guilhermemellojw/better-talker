@@ -27,8 +27,11 @@ class PasteNoteBuilderTest {
     private val talkText = """
         TESOUROS DA PALAVRA DE DEUS
         1. A ordem nos céus (10 min)
-        Vamos começar com uma pergunta simples.
-        Quando você olha para o céu, o que sente?
+        Vamos começar com uma pergunta simples (Gên. 1:1).
+
+        Quando você olha para o céu, o que sente? (Sal. 19:1)
+
+        A Bíblia promete um novo mundo (Rom. 8:18).
     """.trimIndent()
 
     /** Seção única (demo/genérico). */
@@ -100,33 +103,97 @@ class PasteNoteBuilderTest {
     // ---------- TALK: template de discurso (Intro/Desenvolvimento/Conclusão) ----------
 
     @Test
-    fun talk_aplicaTemplateDeDiscurso() {
+    fun talk_aplicaTemplateDeDiscursoComUmBodyPorSubtopico() {
         val built = buildPastedNote(talkText)
         assertEquals(DiscourseType.TREASURES_TALK, built.discourseType)
-        // Nota: parte + duração.
+        // Nota: parte + duração total.
         assertEquals("A ordem nos céus (10 min)", built.title)
         assertTrue(built.speechTemplate)
-        // Exatamente 3 seções: INTRO + BODY (com o texto) + CONCLUSION.
-        assertEquals(3, built.sections.size)
-        val intro = built.sections[0]
-        val body = built.sections[1]
-        val conclusion = built.sections[2]
+        // INTRO + 3 BODYs + CONCLUSION.
+        assertEquals(5, built.sections.size)
+        val intro = built.sections.first()
+        val bodies = built.sections.subList(1, 4)
+        val conclusion = built.sections.last()
         assertEquals(SectionRole.INTRO, intro.role)
         assertEquals("Introdução", intro.title)
         assertEquals(EDGE_SECTION_MINUTES, intro.minutes)
         assertEquals("", intro.contentHtml)
-        assertEquals(SectionRole.BODY, body.role)
-        assertEquals("A ordem nos céus", body.title)
-        assertEquals(10, body.minutes)
-        // O MINI DISCURSO nasce vazio; o corpo vira LINHA DE RACIOCÍNIO.
-        assertEquals("", body.contentHtml)
-        assertEquals(2, body.subPoints.size)
-        assertTrue(body.subPoints[0].text.contains("Vamos começar com uma pergunta simples."))
-        assertTrue(body.subPoints[1].text.contains("Quando você olha para o céu, o que sente?"))
+        assertEquals(listOf("Ponto 1", "Ponto 2", "Ponto 3"), bodies.map { it.title })
+        assertEquals(listOf(4, 2, 2), bodies.map { it.minutes })
+        assertEquals(10, built.sections.sumOf { it.minutes })
+        bodies.forEach { body ->
+            assertEquals(SectionRole.BODY, body.role)
+            assertTrue(body.contentHtml, body.contentHtml.startsWith("<p>"))
+            assertTrue(body.bibleRefs.isNotEmpty())
+            assertTrue(body.subPoints.isEmpty())
+        }
+        assertTrue(bodies[0].contentHtml.contains("Vamos começar com uma pergunta simples"))
+        assertTrue(bodies[1].contentHtml.contains("Quando você olha para o céu"))
+        assertTrue(bodies[2].contentHtml.contains("A Bíblia promete um novo mundo"))
+        assertTrue(bodies[0].bibleRefs.any { it.contains("1:1") })
+        assertTrue(bodies[1].bibleRefs.any { it.contains("19:1") })
+        assertTrue(bodies[2].bibleRefs.any { it.contains("8:18") })
         assertEquals(SectionRole.CONCLUSION, conclusion.role)
         assertEquals("Conclusão", conclusion.title)
         assertEquals(EDGE_SECTION_MINUTES, conclusion.minutes)
         assertEquals("", conclusion.contentHtml)
+    }
+
+    @Test
+    fun splitIntoBodyChunks_porParagrafos() {
+        assertEquals(
+            listOf("Primeiro.", "Segundo.", "Terceiro."),
+            splitIntoBodyChunks("Primeiro.\n\nSegundo.\n\nTerceiro."),
+        )
+    }
+
+    @Test
+    fun splitIntoBodyChunks_porRefsEntreParenteses() {
+        val chunks = splitIntoBodyChunks(
+            "Primeiro ponto (Gên. 1:1). Segundo ponto (Sal. 19:1). " +
+                "Terceiro ponto (Rom. 8:18)."
+        )
+        assertEquals(3, chunks.size)
+        assertTrue(chunks[0].contains("Primeiro ponto"))
+        assertTrue(chunks[1].contains("Segundo ponto"))
+        assertTrue(chunks[2].contains("Terceiro ponto"))
+    }
+
+    @Test
+    fun splitIntoBodyChunks_porRefsSemParenteses() {
+        val chunks = splitIntoBodyChunks(
+            "Primeiro ponto Gên. 1:1. Segundo ponto Sal. 19:1. " +
+                "Terceiro ponto Rom. 8:18."
+        )
+        assertEquals(3, chunks.size)
+        assertTrue(chunks[0].contains("Gên. 1:1"))
+        assertTrue(chunks[1].contains("Sal. 19:1"))
+        assertTrue(chunks[2].contains("Rom. 8:18"))
+    }
+
+    @Test
+    fun splitIntoBodyChunks_semRefsAgrupaFrases() {
+        val chunks = splitIntoBodyChunks("Um. Dois. Três. Quatro. Cinco. Seis.")
+        assertEquals(3, chunks.size)
+        assertEquals("Um. Dois.", chunks[0])
+        assertEquals("Três. Quatro.", chunks[1])
+        assertEquals("Cinco. Seis.", chunks[2])
+    }
+
+    @Test
+    fun splitIntoBodyChunks_textoCurtoNaoQuebra() {
+        assertEquals(listOf("Uma frase."), splitIntoBodyChunks("Uma frase."))
+    }
+
+    @Test
+    fun splitByRefPattern_segmentaNoFimDeCadaRef() {
+        val chunks = splitByRefPattern(
+            "A (x). B (y).",
+            Regex("""\([^)]+\)\.?\s+"""),
+        )
+        assertEquals(2, chunks.size)
+        assertEquals("A (x).", chunks[0])
+        assertEquals("B (y).", chunks[1])
     }
 
     // ---------- Esboço estruturado (S-34): OutlineConverter cuida das seções ----------

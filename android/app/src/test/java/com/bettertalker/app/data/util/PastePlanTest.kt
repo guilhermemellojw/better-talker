@@ -343,33 +343,36 @@ class PastePlanTest {
     }
 
     @Test
-    fun format5_cadaFraseViraSubtopicoDaLinhaDeRaciocinio() {
+    fun format5_cadaFraseViraBodyComSeuTextoERefs() {
         val text = "Ter esperança é o segredo para o contentamento (10 min) " +
             "Parece que Baruque não estava satisfeito com sua situação " +
             "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +
             "alegria (w25.07 20 § 2) Jeová ajudou Baruque a mudar o ponto de " +
             "vista (Jer. 45:5; w25.07 24 §§ 13-14)"
         val plan = planPaste(text)
-        val body = plan.sections.first { it.role == SectionRole.BODY }
-        assertEquals(3, body.subPoints.size)
-        assertTrue(body.subPoints[0].text.startsWith("Parece que Baruque"))
-        assertTrue(body.subPoints[1].text.startsWith("Sem contentamento"))
-        assertTrue(body.subPoints[2].text.startsWith("Jeová ajudou"))
-        assertTrue(body.subPoints[0].bibleRefs.any { it.contains("45:3") })
-        assertTrue(body.subPoints[0].publicationRefs.isNotEmpty())
+        val bodies = plan.sections.filter { it.role == SectionRole.BODY }
+        assertEquals(3, bodies.size)
+        assertEquals(listOf("Ponto 1", "Ponto 2", "Ponto 3"), bodies.map { it.title })
+        assertTrue(bodies[0].contentHtml.contains("Parece que Baruque"))
+        assertTrue(bodies[1].contentHtml.contains("Sem contentamento"))
+        assertTrue(bodies[2].contentHtml.contains("Jeová ajudou"))
+        assertTrue(bodies[0].bibleRefs.any { it.contains("45:3") })
+        assertTrue(bodies[0].publicationRefs.isNotEmpty())
+        assertTrue(bodies.all { it.subPoints.isEmpty() })
     }
 
     @Test
-    fun format5_miniDiscursoNasceVazioComSubtopicos() {
+    fun format5_conteudoVaiParaCadaBodySemSubpontos() {
         val text = "Ter esperança é o segredo para o contentamento (10 min) " +
             "Parece que Baruque não estava satisfeito com sua situação " +
             "(Jer. 45:3; w25.07 22 §§ 8-9) Sem contentamento, podemos perder a " +
             "alegria (w25.07 20 § 2) Jeová ajudou Baruque a mudar o ponto de " +
             "vista (Jer. 45:5; w25.07 24 §§ 13-14)"
         val plan = planPaste(text)
-        val body = plan.sections.first { it.role == SectionRole.BODY }
-        assertTrue("MINI DISCURSO deve nascer vazio", body.contentHtml.isBlank())
-        assertEquals(3, body.subPoints.size)
+        val bodies = plan.sections.filter { it.role == SectionRole.BODY }
+        assertEquals(3, bodies.size)
+        assertTrue(bodies.all { it.contentHtml.isNotBlank() })
+        assertTrue(bodies.all { it.subPoints.isEmpty() })
         // O texto colado continua disponível para busca/preview da nota.
         assertTrue(plan.plainText.contains("Parece que Baruque"))
     }
