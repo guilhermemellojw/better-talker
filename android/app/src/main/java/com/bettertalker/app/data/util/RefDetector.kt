@@ -1031,6 +1031,24 @@ object RefDetector {
         val needles = listOfNotNull(ref.raw, ref.label, ref.article, ref.chapter)
             .map { normalizeText(it) }
             .filter { it.length >= 3 }
+        // exp/chat-quality (2026-10-21): citação com página/parágrafo casa pelo
+        // par ESTRUTURADO (page/paragraph do índice T4) — a comparação por
+        // string não acha, porque a ref do acervo guarda a posição
+        // sequencial ("§605") e não o § da revista.
+        val parStart = ref.paragraph
+        val parEnd = ref.paragraphEnd ?: parStart
+        val structuredHits = passages.filter { p ->
+            if (p.paragraph == null) return@filter false
+            val pageOk = ref.page == null || p.page == ref.page
+            val parOk = parStart == null || (p.paragraph in parStart..(parEnd ?: parStart))
+            pageOk && parOk
+        }
+        if (structuredHits.isNotEmpty()) {
+            // O trecho citado é o parágrafo INTEIRO (título + corpo), não só a
+            // primeira linha — é o que o usuário precisa ver.
+            val snippet = structuredHits.joinToString(" ") { it.text }.trim().take(600)
+            return ContentCheck(resolved = true, snippet = snippet, warning = null)
+        }
         val hit = passages.firstOrNull { p ->
             val refNorm = normalizeText(p.ref)
             val refMatch = refNorm.length >= 3 &&

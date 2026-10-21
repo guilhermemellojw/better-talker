@@ -405,6 +405,16 @@ class CopilotRepository(private val db: AppDatabase) {
             }
             if (!slice.isNullOrEmpty()) return ContentCandidates(slice, true)
         }
+        // exp/chat-quality (2026-10-21): citação com página/parágrafo usa o
+        // índice T4 (page/paragraph) — `forAttachment` traz só as 500
+        // primeiras passagens e o § citado ficava de fora (falso aviso
+        // "citação sem fonte no acervo").
+        if (ref.page != null && ref.paragraph != null) {
+            val start = ref.paragraph
+            val end = ref.paragraphEnd ?: start
+            val rows = db.passageDao().byPageParagraph(hit.id, ref.page, start, end)
+            if (rows.isNotEmpty()) return ContentCandidates(rows, true)
+        }
         return ContentCandidates(
             passages = db.passageDao().forAttachment(hit.id),
             corpusAvailable = true

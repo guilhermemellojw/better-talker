@@ -337,10 +337,15 @@ fun splitWithSectionsAndParagraphs(raw: String): List<ExtractedChunk> {
     val parRe = Regex("^§(\\d{1,3})\\s+(.*)$")
     lines.forEachIndexed { idx, rawLine ->
         var line = rawLine
+        // exp/chat-quality (2026-10-21): a linha que TRAZ o marcador §N
+        // carrega o parágrafo dela — o reset do heurístico de "título curto"
+        // não pode apagar o número que a própria linha declarou.
+        var markedHere = false
         // RC1-pages: a página do artigo vale para os §§ seguintes; nova
         // seção (artigo) reseta — o próximo PAGE vem com o primeiro § dela.
         pageRe.find(line)?.let { currentPage = it.groupValues[1].toInt(); return@forEachIndexed }
         parRe.find(line)?.let {
+            markedHere = true
             paragraph = it.groupValues[1].toInt()
             line = it.groupValues[2].trim()
         }
@@ -366,7 +371,7 @@ fun splitWithSectionsAndParagraphs(raw: String): List<ExtractedChunk> {
             nextLen > 120
         if (isLesson || isShortTitle) {
             section = canonicalSectionLine(line).take(120)
-            paragraph = null
+            if (!markedHere) paragraph = null
             return@forEachIndexed
         }
         line.split(Regex("[.!?]+"))
