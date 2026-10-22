@@ -1119,14 +1119,21 @@ private fun ReasoningSection(
                 Text(
                     "Pensando…",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                    // exp/chat-contrast (2026-10-22): com alpha até 0,4 o texto
+                    // caía a 1,83:1 (sumia). O pulso fica no ícone; o texto é
+                    // sempre legível.
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
                 if (completed) {
                     Icon(
                         Icons.Default.Check,
                         contentDescription = "Raciocínio concluído",
-                        tint = Color(0xFF2E7D32),
+                        // exp/chat-contrast (2026-10-22): o verde fixo dava
+                        // 2,74:1 no dark (paleta Cyberpunk) e o primary
+                        // (amarelo) dava 1,50:1 no light — o token neutro
+                        // acompanha o contraste nos dois temas.
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp),
                     )
                 }

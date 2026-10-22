@@ -19,6 +19,12 @@ import androidx.compose.ui.unit.dp
  * (64×64) gerado UMA vez e repetido com `BitmapShader` + tint do tema.
  */
 
+/**
+ * exp/chat-contrast (2026-10-22): teto do alpha da textura. Acima disso o
+ * fundo da tela vira a cor da tinta e o texto sobre ele desaparece.
+ */
+const val MAX_TEXTURE_ALPHA = 0.15f
+
 /** Bitmap de ruído determinístico (64×64, branco com alpha variável). */
 private fun noiseBitmap(seed0: Long, maxAlpha: Int): ImageBitmap {
     val size = 64
@@ -55,7 +61,11 @@ fun Modifier.texturedBackground(
     intensity: Float = 0.05f,
 ): Modifier = drawBehind {
     drawRect(color = background)
-    val k = intensity.coerceIn(0f, 1f)
+    // exp/chat-contrast (2026-10-22): a textura nao pode apagar o texto.
+    // Em 100% de intensidade o fundo virava a cor da tinta (onSurface) — o
+    // texto desenhado direto no fundo sumia (1:1). O teto de 15% mantem a
+    // textura visivel e o texto sempre legivel (>= 4,5:1 no dark).
+    val k = intensity.coerceIn(0f, 1f).coerceAtMost(MAX_TEXTURE_ALPHA)
     when (texture) {
         TextureId.NONE -> Unit
 

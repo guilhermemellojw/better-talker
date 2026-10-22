@@ -946,7 +946,9 @@ private fun SectionContentEditor(
                 Text(
                     "Insira seu texto aqui",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    // exp/chat-contrast (2026-10-22): com alpha 0,5 o
+                    // placeholder caía a 2,29:1 (sumia no dark).
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                 )
             }
