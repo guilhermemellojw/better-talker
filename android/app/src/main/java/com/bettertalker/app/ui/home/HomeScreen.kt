@@ -712,7 +712,8 @@ private fun MoveOptionRow(label: String, selected: Boolean, onClick: () -> Unit)
             modifier = Modifier.weight(1f),
         )
         if (selected) {
-            Icon(Icons.Default.Check, "Atual", tint = MaterialTheme.colorScheme.primary)
+            // indicador funcional: 3:1 (primary falhava no light)
+            Icon(Icons.Default.Check, "Atual", tint = MaterialTheme.colorScheme.tertiary)
         }
     }
 }

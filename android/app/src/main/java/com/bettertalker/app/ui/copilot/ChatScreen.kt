@@ -1,5 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1093,7 +1095,7 @@ private fun ReasoningSection(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA),
     ) {
         Column(
             Modifier
@@ -1566,7 +1568,9 @@ private fun RenderQuote(text: String, mark: AnnotatedString?) {
                 .width(4.dp)
                 .fillMaxHeight()
                 .background(
-                    MaterialTheme.colorScheme.primary,
+                    // exp/chat-contrast (2026-10-22): barra da citação com
+                    // primary dava 1,55:1 no light — o tertiary passa 3:1.
+                    MaterialTheme.colorScheme.tertiary,
                     MaterialTheme.shapes.small
                 )
         )
@@ -1633,7 +1637,7 @@ private fun RenderTextForCard(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA)
             )
             .border(
                 1.dp,

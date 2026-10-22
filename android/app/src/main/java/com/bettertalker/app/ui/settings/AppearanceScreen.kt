@@ -177,7 +177,8 @@ fun AppearanceScreen(
                             Text(
                                 "${(intensity * 100).roundToInt()}%",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
+                                // texto: primary (amarelo) dava 1,55:1 no light
+                                color = MaterialTheme.colorScheme.secondary,
                             )
                         }
                         Slider(
@@ -214,7 +215,8 @@ fun AppearanceScreen(
                         Text(
                             group,
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            // texto: primary (amarelo) dava 1,55:1 no light
+                            color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -294,7 +296,8 @@ private fun PaletteCard(
                 if (selected) {
                     Icon(
                         Icons.Default.Check, "Selecionada",
-                        tint = MaterialTheme.colorScheme.primary,
+                        // indicador funcional: 3:1 (primary falhava no light)
+                        tint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(18.dp),
                     )
                 }

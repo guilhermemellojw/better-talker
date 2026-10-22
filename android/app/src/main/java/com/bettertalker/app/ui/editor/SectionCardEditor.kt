@@ -204,7 +204,10 @@ fun SectionCardEditor(
                 .then(
                     if (isActiveSection) Modifier.border(
                         width = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
+                        // exp/chat-contrast (2026-10-22): o primary (amarelo)
+                        // como borda dava 1,23:1 no light (Samsung) — WCAG
+                        // 1.4.11 exige 3:1; o tertiary passa nas 27 paletas.
+                        color = MaterialTheme.colorScheme.tertiary,
                         shape = RoundedCornerShape(12.dp),
                     ) else Modifier
                 )
@@ -357,7 +360,7 @@ fun SectionCardEditor(
                         Surface(
                             onClick = { showMinutesDialog = true },
                             enabled = !readOnly,
-                            shape = RoundedCornerShape(4.dp),
+                            shape = MaterialTheme.shapes.extraSmall,
                             color = Color.Transparent,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         ) {
@@ -961,7 +964,7 @@ private fun SectionContentEditor(
                     fontSize = FONT_SIZE_BODY_DEFAULT,
                     color = MaterialTheme.colorScheme.onSurface,
                 ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.tertiary),
                 modifier = modifier.onFocusChanged {
                     isEditing = it.isFocused
                     onFocusChange(it.isFocused)

@@ -1,5 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -660,7 +662,7 @@ fun ProposalCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA))
                 .border(1.dp, MaterialTheme.colorScheme.outline, shape)
                 .padding(12.dp),
         ) {
@@ -781,7 +783,8 @@ fun ProposalCard(
                 Text(
                     "Aplicado ao card.",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    // texto: primary (amarelo) dava 1,55:1 no light
+                    color = MaterialTheme.colorScheme.secondary,
                 )
             }
         }

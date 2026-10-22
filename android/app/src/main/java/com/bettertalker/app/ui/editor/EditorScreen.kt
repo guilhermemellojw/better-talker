@@ -109,6 +109,7 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.components.PasteDestination
 import com.bettertalker.app.ui.components.PastePreviewSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
+import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
 import java.io.File
@@ -749,7 +750,7 @@ fun EditorScreen(
 private fun SpeakerNotesBlock(notes: String) {
     var expanded by remember { mutableStateOf(false) }
     Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA),
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {

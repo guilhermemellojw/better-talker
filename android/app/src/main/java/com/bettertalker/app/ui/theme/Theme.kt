@@ -261,6 +261,13 @@ fun paletteLabel(id: PaletteId): String = AppPalettes.of(id).label
 internal fun paletteScheme(id: PaletteId, dark: Boolean): ColorScheme =
     AppPalettes.of(id).scheme(dark)
 
+/**
+ * exp/chat-contrast (2026-10-22): alpha único dos blocos de CONTEÚDO
+ * (raciocínio, orientações do orador, texto para o card, proposta).
+ * Antes havia 0,4 e 0,3 para o mesmo papel — padronizado em 0,35.
+ */
+const val CONTENT_BLOCK_ALPHA = 0.35f
+
 val AppShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
     small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),

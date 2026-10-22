@@ -58,6 +58,15 @@ class ContrastAuditCompostosTest {
         Elemento("check do raciocinio (onSurfaceVariant)", "onSurfaceVariant", "surfaceVariant", bgAlpha = 0.4f, minRatio = 3.0),
         Elemento("placeholder do editor", "onSurfaceVariant", "surface"),
         Elemento("texto sobre a tela texturizada", "onSurface", "surface", fundoDaTela = true),
+        // exp/chat-contrast (2026-10-22) — v2.5.4: indicadores finos.
+        // O primary (amarelo) como borda/cursor/barra dava 1,23–1,55:1 no
+        // light (Samsung) e 2,25–2,84:1 (Quente) — abaixo dos 3:1 da WCAG
+        // 1.4.11. O tertiary passa nas 27 paletas (pior 3,62 light / 4,82 dark).
+        Elemento("indicador fino - borda da secao ativa", "tertiary", "surfaceVariant", bgAlpha = 0.35f, minRatio = 3.0),
+        Elemento("indicador fino - barra da citacao", "tertiary", "surface", minRatio = 3.0),
+        Elemento("indicador fino - cursor do editor", "tertiary", "surfaceVariant", bgAlpha = 0.35f, minRatio = 3.0),
+        // textos que estavam em primary (fill) e passaram a secondary
+        Elemento("texto de confirmacao (secundario)", "secondary", "surface"),
     )
 
     private fun token(scheme: androidx.compose.material3.ColorScheme, name: String, dark: Boolean): Color =
@@ -70,6 +79,7 @@ class ContrastAuditCompostosTest {
                 "surfaceVariant" -> scheme.surfaceVariant
                 "onSurfaceVariant" -> scheme.onSurfaceVariant
                 "secondary" -> scheme.secondary
+                "tertiary" -> scheme.tertiary
                 "secondaryContainer" -> scheme.secondaryContainer
                 "onSecondaryContainer" -> scheme.onSecondaryContainer
                 else -> error("token desconhecido: $name")

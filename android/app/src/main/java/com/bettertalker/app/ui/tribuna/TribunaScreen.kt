@@ -284,7 +284,7 @@ private fun TribunaField(
                 fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
             ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.tertiary),
             modifier = Modifier.fillMaxWidth(),
         )
     }
