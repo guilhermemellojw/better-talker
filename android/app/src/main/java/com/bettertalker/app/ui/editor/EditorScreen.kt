@@ -768,6 +768,12 @@ private fun SpeakerNotesBlock(notes: String) {
                 Text(
                     "Orientações do orador",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                    // exp/chat-contrast (2026-10-22): sem cor explícita este
+                    // título herdava Color.Black (o Surface de fundo é
+                    // translúcido/custom e não define LocalContentColor) e
+                    // sumia no dark (1,00:1). O tema agora provê onSurface; a
+                    // cor explícita deixa o card legível por si.
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
             if (expanded) {

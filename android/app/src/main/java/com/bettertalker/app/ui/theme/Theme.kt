@@ -2,11 +2,13 @@ package com.bettertalker.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -316,6 +318,16 @@ fun BetterTalkerTheme(
         colorScheme = scheme,
         shapes = AppShapes,
         typography = AppTypography,
-        content = content
-    )
+    ) {
+        // exp/chat-contrast (2026-10-22): o Compose usa Color.Black como
+        // LocalContentColor padrao. As telas do app usam
+        // Scaffold(containerColor = Color.Transparent) para a textura do fundo
+        // aparecer — e Surface com cor transparente/custom NAO define o content
+        // color. Resultado: todo texto sem cor explicita ficava PRETO no dark
+        // (ex.: o titulo do card "Orientacoes do orador" = 1,00:1, invisivel).
+        // Prover o content color do tema conserta a classe inteira (10 telas).
+        CompositionLocalProvider(LocalContentColor provides scheme.onSurface) {
+            content()
+        }
+    }
 }

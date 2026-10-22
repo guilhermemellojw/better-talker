@@ -98,3 +98,36 @@ Bugs corrigidos (medidos):
 - Granularidade do acervo (parágrafo → frase) — 1-2 dias.
 - `PublicationCatalog` / Web Search — 1-2 dias.
 - Migração `s34_outlines.noteId` — **descartada** (o dossiê já entrega a estrutura).
+
+
+---
+
+## 6. Segundo achado (mesma data, pós-v2.5.2) — o `LocalContentColor` era **preto**
+
+O usuário apontou o **título** do card "Orientações do orador" e o **título
+"Referências da nota"** (chat) como quase invisíveis. Medi por pixel no A34:
+
+| Elemento | Antes | Depois |
+|---|---|---|
+| "Orientações do orador" (título, editor) | **1,00:1** (preto sobre o card) | **12,83:1** |
+| "Referências da nota" (título, chat) | **1,00:1** | **14,08:1** |
+
+**Causa-raiz (sistêmica, não do card):** o Compose usa `Color.Black` como
+`LocalContentColor` **padrão**. As 10 telas do app usam
+`Scaffold(containerColor = Color.Transparent)` (para a textura do fundo
+aparecer) e `Surface` com cor translúcida/custom (`surfaceVariant@0,4`) —
+nenhum define content color (`contentColorFor` de uma cor custom/transparente
+retorna `Unspecified`). Resultado: **todo texto sem cor explícita** nessas
+telas ficava **preto no dark**.
+
+**Fix (sistêmico, 1 lugar):** `Theme.kt` passa a prover
+`LocalContentColor = scheme.onSurface` no `MaterialTheme`. Os `Surface` com
+token continuam sobrescrevendo (`onSurface`, `onSecondaryContainer`…) e os
+`Text(color = …)` explícitos continuam mandando. No light, `onSurface` ≈ preto
+(sem mudança visual).
+
++ o título do card ganhou cor explícita (o componente fica legível por si) e um
+**teste-guarda** (`ThemeContentColorGuardTest`) trava a invariante.
+
+> Correção honesta: na primeira auditoria eu medi "Referências da nota" 1,00:1
+> e tratei como artefato da amostragem de pixels. **Era o bug.**
