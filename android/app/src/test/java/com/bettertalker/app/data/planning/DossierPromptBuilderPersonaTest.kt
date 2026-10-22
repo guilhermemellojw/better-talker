@@ -50,8 +50,8 @@ class DossierPromptBuilderPersonaTest {
         assertTrue(prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
         assertTrue(prompt.contains("≈ 10 réplicas"))
         assertTrue(prompt.contains("máx. 3 frases"))
-        // No draft JSON o "MODO MENTOR" de chat não entra.
-        assertFalse(prompt.contains("MODO MENTOR"))
+        // No draft JSON o "MODO ORIENTADOR" de chat não entra.
+        assertFalse(prompt.contains("MODO ORIENTADOR"))
     }
 
     @Test
@@ -80,7 +80,7 @@ class DossierPromptBuilderPersonaTest {
         val block = DefaultDossierPromptBuilder()
             .buildContextBlock(dossier(DiscourseType.S34_DISCOURSE, 10))
         assertTrue(block.contains(GenerationPrompts.SPEECH_MENTOR_CHAT_HINT))
-        assertTrue(block.contains("MODO MENTOR (ORATÓRIA)"))
+        assertTrue(block.contains("MODO ORIENTADOR (ORATÓRIA)"))
         assertTrue(block.contains("≈ ${SpeechPacing.targetWords(10)} palavras"))
     }
 
@@ -89,7 +89,7 @@ class DossierPromptBuilderPersonaTest {
         val block = DefaultDossierPromptBuilder()
             .buildContextBlock(dossier(DiscourseType.MINISTRY_PART, 4))
         assertTrue(block.contains(GenerationPrompts.DEMO_SCRIPTWRITER_CHAT_HINT))
-        assertTrue(block.contains("MODO MENTOR (TREINADOR DE CAMPO)"))
+        assertTrue(block.contains("MODO ORIENTADOR (TREINADOR DE CAMPO)"))
         assertTrue(block.contains("≈ ${SpeechPacing.targetTurns(4)} réplicas"))
     }
 

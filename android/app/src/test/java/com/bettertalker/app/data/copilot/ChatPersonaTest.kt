@@ -47,6 +47,31 @@ class ChatPersonaTest {
     }
 
     @Test
+    fun chat_persona_free_nao_menciona_irmao() {
+        assertFalse(CHAT_PERSONA_FREE.contains("irmão"))
+        assertFalse(CHAT_PERSONA_FREE.contains("irmã"))
+    }
+
+    @Test
+    fun chat_persona_free_usa_orientador() {
+        assertTrue(CHAT_PERSONA_FREE.contains("orientador experiente"))
+        assertFalse(CHAT_PERSONA_FREE.contains("como um irmão experiente"))
+    }
+
+    @Test
+    fun personaNaoSeApresentaComoMembro() {
+        assertTrue(CHAT_PERSONA_FREE.contains("ferramenta de orientação"))
+        assertTrue(CHAT_PERSONA_FREE.contains("não se apresente como membro"))
+    }
+
+    @Test
+    fun generationVoiceLineNaoMencionaIrmao() {
+        assertFalse(GENERATION_VOICE_LINE.contains("irmão"))
+        assertFalse(GENERATION_VOICE_LINE.contains("irmã"))
+        assertTrue(GENERATION_VOICE_LINE.contains("orientador experiente"))
+    }
+
+    @Test
     fun minimalSystemPromptIntocado() {
         assertTrue(MINIMAL_SYSTEM_PROMPT.contains("Você é um copiloto de oratória."))
         assertTrue(

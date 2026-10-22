@@ -71,10 +71,10 @@ class OratoryProposalFlowTest {
         assertTrue(body.contains("[TRAINING]"))
         assertTrue(body.contains("Desenvolva o ponto 2"))
         // P0 (alinhamento persona): o system da oratória carrega a voz do
-        // mentor — antes ia vazio e só as regras frias guiavam.
+        // orientador — antes ia vazio e só as regras frias guiavam.
         // O body é JSON: quebras de linha da persona viram \n. Compara o
         // prefixo estável (sem newline) + o guia, não a constante inteira.
-        assertTrue(body.contains("Você é um mentor e especialista em oratória"))
+        assertTrue(body.contains("Você é um orientador experiente em oratória"))
         assertTrue(body.contains("DIRETRIZES DE LINGUAGEM"))
         assertTrue(body.contains("Ao escrever discursos e demonstrações"))
         // E NÃO usa o prompt genérico de edição.
