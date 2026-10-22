@@ -55,8 +55,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -873,9 +875,23 @@ private fun SectionContentEditor(
     onSelectionChange: (SelectionContext?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // exp/chat-contrast (2026-10-22): o HTML salvo pode ter cor inline
+    // escura (o S-34 em .docx traz <span style="color: rgba(123,31,162,1)">)
+    // — roxo do S-34 sobre a surface escura dava 2,13:1 (invisível).
+    // Sanitiza NA LEITURA (sem migração): no dark, cor escura vira a cor do
+    // texto do tema; no light, o HTML fica intacto (o destaque sobrevive).
+    val darkTheme = isSystemInDarkTheme()
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    val displayHtml = remember(initialHtml, darkTheme, onSurfaceArgb) {
+        com.bettertalker.app.data.util.HtmlInlineSanitizer.sanitizeRichHtmlForTheme(
+            html = initialHtml,
+            dark = darkTheme,
+            fallbackArgb = onSurfaceArgb.toLong() and 0xFFFFFFFFL,
+        )
+    }
     val richState = remember(editorKey) {
         editorStates.getOrPut(editorKey) {
-            RichTextState().apply { setHtml(initialHtml) }
+            RichTextState().apply { setHtml(displayHtml) }
         }
     }
 
@@ -883,9 +899,9 @@ private fun SectionContentEditor(
     // internal da lib). O eco do setHtml não pode atropelar quem digita.
     var isEditing by remember(editorKey) { mutableStateOf(false) }
 
-    LaunchedEffect(editorKey, initialHtml) {
-        if (!isEditing && richState.toHtml() != initialHtml) {
-            richState.setHtml(initialHtml)
+    LaunchedEffect(editorKey, displayHtml) {
+        if (!isEditing && richState.toHtml() != displayHtml) {
+            richState.setHtml(displayHtml)
         }
     }
 

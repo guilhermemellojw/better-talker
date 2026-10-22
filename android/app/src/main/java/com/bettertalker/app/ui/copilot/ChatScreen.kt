@@ -1441,7 +1441,13 @@ fun stripSuggestionTags(md: String): SuggestionText {
 internal fun cleanedForRender(md: String): SuggestionText {
     val suggested = stripSuggestionTags(md)
     return suggested.copy(
-        text = com.bettertalker.app.data.util.stripPromptTags(suggested.text)
+        // exp/chat-contrast (2026-10-22): material colado do S-34 chega com
+        // HTML inline (<b>, <span style="color:…">) e o chat é markdown-only —
+        // antes a tag aparecia CRUA na conversa. Converte para markdown/texto
+        // (e a cor inline some: o chat não tem paleta de destaque).
+        text = com.bettertalker.app.data.util.HtmlInlineSanitizer.htmlInlineToMarkdown(
+            com.bettertalker.app.data.util.stripPromptTags(suggested.text)
+        )
     )
 }
 
@@ -1458,7 +1464,11 @@ internal fun cleanBlocks(blocks: List<MdBlock>): List<MdBlock> = blocks.map { b 
         is MdBlock.Bullet -> b.copy(text = cleanedForRender(b.text).text)
         is MdBlock.Check -> b.copy(text = cleanedForRender(b.text).text)
         is MdBlock.Para -> b.copy(text = cleanedForRender(b.text).text)
-        is MdBlock.TextForCard -> b.copy(text = stripInternalTags(b.text))
+        is MdBlock.TextForCard -> b.copy(
+            text = com.bettertalker.app.data.util.HtmlInlineSanitizer.htmlInlineToMarkdown(
+                stripInternalTags(b.text)
+            )
+        )
         is MdBlock.Divider -> b
     }
 }
