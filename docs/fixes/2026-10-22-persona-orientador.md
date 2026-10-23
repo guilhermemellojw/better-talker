@@ -227,8 +227,8 @@ BUILD SUCCESSFUL
 
 | Bloco | v2.6.0 | v2.7.0 (Opção B) |
 |---|---|---|
-| `SPEECH_MENTOR` | ~3.800 (3 eixos + guia) | **1.336** |
-| `DEMO_SCRIPTWRITER` | ~3.700 | **1.306** |
+| `SPEECH_MENTOR` | ~3.800 (3 eixos + guia) | **1.342** |
+| `DEMO_SCRIPTWRITER` | ~3.700 | **1.312** |
 | `LANGUAGE_PRINCIPLES` | 1.799 (empilhado) | **removido do prompt** (termos preservados na persona/chat base) |
 | Fontes BE/TH | no system | **no dossiê** (`ORATORY_SOURCES_BLOCK`), quando há seção de oratória |
 | `CHAT_TAIL_INSTRUCTIONS` | ~1.5k | **mantido** — é o contrato de saída do app (marcadores), não persona |
@@ -253,4 +253,4 @@ fallbacks, citação literal de páginas no system (depende do reindex) e a remo
 | Fonte BE/TH | — | **correta**: BE 39-42/47-51/52-55/166-169 para estrutura; TH para o restante |
 | Título da TH | — | **residual**: ainda disse “Faça o Melhor Uso da Leitura e do Ensino” (inexistente) — limitação do modelo |
 
-**Suíte:** 2.185 / 0 falhas · **personas:** 1.336 / 1.306 chars (< 2.000).
+**Suíte:** 2.185 / 0 falhas · **personas:** 1.342 / 1.312 chars (< 2.000).
