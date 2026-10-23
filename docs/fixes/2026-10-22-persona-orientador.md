@@ -181,7 +181,7 @@ BUILD SUCCESSFUL
 
 ---
 
-## 6. O que ficou bloqueado para o v2.7.0
+## 6. O que ficou bloqueado para o v2.8.0
 
 | Item | Motivo |
 |---|---|
@@ -190,7 +190,7 @@ BUILD SUCCESSFUL
 | Mapa S-38 → BE/TH | Depende do reindex para o LLM ver o trecho; o mapa pode ser estático, mas a citação precisa de fonte. |
 | Query expansion (`inferIntent` + `enrichedRetrievalQuery`) | Depende do reindex; sem fontes indexadas, não há o que recuperar. |
 
-### Pré-requisitos do v2.7.0
+### Pré-requisitos do v2.8.0
 
 1. Reimportar `be` e `th` do jw.org (ou de `.jwpub` de teste).
 2. Reindexar com `page`/`paragraph` (o parser já suporta JWPUB; o BE EPUB não tem páginas).
@@ -213,10 +213,10 @@ BUILD SUCCESSFUL
 
 1. **“Mentor” nos nomes internos:** mantido em `GenerationProfile.SPEECH_MENTOR` e constantes; não vai ao texto enviado (exceto nomes de constantes). Renomear é refactor opcional.
 2. **Vocativo “irmão”:** a persona proíbe autoidentidade e orienta “você/orador”; se o produto quiser permitir o vocativo comunitário, decidir explicitamente.
-3. **Páginas no prompt:** só depois do reindex; agora a persona usa princípios, não páginas.
-4. **A/B de mesmo escopo:** repetir com chat limpo (ou novo tópico) para eliminar a ressalva metodológica.
-5. **3 vs 5 eixos:** o **v2.7.0 adotou 5 eixos** (Estrutura, Ensino, Aplicação, Conclusão, Entrega) — aplicação e conclusão são eixos distintos.
-6. **`LANGUAGE_PRINCIPLES`:** corrigido no v2.7.0 — “Aplicação prática no fim” → “ao longo do discurso (não só no fim)”. “Exegese” (EVITE) e “superintendente” (PRESERVE) permanecem.
+3. **Páginas no prompt:** o dossiê cita as faixas (BE 39-42 etc.) como mapa; texto literal só depois do reindex.
+4. **A/B de mesmo escopo:** feito no v2.7.0 (tablet, escopo Introdução, chats novos).
+5. **3 vs 5 eixos:** o **v2.7.0 manteve 3 princípios** (Opção B); os 5 eixos foram adiados por risco de engessamento.
+6. **`LANGUAGE_PRINCIPLES`:** removido do prompt no v2.7.0 (Opção B); os termos são preservados na persona e no `CHAT_PERSONA_BASE`. O guia completo pode voltar se o uso real mostrar perda.
 
 ---
 
