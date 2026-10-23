@@ -54,3 +54,43 @@ sem `page/paragraph`; o modelo via só títulos. O JWPUB é o formato correto.
   e os testes C6/C8 já estavam modificados no working tree **antes** desta implementação;
   não foram incluídos neste commit (decisão do usuário).
 - Release: o build validado é 2.7.2 + estas mudanças; candidato a **v2.7.3**.
+
+---
+
+## Sessão 3 — `it`/S-38 + orçamento (2026-10-23)
+
+### Orçamento 8+4
+O comportamento era **(ii)**: `(pinned + ranked).take(8)` descartava o excedente em
+silêncio. Corrigido para **(i)**:
+- `ContextPack.omittedRefs`;
+- `ContextPacks.fromCandidates` mantém as citadas até o limite e manda o excedente
+  para `omittedRefs`;
+- `serializePack` cria o bloco **“REFERÊNCIAS FORA DO ORÇAMENTO (texto existe, mas
+  não coube; não citar como texto)”**;
+- teste: 10 citadas → 8 no pack + 2 em `omittedRefs`.
+
+### `it` (livro JWPUB) — ✅
+A nota de teste citou `it "Aicão" §1`; o pack subiu de 5 para 6 fontes e a resposta
+usou o conteúdo do verbete (Aicão, a redescoberta da Palavra). Na pergunta sobre
+“amor”, o modelo identificou o descasamento da citação e sugeriu `it AMOR §5193`.
+
+### S-38 — referência corrigida + parser por parte
+- **S-38 = “Instruções para a reunião Nossa Vida e Ministério Cristão”** (WOL
+  `1201038`), organizado por **partes**: COMENTÁRIOS INICIAIS, TESOUROS DA PALAVRA
+  DE DEUS, FAÇA SEU MELHOR NO MINISTÉRIO, NOSSA VIDA CRISTÃ, COMENTÁRIOS FINAIS.
+- **“S-38 lição 3” não existe** (lições são do TH); o teste estava com referência
+  inválida. Confirmei na WOL: a página não contém “lição 3”.
+- O `SYMBOL_REF_RE` só reconhecia “lição/cap./pág./§ + número”. Adicionado
+  `S38_PART_RE` (`S-38 + PARTE`), que grava a parte em `chapter`; o
+  `unitSliceOf` acha a seção e o `resolveContent` entrega o trecho.
+- **Validado**: “O que o S-38 TESOUROS DA PALAVRA DE DEUS orienta?” → resposta com
+  as instruções reais (apostila com tema e 2-3 pontos; discurso por ancião/servo
+  ministerial; vídeo do livro; imagens da apostila).
+
+### Estado
+- **2.204 testes / 0 falhas**.
+- Commits: P0+P1 `2c45394`; overflow `0c6a394`; C6/C8 `574f343`; Stage `c514d24`;
+  S-38 por parte (este commit).
+- Branch da feature: `feat/copilot-citations` (P0+P1 + overflow + S-38).
+- **Release v2.7.3 pendente de decisão** (o build validado no tablet é 2.7.2 + estas
+  mudanças; ainda sem tag).

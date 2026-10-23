@@ -161,6 +161,17 @@ object RefDetector {
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
+    /**
+     * v2.7.3: S-38 é o manual "Instruções para a reunião Nossa Vida e
+     * Ministério Cristão", organizado por PARTES (COMENTÁRIOS INICIAIS,
+     * TESOUROS DA PALAVRA DE DEUS, FAÇA SEU MELHOR NO MINISTÉRIO, NOSSA VIDA
+     * CRISTÃ, COMENTÁRIOS FINAIS) — não por lições. Captura a parte como
+     * `chapter` para o resolvedor achar a seção exata.
+     */
+    private val S38_PART_RE = Regex(
+        """\bS-38(?:-T)?\s+([A-ZÀ-Ú][A-ZÀ-Ú\s]{3,45}?)(?=\s*[;.)]|$)""",
+        RegexOption.IGNORE_CASE
+    )
     private val MRT_ARTICLE_RE = Regex(
         """\bmrt\s+artigo\s+(\d+)""",
         RegexOption.IGNORE_CASE
@@ -494,6 +505,21 @@ object RefDetector {
                     "book|$canonical",
                     "${PubCatalog.titleOf(canonical) ?: canonical} (lição $li" +
                         (if (ponto.isNotEmpty()) " ponto $ponto" else "") + ")"
+                )
+            )
+        }
+        // v2.7.3: S-38 por PARTE (manual da reunião; não tem "lição N").
+        S38_PART_RE.findAll(text).forEach { m ->
+            val part = m.groupValues[1].trim()
+            if (part.length < 4) return@forEach
+            val canonical = PubCatalog.resolveSymbol("s38") ?: "s-38"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical|p:${normalizeText(part)}",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} — $part",
+                    chapter = part,
                 )
             )
         }

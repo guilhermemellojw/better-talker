@@ -85,4 +85,12 @@ class RefDetectorSectionsTest {
         assertEquals(8, back.single().paragraph)
         assertEquals(9, back.single().paragraphEnd)
     }
+
+    @Test
+    fun s38_parteViraCapitulo() {
+        val refs = RefDetector.detect("(S-38 TESOUROS DA PALAVRA DE DEUS)")
+        val ref = refs.first { it.pubKey == "s-38" }
+        assertEquals(RefDetector.Kind.BOOK, ref.kind)
+        assertEquals("TESOUROS DA PALAVRA DE DEUS", ref.chapter)
+    }
 }
