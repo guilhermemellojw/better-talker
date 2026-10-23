@@ -101,13 +101,18 @@ class PiperModelStore(
             "espeak-ng-data/phontab",
             "espeak-ng-data/intonations",
             "espeak-ng-data/pt_dict",
+            // v2.7.2: fallback inglês do espeak. Sem ele, um "—" inicial de
+            // frase fazia o lookup nativo derrubar o processo no Piper.
+            "espeak-ng-data/en_dict",
             "espeak-ng-data/lang/roa/pt",
             "espeak-ng-data/lang/roa/pt-BR",
+            "espeak-ng-data/lang/gmw/en",
         )
 
-        /** Arquivos cuja ausência invalida o [ready] (subset pt-BR do espeak). */
+        /** Arquivos cuja ausência invalida o [ready] (pt-BR + fallback en). */
         internal val ESPEAK_FILES = listOf(
             "phondata", "phonindex", "phontab", "intonations", "pt_dict",
+            "en_dict",
         )
     }
 }

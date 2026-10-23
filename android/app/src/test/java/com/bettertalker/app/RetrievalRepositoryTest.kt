@@ -9,6 +9,8 @@ import com.bettertalker.app.data.repo.RoomTrainingRepository
 import com.bettertalker.app.data.domain.RetrievalScope
 import com.bettertalker.app.data.domain.RetrievalStatus
 import com.bettertalker.app.data.domain.TrainingCategory
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
@@ -73,6 +75,15 @@ private class FakeAttachmentDao(var rows: List<AttachmentEntity> = emptyList()) 
     override suspend fun setSourceMeta(id: String, sourceType: String, symbol: String?) {}
 }
 
+/** Registra que o rank foi despachado para fora da thread do chamador. */
+private class RecordingDispatcher : CoroutineDispatcher() {
+    var used = false
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        used = true
+        block.run()
+    }
+}
+
 private fun att(id: String, sourceType: String, name: String) =
     AttachmentEntity(id, null, name, "pdf", 1, "/x", true, 1L, sourceType = sourceType)
 
@@ -93,6 +104,17 @@ class RetrievalRepositoryTest {
             pass("p3", "outsider", "Confiar em Jeová ajuda a enfrentar problemas graves e grandes.")
         ))
         return dao to atts
+    }
+
+    @Test
+    fun retrieveRunsRankForaDoDispatcherDoChamador() = runBlocking {
+        // v2.7.2 (ANR): o rank + carga precisam sair da main thread.
+        val (dao, atts) = setup()
+        val dispatcher = RecordingDispatcher()
+        val repo = RoomRetrievalRepository(dao, atts, dispatcher)
+        val res = repo.retrieve("confiar jeova problemas", RetrievalScope(listOf("w"), listOf("be")))
+        assertEquals(RetrievalStatus.OK, res.status)
+        assertTrue(dispatcher.used)
     }
 
     @Test

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -101,5 +102,14 @@ class PubCatalogAliasTest {
         assertTrue(e!!.title.contains("Instruções para a Reunião"))
         assertEquals("manual", e.kind)
         assertTrue(e.wol.contains("S-38"))
+    }
+
+    @Test
+    fun titleIndexEhCacheado() {
+        // v2.7.2 (ANR): não recalcular o índice inteiro a cada pubKeyOf().
+        val first = PubCatalog.titleIndex()
+        val second = PubCatalog.titleIndex()
+        assertSame(first, second)
+        assertTrue(first.isNotEmpty())
     }
 }

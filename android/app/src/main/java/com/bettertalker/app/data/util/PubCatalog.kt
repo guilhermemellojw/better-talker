@@ -211,12 +211,19 @@ object PubCatalog {
      * Títulos normalizados de livros/brochuras (título -> sigla),
      * maior primeiro, p/ detecção por nome integral. Revistas fora
      * (exigem edição exata).
+     *
+     * ANR fix (v2.7.2): antes era recalculado (com regex) a cada
+     * `pubKeyOf()` — e o rank chama isso por candidato. O lazy mantém o
+     * índice imutável e elimina o custo repetido.
      */
-    fun titleIndex(): List<Pair<String, String>> =
+    private val TITLE_INDEX: List<Pair<String, String>> by lazy {
         MAP.values.filter { it.kind != "magazine" }
             .map { normalizeText(it.title) to it.symbol }
             .filter { it.first.length >= 4 }
             .sortedByDescending { it.first.length }
+    }
+
+    fun titleIndex(): List<Pair<String, String>> = TITLE_INDEX
 
     fun size(): Int = MAP.size
 }

@@ -5,11 +5,17 @@ import java.util.UUID
 
 fun newId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
+// ANR fix (v2.7.2): regex pré-compiladas. normalizeText roda no rank e no
+// titleIndex; criar três Regex por chamada era parte do custo da main thread.
+private val DIACRITICS = Regex("[\\u0300-\\u036f]")
+private val NON_ALNUM = Regex("[^a-z0-9\\s]")
+private val WHITESPACE = Regex("\\s+")
+
 fun normalizeText(raw: String): String {
     val noAccent = Normalizer.normalize(raw.lowercase(), Normalizer.Form.NFD)
-        .replace("[\\u0300-\\u036f]".toRegex(), "")
-    return noAccent.replace("[^a-z0-9\\s]".toRegex(), " ")
-        .replace("\\s+".toRegex(), " ").trim()
+        .replace(DIACRITICS, "")
+    return noAccent.replace(NON_ALNUM, " ")
+        .replace(WHITESPACE, " ").trim()
 }
 
 /**

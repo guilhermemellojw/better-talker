@@ -19,6 +19,9 @@ import com.bettertalker.app.data.domain.TrainingClassifier
 import com.bettertalker.app.data.domain.expandQuery
 import com.bettertalker.app.data.domain.toPassage
 import com.bettertalker.app.data.domain.toPublication
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Interfaces de domínio — a UI/ViewModel depende destas, nunca de DAO/Room.
@@ -163,7 +166,13 @@ private fun toCandidate(
 
 class RoomRetrievalRepository(
     private val passageDao: PassageDao,
-    private val attachmentDao: com.bettertalker.app.data.db.AttachmentDao
+    private val attachmentDao: com.bettertalker.app.data.db.AttachmentDao,
+    /**
+     * ANR fix (v2.7.2): o rank é CPU-bound (normalizeText + titleIndex) e
+     * rodava no dispatcher do chamador — a Main, no chat. Injetável para o
+     * teste provar que o trabalho saiu da main thread.
+     */
+    private val rankDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : RetrievalRepository {
     override suspend fun retrieve(query: String, scope: RetrievalScope, limit: Int): RetrievalResult {
         if (query.isBlank()) return RetrievalResult(RetrievalStatus.INSUFFICIENT_SCOPE, emptyList())
@@ -171,17 +180,26 @@ class RoomRetrievalRepository(
             // §10: sem fontes autorizadas => insuficiência, nunca varredura global.
             return RetrievalResult(RetrievalStatus.INSUFFICIENT_SCOPE, emptyList())
         }
-        val atts = attachmentDao.all().associateBy { it.id }
-        val (passages, titles) = loadCandidates(passageDao, atts, scope.contentSourceIds, query)
-        if (passages.isEmpty()) return RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
-        val hits = HybridRetrieval.rank(query, passages, titles, limit).map(::toCandidate)
-        return RetrievalResult(RetrievalStatus.OK, hits)
+        // Carga + ranking fora da Main: o corpus pode ter milhares de trechos
+        // e o normalizeText/titleIndex já derrubou o app por ANR (08:36/08:37).
+        return withContext(rankDispatcher) {
+            val atts = attachmentDao.all().associateBy { it.id }
+            val (passages, titles) = loadCandidates(passageDao, atts, scope.contentSourceIds, query)
+            if (passages.isEmpty()) {
+                RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
+            } else {
+                val hits = HybridRetrieval.rank(query, passages, titles, limit).map(::toCandidate)
+                RetrievalResult(RetrievalStatus.OK, hits)
+            }
+        }
     }
 }
 
 class RoomTrainingRepository(
     private val passageDao: PassageDao,
-    private val attachmentDao: com.bettertalker.app.data.db.AttachmentDao
+    private val attachmentDao: com.bettertalker.app.data.db.AttachmentDao,
+    /** Mesmo motivo do [RoomRetrievalRepository]: rank fora da Main. */
+    private val rankDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : TrainingRepository {
     override suspend fun retrieveTraining(
         query: String,
@@ -193,20 +211,31 @@ class RoomTrainingRepository(
         if (scope.trainingSourceIds.isEmpty()) {
             return RetrievalResult(RetrievalStatus.INSUFFICIENT_SCOPE, emptyList())
         }
-        val atts = attachmentDao.all().associateBy { it.id }
-        val (passages, titles) = loadCandidates(passageDao, atts, scope.trainingSourceIds, query)
-        if (passages.isEmpty()) return RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
-        val ranked = HybridRetrieval.rank(query, passages, titles, maxOf(limit * 3, 6)).map(::toCandidate)
-        if (category == null || category == TrainingCategory.UNKNOWN) {
-            return RetrievalResult(RetrievalStatus.OK, ranked.take(limit.coerceAtLeast(0)))
+        return withContext(rankDispatcher) {
+            val atts = attachmentDao.all().associateBy { it.id }
+            val (passages, titles) = loadCandidates(passageDao, atts, scope.trainingSourceIds, query)
+            if (passages.isEmpty()) {
+                RetrievalResult(RetrievalStatus.EMPTY_CORPUS, emptyList())
+            } else {
+                val ranked = HybridRetrieval.rank(query, passages, titles, maxOf(limit * 3, 6))
+                    .map(::toCandidate)
+                if (category == null || category == TrainingCategory.UNKNOWN) {
+                    RetrievalResult(RetrievalStatus.OK, ranked.take(limit.coerceAtLeast(0)))
+                } else {
+                    val boosted = HybridRetrieval.applyCategoryBoost(ranked, category) { c ->
+                        // Categoria gravada prevalece; UNKNOWN cai no classificador (backfill).
+                        val stored = c.passage.trainingCategory
+                        if (stored != TrainingCategory.UNKNOWN) stored
+                        else TrainingClassifier.classify(
+                            c.passage.section,
+                            c.publicationTitle,
+                            c.passage.text,
+                        )
+                    }
+                    RetrievalResult(RetrievalStatus.OK, boosted.take(limit.coerceAtLeast(0)))
+                }
+            }
         }
-        val boosted = HybridRetrieval.applyCategoryBoost(ranked, category) { c ->
-            // Categoria gravada prevalece; UNKNOWN cai no classificador (backfill).
-            val stored = c.passage.trainingCategory
-            if (stored != TrainingCategory.UNKNOWN) stored
-            else TrainingClassifier.classify(c.passage.section, c.publicationTitle, c.passage.text)
-        }
-        return RetrievalResult(RetrievalStatus.OK, boosted.take(limit.coerceAtLeast(0)))
     }
 }
 

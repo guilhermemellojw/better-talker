@@ -22,6 +22,14 @@ private val SUGGESTION_PAIR = Regex(
 )
 
 /**
+ * v2.7.2 (crash nativo): o espeak/Piper consulta o dicionário inglês para
+ * `—` no início de frase. Sem `en_dict` no subset, o lookup dereferencia
+ * ponteiro inválido e derruba o processo. A vírgula preserva a pausa sem
+ * entregar o travessão ao sintetizador. Mantém `_` e `-` (hífen de palavra).
+ */
+private val TTS_DASHES = Regex("""[ \t]*[—–―][ \t]*""")
+
+/**
  * T2 (voz): prepara o texto PÓS-GATE para leitura em voz alta.
  *
  * - Remove as tags `〈sugestão〉…〈/sugestão〉` (o conteúdo fica).
@@ -57,6 +65,8 @@ internal fun prepareForSpeech(raw: String): String {
     t = t.replace(Regex("""(?<![\w_])_([^_\n]+)_(?![\w_])"""), "$1")
     // 5. Emojis restantes não verbalizáveis.
     for (e in NON_SPEECH_EMOJIS) t = t.replace(e, "")
+    // 5b. Travessões viram pausa de vírgula (evita o lookup do espeak).
+    t = TTS_DASHES.replace(t, ", ")
     // 6. Espaços/pontuação limpos (mantém vírgulas e pontos — pausas do TTS).
     t = t.replace(Regex("""[ \t]{2,}"""), " ")
     t = t.replace(Regex("""\n{3,}"""), "\n\n")

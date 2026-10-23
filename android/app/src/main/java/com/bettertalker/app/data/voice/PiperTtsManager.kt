@@ -81,10 +81,14 @@ class PiperTtsManager(
         val modelFile = File(modelDir, "model.onnx")
         val tokensFile = File(modelDir, "tokens.txt")
         val dataDir = resolveEspeakDir()
-        if (!modelFile.exists() || !tokensFile.exists() || dataDir == null) {
+        val enDict = dataDir?.let { File(it, "en_dict") }
+        if (!modelFile.exists() || !tokensFile.exists() || dataDir == null ||
+            enDict?.exists() != true
+        ) {
             Log.w(
                 "PiperTts",
-                "indisponível: model=${modelFile.exists()} tokens=${tokensFile.exists()} espeak=${dataDir != null}",
+                "indisponível: model=${modelFile.exists()} tokens=${tokensFile.exists()} " +
+                    "espeak=${dataDir != null} en_dict=${enDict?.exists() == true}",
             )
             _initialized.value = true
             return false

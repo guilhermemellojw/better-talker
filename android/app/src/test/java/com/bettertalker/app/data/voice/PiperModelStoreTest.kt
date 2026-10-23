@@ -27,8 +27,10 @@ class PiperModelStoreTest {
             "piper/jeff/espeak-ng-data/phontab" to small,
             "piper/jeff/espeak-ng-data/intonations" to small,
             "piper/jeff/espeak-ng-data/pt_dict" to small,
+            "piper/jeff/espeak-ng-data/en_dict" to small,
             "piper/jeff/espeak-ng-data/lang/roa/pt" to small,
             "piper/jeff/espeak-ng-data/lang/roa/pt-BR" to small,
+            "piper/jeff/espeak-ng-data/lang/gmw/en" to small,
         )
     }
 
@@ -53,7 +55,10 @@ class PiperModelStoreTest {
         assertTrue(File(dir, "model.onnx").exists())
         assertTrue(File(dir, "tokens.txt").exists())
         assertTrue(File(dir, "espeak-ng-data/phondata").exists())
+        assertTrue(File(dir, "espeak-ng-data/pt_dict").exists())
+        assertTrue(File(dir, "espeak-ng-data/en_dict").exists())
         assertTrue(File(dir, "espeak-ng-data/lang/roa/pt-BR").exists())
+        assertTrue(File(dir, "espeak-ng-data/lang/gmw/en").exists())
         // .part não sobra depois do rename.
         assertFalse(File(dir, "model.onnx.part").exists())
     }
@@ -66,6 +71,18 @@ class PiperModelStoreTest {
         assertTrue(store.ready())
         // Subset quebrado (sem pt_dict) → não está pronto.
         File(dir, "espeak-ng-data/pt_dict").delete()
+        assertFalse(store.ready())
+    }
+
+    @Test
+    fun readyExigeEnDictDoFallback() = runBlocking {
+        // v2.7.2: instalação antiga tinha o modelo e o pt_dict, mas não o
+        // en_dict — o ready() precisa forçar o reprovisionamento.
+        val dir = tempDir()
+        val store = PiperModelStore(dir, openAssetFrom(fakeAssets()))
+        store.ensureProvisioned()
+        assertTrue(store.ready())
+        File(dir, "espeak-ng-data/en_dict").delete()
         assertFalse(store.ready())
     }
 

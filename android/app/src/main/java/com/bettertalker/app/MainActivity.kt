@@ -74,6 +74,10 @@ class MainActivity : FragmentActivity() {
             }
             val premiumPref by settings.voicePremiumEnabled.collectAsState(initial = false)
             androidx.compose.runtime.LaunchedEffect(premiumPref) {
+                // v2.7.2: instalações antigas já têm o modelo, mas não o
+                // en_dict (fallback do espeak). Provisiona antes de carregar
+                // o Piper; sem isso o Chat continuaria usando o subset velho.
+                if (premiumPref) runCatching { voiceStore.ensureProvisioned() }
                 voiceRouter.setPremiumEnabled(premiumPref)
                 voiceRouter.ensurePiperOrFallback()
             }

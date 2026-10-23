@@ -39,4 +39,19 @@ class SpeechTextTest {
         assertEquals("", prepareForSpeech(""))
         assertEquals("", prepareForSpeech("   \n  "))
     }
+
+    @Test
+    fun prepareForSpeech_trocaTravessoesPorPausaDeVirgula() {
+        // v2.7.2: "—" inicial de frase disparava o lookup do en_dict no
+        // espeak e derrubava o processo. Nenhum travessão deve sobrar.
+        val out = prepareForSpeech(
+            "Ele perguntou: “Você vem?” — e construa a partir da resposta. " +
+                "Use — com calma, sem pressa."
+        )
+        assertFalse(out, out.contains("—"))
+        assertFalse(out, out.contains("–"))
+        assertFalse(out, out.contains("―"))
+        assertTrue(out, out.contains("vem?”, e construa a partir da resposta"))
+        assertTrue(out, out.contains("Use, com calma"))
+    }
 }
