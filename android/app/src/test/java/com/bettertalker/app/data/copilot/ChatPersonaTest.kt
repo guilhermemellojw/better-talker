@@ -91,4 +91,38 @@ class ChatPersonaTest {
         assertTrue(GENERATION_VOICE_LINE.contains("ritmo natural de fala"))
         assertTrue(GENERATION_VOICE_LINE.contains("demonstrações"))
     }
+
+    @Test
+    fun fontesDeOratoriaEntramNoContextoSoQuandoHaOratoria() {
+        // v2.7.0 (Opção B): as fontes BE/TH saem do system estável e entram
+        // no contexto (dossiê), apenas quando a seção é de oratória.
+        val part = OratoryStructure.Part(
+            purpose = OratoryStructure.Purpose(OratoryStructure.Source.S34, "Contentamento"),
+            section = null,
+            trainingSources = emptyList(),
+        )
+        val inferred = OratoryStructure.Inferred(
+            outlineId = "o1",
+            title = "Contentamento",
+            introduction = part,
+            development = emptyList(),
+            conclusion = part,
+            focus = null,
+        )
+        fun prompt(oratory: OratoryStructure.Inferred?) = buildDeepSeekPrompts(
+            message = "melhore a transição",
+            history = emptyList(),
+            isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null,
+            blockMinutes = null,
+            blockText = "x",
+            oratory = oratory,
+        ).system
+
+        val comOratoria = prompt(inferred)
+        assertTrue(comOratoria.contains("BE 39-42"))
+        assertTrue(comOratoria.contains("A TH NÃO ensina a preparar discursos públicos"))
+        assertFalse(prompt(null).contains("BE 39-42"))
+    }
 }

@@ -57,11 +57,11 @@ class GenerationPromptsTest {
 
     @Test
     fun speech_mentor_inclui_principios_de_oratoria() {
-        val p = body(GenerationPrompts.SPEECH_MENTOR)
-        assertTrue(p.contains("ESTRUTURA E PROGRESSÃO"))
-        assertTrue(p.contains("ENSINO E APLICAÇÃO"))
-        assertTrue(p.contains("ENTREGA"))
-        assertTrue(p.contains("Adapte os princípios ao contexto"))
+        val p = GenerationPrompts.SPEECH_MENTOR
+        assertTrue(p.contains("ESTRUTURA:"))
+        assertTrue(p.contains("ENSINO:"))
+        assertTrue(p.contains("ENTREGA:"))
+        assertTrue(p.contains("Modulação"))
     }
 
     @Test
@@ -81,58 +81,36 @@ class GenerationPromptsTest {
         assertTrue(GenerationPrompts.DEMO_SCRIPTWRITER.length < 5000)
     }
 
+    // v2.7.0 (Opção B) — persona enxuta; fontes BE/TH vão para o contexto.
+
     @Test
-    fun hintsUsamModoOrientador() {
-        assertTrue(GenerationPrompts.SPEECH_MENTOR_CHAT_HINT.contains("MODO ORIENTADOR"))
-        assertTrue(GenerationPrompts.DEMO_SCRIPTWRITER_CHAT_HINT.contains("MODO ORIENTADOR"))
+    fun persona_enxuta_nao_ultrapassa_2000_chars() {
+        // Opção B: identidade + 3 princípios + flexibilidade, sem guia empilhado.
+        assertTrue(GenerationPrompts.SPEECH_MENTOR.length < 2000)
+        assertTrue(GenerationPrompts.DEMO_SCRIPTWRITER.length < 2000)
     }
 
     @Test
-    fun demoScriptwriter_temDialogoENaoTemMonologo() {
-        val p = GenerationPrompts.DEMO_SCRIPTWRITER
-        assertTrue(p.contains("<b>Publicador:</b>"))
-        assertTrue(p.contains("<b>Morador:</b>"))
-        assertTrue(p.contains("NUNCA escreva monólogos longos"))
-        assertTrue(p.contains("réplicas"))
-        assertFalse(p.contains("<texto-do-card>"))
+    fun persona_enxuta_nao_carrega_fontes_no_system() {
+        // As fontes BE/TH são contexto (dossiê), não persona estável.
+        for (p in listOf(GenerationPrompts.SPEECH_MENTOR, GenerationPrompts.DEMO_SCRIPTWRITER)) {
+            assertFalse(p.contains("BE 39-42"))
+            assertFalse(p.contains("TH 3-19"))
+        }
     }
 
     @Test
-    fun structurePlanner_soEstrutura() {
-        val p = GenerationPrompts.STRUCTURE_PLANNER
-        assertTrue(p.contains("JSON"))
-        assertTrue(p.contains("Nunca escreva texto narrativo"))
+    fun speech_mentor_usa_modulacao_e_nao_entonacao() {
+        val p = GenerationPrompts.SPEECH_MENTOR
+        assertTrue(p.contains("Modulação"))
+        assertTrue(p.contains("volume, emoção e ritmo"))
+        assertFalse(p.contains("entonação"))
     }
 
     @Test
-    fun chatMantemOPromptHistorico() {
-        assertNull(GenerationPrompts.systemPromptFor(GenerationProfile.CHAT))
-        assertNotNull(GenerationPrompts.systemPromptFor(GenerationProfile.SPEECH_MENTOR))
-        assertNotNull(GenerationPrompts.systemPromptFor(GenerationProfile.DEMO_SCRIPTWRITER))
-        assertNotNull(GenerationPrompts.systemPromptFor(GenerationProfile.STRUCTURE_PLANNER))
-    }
-
-    @Test
-    fun profileDaLoja_parte6EhMentorDemoEhRoteirista() {
-        assertEquals(
-            GenerationProfile.DEMO_SCRIPTWRITER,
-            GenerationProfile.forDiscourseType("MINISTRY_PART"),
-        )
-        assertEquals(
-            GenerationProfile.SPEECH_MENTOR,
-            GenerationProfile.forDiscourseType("MINISTRY_TALK"),
-        )
-        assertEquals(
-            GenerationProfile.SPEECH_MENTOR,
-            GenerationProfile.forDiscourseType("S34_DISCOURSE"),
-        )
-        assertEquals(
-            GenerationProfile.SPEECH_MENTOR,
-            GenerationProfile.forDiscourseType("TREASURES_TALK"),
-        )
-        assertEquals(
-            GenerationProfile.SPEECH_MENTOR,
-            GenerationProfile.forDiscourseType(null),
-        )
+    fun speech_mentor_distingue_conclusao_de_aplicacao() {
+        val p = GenerationPrompts.SPEECH_MENTOR
+        assertTrue(p.contains("conclusão que recapitula e incentiva"))
+        assertTrue(p.contains("aplicação ao longo do discurso"))
     }
 }

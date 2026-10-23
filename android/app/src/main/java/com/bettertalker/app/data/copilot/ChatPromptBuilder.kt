@@ -22,6 +22,19 @@ const val INSUFFICIENT_EVIDENCE_MESSAGE =
     "Não encontrei suporte suficiente nas fontes disponíveis."
 
 /**
+ * v2.7.0 (Opção B): fontes de oratória no CONTEXTO (dinâmico), não na persona
+ * estável. Entra só quando a seção em foco é de oratória — o system prompt
+ * fica enxuto e as fontes aparecem quando são relevantes.
+ */
+val ORATORY_SOURCES_BLOCK = """
+## FONTES DE ORATÓRIA (referência)
+- Estrutura de discurso: BE 39-42 (elaborar esboço), 47-51 (discurso dirigido), 52-55 (discurso público), 166-169 (uso de esboço).
+- Ensino, aplicação, conclusão e entrega: TH "Melhore Sua Leitura e Seu Ensino" (20 lições). Este é o título oficial: NUNCA use "Faça o Melhor Uso da Leitura e do Ensino" (título inexistente).
+- A TH NÃO ensina a preparar discursos públicos nem a montar esboço; nesses temas, a fonte é o BE.
+- Não invente lição/página; sem o trecho no acervo, use o princípio geral.
+""".trimIndent()
+
+/**
  * T3 — dica contextual: quando a resposta é a frase de insuficiência, o escopo
  * está sem fontes de conteúdo e há publicações no acervo ainda não vinculadas,
  * sugere vincular pelo "+". Puro/testável.
@@ -106,10 +119,10 @@ val CHAT_PERSONA_BASE =
         "ou representante da organização; trate o usuário por 'você' ou 'orador'."
 
 /**
- * Persona das rotas de geração/oratória (com o guia de linguagem).
- * O chat livre usa [CHAT_PERSONA_FREE] — sem o guia empilhado.
+ * Persona das rotas de geração/oratória (enxuta, v2.7.0/Opção B).
+ * O chat livre usa [CHAT_PERSONA_FREE] — sem guia empilhado.
  */
-val CHAT_PERSONA = CHAT_PERSONA_BASE + "\n\n" + LANGUAGE_PRINCIPLES
+val CHAT_PERSONA = CHAT_PERSONA_BASE
 
 /**
  * Correção 1 do A/B: o card é para ESCRITA explícita. Explicação/análise/
@@ -496,9 +509,10 @@ fun buildDeepSeekPrompts(
     val dossier = contextBlock?.takeIf { it.isNotBlank() }
         ?.let { "\n## CONTEXTO DO DOSSIÊ (seção em foco no editor)\n$it\n" }
         .orEmpty()
+    val sources = if (oratory != null || !contextBlock.isNullOrBlank()) "\n$ORATORY_SOURCES_BLOCK\n" else ""
     // T2 (TAIL condicional): o formato varia com a mensagem — turnos curtos
     // e estruturados geram dois prefixos estáveis (cache por classe).
-    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + "\n" +
+    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + sources + "\n" +
         chatTailInstructions()).trim()
     val user = chatBriefToText(message, history, isFirstMessage) + "\n\n" + focusLine(message) +
         "\n\nTexto do bloco em foco:\n\"$blockText\""

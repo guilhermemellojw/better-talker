@@ -204,7 +204,8 @@ BUILD SUCCESSFUL
 - **BE pp. 52-55** = “Como preparar discursos públicos” (preparação), **não** leitura/ensino.
 - **BE pp. 166-169** = **Lição 25 “Uso de esboço”** (falar com base em esboço), **não** leitura/ensino.
 - **TH** = 20 lições de leitura e ensino (brochura inteira) — correto.
-- Para leitura/ensino estrito: TH + BE pp. 56-70, 83-114 e 230-271.
+- **Para o restante (ensino, aplicação, conclusão, entrega): TH** (20 lições). O BE só entra nas lacunas que a TH não cobre: **39-42** (elaborar esboço), **47-51** (discurso dirigido à congregação), **52-55** (discursos públicos), **166-169** (uso de esboço), **251** (raciocínio) e **263** (tempo).
+- **Conclusão:** BE 220-222 está 100% superado pela TH 20 — não citar.
 
 ---
 
@@ -214,5 +215,42 @@ BUILD SUCCESSFUL
 2. **Vocativo “irmão”:** a persona proíbe autoidentidade e orienta “você/orador”; se o produto quiser permitir o vocativo comunitário, decidir explicitamente.
 3. **Páginas no prompt:** só depois do reindex; agora a persona usa princípios, não páginas.
 4. **A/B de mesmo escopo:** repetir com chat limpo (ou novo tópico) para eliminar a ressalva metodológica.
-5. **3 vs 5 princípios:** manter 3 eixos; se o A/B mostrar perda de clareza/aplicação, reavaliar.
-6. **`LANGUAGE_PRINCIPLES`:** não tocar; ele contém “exegese” (EVITE) e “superintendente” (PRESERVE) por design.
+5. **3 vs 5 eixos:** o **v2.7.0 adotou 5 eixos** (Estrutura, Ensino, Aplicação, Conclusão, Entrega) — aplicação e conclusão são eixos distintos.
+6. **`LANGUAGE_PRINCIPLES`:** corrigido no v2.7.0 — “Aplicação prática no fim” → “ao longo do discurso (não só no fim)”. “Exegese” (EVITE) e “superintendente” (PRESERVE) permanecem.
+
+---
+
+## 9. v2.7.0 — Opção B: persona enxuta (substituição, não adição)
+
+**Decisão (23/10):** em vez de adicionar 5 eixos + 5 regras + 3 fallbacks (~15.000 chars),
+**substituir** a persona por identidade + 3 princípios + flexibilidade (~1.300 chars).
+
+| Bloco | v2.6.0 | v2.7.0 (Opção B) |
+|---|---|---|
+| `SPEECH_MENTOR` | ~3.800 (3 eixos + guia) | **1.336** |
+| `DEMO_SCRIPTWRITER` | ~3.700 | **1.306** |
+| `LANGUAGE_PRINCIPLES` | 1.799 (empilhado) | **removido do prompt** (termos preservados na persona/chat base) |
+| Fontes BE/TH | no system | **no dossiê** (`ORATORY_SOURCES_BLOCK`), quando há seção de oratória |
+| `CHAT_TAIL_INSTRUCTIONS` | ~1.5k | **mantido** — é o contrato de saída do app (marcadores), não persona |
+
+**O que a persona enxuta mantém:** identidade “orientador formado na Escola”, sem
+“irmão”/autoidentidade; 3 princípios (estrutura, ensino, entrega); “modulação”
+(variação de volume, emoção e ritmo); conclusão que recapitula e incentiva (≠ aplicação);
+flexibilidade (“lente, não grade”); `<texto-do-card>`; não inventar.
+
+**O que foi deliberadamente adiado:** 5 eixos detalhados, regras anti-engessamento,
+fallbacks, citação literal de páginas no system (depende do reindex) e a remoção do
+`CHAT_TAIL_INSTRUCTIONS` (quebraria o protocolo de marcadores do app).
+
+### A/B (tablet, escopo Introdução, chats novos)
+
+| Critério | v2.6.0 | v2.7.0 enxuta |
+|---|---|---|
+| Natural, sem jargão de framework | parcial | **sim** |
+| “irmão” | não | não |
+| Conclusão ≠ aplicação | — | parcial (recapitula + incentiva; usa “aplicação” no fecho) |
+| “entonação” | — | **não usou** (“volume, ritmo, tom e pausas”) |
+| Fonte BE/TH | — | **correta**: BE 39-42/47-51/52-55/166-169 para estrutura; TH para o restante |
+| Título da TH | — | **residual**: ainda disse “Faça o Melhor Uso da Leitura e do Ensino” (inexistente) — limitação do modelo |
+
+**Suíte:** 2.185 / 0 falhas · **personas:** 1.336 / 1.306 chars (< 2.000).
