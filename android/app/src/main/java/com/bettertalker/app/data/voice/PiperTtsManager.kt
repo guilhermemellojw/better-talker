@@ -18,7 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * #23-fix-a: TTS premium — Piper pt-BR (VITS via sherpa-onnx), voz Jeff.
@@ -52,6 +55,18 @@ class PiperTtsManager(
     private var audioTrack: AudioTrack? = null
     private var playJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * v2.7.1 (crash nativo): o OfflineTts do sherpa NÃO é thread-safe.
+     * `stop()` cancela a coroutine, mas a chamada JNI em andamento não é
+     * interrompível; um novo `speak()` chamava `generateWithConfigAndCallback`
+     * no mesmo objeto em paralelo → SIGSEGV em generateWithConfigImpl.
+     * O mutex serializa geração e release do modelo.
+     */
+    private val nativeLock = Mutex()
+
+    /** Invalida callbacks da geração anterior mesmo se um novo speak começar. */
+    private val generation = AtomicLong(0)
 
     /** Guarda o ciclo de vida do AudioTrack: pause/flush (stop) × release (writer). */
     private val trackLock = Any()
@@ -104,9 +119,12 @@ class PiperTtsManager(
         // rate/pitch ainda não mapeados no Piper (lengthScale fica para o #23-fix-b).
         stop()
         if (text.isBlank()) return
+        val myGeneration = generation.incrementAndGet()
         playJob = scope.launch {
-            if (!ensureLoaded()) return@launch
-            val local = tts ?: return@launch
+          nativeLock.withLock {
+            if (generation.get() != myGeneration) return@withLock
+            if (!ensureLoaded()) return@withLock
+            val local = tts ?: return@withLock
             _speaking.value = true
             var track: AudioTrack? = null
             try {
@@ -141,7 +159,7 @@ class PiperTtsManager(
                 // inteiro do Ensaio (~30k chars). Blocos de frase no MESMO
                 // AudioTrack = reprodução contínua + pausa entre blocos.
                 for (chunk in chunkForTts(text)) {
-                    if (!_speaking.value) break
+                    if (generation.get() != myGeneration) break
                     var stopped = false
                     local.generateWithConfigAndCallback(
                         text = chunk,
@@ -149,7 +167,7 @@ class PiperTtsManager(
                         // SherpaTtsCallback: o JNI exige invoke([F)Ljava/lang/Integer;
                         // (lambda Kotlin = primitivo → NoSuchMethodError → SIGABRT).
                         callback = SherpaTtsCallback { samples ->
-                            if (_speaking.value) {
+                            if (generation.get() == myGeneration) {
                                 // Convenção do sherpa: 0 = PARAR; != 0 = continuar.
                                 track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
                                 1
@@ -171,12 +189,16 @@ class PiperTtsManager(
                     runCatching { track?.release() }
                     if (audioTrack === track) audioTrack = null
                 }
-                _speaking.value = false
+                if (generation.get() == myGeneration) _speaking.value = false
             }
+          }
         }
     }
 
     override fun stop() {
+        // Invalida o callback da geração em andamento ANTES de cancelar:
+        // a chamada JNI não é interrompível, mas para no próximo chunk.
+        generation.incrementAndGet()
         _speaking.value = false
         // Mantém a referência do job para o shutdown poder esperar (join).
         playJob?.cancel()
@@ -191,7 +213,7 @@ class PiperTtsManager(
 
     /** #23-fix-a: pré-carrega o modelo em background (evita o race do lazy). */
     override fun warmUp() {
-        scope.launch { ensureLoaded() }
+        scope.launch { nativeLock.withLock { ensureLoaded() } }
     }
 
     override fun shutdown() {
@@ -200,8 +222,10 @@ class PiperTtsManager(
         stop()
         scope.launch {
             runCatching { job?.join() }
-            runCatching { tts?.release() }
-            tts = null
+            nativeLock.withLock {
+                runCatching { tts?.release() }
+                tts = null
+            }
             scope.cancel()
         }
     }
