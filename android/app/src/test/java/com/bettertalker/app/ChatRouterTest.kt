@@ -204,6 +204,14 @@ class ChatRouterTest {
     // ---------- §42: ausência de contexto ----------
 
     @Test
+    fun perguntaDeEntonacaoVaiParaOrientacao() {
+        // C6 (Sessão 2): "melhor" não pode transformar uma pergunta de
+        // orientação em refinamento sem geração anterior.
+        val r = route("Como faço a entonação ficar melhor?")
+        assertTrue("esperado GENERAL, veio ${ChatRouter.describe(r)}", r is Route.General)
+    }
+
+    @Test
     fun refinamentoSemPropostaNaoInventaAlvo() {
         val r = route("Melhore.")
         assertTrue(r is Route.NothingToRefine)

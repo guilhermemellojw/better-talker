@@ -242,6 +242,10 @@ fun ChatScreen(
     // Fase B: porta única de colar material (prévia antes de aplicar).
     var showPasteSheet by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    // v2.7.2 (Sessão 2): "Limpar conversa" no topo, independente do tipo da
+    // última mensagem. Antes, o item vivia só no ⋯ das respostas de texto;
+    // cards/propostas (kinds sem MessageActions) deixavam a conversa sem clear.
+    var topMenuOpen by remember { mutableStateOf(false) }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
     var voiceSeconds by remember { mutableIntStateOf(0) }
@@ -476,6 +480,28 @@ fun ChatScreen(
                         whole = scopeMode == ScopeMode.WHOLE,
                         onClick = vm::toggleScope,
                     )
+                    Box {
+                        IconButton(onClick = { topMenuOpen = true }) {
+                            Icon(Icons.Default.MoreVert, "Mais opções")
+                        }
+                        DropdownMenu(
+                            expanded = topMenuOpen,
+                            onDismissRequest = { topMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Limpar conversa",
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                },
+                                onClick = {
+                                    topMenuOpen = false
+                                    confirmClear = true
+                                },
+                            )
+                        }
+                    }
                 },
             )
         },

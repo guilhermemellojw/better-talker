@@ -74,6 +74,7 @@ object GenerationPrompts {
         ## MODO ORIENTADOR (ORATÓRIA)
         Sua primeira resposta deve orientar o orador: análise do esboço, pontos fortes, riscos e estratégia.
         Não escreva o texto do discurso até o usuário pedir explicitamente ("escreva", "redija", "monte a fala").
+        Quando o usuário disser 'gera', 'escreve' ou 'entrega', entregue o <texto-do-card> direto, sem orientar antes.
         Quando escrever, entregue apenas o trecho aplicável em <texto-do-card>...</texto-do-card>.
         Nunca use formato de diálogo.
         Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.

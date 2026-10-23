@@ -457,6 +457,20 @@ object ChatRouter {
             "refaca|refazer|outra|outro)\\b"
     )
 
+    /**
+     * C6 (Sessão 2): pergunta de orientação — "Como/Qual/O que…" sem verbo
+     * imperativo de geração. Sem contexto de seção, é conversa/mentoria, não
+     * refinamento oratório. "Como faço a entonação ficar melhor?" caía em
+     * NothingToRefine porque "melhor" casava [OratorySession.isRefinement].
+     * "Como começo esse discurso?" continua na oratória (SECTION_CONTEXT).
+     */
+    private val ORIENTATION_QUESTION_START = Regex("^\\s*(como|qual|quais|o que|que)\\b")
+    private val EXPLICIT_GENERATION_VERB = Regex(
+        "\\b(crie|criar|gere|gerar|escreva|escrever|redija|redigir|monte|montar|" +
+            "elabore|elaborar|produza|produzir|desenvolva|desenvolver|faca|fazer|" +
+            "refaca|refazer|reescreva|reescrever|ajuste|ajustar|corrija|corrigir)\\b"
+    )
+
     /** Puro/testável: explicação geral, sem escrita nem foco de seção. */
     fun isExplanationOnly(text: String): Boolean {
         val n = " ${normalizeText(text)} "
@@ -538,6 +552,18 @@ object ChatRouter {
 
         // 2)/3) Oratória: pedido explícito, phráse natural ou iteração.
         val canonical = normalizePhrasing(text)
+        // C6 (Sessão 2): pergunta de orientação sem verbo de geração e sem
+        // contexto de seção não é refinamento oratório — vai para a persona.
+        // Só quando NÃO há reescrita canônica ("Como posso concluir?" →
+        // "Faça uma conclusão" continua sendo geração).
+        if (canonical == null) {
+            val orientationQuestion = ORIENTATION_QUESTION_START.containsMatchIn(t) &&
+                !EXPLICIT_GENERATION_VERB.containsMatchIn(t) &&
+                !SECTION_CONTEXT.containsMatchIn(t)
+            if (orientationQuestion) {
+                return Route.General("pergunta de orientação, não geração")
+            }
+        }
         val decision = OratorySession.decide(canonical ?: text, document, currentSectionId, last)
         when (decision) {
             is OratorySession.Decision.Generate -> return Route.Oratory(

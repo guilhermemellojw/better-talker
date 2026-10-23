@@ -74,6 +74,13 @@ class GenerationPromptsTest {
     }
 
     @Test
+    fun speech_mentor_chat_hint_entrega_card_direto_quando_usuario_pede_geracao() {
+        val p = GenerationPrompts.SPEECH_MENTOR_CHAT_HINT
+        assertTrue(p.contains("Quando o usuário disser 'gera', 'escreve' ou 'entrega'"))
+        assertTrue(p.contains("sem orientar antes"))
+    }
+
+    @Test
     fun prompt_nao_ultrapassa_5000_chars() {
         // Teto de sanidade: a persona + guia de linguagem cabem no system
         // cacheável sem inflar o prompt.
