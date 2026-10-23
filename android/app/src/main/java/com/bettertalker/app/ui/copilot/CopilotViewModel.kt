@@ -4577,13 +4577,13 @@ class CopilotViewModel(
         val inline = PastedOutlineAnalyzer.inlineApostila(normalized)
         if (inline != null) {
             _candTexts.value = inline.points
-            _draft.value = listOf(DraftSection(inline.title, null, true, inline.body, 0))
+            _draft.value = listOf(DraftSection(inline.title, inline.minutes, true, inline.body, 0))
             _dropped.value = 0
             dismissedMerges.clear()
             refreshMerges()
             _draftName.value = "texto colado"
             _draftTitle.value = inline.title
-            _draftTotal.value = null
+            _draftTotal.value = inline.minutes
             _previewRefsJson.value = RefDetector.detectedToJson(RefDetector.detect(normalized))
             syncDraftMessage()
             return@launch

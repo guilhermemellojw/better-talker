@@ -22,6 +22,7 @@ Jeová ajudou Baruque a mudar o seu ponto de vista dando a ele uma esperança. (
         val p = PastedOutlineAnalyzer.inlineApostila(text)
         assertNotNull(p)
         assertEquals("Ter esperança é o segredo para o contentamento", p!!.title)
+        assertEquals(10, p.minutes)
         assertEquals(3, p.points.size)
         assertTrue(p.body.contains("Baruque"))
         assertTrue(p.body.contains("w25.07 22 §§ 8-9"))

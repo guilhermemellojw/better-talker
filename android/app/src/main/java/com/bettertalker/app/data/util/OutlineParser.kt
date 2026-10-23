@@ -381,16 +381,22 @@ object PastedOutlineAnalyzer {
      * Não se aplica ao Formato B (seções temporizadas/recuadas) nem ao S-34
      * oficial ("Tema:" + pontos numerados) — esses seguem os caminhos atuais.
      */
-    data class InlineApostila(val title: String, val body: String, val points: List<String>)
+    data class InlineApostila(
+        val title: String,
+        val minutes: Int?,
+        val body: String,
+        val points: List<String>,
+    )
 
-    private val TIME_TAG_RE = Regex("""\(\s*\d+\s*min[^)]*\)""", RegexOption.IGNORE_CASE)
+    private val TIME_TAG_RE = Regex("""\(\s*(\d+)\s*min[^)]*\)""", RegexOption.IGNORE_CASE)
 
     fun inlineApostila(text: String): InlineApostila? {
         // S-34 oficial não é este formato.
         if (Regex("""(?m)^\s*tema\s*:""", RegexOption.IGNORE_CASE).containsMatchIn(text)) return null
         if (Regex("""(?m)^\s*\d{1,2}[.)]\s+\S""").containsMatchIn(text)) return null
         val (titleLine, rest) = splitTitle(text)
-        if (titleLine == null || TIME_TAG_RE.find(titleLine) == null) return null
+        if (titleLine == null) return null
+        val minutes = TIME_TAG_RE.find(titleLine)?.groupValues?.get(1)?.toIntOrNull() ?: return null
         val rawLines = rest.split("\n").filter { it.isNotBlank() }
         if (rawLines.isEmpty()) return null
         // Formato B: outra seção temporizada ou corpo recuado.
@@ -404,7 +410,7 @@ object PastedOutlineAnalyzer {
         if (!allHaveRefs) return null
         val cleanTitle = titleLine.replace(TIME_TAG_RE, "").trim()
         if (cleanTitle.isBlank()) return null
-        return InlineApostila(cleanTitle, points.joinToString("\n"), points)
+        return InlineApostila(cleanTitle, minutes, points.joinToString("\n"), points)
     }
 
     /** Abreviações cujo ponto NÃO quebra frase ("Jer. 37", "cap. 5"). */
