@@ -338,6 +338,11 @@ fun serializePack(
             pack.unavailableRefs.distinct().joinToString("\n") { "- $it" } +
             "\n--- FIM DAS REFERÊNCIAS ---\n"
     }
+    if (pack.omittedRefs.isNotEmpty()) {
+        section += "\n\n--- REFERÊNCIAS FORA DO ORÇAMENTO (texto existe, mas não coube; não citar como texto) ---\n" +
+            pack.omittedRefs.distinct().joinToString("\n") { "- $it" } +
+            "\n--- FIM DAS REFERÊNCIAS FORA DO ORÇAMENTO ---\n"
+    }
     if (section.isEmpty()) {
         section = "\n\n(Nenhuma fonte do acervo local foi recuperada para este bloco. " +
             "Não se limite a recusar. Use sua base geral de oratória, conhecimento bíblico " +

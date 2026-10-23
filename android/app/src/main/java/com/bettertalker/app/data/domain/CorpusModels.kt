@@ -106,7 +106,13 @@ data class ContextPack(
      * referência explícita ("não citar como texto") em vez de virarem silêncio
      * ou alucinação.
      */
-    val unavailableRefs: List<String> = emptyList()
+    val unavailableRefs: List<String> = emptyList(),
+    /**
+     * v2.7.3: citações com texto no acervo que NÃO couberam no orçamento
+     * (MAX_CONTENT_SOURCES). Entram no prompt como "não citar como texto" —
+     * nunca somem em silêncio.
+     */
+    val omittedRefs: List<String> = emptyList()
 )
 
 // ---------- Adapters Entity -> Domain (sem inferência: ausente vira null) ----------

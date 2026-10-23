@@ -313,4 +313,17 @@ class ChatPromptParityTest {
         assertTrue(out.contains("- it \"Gedalias\" §4"))
         assertTrue(out.contains("não citar como texto"))
     }
+
+    @Test
+    fun citadasForaDoOrcamentoNaoDesaparecem() {
+        val pack = ContextPack(
+            contentSources = listOf(ev("c1", "w25.07 §1", "texto")),
+            trainingSources = emptyList(),
+            omittedRefs = listOf("w25.07 §9"),
+        )
+        val out = serializePack(pack)
+        assertTrue(out.contains("REFERÊNCIAS FORA DO ORÇAMENTO"))
+        assertTrue(out.contains("- w25.07 §9"))
+        assertTrue(out.contains("não citar como texto"))
+    }
 }

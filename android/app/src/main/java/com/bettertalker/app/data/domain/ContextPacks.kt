@@ -19,11 +19,19 @@ object ContextPacks {
         /** v2.7.3: citações sem texto no acervo (não citar como fato). */
         unavailableRefs: List<String> = emptyList(),
     ): ContextPack {
-        val ranked = content.take(contentLimit.coerceAtLeast(0)).mapIndexed { i, c ->
+        val limit = contentLimit.coerceAtLeast(0)
+        val ranked = content.take(limit).mapIndexed { i, c ->
             candidateToEvidence(c, "Fonte ${i + 1}")
         }
-        val contentSources = (pinned + ranked).distinctBy { it.id }
-            .take(contentLimit.coerceAtLeast(0))
+        val pinnedUnique = pinned.distinctBy { it.id }
+        val pinnedKept = pinnedUnique.take(limit)
+        val rankedKept = ranked
+            .filter { r -> pinnedKept.none { it.id == r.id } }
+            .take((limit - pinnedKept.size).coerceAtLeast(0))
+        val contentSources = (pinnedKept + rankedKept).take(limit)
+        // v2.7.3 (revisão): o excedente de CITAÇÕES não desaparece; vira
+        // referência explícita "fora do orçamento" (texto existe, não coube).
+        val omitted = pinnedUnique.drop(limit).map { it.reference }
         return ContextPack(
             contentSources = contentSources,
             trainingSources = training.take(trainingLimit.coerceAtLeast(0)).mapIndexed { i, c ->
@@ -31,6 +39,7 @@ object ContextPacks {
             },
             relevantCount = relevantCount,
             unavailableRefs = unavailableRefs,
+            omittedRefs = omitted,
         )
     }
 
