@@ -3,7 +3,6 @@ package com.bettertalker.app.ui.stage
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,18 +25,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,14 +45,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import kotlinx.coroutines.delay
 
 /**
  * Ensaio v1 — leitor de tribuna em tela cheia: fundo escuro de alto
  * contraste, texto agregado com fonte ajustável, cronômetro global (com meta
- * e cores) e barra de controles auto-hide. `keepScreenOn` enquanto a tela vive.
+ * e cores) e barra de controles fixa. `keepScreenOn` enquanto a tela vive.
  *
- * Toque na tela mostra/esconde os controles; toque no relógio pausa/retoma.
+ * Toque no relógio pausa/retoma. Os controles não somem sozinhos.
  */
 private val StageBg = Color(0xFF030712)
 private val StageFg = Color(0xFFF8FAFC)
@@ -113,7 +105,6 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val speaking by vm.ttsSpeaking.collectAsState()
     val speechReady by vm.ttsReady.collectAsState()
     val scroll = rememberScrollState()
-    var controls by remember { mutableStateOf(true) }
 
     // Tela cheia imersiva + tela sempre acesa enquanto o palco está aberto.
     DisposableEffect(Unit) {
@@ -131,24 +122,14 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
         }
     }
 
-    // Barra de controles auto-hide (3s).
-    LaunchedEffect(controls) {
-        if (controls) {
-            delay(3000)
-            controls = false
-        }
-    }
-
+    // v2.7.2 (Sessão 2): controles fixos — sem auto-hide de 3s e sem
+    // toque para esconder. O Ensaio precisa do timer/controles à mão.
     val timerState = stageTimerState(elapsed, totalMinutes)
 
     Box(
         Modifier
             .fillMaxSize()
             .background(StageBg)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { controls = !controls }
     ) {
         // Texto do discurso (rolagem manual; fonte ajustável).
         Column(
@@ -202,13 +183,8 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(120.dp))
         }
 
-        // Controles (topo; escondem sozinhos).
-        AnimatedVisibility(
-            visible = controls,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
+        // Controles fixos no topo.
+        Box(Modifier.align(Alignment.TopCenter)) {
             StageControlBar(
                 elapsed = elapsed,
                 totalMinutes = totalMinutes,
@@ -226,16 +202,13 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
 
         // Modo Teleprompter: chip do "Modo Dupla" (papel em destaque; escurece
         // as falas do outro) — no rodapé para não lotar a barra de cima.
-        AnimatedVisibility(
-            visible = controls && turns.size >= 2,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomEnd),
-        ) {
+        if (turns.size >= 2) {
             Surface(
                 color = Color(0xE6101724),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                modifier = Modifier.padding(end = 16.dp, bottom = 24.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 24.dp),
             ) {
                 TextButton(onClick = vm::cycleDuoRole) {
                     Text(
