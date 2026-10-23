@@ -204,6 +204,18 @@ object DbProvider {
                             }
                         }
                     }
+
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        // v2.7.3: status=ready/indexed=0 ficava fora do escopo
+                        // (noteScope/baseReady filtram indexed=1). Só corrige
+                        // quando as passagens existem — nunca "pronta vazia".
+                        db.execSQL(
+                            "UPDATE attachments SET indexed = 1 " +
+                                "WHERE status = 'ready' AND indexed = 0 " +
+                                "AND EXISTS (SELECT 1 FROM passages p WHERE p.attachmentId = attachments.id)"
+                        )
+                    }
                 })
                 .build().also { inst = it }
         }

@@ -18,7 +18,9 @@ object JwMediaApi {
     data class DirectFile(val url: String, val fileName: String, val format: String)
 
     /** Ordem de preferência: texto limpo e comprovado primeiro. */
-    private val FORMATS = listOf("PDF", "EPUB", "RTF")
+    // v2.7.3: JWPUB/EPUB têm parágrafos estruturados; o PDF do jw.org vem
+    // fatiado por linha (sem page/paragraph) e não casa "§§ 8-9".
+    private val FORMATS = listOf("JWPUB", "EPUB", "PDF", "RTF")
 
     /**
      * Mapeia editionKey -> (pub, issue?) da API. Null = sem arquivo direto.

@@ -3,6 +3,8 @@ package com.bettertalker.app.data.repo
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.domain.EvidenceSource
+import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
@@ -10,6 +12,7 @@ import com.bettertalker.app.domain.planning.ResolvedReference
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
+import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.STOPWORDS_PT
 import com.bettertalker.app.data.util.buildJwUrl
@@ -477,6 +480,63 @@ class CopilotRepository(private val db: AppDatabase) {
      * Anexos das publicações citadas (nota + esboço), mesmo sem vínculo à nota.
      * Retorna id -> rótulo (título real). be/th entram como guia, não conteúdo.
      */
+    /**
+     * v2.7.3 — citações do esboço com o TRECHO EXATO (page/paragraph).
+     *
+     * `refScopeIds` só devolve IDs/labels; o pack recebia os IDs, mas o trecho
+     * dependia do top-K da query. Aqui o `resolveContent` (que já alimenta o
+     * card de referência) entrega o parágrafo citado para o prompt.
+     */
+    data class CitedSources(
+        val sources: List<EvidenceSource>,
+        val unavailable: List<String>,
+    )
+
+    suspend fun citedSources(noteText: String, outlineRefsJson: String): CitedSources {
+        val detected = (RefDetector.detect(noteText) + RefDetector.detectedFromJson(outlineRefsJson))
+            .distinctBy { it.editionKey + "|" + it.raw }
+        if (detected.isEmpty()) return CitedSources(emptyList(), emptyList())
+        val all = db.attachmentDao().all()
+        val sources = mutableListOf<EvidenceSource>()
+        val unavailable = mutableListOf<String>()
+        for (ref in detected) {
+            val hit = RefDetector.matchEdition(ref, all)
+            if (hit == null) {
+                unavailable += ref.raw
+                continue
+            }
+            val candidates = contentCandidatesFor(ref)
+            if (!candidates.corpusAvailable) {
+                unavailable += ref.raw
+                continue
+            }
+            val check = RefDetector.resolveContent(ref, candidates.passages, candidates.corpusAvailable)
+            val snippet = check.snippet?.takeIf { it.isNotBlank() }
+            if (!check.resolved || snippet == null) {
+                // A edição ESTÁ indexada; o § exato pode não ter page/paragraph
+                // (PDF) e o top-K ainda traz o trecho. NÃO declarar "sem texto":
+                // isso faria o modelo recusar uma fonte que ele tem.
+                continue
+            }
+            sources += EvidenceSource(
+                id = "cite-" + hit.id + "-" + ref.raw.hashCode(),
+                reference = ref.raw,
+                text = snippet,
+                sourceType = SourceType.CONTENT,
+                publication = PubCatalog.titleOf(ref.pubKey) ?: hit.fileName,
+                section = ref.article ?: ref.chapter,
+                paragraph = ref.paragraph,
+                page = ref.page,
+                score = 1.0,
+                foundBy = listOf("cited"),
+            )
+        }
+        return CitedSources(
+            sources = sources.distinctBy { it.reference },
+            unavailable = unavailable.distinct(),
+        )
+    }
+
     suspend fun refScopeIds(noteText: String, outlineRefsJson: String): Map<String, String> {
         val detected = RefDetector.detect(noteText) +
             RefDetector.detectedFromJson(outlineRefsJson)

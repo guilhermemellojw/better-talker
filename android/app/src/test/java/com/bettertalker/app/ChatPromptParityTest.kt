@@ -299,4 +299,18 @@ class ChatPromptParityTest {
         assertTrue(p.contains("bloco TEXTOS BÍBLICOS"))
         assertTrue(p.contains("paráfrase calorosa"))
     }
+
+    @Test
+    fun citacaoComTextoViraFonteESemTextoViraReferencia() {
+        val pack = ContextPack(
+            contentSources = listOf(ev("c1", "w25.07 22 §§ 8-9", "parágrafo citado")),
+            trainingSources = emptyList(),
+            unavailableRefs = listOf("it \"Gedalias\" §4"),
+        )
+        val out = serializePack(pack)
+        assertTrue(out.contains("[Fonte 1: w25.07 22 §§ 8-9] parágrafo citado"))
+        assertTrue(out.contains("REFERÊNCIAS DO ESBOÇO SEM TEXTO"))
+        assertTrue(out.contains("- it \"Gedalias\" §4"))
+        assertTrue(out.contains("não citar como texto"))
+    }
 }

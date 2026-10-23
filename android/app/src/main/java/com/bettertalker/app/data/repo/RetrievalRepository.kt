@@ -4,6 +4,7 @@ import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.domain.ContextPack
+import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.ContextPacks
 import com.bettertalker.app.data.domain.HybridRetrieval
 import com.bettertalker.app.data.domain.Publication
@@ -55,7 +56,11 @@ interface ContextPackRepository {
         query: String,
         scope: RetrievalScope,
         includeTraining: Boolean,
-        trainingCategory: TrainingCategory? = null
+        trainingCategory: TrainingCategory? = null,
+        /** v2.7.3: trechos exatos das citações do esboço (prioridade). */
+        pinned: List<EvidenceSource> = emptyList(),
+        /** v2.7.3: citações sem texto no acervo. */
+        unavailableRefs: List<String> = emptyList(),
     ): ContextPack
 }
 
@@ -249,7 +254,9 @@ class RoomContextPackRepository(
         query: String,
         scope: RetrievalScope,
         includeTraining: Boolean,
-        trainingCategory: TrainingCategory?
+        trainingCategory: TrainingCategory?,
+        pinned: List<EvidenceSource>,
+        unavailableRefs: List<String>,
     ): ContextPack {
         // #15d: caminho normal = Top-K 5. O fallback adaptativo só entra
         // quando o retrieve padrão devolve poucos trechos RELEVANTES (o
@@ -278,6 +285,11 @@ class RoomContextPackRepository(
             training.retrieveTraining(query, trainingCategory, scope).hits
         } else emptyList()
         // #15d-escopo: expõe a contagem de relevantes para a sugestão de vínculo.
-        return ContextPacks.fromCandidates(content, trainingHits, relevantCount = relevant)
+        return ContextPacks.fromCandidates(
+            content, trainingHits,
+            relevantCount = relevant,
+            pinned = pinned,
+            unavailableRefs = unavailableRefs,
+        )
     }
 }

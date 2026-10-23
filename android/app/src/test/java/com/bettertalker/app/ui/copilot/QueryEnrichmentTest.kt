@@ -51,4 +51,15 @@ class QueryEnrichmentTest {
         )
         assertEquals(2500, q.length)
     }
+
+    @Test
+    fun citacoesEntramNaQuery() {
+        val q = enrichedRetrievalQuery(
+            blockText = "prosa",
+            question = "o que diz?",
+            citedRefs = listOf("w25.07 22 §§ 8-9", "it \"Gedalias\" §4"),
+        )
+        assertTrue(q.contains("w25.07 22 §§ 8-9"))
+        assertTrue(q.contains("it \"Gedalias\" §4"))
+    }
 }

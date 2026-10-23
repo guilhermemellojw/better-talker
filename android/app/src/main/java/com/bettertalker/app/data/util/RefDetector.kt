@@ -692,8 +692,8 @@ object RefDetector {
         val num = parts[2]
         val day = parts.getOrNull(3)
         val year2 = (year.toIntOrNull() ?: return null) % 100
-        return attachments.firstOrNull { a ->
-            if (!a.indexed) return@firstOrNull false
+        val matches = attachments.filter { a ->
+            if (!a.indexed) return@filter false
             val n = normalizeText(a.fileName)
             val tokens = n.split(" ").toSet()
             // título da revista no nome ("A Sentinela N.º 3 2019.pdf")
@@ -727,6 +727,16 @@ object RefDetector {
             val hasNum = tokens.any { it == num || it == num.toIntOrNull()?.toString() } || hasYear
             hasCode && hasYear && hasNum
         }
+        // v2.7.3: duplicatas (PDF baixado antes do JWPUB) — prefere o formato
+        // estruturado, que tem page/paragraph e casa a citação exata.
+        return matches.maxByOrNull { formatRank(it.fileName) }
+    }
+
+    private fun formatRank(name: String): Int = when {
+        name.endsWith(".jwpub", true) -> 3
+        name.endsWith(".epub", true) -> 2
+        name.endsWith(".pdf", true) -> 1
+        else -> 0
     }
 
     private const val REVISTAS = "https://www.jw.org/pt/biblioteca/revistas/"

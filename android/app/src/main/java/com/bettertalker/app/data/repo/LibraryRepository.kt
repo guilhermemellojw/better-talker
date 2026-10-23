@@ -141,6 +141,9 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         if (kind == DocKind.UNSUPPORTED) {
             throw ImportException(ImportException.Reason.UNSUPPORTED, explicitMessage(displayName))
         }
+        com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let {
+            throw ImportException(ImportException.Reason.UNSUPPORTED, it)
+        }
         if (src.length() > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
             throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
         }
@@ -208,6 +211,10 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         val kind = detectKind(displayName, src)
         if (kind == DocKind.UNSUPPORTED) {
             db.attachmentDao().update(cur.copy(status = "failed", error = explicitMessage(displayName)))
+            return
+        }
+        com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let { reason ->
+            db.attachmentDao().update(cur.copy(status = "failed", error = reason))
             return
         }
         try {

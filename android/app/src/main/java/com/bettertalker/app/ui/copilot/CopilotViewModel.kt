@@ -477,6 +477,8 @@ internal fun enrichedRetrievalQuery(
     sectionTitle: String? = null,
     noteTitle: String? = null,
     s34SectionTitles: List<String> = emptyList(),
+    /** v2.7.3: refs citadas no esboço (w25.07 §8, it "Gedalias"…) na query. */
+    citedRefs: List<String> = emptyList(),
     max: Int = 2500,
 ): String {
     val context = buildString {
@@ -490,6 +492,10 @@ internal fun enrichedRetrievalQuery(
                 if (isNotEmpty()) append(" · ")
                 append(t.trim())
             }
+        }
+        citedRefs.filter { it.isNotBlank() }.take(12).forEach { r ->
+            if (isNotEmpty()) append(" · ")
+            append(r.trim())
         }
     }
     val base = if (context.isEmpty()) "$blockText $question" else "$context $blockText $question"
@@ -1981,6 +1987,12 @@ class CopilotViewModel(
         // escopo por discurso (bases prontas + vinculados + citados).
         // Verificação factual pede CONTENT: treinamento fora, sempre.
         val cited = refScope()
+        // v2.7.3: citações do esboço com o trecho EXATO (page/paragraph),
+        // independente do top-K; as sem texto entram como referência explícita.
+        val citedSources = repo.citedSources(
+            _noteText.value,
+            noteId?.let { outlines.get(it)?.refsJson }.orEmpty(),
+        )
         val scope = noteScope(cited.keys.toList())
         val packRepo = com.bettertalker.app.data.repo.RoomContextPackRepository(
             com.bettertalker.app.data.repo.RoomRetrievalRepository(
@@ -1997,10 +2009,13 @@ class CopilotViewModel(
                 sectionTitle = scopeBlockTitle(),
                 noteTitle = noteId?.let { db.noteDao().get(it)?.title },
                 s34SectionTitles = s34SectionTitlesForRetrieval(),
+                citedRefs = citedSources.sources.map { it.reference } + citedSources.unavailable,
             ),
             scope = scope,
             includeTraining = trainingCategory != null,
-            trainingCategory = trainingCategory
+            trainingCategory = trainingCategory,
+            pinned = citedSources.sources,
+            unavailableRefs = citedSources.unavailable
         )
         // F19-B.5: S-34 estrutural do attachment em foco (se houver).
         // Consome a B.4; NoOutline mantém o caminho legado intacto.

@@ -64,6 +64,12 @@ object DownloadHelper {
                     if (hasNotifPermission(context)) DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                     else DownloadManager.Request.VISIBILITY_VISIBLE
                 )
+            // v2.7.3: o DownloadManager não herda a sessão da WebView. Sem o
+            // cookie, links de livro podem devolver HTML/login em vez do arquivo.
+            android.webkit.CookieManager.getInstance().getCookie(url)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { req.addRequestHeader("Cookie", it) }
+            req.addRequestHeader("User-Agent", android.webkit.WebSettings.getDefaultUserAgent(context))
             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             dm.enqueue(req)
         } catch (_: Exception) {

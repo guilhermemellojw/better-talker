@@ -333,6 +333,11 @@ fun serializePack(
         section += "\n\n--- ORIENTAÇÕES DE ORATÓRIA (técnica de apresentação; NÃO usar como fatos) ---\n" +
             lines.joinToString("\n\n") + "\n--- FIM DAS ORIENTAÇÕES ---\n"
     }
+    if (pack.unavailableRefs.isNotEmpty()) {
+        section += "\n\n--- REFERÊNCIAS DO ESBOÇO SEM TEXTO NO ACERVO (não citar como texto) ---\n" +
+            pack.unavailableRefs.distinct().joinToString("\n") { "- $it" } +
+            "\n--- FIM DAS REFERÊNCIAS ---\n"
+    }
     if (section.isEmpty()) {
         section = "\n\n(Nenhuma fonte do acervo local foi recuperada para este bloco. " +
             "Não se limite a recusar. Use sua base geral de oratória, conhecimento bíblico " +

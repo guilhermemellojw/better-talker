@@ -100,7 +100,13 @@ data class ContextPack(
     val contentSources: List<EvidenceSource>,
     val trainingSources: List<EvidenceSource>,
     /** #15d-escopo: hits relevantes do RAG (pós-gate #15d-fix). */
-    val relevantCount: Int = 0
+    val relevantCount: Int = 0,
+    /**
+     * v2.7.3: citações do esboço sem texto no acervo. Entram no prompt como
+     * referência explícita ("não citar como texto") em vez de virarem silêncio
+     * ou alucinação.
+     */
+    val unavailableRefs: List<String> = emptyList()
 )
 
 // ---------- Adapters Entity -> Domain (sem inferência: ausente vira null) ----------
