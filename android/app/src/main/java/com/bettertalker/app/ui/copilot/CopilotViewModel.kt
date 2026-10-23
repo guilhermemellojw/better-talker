@@ -4573,6 +4573,21 @@ class CopilotViewModel(
             is PasteKind.S34,
             is PasteKind.FreeText -> Unit
         }
+        // v2.7.5 (Fix 1): apostila inline = 1 seção com N pontos no body.
+        val inline = PastedOutlineAnalyzer.inlineApostila(normalized)
+        if (inline != null) {
+            _candTexts.value = inline.points
+            _draft.value = listOf(DraftSection(inline.title, null, true, inline.body, 0))
+            _dropped.value = 0
+            dismissedMerges.clear()
+            refreshMerges()
+            _draftName.value = "texto colado"
+            _draftTitle.value = inline.title
+            _draftTotal.value = null
+            _previewRefsJson.value = RefDetector.detectedToJson(RefDetector.detect(normalized))
+            syncDraftMessage()
+            return@launch
+        }
         val (titled, rest) = PastedOutlineAnalyzer.splitTitle(normalized)
         val (cands, droppedCount) = PastedOutlineAnalyzer.candidates(rest.ifBlank { normalized })
         if (cands.isEmpty()) {

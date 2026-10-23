@@ -371,6 +371,42 @@ object PastedOutlineAnalyzer {
         return m.groupValues[1].trim() to text.trimStart().substring(m.value.length)
     }
 
+    /**
+     * v2.7.5 (Fix 1) — Formato A: apostila inline de 1 parte.
+     *
+     * "Tema (N min)" + N linhas de pontos com refs (w*, Jer., Sal., §) vira
+     * **1 seção** com o título limpo e o body = as N linhas. Sem isso, cada
+     * frase virava título de seção e o body ficava vazio (nota de 0 palavras).
+     *
+     * Não se aplica ao Formato B (seções temporizadas/recuadas) nem ao S-34
+     * oficial ("Tema:" + pontos numerados) — esses seguem os caminhos atuais.
+     */
+    data class InlineApostila(val title: String, val body: String, val points: List<String>)
+
+    private val TIME_TAG_RE = Regex("""\(\s*\d+\s*min[^)]*\)""", RegexOption.IGNORE_CASE)
+
+    fun inlineApostila(text: String): InlineApostila? {
+        // S-34 oficial não é este formato.
+        if (Regex("""(?m)^\s*tema\s*:""", RegexOption.IGNORE_CASE).containsMatchIn(text)) return null
+        if (Regex("""(?m)^\s*\d{1,2}[.)]\s+\S""").containsMatchIn(text)) return null
+        val (titleLine, rest) = splitTitle(text)
+        if (titleLine == null || TIME_TAG_RE.find(titleLine) == null) return null
+        val rawLines = rest.split("\n").filter { it.isNotBlank() }
+        if (rawLines.isEmpty()) return null
+        // Formato B: outra seção temporizada ou corpo recuado.
+        if (rawLines.any { it.startsWith(" ") || it.startsWith("\t") }) return null
+        val points = rawLines.map { it.trim() }
+        if (points.any { TIME_TAG_RE.containsMatchIn(it) }) return null
+        // Cada linha de ponto precisa carregar uma referência.
+        val allHaveRefs = points.all { line ->
+            RefDetector.detect(line).isNotEmpty() || RefDetector.detectBible(line).isNotEmpty()
+        }
+        if (!allHaveRefs) return null
+        val cleanTitle = titleLine.replace(TIME_TAG_RE, "").trim()
+        if (cleanTitle.isBlank()) return null
+        return InlineApostila(cleanTitle, points.joinToString("\n"), points)
+    }
+
     /** Abreviações cujo ponto NÃO quebra frase ("Jer. 37", "cap. 5"). */
     private val ABBREVS = setOf(
         "jer", "gên", "gen", "sal", "ap", "mt", "ro", "is", "jó", "jo",
