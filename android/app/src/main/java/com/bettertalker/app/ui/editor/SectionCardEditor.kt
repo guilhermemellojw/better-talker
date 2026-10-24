@@ -35,7 +35,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -115,7 +114,8 @@ fun SectionCardEditor(
     onMoveSectionUp: () -> Unit = {},
     onMoveSectionDown: () -> Unit = {},
     onRemoveSection: () -> Unit = {},
-    onChatAbout: (DraftTarget) -> Unit = {},
+    /** Fase 1: único ponto de entrada do Copilot no card ativo (✨ no rodapé). */
+    onCopilot: () -> Unit = {},
     /** UX de demonstrações (V&M): badge "Demonstração" no cabeçalho. */
     isDemonstration: Boolean = false,
     onApproveSection: () -> Unit = {},
@@ -178,20 +178,6 @@ fun SectionCardEditor(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            if (!readOnly) {
-                OutlinedButton(
-                    onClick = { onChatAbout(DraftTarget.Section(state.section.id)) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        Icons.Default.AutoAwesome, null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (isDemonstration) "Analisar diálogo com IA" else "Conversar sobre este tópico")
                 }
             }
         }
@@ -372,6 +358,19 @@ fun SectionCardEditor(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
+                    }
+                    if (isActiveSection && !readOnly) {
+                        // Fase 1: só o card ativo mostra o ✨; sem texto/borda.
+                        IconButton(
+                            onClick = onCopilot,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = "Copilot deste ponto",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                     SectionMenuButton(
                         sectionId = state.section.id,

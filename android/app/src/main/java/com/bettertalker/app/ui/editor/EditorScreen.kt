@@ -268,6 +268,17 @@ fun EditorScreen(
         }
     }
 
+    // Fase 1: dica única do ✨ (o card não ganha texto fixo).
+    val mentorHintSeen by vm.mentorHintSeen.collectAsState(initial = true)
+    LaunchedEffect(mentorHintSeen, sections.isNotEmpty()) {
+        if (!mentorHintSeen && sections.isNotEmpty()) {
+            snackbarHostState.showSnackbar(
+                "Toque em ✨ no ponto ativo para abrir o Copilot."
+            )
+            vm.markMentorHintSeen()
+        }
+    }
+
     Scaffold(
         // Deixa a textura global aparecer atrás dos cards do editor.
         containerColor = Color.Transparent,
@@ -572,24 +583,15 @@ fun EditorScreen(
                                             androidx.compose.ui.geometry.Offset.Zero
                                         ).y.toInt()
                                     },
-                                    onChatAbout = { target ->
-                                        // #14-fix: "Conversar sobre este tópico"
-                                        // ativa a seção (borda + canal de bloco
-                                        // consistente) antes de empurrar.
-                                        chatAboutActivation(
-                                            target = target,
-                                            sectionTitles = sections.associate {
-                                                it.section.id to it.section.title
-                                            },
-                                        )?.let { (id, title) ->
-                                            activeSectionId = id
-                                            vm.setActiveSectionTitle(title)
-                                        }
-                                        // T3 — aguarda o push concluir antes de navegar:
-                                        // sem await, o chat podia abrir com o contexto
-                                        // ainda não empurrado (race do botão).
+                                    onCopilot = {
+                                        // Fase 1: o ✨ do card ativo abre o chat
+                                        // existente, já com o contexto do ponto.
+                                        activeSectionId = sectionState.section.id
+                                        vm.setActiveSectionTitle(sectionState.section.title)
                                         scope.launch {
-                                            vm.pushContextForChat(target)
+                                            vm.pushContextForChat(
+                                                DraftTarget.Section(sectionState.section.id)
+                                            )
                                             onOpenChat()
                                         }
                                     },

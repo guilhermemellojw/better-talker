@@ -7,6 +7,7 @@ import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.planning.RoomMethodIndex
 import com.bettertalker.app.data.planning.RoomReferenceResolver
+import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.repo.RoomTrainingRepository
 import com.bettertalker.app.domain.planning.DefaultDossierBuilder
@@ -23,6 +24,7 @@ import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
@@ -37,6 +39,7 @@ import kotlinx.coroutines.launch
 class EditorViewModel(private val appCtx: android.content.Context, private val db: AppDatabase, private val noteId: String) : ViewModel() {
     private val repo = NotesRepository(appCtx.applicationContext, db)
     private val copilotRepo = com.bettertalker.app.data.repo.CopilotRepository(db)
+    private val settings = SettingsStore(appCtx)
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
 
@@ -62,6 +65,14 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     val color = _color.asStateFlow()
     val folderId = _folderId.asStateFlow()
     val pinned = _pinned.asStateFlow()
+
+    /** Fase 2 (mentor): a dica do ✨ no ponto ativo aparece uma única vez. */
+    val mentorHintSeen: StateFlow<Boolean> = settings.mentorHintSeen
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun markMentorHintSeen() {
+        viewModelScope.launch { settings.setMentorHintSeen() }
+    }
 
     /**
      * T2 (Bug #10) — título da seção ativa no editor: fonte do foco do

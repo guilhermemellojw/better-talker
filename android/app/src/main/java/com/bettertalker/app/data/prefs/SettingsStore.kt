@@ -104,6 +104,11 @@ class SettingsStore(private val ctx: Context) {
     val chatSetupSeen: Flow<Boolean> = ctx.store.data.map { it[CHAT_SETUP_SEEN] ?: false }
     suspend fun setChatSetupSeen() { ctx.store.edit { it[CHAT_SETUP_SEEN] = true } }
 
+    /** Fase 2 (mentor): a dica do ✨ no ponto ativo já foi mostrada uma vez. */
+    private val MENTOR_HINT_SEEN = booleanPreferencesKey("mentor_hint_seen")
+    val mentorHintSeen: Flow<Boolean> = ctx.store.data.map { it[MENTOR_HINT_SEEN] ?: false }
+    suspend fun setMentorHintSeen() { ctx.store.edit { it[MENTOR_HINT_SEEN] = true } }
+
     /** Ensaio (v1) — tamanho da fonte de leitura (sp), persistente. */
     private val STAGE_FONT_SP =
         androidx.datastore.preferences.core.intPreferencesKey("stage_font_sp")
