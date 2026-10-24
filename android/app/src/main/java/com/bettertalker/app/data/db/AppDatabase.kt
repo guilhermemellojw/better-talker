@@ -428,11 +428,26 @@ interface SpeechSectionDao {
     @Query("SELECT * FROM speech_sections WHERE id = :id")
     suspend fun get(id: String): SpeechSectionEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Fase 0 (mentor): @Upsert (INSERT; no conflito de PK → UPDATE), NUNCA
+    // REPLACE. O REPLACE apaga a linha pai no SQLite e o ON DELETE CASCADE
+    // derruba os sub_pontos da seção (mesmo motivo do NoteDao.upsert).
+    @Upsert
     suspend fun upsert(section: SpeechSectionEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertAll(sections: List<SpeechSectionEntity>)
+
+    /**
+     * Fase 0 (mentor): atualização segmentada de metadados. Não passa por
+     * upsert — não apaga a seção nem dispara cascade nos sub-pontos, e não
+     * sobrescreve edições concorrentes de outros campos.
+     */
+    @Query("UPDATE speech_sections SET objective = :objective, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateObjective(id: String, objective: String?, updatedAt: Long)
+
+    /** Fase 0 (mentor/chat): idem para a abordagem acordada. */
+    @Query("UPDATE speech_sections SET agreedApproach = :agreedApproach, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateAgreedApproach(id: String, agreedApproach: String?, updatedAt: Long)
 
     @Delete
     suspend fun delete(section: SpeechSectionEntity)

@@ -2575,9 +2575,9 @@ class CopilotViewModel(
         val sec = db.speechSectionDao().get(sid) ?: return
         val merged = com.bettertalker.app.data.copilot.mergeApproach(sec.agreedApproach, decisions)
             ?: return
-        db.speechSectionDao().upsert(
-            sec.copy(agreedApproach = merged, updatedAt = System.currentTimeMillis())
-        )
+        // Fase 0: UPDATE segmentado — um upsert aqui apagaria os sub-pontos
+        // da seção via REPLACE + CASCADE (e sobrescreveria edições alheias).
+        db.speechSectionDao().updateAgreedApproach(sid, merged, System.currentTimeMillis())
     }
 
     /**

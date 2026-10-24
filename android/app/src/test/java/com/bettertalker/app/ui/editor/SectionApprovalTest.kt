@@ -50,6 +50,18 @@ class SectionApprovalTest {
             sections.forEach { upsert(it) }
         }
 
+        override suspend fun updateObjective(id: String, objective: String?, updatedAt: Long) {
+            rows.value = rows.value.map {
+                if (it.id == id) it.copy(objective = objective, updatedAt = updatedAt) else it
+            }
+        }
+
+        override suspend fun updateAgreedApproach(id: String, agreedApproach: String?, updatedAt: Long) {
+            rows.value = rows.value.map {
+                if (it.id == id) it.copy(agreedApproach = agreedApproach, updatedAt = updatedAt) else it
+            }
+        }
+
         override suspend fun delete(section: SpeechSectionEntity) {
             rows.value = rows.value.filterNot { it.id == section.id }
         }

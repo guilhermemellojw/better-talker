@@ -149,6 +149,15 @@ internal class FakeSectionDao(rows: List<SpeechSectionEntity> = emptyList()) : S
         rows = rows.filter { it.id != section.id }.toMutableList().also { it.add(section) }
     }
     override suspend fun upsertAll(sections: List<SpeechSectionEntity>) { sections.forEach { upsert(it) } }
+    override suspend fun updateObjective(id: String, objective: String?, updatedAt: Long) {
+        rows = rows.map { if (it.id == id) it.copy(objective = objective, updatedAt = updatedAt) else it }
+            .toMutableList()
+    }
+    override suspend fun updateAgreedApproach(id: String, agreedApproach: String?, updatedAt: Long) {
+        rows = rows.map {
+            if (it.id == id) it.copy(agreedApproach = agreedApproach, updatedAt = updatedAt) else it
+        }.toMutableList()
+    }
     override suspend fun delete(section: SpeechSectionEntity) {
         rows = rows.filter { it.id != section.id }.toMutableList()
     }
