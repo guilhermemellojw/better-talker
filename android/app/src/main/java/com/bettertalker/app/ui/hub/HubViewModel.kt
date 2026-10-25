@@ -29,7 +29,9 @@ data class HubNoteCard(
 
 /** Rótulo do tipo da nota no card ("Demonstração" × "Discurso"). Puro/testável. */
 fun hubBadgeLabel(discourseType: String?): String =
-    if (discourseType == DiscourseType.MINISTRY_PART.name) "Demonstração" else "Discurso"
+    if (discourseType == DiscourseType.MINISTRY_PART.name ||
+        discourseType == DiscourseType.FREE_DEMO.name
+    ) "Demonstração" else "Discurso"
 
 /**
  * Duração do card: soma das seções (mesma fonte do Ensaio —
@@ -71,7 +73,8 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                 HubNoteCard(
                     id = note.id,
                     title = note.title.ifBlank { "Sem título" },
-                    isDemonstration = note.discourseType == DiscourseType.MINISTRY_PART.name,
+                    isDemonstration = note.discourseType == DiscourseType.MINISTRY_PART.name ||
+                        note.discourseType == DiscourseType.FREE_DEMO.name,
                     minutes = hubMinutesOf(sectionSum, outlineMinutes),
                     updatedAt = note.updatedAt,
                     preview = note.mdText,

@@ -36,8 +36,6 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
@@ -270,15 +268,11 @@ fun HomeScreen(
         )
     }
     if (showScratchDialog) {
-        StartFromScratchDialog(
+        StartFromScratchSheet(
             onDismiss = { showScratchDialog = false },
-            onSpeech = {
+            onCreate = { title, structure ->
                 showScratchDialog = false
-                scope.launch { onOpenNote(vm.createSpeechNote()) }
-            },
-            onDemo = {
-                showScratchDialog = false
-                scope.launch { onOpenNote(vm.createDemoNote()) }
+                scope.launch { onOpenNote(vm.createNoteFromStructure(title, structure)) }
             },
         )
     }
@@ -598,37 +592,6 @@ private fun CreateNoteSheet(
             }
         }
     }
-}
-
-/** "Começar do zero": discurso (S-34) ou demonstração (V&M). */
-@Composable
-private fun StartFromScratchDialog(
-    onDismiss: () -> Unit,
-    onSpeech: () -> Unit,
-    onDemo: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Começar do zero") },
-        text = {
-            Column {
-                CreateNoteOption(
-                    icon = Icons.Default.RecordVoiceOver,
-                    title = "Discurso",
-                    subtitle = "Estrutura de discurso (S-34)",
-                    onClick = onSpeech,
-                )
-                CreateNoteOption(
-                    icon = Icons.Default.Group,
-                    title = "Demonstração",
-                    subtitle = "Diálogo Publicador/Morador (Faça Seu Melhor)",
-                    onClick = onDemo,
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
 }
 
 @Composable

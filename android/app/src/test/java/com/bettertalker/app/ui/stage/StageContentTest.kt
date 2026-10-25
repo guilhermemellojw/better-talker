@@ -117,6 +117,22 @@ class StageContentTest {
     }
 
     @Test
+    fun freeDemo_leContentHtml() {
+        val content = buildStageContent(
+            DiscourseType.FREE_DEMO,
+            listOf(
+                section(
+                    "b", 0, title = "Demonstração", minutes = 4,
+                    html = "<p><b>Publicador:</b> Olá!</p><p><b>Morador:</b> Bom dia.</p>",
+                ),
+            ),
+            emptyMap(),
+        )
+        assertTrue(content.contains("Publicador: Olá!"))
+        assertTrue(content.contains("Morador: Bom dia."))
+    }
+
+    @Test
     fun treasuresTalk_leContentHtml() {
         val content = buildStageContent(
             DiscourseType.TREASURES_TALK,

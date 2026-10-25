@@ -420,6 +420,26 @@ class DossierPromptBuilderTest {
     }
 
     @Test
+    fun freeDemo_recebeDialogoEMentorSemS38() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                discourseType = "FREE_DEMO",
+                noteTitle = "Demonstração de vendas",
+                sectionTitle = "Demonstração",
+                minutes = 4,
+                contentHtml = "",
+            ),
+            includeSpeakerNote = false,
+        )
+        assertTrue(prompt, prompt.contains("## FORMATO DE DEMONSTRAÇÃO"))
+        assertTrue(prompt, prompt.contains("MODO ORIENTADOR (DIÁLOGO LIVRE)"))
+        assertTrue(prompt, prompt.contains("Não use S-38"))
+        assertTrue(prompt, prompt.contains("Tipo: FREE_DEMO"))
+        assertTrue(prompt, prompt.contains("réplicas"))
+        assertFalse(prompt, prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+    }
+
+    @Test
     fun s38_treasuresTalk_usaDiretrizDeTesouros() {
         val prompt = builder.buildContextBlock(
             dossier(

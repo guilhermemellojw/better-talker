@@ -212,8 +212,9 @@ class TribunaViewModel(
                 db.speechSectionDao(), noteId, speaker, prefs,
                 noteTitleProvider = { db.noteDao().get(noteId)?.title.orEmpty() },
                 isDemonstrationProvider = {
-                    db.noteDao().get(noteId)?.discourseType ==
-                        com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name
+                    val type = db.noteDao().get(noteId)?.discourseType
+                    type == com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name ||
+                        type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO.name
                 },
             ) as T
         }

@@ -60,6 +60,7 @@ object SpeechSectionValidator {
             DiscourseType.TREASURES_TALK,
             DiscourseType.MINISTRY_TALK -> validateS34(sections, errors)
             DiscourseType.MINISTRY_PART,
+            DiscourseType.FREE_DEMO,
             DiscourseType.AVULSO -> validateSingleBody(sections, errors)
         }
 

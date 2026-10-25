@@ -21,6 +21,9 @@ enum class GenerationProfile {
     /** Demonstrações V&M (diálogo Publicador/Morador). */
     DEMO_SCRIPTWRITER,
 
+    /** Demonstrações livres (diálogo sem V&M/S-38). */
+    FREE_DEMO,
+
     /** Apenas o esqueleto JSON (outline), sem texto final. */
     STRUCTURE_PLANNER;
 
@@ -29,8 +32,10 @@ enum class GenerationProfile {
          * Profile de um discurso persistido. `MINISTRY_PART` é a demonstração;
          * todo o resto (incluindo `MINISTRY_TALK`) é discurso.
          */
-        fun forDiscourseType(type: String?): GenerationProfile =
-            if (type == DiscourseType.MINISTRY_PART.name) DEMO_SCRIPTWRITER
-            else SPEECH_MENTOR
+        fun forDiscourseType(type: String?): GenerationProfile = when (type) {
+            DiscourseType.MINISTRY_PART.name -> DEMO_SCRIPTWRITER
+            DiscourseType.FREE_DEMO.name -> FREE_DEMO
+            else -> SPEECH_MENTOR
+        }
     }
 }

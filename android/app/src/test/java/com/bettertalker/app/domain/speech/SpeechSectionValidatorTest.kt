@@ -256,4 +256,53 @@ class SpeechSectionValidatorTest {
             ),
         )
     }
+
+    // ---------- Fase 3: demonstração livre (FREE_DEMO) ----------
+
+    @Test
+    fun freeDemo_validStructure_returnsValid() {
+        assertEquals(
+            SectionValidationResult.Valid,
+            SpeechSectionValidator.validate(
+                listOf(section("b", SectionRole.BODY, 0)),
+                DiscourseType.FREE_DEMO,
+            ),
+        )
+    }
+
+    @Test
+    fun freeDemo_withIntro_returnsUnexpectedIntro() {
+        val errors = (SpeechSectionValidator.validate(
+            listOf(
+                section("i", SectionRole.INTRO, 0),
+                section("b", SectionRole.BODY, 1),
+            ),
+            DiscourseType.FREE_DEMO,
+        ) as SectionValidationResult.Invalid).errors
+        assertEquals(true, errors.contains(SectionValidationError.UNEXPECTED_INTRO))
+    }
+
+    @Test
+    fun freeDemo_withConclusion_returnsUnexpectedConclusion() {
+        val errors = (SpeechSectionValidator.validate(
+            listOf(
+                section("b", SectionRole.BODY, 0),
+                section("c", SectionRole.CONCLUSION, 1),
+            ),
+            DiscourseType.FREE_DEMO,
+        ) as SectionValidationResult.Invalid).errors
+        assertEquals(true, errors.contains(SectionValidationError.UNEXPECTED_CONCLUSION))
+    }
+
+    @Test
+    fun freeDemo_twoBodies_returnsWrongBodyCount() {
+        val errors = (SpeechSectionValidator.validate(
+            listOf(
+                section("b1", SectionRole.BODY, 0),
+                section("b2", SectionRole.BODY, 1),
+            ),
+            DiscourseType.FREE_DEMO,
+        ) as SectionValidationResult.Invalid).errors
+        assertEquals(true, errors.contains(SectionValidationError.WRONG_BODY_COUNT))
+    }
 }

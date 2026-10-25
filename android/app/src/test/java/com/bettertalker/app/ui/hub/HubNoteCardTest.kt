@@ -11,6 +11,7 @@ class HubNoteCardTest {
     @Test
     fun badge_ministerioEDemonstracao() {
         assertEquals("Demonstração", hubBadgeLabel(DiscourseType.MINISTRY_PART.name))
+        assertEquals("Demonstração", hubBadgeLabel(DiscourseType.FREE_DEMO.name))
     }
 
     @Test

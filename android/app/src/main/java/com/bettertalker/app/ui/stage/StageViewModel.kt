@@ -130,7 +130,8 @@ class StageViewModel(
             // Modo Teleprompter: turnos do diálogo — só demonstrações V&M com
             // ≥2 papéis distintos (evita falso positivo em negritos de discurso).
             val isDemo = type ==
-                com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART
+                com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART ||
+                type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO
             val parsed = if (isDemo) {
                 sections.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
             } else {

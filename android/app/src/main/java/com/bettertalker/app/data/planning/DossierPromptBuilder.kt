@@ -96,6 +96,11 @@ class DefaultDossierPromptBuilder(
         appendUnresolved(d)
     }
 
+    /** Demonstração V&M ou demonstração livre: diálogo, não discurso. */
+    private fun isDemoType(type: String?): Boolean =
+        type == DiscourseType.MINISTRY_PART.name ||
+            type == DiscourseType.FREE_DEMO.name
+
     /**
      * Fase A — princípio de MENTORIA no chat: a primeira resposta orienta;
      * o texto só sai quando o usuário pedir. Só entra no contextBlock (chat),
@@ -114,6 +119,8 @@ class DefaultDossierPromptBuilder(
             type == DiscourseType.TREASURES_TALK.name ||
             type == DiscourseType.MINISTRY_TALK.name
         val hint = when {
+            type == DiscourseType.FREE_DEMO.name ->
+                GenerationPrompts.FREE_DEMO_CHAT_HINT
             type == DiscourseType.MINISTRY_PART.name ->
                 GenerationPrompts.DEMO_SCRIPTWRITER_CHAT_HINT
             isSpeech && structuredSpeech -> GenerationPrompts.SPEECH_MENTOR_CHAT_HINT
@@ -122,7 +129,7 @@ class DefaultDossierPromptBuilder(
         appendLine(hint)
         val minutes = d.currentSection.minutes
         if (minutes > 0) {
-            if (type == DiscourseType.MINISTRY_PART.name) {
+            if (isDemoType(type)) {
                 appendLine(
                     "Duração da seção: $minutes min ≈ " +
                         "${SpeechPacing.targetTurns(minutes)} réplicas.",
@@ -160,7 +167,8 @@ class DefaultDossierPromptBuilder(
      */
     private fun StringBuilder.appendDemoFormat(d: Dossier) {
         // Fase A: MINISTRY_TALK (parte 6 "Discurso") NÃO é diálogo.
-        if (d.discourseType != DiscourseType.MINISTRY_PART.name) {
+        // FREE_DEMO é diálogo livre, mas continua sem S-38.
+        if (!isDemoType(d.discourseType)) {
             return
         }
         appendLine("## FORMATO DE DEMONSTRAÇÃO")

@@ -68,8 +68,8 @@ class OutlineConverter(
      * Converte [parsed] em [OutlineConversion].
      *
      * S-34 (default): INTRO + N BODY + CONCLUSION. Tipos curtos
-     * (TREASURES_TALK/MINISTRY_PART/AVULSO): exatamente 1 OutlineSection vira
-     * o único BODY (order 0); intro/conclusion nulos.
+     * (TREASURES_TALK/MINISTRY_PART/FREE_DEMO/AVULSO): exatamente 1
+     * OutlineSection vira o único BODY (order 0); intro/conclusion nulos.
      *
      * DÉBITO (3.2.4b):
      * - Detecção automática de tipo vem na 3.2.4d (aqui o tipo é parâmetro).

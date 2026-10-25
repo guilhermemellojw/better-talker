@@ -148,25 +148,14 @@ class HomeViewModel(
         return PasteOutcome(id, plan.notice)
     }
 
-    /** Fase 1: Discurso — nota tipada S-34 vazia. */
-    suspend fun createSpeechNote(): String = repo.createTypedNote(
-        folderId.value, "Nova nota", com.bettertalker.app.domain.speech.DiscourseType.S34_DISCOURSE,
-    )
-
-    /** Fase 1: Demonstração — nota tipada V&M com o BODY vazio pronto. */
-    suspend fun createDemoNote(): String = repo.createPastedNote(
-        folderId.value,
-        com.bettertalker.app.data.util.PastedNote(
-            title = "Demonstração",
-            discourseType = com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART,
-            plainText = "",
-            sections = listOf(
-                com.bettertalker.app.data.util.PastedSection(
-                    com.bettertalker.app.domain.speech.SectionRole.BODY, "Parte 1", 4, "",
-                ),
-            ),
-        ),
-    )
+    /**
+     * Fase 3 — cria a nota do zero a partir da estrutura sugerida.
+     * Seções nascem vazias; o Copilot desenvolve ponto a ponto.
+     */
+    suspend fun createNoteFromStructure(
+        title: String,
+        structure: com.bettertalker.app.domain.planning.SuggestedStructure,
+    ): String = repo.createPastedNote(folderId.value, structure.toPastedNote(title))
     fun trash(id: String) = viewModelScope.launch { repo.trash(id) }
     fun togglePin(id: String) = viewModelScope.launch { repo.togglePin(id) }
     /** UX refactor: mover nota entre pastas (menu do card na Home). */

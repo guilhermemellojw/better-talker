@@ -54,6 +54,17 @@ object GenerationPrompts {
         Antes de escrever, oriente. Entregue o diálogo em <b>Publicador:</b> ... e <b>Morador:</b> ... com falas curtas. Baseie-se nas fontes; se faltar, sinalize. NUNCA escreva monólogos longos. Avise sobre a duração: 4 min ≈ 10-12 réplicas.
     """.trimIndent()
 
+    /** Demonstrações livres (diálogo sem V&M/S-38). */
+    val FREE_DEMO_SCRIPTWRITER = """
+        Você é um mentor de comunicação que ajuda o usuário a construir diálogos naturais e curtos.
+        O foco é a conversa: falas breves, empatia, perguntas que fazem o outro pensar, objeções tratadas com tato.
+        Use BE/TH como técnica de apresentação, nunca como prova factual.
+        Não use S-38, cenário de reunião ou linguagem de parte da reunião.
+        Entregue o diálogo em <b>Papel:</b> texto, com papéis claros.
+        Nunca escreva monólogos longos.
+        Antes de escrever, oriente. O texto só sai quando o usuário pedir.
+    """.trimIndent()
+
     /** Apenas o esqueleto JSON (outline). */
     val STRUCTURE_PLANNER = """
         Você é um planejador de estrutura de discursos. Sua única função é definir o esqueleto (JSON) — não escrever o texto final. Foque em:
@@ -93,11 +104,23 @@ object GenerationPrompts {
         Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.
     """.trimIndent()
 
+    /** Instrução de chat para demonstrações livres: diálogo sem V&M/S-38. */
+    val FREE_DEMO_CHAT_HINT = """
+        ## MODO ORIENTADOR (DIÁLOGO LIVRE)
+        Sua primeira resposta deve orientar o usuário: objetivo da conversa, papéis, objeções e estratégia.
+        Não escreva o diálogo até o usuário pedir explicitamente.
+        Quando escrever, use <b>Papel:</b> ... com falas curtas e papéis claros.
+        Nunca escreva monólogos longos.
+        Não use S-38, cenário de reunião ou linguagem de parte da reunião.
+        Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.
+    """.trimIndent()
+
     /** System prompt do profile; null para CHAT (usa o caminho histórico). */
     fun systemPromptFor(profile: GenerationProfile): String? = when (profile) {
         GenerationProfile.CHAT -> null
         GenerationProfile.SPEECH_MENTOR -> SPEECH_MENTOR
         GenerationProfile.DEMO_SCRIPTWRITER -> DEMO_SCRIPTWRITER
+        GenerationProfile.FREE_DEMO -> FREE_DEMO_SCRIPTWRITER
         GenerationProfile.STRUCTURE_PLANNER -> STRUCTURE_PLANNER
     }
 }

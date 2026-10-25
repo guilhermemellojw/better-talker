@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.domain.planning.GenerationProfile
+import com.bettertalker.app.domain.speech.DiscourseType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -118,5 +119,19 @@ class GenerationPromptsTest {
         val p = GenerationPrompts.SPEECH_MENTOR
         assertTrue(p.contains("conclusão que recapitula e incentiva"))
         assertTrue(p.contains("aplicação ao longo do discurso"))
+    }
+
+    // ---------- Fase 3: demonstração livre ----------
+
+    @Test
+    fun freeDemo_mapeiaParaPersonaNeutra() {
+        assertEquals(
+            GenerationProfile.FREE_DEMO,
+            GenerationProfile.forDiscourseType(DiscourseType.FREE_DEMO.name),
+        )
+        val p = GenerationPrompts.systemPromptFor(GenerationProfile.FREE_DEMO).orEmpty()
+        assertTrue(p.contains("mentor de comunicação"))
+        assertFalse(p.contains("Faça Seu Melhor"))
+        assertTrue(GenerationPrompts.FREE_DEMO_CHAT_HINT.contains("Não use S-38"))
     }
 }

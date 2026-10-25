@@ -6,16 +6,29 @@ import org.junit.Test
 class DiscourseTypeTest {
 
     @Test
-    fun enum_has5Values() {
+    fun enum_has6Values() {
         assertEquals(
             listOf(
                 DiscourseType.S34_DISCOURSE,
                 DiscourseType.TREASURES_TALK,
                 DiscourseType.MINISTRY_PART,
+                DiscourseType.FREE_DEMO,
                 DiscourseType.MINISTRY_TALK,
                 DiscourseType.AVULSO,
             ),
             DiscourseType.values().toList(),
+        )
+    }
+
+    @Test
+    fun freeDemo_isDistinctFromMinistryPart() {
+        assertEquals(
+            DiscourseType.FREE_DEMO,
+            DiscourseType.fromNameOrDefault("FREE_DEMO"),
+        )
+        assertEquals(
+            DiscourseType.MINISTRY_PART,
+            DiscourseType.fromNameOrDefault("MINISTRY_PART"),
         )
     }
 

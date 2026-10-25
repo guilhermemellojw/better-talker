@@ -154,7 +154,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 }.getOrDefault(DiscourseType.S34_DISCOURSE)
                 sectionsController.discourseType = type
                 // UX de demonstrações (V&M): chips de papel + badge no card.
-                _isDemonstration.value = type == DiscourseType.MINISTRY_PART
+                _isDemonstration.value =
+                    type == DiscourseType.MINISTRY_PART || type == DiscourseType.FREE_DEMO
                 if (!loadedOnce) {
                     applyExternal(note.title, note.richHtml, note.mdText,
                         note.folderId, note.colorArgb, note.pinned)
