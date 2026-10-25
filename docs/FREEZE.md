@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -57,6 +57,21 @@ verdes**.
 | Dica vazia | Texto “Converse com o Copilot…” removido; placeholder do editor assume. |
 | Acessibilidade | Alvos de 48dp (swatches, linhas compactas, handle, menu), labels/headings, seção em português, grid de cores selecionável. |
 | Validação | A34 via uiautomator (content-desc/bounds) em Home, Editor e Chat; TalkBack/Scanner manual ficam para a revisão. |
+
+## Resolvidos no bloco Confiança — 2026-10-25
+
+Commit `ae041b4` · validação no A34 (S-34, V&M, FREE_DEMO) · **2307 testes JVM
+verdes**.
+
+| Item | Decisão/ação |
+|---|---|
+| lmd apêndice | `RefDetector` reconhece `lmd apêndice A ponto N`, casa a edição e usa o ponto no conteúdo. |
+| Checklist | `NoteSourcesResolver` coleta outline + seções + subpontos + plainText/mdText, deduplica e classifica. |
+| UI | Chip “Fontes X/Y” no editor + `SourcesSheet`; `RESOLVED`, `EDITION_MISSING` (“Baixar/Importar”) e `TEXT_NOT_FOUND` (“Abrir edição”). |
+| Sem fonte | Nota sem refs mostra “Esta nota não cita fontes…” no sheet (menu ⋮) e não exibe chip. |
+| Prontidão | `readNoteReadiness` e `SetupBanner` passam a considerar refs da nota, não só outline. |
+| Prompt | Inalterado; o checklist é preventivo e informativo. |
+| Validação A34 | `lmd apêndice` e refs bíblicas/publicações no chip/sheet; `EDITION_MISSING` e `RESOLVED` vistos. `TEXT_NOT_FOUND` coberto por teste puro. |
 
 ## Decisões pendentes (não remover ainda)
 
