@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -87,6 +87,24 @@ Commit `93c7b02` · validação no A34 (S-34 0/69; V&M 0/2; Tesouros 5/7) ·
 | Resumo | X de Y + contagem `publicação resolvidas/total`. |
 | Ações | Por grupo (baixar publicação; Abrir Biblioteca na TNM) e por item. |
 | Acessibilidade | Cabeçalhos com contagem/status e alvos de 48dp. |
+
+## Refs unificadas e aquisição — 2026-10-25
+
+Commit `c53c0b7` · validação no A34 e no tablet (S-34 54/69; V&M 1/2;
+TNM 53/53; download/importação de `g_T_200711.jwpub`) · **2339 testes JVM
+verdes**.
+
+| Item | Decisão/ação |
+|---|---|
+| Coletor único | `NoteRefsCollector` lê título, mdText/plainText, outline, seções e subpontos; dedup canônico. |
+| Copilot | `citedSources`/`refScopeIds` recebem a mesma lista do checklist; Bíblia da TNM vira evidência. |
+| Código de refs | `PublicationRef.article/chapter` sobrevivem ao JSON de seções/subpontos. |
+| Aquisição | Ação primária “Baixar no jw.org” abre o `JwDownloadDialog` (WebView), nunca download direto por API. |
+| Já baixei | “Já baixei — procurar em Downloads” abre a Biblioteca com `scanDownloads` automático. |
+| Estados | `DOWNLOADING`/`INDEXING` no checklist; `attachmentDao.observe()` revalida sozinho até `No acervo`. |
+| URLs antigas | Sentinela dia 1 usa `wpYYYYMMDD` (pública); dia 15 usa `wYYYYMMDD` (estudo). |
+| Biblioteca | “No acervo” só com anexo indexado; falha/placeholder não conta. |
+| Prompt | O caminho de geração não mudou; o coletor só amplia as refs que chegam ao prompt. |
 
 ## Decisões pendentes (não remover ainda)
 
