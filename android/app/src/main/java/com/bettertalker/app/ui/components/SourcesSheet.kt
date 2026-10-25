@@ -2,40 +2,63 @@ package com.bettertalker.app.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.util.BookGroup
+import com.bettertalker.app.data.util.GroupStatus
 import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.NoteSources
+import com.bettertalker.app.data.util.SourceGroup
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.groupNoteSources
 import com.bettertalker.app.ui.copilot.DownloadCtl
 import kotlinx.coroutines.CoroutineScope
 
 /**
  * A2 (confiança) — checklist preventivo de fontes da nota.
  *
- * O Copilot continua igual; o sheet só mostra o que está no acervo e o que
- * falta baixar/importar. Ações de download reutilizam [DownloadCtl] quando o
- * caller passa um (editor com CopilotViewModel); sem ele, abrem a página
- * oficial no navegador.
+ * Agrupado por livro bíblico ou edição de publicação para não virar uma lista
+ * única em notas S-34 (69 refs). Grupos >3 nascem fechados; ≤3 abertos.
+ * O Copilot continua igual; o sheet só informa o que está no acervo.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,71 +73,142 @@ fun SourcesSheet(
 ) {
     val ctx = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val groups = remember(sources) { groupNoteSources(sources.sources) }
+    val expanded = remember(sources) {
+        mutableStateMapOf<String, Boolean>().apply {
+            groups.forEach {
+                // TNM é a base e costuma ser grande: nasce fechada.
+                put(it.key, it.key != "pub:nwt" && it.total <= 3)
+            }
+        }
+    }
+    val expandedBooks = remember(sources) {
+        mutableStateMapOf<String, Boolean>().apply {
+            groups.flatMap { it.bookGroups }.forEach { book ->
+                put("${book.book}", book.total <= 3)
+            }
+        }
+    }
     if (downloadCtl != null && scope != null) downloadCtl.host(scope)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .then(if (sources.total > 0) Modifier.fillMaxHeight(0.9f) else Modifier)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 "Fontes da nota",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(
-                if (sources.total == 0) {
-                    "Esta nota não cita fontes. O Copilot vai usar princípios gerais."
-                } else {
-                    "${sources.resolved} de ${sources.total} fontes no acervo."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (sources.total > 0 && sources.resolved == 0) {
+            if (sources.total == 0) {
                 Text(
-                    "Nenhuma fonte citada está no acervo. Baixe/importe para o Copilot citar com precisão.",
+                    "Esta nota não cita fontes. O Copilot vai usar princípios gerais.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
-            }
-
-            val bibles = sources.sources.filter { it.kind == SourceKind.BIBLE }
-            val publications = sources.sources.filter { it.kind == SourceKind.PUBLICATION }
-            if (bibles.isNotEmpty()) {
-                SectionTitle("Bíblia")
-                bibles.forEach { source ->
-                    SourceRow(
-                        source = source,
-                        ctx = ctx,
-                        downloadCtl = downloadCtl,
-                        scope = scope,
-                        onDownloaded = onDownloaded,
-                        onOpenLibrary = onOpenLibrary,
-                        onRefresh = onRefresh,
+            } else {
+                Text(
+                    "${sources.resolved} de ${sources.total} no acervo.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    groups.joinToString(" · ") { "${it.label} ${it.resolved}/${it.total}" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                if (sources.resolved == 0) {
+                    Text(
+                        "Nenhuma fonte citada está no acervo. Baixe/importe para o Copilot citar com precisão.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-            }
-            if (publications.isNotEmpty()) {
-                SectionTitle("Publicações")
-                publications.forEach { source ->
-                    SourceRow(
-                        source = source,
-                        ctx = ctx,
-                        downloadCtl = downloadCtl,
-                        scope = scope,
-                        onDownloaded = onDownloaded,
-                        onOpenLibrary = onOpenLibrary,
-                        onRefresh = onRefresh,
-                    )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    groups.forEach { group ->
+                        item(key = group.key) {
+                            GroupHeader(
+                                group = group,
+                                expanded = expanded[group.key] == true,
+                                onToggle = {
+                                    expanded[group.key] = !(expanded[group.key] ?: false)
+                                },
+                                ctx = ctx,
+                                downloadCtl = downloadCtl,
+                                scope = scope,
+                                onDownloaded = onDownloaded,
+                                onOpenLibrary = onOpenLibrary,
+                            )
+                        }
+                        if (expanded[group.key] == true) {
+                            if (group.kind == SourceKind.BIBLE && group.bookGroups.isNotEmpty()) {
+                                group.bookGroups.forEach { book ->
+                                    item(key = "${group.key}|${book.book}") {
+                                        BookHeader(
+                                            book = book,
+                                            expanded = expandedBooks[book.book] == true,
+                                            onToggle = {
+                                                expandedBooks[book.book] =
+                                                    !(expandedBooks[book.book] ?: false)
+                                            },
+                                        )
+                                    }
+                                    if (expandedBooks[book.book] == true) {
+                                        itemsIndexed(
+                                            book.sources,
+                                            key = { index, source ->
+                                                "${group.key}|${book.book}|$index|${source.ref}"
+                                            },
+                                        ) { _, source ->
+                                            SourceRow(
+                                                source = source,
+                                                ctx = ctx,
+                                                downloadCtl = downloadCtl,
+                                                scope = scope,
+                                                onDownloaded = onDownloaded,
+                                                onOpenLibrary = onOpenLibrary,
+                                                onRefresh = onRefresh,
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                itemsIndexed(
+                                    group.sources,
+                                    key = { index, source ->
+                                        "${group.key}|$index|${source.ref}|${source.status}"
+                                    },
+                                ) { _, source ->
+                                    SourceRow(
+                                        source = source,
+                                        ctx = ctx,
+                                        downloadCtl = downloadCtl,
+                                        scope = scope,
+                                        onDownloaded = onDownloaded,
+                                        onOpenLibrary = onOpenLibrary,
+                                        onRefresh = onRefresh,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
-
-            HorizontalDivider()
+            HorizontalDivider(Modifier.padding(top = 8.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -127,13 +221,158 @@ fun SourcesSheet(
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 8.dp),
-    )
+private fun GroupHeader(
+    group: SourceGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    ctx: android.content.Context,
+    downloadCtl: DownloadCtl?,
+    scope: CoroutineScope?,
+    onDownloaded: () -> Unit,
+    onOpenLibrary: () -> Unit,
+) {
+    val statusText = when (group.status) {
+        GroupStatus.OK -> "todas no acervo"
+        GroupStatus.PARTIAL -> "algumas no acervo"
+        GroupStatus.MISSING -> "nenhuma no acervo"
+    }
+    val statusIcon = when (group.status) {
+        GroupStatus.OK -> Icons.Default.CheckCircle
+        GroupStatus.PARTIAL -> Icons.Default.Warning
+        GroupStatus.MISSING -> Icons.Default.Download
+    }
+    val statusTint = when (group.status) {
+        GroupStatus.OK -> MaterialTheme.colorScheme.secondary
+        GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
+        GroupStatus.MISSING -> MaterialTheme.colorScheme.error
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 48.dp)
+                .clickable { onToggle() }
+                .semantics {
+                    val noun = if (group.total == 1) "referência" else "referências"
+                    contentDescription = "${group.label}, ${group.total} $noun, $statusText"
+                    stateDescription = if (expanded) "Expandido" else "Recolhido"
+                },
+        ) {
+            Icon(
+                statusIcon,
+                contentDescription = null,
+                tint = statusTint,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "${group.label} (${group.total})",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (group.kind == SourceKind.BIBLE) {
+            TextButton(
+                onClick = onOpenLibrary,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) { Text("Abrir Biblioteca") }
+        } else if (group.status == GroupStatus.MISSING) {
+            val actionSource = group.sources.firstOrNull {
+                it.status == SourceStatus.EDITION_MISSING
+            } ?: group.sources.firstOrNull()
+            val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
+                ?.takeIf { it.isNotBlank() }
+            val canDirect = actionSource?.refStatus?.let {
+                it.apiPub != null || it.probePub != null
+            } == true
+            if (url != null || canDirect) {
+                TextButton(
+                    onClick = {
+                        if (downloadCtl != null && actionSource?.refStatus != null && url != null) {
+                            downloadCtl.openPage(ctx, url, onDownloaded)
+                        } else if (downloadCtl != null && actionSource?.refStatus != null &&
+                            canDirect && scope != null
+                        ) {
+                            downloadCtl.downloadDirect(
+                                ctx, scope, actionSource.refStatus, onDownloaded,
+                            )
+                        } else if (url != null) {
+                            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Baixar/Importar") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookHeader(
+    book: BookGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val statusText = when (book.status) {
+        GroupStatus.OK -> "todas no acervo"
+        GroupStatus.PARTIAL -> "algumas no acervo"
+        GroupStatus.MISSING -> "nenhuma no acervo"
+    }
+    val statusIcon = when (book.status) {
+        GroupStatus.OK -> Icons.Default.CheckCircle
+        GroupStatus.PARTIAL -> Icons.Default.Warning
+        GroupStatus.MISSING -> Icons.Default.Download
+    }
+    val statusTint = when (book.status) {
+        GroupStatus.OK -> MaterialTheme.colorScheme.secondary
+        GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
+        GroupStatus.MISSING -> MaterialTheme.colorScheme.error
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable { onToggle() }
+            .semantics {
+                val noun = if (book.total == 1) "referência" else "referências"
+                contentDescription = "${book.label}, ${book.total} $noun, $statusText"
+                stateDescription = if (expanded) "Expandido" else "Recolhido"
+            },
+    ) {
+        Spacer(Modifier.width(28.dp))
+        Icon(
+            statusIcon,
+            contentDescription = null,
+            tint = statusTint,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "${book.label} (${book.total})",
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
@@ -208,8 +447,8 @@ private fun SourceRow(
                             downloadCtl.downloadDirect(ctx, scope, source.refStatus, onDownloaded)
                         }) { Text("Baixar direto") }
                     }
-                    TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
                 }
+                TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
             }
             SourceStatus.TEXT_NOT_FOUND -> {
                 Row {
