@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -72,6 +72,21 @@ verdes**.
 | Prontidão | `readNoteReadiness` e `SetupBanner` passam a considerar refs da nota, não só outline. |
 | Prompt | Inalterado; o checklist é preventivo e informativo. |
 | Validação A34 | `lmd apêndice` e refs bíblicas/publicações no chip/sheet; `EDITION_MISSING` e `RESOLVED` vistos. `TEXT_NOT_FOUND` coberto por teste puro. |
+
+## Agrupamento do sheet — 2026-10-25
+
+Commit `93c7b02` · validação no A34 (S-34 0/69; V&M 0/2; Tesouros 5/7) ·
+**2314 testes JVM verdes**.
+
+| Item | Decisão/ação |
+|---|---|
+| Agrupamento primário | Publicação: TNM (`nwt`) única; `w25.07`, `lmd`, `th`… por edição. |
+| TNM | Subgrupos por livro, ordem canônica; refs por capítulo/versículo. |
+| Ordem | Publicações específicas faltantes primeiro, TNM, publicações específicas OK. |
+| Expansão | ≤3 aberto; >3 fechado; TNM fechada; livros da TNM ≤3 abertos. |
+| Resumo | X de Y + contagem `publicação resolvidas/total`. |
+| Ações | Por grupo (baixar publicação; Abrir Biblioteca na TNM) e por item. |
+| Acessibilidade | Cabeçalhos com contagem/status e alvos de 48dp. |
 
 ## Decisões pendentes (não remover ainda)
 
