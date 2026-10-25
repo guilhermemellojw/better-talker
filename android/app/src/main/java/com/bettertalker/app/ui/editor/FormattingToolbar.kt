@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
@@ -63,6 +64,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.mohamedrejeb.richeditor.model.HeadingStyle
@@ -173,7 +178,9 @@ fun EditorFormattingToolbar(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 SheetTitle("Cor de fonte")
-                                ColorGrid(fontColorList, curSpan.color) { onFontColor(it); tabletPicker = null }
+                                ColorGrid(fontColorList, curSpan.color, FONT_COLOR_NAMES) {
+                                    onFontColor(it); tabletPicker = null
+                                }
                             }
                         }
                     }
@@ -207,7 +214,11 @@ fun EditorFormattingToolbar(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 SheetTitle("Marca-texto")
-                                ColorGrid(HIGHLIGHT_COLORS, curSpan.background) { onHighlight(it); tabletPicker = null }
+                                ColorGrid(
+                                    HIGHLIGHT_COLORS,
+                                    curSpan.background,
+                                    HIGHLIGHT_COLOR_NAMES,
+                                ) { onHighlight(it); tabletPicker = null }
                             }
                         }
                     }
@@ -285,6 +296,7 @@ fun EditorFormattingToolbar(
                     title = "Cor de fonte",
                     colors = fontColorList,
                     current = curSpan.color,
+                    names = FONT_COLOR_NAMES,
                     onPick = onFontColor,
                     onDismiss = { sheet = null },
                 )
@@ -292,6 +304,7 @@ fun EditorFormattingToolbar(
                     title = "Marca-texto",
                     colors = HIGHLIGHT_COLORS,
                     current = curSpan.background,
+                    names = HIGHLIGHT_COLOR_NAMES,
                     onPick = onHighlight,
                     onDismiss = { sheet = null },
                 )
@@ -323,10 +336,16 @@ internal fun fontColors(dark: Boolean, onSurface: Color = Color.Black): List<Col
     Color(0xFF388E3C), Color(0xFF1976D2), Color(0xFF7B1FA2),
     if (dark) onSurface else Color.Black
 )
+private val FONT_COLOR_NAMES = listOf(
+    "Vermelho", "Laranja", "Amarelo", "Verde", "Azul", "Roxo", "Preto",
+)
 // Cores de marca-texto
 private val HIGHLIGHT_COLORS = listOf(
     Color(0xFFFFFF00), Color(0xFFA5FF8A), Color(0xFF8AD4FF),
     Color(0xFFFFB3BA), Color(0xFFFFE08A)
+)
+private val HIGHLIGHT_COLOR_NAMES = listOf(
+    "Amarelo", "Verde", "Azul", "Rosa", "Laranja",
 )
 
 @Composable
@@ -364,19 +383,35 @@ private fun SheetTitle(text: String) {
 private fun ColorGrid(
     colors: List<Color>,
     current: Color,
+    names: List<String> = emptyList(),
     onPick: (Color) -> Unit,
 ) {
+    val all = listOf(Color.Unspecified) + colors
+    val allNames = listOf("Sem cor") + names
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        (listOf(Color.Unspecified) + colors).chunked(5).forEach { row ->
+        all.withIndex().chunked(5).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                row.forEach { c ->
+                row.forEach { (index, c) ->
                     val selected = if (c == Color.Unspecified) current == Color.Unspecified
                     else current == c
+                    val name = allNames.getOrElse(index) { "Cor ${index + 1}" }
                     Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .clickable { onPick(c) },
+                            .selectable(
+                                selected = selected,
+                                role = Role.RadioButton,
+                                onClick = { onPick(c) },
+                            )
+                            .semantics {
+                                contentDescription = name
+                                stateDescription = if (selected) {
+                                    "Selecionada"
+                                } else {
+                                    "Não selecionada"
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
@@ -439,6 +474,7 @@ private fun ColorPickerSheetContent(
     title: String,
     colors: List<Color>,
     current: Color,
+    names: List<String> = emptyList(),
     onPick: (Color) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -450,7 +486,7 @@ private fun ColorPickerSheetContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SheetTitle(title)
-        ColorGrid(colors, current) { onPick(it); onDismiss() }
+        ColorGrid(colors, current, names) { onPick(it); onDismiss() }
     }
 }
 

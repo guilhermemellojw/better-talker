@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -61,9 +63,11 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.domain.speech.SectionRole
@@ -159,24 +163,33 @@ fun SectionCardEditor(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    // Sem teto de linhas: a descrição da parte ("Colar e
-                    // Pronto" v2) vive aqui — cortar esconderia as referências.
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .weight(1f)
                         .clickable(enabled = !readOnly) { showTitleDialog = true },
                 )
-                if (isDemonstration) {
-                    Spacer(Modifier.width(8.dp))
+                if (isBody && state.section.minutes > 0) {
+                    Spacer(Modifier.width(4.dp))
                     Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        shape = MaterialTheme.shapes.small,
+                        onClick = { showMinutesDialog = true },
+                        enabled = !readOnly,
+                        shape = MaterialTheme.shapes.extraSmall,
+                        color = Color.Transparent,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     ) {
-                        Text(
-                            "Demonstração",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
+                        Box(
+                            Modifier
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "${state.section.minutes} min",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 // Fase 1/2: o ✨ vive no cabeçalho do card ativo, junto ao
@@ -185,7 +198,7 @@ fun SectionCardEditor(
                 if (isActiveSection && !readOnly) {
                     IconButton(
                         onClick = onCopilot,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             Icons.Default.AutoAwesome,
@@ -194,6 +207,19 @@ fun SectionCardEditor(
                         )
                     }
                 }
+                SectionMenuButton(
+                    sectionId = state.section.id,
+                    readOnly = readOnly,
+                    isFirst = isFirstSection,
+                    isLast = isLastSection,
+                    showRoleChange = true,
+                    onRoleChange = onRoleChange,
+                    onMoveUp = onMoveSectionUp,
+                    onMoveDown = onMoveSectionDown,
+                    onRemove = { confirmDelete = true },
+                    showUnapprove = state.section.approvedAt != null,
+                    onUnapprove = onUnapproveSection,
+                )
             }
         }
 
@@ -212,7 +238,7 @@ fun SectionCardEditor(
                         shape = RoundedCornerShape(12.dp),
                     ) else Modifier
                 )
-                .semantics { contentDescription = "Seção ${state.section.role.name}" }
+                .semantics { contentDescription = "Seção ${sectionRoleLabel(state.section.role)}" }
                 .clickable(enabled = !isActiveSection) { onActivate() },
         ) {
             // #7d3b: conteúdo + rodapé (handle ≡, minutos, ⋮) no pé do card.
@@ -288,6 +314,7 @@ fun SectionCardEditor(
                                 // (sub-pontos) não se aplica ao diálogo.
                                 if (!isDemonstration) {
                                     ReasoningLine(
+                                        sectionId = state.section.id,
                                         subPoints = state.subPoints,
                                         readOnly = readOnly,
                                         onUpdateOutlineText = onUpdateSubPointOutlineText,
@@ -321,7 +348,8 @@ fun SectionCardEditor(
                     }
                 }
 
-                // #7d3b: rodapé — handle (D&D) + minutos (BODY, se > 0) + ⋮.
+                // Rodapé mínimo: handle de D&D + chips de demonstração.
+                // Minutos, ✨ e ⋮ vivem no cabeçalho.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -354,41 +382,6 @@ fun SectionCardEditor(
                             label = { Text("+ Morador") },
                         )
                     }
-                    Spacer(Modifier.weight(1f))
-                    if (isBody && state.section.minutes > 0) {
-                        // #7d3b-b: toque no chip abre o diálogo de edição
-                        // (minutos não têm mais campo inline no card).
-                        Surface(
-                            onClick = { showMinutesDialog = true },
-                            enabled = !readOnly,
-                            shape = MaterialTheme.shapes.extraSmall,
-                            color = Color.Transparent,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                        ) {
-                            Text(
-                                "${state.section.minutes} min",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    SectionMenuButton(
-                        sectionId = state.section.id,
-                        readOnly = readOnly,
-                        isFirst = isFirstSection,
-                        isLast = isLastSection,
-                        // #7d3b: o chip de papel saiu; INTRO/CONCLUSÃO mudam de
-                        // papel pelo ⋮ (mesma opção que o BODY já tinha).
-                        showRoleChange = true,
-                        onRoleChange = onRoleChange,
-                        onMoveUp = onMoveSectionUp,
-                        onMoveDown = onMoveSectionDown,
-                        onRemove = { confirmDelete = true },
-                        showUnapprove = state.section.approvedAt != null,
-                        onUnapprove = onUnapproveSection,
-                    )
                 }
             }
         }
@@ -478,9 +471,16 @@ fun SectionCardEditor(
     }
 }
 
-/** LINHA DE RACIOCÍNIO — subtópicos como lista numerada (estrutura). */
+/**
+ * LINHA DE RACIOCÍNIO — subtópicos como lista numerada (estrutura).
+ *
+ * Colapsável: vazia mostra só "+ Estrutura"; até 5 subpontos abre por padrão;
+ * acima disso fecha por padrão (S-34 com dezenas de subpontos não domina o
+ * card). O cabeçalho é um alvo de 48dp e anuncia contagem/estado no TalkBack.
+ */
 @Composable
 private fun ReasoningLine(
+    sectionId: String,
     subPoints: List<SubPoint>,
     readOnly: Boolean,
     onUpdateOutlineText: (String, String) -> Unit,
@@ -488,44 +488,92 @@ private fun ReasoningLine(
     onRemoveSubPoint: (String) -> Unit,
     onAddSubPoint: () -> Unit,
 ) {
+    var expanded by remember(sectionId) {
+        mutableStateOf(subPoints.size in 1..5)
+    }
+    val hasSubPoints = subPoints.isNotEmpty()
+
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            "LINHA DE RACIOCÍNIO",
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (subPoints.isEmpty()) {
-            Text(
-                "Adicione os subtópicos que orientam este tópico.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        } else {
-            subPoints.forEachIndexed { index, sp ->
-                key(sp.id) {
-                    SubPointRow(
-                        index = index,
-                        subPoint = sp,
-                        isFirst = index == 0,
-                        isLast = index == subPoints.lastIndex,
-                        readOnly = readOnly,
-                        onUpdateOutlineText = { onUpdateOutlineText(sp.id, it) },
-                        onMoveUp = { onMoveSubPoint(sp.id, MoveDirection.UP) },
-                        onMoveDown = { onMoveSubPoint(sp.id, MoveDirection.DOWN) },
-                        onRemove = { onRemoveSubPoint(sp.id) },
-                    )
+        if (!hasSubPoints && !expanded) {
+            if (!readOnly) {
+                TextButton(
+                    onClick = { expanded = true },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("+ Estrutura")
                 }
             }
-        }
-        if (!readOnly) {
-            TextButton(
-                onClick = onAddSubPoint,
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable { expanded = !expanded }
+                    .semantics {
+                        contentDescription = if (hasSubPoints) {
+                            "Linha de raciocínio, ${subPoints.size} subtópicos"
+                        } else {
+                            "Linha de raciocínio"
+                        }
+                        stateDescription = if (expanded) "Expandida" else "Recolhida"
+                    },
             ) {
-                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Adicionar subtópico")
+                Text(
+                    if (hasSubPoints) {
+                        "LINHA DE RACIOCÍNIO (${subPoints.size})"
+                    } else {
+                        "LINHA DE RACIOCÍNIO"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                if (!hasSubPoints) {
+                    Text(
+                        "Adicione os subtópicos que orientam este tópico.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                } else {
+                    subPoints.forEachIndexed { index, sp ->
+                        key(sp.id) {
+                            SubPointRow(
+                                index = index,
+                                subPoint = sp,
+                                isFirst = index == 0,
+                                isLast = index == subPoints.lastIndex,
+                                readOnly = readOnly,
+                                onUpdateOutlineText = { onUpdateOutlineText(sp.id, it) },
+                                onMoveUp = { onMoveSubPoint(sp.id, MoveDirection.UP) },
+                                onMoveDown = { onMoveSubPoint(sp.id, MoveDirection.DOWN) },
+                                onRemove = { onRemoveSubPoint(sp.id) },
+                            )
+                        }
+                    }
+                }
+                if (!readOnly) {
+                    TextButton(
+                        onClick = onAddSubPoint,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Adicionar subtópico")
+                    }
+                }
             }
         }
     }
@@ -552,7 +600,9 @@ private fun SubPointRow(
 
     Row(
         verticalAlignment = Alignment.Top,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
     ) {
         Text(
             "${index + 1}.",
@@ -587,6 +637,7 @@ private fun SubPointRow(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 48.dp)
                         .clickable(enabled = !readOnly) {
                             draft = subPoint.outlineText
                             editing = true
@@ -624,7 +675,7 @@ private fun SubPointRow(
         }
         if (!readOnly) {
             Box {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.Default.MoreVert, "Menu do subtópico",
                         modifier = Modifier.size(18.dp),
@@ -725,13 +776,6 @@ private fun MiniSpeechBlock(
                     )
                 }
             }
-            if (!hasText) {
-                Text(
-                    "Converse com o Copilot para desenvolver este tópico e depois crie o mini discurso.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
         SectionContentEditor(
             editorKey = miniKey,
@@ -760,11 +804,10 @@ private fun SectionDragHandle(
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
 ) {
-    Icon(
-        imageVector = Icons.Default.DragHandle,
-        contentDescription = "Reordenar seção",
+    Box(
         modifier = Modifier
-            .size(24.dp)
+            .size(48.dp)
+            .semantics { contentDescription = "Reordenar seção" }
             .pointerInput(Unit) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { onDragStart() },
@@ -776,7 +819,21 @@ private fun SectionDragHandle(
                     },
                 )
             },
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.DragHandle,
+            contentDescription = null,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+/** Nome amigável do papel para o TalkBack (nunca o enum em inglês). */
+private fun sectionRoleLabel(role: SectionRole): String = when (role) {
+    SectionRole.INTRO -> "Introdução"
+    SectionRole.BODY -> "Ponto"
+    SectionRole.CONCLUSION -> "Conclusão"
 }
 
 @Composable
@@ -802,7 +859,7 @@ private fun SectionMenuButton(
     Box(modifier = modifier) {
         IconButton(
             onClick = { menuOpen = true },
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 Icons.Default.MoreVert,

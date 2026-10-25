@@ -2,8 +2,10 @@ package com.bettertalker.app.ui.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +75,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -191,14 +197,51 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        NOTE_COLORS.forEach { c ->
+                        NOTE_COLORS.forEachIndexed { index, c ->
+                            val selected = color == c.value.toLong()
+                            val name = FOLDER_COLOR_NAMES.getOrElse(index) { "Cor ${index + 1}" }
                             Box(
-                                Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(c)
-                                    .clickable { color = c.value.toLong() }
-                            )
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .selectable(
+                                        selected = selected,
+                                        role = Role.RadioButton,
+                                        onClick = { color = c.value.toLong() },
+                                    )
+                                    .semantics {
+                                        contentDescription = "Cor $name"
+                                        stateDescription = if (selected) {
+                                            "Selecionada"
+                                        } else {
+                                            "Não selecionada"
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(c)
+                                        .then(
+                                            if (selected) Modifier.border(
+                                                2.dp,
+                                                Color(0xFF1B1B1B),
+                                                CircleShape,
+                                            ) else Modifier
+                                        ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (selected) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color(0xFF1B1B1B),
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -593,6 +636,8 @@ private fun CreateNoteSheet(
         }
     }
 }
+
+private val FOLDER_COLOR_NAMES = listOf("Amarelo", "Azul", "Verde", "Rosa", "Cinza")
 
 @Composable
 private fun CreateNoteOption(

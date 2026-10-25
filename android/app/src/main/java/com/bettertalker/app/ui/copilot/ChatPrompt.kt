@@ -139,7 +139,8 @@ fun ChatPromptBar(
                     .then(
                         if (focusRequester != null) Modifier.focusRequester(focusRequester)
                         else Modifier
-                    ),
+                    )
+                    .semantics { contentDescription = "Mensagem para o Copilot" },
                 maxLines = 5,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,

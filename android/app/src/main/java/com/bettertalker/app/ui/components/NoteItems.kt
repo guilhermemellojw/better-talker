@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -54,7 +55,7 @@ fun NoteOverflowMenu(
 ) {
     if (onDelete == null && onTogglePin == null && onMove == null) return
     val showMenu = remember { mutableStateOf(false) }
-    IconButton(onClick = { showMenu.value = true }, modifier = Modifier.size(32.dp)) {
+    IconButton(onClick = { showMenu.value = true }, modifier = Modifier.size(48.dp)) {
         Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(20.dp))
     }
     DropdownMenu(expanded = showMenu.value, onDismissRequest = { showMenu.value = false }) {
@@ -163,6 +164,7 @@ fun NoteRowCompact(
     Row(
         Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable { onClick() }
             .padding(start = 16.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,

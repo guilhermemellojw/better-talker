@@ -103,6 +103,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
@@ -1563,7 +1564,9 @@ internal fun RenderBlock(
             // P1: pesos e lineHeights vêm da AppTypography.
             style = if (block.level >= 3) MaterialTheme.typography.titleMedium
             else MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(top = 4.dp)
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .semantics { heading() },
         )
         is MdBlock.Quote -> RenderQuote(block.text, mark)
         is MdBlock.Divider -> HorizontalDivider(
