@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`9730a37`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -118,6 +118,23 @@ JVM verdes**.
 | Alvo | 48dp no cabeçalho; `contentDescription="Copilot deste ponto"`. |
 | Validação | S-34 (2 cards), V&M (3 cards) e FREE_DEMO (1 card); clique abriu o chat com “Contexto: …”. |
 | Chat E2E | S-34 → ✨ do ponto → pergunta “Mateus 7:13”; resposta usou Mateus 7:13/14 e Romanos 6:23, refs de subpontos. |
+
+## Ensaio com análise (T3-A) — 2026-10-25
+
+Commit `9730a37` · validação no A34 (Stage S-34) · **2361 testes JVM
+verdes**.
+
+| Item | Decisão/ação |
+|---|---|
+| Entrada | STT nativo em modo sessão (`SessionSpeechRecognizer`), com reinício por segmentos. |
+| Métricas | `SpeechMetrics`: duração, palavras, wpm, cobertura por palavras de conteúdo e muletas. |
+| Feedback | `SpeechCoach`: 4 blocos + 1 exercício; sem nota/julgamento; “então” é indicador. |
+| Estado | `AnalysisState`: Idle → Listening → Processing → Result/Error; timer do Stage paralelo. |
+| UI | Microfone 48dp, banner “Ouvindo…/Analisando…”, sheet com métricas, blocos, TTS e descarte. |
+| Privacidade | Áudio não é gravado; transcrição só em memória e descartada ao fechar/calcular. |
+| Fallback | Erro de STT encerra com feedback parcial ou mensagem; timer/teleprompter continuam. |
+| Offline | `EXTRA_PREFER_OFFLINE` primeiro; fallback online se o serviço offline falhar. |
+| A34 | Banner, sheet, métricas/fallback, TTS e CTA de permissão negada validados. O `voice_recognition_service` do A34 estava apontando para o Google TTS (não-STT); após ajustar para o Google Recognition Service, o serviço iniciou, mas falhou com `ERROR_SERVER_DISCONNECTED`/`ERROR_TOO_MANY_REQUESTS`. Captura de fala real fica pendente de um aparelho com STT funcional. |
 
 ## Decisões pendentes (não remover ainda)
 
