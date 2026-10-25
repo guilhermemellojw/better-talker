@@ -9,7 +9,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-25)
 
-- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `9730a37`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise concluídos no A34 e no tablet**.
+- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `bb692ef`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise concluídos no A34 e no tablet**.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -17,9 +17,9 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **UX (card minimalista + acessibilidade):** minutos, ✨ e ⋮ no cabeçalho; linha de raciocínio colapsável (`+ Estrutura`, fechada acima de 5 subpontos); rodapé com handle e chips de demo; alvos de 48dp, labels, headings e swatches selecionáveis.
 - **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`No acervo`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Já baixei” abre a Biblioteca já procurando em Downloads.
 - **Refs unificadas:** `NoteRefsCollector` é a fonte única (título, mdText/plainText, esboço, seções e subpontos); checklist e Copilot usam a mesma lista, e a Bíblia da TNM entra como evidência no prompt.
-- **Ensaio com análise (T3-A):** STT nativo no Stage, métricas locais (tempo, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
+- **Ensaio com análise (T3-A):** STT nativo no Stage com controle explícito **iniciar → pausar → retomar → parar**; pausa/interrupção preservam a transcrição e nunca geram resultado automático. Métricas locais (tempo de fala e tempo de sessão, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** 2.361 testes JVM.
+- **Testes:** 2.370 testes JVM.
 - **Pendências de distribuição:** backup/keystore/chave de API (ver [FREEZE.md](docs/FREEZE.md) e a auditoria de 2026-10-19).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
