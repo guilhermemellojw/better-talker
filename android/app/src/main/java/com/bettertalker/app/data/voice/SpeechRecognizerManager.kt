@@ -41,7 +41,7 @@ internal fun voiceErrorMessage(error: Int): String = when (error) {
     SpeechRecognizer.ERROR_NO_MATCH -> "Não entendi — tente falar mais perto do microfone."
     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "O reconhecedor está ocupado. Tente de novo."
     SpeechRecognizer.ERROR_TOO_MANY_REQUESTS ->
-        "O serviço de voz está limitando os pedidos. Aguarde um instante."
+        "O serviço de voz está temporariamente limitado. Aguarde alguns minutos e toque em Retomar."
     SpeechRecognizer.ERROR_SERVER -> "O serviço de voz falhou. Tente de novo."
     SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
         "O serviço de voz desconectou. Tente de novo."

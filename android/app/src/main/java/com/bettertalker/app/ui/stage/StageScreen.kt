@@ -435,7 +435,11 @@ private fun StageAnalysisBanner(
                         color = StageRed,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text("Áudio não é gravado.", color = StageDim, fontSize = 11.sp)
+                    Text(
+                        "Áudio não é gravado · o serviço do sistema pode usar a rede.",
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
                 }
                 TextButton(onClick = onPause) { Text("Pausar", color = StageFg) }
                 TextButton(onClick = onStop) {
@@ -632,7 +636,8 @@ private fun AnalysisResultSheet(
                 ) { Text("Descartar") }
             }
             Text(
-                "Áudio não foi gravado. A transcrição foi descartada.",
+                "Áudio não foi gravado. A transcrição foi descartada. " +
+                    "O reconhecimento usa o serviço do sistema e pode usar a rede.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
