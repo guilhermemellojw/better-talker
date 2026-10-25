@@ -360,7 +360,8 @@ TEMPO TOTAL: 30 MINUTOS
         val (stUrl, _, stExact) = RefDetector.downloadUrl(study)
         assertTrue(pubExact)
         assertTrue(stExact)
-        assertTrue(pubUrl.endsWith("/revistas/w19990501/"))
+        // Dia 1º é a edição pública (wp); dia 15 é a de estudo (w).
+        assertTrue(pubUrl.endsWith("/revistas/wp19990501/"))
         assertTrue(stUrl.endsWith("/revistas/w19990515/"))
     }
 

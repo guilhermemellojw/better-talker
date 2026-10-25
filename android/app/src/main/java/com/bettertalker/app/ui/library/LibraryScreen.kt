@@ -69,7 +69,14 @@ private val PICKER_MIMES = arrayOf(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? = null, onOpenModel: () -> Unit = {}) {
+fun LibraryScreen(
+    vm: LibraryViewModel,
+    onBack: () -> Unit,
+    linkNoteId: String? = null,
+    /** A2: "Já baixei — procurar em Downloads" já abre a varredura. */
+    scanOnOpen: Boolean = false,
+    onOpenModel: () -> Unit = {},
+) {
     val items by vm.items.collectAsState(initial = emptyList())
     val toast by vm.toast.collectAsState()
     val ctx = LocalContext.current
@@ -97,6 +104,7 @@ fun LibraryScreen(vm: LibraryViewModel, onBack: () -> Unit, linkNoteId: String? 
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
+    LaunchedEffect(scanOnOpen) { if (scanOnOpen) vm.scanDownloads() }
 
     if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 

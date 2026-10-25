@@ -189,8 +189,16 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             sectionsController.sections.collect { _sections.value = it }
         }
         // A2: checklist de fontes — debounce para não consultar Room a cada tecla.
+        // Anexos entram no combine para refletir Baixando → Indexando → No acervo
+        // sem precisar fechar/reabrir o sheet. O outline também revalida refs.
         viewModelScope.launch {
-            combine(_sections, _mdText, _title) { _, _, _ -> Unit }
+            combine(
+                _sections,
+                _mdText,
+                _title,
+                db.attachmentDao().observe(),
+                db.outlineDao().observeForNote(noteId),
+            ) { _, _, _, _, _ -> Unit }
                 .collectLatest {
                     delay(700)
                     loadNoteSources()
@@ -679,6 +687,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             hasSections = _sections.value.isNotEmpty(),
             outlineRefsJson = outlines.get(noteId)?.refsJson.orEmpty(),
             noteText = _mdText.value,
+            noteTitle = _title.value,
         )
 
     /** A2: recarrega o checklist de fontes (botão "Atualizar" do sheet). */
@@ -691,6 +700,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             noteId = noteId,
             outlineRefsJson = outlines.get(noteId)?.refsJson.orEmpty(),
             noteText = _mdText.value,
+            noteTitle = _title.value,
         )
     }
 

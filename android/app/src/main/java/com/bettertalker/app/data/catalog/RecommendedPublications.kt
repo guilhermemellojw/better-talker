@@ -102,8 +102,11 @@ internal fun attachmentMatchesSymbol(symbol: String, fileName: String): Boolean 
 /** Arquivo do acervo que corresponde à publicação (null = não baixada). */
 fun findInLibrary(symbol: String, attachments: List<AttachmentEntity>): AttachmentEntity? {
     val canonical = PubCatalog.resolveSymbol(symbol) ?: symbol
+    // "No acervo" = o Copilot consegue resolver o conteúdo. Placeholder
+    // baixando/indexando ou arquivo failed não contam (checklist e Biblioteca
+    // precisam concordar).
     return attachments.firstOrNull { a ->
-        a.symbol == canonical || attachmentMatchesSymbol(symbol, a.fileName)
+        a.indexed && (a.symbol == canonical || attachmentMatchesSymbol(symbol, a.fileName))
     }
 }
 

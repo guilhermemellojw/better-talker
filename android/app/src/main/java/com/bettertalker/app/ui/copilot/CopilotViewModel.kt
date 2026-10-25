@@ -64,6 +64,7 @@ import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
@@ -1162,6 +1163,7 @@ class CopilotViewModel(
                     it,
                     sections.isNotEmpty(),
                     outlines.get(it)?.refsJson.orEmpty(),
+                    noteTitle = _noteTitle.value,
                 )
             }
             ?: return
@@ -1311,6 +1313,7 @@ class CopilotViewModel(
             noteId = nid,
             hasSections = db.speechSectionDao().forNote(nid).isNotEmpty(),
             outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteTitle = _noteTitle.value,
         )
         if (fresh != _readiness.value) _setupBannerDismissed.value = false
         _readiness.value = fresh
@@ -1612,10 +1615,16 @@ class CopilotViewModel(
         }
     }
 
-    /** Escopo das publicações citadas (nota + esboço), mesmo sem vínculo. */
+    /** Escopo das publicações citadas (nota + esboço + seções/subpontos). */
     private suspend fun refScope(): Map<String, String> {
         val nid = noteId ?: return emptyMap()
-        return repo.refScopeIds(_noteText.value, outlines.get(nid)?.refsJson.orEmpty())
+        val refs = repo.collectNoteRefs(
+            noteId = nid,
+            noteText = _noteText.value,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteTitle = _noteTitle.value,
+        )
+        return repo.refScopeIds(refs.publications)
     }
 
     /** Ponto de entrada da conversa: classifica e executa. */
@@ -1991,13 +2000,20 @@ class CopilotViewModel(
         // RAG real (Fase 18 §9): RoomContextPackRepository + HybridRetrieval,
         // escopo por discurso (bases prontas + vinculados + citados).
         // Verificação factual pede CONTENT: treinamento fora, sempre.
-        val cited = refScope()
-        // v2.7.3: citações do esboço com o trecho EXATO (page/paragraph),
-        // independente do top-K; as sem texto entram como referência explícita.
-        val citedSources = repo.citedSources(
-            _noteText.value,
-            noteId?.let { outlines.get(it)?.refsJson }.orEmpty(),
-        )
+        // Refs unificadas: a MESMA lista do checklist alimenta o Copilot —
+        // inclui título, mdText/plainText, esboço, seções e subpontos.
+        val refs = noteId?.let {
+            repo.collectNoteRefs(
+                noteId = it,
+                noteText = _noteText.value,
+                outlineRefsJson = outlines.get(it)?.refsJson.orEmpty(),
+                noteTitle = _noteTitle.value,
+            )
+        } ?: NoteRefs.EMPTY
+        val cited = repo.refScopeIds(refs.publications)
+        // Citações com o trecho EXATO (page/paragraph), independente do top-K;
+        // as sem texto entram como referência explícita.
+        val citedSources = repo.citedSources(refs)
         val scope = noteScope(cited.keys.toList())
         val packRepo = com.bettertalker.app.data.repo.RoomContextPackRepository(
             com.bettertalker.app.data.repo.RoomRetrievalRepository(

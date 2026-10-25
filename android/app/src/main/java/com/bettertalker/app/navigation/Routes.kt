@@ -3,7 +3,7 @@ package com.bettertalker.app.navigation
 object Routes {
     const val HOME = "home"
     const val EDITOR = "editor/{noteId}"
-    const val LIBRARY = "library?linkNote={linkNote}"
+    const val LIBRARY = "library?linkNote={linkNote}&scan={scan}"
     const val TRASH = "trash"
     const val ACCOUNT = "account"
     const val CHAT = "chat/{noteId}"
@@ -23,8 +23,8 @@ object Routes {
     fun chat(noteId: String) = "chat/$noteId"
     fun tribuna(noteId: String) = "tribuna/$noteId"
     fun stage(noteId: String) = "stage/$noteId"
-    fun library(linkNote: String? = null) =
-        if (linkNote == null) "library?linkNote=" else "library?linkNote=$linkNote"
+    fun library(linkNote: String? = null, scan: Boolean = false) =
+        "library?linkNote=${linkNote.orEmpty()}&scan=$scan"
 }
 
 /** Aba da barra global. Puro/testável. */

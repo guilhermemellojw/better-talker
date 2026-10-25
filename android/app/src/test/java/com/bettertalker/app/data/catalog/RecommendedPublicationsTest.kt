@@ -54,6 +54,13 @@ class RecommendedPublicationsTest {
     }
 
     @Test
+    fun acervoSoContaArquivoIndexado() {
+        val pending = att("lmd_T.jwpub").copy(indexed = false, status = "indexing")
+        assertNull(findInLibrary("lmd", listOf(pending)))
+        assertNotNull(findInLibrary("lmd", listOf(pending.copy(indexed = true, status = "ready"))))
+    }
+
+    @Test
     fun acervoDetectaS38PorNomeCompacto() {
         assertNotNull(findInLibrary("s38", listOf(att("S-38_T_194.docx"))))
         assertNotNull(findInLibrary("s-38", listOf(att("S-38_T_035.jwpub"))))

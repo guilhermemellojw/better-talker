@@ -65,6 +65,14 @@ fun encodePublicationRefList(items: List<PublicationRef>): String {
             if (ref.page != null) append(",\"page\":${ref.page}")
             if (ref.paragraph != null) append(",\"paragraph\":${ref.paragraph}")
             if (ref.paragraphEnd != null) append(",\"paragraphEnd\":${ref.paragraphEnd}")
+            // T2 (refs unificadas): lição/artigo também precisam sobreviver ao
+            // round-trip; antes só o texto da seção carregava essa unidade.
+            if (!ref.article.isNullOrBlank()) {
+                append(",\"article\":\"${escJson(ref.article)}\"")
+            }
+            if (!ref.chapter.isNullOrBlank()) {
+                append(",\"chapter\":\"${escJson(ref.chapter)}\"")
+            }
             append("}")
         }
     }
@@ -79,6 +87,8 @@ fun decodePublicationRefList(json: String): List<PublicationRef> {
             page = jsonIntField(obj, "page"),
             paragraph = jsonIntField(obj, "paragraph"),
             paragraphEnd = jsonIntField(obj, "paragraphEnd"),
+            article = jsonStringField(obj, "article"),
+            chapter = jsonStringField(obj, "chapter"),
         )
     }
 }

@@ -633,6 +633,13 @@ fun SetupBanner(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
+            if (readiness.pendingSources.isNotEmpty()) {
+                Text(
+                    "Baixando/indexando: ${readiness.pendingSources.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
             if (readiness.hasMissingBases) {
                 Text(
                     "Faltam publicações de apoio para baixar.",

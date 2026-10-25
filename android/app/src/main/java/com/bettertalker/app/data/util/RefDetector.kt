@@ -709,8 +709,18 @@ object RefDetector {
             .map { it.toString().padStart(2, '0') }
     }
 
-    /** Casa anexo com a edição exata da referência. */
-    fun matchEdition(ref: DetectedRef, attachments: List<AttachmentEntity>): AttachmentEntity? {        if (ref.kind == Kind.BOOK) {
+    /**
+     * Casa anexo com a edição exata da referência.
+     *
+     * [includePending] = true também considera placeholders baixando/indexando
+     * (indexed=false). O chamador decide se aprovou o anexo pelo status.
+     */
+    fun matchEdition(
+        ref: DetectedRef,
+        attachments: List<AttachmentEntity>,
+        includePending: Boolean = false,
+    ): AttachmentEntity? {
+        if (ref.kind == Kind.BOOK) {
             // T2: símbolo canônico (aliases: dx→rsg) + edição unificada
             // (it-1/it-2 → it; o site só oferece o arquivo unificado).
             val keys = listOfNotNull(
@@ -718,9 +728,11 @@ object RefDetector {
                 PubCatalog.unifiedOf(ref.pubKey),
             ).distinct()
             // slot base primeiro, depois título no nome do arquivo
-            attachments.firstOrNull { it.baseSlot in keys && it.indexed }?.let { return it }
+            attachments.firstOrNull {
+                it.baseSlot in keys && (includePending || it.indexed)
+            }?.let { return it }
             return attachments.firstOrNull { a ->
-                if (!a.indexed) return@firstOrNull false
+                if (!includePending && !a.indexed) return@firstOrNull false
                 val nf = normalizeText(a.fileName)
                 val tokens = nf.split(" ").toSet()
                 keys.any { key ->
@@ -746,7 +758,7 @@ object RefDetector {
         val day = parts.getOrNull(3)
         val year2 = (year.toIntOrNull() ?: return null) % 100
         val matches = attachments.filter { a ->
-            if (!a.indexed) return@filter false
+            if (!includePending && !a.indexed) return@filter false
             val n = normalizeText(a.fileName)
             val tokens = n.split(" ").toSet()
             // título da revista no nome ("A Sentinela N.º 3 2019.pdf")
@@ -833,14 +845,24 @@ object RefDetector {
                 "Abre a edição ${ref.label} com download.", true
             )
             // Sentinela estudo mensal: sentinela-estudo-dezembro-2024 (verificado 2024 e 2019)
-            // Sentinela antiga datada dia/mês: w19990501 (verificado)
+            // Sentinela antiga datada dia/mês: wpYYYYMMDD (dia 1, pública)
+            // ou wYYYYMMDD (dia 15, estudo) — validado no A34 em 2026-10-25.
             "w" -> {
                 val m = parts[2].toIntOrNull() ?: 0
                 val d = parts.getOrNull(3)?.toIntOrNull() ?: 0
-                if (parts.size == 4 && m in 1..12 && d in 1..31) Triple(
-                    "${REVISTAS}w${parts[1]}${m.toString().padStart(2, '0')}${d.toString().padStart(2, '0')}/",
-                    "Abre a edição ${ref.label} com download.", true
-                )
+                if (parts.size == 4 && m in 1..12 && d in 1..31) {
+                    // Edição antiga dia/mês: dia 1 é a Sentinela PÚBLICA (wp);
+                    // dia 15 é a de ESTUDO (w). O prefixo "w" para o dia 1
+                    // caía em 404 no site (validado no A34 em 2026-10-25).
+                    val code = if (d == 1) "wp" else "w"
+                    Triple(
+                        "${REVISTAS}${code}${parts[1]}" +
+                            "${m.toString().padStart(2, '0')}" +
+                            "${d.toString().padStart(2, '0')}/",
+                        "Abre a edição ${ref.label} com download.",
+                        true,
+                    )
+                }
                 else if (parts.size == 3 && m in 1..12) Triple(
                     REVISTAS + "sentinela-estudo-" + monthSlug(m) + "-" + parts[1] + "/",
                     "Abre a edição ${ref.label} com download.", true

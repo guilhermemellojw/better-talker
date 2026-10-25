@@ -12,7 +12,19 @@ enum class SourceStatus {
     RESOLVED,
     EDITION_MISSING,
     TEXT_NOT_FOUND,
+    /** Placeholder do DownloadManager criado; o arquivo ainda está chegando. */
+    DOWNLOADING,
+    /** Arquivo importado; o índice ainda está sendo construído. */
+    INDEXING,
 }
+
+/** true para estados transitórios (não são "faltando" nem "no acervo"). */
+fun SourceStatus.isPending(): Boolean =
+    this == SourceStatus.DOWNLOADING || this == SourceStatus.INDEXING
+
+/** true quando a fonte ainda precisa de ação do usuário. */
+fun SourceStatus.isMissing(): Boolean =
+    this == SourceStatus.EDITION_MISSING || this == SourceStatus.TEXT_NOT_FOUND
 
 /**
  * Uma fonte citada pela nota, já classificada contra o acervo.
@@ -49,6 +61,8 @@ data class NoteSources(
 ) {
     val hasRefs: Boolean get() = total > 0
     val allResolved: Boolean get() = total > 0 && resolved == total
+    /** Fontes em download/indexação (transitórias). */
+    val pending: Int get() = sources.count { it.status.isPending() }
 }
 
 /** Status agregado de um grupo do sheet. */
@@ -62,7 +76,14 @@ data class BookGroup(
     val resolved: Int,
     val total: Int,
     val status: GroupStatus,
-)
+) {
+    /** Fontes do livro em download/indexação. */
+    val pendingCount: Int get() = sources.count { it.status.isPending() }
+
+    /** Todas as fontes ainda não resolvidas estão em andamento. */
+    val allPending: Boolean
+        get() = pendingCount > 0 && resolved + pendingCount == total
+}
 
 /** Grupo de fontes (publicação; TNM contém subgrupos por livro). */
 data class SourceGroup(
@@ -74,7 +95,14 @@ data class SourceGroup(
     val total: Int,
     val status: GroupStatus,
     val bookGroups: List<BookGroup> = emptyList(),
-)
+) {
+    /** Fontes do grupo em download/indexação. */
+    val pendingCount: Int get() = sources.count { it.status.isPending() }
+
+    /** Todas as fontes ainda não resolvidas estão em andamento. */
+    val allPending: Boolean
+        get() = pendingCount > 0 && resolved + pendingCount == total
+}
 
 /**
  * Agrupa o checklist por publicação. A TNM é um único grupo ("nwt") com
@@ -238,6 +266,8 @@ private fun monthName(month: Int): String = when (month) {
 data class BibleSourceStatus(
     val available: Boolean,
     val verseFound: Boolean,
+    /** TNM ainda baixando/indexando (transitório). */
+    val pending: SourceStatus? = null,
 )
 
 /** Candidato interno antes de resolver edição/conteúdo. */
@@ -259,128 +289,58 @@ data class SourceCandidate(
  */
 object NoteSourcesResolver {
 
-    /**
-     * Chave canônica de dedup: edição + unidade (artigo/capítulo) + página/§.
-     * Mais estável que o `raw` (o mesmo ponto pode vir como "§ 4" ou
-     * "ponto 4" do parser/JSON da seção).
-     */
-    fun sourceKey(ref: RefDetector.DetectedRef): String = buildString {
-        append(ref.editionKey)
-        append('|').append(normalizeText(ref.article.orEmpty()))
-        append('|').append(normalizeText(ref.chapter.orEmpty()))
-        append('|').append(ref.page ?: -1)
-        append('|').append(ref.paragraph ?: -1)
-        append('|').append(ref.paragraphEnd ?: -1)
-    }
+    /** Chave canônica de dedup (mesma do coletor único). */
+    fun sourceKey(ref: RefDetector.DetectedRef): String = NoteRefsCollector.sourceKey(ref)
 
     fun collectCandidates(
         outlineRefsJson: String,
         sections: List<SpeechSection>,
         subPoints: List<SubPoint> = emptyList(),
         noteText: String,
-    ): List<SourceCandidate> {
-        val publications = mutableListOf<RefDetector.DetectedRef>()
-        publications += RefDetector.detectedFromJson(outlineRefsJson)
-        publications += RefDetector.detect(noteText)
-        sections.forEach { section ->
-            publications += RefDetector.detect(section.contentHtml)
-            publications += RefDetector.detect(section.title)
-            section.publicationRefs.forEach { ref ->
-                publicationRefToDetected(ref)?.let { publications += it }
-            }
-        }
-        subPoints.forEach { subPoint ->
-            publications += RefDetector.detect(subPoint.outlineText)
-            publications += RefDetector.detect(subPoint.developedHtml)
-            subPoint.publicationRefs.forEach { ref ->
-                publicationRefToDetected(ref)?.let { publications += it }
-            }
-        }
+        noteTitle: String = "",
+    ): List<SourceCandidate> = candidatesOf(
+        NoteRefsCollector.collect(
+            noteTitle = noteTitle,
+            mdText = noteText,
+            outlineRefsJson = outlineRefsJson,
+            sections = sections.map { it.toSectionRefs() },
+            subPoints = subPoints.map { it.toSubPointRefs() },
+        ),
+    )
 
-        val bibles = mutableListOf<RefDetector.BibleRef>()
-        bibles += RefDetector.detectBible(noteText)
-        sections.forEach { section ->
-            bibles += RefDetector.detectBible(section.contentHtml)
-            bibles += RefDetector.detectBible(section.title)
-            section.bibleRefs.forEach { bibles += RefDetector.detectBible(it) }
+    /** Converte as refs únicas em candidatos do checklist. Puro/testável. */
+    fun candidatesOf(refs: NoteRefs): List<SourceCandidate> {
+        val pubCandidates = refs.publications.map { ref ->
+            SourceCandidate(
+                key = sourceKey(ref),
+                ref = ref.raw,
+                kind = SourceKind.PUBLICATION,
+                publication = ref,
+            )
         }
-        subPoints.forEach { subPoint ->
-            bibles += RefDetector.detectBible(subPoint.outlineText)
-            bibles += RefDetector.detectBible(subPoint.developedHtml)
-            subPoint.bibleRefs.forEach { bibles += RefDetector.detectBible(it) }
+        val bibleCandidates = refs.bibles.map { ref ->
+            val canonicalBook = normalizeText(ref.label)
+            SourceCandidate(
+                key = "bible|$canonicalBook|${ref.chapter}|${ref.verse}",
+                ref = "${ref.label} ${ref.chapter}:${ref.verse}",
+                kind = SourceKind.BIBLE,
+                bible = ref,
+            )
         }
-
-        val pubCandidates = publications
-            .distinctBy { sourceKey(it) }
-            .map { ref ->
-                SourceCandidate(
-                    key = sourceKey(ref),
-                    ref = ref.raw,
-                    kind = SourceKind.PUBLICATION,
-                    publication = ref,
-                )
-            }
-        val bibleCandidates = bibles
-            .distinctBy { "${normalizeText(it.label)}|${it.chapter}|${it.verse}" }
-            .map { ref ->
-                val canonicalBook = normalizeText(ref.label)
-                SourceCandidate(
-                    key = "bible|$canonicalBook|${ref.chapter}|${ref.verse}",
-                    ref = "${ref.label} ${ref.chapter}:${ref.verse}",
-                    kind = SourceKind.BIBLE,
-                    bible = ref,
-                )
-            }
         return pubCandidates + bibleCandidates
     }
 
-    /**
-     * Converte o `PublicationRef` persistido (símbolo canônico) de volta para
-     * `DetectedRef`, preservando página/§/artigo/capítulo. Retorna null para
-     * símbolo desconhecido (nunca inventa fonte).
-     */
-    fun publicationRefToDetected(ref: PublicationRef): RefDetector.DetectedRef? {
-        val symbol = ref.symbol.trim().lowercase()
-        magazineSpec(symbol)?.let { spec ->
-            return RefDetector.DetectedRef(
-                raw = publicationRaw(ref),
-                kind = RefDetector.Kind.MAGAZINE,
-                pubKey = spec.pubKey,
-                editionKey = spec.editionKey,
-                label = spec.label,
-                article = ref.article,
-                chapter = ref.chapter,
-                page = ref.page,
-                paragraph = ref.paragraph,
-                paragraphEnd = ref.paragraphEnd,
-            )
-        }
-        val canonical = PubCatalog.resolveSymbol(symbol) ?: return null
-        if (!PubCatalog.isSymbol(canonical) && BASE_PUBS.none { it.slot == canonical }) {
-            return null
-        }
-        val chapter = ref.chapter?.trim()?.takeIf { it.isNotBlank() }
-        val article = ref.article?.trim()?.takeIf { it.isNotBlank() }
-            ?: chapter?.takeIf { it.contains("apêndice", ignoreCase = true) }
-        return RefDetector.DetectedRef(
-            raw = publicationRaw(ref),
-            kind = RefDetector.Kind.BOOK,
-            pubKey = canonical,
-            editionKey = "book|$canonical",
-            label = PubCatalog.titleOf(canonical) ?: canonical,
-            article = article,
-            chapter = chapter,
-            page = ref.page,
-            paragraph = ref.paragraph,
-            paragraphEnd = ref.paragraphEnd,
-        )
-    }
+    /** Converte `PublicationRef` persistido em `DetectedRef` (coletor único). */
+    fun publicationRefToDetected(ref: PublicationRef): RefDetector.DetectedRef? =
+        NoteRefsCollector.publicationRefToDetected(ref)
 
     /** Mapeia status brutos para o checklist final. Puro/testável. */
     fun toNoteSources(
         candidates: List<SourceCandidate>,
         publicationStatuses: Map<String, RefDetector.RefStatus>,
         bibleStatuses: Map<String, BibleSourceStatus>,
+        /** Estados transitórios por chave de candidato (download/indexação). */
+        pendingStatuses: Map<String, SourceStatus> = emptyMap(),
     ): NoteSources {
         val sources = candidates.map { candidate ->
             val editionKey = candidate.publication?.editionKey
@@ -390,28 +350,9 @@ object NoteSourcesResolver {
             when (candidate.kind) {
                 SourceKind.PUBLICATION -> {
                     val st = publicationStatuses[candidate.key]
+                    val pending = pendingStatuses[candidate.key]
                     when {
-                        st == null -> NoteSource(
-                            ref = candidate.ref,
-                            kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.EDITION_MISSING,
-                            hint = "Não foi possível verificar a edição.",
-                            editionKey = editionKey,
-                            publicationKey = publicationKey,
-                            publicationLabel = publicationLabel,
-                        )
-                        !st.resolved -> NoteSource(
-                            ref = candidate.ref,
-                            kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.EDITION_MISSING,
-                            hint = st.hint.ifBlank { "Edição não importada." },
-                            downloadUrl = st.downloadUrl.takeIf { it.isNotBlank() },
-                            refStatus = st,
-                            editionKey = editionKey,
-                            publicationKey = publicationKey,
-                            publicationLabel = publicationLabel,
-                        )
-                        !st.contentResolved -> NoteSource(
+                        st?.resolved == true && !st.contentResolved -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
                             status = SourceStatus.TEXT_NOT_FOUND,
@@ -423,11 +364,42 @@ object NoteSourcesResolver {
                             publicationKey = publicationKey,
                             publicationLabel = publicationLabel,
                         )
-                        else -> NoteSource(
+                        st?.resolved == true -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
                             status = SourceStatus.RESOLVED,
                             fileName = st.fileName,
+                            refStatus = st,
+                            editionKey = editionKey,
+                            publicationKey = publicationKey,
+                            publicationLabel = publicationLabel,
+                        )
+                        pending != null -> NoteSource(
+                            ref = candidate.ref,
+                            kind = SourceKind.PUBLICATION,
+                            status = pending,
+                            hint = pendingHint(pending),
+                            downloadUrl = st?.downloadUrl?.takeIf { it.isNotBlank() },
+                            refStatus = st,
+                            editionKey = editionKey,
+                            publicationKey = publicationKey,
+                            publicationLabel = publicationLabel,
+                        )
+                        st == null -> NoteSource(
+                            ref = candidate.ref,
+                            kind = SourceKind.PUBLICATION,
+                            status = SourceStatus.EDITION_MISSING,
+                            hint = "Não foi possível verificar a edição.",
+                            editionKey = editionKey,
+                            publicationKey = publicationKey,
+                            publicationLabel = publicationLabel,
+                        )
+                        else -> NoteSource(
+                            ref = candidate.ref,
+                            kind = SourceKind.PUBLICATION,
+                            status = SourceStatus.EDITION_MISSING,
+                            hint = st.hint.ifBlank { "Edição não importada." },
+                            downloadUrl = st.downloadUrl.takeIf { it.isNotBlank() },
                             refStatus = st,
                             editionKey = editionKey,
                             publicationKey = publicationKey,
@@ -438,20 +410,7 @@ object NoteSourcesResolver {
                 SourceKind.BIBLE -> {
                     val st = bibleStatuses[candidate.key]
                     when {
-                        st == null || !st.available -> NoteSource(
-                            ref = candidate.ref,
-                            kind = SourceKind.BIBLE,
-                            status = SourceStatus.EDITION_MISSING,
-                            hint = "Baixe a Tradução do Novo Mundo para o Copilot citar o versículo.",
-                            downloadUrl = BASE_PUBS.firstOrNull { it.slot == "nwt" }?.landingUrl,
-                            editionKey = "bible|nwt",
-                            book = book,
-                            chapter = candidate.bible?.chapter,
-                            verse = candidate.bible?.verse,
-                            publicationKey = "nwt",
-                            publicationLabel = "TNM",
-                        )
-                        !st.verseFound -> NoteSource(
+                        st?.available == true && !st.verseFound -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
                             status = SourceStatus.TEXT_NOT_FOUND,
@@ -464,11 +423,37 @@ object NoteSourcesResolver {
                             publicationKey = "nwt",
                             publicationLabel = "TNM",
                         )
-                        else -> NoteSource(
+                        st?.available == true -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
                             status = SourceStatus.RESOLVED,
                             fileName = "TNM",
+                            editionKey = "bible|nwt",
+                            book = book,
+                            chapter = candidate.bible?.chapter,
+                            verse = candidate.bible?.verse,
+                            publicationKey = "nwt",
+                            publicationLabel = "TNM",
+                        )
+                        st?.pending != null -> NoteSource(
+                            ref = candidate.ref,
+                            kind = SourceKind.BIBLE,
+                            status = st.pending,
+                            hint = pendingHint(st.pending),
+                            downloadUrl = BASE_PUBS.firstOrNull { it.slot == "nwt" }?.landingUrl,
+                            editionKey = "bible|nwt",
+                            book = book,
+                            chapter = candidate.bible?.chapter,
+                            verse = candidate.bible?.verse,
+                            publicationKey = "nwt",
+                            publicationLabel = "TNM",
+                        )
+                        else -> NoteSource(
+                            ref = candidate.ref,
+                            kind = SourceKind.BIBLE,
+                            status = SourceStatus.EDITION_MISSING,
+                            hint = "Baixe a Tradução do Novo Mundo para o Copilot citar o versículo.",
+                            downloadUrl = BASE_PUBS.firstOrNull { it.slot == "nwt" }?.landingUrl,
                             editionKey = "bible|nwt",
                             book = book,
                             chapter = candidate.bible?.chapter,
@@ -487,63 +472,11 @@ object NoteSourcesResolver {
         )
     }
 
-    private data class MagazineSpec(
-        val pubKey: String,
-        val editionKey: String,
-        val label: String,
-    )
-
-    private fun magazineSpec(symbol: String): MagazineSpec? {
-        fun year(yy: String): Int = yy.toInt().let { if (it < 100) 2000 + it else it }
-
-        Regex("""^w(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
-            return MagazineSpec("w", "w|$y|$n", "A Sentinela $n/$y")
-        }
-        Regex("""^wp(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
-            return MagazineSpec("wp", "wp|$y|$n", "A Sentinela $n/$y")
-        }
-        Regex("""^g\s+(\d{1,2})/(\d{2,4})$""").find(symbol)?.let { m ->
-            val n = m.groupValues[1].toInt(); val y = year(m.groupValues[2])
-            return MagazineSpec("g", "g|$y|$n", "Despertai! $n/$y")
-        }
-        Regex("""^gn\s+(\d{1,2})/(\d{2,4})$""").find(symbol)?.let { m ->
-            val n = m.groupValues[1].toInt(); val y = year(m.groupValues[2])
-            return MagazineSpec("gn", "gn|$y|$n", "Despertai! $n/$y")
-        }
-        Regex("""^mwb(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
-            return MagazineSpec("mwb", "mwb|$y|$n", "Apostila Vida e Ministério $n/$y")
-        }
-        // Formato antigo quinzenal: "w94 1/8" / "g93 8/1" (dia/mês).
-        Regex("""^(w|g)(\d{2})\s+(\d{1,2})/(\d{1,2})$""").find(symbol)?.let { m ->
-            val key = m.groupValues[1]
-            val y = year(m.groupValues[2])
-            val day = m.groupValues[3].toInt()
-            val month = m.groupValues[4].toInt()
-            return MagazineSpec(
-                key,
-                "$key|$y|$month|$day",
-                if (key == "w") "A Sentinela $day/$month/$y" else "Despertai! $day/$month/$y",
-            )
-        }
-        return null
-    }
-
-    private fun publicationRaw(ref: PublicationRef): String = buildString {
-        val article = ref.article?.trim()?.takeIf { it.isNotBlank() }
-        val chapter = ref.chapter?.trim()?.takeIf { it.isNotBlank() }
-        append(ref.symbol)
-        if (article != null && article != chapter) append(" — ").append(article)
-        chapter?.let { append(' ').append(it) }
-        ref.page?.let { append(" pág. ").append(it) }
-        ref.paragraph?.let { paragraph ->
-            if (chapter?.contains("apêndice", ignoreCase = true) == true) {
-                append(" ponto ").append(paragraph)
-            } else {
-                append(" § ").append(paragraph)
-            }
-        }
+    private fun pendingHint(status: SourceStatus): String = when (status) {
+        SourceStatus.DOWNLOADING ->
+            "Download iniciado — acompanhe na Biblioteca."
+        SourceStatus.INDEXING ->
+            "Indexando — o Copilot usa o trecho quando terminar."
+        else -> ""
     }
 }

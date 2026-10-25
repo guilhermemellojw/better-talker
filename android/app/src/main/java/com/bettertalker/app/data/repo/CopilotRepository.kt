@@ -12,13 +12,22 @@ import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.planning.ResolvedReference
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
+import com.bettertalker.app.data.util.BibleSourceStatus
+import com.bettertalker.app.data.util.NoteRefs
+import com.bettertalker.app.data.util.NoteRefsCollector
+import com.bettertalker.app.data.util.NoteSources
+import com.bettertalker.app.data.util.NoteSourcesResolver
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.STOPWORDS_PT
+import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.buildJwUrl
+import com.bettertalker.app.data.util.isPending
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.data.util.splitRawSentences
+import com.bettertalker.app.data.util.toSectionRefs
+import com.bettertalker.app.data.util.toSubPointRefs
 
 data class IdeaCard(
     val title: String,
@@ -137,19 +146,24 @@ class CopilotRepository(private val db: AppDatabase) {
         hasSections: Boolean,
         outlineRefsJson: String,
         noteText: String? = null,
+        noteTitle: String? = null,
     ): com.bettertalker.app.ui.editor.NoteReadiness {
         val hasOutline = hasOutline(noteId)
         val hasHistory = db.chatDao().all(noteId).isNotEmpty()
-        val sources = noteSources(noteId, outlineRefsJson, noteText)
+        val sources = noteSources(noteId, outlineRefsJson, noteText, noteTitle)
+        // Transitórios (baixando/indexando) não contam como "faltando": o
+        // worker ainda pode resolver sozinho. O banner mostra o andamento.
         val missing = sources.sources.filter {
-            it.status != com.bettertalker.app.data.util.SourceStatus.RESOLVED
+            it.status != SourceStatus.RESOLVED && !it.status.isPending()
         }
+        val pending = sources.sources.filter { it.status.isPending() }
         val hasMissingBases = missingBases().isNotEmpty()
         return com.bettertalker.app.ui.editor.NoteReadiness(
             hasSections = hasSections,
             hasOutline = hasOutline,
             hasMissingRefs = missing.isNotEmpty(),
             missingSources = missing.map { it.ref }.distinct().take(6),
+            pendingSources = pending.map { it.ref }.distinct().take(6),
             hasMissingBases = hasMissingBases,
             hasChatHistory = hasHistory,
         )
@@ -359,52 +373,100 @@ class CopilotRepository(private val db: AppDatabase) {
         enrichContents(RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all()))
 
     /**
-     * A2 (confiança) — checklist de fontes da nota: outline + seções +
-     * plainText/mdText, com edição e conteúdo classificados.
+     * Coletor ÚNICO da nota: título, mdText/plainText, outline, seções e
+     * subpontos. O checklist e o Copilot consomem esta mesma lista.
      */
-    suspend fun noteSources(
+    suspend fun collectNoteRefs(
         noteId: String,
-        outlineRefsJson: String,
         noteText: String? = null,
-    ): com.bettertalker.app.data.util.NoteSources {
+        outlineRefsJson: String? = null,
+        noteTitle: String? = null,
+    ): NoteRefs {
         val note = db.noteDao().get(noteId)
         val sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
         val subPoints = sections.flatMap { section ->
             db.subPointDao().forSection(section.id).map { it.toDomain() }
         }
         // A nota pode ter refs no mdText agregado e no plainText original
-        // (V&M sem BODY preenchido). Coleta os dois; o resolver deduplica.
+        // (V&M sem BODY preenchido). Coleta os dois; o coletor deduplica.
         val text = buildString {
             noteText?.takeIf { it.isNotBlank() }?.let { append(it).append('\n') }
             note?.mdText?.takeIf { it.isNotBlank() }?.let { append(it).append('\n') }
             note?.plainText?.takeIf { it.isNotBlank() }?.let { append(it) }
         }.trim()
-        val candidates = com.bettertalker.app.data.util.NoteSourcesResolver.collectCandidates(
-            outlineRefsJson = outlineRefsJson,
-            sections = sections,
-            subPoints = subPoints,
-            noteText = text,
+        return NoteRefsCollector.collect(
+            noteTitle = noteTitle ?: note?.title.orEmpty(),
+            mdText = text,
+            outlineRefsJson = outlineRefsJson?.takeIf { it.isNotBlank() }
+                ?: db.outlineDao().getForNote(noteId)?.refsJson.orEmpty(),
+            sections = sections.map { it.toSectionRefs() },
+            subPoints = subPoints.map { it.toSubPointRefs() },
         )
-        if (candidates.isEmpty()) {
-            return com.bettertalker.app.data.util.NoteSources(emptyList(), 0, 0)
-        }
+    }
+
+    /**
+     * A2 (confiança) — checklist de fontes da nota: outline + seções +
+     * plainText/mdText, com edição, conteúdo e estados transitórios.
+     */
+    suspend fun noteSources(
+        noteId: String,
+        outlineRefsJson: String,
+        noteText: String? = null,
+        noteTitle: String? = null,
+    ): NoteSources {
+        val refs = collectNoteRefs(noteId, noteText, outlineRefsJson, noteTitle)
+        val candidates = NoteSourcesResolver.candidatesOf(refs)
+        if (candidates.isEmpty()) return NoteSources(emptyList(), 0, 0)
+
+        val attachments = db.attachmentDao().all()
         val pubCandidates = candidates.filter { it.publication != null }
-        val pubStatuses = checkRefsList(pubCandidates.mapNotNull { it.publication })
-            .associateBy { com.bettertalker.app.data.util.NoteSourcesResolver.sourceKey(it.ref) }
-        val nwtAvailable = db.attachmentDao().baseReady("nwt") != null
+        val pubStatuses = enrichContents(
+            RefDetector.resolve(pubCandidates.mapNotNull { it.publication }, attachments),
+        ).associateBy { NoteSourcesResolver.sourceKey(it.ref) }
+
+        // Placeholder do DownloadManager (baixando) ou arquivo importado sem
+        // índice ainda (indexando): o ref continua sem match "ready", mas o
+        // checklist deve mostrar o andamento em vez de "edição ausente".
+        val pendingStatuses = pubCandidates.mapNotNull { candidate ->
+            val ref = candidate.publication ?: return@mapNotNull null
+            if (RefDetector.matchEdition(ref, attachments) != null) return@mapNotNull null
+            val hit = RefDetector.matchEdition(ref, attachments, includePending = true)
+                ?: return@mapNotNull null
+            val status = when (hit.status) {
+                "downloading" -> SourceStatus.DOWNLOADING
+                "indexing" -> SourceStatus.INDEXING
+                else -> null
+            } ?: return@mapNotNull null
+            candidate.key to status
+        }.toMap()
+
+        val nwtAll = attachments.filter { it.baseSlot == "nwt" }
+        val nwtReady = nwtAll.firstOrNull { it.indexed }
+        val nwtPending = if (nwtReady == null) {
+            nwtAll.firstOrNull { !it.indexed && it.status in setOf("downloading", "indexing") }
+                ?.let {
+                    if (it.status == "downloading") SourceStatus.DOWNLOADING
+                    else SourceStatus.INDEXING
+                }
+        } else {
+            null
+        }
         val bibleStatuses = candidates.filter { it.bible != null }.associate { candidate ->
             val bible = candidate.bible!!
             val key = normalizeBibleBookName(bible.label)
                 ?.let { "$it ${bible.chapter}:${bible.verse}" }
-            candidate.key to com.bettertalker.app.data.util.BibleSourceStatus(
-                available = nwtAvailable,
-                verseFound = key != null && db.passageDao().findByRef(key) != null,
+            candidate.key to BibleSourceStatus(
+                available = nwtReady != null,
+                verseFound = nwtReady != null && key != null &&
+                    db.passageDao().findByRef(key) != null,
+                pending = nwtPending,
             )
         }
-        return com.bettertalker.app.data.util.NoteSourcesResolver.toNoteSources(
+        return NoteSourcesResolver.toNoteSources(
             candidates = candidates,
             publicationStatuses = pubStatuses,
             bibleStatuses = bibleStatuses,
+            pendingStatuses = pendingStatuses,
         )
     }
 
@@ -547,7 +609,26 @@ class CopilotRepository(private val db: AppDatabase) {
     suspend fun citedSources(noteText: String, outlineRefsJson: String): CitedSources {
         val detected = (RefDetector.detect(noteText) + RefDetector.detectedFromJson(outlineRefsJson))
             .distinctBy { it.editionKey + "|" + it.raw }
-        if (detected.isEmpty()) return CitedSources(emptyList(), emptyList())
+        return citedSources(detected)
+    }
+
+    /**
+     * Refs unificadas (nota + esboço + seções + subpontos) com o trecho exato.
+     * É o caminho do Copilot: a mesma lista do checklist vira evidência.
+     */
+    suspend fun citedSources(refs: NoteRefs): CitedSources =
+        citedSources(refs.publications, refs.bibles)
+
+    suspend fun citedSources(refs: List<RefDetector.DetectedRef>): CitedSources =
+        citedSources(refs, emptyList())
+
+    private suspend fun citedSources(
+        detected: List<RefDetector.DetectedRef>,
+        bibles: List<RefDetector.BibleRef>,
+    ): CitedSources {
+        if (detected.isEmpty() && bibles.isEmpty()) {
+            return CitedSources(emptyList(), emptyList())
+        }
         val all = db.attachmentDao().all()
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()
@@ -583,30 +664,58 @@ class CopilotRepository(private val db: AppDatabase) {
                 foundBy = listOf("cited"),
             )
         }
+        // Bíblia: versículo exato da TNM indexada. Sem TNM (ou sem o versículo)
+        // entra como referência sem texto — nunca inventa.
+        for (bible in bibles) {
+            val label = "${bible.label} ${bible.chapter}:${bible.verse}"
+            val key = normalizeBibleBookName(bible.label)
+                ?.let { "$it ${bible.chapter}:${bible.verse}" }
+            val passage = key?.let { db.passageDao().findByRef(it) }
+            if (passage == null) {
+                unavailable += label
+                continue
+            }
+            sources += EvidenceSource(
+                id = "cite-bible-" + key.hashCode(),
+                reference = label,
+                text = passage.text,
+                sourceType = SourceType.CONTENT,
+                publication = baseTitle("nwt"),
+                section = null,
+                paragraph = null,
+                page = null,
+                score = 1.0,
+                foundBy = listOf("cited"),
+            )
+        }
         return CitedSources(
             sources = sources.distinctBy { it.reference },
             unavailable = unavailable.distinct(),
         )
     }
 
-    suspend fun refScopeIds(noteText: String, outlineRefsJson: String): Map<String, String> {
-        val detected = RefDetector.detect(noteText) +
-            RefDetector.detectedFromJson(outlineRefsJson)
+    suspend fun refScopeIds(refs: List<RefDetector.DetectedRef>): Map<String, String> {
         val all = db.attachmentDao().all()
         val out = mutableMapOf<String, String>()
         val seen = mutableSetOf<String>()
-        for (ref in detected) {
+        for (ref in refs) {
             if (!seen.add(ref.editionKey)) continue
             val hit = RefDetector.matchEdition(ref, all) ?: continue
             out.getOrPut(hit.id) {
                 when (ref.kind) {
                     RefDetector.Kind.BOOK ->
-                        com.bettertalker.app.data.util.PubCatalog.titleOf(ref.pubKey) ?: ref.label
+                        PubCatalog.titleOf(ref.pubKey) ?: ref.label
                     RefDetector.Kind.MAGAZINE -> ref.label
                 }
             }
         }
         return out
+    }
+
+    suspend fun refScopeIds(noteText: String, outlineRefsJson: String): Map<String, String> {
+        val detected = RefDetector.detect(noteText) +
+            RefDetector.detectedFromJson(outlineRefsJson)
+        return refScopeIds(detected)
     }
 
     /** Gera ideias de discurso a partir dos trechos — sem inventar citação. */

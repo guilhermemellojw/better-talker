@@ -49,6 +49,20 @@ class NoteReadinessTest {
     }
 
     @Test
+    fun pendingSources_naoContamComoMissing() {
+        val r = NoteReadiness(
+            hasSections = true,
+            hasOutline = true,
+            hasMissingRefs = false,
+            pendingSources = listOf("w25.07 § 8"),
+            hasMissingBases = false,
+            hasChatHistory = false,
+        )
+        assertTrue(r.isSetupComplete)
+        assertEquals(1, r.pendingSources.size)
+    }
+
+    @Test
     fun isSetupComplete_missingRefsNaoBloqueiaSetup() {
         // Refs faltando são estado normal de trabalho, não setup incompleto.
         val r = NoteReadiness(

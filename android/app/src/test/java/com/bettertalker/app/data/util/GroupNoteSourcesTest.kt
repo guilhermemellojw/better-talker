@@ -119,6 +119,21 @@ class GroupNoteSourcesTest {
     }
 
     @Test
+    fun grupoComFontesTransitorias_mostraAndamento() {
+        val groups = groupNoteSources(
+            listOf(
+                publication("w25.07 22 §§ 8-9", "w25.07", "A Sentinela — julho de 2025", SourceStatus.DOWNLOADING),
+                publication("w25.07 20 § 2", "w25.07", "A Sentinela — julho de 2025", SourceStatus.DOWNLOADING),
+            ),
+        )
+        val group = groups.single()
+        assertEquals(2, group.pendingCount)
+        assertTrue(group.allPending)
+        assertEquals(0, group.resolved)
+        assertEquals(GroupStatus.MISSING, group.status)
+    }
+
+    @Test
     fun listaVazia_naoTemGrupos() {
         assertTrue(groupNoteSources(emptyList()).isEmpty())
     }

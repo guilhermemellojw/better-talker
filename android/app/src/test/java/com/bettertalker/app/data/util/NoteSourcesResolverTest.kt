@@ -76,6 +76,17 @@ class NoteSourcesResolverTest {
     }
 
     @Test
+    fun collect_incluiTituloDaNota() {
+        val candidates = NoteSourcesResolver.collectCandidates(
+            outlineRefsJson = "",
+            sections = emptyList(),
+            noteText = "",
+            noteTitle = "Ter esperança (w25.07 20 § 2)",
+        )
+        assertEquals(1, candidates.count { it.publication?.paragraph == 2 })
+    }
+
+    @Test
     fun publicationRefToDetected_lmdApendicePreservaUnidadeEPonto() {
         val detected = NoteSourcesResolver.publicationRefToDetected(
             PublicationRef("lmd", chapter = "Apêndice A", paragraph = 20),

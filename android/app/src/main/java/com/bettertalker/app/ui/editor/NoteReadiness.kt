@@ -17,6 +17,8 @@ data class NoteReadiness(
     val hasMissingRefs: Boolean,
     /** Rótulos das fontes faltando (para o banner do chat). */
     val missingSources: List<String> = emptyList(),
+    /** Rótulos das fontes em download/indexação (andamento, não bloqueio). */
+    val pendingSources: List<String> = emptyList(),
     /** Há publicações/bases ainda não baixadas. */
     val hasMissingBases: Boolean,
     /** Nota tem histórico de chat (pelo menos 1 mensagem). */
