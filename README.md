@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.7.4+ — RC interno (sideload; branch `feat/copilot-citations`, 1b validada no Redmi 9 e Fase 2 concluída no A34 em 2026-10-25).**
+> **Estágio: v2.7.4+ — RC interno (sideload; branch `feat/copilot-citations`, 1b validada no Redmi 9 e Fases 2–3 concluídas no A34 em 2026-10-25).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,12 +9,13 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-25)
 
-- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `506f813`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fase 2 (S-34) concluída no A34**.
-- **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso ou demonstração). “Nota rápida” segue como ação secundária.
+- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `ebdcd92`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 concluídas no A34**.
+- **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
+- **Fase 3 (Criar do zero):** sheet com título, tipo, duração, pontos e prévia; **Discurso público** (`S34_DISCOURSE`, Intro + N pontos + Conclusão) e **Demonstração livre** (`FREE_DEMO`, 1 BODY, sem S-38). Criação atômica via `createPastedNote`.
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** 2.273 testes JVM.
+- **Testes:** 2.293 testes JVM.
 - **Pendências de distribuição:** backup/keystore/chave de API (ver [FREEZE.md](docs/FREEZE.md) e a auditoria de 2026-10-19).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
