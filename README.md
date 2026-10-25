@@ -1,19 +1,28 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.3 — RC interno (sideload; aguarda revisão humana).**
+> **Estágio: v2.7.4+ — RC interno (sideload; branch `feat/copilot-citations`, 1b validada no Redmi 9 em 2026-10-25).**
 
-Better Talker é um app Android nativo. Este repositório contém apenas o projeto Android em `android/`. O pacote web legado foi removido.
+Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
 
-## 🆕 Novidades da v2.3 (RC — 2026-10-19)
+## 📌 Estado atual (2026-10-25)
+
+- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `b6c839b`; as mudanças do parser de colagem v2.7.5 (1b) estão validadas no Redmi 9.
+- **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso ou demonstração). “Nota rápida” segue como ação secundária.
+- **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
+- **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
+- **Testes:** 2.249 testes JVM (265 arquivos).
+- **Pendências de distribuição:** backup/keystore/chave de API (ver [FREEZE.md](docs/FREEZE.md) e a auditoria de 2026-10-19).
+
+## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
 - **TTS com ownership de processo:** o `VoiceRouter`/Piper agora é um singleton (`TtsLifecycle`). Sair do Ensaio, do Chat ou da Tribuna **não derruba mais** o TTS; a tela só chama `stop()`, e o engine continua vivo para a próxima tela. O contador de usuários tolera release extra (rotação/onDispose duplicado).
 - **Verifier Nível 2:** as referências bíblicas do ponto atual do S-34 são resolvidas no índice TNM local e injetadas no corpus do `GroundednessVerifier` como `[ref] texto`. Citações reais deixam de ser sinalizadas; refs não resolvidas são omitidas (sem fallback fantasma).
 - **Language Guide:** guia de linguagem simples injetado nas personas de chat, geração, discurso, demonstração e modo colar. Frases curtas, voz ativa e termos TJ preservados (`Jeová`, `as Escrituras`, `publicador` etc.); academicismos como `outrossim` entram na lista de termos a evitar.
 - **Colar V&M — 5 formatos:** a detecção da parte de Tesouros passou a usar estrutura + posição + minutos + refs (sem depender do título), e cada frase do corpo vira um subtópico na **LINHA DE RACIOCÍNIO**. O **MINI DISCURSO** nasce vazio para geração; o texto colado permanece no `plainText` da nota para busca/prévia.
-- **Testes:** 2125 testes JVM verdes na branch de revisão.
+- **Testes:** 2125 testes JVM verdes na época (hoje: 2.249).
 
 ## 🆕 Novidades da v2.2
 
@@ -85,7 +94,8 @@ e ao final diga *"insira tudo na nota"*:
 ### Partes da reunião (V&M) — "Colar e Pronto"
 
 Cole uma parte da reunião (ex.: `5. Cultivando o interesse (4 min) DE CASA EM CASA. Fale sobre…`)
-na Home (**FAB → Inserir material → Colar texto**). O app detecta a parte e cria uma **Demonstração**:
+na Home (**FAB → Colar parte da reunião V&M**). O app detecta a parte e cria uma **Demonstração**.
+Formatos aceitos em [parser-formatos-colagem.md](docs/parser-formatos-colagem.md):
 
 - **Título da nota:** parte + duração (`Cultivando o interesse (4 min)`) — vale também para
   Discurso (`A ordem nos céus (10 min)`).
@@ -93,6 +103,8 @@ na Home (**FAB → Inserir material → Colar texto**). O app detecta a parte e 
   vira o título do card; o corpo fica livre para o diálogo.
 - **Diálogo:** falas coladas (`Publicador:`/`Morador:`) ou geradas pelo Copilot ("Usar no card")
   viram turnos; os chips `+ Publicador` / `+ Morador` inserem rótulos em negrito.
+- **Consideração (“O que você diria?”):** não é suportada como discurso/demonstração; a colagem
+  é rejeitada com aviso e **não cria nota** (decisão de produto).
 
 ### Copilot para partes V&M (S-38)
 
