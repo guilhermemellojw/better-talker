@@ -192,10 +192,12 @@ fun SectionCardEditor(
                         }
                     }
                 }
-                // Fase 1/2: o ✨ vive no cabeçalho do card ativo, junto ao
-                // título. No S-34 longo ele ficava no rodapé, depois de dezenas
-                // de subpontos — inacessível na prática.
-                if (isActiveSection && !readOnly) {
+                // Fase 1/2: o ✨ vive no cabeçalho do card, junto ao título.
+                // Mostrar em TODO card (não só no ativo) garante a porta do
+                // Copilot mesmo quando o toque no corpo do card não o ativa
+                // (tablet/A34: editor rico consome o toque). O clique já
+                // ativa a seção e empurra o contexto antes de abrir o chat.
+                if (!readOnly) {
                     IconButton(
                         onClick = onCopilot,
                         modifier = Modifier.size(48.dp),

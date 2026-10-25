@@ -612,6 +612,14 @@ fun EditorScreen(
                                     onActiveEditorChange = { key, state ->
                                         activeEditorKey = key
                                         activeEditorState = state
+                                        // Tocar no editor (corpo/subponto) ativa
+                                        // a seção — antes só o clique externo
+                                        // fazia isso e o ✨ ficava inacessível
+                                        // quando o editor consumia o toque.
+                                        if (key != null) {
+                                            activeSectionId = sectionState.section.id
+                                            vm.setActiveSectionTitle(sectionState.section.title)
+                                        }
                                     },
                                     onSelectionChange = { ctx -> vm.onSelectionChange(ctx) },
                                     sectionPendingInserts = sectionPendingInserts,
