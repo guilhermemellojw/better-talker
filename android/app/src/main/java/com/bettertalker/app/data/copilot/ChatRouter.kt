@@ -552,17 +552,17 @@ object ChatRouter {
 
         // 2)/3) Oratória: pedido explícito, phráse natural ou iteração.
         val canonical = normalizePhrasing(text)
-        // C6 (Sessão 2): pergunta de orientação sem verbo de geração e sem
-        // contexto de seção não é refinamento oratório — vai para a persona.
-        // Só quando NÃO há reescrita canônica ("Como posso concluir?" →
-        // "Faça uma conclusão" continua sendo geração).
-        if (canonical == null) {
-            val orientationQuestion = ORIENTATION_QUESTION_START.containsMatchIn(t) &&
-                !EXPLICIT_GENERATION_VERB.containsMatchIn(t) &&
-                !SECTION_CONTEXT.containsMatchIn(t)
-            if (orientationQuestion) {
-                return Route.General("pergunta de orientação, não geração")
-            }
+        // C6 (Sessão 2) + resíduo: pergunta de orientação NÃO é refinamento
+        // oratório, mesmo quando cita uma seção ("Como melhorar a entonação
+        // do ponto 1?"). Só quando NÃO há reescrita canônica ("Como posso
+        // concluir?" → "Faça uma conclusão" continua sendo geração).
+        if (canonical == null &&
+            ORIENTATION_QUESTION_START.containsMatchIn(t) &&
+            !EXPLICIT_GENERATION_VERB.containsMatchIn(t) &&
+            // Consulta estrutural do S-34 continua determinística.
+            (document == null || structuralTopic(t) == null)
+        ) {
+            return Route.General("pergunta de orientação, não geração")
         }
         val decision = OratorySession.decide(canonical ?: text, document, currentSectionId, last)
         when (decision) {

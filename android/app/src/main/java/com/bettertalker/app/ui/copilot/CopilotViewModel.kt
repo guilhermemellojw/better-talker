@@ -1802,6 +1802,11 @@ class CopilotViewModel(
                 turnContext.structural?.currentSection?.id,
                 lastOratory
             )
+            // Diagnóstico de sessão: route + reason, nunca o texto do usuário.
+            android.util.Log.i(
+                "ChatRouter",
+                com.bettertalker.app.data.copilot.ChatRouter.describe(route),
+            )
             when (route) {
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.OutOfScope -> {
                     postText(route.message)

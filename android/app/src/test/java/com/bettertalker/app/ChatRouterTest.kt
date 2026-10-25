@@ -212,6 +212,38 @@ class ChatRouterTest {
     }
 
     @Test
+    fun perguntaDeEntonacaoComPontoVaiParaOrientacao() {
+        // Resíduo do C6: o contexto de seção não pode sequestrar a pergunta.
+        val r = route("Como melhorar a entonação do ponto 1?")
+        assertTrue("esperado GENERAL, veio ${ChatRouter.describe(r)}", r is Route.General)
+    }
+
+    @Test
+    fun perguntaDeIntroducaoVaiParaOrientacao() {
+        val r = route("Como melhorar a introdução?")
+        assertTrue("esperado GENERAL, veio ${ChatRouter.describe(r)}", r is Route.General)
+    }
+
+    @Test
+    fun perguntaDeTransicaoComPontosVaiParaOrientacao() {
+        val r = route("Como faço a transição do ponto 1 para o ponto 2?")
+        assertTrue("esperado GENERAL, veio ${ChatRouter.describe(r)}", r is Route.General)
+    }
+
+    @Test
+    fun perguntaFactualVaiParaOrientacao() {
+        val r = route("O que diz Jeremias 45:3?")
+        assertTrue("esperado GENERAL, veio ${ChatRouter.describe(r)}", r is Route.General)
+    }
+
+    @Test
+    fun comoComecarDiscursoContinuaOratoria() {
+        // A reescrita canônica continua vencendo a pergunta de orientação.
+        val r = oratory(route("Como começo esse discurso?"))
+        assertEquals(Mode.INTRODUCTION, r.mode)
+    }
+
+    @Test
     fun refinamentoSemPropostaNaoInventaAlvo() {
         val r = route("Melhore.")
         assertTrue(r is Route.NothingToRefine)
