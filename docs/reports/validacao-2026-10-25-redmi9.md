@@ -181,9 +181,10 @@ pendente. **Decisão necessária:** manter o tempo no título da nota ou removê
 - Nenhum arquivo do repositório foi alterado durante a validação.
 - O clipboard foi injetado por um dex temporário em `/data/local/tmp/clip.dex`
   (processo shell, `app_process`); não houve instalação de IME/helper.
-- Notas de teste criadas no aparelho (para inspeção/limpeza posterior):
+- Notas de teste mantidas no aparelho para inspeção:
   - “Ter esperança é o segredo para o contentamento (10 min)” (V&M talk)
   - “Cultivando o interesse (4 min)” (V&M demo)
-  - “VOCÊ ESTÁ AVANÇANDO COM A ORGANIZAÇÃO UNIDA DE JEOVÁ?” (2 notas S-34;
-    uma delas é duplicata de tentativa anterior)
-  - “Nova nota” (criada por engano ao selecionar um JPG no picker)
+  - “VOCÊ ESTÁ AVANÇANDO COM A ORGANIZAÇÃO UNIDA DE JEOVÁ?” (1 nota S-34)
+- Limpeza: a nota “Nova nota” (criada por engano ao selecionar um JPG no picker)
+  e a **duplicata** do S-34 foram movidas para a Lixeira. A nota original
+  “Meu primeiro discurso” não foi tocada.
