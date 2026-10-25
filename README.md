@@ -9,7 +9,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-25)
 
-- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `c53c0b7`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas concluídos no A34 e no tablet**.
+- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `fe63742`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ concluídos no A34 e no tablet**.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
