@@ -4,6 +4,8 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** 3.2.5c: contagem de palavras do editor multi-seção (pura, sem Compose). */
@@ -13,6 +15,7 @@ class WordCountTest {
         role: String,
         contentHtml: String = "",
         subPoints: List<String> = emptyList(),
+        outlines: List<String> = emptyList(),
     ): SectionUiState {
         val section = SpeechSection(
             id = "s-$role", noteId = "n", order = 0,
@@ -21,11 +24,14 @@ class WordCountTest {
             publicationRefs = emptyList(), methodPrinciple = null,
             createdAt = 0L, updatedAt = 0L,
         )
-        val subs = subPoints.mapIndexed { i, html ->
+        val count = maxOf(subPoints.size, outlines.size)
+        val subs = (0 until count).map { i ->
             SubPoint(
-                id = "sp$i", sectionId = section.id, order = i, outlineText = "o",
+                id = "sp$i", sectionId = section.id, order = i,
+                outlineText = outlines.getOrElse(i) { "o" },
                 bibleRefs = emptyList(), publicationRefs = emptyList(),
-                instruction = null, developedHtml = html, createdAt = 0L, updatedAt = 0L,
+                instruction = null, developedHtml = subPoints.getOrElse(i) { "" },
+                createdAt = 0L, updatedAt = 0L,
             )
         }
         return SectionUiState(section = section, subPoints = subs)
@@ -80,6 +86,85 @@ class WordCountTest {
     fun countSectionWords_bodyMiniSpeechCounts() {
         val sections = listOf(ui("BODY", contentHtml = "<p>duas palavras</p>"))
         assertEquals(2, countSectionWords(sections))
+    }
+
+    // ---------- Fase 2: desenvolvido × esboço (S-34) ----------
+
+    @Test
+    fun countOutlineWords_contaSoSubpontosSemDesenvolvimento() {
+        val sections = listOf(
+            ui(
+                "BODY",
+                subPoints = listOf("<p>desenvolvido</p>", ""),
+                outlines = listOf("esboço um", "esboço dois"),
+            ),
+        )
+        // O primeiro subponto já foi desenvolvido; só o segundo conta no esboço.
+        assertEquals(2, countOutlineWords(sections))
+    }
+
+    @Test
+    fun countOutlineWords_ignoraBodyComMiniDiscurso() {
+        val sections = listOf(
+            ui("BODY", contentHtml = "<p>mini discurso</p>", outlines = listOf("esboço um")),
+        )
+        assertEquals(0, countOutlineWords(sections))
+    }
+
+    @Test
+    fun editorWordCount_s34SoEsboco_mostraZeroDesenvolvidas() {
+        val sections = listOf(
+            ui("INTRO"),
+            ui("BODY", outlines = listOf("Jeová Deus dá a todos", "Milhões aguardam")),
+            ui("CONCLUSION"),
+        )
+        val wc = editorWordCount(sections, "")
+
+        assertEquals(0, wc.developed)
+        assertEquals(7, wc.outline)
+        assertEquals("0 desenvolvidas · 7 no esboço", wc.label)
+        assertTrue(wc.needsDevelopmentHint)
+    }
+
+    @Test
+    fun editorWordCount_desenvolvidoEEsboço_mostraOsDois() {
+        val sections = listOf(
+            ui(
+                "BODY",
+                subPoints = listOf("<p>duas palavras</p>", ""),
+                outlines = listOf("", "três palavras no esboço"),
+            ),
+        )
+        val wc = editorWordCount(sections, "")
+
+        assertEquals(2, wc.developed)
+        assertEquals(4, wc.outline)
+        assertEquals("2 palavras desenvolvidas · 4 no esboço", wc.label)
+        assertFalse(wc.needsDevelopmentHint)
+    }
+
+    @Test
+    fun editorWordCount_soDesenvolvido_mantemRotuloAtual() {
+        val sections = listOf(ui("BODY", contentHtml = "<p>duas palavras</p>"))
+        val wc = editorWordCount(sections, "")
+
+        assertEquals("2 palavras", wc.label)
+        assertFalse(wc.needsDevelopmentHint)
+    }
+
+    @Test
+    fun editorWordCount_semSecoes_usaMdText() {
+        val wc = editorWordCount(emptyList(), "<p>Olá mundo</p>")
+        assertEquals(2, wc.developed)
+        assertEquals(0, wc.outline)
+        assertEquals("2 palavras", wc.label)
+    }
+
+    @Test
+    fun editorWordCount_vazio_mostraZeroPalavras() {
+        val wc = editorWordCount(emptyList(), "")
+        assertEquals("0 palavras", wc.label)
+        assertFalse(wc.needsDevelopmentHint)
     }
 
     // ---------- T2 (Mini Discurso): estimativa de tempo ----------

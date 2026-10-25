@@ -31,6 +31,64 @@ fun countSectionWords(sections: List<SectionUiState>): Int = sections.sumOf { s 
 }
 
 /**
+ * Contagem do esboço ainda não desenvolvido: só subpontos sem `developedHtml`,
+ * e só em BODY cujo mini discurso está vazio (se o BODY já tem mini discurso,
+ * os subpontos são legado e não entram na conta). Nunca soma o mesmo campo
+ * duas vezes. Puro/testável.
+ */
+fun countOutlineWords(sections: List<SectionUiState>): Int = sections.sumOf { s ->
+    if (s.section.role != SectionRole.BODY || s.section.contentHtml.isNotBlank()) {
+        0
+    } else {
+        s.subPoints
+            .filter { it.developedHtml.isBlank() }
+            .sumOf { countWords(it.outlineText) }
+    }
+}
+
+/**
+ * Contador do editor com dois estados separados:
+ * - [developed]: texto desenvolvido (contentHtml/developedHtml) — mesma
+ *   semântica do [countSectionWords];
+ * - [outline]: esboço ainda não desenvolvido (outlineText).
+ *
+ * A UI escolhe o rótulo; o "0 desenvolvidas · N no esboço" é honesto e a dica
+ * "desenvolva este ponto" só aparece quando há esboço e nada desenvolvido.
+ */
+data class EditorWordCount(
+    val developed: Int,
+    val outline: Int,
+) {
+    val needsDevelopmentHint: Boolean get() = developed == 0 && outline > 0
+
+    val label: String
+        get() = when {
+            developed > 0 && outline > 0 ->
+                "$developed palavras desenvolvidas · $outline no esboço"
+            developed > 0 -> "$developed palavras"
+            outline > 0 -> "0 desenvolvidas · $outline no esboço"
+            else -> "0 palavras"
+        }
+}
+
+/**
+ * Contador do editor. Sem seções, mantém o fallback no `mdText` (nota livre)
+ * como texto desenvolvido. Puro/testável.
+ */
+fun editorWordCount(
+    sections: List<SectionUiState>,
+    mdText: String,
+): EditorWordCount =
+    if (sections.isEmpty()) {
+        EditorWordCount(developed = countWords(mdText), outline = 0)
+    } else {
+        EditorWordCount(
+            developed = countSectionWords(sections),
+            outline = countOutlineWords(sections),
+        )
+    }
+
+/**
  * Estimativa de duração do texto em minutos (ritmo único de [SpeechPacing],
  * arredondado). Vazio = 0; qualquer texto não vazio conta ao menos 1 min.
  * Puro/testável.

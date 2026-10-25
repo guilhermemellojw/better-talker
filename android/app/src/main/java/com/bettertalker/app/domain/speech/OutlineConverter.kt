@@ -120,10 +120,26 @@ class OutlineConverter(
             order = 0,
             ts = ts,
         )
-        val bodies = parsed.sections.mapIndexed { i, outline ->
+        val rawBodies = parsed.sections.mapIndexed { i, outline ->
             // Ordem por posição (contígua), após a intro — invariante.
             val section = buildBodySection(outline, noteId, order = i + 1, ts)
             BodyConversion(section, extractSubPoints(outline.body, section.id, ts))
+        }
+        // O total declarado inclui intro/conclusão. Se os tempos dos corpos
+        // (5+13+7+5 no S-34 real) já somam o total, os 1+1 sintéticos
+        // estouravam para 32. Normaliza os corpos para o total declarado.
+        val bodyMinutes = rawBodies.map { it.section.minutes }
+        val normalized = normalizeBodyMinutes(
+            bodyMinutes = bodyMinutes,
+            totalMinutes = parsed.totalMinutes,
+            edgeMinutes = INTRO_MINUTES + CONCLUSION_MINUTES,
+        )
+        val bodies = if (normalized == bodyMinutes) {
+            rawBodies
+        } else {
+            rawBodies.mapIndexed { i, body ->
+                body.copy(section = body.section.copy(minutes = normalized[i]))
+            }
         }
         val conclusion = buildEdgeSection(
             noteId = noteId,
@@ -343,6 +359,36 @@ class OutlineConverter(
         const val INTRO_MINUTES = 1
         const val CONCLUSION_MINUTES = 1
     }
+}
+
+/**
+ * Ajusta os minutos dos BODYs para que `soma(corpos) + bordas == total`.
+ *
+ * O S-34 declara o total incluindo intro/conclusão; o converter sintetiza
+ * 1 min para cada borda. Se os corpos já somam o total, é preciso devolver
+ * os 2 min das bordas. Reduz do maior corpo (preserva os demais e o mínimo
+ * de 1 min). Se o total declarado for MAIOR que a soma atual, não infla
+ * conteúdo sem base — mantém os tempos do esboço. Sem total, devolve a
+ * lista original. Puro/testável.
+ */
+internal fun normalizeBodyMinutes(
+    bodyMinutes: List<Int>,
+    totalMinutes: Int?,
+    edgeMinutes: Int,
+): List<Int> {
+    if (totalMinutes == null || bodyMinutes.isEmpty()) return bodyMinutes
+    val target = totalMinutes - edgeMinutes
+    // Não dá para manter todos os corpos com >= 1 min: preserva o conteúdo.
+    if (target < bodyMinutes.size) return bodyMinutes
+    val result = bodyMinutes.toMutableList()
+    var sum = result.sum()
+    while (sum > target) {
+        val idx = result.indices.maxByOrNull { result[it] } ?: break
+        if (result[idx] <= 1) break
+        result[idx] -= 1
+        sum -= 1
+    }
+    return result
 }
 
 /**

@@ -143,7 +143,16 @@ class S34ImportModelingTest {
             ),
             titles,
         )
-        assertEquals(listOf(5, 4, 9, 8, 4), conv.bodies.map { it.section.minutes })
+        // Total declarado = 30; as bordas somam 2, então os corpos somam 28
+        // (o maior corpo perde 2 min: 9 → 7).
+        assertEquals(listOf(5, 4, 7, 8, 4), conv.bodies.map { it.section.minutes })
+        assertEquals(
+            "total declarado deve fechar com intro + corpos + conclusão",
+            30,
+            (conv.intro?.minutes ?: 0) +
+                conv.bodies.sumOf { it.section.minutes } +
+                (conv.conclusion?.minutes ?: 0),
+        )
 
         // Orientações gerais do orador: NOTA inicial + fechamento.
         assertTrue(conv.speakerNotes.contains("NOTA: Ajude a assistência"))

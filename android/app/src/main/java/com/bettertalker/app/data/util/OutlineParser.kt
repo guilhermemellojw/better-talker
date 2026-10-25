@@ -32,10 +32,24 @@ object OutlineParser {
     internal val MIN_RE = Regex("""[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]""", RegexOption.IGNORE_CASE)
     private val ORPHAN_MIN_RE = Regex("""^[\[(]\s*(\d+)\s*(min\.?|minutos?)\s*[\])]\s*$""", RegexOption.IGNORE_CASE)
     private val TOTAL_RE = Regex("""TEMPO\s*TOTAL\s*:\s*(\d+)\s*MINUTOS?""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Declaração de cobertura do S-34: "A SER ABRANGIDO EM 30 MINUTOS".
+     * É rodapé, mas também carrega o total declarado — por isso é lida antes
+     * de ser descartada.
+     */
+    private val COVERAGE_RE = Regex(
+        """A\s+SER\s+ABRANGIDO\s+EM\s*(\d+)\s*MINUTOS?""",
+        RegexOption.IGNORE_CASE,
+    )
     private val NOISE_RE = Regex("""^(N\.º|©|\(|S-\d+)""")
 
-    /** Rodapé/metadados do S-34 (© …, S-34-T …) — nunca viram conteúdo. */
-    private val FOOTER_RE = Regex("""^(©|S-\d)""")
+    /**
+     * Rodapé/metadados do S-34 (© …, S-34-T …, N.° 192-T 8/15) — nunca viram
+     * conteúdo. Padrões específicos: "N.°" sozinho é título de esboço e não
+     * pode ser descartado.
+     */
+    private val FOOTER_RE = Regex("""^(©|S-\d|N\.[º°]\s*\d+\s*[-–]\s*T\b)""")
 
     /** Linha composta só de blocos `[...]` (instrução ao orador). */
     private val BRACKET_ONLY_RE = Regex("""^(?:\s*\[[^\]]*\]\s*)+$""")
@@ -99,6 +113,14 @@ object OutlineParser {
 
         for (line in lines) {
             val t0 = line.text
+            // Rodapé de cobertura do S-34: declara o total e não vira corpo.
+            val coverage = COVERAGE_RE.find(t0)
+            if (coverage != null) {
+                total = coverage.groupValues[1].toIntOrNull()
+                prevLine = t0
+                prevConsumed = true
+                continue
+            }
             if (TOTAL_RE.find(t0) != null) {
                 total = TOTAL_RE.find(t0)!!.groupValues[1].toIntOrNull()
                 prevLine = t0

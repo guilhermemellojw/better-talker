@@ -416,12 +416,25 @@ internal fun canonicalSectionLine(line: String): String {
     return "$word $n"
 }
 
+/**
+ * Tags de bloco viram quebra de linha; tags inline são removidas SEM espaço.
+ *
+ * JWPUB/DOCX podem partir uma palavra em vários `<span>`/runs. Trocar toda
+ * tag por espaço inseria espaços dentro da palavra ("Jeov á"); o correto é
+ * remover a tag inline e preservar a fronteira apenas nos blocos.
+ */
+private val XML_BLOCK_TAG_RE = Regex(
+    """(?i)</?(?:p|div|br|li|tr|tc|h[1-6]|section|article|table|ul|ol|blockquote|pre|figure|figcaption|header|footer|aside|nav|main|hr|w:p|w:tr|w:tc|w:tbl)(?=[\s/>])[^>]*>"""
+)
+
 /** Remove tags XML/HTML preservando quebras de linha (estrutura de parágrafos). */
 fun stripXml(raw: String): String =
-    raw.replace(Regex("<[^>]+>"), " ")
+    raw.replace(XML_BLOCK_TAG_RE, "\n")
+        .replace(Regex("<[^>]+>"), "")
         // NOTA: sem \v aqui — em Java \v = whitespace vertical (inclui \n)!
         .replace(Regex("[ \\t\\r\\f]+"), " ")
-        .replace(Regex("\n[ \t]*\n(?:[ \t]*\n)*"), "\n\n")
+        .replace(Regex(" *\\n *"), "\n")
+        .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
 
 /**

@@ -89,6 +89,13 @@ class JwpubTest {
         assertTrue(out, !out.contains("§"))
     }
 
+    @Test
+    fun markParagraphs_naoQuebraPalavraEntreSpansInline() {
+        val html = "<p class=\"sb\"><span>Jeov</span><span>á</span> Deus dá vida.</p>"
+        val out = JwpubExtractor.markParagraphs(html)
+        assertTrue(out, out.contains("Jeová Deus dá vida."))
+    }
+
     // ---------- RC1-pages: página estimada dos §§ ----------
 
     @Test

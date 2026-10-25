@@ -179,6 +179,21 @@ fun SectionCardEditor(
                         )
                     }
                 }
+                // Fase 1/2: o ✨ vive no cabeçalho do card ativo, junto ao
+                // título. No S-34 longo ele ficava no rodapé, depois de dezenas
+                // de subpontos — inacessível na prática.
+                if (isActiveSection && !readOnly) {
+                    IconButton(
+                        onClick = onCopilot,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "Copilot deste ponto",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -358,19 +373,6 @@ fun SectionCardEditor(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
-                    }
-                    if (isActiveSection && !readOnly) {
-                        // Fase 1: só o card ativo mostra o ✨; sem texto/borda.
-                        IconButton(
-                            onClick = onCopilot,
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = "Copilot deste ponto",
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
                     }
                     SectionMenuButton(
                         sectionId = state.section.id,

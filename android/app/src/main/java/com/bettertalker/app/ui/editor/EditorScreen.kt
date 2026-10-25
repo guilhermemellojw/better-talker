@@ -285,9 +285,12 @@ fun EditorScreen(
     // Bloco 3 (higiene): diálogos de Mover/Excluir/Cor/Esboço removidos —
     // essas ações vivem na Home (menu do card) ou na Biblioteca.
 
-    // Contador de palavras: vivo das seções; fallback no mdText (sem seções).
-    val wordCount = remember(sections, mdText) {
-        if (sections.isEmpty()) countWords(mdText) else countSectionWords(sections)
+    // Contador de palavras: desenvolvido × esboço; fallback no mdText sem seções.
+    val wordCount = remember(sections, mdText) { editorWordCount(sections, mdText) }
+    val wordCountLabel = if (wordCount.needsDevelopmentHint) {
+        "${wordCount.label} · desenvolva este ponto"
+    } else {
+        wordCount.label
     }
 
     // Recolhe a TopAppBar no scroll down; volta em qualquer scroll up.
@@ -331,9 +334,13 @@ fun EditorScreen(
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            "$wordCount palavras",
+                            wordCountLabel,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (wordCount.needsDevelopmentHint) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         )
                     }
                 },
