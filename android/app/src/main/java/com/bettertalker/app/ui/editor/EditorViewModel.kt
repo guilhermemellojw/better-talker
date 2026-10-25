@@ -22,6 +22,7 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SectionValidationResult
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -232,6 +233,30 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             delay(400)
             repo.save(noteId, _title.value, _mdText.value, _html.value,
                 curFolderId, _color.value, curPinned)
+            _saving.value = false
+        }
+    }
+
+    /**
+     * Fase 0: flush ao sair do editor (back/ON_STOP).
+     *
+     * Cobre os DOIS debounces: seções/sub-pontos (controller) e título/cor/
+     * agregado da nota (este VM). Sem isso, voltar em <400 ms perde a última
+     * edição. Nunca deixa o indicador "Salvando…" preso.
+     */
+    suspend fun flushPendingEdits() {
+        _saving.value = true
+        try {
+            sectionsController.flushDirty()
+            job?.cancelAndJoin()
+            job = null
+            repo.save(noteId, _title.value, _mdText.value, _html.value,
+                curFolderId, _color.value, curPinned)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("Editor", "flush ao sair falhou: ${e.javaClass.simpleName}")
+        } finally {
             _saving.value = false
         }
     }

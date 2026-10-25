@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -69,6 +70,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -99,6 +101,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.bettertalker.app.data.export.buildExportHtml
 import com.bettertalker.app.data.export.buildExportPlainText
 import com.bettertalker.app.data.export.exportFileBaseName
@@ -159,6 +164,35 @@ fun EditorScreen(
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+
+    // Fase 0: flush antes de sair. O autosave tem debounce de 400 ms; sem
+    // esperar, o pop cancela o viewModelScope e perde a última edição.
+    var exiting by remember { mutableStateOf(false) }
+    val requestBack: () -> Unit = {
+        if (!exiting) {
+            exiting = true
+            scope.launch {
+                vm.flushPendingEdits()
+                onBack()
+            }
+        }
+    }
+    BackHandler(
+        enabled = draftState is DraftUiState.Idle &&
+            !showAttachSheet && !showExport && !showPasteSheet &&
+            !showAttachmentsSheet && !showAddSectionMenu,
+    ) { requestBack() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && !exiting) {
+                // Melhor esforço ao ir para background/recents.
+                scope.launch { vm.flushPendingEdits() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     // #7e2: "Anexar esboço" reusa o pipeline do chat — mesmo contrato do
     // picker do ChatScreen (OpenDocument → CopilotViewModel.importOutlineFile).
     val outlinePicker = rememberLauncherForActivityResult(
@@ -289,7 +323,7 @@ fun EditorScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 scrollBehavior = scrollBehavior,
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
+                navigationIcon = { IconButton(onClick = requestBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
                     Column {
                         Text(

@@ -258,6 +258,34 @@ class SectionsControllerTest {
     }
 
     @Test
+    fun flushDirty_salvaEdicaoPendenteAntesDoDebounce() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "INTRO")) }
+        // debounce de produção: sem o flush, a edição ainda não estaria no DAO.
+        val controller = SectionsController(
+            nid, secs, FakeSubPoints(), FakeTransactionRunner(), this, debounceMs = 400,
+        )
+        try {
+            controller.sections.first { it.isNotEmpty() }
+
+            controller.onSectionContent("s1", "<p>última edição</p>")
+            assertEquals(
+                "sem flush o debounce ainda não persistiu",
+                "",
+                secs.rows.value.single().contentHtml,
+            )
+
+            controller.flushDirty()
+
+            assertEquals("<p>última edição</p>", secs.rows.value.single().contentHtml)
+            val state = controller.sections.value.single()
+            assertFalse("isDirty deve zerar após o flush", state.isDirty)
+            assertFalse("isSaving deve zerar após o flush", state.isSaving)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun onSubPointContent_updatesDevelopedHtml_andSavesParent() = runBlocking {
         val secs = FakeSections().apply { rows.value = listOf(section("s1", 0)) }
         val subs = FakeSubPoints().apply { rows.value = listOf(subPoint("sp1", "s1", 0)) }

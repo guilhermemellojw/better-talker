@@ -540,6 +540,25 @@ class SectionsController(
         }
     }
 
+    /**
+     * Fase 0 (segurança de dados): flush determinístico ao sair da tela.
+     *
+     * Aguarda os jobs em voo e persiste qualquer seção que continue suja
+     * (job cancelado/falho). NÃO usa [persistSectionsAtomically]: aquilo é
+     * para mutação estrutural (delete + reinsere a nota inteira + tombstones).
+     */
+    suspend fun flushDirty() {
+        awaitSaves()
+        val dirty = _sections.value.filter { it.isDirty }
+        if (dirty.isNotEmpty()) {
+            dirty.forEach { state ->
+                saveSection(state.section.id)
+                markDirty(state.section.id, false)
+            }
+            onSaved()
+        }
+    }
+
     // ---------- 3.2.5d: API section-aware (consumida na 3.2.5e) ----------
 
     private val _pendingInserts = MutableStateFlow<List<SectionAwareInsert>>(emptyList())
