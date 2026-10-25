@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`bb692ef`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`97aa494`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -121,7 +121,7 @@ JVM verdes**.
 
 ## Ensaio com análise (T3-A) — 2026-10-25
 
-Commit `bb692ef` · validação no A34 (Stage S-34) · **2370 testes JVM
+Commit `97aa494` · validação no A34 (Stage S-34) · **2374 testes JVM
 verdes**.
 
 | Item | Decisão/ação |
@@ -134,8 +134,9 @@ verdes**.
 | Feedback | `SpeechCoach`: 4 blocos + 1 exercício; sem nota/julgamento; pausas não penalizam o ritmo. |
 | UI | Microfone 48dp, banner “Ouvindo/Pausado/Interrompido”, sheet com Fala/Sessão, blocos, TTS e descarte. |
 | Privacidade | Áudio não é gravado; transcrição só em memória e descartada ao fechar/calcular. |
-| Offline | `EXTRA_PREFER_OFFLINE` primeiro; fallback online; backoff para rate limit/network. |
-| A34 | Pausar/retomar 2× sem perder tempo/transcrição; banner Pausado congela; resultado `Fala: 18 s · Sessão: 1 min 7 s`; Interrupted com Retomar/Parar; CTA de permissão negada. Captura de fala real segue pendente (serviço de voz do A34 instável). |
+| Offline | Reconhecedor on-device (API 33+) primeiro; fallback de rede; backoff para rate limit/network. |
+| Calibração | Relógio de fala começa no primeiro texto reconhecido; `hasEnoughSpeech` exige ≥20 palavras, ≥10 s e ≥70 wpm; ensaio parcial não cobra cobertura/tempo total; aspas duplo-escapadas decodificadas. |
+| A34 | Pausar/retomar 2× sem perder tempo/transcrição; banner Pausado congela; resultado `Fala: 18 s · Sessão: 1 min 7 s`; Interrupted com Retomar/Parar; CTA de permissão negada; `Pouca fala capturada` validado no sheet. O STT do A34 falhou com 37 palavras/45 s (49 wpm) e depois `ERROR_SERVER_DISCONNECTED`/`TOO_MANY_REQUESTS`; captura real segue pendente no tablet. |
 
 ## Decisões pendentes (não remover ainda)
 
