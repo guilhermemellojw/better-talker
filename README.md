@@ -19,7 +19,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Refs unificadas:** `NoteRefsCollector` é a fonte única (título, mdText/plainText, esboço, seções e subpontos); checklist e Copilot usam a mesma lista, e a Bíblia da TNM entra como evidência no prompt.
 - **Ensaio com análise (T3-A):** STT nativo no Stage com controle explícito **iniciar → pausar → retomar → parar**; pausa/interrupção preservam a transcrição e nunca geram resultado automático. Métricas locais (tempo de fala e tempo de sessão, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. O relógio de fala começa na primeira fala; captura curta (<70 wpm) vira “Pouca fala capturada”, e ensaio parcial não cobra cobertura do texto completo. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** 2.374 testes JVM.
+- **Testes:** 2.375 testes JVM.
 - **Pendências de distribuição:** backup/keystore/chave de API (ver [FREEZE.md](docs/FREEZE.md) e a auditoria de 2026-10-19).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)

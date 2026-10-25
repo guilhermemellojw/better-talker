@@ -121,7 +121,7 @@ JVM verdes**.
 
 ## Ensaio com análise (T3-A) — 2026-10-25
 
-Commit `97aa494` · validação no A34 (Stage S-34) · **2374 testes JVM
+Commit `97aa494` · validação no A34 (Stage S-34) · **2375 testes JVM
 verdes**.
 
 | Item | Decisão/ação |

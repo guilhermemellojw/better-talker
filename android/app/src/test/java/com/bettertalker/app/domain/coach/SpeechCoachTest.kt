@@ -125,6 +125,23 @@ class SpeechCoachTest {
     }
 
     @Test
+    fun capturaDe37PalavrasEm45sNaoViraDevagar() {
+        // Caso real do A34: 37 palavras / 45 s = 49 wpm.
+        val f = buildCoachFeedback(
+            metrics(
+                durationSec = 45,
+                spokenWords = 37,
+                wpm = 49,
+                coverage = 5,
+            ),
+            targetMinutes = 32,
+        )
+        assertTrue(f.adjust.any { it.contains("Pouca fala capturada") })
+        assertTrue(f.adjust.none { it.contains("abaixo da faixa") })
+        assertTrue(f.adjust.none { it.contains("Faltou cobrir") })
+    }
+
+    @Test
     fun amostraCurtaNaoDizQueEstaDevagar() {
         val f = buildCoachFeedback(
             metrics(spokenWords = 8, wpm = 40, coverage = 10),
