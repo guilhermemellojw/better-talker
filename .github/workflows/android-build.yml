@@ -66,6 +66,7 @@ jobs:
         working-directory: android
         continue-on-error: true
         run: |
+          set -o pipefail
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-test.log
 
@@ -93,7 +94,9 @@ jobs:
         id: build_apk
         working-directory: android
         continue-on-error: true
-        run: ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
 
       - name: Show Gradle failure log
         if: steps.build_apk.outcome == 'failure'
