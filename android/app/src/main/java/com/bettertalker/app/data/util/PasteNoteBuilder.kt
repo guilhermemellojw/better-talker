@@ -185,15 +185,11 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
     val metadataChanged = overrides.scenario != null ||
         overrides.publicationReference != null
 
-    val titleChanged = overrides.noteTitle != null || overrides.minutes != null
+    val titleChanged = overrides.noteTitle != null
     val baseTitle = overrides.noteTitle?.trim()?.takeIf { it.isNotBlank() }
         ?.let { pasteTitleWithoutMinutes(it) }
         ?: pasteTitleWithoutMinutes(plan.noteTitle)
-    val newTitle = when {
-        !titleChanged -> plan.noteTitle
-        isVm && totalMinutes > 0 -> "$baseTitle ($totalMinutes min)"
-        else -> baseTitle
-    }
+    val newTitle = if (titleChanged) baseTitle else plan.noteTitle
 
     val newSections = if (isVm && overrides.minutes != null) {
         redistributeMinutes(plan.sections, totalMinutes)
@@ -718,38 +714,61 @@ fun planPaste(raw: String): PastePlan {
         val partTitle = talk.title.ifBlank { "Discurso" }
         val minutes = talk.minutes.takeIf { it > 0 } ?: 10
         val (bible, pubs) = extractRefsFromBody(body)
-
-        // Segmenta os subtópicos em BODYs independentes. O texto colado vira o
-        // conteúdo do card (contentHtml), não a linha de raciocínio: assim o
-        // Ensaio/Export/Tribuna já leem o discurso pronto.
-        val chunks = splitIntoBodyChunks(body).ifEmpty { listOf(body) }
+        val type = discourseTypeFor(talk)
         val bodyMinutes = (minutes - EDGE_SECTION_MINUTES * 2).coerceAtLeast(1)
-        val fittedChunks = fitBodyChunks(chunks, bodyMinutes)
-        val baseBodyMinutes = bodyMinutes / fittedChunks.size
-        val remainderMinutes = bodyMinutes % fittedChunks.size
 
-        val sections = buildList {
-            add(PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""))
-            fittedChunks.forEachIndexed { index, chunk ->
-                val (chunkBible, chunkPubs) = extractRefsFromBody(chunk)
-                add(
-                    PastedSection(
-                        role = SectionRole.BODY,
-                        title = if (fittedChunks.size == 1) partTitle else "Ponto ${index + 1}",
-                        minutes = baseBodyMinutes + if (index == 0) remainderMinutes else 0,
-                        contentHtml = paragraphsToHtml(chunk),
-                        bibleRefs = chunkBible,
-                        publicationRefs = chunkPubs,
+        // Parte 6 (MINISTRY_TALK): o texto colado é metadado (tema/ref), não
+        // discurso. O BODY nasce vazio; o metadado fica no título e o texto
+        // colado no plainText da nota. Tesouros (TREASURES_TALK) mantém o
+        // conteúdo nos BODYs — as frases coladas são os pontos.
+        val sections = if (type == DiscourseType.MINISTRY_TALK) {
+            listOf(
+                PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""),
+                PastedSection(
+                    role = SectionRole.BODY,
+                    title = partTitle,
+                    minutes = bodyMinutes,
+                    contentHtml = "",
+                    bibleRefs = bible,
+                    publicationRefs = pubs,
+                ),
+                PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""),
+            )
+        } else {
+            // Segmenta os subtópicos em BODYs independentes. O texto colado vira o
+            // conteúdo do card (contentHtml), não a linha de raciocínio: assim o
+            // Ensaio/Export/Tribuna já leem o discurso pronto.
+            val chunks = splitIntoBodyChunks(body).ifEmpty { listOf(body) }
+            val fittedChunks = fitBodyChunks(chunks, bodyMinutes)
+            val baseBodyMinutes = bodyMinutes / fittedChunks.size
+            val remainderMinutes = bodyMinutes % fittedChunks.size
+            buildList {
+                add(PastedSection(SectionRole.INTRO, "Introdução", EDGE_SECTION_MINUTES, ""))
+                fittedChunks.forEachIndexed { index, chunk ->
+                    val (chunkBible, chunkPubs) = extractRefsFromBody(chunk)
+                    add(
+                        PastedSection(
+                            role = SectionRole.BODY,
+                            title = if (fittedChunks.size == 1) partTitle else "Ponto ${index + 1}",
+                            minutes = baseBodyMinutes + if (index == 0) remainderMinutes else 0,
+                            contentHtml = paragraphsToHtml(chunk),
+                            bibleRefs = chunkBible,
+                            publicationRefs = chunkPubs,
+                        )
                     )
-                )
+                }
+                add(PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""))
             }
-            add(PastedSection(SectionRole.CONCLUSION, "Conclusão", EDGE_SECTION_MINUTES, ""))
         }
-        val bodyLabel = if (fittedChunks.size == 1) "1 tópico" else "${fittedChunks.size} tópicos"
+        val bodyLabel = if (sections.count { it.role == SectionRole.BODY } == 1) {
+            "1 tópico"
+        } else {
+            "${sections.count { it.role == SectionRole.BODY }} tópicos"
+        }
         return PastePlan(
             kind = PasteKind.VmTalk(talk, ignored),
-            noteTitle = "$partTitle ($minutes min)",
-            discourseType = discourseTypeFor(talk),
+            noteTitle = partTitle,
+            discourseType = type,
             sections = sections,
             plainText = normalizePastedText(body),
             bibleRefs = bible,
@@ -795,7 +814,7 @@ fun planPaste(raw: String): PastePlan {
         )
         return PastePlan(
             kind = PasteKind.VmDemo(demo, ignored),
-            noteTitle = "$partTitle ($minutes min)",
+            noteTitle = partTitle,
             discourseType = DiscourseType.MINISTRY_PART,
             sections = sections,
             plainText = normalizePastedText(

@@ -401,6 +401,42 @@ class DossierPromptBuilderTest {
     }
 
     @Test
+    fun s38_ministryTalk_usaDiretrizDaParte6SemTituloDiscurso() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                discourseType = "MINISTRY_TALK",
+                noteTitle = "Jesus não é o Deus Todo-poderoso",
+                sectionTitle = "Jesus não é o Deus Todo-poderoso · lmd apêndice A ponto 20",
+                contentHtml = "",
+            ),
+            includeSpeakerNote = false,
+        )
+        assertTrue(prompt, prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(prompt, prompt.contains("S-38 p. 12"))
+        assertTrue(prompt, prompt.contains("discurso à congregação"))
+        assertTrue(prompt, prompt.contains("textos bíblicos podem ser usados no ministério"))
+        assertTrue(prompt, prompt.contains("É fala contínua, não diálogo"))
+        assertFalse(prompt, prompt.contains("Siga o formato desta parte"))
+    }
+
+    @Test
+    fun s38_treasuresTalk_usaDiretrizDeTesouros() {
+        val prompt = builder.buildContextBlock(
+            dossier(
+                discourseType = "TREASURES_TALK",
+                noteTitle = "A ordem nos céus",
+                sectionTitle = "Ponto 1",
+                contentHtml = "<p>Primeiro ponto.</p>",
+            ),
+            includeSpeakerNote = false,
+        )
+        assertTrue(prompt, prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(prompt, prompt.contains("S-38 p. 3"))
+        assertTrue(prompt, prompt.contains("discurso de Tesouros"))
+        assertTrue(prompt, prompt.contains("2-3 pontos da apostila"))
+    }
+
+    @Test
     fun s38_promptCompletoImprimeParaInspecao() {
         val prompt = builder.buildContextBlock(
             dossier(

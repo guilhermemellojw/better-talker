@@ -43,11 +43,11 @@ class PasteNoteBuilderTest {
     // ---------- DEMO: turnos no HTML ----------
 
     @Test
-    fun demo_criaNotaTipadaComTituloEMinutosDaParte() {
+    fun demo_criaNotaTipadaComTituloDaParteSemMinutos() {
         val built = buildPastedNote(demoText)
         assertEquals(DiscourseType.MINISTRY_PART, built.discourseType)
-        // Nota: parte + duração; card da seção: descrição (aqui, sem pré-turno).
-        assertEquals("Comece uma conversa (3 min)", built.title)
+        // Nota: título da parte (o tempo fica nos cards); card da seção: descrição.
+        assertEquals("Comece uma conversa", built.title)
         val s = only(built)
         assertEquals(SectionRole.BODY, s.role)
         assertEquals("Comece uma conversa", s.title)
@@ -106,8 +106,8 @@ class PasteNoteBuilderTest {
     fun talk_aplicaTemplateDeDiscursoComUmBodyPorSubtopico() {
         val built = buildPastedNote(talkText)
         assertEquals(DiscourseType.TREASURES_TALK, built.discourseType)
-        // Nota: parte + duração total.
-        assertEquals("A ordem nos céus (10 min)", built.title)
+        // Nota: título da parte (sem tempo); duração total nos cards.
+        assertEquals("A ordem nos céus", built.title)
         assertTrue(built.speechTemplate)
         // INTRO + 3 BODYs + CONCLUSION.
         assertEquals(5, built.sections.size)
@@ -267,8 +267,8 @@ class PasteNoteBuilderTest {
                 "Fale sobre como iniciar uma conversa."
         )
         assertEquals(DiscourseType.MINISTRY_PART, built.discourseType)
-        // Nota: parte + duração; card da seção: a descrição; corpo vazio.
-        assertEquals("Cultivando o interesse (4 min)", built.title)
+        // Nota: título da parte (sem tempo); card da seção: a descrição; corpo vazio.
+        assertEquals("Cultivando o interesse", built.title)
         val s = only(built)
         assertEquals("DE CASA EM CASA. Fale sobre como iniciar uma conversa.", s.title)
         assertEquals("", s.contentHtml)

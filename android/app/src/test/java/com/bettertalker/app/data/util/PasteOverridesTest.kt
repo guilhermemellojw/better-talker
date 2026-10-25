@@ -30,7 +30,7 @@ class PasteOverridesTest {
         val plan = planPaste(part5)
         val out = applyPasteOverrides(plan, PasteOverrides(noteTitle = "Novo título"))
 
-        assertEquals("Novo título (4 min)", out.noteTitle)
+        assertEquals("Novo título", out.noteTitle)
         assertEquals(4, out.sections.single { it.role == SectionRole.BODY }.minutes)
     }
 
@@ -39,7 +39,8 @@ class PasteOverridesTest {
         val plan = planPaste(part5)
         val out = applyPasteOverrides(plan, PasteOverrides(noteTitle = "Novo (4 min)", minutes = 6))
 
-        assertEquals("Novo (6 min)", out.noteTitle)
+        assertEquals("Novo", out.noteTitle)
+        assertEquals(6, out.sections.single { it.role == SectionRole.BODY }.minutes)
     }
 
     @Test
@@ -47,7 +48,7 @@ class PasteOverridesTest {
         val plan = planPaste(part5)
         val out = applyPasteOverrides(plan, PasteOverrides(noteTitle = "   ", minutes = 6))
 
-        assertEquals("Cultivando o interesse (6 min)", out.noteTitle)
+        assertEquals("Cultivando o interesse", out.noteTitle)
     }
 
     @Test
@@ -55,7 +56,7 @@ class PasteOverridesTest {
         val plan = planPaste(part5)
         val out = applyPasteOverrides(plan, PasteOverrides(minutes = 6))
 
-        assertEquals("Cultivando o interesse (6 min)", out.noteTitle)
+        assertEquals("Cultivando o interesse", out.noteTitle)
         assertEquals(6, out.sections.single { it.role == SectionRole.BODY }.minutes)
         val kind = out.kind as PasteKind.VmDemo
         assertEquals(6, kind.part.minutes)
@@ -67,7 +68,7 @@ class PasteOverridesTest {
         assertTrue(plan.kind is PasteKind.VmTalk)
         val out = applyPasteOverrides(plan, PasteOverrides(minutes = 12))
 
-        assertEquals("Ter esperança é o segredo para o contentamento (12 min)", out.noteTitle)
+        assertEquals("Ter esperança é o segredo para o contentamento", out.noteTitle)
         assertEquals(12, out.sections.sumOf { it.minutes })
         assertEquals(1, out.sections.first { it.role == SectionRole.INTRO }.minutes)
         assertEquals(1, out.sections.last { it.role == SectionRole.CONCLUSION }.minutes)
@@ -137,7 +138,7 @@ class PasteOverridesTest {
         )
         val note = out.toPastedNote()
 
-        assertEquals("Novo (6 min)", note.title)
+        assertEquals("Novo", note.title)
         assertEquals(6, note.sections.single { it.role == SectionRole.BODY }.minutes)
         assertTrue(note.sections.single().publicationRefs.isEmpty())
     }

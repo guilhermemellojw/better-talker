@@ -193,7 +193,9 @@ class DefaultDossierPromptBuilder(
      */
     private fun StringBuilder.appendS38Guidelines(d: Dossier) {
         val isDemo = d.discourseType == DiscourseType.MINISTRY_PART.name
-        val isTalk = d.discourseType == DiscourseType.MINISTRY_TALK.name
+        val isMinistryTalk = d.discourseType == DiscourseType.MINISTRY_TALK.name
+        val isTreasuresTalk = d.discourseType == DiscourseType.TREASURES_TALK.name
+        val isTalk = isMinistryTalk || isTreasuresTalk
         if (!isDemo && !isTalk) return
         val section = d.currentSection
         val description = buildString {
@@ -207,8 +209,14 @@ class DefaultDossierPromptBuilder(
         val scenario = com.bettertalker.app.data.util.vmScenarioOf(description)
         val reference = com.bettertalker.app.data.util.vmReferenceOf(description)
         appendLine("## DIRETRIZES DA REUNIÃO (S-38)")
-        (s38GuidanceFor(section.title) ?: s38GuidanceFor(partTypeFromNote))
-            ?.let { appendLine(it) }
+        // Diretriz por TIPO de nota, não por substring do título: o título do
+        // discurso pode ser só o tema ("Jesus não é..."), sem "Discurso".
+        val guidance = when {
+            isMinistryTalk -> s38GuidanceFor("discurso")
+            isTreasuresTalk -> s38GuidanceFor("tesouros")
+            else -> s38GuidanceFor(section.title) ?: s38GuidanceFor(partTypeFromNote)
+        }
+        guidance?.let { appendLine(it) }
         scenario?.let {
             appendLine("Cenário: ${it.lowercase().replaceFirstChar { c -> c.uppercase() }}")
         }
@@ -522,6 +530,15 @@ internal fun subPointTargetWords(sectionMinutes: Int?, subPoints: Int): Int? =
 internal fun s38GuidanceFor(partType: String): String? {
     val t = com.bettertalker.app.data.util.normalizeText(partType)
     return when {
+        t.contains("tesouros") ->
+            "S-38 p. 3 — O objetivo é um discurso de Tesouros (10 min): desenvolva o " +
+                "tema e os 2-3 pontos da apostila com os textos bíblicos, explicando e " +
+                "aplicando à vida do ouvinte. É fala contínua, não diálogo."
+        t.contains("discurso") ->
+            "S-38 p. 12 — O objetivo é um discurso à congregação: destaque como os " +
+                "textos bíblicos podem ser usados no ministério — quando usá-los, o que " +
+                "significam e como raciocinar a partir deles — e conclua com aplicação " +
+                "prática. É fala contínua, não diálogo."
         t.contains("iniciando conversas") || t.contains("iniciar conversas") ||
             t.contains("comece uma conversa") || t.contains("inicie uma conversa") ->
             "O objetivo é iniciar uma conversa amigável, despertar interesse e " +

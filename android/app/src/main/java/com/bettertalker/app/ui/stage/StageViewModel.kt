@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.toDomain
-import com.bettertalker.app.data.export.buildExportPlainText
 import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MAX_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MIN_SP
@@ -123,11 +122,14 @@ class StageViewModel(
             val note = db.noteDao().get(noteId)
             _title.value = note?.title.orEmpty()
             _totalMinutes.value = sections.sumOf { it.minutes }
-            _content.value = buildExportPlainText(sections, subPoints)
+            val type = com.bettertalker.app.domain.speech.DiscourseType
+                .fromNameOrDefault(note?.discourseType)
+            // Ensaio por tipo: S-34 lê subpontos; V&M lê contentHtml, sem
+            // títulos/metadados (o Stage antigo lia o texto agregado inteiro).
+            _content.value = buildStageContent(type, sections, subPoints)
             // Modo Teleprompter: turnos do diálogo — só demonstrações V&M com
             // ≥2 papéis distintos (evita falso positivo em negritos de discurso).
-            val isDemo = com.bettertalker.app.domain.speech.DiscourseType
-                .fromNameOrDefault(note?.discourseType) ==
+            val isDemo = type ==
                 com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART
             val parsed = if (isDemo) {
                 sections.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }

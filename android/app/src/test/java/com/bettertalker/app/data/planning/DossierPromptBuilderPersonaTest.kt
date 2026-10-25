@@ -66,12 +66,15 @@ class DossierPromptBuilderPersonaTest {
     }
 
     @Test
-    fun tesourosTalk_naoRecebeS38DeMinisterio() {
+    fun tesourosTalk_recebeS38DeTesouros() {
         val prompt = DefaultDossierPromptBuilder().build(
             dossier(DiscourseType.TREASURES_TALK, 10, "A ordem nos céus")
         )
         assertFalse(prompt.contains("## FORMATO DE DEMONSTRAÇÃO"))
-        assertFalse(prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(prompt.contains("## DIRETRIZES DA REUNIÃO (S-38)"))
+        assertTrue(prompt.contains("S-38 p. 3"))
+        assertTrue(prompt.contains("discurso de Tesouros"))
+        assertTrue(prompt.contains("2-3 pontos da apostila"))
         assertTrue(prompt.contains("Tipo: TREASURES_TALK"))
     }
 

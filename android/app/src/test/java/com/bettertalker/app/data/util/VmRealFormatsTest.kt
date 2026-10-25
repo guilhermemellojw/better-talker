@@ -30,7 +30,7 @@ class VmRealFormatsTest {
         )
         assertTrue(p.kind is PasteKind.VmDemo)
         assertEquals(DiscourseType.MINISTRY_PART, p.discourseType)
-        assertEquals("Iniciando conversas (3 min)", p.noteTitle)
+        assertEquals("Iniciando conversas", p.noteTitle)
         assertEquals("TESTEMUNHO INFORMAL", p.scenario)
         assertEquals("lmd lição 2 ponto 3", p.publicationReference)
         val body = p.sections.single { it.role == SectionRole.BODY }
@@ -48,7 +48,7 @@ class VmRealFormatsTest {
         )
         assertTrue(p.kind is PasteKind.VmTalk)
         assertEquals(DiscourseType.MINISTRY_TALK, p.discourseType)
-        assertEquals("Jesus não é o Deus Todo-Poderoso (4 min)", p.noteTitle)
+        assertEquals("Jesus não é o Deus Todo-Poderoso", p.noteTitle)
         assertEquals("lmd apêndice A ponto 20", p.publicationReference)
         assertEquals(4, p.sections.sumOf { it.minutes })
         assertEquals(1, p.sections.first { it.role == SectionRole.INTRO }.minutes)
@@ -56,6 +56,13 @@ class VmRealFormatsTest {
         val body = bodyTitles(p).single()
         assertTrue(body.contains("Jesus não é o Deus Todo-Poderoso"))
         assertTrue(body.contains("lmd apêndice A ponto 20"))
+        val bodySection = p.sections.single { it.role == SectionRole.BODY }
+        assertEquals(2, bodySection.minutes)
+        assertTrue("BODY do Discurso nasce vazio", bodySection.contentHtml.isEmpty())
+        assertTrue(
+            "texto colado preservado no plainText",
+            p.plainText.contains("lmd apêndice A ponto 20") && p.plainText.contains("Tema:"),
+        )
         assertTrue(
             "a ref de técnica (th) continua como fonte",
             p.publicationRefs.any { it.symbol == "th" },
