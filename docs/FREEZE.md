@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`)
+**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -44,6 +44,19 @@ Commit `ebdcd92` · validação no A34 (discurso 10 min/3 pontos; demonstração
 | Demonstração livre | Novo `FREE_DEMO`, 1 BODY, sem S-38; persona neutra `FREE_DEMO_SCRIPTWRITER`/`FREE_DEMO_CHAT_HINT`. |
 | Parte da reunião | Fora do “Criar do zero”; continua via colagem V&M. |
 | FREE_DEMO no app | Validator (single body), editor, Hub (badge “Demonstração”), Tribuna e Ensaio (turnos). |
+
+## Resolvidos no bloco UX — 2026-10-25
+
+Commit `5e5e1fa` · validação no A34 (S-34, V&M, FREE_DEMO) · **2293 testes JVM
+verdes**.
+
+| Item | Decisão/ação |
+|---|---|
+| Card minimalista | Minutos, ✨ e ⋮ no cabeçalho; badge “Demonstração” só no hub; rodapé com handle + chips de demo. |
+| Linha de raciocínio | Colapsável: vazia = “+ Estrutura”; até 5 aberta; acima de 5 fechada com contagem. |
+| Dica vazia | Texto “Converse com o Copilot…” removido; placeholder do editor assume. |
+| Acessibilidade | Alvos de 48dp (swatches, linhas compactas, handle, menu), labels/headings, seção em português, grid de cores selecionável. |
+| Validação | A34 via uiautomator (content-desc/bounds) em Home, Editor e Chat; TalkBack/Scanner manual ficam para a revisão. |
 
 ## Decisões pendentes (não remover ainda)
 
