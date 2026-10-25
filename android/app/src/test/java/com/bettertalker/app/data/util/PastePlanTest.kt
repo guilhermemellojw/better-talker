@@ -6,6 +6,7 @@ import com.bettertalker.app.domain.speech.SectionRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -534,5 +535,32 @@ class PastePlanTest {
         val text = "Ter esperança é o segredo para o contentamento\n\n(20 min)\n\n$treasuresBody"
         val plan = planPaste(text)
         assertTrue(plan.kind is PasteKind.FreeText)
+    }
+
+    @Test
+    fun portaVm_rejeitaS34_eTextoLive_masAceitaParteVm() {
+        val s34 = planPaste(
+            """
+            1. Introdução (3 min)
+            Fale sobre o tema.
+            2. Tópico um (8 min)
+            Desenvolva o primeiro ponto.
+            3. Tópico dois (8 min)
+            Desenvolva o segundo ponto.
+            4. Conclusão (3 min)
+            Encerre com aplicação.
+            """.trimIndent()
+        )
+        assertTrue(s34.kind is PasteKind.S34)
+        assertNotNull(pasteDoorRejection(s34, PasteDoor.VM_ONLY))
+        assertNull(pasteDoorRejection(s34, PasteDoor.ANY))
+
+        val free = planPaste("Uma nota qualquer\ncom duas linhas.")
+        assertTrue(free.kind is PasteKind.FreeText)
+        assertNotNull(pasteDoorRejection(free, PasteDoor.VM_ONLY))
+        assertNull(pasteDoorRejection(free, PasteDoor.ANY))
+
+        val vm = planPaste(part5)
+        assertNull(pasteDoorRejection(vm, PasteDoor.VM_ONLY))
     }
 }

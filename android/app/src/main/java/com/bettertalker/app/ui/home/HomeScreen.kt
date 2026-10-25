@@ -27,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Book
@@ -80,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.R
+import com.bettertalker.app.data.util.PasteDoor
 import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.ui.components.NoteCard
@@ -126,7 +126,6 @@ fun HomeScreen(
     var confirmDelFolder by remember { mutableStateOf(false) }
     // Fase 1 "Colar e Pronto": FAB abre as opções de criação.
     var showCreateSheet by remember { mutableStateOf(false) }
-    var showInsertDialog by remember { mutableStateOf(false) }
     // Fase B: porta única de colar material (prévia antes de criar).
     var showPasteSheet by remember { mutableStateOf(false) }
     var showScratchDialog by remember { mutableStateOf(false) }
@@ -216,13 +215,17 @@ fun HomeScreen(
         )
     }
 
-    // Fase 1 "Colar e Pronto": opções de criação agrupadas por intenção.
+    // Fase 1a: 3 portas explícitas no FAB.
     if (showCreateSheet) {
         CreateNoteSheet(
             onDismiss = { showCreateSheet = false },
-            onInsertMaterial = {
+            onImportS34 = {
                 showCreateSheet = false
-                showInsertDialog = true
+                materialPicker.launch(arrayOf("*/*"))
+            },
+            onPasteVm = {
+                showCreateSheet = false
+                showPasteSheet = true
             },
             onStartFromScratch = {
                 showCreateSheet = false
@@ -234,30 +237,18 @@ fun HomeScreen(
             },
         )
     }
-    if (showInsertDialog) {
-        InsertMaterialDialog(
-            onDismiss = { showInsertDialog = false },
-            onPasteText = {
-                showInsertDialog = false
-                showPasteSheet = true
-            },
-            onPickFile = {
-                showInsertDialog = false
-                materialPicker.launch(arrayOf("*/*"))
-            },
-        )
-    }
     if (showPasteSheet) {
         PastePreviewSheet(
             request = PasteSheetRequest(
                 defaultDestination = PasteDestination.NEW_NOTE,
                 folderName = selectedFolder?.name,
+                door = PasteDoor.VM_ONLY,
             ),
             onDismiss = { showPasteSheet = false },
             onApply = { plan, text ->
                 showPasteSheet = false
                 scope.launch {
-                    val outcome = vm.createNoteFromPaste(text)
+                    val outcome = vm.createNoteFromPlan(plan)
                     val noteId = outcome.noteId
                     if (noteId != null) {
                         val feedback = if (plan.kind is PasteKind.S34) {
@@ -560,15 +551,16 @@ fun HomeScreen(
 }
 
 /**
- * Fase 1 "Colar e Pronto" (UX refactor): criação agrupada por intenção —
- * Inserir material (colar/arquivo) · Começar do zero (discurso/demo) ·
- * Nota rápida (discreta).
+ * Fase 1a — 3 portas explícitas: S-34 (arquivo), V&M (texto) e esboço do
+ * zero. "Nota rápida" permanece como ação secundária discreta para não
+ * remover o fluxo de nota em branco.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateNoteSheet(
     onDismiss: () -> Unit,
-    onInsertMaterial: () -> Unit,
+    onImportS34: () -> Unit,
+    onPasteVm: () -> Unit,
     onStartFromScratch: () -> Unit,
     onQuickNote: () -> Unit,
 ) {
@@ -581,13 +573,19 @@ private fun CreateNoteSheet(
             )
             CreateNoteOption(
                 icon = Icons.Default.UploadFile,
-                title = "Inserir material",
-                subtitle = "Cole um texto ou escolha um arquivo",
-                onClick = onInsertMaterial,
+                title = "Importar esboço S-34",
+                subtitle = "Arquivo DOCX, PDF ou JWPUB",
+                onClick = onImportS34,
+            )
+            CreateNoteOption(
+                icon = Icons.Default.ContentPaste,
+                title = "Colar parte da reunião V&M",
+                subtitle = "Texto da parte (S-38)",
+                onClick = onPasteVm,
             )
             CreateNoteOption(
                 icon = Icons.Default.Create,
-                title = "Começar do zero",
+                title = "Criar esboço do zero",
                 subtitle = "Discurso ou demonstração",
                 onClick = onStartFromScratch,
             )
@@ -600,37 +598,6 @@ private fun CreateNoteSheet(
             }
         }
     }
-}
-
-/** "Inserir material": colar texto (detecção V&M) ou escolher arquivo. */
-@Composable
-private fun InsertMaterialDialog(
-    onDismiss: () -> Unit,
-    onPasteText: () -> Unit,
-    onPickFile: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Inserir material") },
-        text = {
-            Column {
-                CreateNoteOption(
-                    icon = Icons.Default.ContentPaste,
-                    title = "Colar material",
-                    subtitle = "Revise a prévia antes de criar a nota",
-                    onClick = onPasteText,
-                )
-                CreateNoteOption(
-                    icon = Icons.Default.AttachFile,
-                    title = "Escolher arquivo",
-                    subtitle = "DOCX, PDF ou texto do esboço",
-                    onClick = onPickFile,
-                )
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
 }
 
 /** "Começar do zero": discurso (S-34) ou demonstração (V&M). */

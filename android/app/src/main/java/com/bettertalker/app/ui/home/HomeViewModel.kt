@@ -119,8 +119,16 @@ class HomeViewModel(
      * Fase A — cérebro único: [planPaste] decide S-34, TALK, DEMO, rejeição
      * ou texto livre. A Home consome exatamente o mesmo plano do Editor/Chat.
      */
-    suspend fun createNoteFromPaste(text: String): PasteOutcome {
-        val plan = com.bettertalker.app.data.util.planPaste(text)
+    suspend fun createNoteFromPaste(text: String): PasteOutcome =
+        createNoteFromPlan(com.bettertalker.app.data.util.planPaste(text))
+
+    /**
+     * 1b-1a: cria a nota a partir do plano já sobreposto pela prévia.
+     * NÃO re-roda planPaste — os overrides do usuário seriam descartados.
+     */
+    suspend fun createNoteFromPlan(
+        plan: com.bettertalker.app.data.util.PastePlan,
+    ): PasteOutcome {
         val kind = plan.kind
         if (kind is com.bettertalker.app.data.util.PasteKind.VmRejected) {
             return PasteOutcome(null, plan.notice)

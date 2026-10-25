@@ -93,6 +93,170 @@ data class PastePlan(
     val ignoredParts: List<VmPart> = emptyList(),
 )
 
+/** Porta de entrada da colagem na Home (S-34 é arquivo; V&M é texto). */
+enum class PasteDoor { ANY, VM_ONLY }
+
+/**
+ * Motivo de bloqueio quando a porta não aceita o tipo detectado.
+ * Null = pode criar. A porta V&M recusa S-34 e texto livre; a folha genérica
+ * (Editor/Chat) usa ANY e mantém o comportamento atual.
+ */
+fun pasteDoorRejection(plan: PastePlan, door: PasteDoor): String? = when {
+    door != PasteDoor.VM_ONLY -> null
+    plan.kind is PasteKind.S34 ->
+        "Este parece ser um esboço S-34. Use a opção \"Importar esboço S-34\"."
+    plan.kind == PasteKind.FreeText ->
+        "Não reconheci uma parte da reunião V&M. Cole a linha da parte " +
+            "(ex.: \"5. Cultivando o interesse (4 min) …\")."
+    else -> null
+}
+
+/**
+ * Overrides editáveis da prévia (1b-1a): título, duração e refs como fonte.
+ * Não re-processa o texto bruto nem troca o tipo da parte.
+ */
+data class PasteOverrides(
+    /** null = mantém o título original; vazio = mantém a base original. */
+    val noteTitle: String? = null,
+    /** null = mantém a duração atual; 1..60. */
+    val minutes: Int? = null,
+    val excludedBibleRefs: Set<String> = emptySet(),
+    /** Chaves estáveis de [PublicationRef] (ver [publicationRefKey]). */
+    val excludedPublicationRefs: Set<String> = emptySet(),
+)
+
+/** Título sem o sufixo " (N min)" — base editável na prévia. */
+fun pasteTitleWithoutMinutes(title: String): String =
+    title.replace(Regex("\\s*\\(\\d+\\s*min\\)\\s*$"), "").trim()
+
+/** Minutos do sufixo do título (null = sem sufixo). */
+fun pasteMinutesFromTitle(title: String): Int? =
+    Regex("\\((\\d+)\\s*min\\)\\s*$").find(title)?.groupValues?.get(1)?.toIntOrNull()
+
+/** Duração efetiva do plano: sufixo do título; senão a soma das seções. */
+fun pastePlanMinutes(plan: PastePlan): Int? =
+    pasteMinutesFromTitle(plan.noteTitle)
+        ?: plan.sections.sumOf { it.minutes }.takeIf { it > 0 }
+
+/** Chave estável de uma ref de publicação (UI/checkbox). */
+fun publicationRefKey(ref: PublicationRef): String = listOfNotNull(
+    ref.symbol,
+    ref.page?.let { "p$it" },
+    ref.paragraph?.let { "§$it" },
+    ref.paragraphEnd?.let { "§§$it" },
+    ref.article,
+    ref.chapter,
+).joinToString("|")
+
+/** Rótulo curto de uma ref de publicação. */
+fun publicationRefLabel(ref: PublicationRef): String = buildString {
+    append(ref.symbol)
+    ref.chapter?.takeIf { it.isNotBlank() }?.let { append(" $it") }
+    ref.article?.takeIf { it.isNotBlank() }?.let { append(" $it") }
+    ref.page?.let { append(" p. $it") }
+    ref.paragraph?.let { append(" §$it") }
+    ref.paragraphEnd?.let { append("-§$it") }
+}
+
+/**
+ * Aplica os overrides da prévia sem re-rodar [planPaste] e sem tocar no
+ * texto bruto.
+ *
+ * - Título: base sem sufixo + " (N min)" quando é parte V&M.
+ * - Minutos: 1 para INTRO/CONCLUSÃO, o resto entre os BODYs (demo/consideração
+ *   têm só BODY e recebem o total).
+ * - Refs: remove as excluídas do plano, das seções e dos sub-pontos.
+ * - Tipo da parte (TALK/DEMO) nunca muda.
+ */
+fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
+    val isVm = plan.kind is PasteKind.VmTalk ||
+        plan.kind is PasteKind.VmDemo ||
+        plan.kind is PasteKind.VmConsideration
+    val currentMinutes = pastePlanMinutes(plan)
+    val totalMinutes = (overrides.minutes ?: currentMinutes ?: 0).coerceIn(1, 60)
+
+    val titleChanged = overrides.noteTitle != null || overrides.minutes != null
+    val baseTitle = overrides.noteTitle?.trim()?.takeIf { it.isNotBlank() }
+        ?.let { pasteTitleWithoutMinutes(it) }
+        ?: pasteTitleWithoutMinutes(plan.noteTitle)
+    val newTitle = when {
+        !titleChanged -> plan.noteTitle
+        isVm && totalMinutes > 0 -> "$baseTitle ($totalMinutes min)"
+        else -> baseTitle
+    }
+
+    val newSections = if (isVm && overrides.minutes != null) {
+        redistributeMinutes(plan.sections, totalMinutes)
+    } else {
+        plan.sections
+    }
+    val newKind = if (isVm) {
+        when (val k = plan.kind) {
+            is PasteKind.VmTalk -> k.copy(part = k.part.copy(minutes = totalMinutes))
+            is PasteKind.VmDemo -> k.copy(part = k.part.copy(minutes = totalMinutes))
+            is PasteKind.VmConsideration -> k.copy(part = k.part.copy(minutes = totalMinutes))
+            else -> k
+        }
+    } else {
+        plan.kind
+    }
+
+    fun bibleFilter(refs: List<String>): List<String> =
+        refs.filterNot { it in overrides.excludedBibleRefs }
+
+    fun pubFilter(refs: List<PublicationRef>): List<PublicationRef> =
+        refs.filterNot { publicationRefKey(it) in overrides.excludedPublicationRefs }
+
+    val sections = newSections.map { section ->
+        section.copy(
+            bibleRefs = bibleFilter(section.bibleRefs),
+            publicationRefs = pubFilter(section.publicationRefs),
+            subPoints = section.subPoints.map { sub ->
+                sub.copy(
+                    bibleRefs = bibleFilter(sub.bibleRefs),
+                    publicationRefs = pubFilter(sub.publicationRefs),
+                )
+            },
+        )
+    }
+
+    return plan.copy(
+        noteTitle = newTitle,
+        kind = newKind,
+        sections = sections,
+        bibleRefs = bibleFilter(plan.bibleRefs),
+        publicationRefs = pubFilter(plan.publicationRefs),
+    )
+}
+
+/**
+ * Redistribui minutos: 1 para cada borda existente (INTRO/CONCLUSÃO), o
+ * restante entre os BODYs. Mesma regra do [planPaste] (resto no 1º BODY).
+ */
+private fun redistributeMinutes(
+    sections: List<PastedSection>,
+    total: Int,
+): List<PastedSection> {
+    val bodies = sections.count { it.role == SectionRole.BODY }
+    if (bodies == 0) return sections
+    val edges = sections.count {
+        it.role == SectionRole.INTRO || it.role == SectionRole.CONCLUSION
+    }
+    val bodyMinutes = (total - edges).coerceAtLeast(1)
+    val base = bodyMinutes / bodies
+    val remainder = bodyMinutes % bodies
+    var seenBodies = 0
+    return sections.map { section ->
+        when (section.role) {
+            SectionRole.BODY -> {
+                val index = seenBodies++
+                section.copy(minutes = base + if (index == 0) remainder else 0)
+            }
+            SectionRole.INTRO, SectionRole.CONCLUSION -> section.copy(minutes = 1)
+        }
+    }
+}
+
 /**
  * Resumo puro da colagem para a `PastePreviewSheet` (Fase B).
  * Não inclui destino (é decisão da tela); não faz IO.

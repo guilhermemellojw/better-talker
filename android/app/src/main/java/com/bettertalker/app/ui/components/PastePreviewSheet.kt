@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,13 +41,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.util.PasteDoor
 import com.bettertalker.app.data.util.PasteKind
+import com.bettertalker.app.data.util.PasteOverrides
 import com.bettertalker.app.data.util.PastePlan
 import com.bettertalker.app.data.util.PastePreview
+import com.bettertalker.app.data.util.applyPasteOverrides
 import com.bettertalker.app.data.util.label
+import com.bettertalker.app.data.util.pasteDoorRejection
+import com.bettertalker.app.data.util.pastePlanMinutes
 import com.bettertalker.app.data.util.pastePreviewOf
+import com.bettertalker.app.data.util.pasteTitleWithoutMinutes
 import com.bettertalker.app.data.util.planPaste
+import com.bettertalker.app.data.util.publicationRefKey
+import com.bettertalker.app.data.util.publicationRefLabel
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.SectionRole
 import kotlinx.coroutines.delay
 
@@ -62,6 +74,8 @@ data class PasteSheetRequest(
     val currentNoteTitle: String? = null,
     val currentNoteHasSections: Boolean = false,
     val folderName: String? = null,
+    /** 1a: a porta "Colar parte da reunião V&M" usa VM_ONLY. */
+    val door: PasteDoor = PasteDoor.ANY,
 )
 
 /**
@@ -107,7 +121,28 @@ fun PastePreviewSheet(
     } else {
         preview.cardsLabel
     }
-    val canApply = text.isNotBlank() && preview.canApply
+    val doorRejection = remember(plan, request.door) {
+        pasteDoorRejection(plan, request.door)
+    }
+    // 1b-1a: revisão editável só na porta V&M (Home). A folha ANY do Editor
+    // mantém o comportamento atual.
+    val isVmReview = request.door == PasteDoor.VM_ONLY &&
+        (plan.kind is PasteKind.VmTalk ||
+            plan.kind is PasteKind.VmDemo ||
+            plan.kind is PasteKind.VmConsideration)
+    var titleDraft by remember(plan) {
+        mutableStateOf(pasteTitleWithoutMinutes(plan.noteTitle))
+    }
+    var minutesDraft by remember(plan) {
+        mutableStateOf(pastePlanMinutes(plan)?.toString().orEmpty())
+    }
+    var excludedBible by remember(plan) { mutableStateOf(emptySet<String>()) }
+    var excludedPub by remember(plan) { mutableStateOf(emptySet<String>()) }
+    val minutesValue = minutesDraft.toIntOrNull()
+    val minutesValid = !isVmReview || minutesDraft.isBlank() ||
+        (minutesValue != null && minutesValue in 1..60)
+    val canApply = text.isNotBlank() && preview.canApply &&
+        doorRejection == null && minutesValid
     val applyLabel = when {
         reviewInChat -> "Revisar no chat"
         request.defaultDestination == PasteDestination.NEW_NOTE -> "Criar nota"
@@ -185,7 +220,37 @@ fun PastePreviewSheet(
                 preview = preview,
                 cardsLabel = cardsLabel,
                 reviewInChat = reviewInChat,
+                doorRejection = doorRejection,
             )
+            if (isVmReview) {
+                ReviewFields(
+                    title = titleDraft,
+                    onTitleChange = { titleDraft = it },
+                    minutes = minutesDraft,
+                    onMinutesChange = { value ->
+                        minutesDraft = value.filter(Char::isDigit).take(2)
+                    },
+                    minutesError = !minutesValid,
+                    bibleRefs = plan.bibleRefs,
+                    excludedBible = excludedBible,
+                    onToggleBible = { ref ->
+                        excludedBible = if (ref in excludedBible) {
+                            excludedBible - ref
+                        } else {
+                            excludedBible + ref
+                        }
+                    },
+                    pubRefs = plan.publicationRefs,
+                    excludedPub = excludedPub,
+                    onTogglePub = { key ->
+                        excludedPub = if (key in excludedPub) {
+                            excludedPub - key
+                        } else {
+                            excludedPub + key
+                        }
+                    },
+                )
+            }
             DestinationCard(request)
 
             Row(
@@ -202,12 +267,99 @@ fun PastePreviewSheet(
                         // pode aplicar um plano de um texto anterior.
                         val latest = planPaste(text)
                         plan = latest
-                        if (text.isNotBlank() && latest.kind !is PasteKind.VmRejected) {
-                            onApply(latest, text)
+                        val overrides = if (isVmReview) {
+                            PasteOverrides(
+                                noteTitle = titleDraft,
+                                minutes = minutesDraft.toIntOrNull(),
+                                excludedBibleRefs = excludedBible,
+                                excludedPublicationRefs = excludedPub,
+                            )
+                        } else {
+                            PasteOverrides()
+                        }
+                        val finalPlan = applyPasteOverrides(latest, overrides)
+                        if (text.isNotBlank() &&
+                            finalPlan.kind !is PasteKind.VmRejected &&
+                            pasteDoorRejection(finalPlan, request.door) == null
+                        ) {
+                            onApply(finalPlan, text)
                         }
                     },
                 ) {
                     Text(applyLabel)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewFields(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    minutes: String,
+    onMinutesChange: (String) -> Unit,
+    minutesError: Boolean,
+    bibleRefs: List<String>,
+    excludedBible: Set<String>,
+    onToggleBible: (String) -> Unit,
+    pubRefs: List<PublicationRef>,
+    excludedPub: Set<String>,
+    onTogglePub: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "Revisar antes de criar",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            label = { Text("Título da nota") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = minutes,
+            onValueChange = onMinutesChange,
+            label = { Text("Duração (min)") },
+            singleLine = true,
+            isError = minutesError,
+            supportingText = if (minutesError) {
+                { Text("Use um valor entre 1 e 60.") }
+            } else {
+                null
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (bibleRefs.isNotEmpty() || pubRefs.isNotEmpty()) {
+            Text(
+                "Desmarque para não usar como fonte.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            bibleRefs.forEach { ref ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = ref !in excludedBible,
+                        onCheckedChange = { onToggleBible(ref) },
+                    )
+                    Text(ref, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            pubRefs.forEach { ref ->
+                val key = publicationRefKey(ref)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = key !in excludedPub,
+                        onCheckedChange = { onTogglePub(key) },
+                    )
+                    Text(
+                        publicationRefLabel(ref),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
@@ -220,16 +372,18 @@ private fun DetectionCard(
     preview: PastePreview,
     cardsLabel: String,
     reviewInChat: Boolean,
+    doorRejection: String?,
 ) {
     val rejected = plan.kind is PasteKind.VmRejected
+    val blocked = rejected || doorRejection != null
     val container = when {
-        rejected -> MaterialTheme.colorScheme.errorContainer
+        blocked -> MaterialTheme.colorScheme.errorContainer
         plan.kind is PasteKind.S34 -> MaterialTheme.colorScheme.tertiaryContainer
         plan.kind == PasteKind.FreeText -> MaterialTheme.colorScheme.surfaceVariant
         else -> MaterialTheme.colorScheme.secondaryContainer
     }
     val content = when {
-        rejected -> MaterialTheme.colorScheme.onErrorContainer
+        blocked -> MaterialTheme.colorScheme.onErrorContainer
         plan.kind is PasteKind.S34 -> MaterialTheme.colorScheme.onTertiaryContainer
         plan.kind == PasteKind.FreeText -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.colorScheme.onSecondaryContainer
@@ -280,6 +434,13 @@ private fun DetectionCard(
                 preview.rejectionMessage?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            doorRejection?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             preview.ignoredLabel?.let { label ->
                 TextButton(
