@@ -1,6 +1,10 @@
 package com.bettertalker.app.ui.stage
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,21 +16,31 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
@@ -36,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -43,6 +59,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.bettertalker.app.domain.coach.formatCoachDuration
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
@@ -104,7 +122,29 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val fontSp by vm.fontSp.collectAsState()
     val speaking by vm.ttsSpeaking.collectAsState()
     val speechReady by vm.ttsReady.collectAsState()
+    val analysisState by vm.analysisState.collectAsState()
+    val analysisElapsed by vm.analysisElapsed.collectAsState()
     val scroll = rememberScrollState()
+    var micDenied by remember { mutableStateOf(false) }
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            micDenied = false
+            vm.startAnalysis()
+        } else {
+            micDenied = true
+        }
+    }
+    val requestAnalysis: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            vm.startAnalysis()
+        } else {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     // Tela cheia imersiva + tela sempre acesa enquanto o palco está aberto.
     DisposableEffect(Unit) {
@@ -119,6 +159,8 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             view.keepScreenOn = false
             // T2: sair do palco para o ensaio em voz alta.
             vm.stopSpeech()
+            // T3-A: microfone nunca fica aberto fora da tela.
+            vm.dismissAnalysis()
         }
     }
 
@@ -196,7 +238,31 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 speaking = speaking,
                 speechReady = speechReady,
                 onToggleSpeech = vm::toggleSpeech,
+                analysisActive = analysisState is AnalysisState.Listening ||
+                    analysisState is AnalysisState.Processing,
+                onStartAnalysis = requestAnalysis,
                 onExit = onBack,
+            )
+        }
+
+        // T3-A: indicador de escuta/análise e CTA de permissão.
+        StageAnalysisBanner(
+            state = analysisState,
+            elapsedSec = analysisElapsed,
+            onStop = vm::stopAnalysis,
+            onRetry = requestAnalysis,
+            onDismiss = vm::dismissAnalysis,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 84.dp, start = 12.dp, end = 12.dp),
+        )
+        if (micDenied) {
+            MicDeniedBanner(
+                onRetry = { micPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                onDismiss = { micDenied = false },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = 36.dp),
             )
         }
 
@@ -239,6 +305,18 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             )
         }
     }
+
+    val result = analysisState as? AnalysisState.Result
+    if (result != null) {
+        AnalysisResultSheet(
+            result = result,
+            speaking = speaking,
+            speechReady = speechReady,
+            onSpeak = vm::toggleFeedbackSpeech,
+            onRestart = vm::restartAnalysis,
+            onDismiss = vm::dismissAnalysis,
+        )
+    }
 }
 
 @Composable
@@ -253,6 +331,8 @@ private fun StageControlBar(
     speaking: Boolean,
     speechReady: Boolean,
     onToggleSpeech: () -> Unit,
+    analysisActive: Boolean,
+    onStartAnalysis: () -> Unit,
     onExit: () -> Unit,
 ) {
     Surface(
@@ -291,6 +371,20 @@ private fun StageControlBar(
             IconButton(onClick = { onFontDelta(2) }) {
                 Text("A+", color = StageFg, fontWeight = FontWeight.Bold)
             }
+            // T3-A: porta do Ensaio com análise (STT local, sem áudio salvo).
+            IconButton(
+                onClick = onStartAnalysis,
+                enabled = !analysisActive,
+                modifier = Modifier.semantics {
+                    contentDescription = "Ensaio com análise"
+                },
+            ) {
+                Icon(
+                    Icons.Default.Mic,
+                    contentDescription = null,
+                    tint = if (analysisActive) StageDim else StageFg,
+                )
+            }
             // T2: ensaio em voz alta (▶ Ouvir / ⏸ Parar) — mesmo rótulo do chat.
             TextButton(onClick = onToggleSpeech, enabled = speechReady) {
                 Text(
@@ -317,4 +411,216 @@ fun stageClockSubtitle(elapsedSec: Long, targetMin: Int, running: Boolean): Stri
         "meta ${formatClock(targetMin * 60L)} · restam ${formatClock(stageRemainingSeconds(elapsedSec, targetMin))}"
     }
     return base + pause
+}
+
+/** Indicador de escuta/análise + ações de parar/tentar de novo. */
+@Composable
+private fun StageAnalysisBanner(
+    state: AnalysisState,
+    elapsedSec: Long,
+    onStop: () -> Unit,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (state) {
+        AnalysisState.Idle, is AnalysisState.Result -> Unit
+        AnalysisState.Listening -> Surface(
+            color = Color(0xE6101724),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "● Ouvindo… ${formatClock(elapsedSec)}",
+                        color = StageRed,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Áudio não é gravado.",
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                }
+                TextButton(onClick = onStop) {
+                    Text("Parar análise", color = StageFg, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        AnalysisState.Processing -> Surface(
+            color = Color(0xE6101724),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.width(18.dp).height(18.dp),
+                    strokeWidth = 2.dp,
+                    color = StageAccent,
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("Analisando…", color = StageFg, fontWeight = FontWeight.Bold)
+            }
+        }
+        is AnalysisState.Error -> Surface(
+            color = Color(0xE6101724),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+            modifier = modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                Text(state.message, color = StageFg)
+                Row {
+                    TextButton(onClick = onRetry) { Text("Tentar de novo") }
+                    TextButton(onClick = onDismiss) { Text("Fechar") }
+                }
+            }
+        }
+    }
+}
+
+/** CTA quando a permissão do microfone é negada; o timer não para. */
+@Composable
+private fun MicDeniedBanner(
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = Color(0xE6101724),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        modifier = modifier,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Text(
+                "Microfone não permitido. O timer continua.",
+                color = StageFg,
+                fontWeight = FontWeight.Medium,
+            )
+            Row {
+                TextButton(onClick = onRetry) { Text("Permitir") }
+                TextButton(onClick = onDismiss) { Text("Agora não") }
+            }
+        }
+    }
+}
+
+/** Sheet com métricas + 4 blocos de feedback local. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AnalysisResultSheet(
+    result: AnalysisState.Result,
+    speaking: Boolean,
+    speechReady: Boolean,
+    onSpeak: () -> Unit,
+    onRestart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val metrics = result.metrics
+    val feedback = result.feedback
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Text(
+                "Resultado do ensaio",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                "${formatCoachDuration(metrics.durationSec)} · " +
+                    "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
+                    "(alvo ${metrics.targetWpm})",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                "Cobertura ${metrics.coveragePercent}% · " +
+                    "Muletas ${metrics.fillerTotal}" +
+                    if (metrics.fillerCounts.isNotEmpty()) {
+                        " (" + metrics.fillerCounts.entries.joinToString(", ") {
+                            "${it.key} ${it.value}"
+                        } + ")"
+                    } else "",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            result.warning?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    "Aviso: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            FeedbackBlock("O que foi bem", feedback.good)
+            FeedbackBlock(
+                "O que ajustar",
+                feedback.adjust.ifEmpty { listOf("Nada a ajustar — mantenha o padrão.") },
+            )
+            FeedbackBlock("Padrão observado", listOf(feedback.pattern))
+            FeedbackBlock("Exercício", listOf(feedback.exercise))
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TextButton(
+                    onClick = onRestart,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Treinar de novo") }
+                TextButton(
+                    onClick = onSpeak,
+                    enabled = speechReady,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        if (speaking) "⏸ Parar" else "▶ Ouvir feedback",
+                        color = if (speechReady) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Descartar") }
+            }
+            Text(
+                "Áudio não foi gravado. A transcrição foi descartada.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeedbackBlock(title: String, lines: List<String>) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+    lines.forEach { line ->
+        Text(
+            "• $line",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+    }
 }

@@ -9,12 +9,20 @@ import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MAX_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MIN_SP
 import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.data.voice.SessionSpeechRecognizer
+import com.bettertalker.app.data.voice.SessionSpeechState
+import com.bettertalker.app.data.voice.prepareForSpeech
+import com.bettertalker.app.domain.coach.buildCoachFeedback
+import com.bettertalker.app.domain.coach.coachFeedbackSpeech
+import com.bettertalker.app.domain.coach.computeSpeechMetrics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Ensaio v1 — estado do leitor de tribuna: texto agregado da nota,
@@ -75,6 +83,18 @@ class StageViewModel(
     /** Leitura em andamento. */
     val ttsSpeaking: StateFlow<Boolean> = tts.speaking
 
+    // T3-A — STT de sessão + análise local (sem áudio persistido).
+    private val sessionStt = SessionSpeechRecognizer(appCtx)
+    private val _analysisState = MutableStateFlow<AnalysisState>(AnalysisState.Idle)
+    val analysisState: StateFlow<AnalysisState> = _analysisState.asStateFlow()
+
+    private val _analysisElapsed = MutableStateFlow(0L)
+    val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
+
+    private var analysisStartElapsed = 0L
+    private var analysisTimerJob: Job? = null
+    private var sectionTitles: List<String> = emptyList()
+
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
 
@@ -109,6 +129,12 @@ class StageViewModel(
     private var timerJob: Job? = null
 
     init {
+        // T3-A: erro do STT no meio do ensaio → feedback parcial ou mensagem.
+        viewModelScope.launch {
+            sessionStt.state.collect { st ->
+                if (st is SessionSpeechState.Error) handleSessionError(st.message)
+            }
+        }
         // Preferência persistida de fonte (emite o valor salvo; padrão 24).
         viewModelScope.launch {
             settings.stageFontSp.collect { _fontSp.value = it }
@@ -122,6 +148,9 @@ class StageViewModel(
             val note = db.noteDao().get(noteId)
             _title.value = note?.title.orEmpty()
             _totalMinutes.value = sections.sumOf { it.minutes }
+            sectionTitles = sections.sortedBy { it.order }
+                .map { it.title }
+                .filter { it.isNotBlank() }
             val type = com.bettertalker.app.domain.speech.DiscourseType
                 .fromNameOrDefault(note?.discourseType)
             // Ensaio por tipo: S-34 lê subpontos; V&M lê contentHtml, sem
@@ -195,10 +224,119 @@ class StageViewModel(
 
     fun stopSpeech() = tts.stop()
 
+    // ---------- T3-A — Ensaio com análise (STT local) ----------
+
+    /** Inicia a escuta e o relógio da análise; o timer do Stage continua. */
+    fun startAnalysis() {
+        val current = _analysisState.value
+        if (current is AnalysisState.Listening || current is AnalysisState.Processing) return
+        sessionStt.cancelSession()
+        _analysisElapsed.value = 0
+        analysisStartElapsed = _elapsed.value
+        _analysisState.value = AnalysisState.Listening
+        analysisTimerJob?.cancel()
+        analysisTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000)
+                _analysisElapsed.value =
+                    (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L)
+            }
+        }
+        sessionStt.startSession()
+    }
+
+    /** Encerra a escuta, espera o último segmento e calcula as métricas. */
+    fun stopAnalysis() {
+        val current = _analysisState.value
+        if (current !is AnalysisState.Listening && current !is AnalysisState.Processing) return
+        _analysisState.value = AnalysisState.Processing
+        sessionStt.stopSession()
+        viewModelScope.launch {
+            val end = withTimeoutOrNull(ANALYSIS_STOP_TIMEOUT_MS) {
+                sessionStt.state.first {
+                    it is SessionSpeechState.Idle || it is SessionSpeechState.Error
+                }
+            }
+            if (_analysisState.value !is AnalysisState.Processing) return@launch
+            if (end is SessionSpeechState.Error) {
+                handleSessionError(end.message)
+            } else {
+                finishAnalysis(sessionStt.transcript.value, warning = null)
+            }
+        }
+    }
+
+    /** Descarta o resultado e a transcrição (privacidade). */
+    fun dismissAnalysis() {
+        sessionStt.cancelSession()
+        analysisTimerJob?.cancel()
+        analysisTimerJob = null
+        _analysisState.value = AnalysisState.Idle
+        _analysisElapsed.value = 0
+    }
+
+    /** "Treinar de novo": descarta e reabre o microfone. */
+    fun restartAnalysis() {
+        dismissAnalysis()
+        startAnalysis()
+    }
+
+    /** "Ouvir feedback": lê o texto do resultado; toque de novo para. */
+    fun toggleFeedbackSpeech() {
+        if (tts.speaking.value) {
+            tts.stop()
+            return
+        }
+        val result = _analysisState.value as? AnalysisState.Result ?: return
+        tts.speak(prepareForSpeech(coachFeedbackSpeech(result.feedback)))
+    }
+
+    private fun handleSessionError(message: String) {
+        val current = _analysisState.value
+        if (current !is AnalysisState.Listening && current !is AnalysisState.Processing) return
+        analysisTimerJob?.cancel()
+        analysisTimerJob = null
+        val duration = (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L).toInt()
+        val transcript = sessionStt.transcript.value
+        if (transcript.isBlank() && duration < 2) {
+            _analysisState.value = AnalysisState.Error(message)
+            sessionStt.clearTranscript()
+        } else {
+            finishAnalysis(transcript, warning = message)
+        }
+    }
+
+    private fun finishAnalysis(transcript: String, warning: String?) {
+        analysisTimerJob?.cancel()
+        analysisTimerJob = null
+        val duration = (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L).toInt()
+        val target = speechText.ifBlank { _content.value }
+        val metrics = computeSpeechMetrics(
+            transcript = transcript,
+            targetText = target,
+            durationSec = duration,
+        )
+        val feedback = buildCoachFeedback(
+            metrics = metrics,
+            targetMinutes = _totalMinutes.value,
+            sectionTitles = sectionTitles,
+        )
+        _analysisElapsed.value = duration.toLong()
+        _analysisState.value = AnalysisState.Result(metrics, feedback, warning)
+        // A transcrição não sobrevive ao cálculo: só métricas/feedback ficam.
+        sessionStt.clearTranscript()
+    }
+
     override fun onCleared() {
         // Ownership é do processo (TtsLifecycle); a tela só para a fala.
+        analysisTimerJob?.cancel()
+        sessionStt.destroy()
         tts.stop()
         super.onCleared()
+    }
+
+    companion object {
+        private const val ANALYSIS_STOP_TIMEOUT_MS = 4_500L
     }
 
     class Factory(
