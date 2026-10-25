@@ -29,15 +29,17 @@ private val HTML_ENTITIES = mapOf(
     "quest" to "?", "period" to ".", "comma" to ",", "colon" to ":",
     "semi" to ";", "excl" to "!", "hellip" to "…", "mldr" to "…", "mdash" to "—",
     "ndash" to "–", "laquo" to "«", "raquo" to "»",
+    "ldquo" to "“", "rdquo" to "”", "lsquo" to "‘", "rsquo" to "’",
     "lpar" to "(", "rpar" to ")", "sol" to "/", "percnt" to "%", "num" to "#",
     "dollar" to "$", "plus" to "+", "equals" to "=", "ast" to "*",
     "commat" to "@", "vert" to "|", "bsol" to "\\", "tilde" to "~",
     "lowbar" to "_", "grave" to "`",
 )
 
-/** Decodifica entidades nomeadas + numéricas (`&#233;` / `&#xE9;`). Puro. */
-internal fun decodeHtmlEntities(text: String): String =
-    Regex("&(#?[a-zA-Z0-9]+);").replace(text) { m ->
+private val HTML_ENTITY_RE = Regex("&(#?[a-zA-Z0-9]+);")
+
+private fun decodeHtmlEntitiesOnce(text: String): String =
+    HTML_ENTITY_RE.replace(text) { m ->
         val key = m.groupValues[1]
         if (key.startsWith("#")) {
             val code = key.drop(1).let {
@@ -49,6 +51,21 @@ internal fun decodeHtmlEntities(text: String): String =
             HTML_ENTITIES[key] ?: m.value
         }
     }
+
+/**
+ * Decodifica entidades nomeadas + numéricas (`&#233;` / `&#xE9;`).
+ * Até 3 passadas: o editor às vezes salva `&amp;ldquo;` (duplo escape).
+ * Puro.
+ */
+internal fun decodeHtmlEntities(text: String): String {
+    var current = text
+    repeat(3) {
+        val next = decodeHtmlEntitiesOnce(current)
+        if (next == current) return current
+        current = next
+    }
+    return current
+}
 
 /**
  * #26-fix: prévia limpa — remove tags HTML, decodifica entidades, tira

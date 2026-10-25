@@ -31,6 +31,10 @@ class TextSanitizerTest {
         assertEquals("é", "&#233;".toCleanPreview())
         // #E2E-fix: pontuação que o editor rich gera em entidades.
         assertEquals("… (a) 50%", "&mldr; &lpar;a&rpar; 50&percnt;".toCleanPreview())
+        // Aspas curvas do editor (apareciam como "ldquo" no Ensaio).
+        assertEquals("“caminho” ‘vida’", "&ldquo;caminho&rdquo; &lsquo;vida&rsquo;".toCleanPreview())
+        // Duplo escape do editor: &amp;ldquo; → &ldquo; → “.
+        assertEquals("“caminho”", "&amp;ldquo;caminho&amp;rdquo;".toCleanPreview())
     }
 
     @Test

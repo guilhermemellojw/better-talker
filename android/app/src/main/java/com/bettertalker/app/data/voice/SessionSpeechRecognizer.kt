@@ -2,6 +2,7 @@ package com.bettertalker.app.data.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -75,6 +76,7 @@ class SessionSpeechRecognizer(private val context: Context) {
     private var stopRequested = false
     private var preferOffline = true
     private var onlineFallbackUsed = false
+    private var forceNetwork = false
     private var retryCount = 0
     private var restartRunnable: Runnable? = null
     private var finalizeRunnable: Runnable? = null
@@ -89,6 +91,10 @@ class SessionSpeechRecognizer(private val context: Context) {
     private val _partial = MutableStateFlow("")
     val partial: StateFlow<String> = _partial.asStateFlow()
 
+    /** true a partir da primeira fala detectada (não do toque em Analisar). */
+    private val _speechStarted = MutableStateFlow(false)
+    val speechStarted: StateFlow<Boolean> = _speechStarted.asStateFlow()
+
     fun startSession() {
         cancelSession()
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -102,7 +108,9 @@ class SessionSpeechRecognizer(private val context: Context) {
         stopRequested = false
         preferOffline = true
         onlineFallbackUsed = false
+        forceNetwork = false
         retryCount = 0
+        _speechStarted.value = false
         _state.value = SessionSpeechState.Listening
         // Dá tempo ao serviço anterior de soltar o microfone (SODA/Google).
         main.postDelayed({ if (active && !paused && !stopRequested) createAndStart() }, START_DELAY_MS)
@@ -165,6 +173,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         accumulator.clear()
         _transcript.value = ""
         _partial.value = ""
+        _speechStarted.value = false
         _state.value = SessionSpeechState.Idle
     }
 
@@ -180,14 +189,24 @@ class SessionSpeechRecognizer(private val context: Context) {
     private fun createAndStart() {
         if (!active || paused || stopRequested) return
         destroyRecognizer()
-        val r = SpeechRecognizer.createSpeechRecognizer(context)
+        val onDevice = !forceNetwork &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        val r = if (onDevice) {
+            runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(context) }.getOrNull()
+        } else {
+            null
+        } ?: SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 if (active && !paused) _state.value = SessionSpeechState.Listening
             }
 
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() {
+                // O relógio de fala NÃO começa aqui: ruído de fundo também
+                // dispara este callback. Começa no primeiro texto parcial.
+            }
 
             override fun onRmsChanged(rmsdB: Float) {}
 
@@ -211,6 +230,7 @@ class SessionSpeechRecognizer(private val context: Context) {
                 if (text.isNotBlank()) {
                     accumulator.addFinal(text)
                     _transcript.value = accumulator.transcript()
+                    _speechStarted.value = true
                     retryCount = 0
                 }
                 _partial.value = ""
@@ -227,6 +247,9 @@ class SessionSpeechRecognizer(private val context: Context) {
                     ?.firstOrNull()
                     .orEmpty()
                 _partial.value = text.trim()
+                if (text.any(Char::isLetterOrDigit)) {
+                    _speechStarted.value = true
+                }
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -295,6 +318,8 @@ class SessionSpeechRecognizer(private val context: Context) {
                 if (preferOffline && !onlineFallbackUsed) {
                     preferOffline = false
                     onlineFallbackUsed = true
+                    // Se o on-device falhou, força o serviço de rede.
+                    forceNetwork = true
                     scheduleRestart(RESTART_NETWORK_MS)
                 } else {
                     interrupt(error)

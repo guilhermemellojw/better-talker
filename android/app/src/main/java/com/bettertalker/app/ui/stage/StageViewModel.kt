@@ -139,6 +139,18 @@ class StageViewModel(
                 }
             }
         }
+        // O relógio de fala começa na PRIMEIRA fala, não no toque: evita
+        // penalizar quem demora alguns segundos para começar.
+        viewModelScope.launch {
+            sessionStt.speechStarted.collect { started ->
+                if (!started) return@collect
+                if (_analysisState.value is AnalysisState.Listening) {
+                    sessionTimer.beginSpeech()
+                } else {
+                    sessionTimer.markSpeechStarted()
+                }
+            }
+        }
         // Preferência persistida de fonte (emite o valor salvo; padrão 24).
         viewModelScope.launch {
             settings.stageFontSp.collect { _fontSp.value = it }

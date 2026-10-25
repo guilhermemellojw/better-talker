@@ -12,15 +12,33 @@ class SpeechSessionTimer(
     private var accumulatedMs: Long = 0L
     private var running: Boolean = false
     private var started: Boolean = false
+    private var speechStarted: Boolean = false
 
     val isRunning: Boolean get() = running
 
+    /** Começa o relógio da SESSÃO; o de fala espera a primeira fala. */
     fun start() {
         sessionStartMs = clock()
-        listeningStartMs = sessionStartMs
+        listeningStartMs = 0L
         accumulatedMs = 0L
-        running = true
+        running = false
         started = true
+        speechStarted = false
+    }
+
+    /** Marca a primeira fala sem iniciar a contagem (ex.: pausado). */
+    fun markSpeechStarted() {
+        if (speechStarted) return
+        speechStarted = true
+        listeningStartMs = clock()
+    }
+
+    /** Primeira fala: inicia o relógio efetivo de escuta. */
+    fun beginSpeech() {
+        if (!started || speechStarted) return
+        speechStarted = true
+        listeningStartMs = clock()
+        running = true
     }
 
     fun pause() {
@@ -30,12 +48,13 @@ class SpeechSessionTimer(
     }
 
     fun resume() {
-        if (running || !started) return
+        if (running || !started || !speechStarted) return
         listeningStartMs = clock()
         running = true
     }
 
     fun speechSeconds(): Long {
+        if (!speechStarted) return 0L
         val extra = if (running) (clock() - listeningStartMs).coerceAtLeast(0L) else 0L
         return (accumulatedMs + extra) / 1_000L
     }
@@ -51,5 +70,6 @@ class SpeechSessionTimer(
         accumulatedMs = 0L
         running = false
         started = false
+        speechStarted = false
     }
 }

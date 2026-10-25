@@ -13,6 +13,7 @@ class SpeechSessionTimerTest {
         var now = 0L
         val timer = SpeechSessionTimer { now }
         timer.start()
+        timer.beginSpeech()
         now = 30_000
         assertEquals(30, timer.speechSeconds())
         assertEquals(30, timer.sessionSeconds())
@@ -31,10 +32,25 @@ class SpeechSessionTimerTest {
     }
 
     @Test
+    fun tempoDeFalaSoComecaNaPrimeiraFala() {
+        var now = 0L
+        val timer = SpeechSessionTimer { now }
+        timer.start()
+        now = 5_000
+        assertEquals(0, timer.speechSeconds())
+        assertEquals(5, timer.sessionSeconds())
+        timer.beginSpeech()
+        now = 15_000
+        assertEquals(10, timer.speechSeconds())
+        assertEquals(15, timer.sessionSeconds())
+    }
+
+    @Test
     fun resetZeraOsDoisTempos() {
         var now = 0L
         val timer = SpeechSessionTimer { now }
         timer.start()
+        timer.beginSpeech()
         now = 10_000
         timer.reset()
         assertEquals(0, timer.speechSeconds())
@@ -47,6 +63,7 @@ class SpeechSessionTimerTest {
         var now = 0L
         val timer = SpeechSessionTimer { now }
         timer.start()
+        timer.beginSpeech()
         now = 10_000
         timer.pause()
         timer.pause()

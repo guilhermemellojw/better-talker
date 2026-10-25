@@ -29,6 +29,27 @@ data class SpeechMetrics(
     val fillerCounts: Map<String, Int> = emptyMap(),
 ) {
     val fillerTotal: Int get() = fillerCounts.values.sum()
+
+    /**
+     * Amostra mínima para julgar ritmo/cobertura. STT que perdeu fala não
+     * deve virar “devagar” nem “cobertura baixa”.
+     */
+    val hasEnoughSpeech: Boolean
+        get() = spokenWords >= MIN_RELIABLE_WORDS &&
+            speechDurationSec >= MIN_RELIABLE_SECONDS &&
+            wpm >= MIN_RELIABLE_WPM
+
+    companion object {
+        /** Amostra mínima para julgar ritmo/cobertura. */
+        const val MIN_RELIABLE_WORDS = 20
+        const val MIN_RELIABLE_SECONDS = 10
+
+        /**
+         * Abaixo disso, é mais provável que o STT tenha perdido fala do que
+         * a pessoa ter falado devagar. Evita o falso “você está devagar”.
+         */
+        const val MIN_RELIABLE_WPM = 70
+    }
 }
 
 /** Muletas monitoradas (chave normalizada -> rótulo exibido). */

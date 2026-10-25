@@ -26,23 +26,23 @@ class SpeechCoachTest {
     @Test
     fun ritmoRapidoPedePausa() {
         val f = buildCoachFeedback(metrics(wpm = 160), targetMinutes = 1)
-        assertTrue(f.adjust.any { it.contains("acelerando") })
-        assertTrue(f.pattern.contains("ritmo subiu"))
+        assertTrue(f.adjust.any { it.contains("acima da faixa") })
+        assertTrue(f.pattern.contains("acima da faixa"))
         assertTrue(f.exercise.contains("pausa curta"))
     }
 
     @Test
     fun ritmoLentoPedeMenosPausa() {
         val f = buildCoachFeedback(metrics(wpm = 100), targetMinutes = 1)
-        assertTrue(f.adjust.any { it.contains("devagar") })
-        assertTrue(f.pattern.contains("abaixo do alvo"))
+        assertTrue(f.adjust.any { it.contains("abaixo da faixa") })
+        assertTrue(f.pattern.contains("abaixo da faixa"))
         assertTrue(f.exercise.contains("sem pausas longas"))
     }
 
     @Test
     fun tudoOkElogiaEPropoeDesafio() {
         val f = buildCoachFeedback(metrics(), targetMinutes = 1)
-        assertTrue(f.good.any { it.contains("Ritmo dentro") })
+        assertTrue(f.good.any { it.contains("Ritmo dentro da faixa") })
         assertTrue(f.good.any { it.contains("Boa cobertura") })
         assertTrue(f.adjust.isEmpty())
         assertTrue(f.exercise.contains("Grave 1 min"))
@@ -58,7 +58,7 @@ class SpeechCoachTest {
             targetMinutes = 1,
         )
         assertTrue(f.good.any { it.contains("pausas ficaram fora do ritmo") })
-        assertTrue(f.adjust.none { it.contains("devagar") })
+        assertTrue(f.adjust.none { it.contains("abaixo da faixa") })
     }
 
     @Test
@@ -87,11 +87,30 @@ class SpeechCoachTest {
 
     @Test
     fun tempoLongoECurtoAjustamMeta() {
-        val long = buildCoachFeedback(metrics(durationSec = 100), targetMinutes = 1)
+        val long = buildCoachFeedback(metrics(durationSec = 340), targetMinutes = 5)
         assertTrue(long.adjust.any { it.contains("passou da meta") })
 
-        val short = buildCoachFeedback(metrics(durationSec = 20), targetMinutes = 1)
+        val short = buildCoachFeedback(metrics(durationSec = 240), targetMinutes = 5)
         assertTrue(short.adjust.any { it.contains("abaixo da meta") })
+    }
+
+    @Test
+    fun ensaioParcialNaoCobraCoberturaDoTextoCompleto() {
+        val f = buildCoachFeedback(
+            metrics(
+                durationSec = 45,
+                spokenWords = 80,
+                wpm = 120,
+                coverage = 5,
+                missing = listOf("vida", "eterna"),
+            ),
+            targetMinutes = 32,
+        )
+        assertTrue(f.good.any { it.contains("Ensaio parcial") })
+        assertTrue(f.adjust.none { it.contains("Faltou cobrir") })
+        assertTrue(f.adjust.none { it.contains("abaixo da meta") })
+        assertTrue(f.pattern.contains("Ensaio parcial"))
+        assertTrue(f.exercise.contains("Continue do ponto"))
     }
 
     @Test
@@ -100,9 +119,20 @@ class SpeechCoachTest {
             metrics(spokenWords = 0, wpm = 0, coverage = 0),
             targetMinutes = 1,
         )
-        assertTrue(f.adjust.any { it.contains("Não recebi fala") })
-        assertTrue(f.pattern.contains("não retornou texto"))
+        assertTrue(f.adjust.any { it.contains("Pouca fala capturada") })
+        assertTrue(f.pattern.contains("amostra foi curta"))
         assertTrue(f.exercise.contains("microfone"))
+    }
+
+    @Test
+    fun amostraCurtaNaoDizQueEstaDevagar() {
+        val f = buildCoachFeedback(
+            metrics(spokenWords = 8, wpm = 40, coverage = 10),
+            targetMinutes = 1,
+        )
+        assertTrue(f.adjust.any { it.contains("Pouca fala capturada") })
+        assertTrue(f.adjust.none { it.contains("abaixo da faixa") })
+        assertTrue(f.pattern.contains("amostra foi curta"))
     }
 
     @Test

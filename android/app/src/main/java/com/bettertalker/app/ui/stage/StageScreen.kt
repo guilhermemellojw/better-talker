@@ -571,7 +571,7 @@ private fun AnalysisResultSheet(
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                "Cobertura ${metrics.coveragePercent}% · " +
+                "Cobertura do texto completo ${metrics.coveragePercent}% · " +
                     "Muletas ${metrics.fillerTotal}" +
                     if (metrics.fillerCounts.isNotEmpty()) {
                         " (" + metrics.fillerCounts.entries.joinToString(", ") {
@@ -583,6 +583,14 @@ private fun AnalysisResultSheet(
             result.warning?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     "Aviso: $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            if (!metrics.hasEnoughSpeech) {
+                Text(
+                    "Pouca fala capturada — ritmo e cobertura ainda não são confiáveis.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 6.dp),

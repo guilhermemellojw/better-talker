@@ -97,6 +97,22 @@ class SpeechMetricsTest {
     }
 
     @Test
+    fun amostraCurtaNaoEhConfiavelParaRitmoECobertura() {
+        val short = computeSpeechMetrics(
+            transcript = "uma duas três",
+            targetText = "texto de referência",
+            speechDurationSec = 5,
+        )
+        org.junit.Assert.assertFalse(short.hasEnoughSpeech)
+        val enough = computeSpeechMetrics(
+            transcript = (1..20).joinToString(" ") { "palavra$it" },
+            targetText = "texto de referência",
+            speechDurationSec = 10,
+        )
+        org.junit.Assert.assertTrue(enough.hasEnoughSpeech)
+    }
+
+    @Test
     fun contadorIgnoraPontuacaoSolta() {
         assertEquals(2, countSpokenWords("olá, — mundo!"))
         assertEquals(0, countSpokenWords("— ... !"))
