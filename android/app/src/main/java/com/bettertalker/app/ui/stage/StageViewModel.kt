@@ -12,6 +12,7 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.voice.SessionSpeechRecognizer
 import com.bettertalker.app.data.voice.SessionSpeechState
 import com.bettertalker.app.data.voice.prepareForSpeech
+import com.bettertalker.app.domain.coach.SpeechSessionTimer
 import com.bettertalker.app.domain.coach.buildCoachFeedback
 import com.bettertalker.app.domain.coach.coachFeedbackSpeech
 import com.bettertalker.app.domain.coach.computeSpeechMetrics
@@ -91,7 +92,7 @@ class StageViewModel(
     private val _analysisElapsed = MutableStateFlow(0L)
     val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
 
-    private var analysisStartElapsed = 0L
+    private val sessionTimer = SpeechSessionTimer()
     private var analysisTimerJob: Job? = null
     private var sectionTitles: List<String> = emptyList()
 
@@ -129,10 +130,13 @@ class StageViewModel(
     private var timerJob: Job? = null
 
     init {
-        // T3-A: erro do STT no meio do ensaio → feedback parcial ou mensagem.
+        // T3-A: falha persistente do STT → Interrupted (sem resultado
+        // automático); a transcrição fica preservada para Retomar/Parar.
         viewModelScope.launch {
             sessionStt.state.collect { st ->
-                if (st is SessionSpeechState.Error) handleSessionError(st.message)
+                if (st is SessionSpeechState.Interrupted) {
+                    onSessionInterrupted(st.message)
+                }
             }
         }
         // Preferência persistida de fonte (emite o valor salvo; padrão 24).
@@ -229,40 +233,54 @@ class StageViewModel(
     /** Inicia a escuta e o relógio da análise; o timer do Stage continua. */
     fun startAnalysis() {
         val current = _analysisState.value
-        if (current is AnalysisState.Listening || current is AnalysisState.Processing) return
+        if (current is AnalysisState.Listening ||
+            current is AnalysisState.Paused ||
+            current is AnalysisState.Processing
+        ) return
         sessionStt.cancelSession()
+        sessionTimer.start()
         _analysisElapsed.value = 0
-        analysisStartElapsed = _elapsed.value
         _analysisState.value = AnalysisState.Listening
-        analysisTimerJob?.cancel()
-        analysisTimerJob = viewModelScope.launch {
-            while (true) {
-                delay(1_000)
-                _analysisElapsed.value =
-                    (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L)
-            }
-        }
+        startAnalysisTicker()
         sessionStt.startSession()
     }
 
-    /** Encerra a escuta, espera o último segmento e calcula as métricas. */
+    /** Pausa a escuta sem perder a transcrição; o timer do Stage continua. */
+    fun pauseAnalysis() {
+        if (_analysisState.value !is AnalysisState.Listening) return
+        sessionTimer.pause()
+        _analysisElapsed.value = sessionTimer.speechSeconds()
+        _analysisState.value = AnalysisState.Paused
+        sessionStt.pauseSession()
+    }
+
+    /** Retoma do ponto anterior, mantendo o texto acumulado. */
+    fun resumeAnalysis() {
+        val current = _analysisState.value
+        if (current !is AnalysisState.Paused && current !is AnalysisState.Interrupted) return
+        sessionTimer.resume()
+        _analysisState.value = AnalysisState.Listening
+        sessionStt.resumeSession()
+    }
+
+    /** Parar explícito: espera o último segmento e calcula as métricas. */
     fun stopAnalysis() {
         val current = _analysisState.value
-        if (current !is AnalysisState.Listening && current !is AnalysisState.Processing) return
+        if (current !is AnalysisState.Listening &&
+            current !is AnalysisState.Paused &&
+            current !is AnalysisState.Interrupted &&
+            current !is AnalysisState.Processing
+        ) return
+        val warning = (current as? AnalysisState.Interrupted)?.message
+        if (current is AnalysisState.Listening) sessionTimer.pause()
         _analysisState.value = AnalysisState.Processing
         sessionStt.stopSession()
         viewModelScope.launch {
-            val end = withTimeoutOrNull(ANALYSIS_STOP_TIMEOUT_MS) {
-                sessionStt.state.first {
-                    it is SessionSpeechState.Idle || it is SessionSpeechState.Error
-                }
+            withTimeoutOrNull(ANALYSIS_STOP_TIMEOUT_MS) {
+                sessionStt.state.first { it is SessionSpeechState.Idle }
             }
             if (_analysisState.value !is AnalysisState.Processing) return@launch
-            if (end is SessionSpeechState.Error) {
-                handleSessionError(end.message)
-            } else {
-                finishAnalysis(sessionStt.transcript.value, warning = null)
-            }
+            finishAnalysis(sessionStt.transcript.value, warning)
         }
     }
 
@@ -271,6 +289,7 @@ class StageViewModel(
         sessionStt.cancelSession()
         analysisTimerJob?.cancel()
         analysisTimerJob = null
+        sessionTimer.reset()
         _analysisState.value = AnalysisState.Idle
         _analysisElapsed.value = 0
     }
@@ -291,37 +310,41 @@ class StageViewModel(
         tts.speak(prepareForSpeech(coachFeedbackSpeech(result.feedback)))
     }
 
-    private fun handleSessionError(message: String) {
-        val current = _analysisState.value
-        if (current !is AnalysisState.Listening && current !is AnalysisState.Processing) return
+    private fun startAnalysisTicker() {
         analysisTimerJob?.cancel()
-        analysisTimerJob = null
-        val duration = (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L).toInt()
-        val transcript = sessionStt.transcript.value
-        if (transcript.isBlank() && duration < 2) {
-            _analysisState.value = AnalysisState.Error(message)
-            sessionStt.clearTranscript()
-        } else {
-            finishAnalysis(transcript, warning = message)
+        analysisTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(500)
+                _analysisElapsed.value = sessionTimer.speechSeconds()
+            }
         }
+    }
+
+    private fun onSessionInterrupted(message: String) {
+        if (_analysisState.value !is AnalysisState.Listening) return
+        sessionTimer.pause()
+        _analysisElapsed.value = sessionTimer.speechSeconds()
+        _analysisState.value = AnalysisState.Interrupted(message)
     }
 
     private fun finishAnalysis(transcript: String, warning: String?) {
         analysisTimerJob?.cancel()
         analysisTimerJob = null
-        val duration = (_elapsed.value - analysisStartElapsed).coerceAtLeast(0L).toInt()
+        val speechSec = sessionTimer.speechSeconds().toInt()
+        val sessionSec = sessionTimer.sessionSeconds().toInt()
         val target = speechText.ifBlank { _content.value }
         val metrics = computeSpeechMetrics(
             transcript = transcript,
             targetText = target,
-            durationSec = duration,
+            speechDurationSec = speechSec,
+            sessionDurationSec = sessionSec,
         )
         val feedback = buildCoachFeedback(
             metrics = metrics,
             targetMinutes = _totalMinutes.value,
             sectionTitles = sectionTitles,
         )
-        _analysisElapsed.value = duration.toLong()
+        _analysisElapsed.value = speechSec.toLong()
         _analysisState.value = AnalysisState.Result(metrics, feedback, warning)
         // A transcrição não sobrevive ao cálculo: só métricas/feedback ficam.
         sessionStt.clearTranscript()

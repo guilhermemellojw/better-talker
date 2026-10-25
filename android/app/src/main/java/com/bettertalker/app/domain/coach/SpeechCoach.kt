@@ -41,8 +41,8 @@ fun buildCoachFeedback(
     val lowCoverage = hasSpeech && metrics.coveragePercent < 80
     val manyFillers = hasSpeech && metrics.fillerTotal > 2
     val targetSec = targetMinutes.coerceAtLeast(0) * 60
-    val tooLong = hasSpeech && targetSec > 0 && metrics.durationSec > targetSec + 30
-    val tooShort = hasSpeech && targetSec > 0 && metrics.durationSec < targetSec - 30
+    val tooLong = hasSpeech && targetSec > 0 && metrics.speechDurationSec > targetSec + 30
+    val tooShort = hasSpeech && targetSec > 0 && metrics.speechDurationSec < targetSec - 30
     val topFiller = metrics.fillerCounts.maxByOrNull { it.value }
     val ref = sectionRef(sectionTitles)
 
@@ -53,11 +53,14 @@ fun buildCoachFeedback(
         if (hasSpeech && metrics.coveragePercent >= 80) {
             add("Boa cobertura do texto (${metrics.coveragePercent}%).")
         }
-        if (hasSpeech && targetSec > 0 && abs(metrics.durationSec - targetSec) <= 30) {
-            add("Tempo próximo da meta (${formatCoachDuration(metrics.durationSec)}).")
+        if (hasSpeech && targetSec > 0 && abs(metrics.speechDurationSec - targetSec) <= 30) {
+            add("Tempo próximo da meta (${formatCoachDuration(metrics.speechDurationSec)}).")
         }
         if (hasSpeech && metrics.fillerTotal <= 2) {
             add("Poucas muletas.")
+        }
+        if (hasSpeech && metrics.sessionDurationSec > metrics.speechDurationSec + 5) {
+            add("As pausas ficaram fora do ritmo — o wpm considera só o tempo de fala.")
         }
         if (isEmpty()) {
             add(
@@ -93,12 +96,12 @@ fun buildCoachFeedback(
         if (tooLong) {
             add(
                 "O ensaio passou da meta em " +
-                    "${formatCoachDuration(metrics.durationSec - targetSec)}; corte repetições."
+                    "${formatCoachDuration(metrics.speechDurationSec - targetSec)}; corte repetições."
             )
         }
         if (tooShort) {
             add(
-                "O ensaio ficou ${formatCoachDuration(targetSec - metrics.durationSec)} " +
+                "O ensaio ficou ${formatCoachDuration(targetSec - metrics.speechDurationSec)} " +
                     "abaixo da meta; desenvolva melhor o ponto."
             )
         }

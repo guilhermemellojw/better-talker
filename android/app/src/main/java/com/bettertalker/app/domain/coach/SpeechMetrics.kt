@@ -9,16 +9,18 @@ import kotlin.math.roundToInt
  * Métricas locais do ensaio (T3-A). Nada aqui grava ou envia áudio: a
  * transcrição é a única entrada e vive em memória.
  *
- * @param durationSec tempo de fala medido pelo timer do Stage.
+ * @param speechDurationSec tempo efetivo de escuta (Listening), base do wpm.
+ * @param sessionDurationSec tempo total da sessão (inclui pausas/interrupções).
  * @param spokenWords palavras da transcrição.
- * @param wpm palavras por minuto.
+ * @param wpm palavras por minuto (usa [speechDurationSec]).
  * @param targetWpm ritmo de referência do app ([SpeechPacing]).
  * @param coveragePercent recall de palavras de conteúdo do texto (0–100).
  * @param missingTerms palavras-chave do texto ausentes na fala (máx. 5).
  * @param fillerCounts muletas encontradas, com rótulo legível.
  */
 data class SpeechMetrics(
-    val durationSec: Int,
+    val speechDurationSec: Int,
+    val sessionDurationSec: Int,
     val spokenWords: Int,
     val wpm: Int,
     val targetWpm: Int = SpeechPacing.WORDS_PER_MINUTE,
@@ -62,12 +64,15 @@ private fun contentTokens(raw: String): List<String> =
 fun computeSpeechMetrics(
     transcript: String,
     targetText: String,
-    durationSec: Int,
+    speechDurationSec: Int,
+    sessionDurationSec: Int = speechDurationSec,
     targetWpm: Int = SpeechPacing.WORDS_PER_MINUTE,
 ): SpeechMetrics {
-    val seconds = durationSec.coerceAtLeast(0)
+    val speechSeconds = speechDurationSec.coerceAtLeast(0)
+    val sessionSeconds = sessionDurationSec.coerceAtLeast(speechSeconds)
     val words = countSpokenWords(transcript)
-    val wpm = if (seconds > 0) (words * 60.0 / seconds).roundToInt() else 0
+    // Pausas não entram no ritmo: o wpm usa só o tempo de escuta.
+    val wpm = if (speechSeconds > 0) (words * 60.0 / speechSeconds).roundToInt() else 0
 
     // Mantém a grafia original para o feedback ("Jerusalém", não "jerusalem").
     val targetByNorm = linkedMapOf<String, String>()
@@ -98,7 +103,8 @@ fun computeSpeechMetrics(
     }
 
     return SpeechMetrics(
-        durationSec = seconds,
+        speechDurationSec = speechSeconds,
+        sessionDurationSec = sessionSeconds,
         spokenWords = words,
         wpm = wpm,
         targetWpm = targetWpm,

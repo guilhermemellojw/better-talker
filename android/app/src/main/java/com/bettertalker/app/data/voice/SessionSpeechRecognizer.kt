@@ -16,8 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 sealed interface SessionSpeechState {
     data object Idle : SessionSpeechState
     data object Listening : SessionSpeechState
+    data object Paused : SessionSpeechState
     data object Processing : SessionSpeechState
-    data class Error(val message: String) : SessionSpeechState
+    data class Interrupted(val message: String) : SessionSpeechState
 }
 
 /**
@@ -25,7 +26,8 @@ sealed interface SessionSpeechState {
  *
  * O SpeechRecognizer nativo devolve um segmento por vez; o Ensaio reinicia a
  * escuta e concatena os resultados. Duplicatas exatas (alguns serviços
- * repetem o último segmento) são ignoradas. Puro/testável.
+ * repetem o último segmento) são ignoradas. Pausar/retomar NÃO limpa o texto;
+ * só [clear] (descartar/fechar) apaga. Puro/testável.
  */
 class SpeechTranscriptAccumulator {
     private val builder = StringBuilder()
@@ -53,13 +55,15 @@ class SpeechTranscriptAccumulator {
 /**
  * STT contínuo por segmentos para o Ensaio (T3-A).
  *
- * - O serviço nativo não é contínuo: cada `onResults`/erro recuperável
- *   reinicia a escuta automaticamente até [stopSession]/[cancelSession].
- * - `EXTRA_PREFER_OFFLINE`: pede o modo offline quando o aparelho suporta.
- *   O serviço ainda pode usar rede; a UI informa isso.
- * - Nada é gravado em disco: só o texto acumulado em memória.
- * - `stopSession` pede o último resultado e finaliza em [state] = Idle
- *   (ou Error); o chamador lê [transcript].
+ * Controle explícito: iniciar → pausar → retomar → parar. O app nunca encerra
+ * a sessão sozinho:
+ * - silêncio (`NO_MATCH`/`SPEECH_TIMEOUT`) reinicia a escuta em segundo plano;
+ * - falhas persistentes viram [SessionSpeechState.Interrupted] e preservam a
+ *   transcrição para o usuário decidir entre retomar ou parar;
+ * - `Result` só é calculado quando o chamador pede [stopSession].
+ *
+ * `EXTRA_PREFER_OFFLINE` é tentado primeiro; se o serviço offline falhar,
+ * tenta o online. Nada é gravado em disco.
  */
 class SessionSpeechRecognizer(private val context: Context) {
 
@@ -67,9 +71,11 @@ class SessionSpeechRecognizer(private val context: Context) {
     private val accumulator = SpeechTranscriptAccumulator()
     private var recognizer: SpeechRecognizer? = null
     private var active = false
+    private var paused = false
     private var stopRequested = false
     private var preferOffline = true
     private var onlineFallbackUsed = false
+    private var retryCount = 0
     private var restartRunnable: Runnable? = null
     private var finalizeRunnable: Runnable? = null
 
@@ -86,22 +92,53 @@ class SessionSpeechRecognizer(private val context: Context) {
     fun startSession() {
         cancelSession()
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            _state.value = SessionSpeechState.Error(
+            _state.value = SessionSpeechState.Interrupted(
                 "Reconhecimento de voz indisponível neste aparelho."
             )
             return
         }
         active = true
+        paused = false
         stopRequested = false
         preferOffline = true
         onlineFallbackUsed = false
+        retryCount = 0
         _state.value = SessionSpeechState.Listening
         // Dá tempo ao serviço anterior de soltar o microfone (SODA/Google).
-        main.postDelayed({ if (active && !stopRequested) createAndStart() }, START_DELAY_MS)
+        main.postDelayed({ if (active && !paused && !stopRequested) createAndStart() }, START_DELAY_MS)
     }
 
-    /** Pede o último segmento e finaliza (onResults ou timeout de 3 s). */
+    /** Pausa sem perder a transcrição; o serviço é liberado. */
+    fun pauseSession() {
+        if (!active && !paused) return
+        paused = true
+        active = false
+        stopRequested = false
+        removeRestart()
+        finalizeRunnable?.let(main::removeCallbacks)
+        finalizeRunnable = null
+        destroyRecognizer()
+        _partial.value = ""
+        _state.value = SessionSpeechState.Paused
+    }
+
+    /** Retoma a escuta do ponto anterior, mantendo o texto acumulado. */
+    fun resumeSession() {
+        if (!paused && _state.value !is SessionSpeechState.Interrupted) return
+        paused = false
+        active = true
+        stopRequested = false
+        retryCount = 0
+        _state.value = SessionSpeechState.Listening
+        main.postDelayed({ if (active && !paused && !stopRequested) createAndStart() }, START_DELAY_MS)
+    }
+
+    /** Parar explícito: pede o último segmento e finaliza em Idle. */
     fun stopSession() {
+        if (paused || _state.value is SessionSpeechState.Interrupted) {
+            finalizeStopped()
+            return
+        }
         if (!active) {
             _state.value = SessionSpeechState.Idle
             return
@@ -122,6 +159,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         finalizeRunnable?.let(main::removeCallbacks)
         finalizeRunnable = null
         active = false
+        paused = false
         stopRequested = false
         destroyRecognizer()
         accumulator.clear()
@@ -140,13 +178,13 @@ class SessionSpeechRecognizer(private val context: Context) {
     fun destroy() = cancelSession()
 
     private fun createAndStart() {
-        if (!active) return
+        if (!active || paused || stopRequested) return
         destroyRecognizer()
         val r = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                if (active) _state.value = SessionSpeechState.Listening
+                if (active && !paused) _state.value = SessionSpeechState.Listening
             }
 
             override fun onBeginningOfSpeech() {}
@@ -173,11 +211,12 @@ class SessionSpeechRecognizer(private val context: Context) {
                 if (text.isNotBlank()) {
                     accumulator.addFinal(text)
                     _transcript.value = accumulator.transcript()
+                    retryCount = 0
                 }
                 _partial.value = ""
                 if (stopRequested) {
                     finalizeStopped()
-                } else if (active) {
+                } else if (active && !paused) {
                     scheduleRestart()
                 }
             }
@@ -212,7 +251,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         runCatching { r.startListening(intent) }.onFailure {
             active = false
             destroyRecognizer()
-            _state.value = SessionSpeechState.Error(
+            _state.value = SessionSpeechState.Interrupted(
                 "Não foi possível abrir o microfone. Tente de novo."
             )
         }
@@ -223,24 +262,28 @@ class SessionSpeechRecognizer(private val context: Context) {
             finalizeStopped()
             return
         }
-        if (!active) return
+        if (!active || paused) return
         when (error) {
             SpeechRecognizer.ERROR_NO_MATCH,
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                // Silêncio é normal no ensaio: reinicia sem expor erro.
+                // Silêncio é normal no ensaio: reinicia sem pausar nem perder
+                // o texto já transcrito.
                 _partial.value = ""
                 scheduleRestart(RESTART_SILENCE_MS)
             }
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> scheduleRestart(RESTART_BUSY_MS)
-            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> {
-                // O serviço nativo limita reinícios em sequência; espera mais
-                // para não transformar silêncio em falha definitiva.
-                scheduleRestart(RESTART_RATE_LIMIT_MS)
-            }
-            SpeechRecognizer.ERROR_CLIENT -> {
-                // Pode ser o stopListening pedido pelo próprio app.
-                if (!stopRequested) scheduleRestart(RESTART_BUSY_MS)
-            }
+            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS ->
+                retryOrInterrupt(error, RESTART_RATE_LIMIT_MS, maxRetries = 3)
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
+            SpeechRecognizer.ERROR_NETWORK,
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+            SpeechRecognizer.ERROR_SERVER ->
+                retryOrInterrupt(error, RESTART_NETWORK_MS, maxRetries = 3)
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+                retryOrInterrupt(error, RESTART_BUSY_MS, maxRetries = 5)
+            SpeechRecognizer.ERROR_CLIENT ->
+                retryOrInterrupt(error, RESTART_BUSY_MS, maxRetries = 3)
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+            SpeechRecognizer.ERROR_AUDIO -> interrupt(error)
             else -> {
                 android.util.Log.w(
                     "SessionSTT",
@@ -248,27 +291,46 @@ class SessionSpeechRecognizer(private val context: Context) {
                 )
                 // Alguns aparelhos têm o modelo offline quebrado (SODA).
                 // Segunda tentativa usa o serviço online do sistema; se
-                // também falhar, aí sim encerra com feedback parcial.
-                if (preferOffline && !onlineFallbackUsed &&
-                    error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS &&
-                    error != SpeechRecognizer.ERROR_AUDIO
-                ) {
+                // também falhar, aí sim interrompe (sem gerar resultado).
+                if (preferOffline && !onlineFallbackUsed) {
                     preferOffline = false
                     onlineFallbackUsed = true
-                    scheduleRestart(RESTART_BUSY_MS)
+                    scheduleRestart(RESTART_NETWORK_MS)
                 } else {
-                    active = false
-                    destroyRecognizer()
-                    _state.value = SessionSpeechState.Error(voiceErrorMessage(error))
+                    interrupt(error)
                 }
             }
         }
     }
 
-    private fun scheduleRestart(delayMs: Long = RESTART_MS) {
-        if (!active || stopRequested) return
+    private fun retryOrInterrupt(error: Int, delayMs: Long, maxRetries: Int) {
+        retryCount++
+        if (retryCount <= maxRetries) {
+            scheduleRestart(delayMs)
+        } else {
+            interrupt(error)
+        }
+    }
+
+    private fun interrupt(error: Int) {
+        android.util.Log.w(
+            "SessionSTT",
+            "interrupted error=$error retries=$retryCount offline=$preferOffline",
+        )
+        active = false
+        paused = false
         removeRestart()
-        val runnable = Runnable { if (active && !stopRequested) createAndStart() }
+        finalizeRunnable?.let(main::removeCallbacks)
+        finalizeRunnable = null
+        destroyRecognizer()
+        _partial.value = ""
+        _state.value = SessionSpeechState.Interrupted(voiceErrorMessage(error))
+    }
+
+    private fun scheduleRestart(delayMs: Long = RESTART_MS) {
+        if (!active || paused || stopRequested) return
+        removeRestart()
+        val runnable = Runnable { if (active && !paused && !stopRequested) createAndStart() }
         restartRunnable = runnable
         main.postDelayed(runnable, delayMs)
     }
@@ -284,6 +346,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         removeRestart()
         stopRequested = false
         active = false
+        paused = false
         destroyRecognizer()
         _partial.value = ""
         _state.value = SessionSpeechState.Idle
@@ -302,6 +365,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         private const val RESTART_MS = 300L
         private const val RESTART_SILENCE_MS = 1_200L
         private const val RESTART_BUSY_MS = 1_500L
+        private const val RESTART_NETWORK_MS = 2_500L
         private const val RESTART_RATE_LIMIT_MS = 4_000L
         private const val FINALIZE_TIMEOUT_MS = 3_000L
     }

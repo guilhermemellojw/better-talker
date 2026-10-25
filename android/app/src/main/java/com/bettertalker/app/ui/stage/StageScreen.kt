@@ -238,20 +238,19 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 speaking = speaking,
                 speechReady = speechReady,
                 onToggleSpeech = vm::toggleSpeech,
-                analysisActive = analysisState is AnalysisState.Listening ||
-                    analysisState is AnalysisState.Processing,
+                analysisActive = isAnalysisActive(analysisState),
                 onStartAnalysis = requestAnalysis,
                 onExit = onBack,
             )
         }
 
-        // T3-A: indicador de escuta/análise e CTA de permissão.
+        // T3-A: barra de controle da análise (iniciar → pausar → retomar → parar).
         StageAnalysisBanner(
             state = analysisState,
             elapsedSec = analysisElapsed,
+            onPause = vm::pauseAnalysis,
+            onResume = vm::resumeAnalysis,
             onStop = vm::stopAnalysis,
-            onRetry = requestAnalysis,
-            onDismiss = vm::dismissAnalysis,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 84.dp, start = 12.dp, end = 12.dp),
@@ -413,23 +412,19 @@ fun stageClockSubtitle(elapsedSec: Long, targetMin: Int, running: Boolean): Stri
     return base + pause
 }
 
-/** Indicador de escuta/análise + ações de parar/tentar de novo. */
+/** Barra de controle: iniciar → pausar → retomar → parar. */
 @Composable
 private fun StageAnalysisBanner(
     state: AnalysisState,
     elapsedSec: Long,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
     onStop: () -> Unit,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
         AnalysisState.Idle, is AnalysisState.Result -> Unit
-        AnalysisState.Listening -> Surface(
-            color = Color(0xE6101724),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            modifier = modifier.fillMaxWidth(),
-        ) {
+        AnalysisState.Listening -> AnalysisSurface(modifier) {
             Row(
                 Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -440,22 +435,34 @@ private fun StageAnalysisBanner(
                         color = StageRed,
                         fontWeight = FontWeight.Bold,
                     )
-                    Text(
-                        "Áudio não é gravado.",
-                        color = StageDim,
-                        fontSize = 11.sp,
-                    )
+                    Text("Áudio não é gravado.", color = StageDim, fontSize = 11.sp)
                 }
+                TextButton(onClick = onPause) { Text("Pausar", color = StageFg) }
                 TextButton(onClick = onStop) {
-                    Text("Parar análise", color = StageFg, fontWeight = FontWeight.Bold)
+                    Text("Parar", color = StageFg, fontWeight = FontWeight.Bold)
                 }
             }
         }
-        AnalysisState.Processing -> Surface(
-            color = Color(0xE6101724),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            modifier = modifier.fillMaxWidth(),
-        ) {
+        AnalysisState.Paused -> AnalysisSurface(modifier) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "⏸ Pausado — ${formatClock(elapsedSec)}",
+                        color = StageAmber,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text("Transcrição preservada.", color = StageDim, fontSize = 11.sp)
+                }
+                TextButton(onClick = onResume) { Text("Retomar", color = StageFg) }
+                TextButton(onClick = onStop) {
+                    Text("Parar", color = StageFg, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        AnalysisState.Processing -> AnalysisSurface(modifier) {
             Row(
                 Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -469,20 +476,34 @@ private fun StageAnalysisBanner(
                 Text("Analisando…", color = StageFg, fontWeight = FontWeight.Bold)
             }
         }
-        is AnalysisState.Error -> Surface(
-            color = Color(0xE6101724),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-            modifier = modifier.fillMaxWidth(),
-        ) {
+        is AnalysisState.Interrupted -> AnalysisSurface(modifier) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-                Text(state.message, color = StageFg)
+                Text(
+                    "⚠ Serviço de voz interrompeu",
+                    color = StageAmber,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(state.message, color = StageFg, fontSize = 12.sp)
+                Text("Transcrição preservada.", color = StageDim, fontSize = 11.sp)
                 Row {
-                    TextButton(onClick = onRetry) { Text("Tentar de novo") }
-                    TextButton(onClick = onDismiss) { Text("Fechar") }
+                    TextButton(onClick = onResume) { Text("Retomar") }
+                    TextButton(onClick = onStop) { Text("Parar") }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AnalysisSurface(
+    modifier: Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        color = Color(0xE6101724),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) { content() }
 }
 
 /** CTA quando a permissão do microfone é negada; o timer não para. */
@@ -539,11 +560,15 @@ private fun AnalysisResultSheet(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "${formatCoachDuration(metrics.durationSec)} · " +
-                    "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
-                    "(alvo ${metrics.targetWpm})",
+                "Fala: ${formatCoachDuration(metrics.speechDurationSec)} · " +
+                    "Sessão: ${formatCoachDuration(metrics.sessionDurationSec)}",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
+                    "(alvo ${metrics.targetWpm})",
+                style = MaterialTheme.typography.bodyMedium,
             )
             Text(
                 "Cobertura ${metrics.coveragePercent}% · " +

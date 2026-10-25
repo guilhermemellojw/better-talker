@@ -11,7 +11,8 @@ import org.junit.Test
 class AnalysisStateTest {
 
     private fun metrics() = SpeechMetrics(
-        durationSec = 60,
+        speechDurationSec = 60,
+        sessionDurationSec = 60,
         spokenWords = 130,
         wpm = 130,
         coveragePercent = 90,
@@ -28,15 +29,25 @@ class AnalysisStateTest {
     fun rotulosDosEstados() {
         assertNull(analysisStateLabel(AnalysisState.Idle))
         assertEquals("Ouvindo…", analysisStateLabel(AnalysisState.Listening))
+        assertEquals("Pausado", analysisStateLabel(AnalysisState.Paused))
         assertEquals("Analisando…", analysisStateLabel(AnalysisState.Processing))
         assertEquals(
             "Resultado pronto",
             analysisStateLabel(AnalysisState.Result(metrics(), feedback())),
         )
         assertEquals(
-            "Análise indisponível",
-            analysisStateLabel(AnalysisState.Error("sem microfone")),
+            "Serviço de voz interrompeu",
+            analysisStateLabel(AnalysisState.Interrupted("sem microfone")),
         )
+    }
+
+    @Test
+    fun analiseAtivaIncluiEscutaPausaEInterrupcao() {
+        assertTrue(isAnalysisActive(AnalysisState.Listening))
+        assertTrue(isAnalysisActive(AnalysisState.Paused))
+        assertTrue(isAnalysisActive(AnalysisState.Interrupted("sem serviço")))
+        org.junit.Assert.assertFalse(isAnalysisActive(AnalysisState.Idle))
+        org.junit.Assert.assertFalse(isAnalysisActive(AnalysisState.Processing))
     }
 
     @Test

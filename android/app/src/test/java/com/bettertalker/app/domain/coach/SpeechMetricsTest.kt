@@ -10,7 +10,7 @@ class SpeechMetricsTest {
     fun calculaPalavrasRitmoECobertura() {
         val transcript = "Jeová Deus oferece vida eterna. O caminho é estreito."
         val target = "Jeová Deus oferece vida eterna. O caminho é estreito."
-        val metrics = computeSpeechMetrics(transcript, target, durationSec = 60)
+        val metrics = computeSpeechMetrics(transcript, target, speechDurationSec = 60)
 
         assertEquals(9, metrics.spokenWords)
         assertEquals(9, metrics.wpm)
@@ -24,7 +24,7 @@ class SpeechMetricsTest {
         val metrics = computeSpeechMetrics(
             transcript = "Jeová oferece vida eterna",
             targetText = "Jeová Deus oferece vida eterna. O caminho é estreito.",
-            durationSec = 30,
+            speechDurationSec = 30,
         )
         // 4 de 7 palavras de conteúdo (deus, caminho, estreito faltaram).
         assertEquals(57, metrics.coveragePercent)
@@ -35,7 +35,7 @@ class SpeechMetricsTest {
 
     @Test
     fun textoAlvoVazioNaoPenaliza() {
-        val metrics = computeSpeechMetrics("qualquer fala", "", durationSec = 10)
+        val metrics = computeSpeechMetrics("qualquer fala", "", speechDurationSec = 10)
         assertEquals(100, metrics.coveragePercent)
         assertTrue(metrics.missingTerms.isEmpty())
     }
@@ -45,7 +45,7 @@ class SpeechMetricsTest {
         val metrics = computeSpeechMetrics(
             transcript = "jerusalem e o caminho",
             targetText = "Jerusalém e o caminho.",
-            durationSec = 20,
+            speechDurationSec = 20,
         )
         assertEquals(100, metrics.coveragePercent)
     }
@@ -55,7 +55,7 @@ class SpeechMetricsTest {
         val metrics = computeSpeechMetrics(
             transcript = "Então, tipo, né? Então, hum...",
             targetText = "Um texto qualquer sobre o tema.",
-            durationSec = 20,
+            speechDurationSec = 20,
         )
         assertEquals(2, metrics.fillerCounts["então"])
         assertEquals(1, metrics.fillerCounts["tipo"])
@@ -66,7 +66,7 @@ class SpeechMetricsTest {
 
     @Test
     fun duracaoZeroNaoDividePorZero() {
-        val metrics = computeSpeechMetrics("uma fala", "uma fala", durationSec = 0)
+        val metrics = computeSpeechMetrics("uma fala", "uma fala", speechDurationSec = 0)
         assertEquals(0, metrics.wpm)
         assertEquals(2, metrics.spokenWords)
     }
@@ -76,9 +76,24 @@ class SpeechMetricsTest {
         val metrics = computeSpeechMetrics(
             transcript = "",
             targetText = "alfa beta gama delta epsilon zeta eta theta",
-            durationSec = 30,
+            speechDurationSec = 30,
         )
         assertEquals(5, metrics.missingTerms.size)
+    }
+
+    @Test
+    fun wpmUsaTempoDeFalaNaoTempoTotalComPausas() {
+        // 65 palavras em 30 s de fala = 130 wpm, mesmo com sessão de 90 s.
+        val transcript = (1..65).joinToString(" ") { "palavra$it" }
+        val metrics = computeSpeechMetrics(
+            transcript = transcript,
+            targetText = transcript,
+            speechDurationSec = 30,
+            sessionDurationSec = 90,
+        )
+        assertEquals(130, metrics.wpm)
+        assertEquals(30, metrics.speechDurationSec)
+        assertEquals(90, metrics.sessionDurationSec)
     }
 
     @Test

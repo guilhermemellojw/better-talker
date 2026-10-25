@@ -14,7 +14,8 @@ class SpeechCoachTest {
         missing: List<String> = emptyList(),
         fillers: Map<String, Int> = emptyMap(),
     ) = SpeechMetrics(
-        durationSec = durationSec,
+        speechDurationSec = durationSec,
+        sessionDurationSec = durationSec,
         spokenWords = spokenWords,
         wpm = wpm,
         coveragePercent = coverage,
@@ -45,6 +46,19 @@ class SpeechCoachTest {
         assertTrue(f.good.any { it.contains("Boa cobertura") })
         assertTrue(f.adjust.isEmpty())
         assertTrue(f.exercise.contains("Grave 1 min"))
+    }
+
+    @Test
+    fun pausasNaoPenalizamORitmo() {
+        val f = buildCoachFeedback(
+            metrics().copy(
+                speechDurationSec = 60,
+                sessionDurationSec = 120,
+            ),
+            targetMinutes = 1,
+        )
+        assertTrue(f.good.any { it.contains("pausas ficaram fora do ritmo") })
+        assertTrue(f.adjust.none { it.contains("devagar") })
     }
 
     @Test
