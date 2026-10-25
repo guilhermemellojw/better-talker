@@ -3,6 +3,7 @@ package com.bettertalker.app.data.repo
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.planning.RoomReferenceResolver
@@ -135,19 +136,20 @@ class CopilotRepository(private val db: AppDatabase) {
         noteId: String,
         hasSections: Boolean,
         outlineRefsJson: String,
+        noteText: String? = null,
     ): com.bettertalker.app.ui.editor.NoteReadiness {
         val hasOutline = hasOutline(noteId)
         val hasHistory = db.chatDao().all(noteId).isNotEmpty()
-        val hasMissingRefs = if (outlineRefsJson.isBlank()) {
-            false
-        } else {
-            outlineRefs(outlineRefsJson).any { !it.resolved }
+        val sources = noteSources(noteId, outlineRefsJson, noteText)
+        val missing = sources.sources.filter {
+            it.status != com.bettertalker.app.data.util.SourceStatus.RESOLVED
         }
         val hasMissingBases = missingBases().isNotEmpty()
         return com.bettertalker.app.ui.editor.NoteReadiness(
             hasSections = hasSections,
             hasOutline = hasOutline,
-            hasMissingRefs = hasMissingRefs,
+            hasMissingRefs = missing.isNotEmpty(),
+            missingSources = missing.map { it.ref }.distinct().take(6),
             hasMissingBases = hasMissingBases,
             hasChatHistory = hasHistory,
         )
@@ -355,6 +357,56 @@ class CopilotRepository(private val db: AppDatabase) {
     /** Referências citadas no esboço (guardadas no link): resolve contra anexos atuais. */
     suspend fun outlineRefs(refsJson: String): List<RefDetector.RefStatus> =
         enrichContents(RefDetector.resolve(RefDetector.detectedFromJson(refsJson), db.attachmentDao().all()))
+
+    /**
+     * A2 (confiança) — checklist de fontes da nota: outline + seções +
+     * plainText/mdText, com edição e conteúdo classificados.
+     */
+    suspend fun noteSources(
+        noteId: String,
+        outlineRefsJson: String,
+        noteText: String? = null,
+    ): com.bettertalker.app.data.util.NoteSources {
+        val note = db.noteDao().get(noteId)
+        val sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
+        val subPoints = sections.flatMap { section ->
+            db.subPointDao().forSection(section.id).map { it.toDomain() }
+        }
+        // A nota pode ter refs no mdText agregado e no plainText original
+        // (V&M sem BODY preenchido). Coleta os dois; o resolver deduplica.
+        val text = buildString {
+            noteText?.takeIf { it.isNotBlank() }?.let { append(it).append('\n') }
+            note?.mdText?.takeIf { it.isNotBlank() }?.let { append(it).append('\n') }
+            note?.plainText?.takeIf { it.isNotBlank() }?.let { append(it) }
+        }.trim()
+        val candidates = com.bettertalker.app.data.util.NoteSourcesResolver.collectCandidates(
+            outlineRefsJson = outlineRefsJson,
+            sections = sections,
+            subPoints = subPoints,
+            noteText = text,
+        )
+        if (candidates.isEmpty()) {
+            return com.bettertalker.app.data.util.NoteSources(emptyList(), 0, 0)
+        }
+        val pubCandidates = candidates.filter { it.publication != null }
+        val pubStatuses = checkRefsList(pubCandidates.mapNotNull { it.publication })
+            .associateBy { com.bettertalker.app.data.util.NoteSourcesResolver.sourceKey(it.ref) }
+        val nwtAvailable = db.attachmentDao().baseReady("nwt") != null
+        val bibleStatuses = candidates.filter { it.bible != null }.associate { candidate ->
+            val bible = candidate.bible!!
+            val key = normalizeBibleBookName(bible.label)
+                ?.let { "$it ${bible.chapter}:${bible.verse}" }
+            candidate.key to com.bettertalker.app.data.util.BibleSourceStatus(
+                available = nwtAvailable,
+                verseFound = key != null && db.passageDao().findByRef(key) != null,
+            )
+        }
+        return com.bettertalker.app.data.util.NoteSourcesResolver.toNoteSources(
+            candidates = candidates,
+            publicationStatuses = pubStatuses,
+            bibleStatuses = bibleStatuses,
+        )
+    }
 
     /** T3 — candidatos de corpus por citação + se havia corpus para pesquisar. */
     private data class ContentCandidates(val passages: List<PassageEntity>, val corpusAvailable: Boolean)

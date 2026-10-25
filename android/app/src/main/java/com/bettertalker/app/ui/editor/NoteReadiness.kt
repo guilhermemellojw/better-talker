@@ -15,6 +15,8 @@ data class NoteReadiness(
     val hasOutline: Boolean,
     /** Há referências citadas ainda não resolvidas (refs faltando). */
     val hasMissingRefs: Boolean,
+    /** Rótulos das fontes faltando (para o banner do chat). */
+    val missingSources: List<String> = emptyList(),
     /** Há publicações/bases ainda não baixadas. */
     val hasMissingBases: Boolean,
     /** Nota tem histórico de chat (pelo menos 1 mensagem). */

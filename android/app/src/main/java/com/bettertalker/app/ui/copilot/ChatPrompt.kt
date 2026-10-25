@@ -621,6 +621,18 @@ fun SetupBanner(
                     TextButton(onClick = onPaste) { Text("Analisar material") }
                 }
             }
+            if (readiness.hasMissingRefs && readiness.missingSources.isNotEmpty()) {
+                Text(
+                    "Faltam fontes: ${readiness.missingSources.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+                Text(
+                    "Abra o editor para ver o checklist de fontes.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
             if (readiness.hasMissingBases) {
                 Text(
                     "Faltam publicações de apoio para baixar.",

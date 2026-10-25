@@ -43,12 +43,14 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -114,6 +116,8 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.components.PasteDestination
 import com.bettertalker.app.ui.components.PastePreviewSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
+import com.bettertalker.app.ui.components.SourcesSheet
+import com.bettertalker.app.ui.copilot.DownloadCtl
 import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import com.mohamedrejeb.richeditor.model.RichTextState
@@ -129,6 +133,8 @@ fun EditorScreen(
     onBack: () -> Unit,
     onAttach: () -> Unit,
     onOpenChat: () -> Unit,
+    /** A2: usado apenas para o download de fontes no sheet. */
+    copilotVm: com.bettertalker.app.ui.copilot.CopilotViewModel? = null,
     // #7e2: empty state — o pipeline de esboço/paste vive no chat
     // (CopilotViewModel); a tela só dispara.
     onImportOutline: (Uri) -> Unit,
@@ -147,9 +153,11 @@ fun EditorScreen(
     val notePinned by vm.pinned.collectAsState()
     val sections by vm.sections.collectAsState()
     val isDemonstration by vm.isDemonstration.collectAsState()
+    val noteSources by vm.noteSources.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
     val draftState by vm.draftState.collectAsState()
     var preview by remember { mutableStateOf(false) }
+    var showSources by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     // 3.2.5g.3: menus do ⋮ que abrem dialog/sheet.
     var showAttachmentsSheet by remember { mutableStateOf(false) }
@@ -298,6 +306,9 @@ fun EditorScreen(
     // "Colar e Pronto" v3: aviso de estrutura (esboço S-34/template de
     // discurso) exibido uma vez ao abrir a nota recém-criada.
     val snackbarHostState = remember { SnackbarHostState() }
+    val downloadCtl = remember(copilotVm) {
+        copilotVm?.let { DownloadCtl(it, snackbarHostState) }
+    }
     LaunchedEffect(notice) {
         if (!notice.isNullOrBlank()) {
             snackbarHostState.showSnackbar(notice)
@@ -333,15 +344,36 @@ fun EditorScreen(
                             if (saving) "Salvando…" else "Salvo local",
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        Text(
-                            wordCountLabel,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (wordCount.needsDevelopmentHint) {
-                                MaterialTheme.colorScheme.tertiary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                wordCountLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (wordCount.needsDevelopmentHint) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.weight(1f, fill = false),
+                                maxLines = 2,
+                            )
+                            val sources = noteSources
+                            if (sources != null && sources.hasRefs) {
+                                Spacer(Modifier.width(8.dp))
+                                AssistChip(
+                                    onClick = { showSources = true },
+                                    label = {
+                                        Text("Fontes ${sources.resolved}/${sources.total}")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.MenuBook,
+                                            null,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
@@ -353,6 +385,13 @@ fun EditorScreen(
                         // UX refactor: o Editor é focado em escrita/exportação —
                         // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
                         // atalhos de Ensaio/Tribuna (agora na barra global) saíram.
+                        if (noteSources != null) {
+                            DropdownMenuItem(
+                                text = { Text("Fontes da nota") },
+                                leadingIcon = { Icon(Icons.Default.MenuBook, null) },
+                                onClick = { showMenu = false; showSources = true },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
@@ -673,6 +712,24 @@ fun EditorScreen(
             onAttach = { showAttachmentsSheet = false; onAttach() },
             onDismiss = { showAttachmentsSheet = false },
         )
+    }
+
+    // A2 (confiança): checklist preventivo de fontes.
+    if (showSources) {
+        noteSources?.let { sources ->
+            SourcesSheet(
+                sources = sources,
+                onDismiss = { showSources = false },
+                onRefresh = vm::refreshNoteSources,
+                onOpenLibrary = {
+                    showSources = false
+                    onAttach()
+                },
+                downloadCtl = downloadCtl,
+                scope = scope,
+                onDownloaded = vm::refreshNoteSources,
+            )
+        }
     }
 
     // Exportação (T2/T3): Compartilhar HTML, Salvar PDF e Copiar texto.

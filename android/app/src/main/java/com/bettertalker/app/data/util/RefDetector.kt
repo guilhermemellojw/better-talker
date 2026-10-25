@@ -181,6 +181,12 @@ object RefDetector {
         """\bifi\s+li[çc][aã]o\s+(\d+)(?:\s+ponto\s+(\d+))?""",
         RegexOption.IGNORE_CASE
     )
+    // A1 (confiança): lmd por apêndice ("lmd apêndice A ponto 20").
+    // O ponto é opcional; a letra do apêndice é preservada no article/chapter.
+    private val LMD_APPENDIX_RE = Regex(
+        """\blmd\s+ap[êe]ndice\s+([A-Z])(?:\s*[,;—-]?\s*(?:ponto|n\.?\s*[º°]?)\s*(\d{1,3}))?""",
+        RegexOption.IGNORE_CASE,
+    )
     // T2 (refs): estudo por ARTIGO + parágrafo: it "Gedalias" n.° 4,
     // rsg “Mispá, Mispé” § 5, it-1 ‘Gedalias’ n.º 4. Aspas opcionais
     // (retas/curvas); aceita "n.°"/"n.º"/"número"/"§"/"parág.". O artigo
@@ -505,6 +511,27 @@ object RefDetector {
                     "book|$canonical",
                     "${PubCatalog.titleOf(canonical) ?: canonical} (lição $li" +
                         (if (ponto.isNotEmpty()) " ponto $ponto" else "") + ")"
+                )
+            )
+        }
+        // A1 (confiança): lmd apêndice A ponto N — o "apêndice A" é a unidade
+        // (article/chapter) e o ponto vira paragraph para o resolvedor.
+        LMD_APPENDIX_RE.findAll(text).forEach { m ->
+            val letter = m.groupValues[1].uppercase()
+            val point = m.groupValues[2].toIntOrNull()
+            val canonical = PubCatalog.resolveSymbol("lmd") ?: "lmd"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    raw = m.value.trim(),
+                    kind = Kind.BOOK,
+                    pubKey = canonical,
+                    editionKey = "book|$canonical",
+                    label = "${PubCatalog.titleOf(canonical) ?: canonical} — Apêndice $letter" +
+                        (point?.let { ", ponto $it" } ?: ""),
+                    article = "Apêndice $letter",
+                    chapter = "Apêndice $letter",
+                    paragraph = point,
                 )
             )
         }

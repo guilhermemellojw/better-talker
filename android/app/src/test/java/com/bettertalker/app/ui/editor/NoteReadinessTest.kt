@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.editor
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,9 +55,11 @@ class NoteReadinessTest {
             hasSections = true,
             hasOutline = true,
             hasMissingRefs = true,
+            missingSources = listOf("w25.07 § 8", "lmd apêndice A ponto 20"),
             hasMissingBases = false,
             hasChatHistory = false,
         )
         assertTrue(r.isSetupComplete)
+        assertEquals(2, r.missingSources.size)
     }
 }

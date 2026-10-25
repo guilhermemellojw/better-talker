@@ -321,6 +321,7 @@ private fun AppNav(
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
+                copilotVm = copilotVm,
                 onGenerateTribuna = {
                     // #20-fix-c: gera em background e abre a tela — os cards
                     // reagem ao tribunaJson (observe live) quando chega.

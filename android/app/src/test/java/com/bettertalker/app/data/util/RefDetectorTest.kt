@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.util
 
+import com.bettertalker.app.data.db.AttachmentEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -329,5 +330,106 @@ class RefDetectorTest {
         assertEquals("lff", ref.pubKey)
         assertEquals("lição 24", ref.chapter)
         assertEquals(3, ref.paragraph)
+    }
+
+    // ---------- A1 (confiança): lmd apêndice e lição ----------
+
+    @Test
+    fun detect_lmdApendiceA_ponto20() {
+        val ref = RefDetector.detect("lmd apêndice A ponto 20").single()
+        assertEquals("lmd", ref.pubKey)
+        assertEquals(RefDetector.Kind.BOOK, ref.kind)
+        assertEquals("book|lmd", ref.editionKey)
+        assertEquals("Apêndice A", ref.article)
+        assertEquals("Apêndice A", ref.chapter)
+        assertEquals(20, ref.paragraph)
+    }
+
+    @Test
+    fun detect_lmdApendice_semPonto_aindaDetecta() {
+        val ref = RefDetector.detect("lmd apêndice A").single()
+        assertEquals("lmd", ref.pubKey)
+        assertEquals("Apêndice A", ref.article)
+        assertNull(ref.paragraph)
+    }
+
+    @Test
+    fun detect_lmdLicaoPonto4() {
+        val ref = RefDetector.detect("lmd lição 7 ponto 4").single()
+        assertEquals("lmd", ref.pubKey)
+        assertEquals("lição 7", ref.chapter)
+        assertEquals(4, ref.paragraph)
+    }
+
+    @Test
+    fun detect_lmdTextoComumNaoViraRef() {
+        assertEquals(
+            emptyList<RefDetector.DetectedRef>(),
+            RefDetector.detect("Texto livre com lmd e (4 min)"),
+        )
+    }
+
+    @Test
+    fun detectSymbol_lmdJwpub_resolveLmd() {
+        assertEquals("lmd", detectSymbol("lmd_T.jwpub"))
+        assertTrue(PubCatalog.isSymbol("lmd"))
+    }
+
+    @Test
+    fun resolveContent_lmdApendicePonto_encontraParagrafo() {
+        val ref = RefDetector.detect("lmd apêndice A ponto 20").single()
+        val passages = listOf(
+            com.bettertalker.app.data.db.PassageEntity(
+                id = "p1",
+                attachmentId = "a1",
+                text = "20. O ponto vinte do apêndice.",
+                normalized = "20 o ponto vinte do apendice",
+                section = "Apêndice A",
+                paragraph = 20,
+                ord = 1,
+            ),
+        )
+        val hit = RefDetector.resolveContent(ref, passages, corpusAvailable = true)
+        assertTrue(hit.resolved)
+        assertTrue(hit.snippet.orEmpty().contains("ponto vinte"))
+    }
+
+    @Test
+    fun matchEdition_lmdJwpub_casaPorNome() {
+        val ref = RefDetector.detect("lmd apêndice A ponto 20").single()
+        val attachment = AttachmentEntity(
+            id = "a1",
+            noteId = null,
+            fileName = "lmd_T.jwpub",
+            kind = "jwpub",
+            sizeBytes = 0,
+            appPath = "",
+            indexed = true,
+            addedAt = 0,
+            status = "ready",
+        )
+        assertEquals("a1", RefDetector.matchEdition(ref, listOf(attachment))?.id)
+    }
+
+    @Test
+    fun resolveContent_lmdApendicePontoAusente_avisaSemFonte() {
+        val ref = RefDetector.detect("lmd apêndice A ponto 20").single()
+        val hit = RefDetector.resolveContent(
+            ref,
+            listOf(
+                com.bettertalker.app.data.db.PassageEntity(
+                    id = "p1",
+                    attachmentId = "a1",
+                    text = "Outro parágrafo.",
+                    normalized = "outro paragrafo",
+                    section = "Apêndice A",
+                    paragraph = 19,
+                    ord = 1,
+                ),
+            ),
+            corpusAvailable = true,
+        )
+        assertTrue(!hit.resolved)
+        assertEquals(RefDetector.CONTENT_WARNING, hit.warning)
     }
 }

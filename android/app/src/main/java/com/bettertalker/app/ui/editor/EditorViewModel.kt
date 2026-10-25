@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -90,6 +92,10 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     /** 3.2.5a: estado das seções (vazio em notas sem seções — legado puro). */
     private val _sections = MutableStateFlow<List<SectionUiState>>(emptyList())
     val sections = _sections.asStateFlow()
+
+    /** A2 (confiança): checklist de fontes da nota (null = carregando). */
+    private val _noteSources = MutableStateFlow<com.bettertalker.app.data.util.NoteSources?>(null)
+    val noteSources = _noteSources.asStateFlow()
 
     /** Hotfix P0: aviso estrutural auto-contido (evita NPE de ordem). */
     private val structureWarningHolder = StructureWarningHolder()
@@ -181,6 +187,14 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         // 3.2.5a: espelha o estado das seções (SectionsController headless).
         viewModelScope.launch {
             sectionsController.sections.collect { _sections.value = it }
+        }
+        // A2: checklist de fontes — debounce para não consultar Room a cada tecla.
+        viewModelScope.launch {
+            combine(_sections, _mdText, _title) { _, _, _ -> Unit }
+                .collectLatest {
+                    delay(700)
+                    loadNoteSources()
+                }
         }
         // 3.2.5f-pre: espelha o aviso estrutural (o dismiss é local; a
         // próxima mudança republica se ainda inválido).
@@ -664,7 +678,21 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             noteId = noteId,
             hasSections = _sections.value.isNotEmpty(),
             outlineRefsJson = outlines.get(noteId)?.refsJson.orEmpty(),
+            noteText = _mdText.value,
         )
+
+    /** A2: recarrega o checklist de fontes (botão "Atualizar" do sheet). */
+    fun refreshNoteSources() {
+        viewModelScope.launch { loadNoteSources() }
+    }
+
+    private suspend fun loadNoteSources() {
+        _noteSources.value = copilotRepo.noteSources(
+            noteId = noteId,
+            outlineRefsJson = outlines.get(noteId)?.refsJson.orEmpty(),
+            noteText = _mdText.value,
+        )
+    }
 
     private val _pushedContext = MutableStateFlow<ChatContext?>(null)
     val pushedContext: StateFlow<ChatContext?> = _pushedContext.asStateFlow()
