@@ -155,6 +155,9 @@ demonstração. Use 'Criar esboço do zero' se quiser preparar uma nota manualme
 
 > A1/A2 são do extrator/parser (Fase 2); não foram corrigidos nesta rodada.
 > A3/A4/A5 são decisões de produto/UX.
+>
+> **Atualização 2026-10-25:** A1–A5 corrigidos na Fase 2 (commit `506f813`);
+> decisões e evidências em `docs/FREEZE.md`.
 
 ### 4.4 “Copilot no ponto”
 
