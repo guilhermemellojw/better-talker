@@ -148,4 +148,97 @@ class PasteOverridesTest {
         assertEquals("lmd|§4|lição 7", publicationRefKey(ref))
         assertEquals("lmd lição 7 §4", publicationRefLabel(ref))
     }
+
+    // ---------- 1b-1b: cenário/referência no título do BODY ----------
+
+    @Test
+    fun cenarioEditado_vaParaTituloDoBody() {
+        val plan = planPaste(part5)
+        assertEquals("DE CASA EM CASA", plan.scenario)
+        val out = applyPasteOverrides(
+            plan,
+            PasteOverrides(scenario = "TESTEMUNHO INFORMAL"),
+        )
+        val note = out.toPastedNote()
+        val body = note.sections.single { it.role == SectionRole.BODY }
+
+        assertEquals("TESTEMUNHO INFORMAL", out.scenario)
+        assertEquals(
+            "TESTEMUNHO INFORMAL",
+            (out.kind as PasteKind.VmDemo).part.scenario,
+        )
+        assertTrue(body.title.contains("TESTEMUNHO INFORMAL"))
+        assertFalse(body.title.contains("DE CASA EM CASA"))
+        assertEquals("TESTEMUNHO INFORMAL", vmScenarioOf(body.title))
+        assertEquals("TESTEMUNHO INFORMAL", note.scenario)
+    }
+
+    @Test
+    fun referenciaEditada_vaParaTituloDoBody() {
+        val out = applyPasteOverrides(
+            planPaste(part5),
+            PasteOverrides(publicationReference = "lmd lição 9 ponto 2"),
+        )
+        val body = out.toPastedNote().sections.single { it.role == SectionRole.BODY }
+
+        assertTrue(body.title.contains("lmd lição 9 ponto 2"))
+        assertFalse(body.title.contains("lmd lição 7 ponto 4"))
+        assertEquals("lmd lição 9 ponto 2", vmReferenceOf(body.title))
+    }
+
+    @Test
+    fun limparCenario_removeDoTituloDoBody() {
+        val out = applyPasteOverrides(
+            planPaste(part5),
+            PasteOverrides(scenario = ""),
+        )
+        val body = out.toPastedNote().sections.single { it.role == SectionRole.BODY }
+
+        assertFalse(body.title.contains("DE CASA EM CASA"))
+        assertTrue(body.title.contains("Fale sobre"))
+    }
+
+    @Test
+    fun toPastedNote_semOverrides_preservaCenarioEReferencia() {
+        val note = planPaste(part5).toPastedNote()
+        val body = note.sections.single { it.role == SectionRole.BODY }
+
+        assertTrue(body.title.contains("DE CASA EM CASA"))
+        assertTrue(body.title.contains("lmd lição 7 ponto 4"))
+        assertEquals("DE CASA EM CASA", vmScenarioOf(body.title))
+        assertEquals("lmd lição 7 ponto 4", vmReferenceOf(body.title))
+    }
+
+    @Test
+    fun toPastedNote_naoDuplicaMetadata() {
+        val out = applyPasteOverrides(
+            planPaste(part5),
+            PasteOverrides(scenario = "TESTEMUNHO INFORMAL"),
+        )
+        val title = out.toPastedNote().sections
+            .single { it.role == SectionRole.BODY }
+            .title
+
+        assertEquals(
+            1,
+            Regex("TESTEMUNHO INFORMAL", RegexOption.IGNORE_CASE)
+                .findAll(title)
+                .count(),
+        )
+    }
+
+    @Test
+    fun talk_recebeMetadataEmTodosOsBody() {
+        val base = planPaste(talkText)
+        assertTrue(base.kind is PasteKind.VmTalk)
+        val plan = base.copy(
+            scenario = "TESTEMUNHO INFORMAL",
+            publicationReference = "lmd lição 7 ponto 4",
+        )
+        val bodies = plan.toPastedNote().sections.filter { it.role == SectionRole.BODY }
+
+        assertTrue(bodies.isNotEmpty())
+        assertTrue(bodies.all { it.title.contains("TESTEMUNHO INFORMAL") })
+        assertTrue(bodies.all { it.title.contains("lmd lição 7 ponto 4") })
+    }
 }

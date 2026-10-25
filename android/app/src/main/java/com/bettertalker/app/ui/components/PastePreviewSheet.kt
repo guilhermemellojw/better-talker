@@ -136,6 +136,10 @@ fun PastePreviewSheet(
     var minutesDraft by remember(plan) {
         mutableStateOf(pastePlanMinutes(plan)?.toString().orEmpty())
     }
+    var scenarioDraft by remember(plan) { mutableStateOf(plan.scenario.orEmpty()) }
+    var referenceDraft by remember(plan) {
+        mutableStateOf(plan.publicationReference.orEmpty())
+    }
     var excludedBible by remember(plan) { mutableStateOf(emptySet<String>()) }
     var excludedPub by remember(plan) { mutableStateOf(emptySet<String>()) }
     val minutesValue = minutesDraft.toIntOrNull()
@@ -231,6 +235,10 @@ fun PastePreviewSheet(
                         minutesDraft = value.filter(Char::isDigit).take(2)
                     },
                     minutesError = !minutesValid,
+                    scenario = scenarioDraft,
+                    onScenarioChange = { scenarioDraft = it },
+                    reference = referenceDraft,
+                    onReferenceChange = { referenceDraft = it },
                     bibleRefs = plan.bibleRefs,
                     excludedBible = excludedBible,
                     onToggleBible = { ref ->
@@ -271,6 +279,20 @@ fun PastePreviewSheet(
                             PasteOverrides(
                                 noteTitle = titleDraft,
                                 minutes = minutesDraft.toIntOrNull(),
+                                scenario = if (
+                                    scenarioDraft == plan.scenario.orEmpty()
+                                ) {
+                                    null
+                                } else {
+                                    scenarioDraft
+                                },
+                                publicationReference = if (
+                                    referenceDraft == plan.publicationReference.orEmpty()
+                                ) {
+                                    null
+                                } else {
+                                    referenceDraft
+                                },
                                 excludedBibleRefs = excludedBible,
                                 excludedPublicationRefs = excludedPub,
                             )
@@ -300,6 +322,10 @@ private fun ReviewFields(
     minutes: String,
     onMinutesChange: (String) -> Unit,
     minutesError: Boolean,
+    scenario: String,
+    onScenarioChange: (String) -> Unit,
+    reference: String,
+    onReferenceChange: (String) -> Unit,
     bibleRefs: List<String>,
     excludedBible: Set<String>,
     onToggleBible: (String) -> Unit,
@@ -332,6 +358,22 @@ private fun ReviewFields(
                 null
             },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = scenario,
+            onValueChange = onScenarioChange,
+            label = { Text("Cenário") },
+            placeholder = { Text("DE CASA EM CASA") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = reference,
+            onValueChange = onReferenceChange,
+            label = { Text("Referência da publicação") },
+            placeholder = { Text("lmd lição 7 ponto 4") },
+            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         if (bibleRefs.isNotEmpty() || pubRefs.isNotEmpty()) {

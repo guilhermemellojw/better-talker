@@ -56,6 +56,9 @@ data class PastedNote(
      * (Introdução + corpos + Conclusão). Null = não é esboço.
      */
     val outline: ParsedOutline? = null,
+    /** 1b-1b: cenário/referência da parte (persistidos no título do BODY). */
+    val scenario: String? = null,
+    val publicationReference: String? = null,
 ) {
     /** Refs agregadas das seções (conveniência p/ testes e feedback). */
     val bibleRefs: List<String> get() = sections.flatMap { it.bibleRefs }.distinct()
@@ -91,6 +94,9 @@ data class PastePlan(
     val generationProfile: GenerationProfile,
     val notice: String?,
     val ignoredParts: List<VmPart> = emptyList(),
+    /** 1b-1b: cenário/referência da parte (persistidos no título do BODY). */
+    val scenario: String? = null,
+    val publicationReference: String? = null,
 )
 
 /** Porta de entrada da colagem na Home (S-34 é arquivo; V&M é texto). */
@@ -120,6 +126,10 @@ data class PasteOverrides(
     val noteTitle: String? = null,
     /** null = mantém a duração atual; 1..60. */
     val minutes: Int? = null,
+    /** null = mantém; vazio = limpa o cenário do título do BODY. */
+    val scenario: String? = null,
+    /** null = mantém; vazio = limpa a referência do título do BODY. */
+    val publicationReference: String? = null,
     val excludedBibleRefs: Set<String> = emptySet(),
     /** Chaves estáveis de [PublicationRef] (ver [publicationRefKey]). */
     val excludedPublicationRefs: Set<String> = emptySet(),
@@ -166,6 +176,7 @@ fun publicationRefLabel(ref: PublicationRef): String = buildString {
  * - Minutos: 1 para INTRO/CONCLUSÃO, o resto entre os BODYs (demo/consideração
  *   têm só BODY e recebem o total).
  * - Refs: remove as excluídas do plano, das seções e dos sub-pontos.
+ * - Cenário/ref: aplicados ao plano e ao título do BODY (1b-1b).
  * - Tipo da parte (TALK/DEMO) nunca muda.
  */
 fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
@@ -174,6 +185,10 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
         plan.kind is PasteKind.VmConsideration
     val currentMinutes = pastePlanMinutes(plan)
     val totalMinutes = (overrides.minutes ?: currentMinutes ?: 0).coerceIn(1, 60)
+    val scenario = overrides.scenario ?: plan.scenario
+    val reference = overrides.publicationReference ?: plan.publicationReference
+    val metadataChanged = overrides.scenario != null ||
+        overrides.publicationReference != null
 
     val titleChanged = overrides.noteTitle != null || overrides.minutes != null
     val baseTitle = overrides.noteTitle?.trim()?.takeIf { it.isNotBlank() }
@@ -192,9 +207,27 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
     }
     val newKind = if (isVm) {
         when (val k = plan.kind) {
-            is PasteKind.VmTalk -> k.copy(part = k.part.copy(minutes = totalMinutes))
-            is PasteKind.VmDemo -> k.copy(part = k.part.copy(minutes = totalMinutes))
-            is PasteKind.VmConsideration -> k.copy(part = k.part.copy(minutes = totalMinutes))
+            is PasteKind.VmTalk -> k.copy(
+                part = k.part.copy(
+                    minutes = totalMinutes,
+                    scenario = scenario,
+                    reference = reference,
+                )
+            )
+            is PasteKind.VmDemo -> k.copy(
+                part = k.part.copy(
+                    minutes = totalMinutes,
+                    scenario = scenario,
+                    reference = reference,
+                )
+            )
+            is PasteKind.VmConsideration -> k.copy(
+                part = k.part.copy(
+                    minutes = totalMinutes,
+                    scenario = scenario,
+                    reference = reference,
+                )
+            )
             else -> k
         }
     } else {
@@ -208,7 +241,19 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
         refs.filterNot { publicationRefKey(it) in overrides.excludedPublicationRefs }
 
     val sections = newSections.map { section ->
+        val title = if (metadataChanged && section.role == SectionRole.BODY) {
+            withPartMetadata(
+                title = section.title,
+                oldScenario = plan.scenario,
+                oldRef = plan.publicationReference,
+                newScenario = scenario,
+                newRef = reference,
+            )
+        } else {
+            section.title
+        }
         section.copy(
+            title = title,
             bibleRefs = bibleFilter(section.bibleRefs),
             publicationRefs = pubFilter(section.publicationRefs),
             subPoints = section.subPoints.map { sub ->
@@ -226,6 +271,8 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
         sections = sections,
         bibleRefs = bibleFilter(plan.bibleRefs),
         publicationRefs = pubFilter(plan.publicationRefs),
+        scenario = scenario,
+        publicationReference = reference,
     )
 }
 
@@ -255,6 +302,53 @@ private fun redistributeMinutes(
             SectionRole.INTRO, SectionRole.CONCLUSION -> section.copy(minutes = 1)
         }
     }
+}
+
+/** Remove cenário/ref antigos do título do BODY e limpa separadores vazios. */
+private fun stripPartMetadata(title: String, values: List<String?>): String {
+    var base = title
+    values.filterNotNull().filter { it.isNotBlank() }.forEach { value ->
+        base = base.replace(value, "", ignoreCase = true)
+    }
+    return base
+        .replace(Regex("\\(\\s*\\)"), "")
+        .trim()
+        .trim(' ', '·', '—', '-', ':', ',', ';', '.')
+        .trim()
+}
+
+/** Anexa cenário/ref ao título do BODY em formato compacto. */
+private fun appendPartMetadata(title: String, scenario: String?, ref: String?): String {
+    val meta = listOfNotNull(
+        scenario?.takeIf { it.isNotBlank() },
+        ref?.takeIf { it.isNotBlank() },
+    ).joinToString(" · ")
+    if (meta.isBlank()) return title
+    return if (title.isBlank()) meta else "$title · $meta"
+}
+
+/** Substitui os metadados antigos pelos novos no título do BODY. */
+private fun withPartMetadata(
+    title: String,
+    oldScenario: String?,
+    oldRef: String?,
+    newScenario: String?,
+    newRef: String?,
+): String = appendPartMetadata(
+    stripPartMetadata(title, listOf(oldScenario, oldRef)).trim(),
+    newScenario,
+    newRef,
+)
+
+/** Garante que o título do BODY contenha os metadados finais (sem duplicar). */
+private fun ensurePartMetadata(title: String, scenario: String?, ref: String?): String {
+    val missingScenario = scenario?.takeIf {
+        it.isNotBlank() && !title.contains(it, ignoreCase = true)
+    }
+    val missingRef = ref?.takeIf {
+        it.isNotBlank() && !title.contains(it, ignoreCase = true)
+    }
+    return appendPartMetadata(title, missingScenario, missingRef)
 }
 
 /**
@@ -679,6 +773,8 @@ fun planPaste(raw: String): PastePlan {
             notice = "Estrutura de discurso criada (Introdução, $bodyLabel, " +
                 "Conclusão)." + ignoredSuffix(ignored),
             ignoredParts = ignored,
+            scenario = talk.scenario,
+            publicationReference = talk.reference,
         )
     }
 
@@ -728,6 +824,8 @@ fun planPaste(raw: String): PastePlan {
             notice = "Demonstração reconhecida: parte ${demo.partNumber} " +
                 "(${minutes} min)." + ignoredSuffix(ignored),
             ignoredParts = ignored,
+            scenario = demo.scenario,
+            publicationReference = demo.reference,
         )
     }
 
@@ -763,6 +861,8 @@ fun planPaste(raw: String): PastePlan {
             notice = "Consideração reconhecida: parte ${consideration.partNumber} " +
                 "(${minutes} min)." + ignoredSuffix(ignored),
             ignoredParts = ignored,
+            scenario = consideration.scenario,
+            publicationReference = consideration.reference,
         )
     }
 
@@ -844,8 +944,22 @@ fun PastePlan.toPastedNote(): PastedNote = when (val k = kind) {
         title = noteTitle,
         discourseType = discourseType,
         plainText = plainText,
-        sections = sections,
+        sections = sections.map { section ->
+            if (section.role == SectionRole.BODY) {
+                section.copy(
+                    title = ensurePartMetadata(
+                        section.title,
+                        scenario,
+                        publicationReference,
+                    )
+                )
+            } else {
+                section
+            }
+        },
         speechTemplate = kind is PasteKind.VmTalk,
+        scenario = scenario,
+        publicationReference = publicationReference,
     )
 }
 
