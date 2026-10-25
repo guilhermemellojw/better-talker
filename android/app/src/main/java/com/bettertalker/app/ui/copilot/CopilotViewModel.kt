@@ -4501,19 +4501,22 @@ class CopilotViewModel(
             return
         }
         val raw = try {
-            val tmp = java.io.File(app.cacheDir, "s34-${System.currentTimeMillis()}-$fileName")
-            val copied = app.contentResolver.openInputStream(uri)?.use { ins ->
-                tmp.outputStream().use { out -> ins.copyTo(out) }
-                true
-            } ?: false
-            if (!copied) {
-                android.util.Log.i("S34Import", "chat import: cópia falhou ($fileName)")
-                return
-            }
-            try {
-                DocExtractors.extract(app, tmp, kind)
-            } finally {
-                tmp.delete()
+            // Fase 0: cópia + extração fora da Main (pode ser arquivo grande).
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val tmp = java.io.File(app.cacheDir, "s34-${System.currentTimeMillis()}-$fileName")
+                try {
+                    val copied = app.contentResolver.openInputStream(uri)?.use { ins ->
+                        tmp.outputStream().use { out -> ins.copyTo(out) }
+                        true
+                    } ?: false
+                    if (!copied) {
+                        android.util.Log.i("S34Import", "chat import: cópia falhou ($fileName)")
+                        return@withContext null
+                    }
+                    DocExtractors.extract(app, tmp, kind)
+                } finally {
+                    tmp.delete()
+                }
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -4522,8 +4525,8 @@ class CopilotViewModel(
                 "S34Import",
                 "chat import: extração falhou (${e.javaClass.simpleName})"
             )
-            return
-        }
+            null
+        } ?: return
         if (raw.isBlank() || !S34Detector.isS34(raw, fileName)) {
             // Normal para esboços que não são S-34: segue só com o draft legado.
             android.util.Log.i("S34Import", "chat import: não é S-34 (segue só o draft)")

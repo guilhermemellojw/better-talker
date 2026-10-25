@@ -106,67 +106,81 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         }
         val tmp = File(ctx.cacheDir, "imp-${System.currentTimeMillis()}-$name")
         try {
-            val ins = ctx.contentResolver.openInputStream(uri)
-                ?: throw ImportException(ImportException.Reason.IO, "Não foi possível abrir o arquivo.")
-            ins.use { input ->
-                tmp.outputStream().use { out ->
-                    val buf = ByteArray(64 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        total += n
-                        if (total > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
-                            tmp.delete()
-                            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
+            // Fase 0: a cópia pode chegar a 400 MB — nunca na Main.
+            withContext(Dispatchers.IO) {
+                val ins = ctx.contentResolver.openInputStream(uri)
+                    ?: throw ImportException(ImportException.Reason.IO, "Não foi possível abrir o arquivo.")
+                ins.use { input ->
+                    tmp.outputStream().use { out ->
+                        val buf = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            total += n
+                            if (total > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
+                                throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
+                            }
+                            out.write(buf, 0, n)
                         }
-                        out.write(buf, 0, n)
                     }
                 }
             }
+            return importFile(tmp, name, noteId)
+                ?: throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado.")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: ImportException) {
             throw e
         } catch (e: Exception) {
-            tmp.delete()
             throw ImportException(ImportException.Reason.IO, "Falha ao copiar o arquivo.")
+        } finally {
+            // Fase 0: o tmp de cache não pode sobreviver ao import (sucesso ou falha).
+            tmp.delete()
         }
-        return importFile(tmp, name, noteId)
-            ?: throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado.")
     }
 
     /** Importa arquivo já baixado (Downloads/SAF) para pasta privada do app. */
     @Throws(ImportException::class)
-    suspend fun importFile(src: File, displayName: String = src.name, noteId: String? = null): String {
-        val kind = detectKind(displayName, src)
-        if (kind == DocKind.UNSUPPORTED) {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, explicitMessage(displayName))
-        }
-        com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, it)
-        }
-        if (src.length() > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
-            throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
-        }
-        try {
-            val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
-            val id = newId("att")
-            val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
-            val dst = File(dir, "$id-$safe")
-            src.copyTo(dst, overwrite = true)
-            val slot = matchBaseSlot(displayName)
-            db.attachmentDao().upsert(
-                AttachmentEntity(
-                    id, noteId, displayName, kind.ext, dst.length(), dst.absolutePath,
-                    false, System.currentTimeMillis(), slot, "indexing", null
+    suspend fun importFile(src: File, displayName: String = src.name, noteId: String? = null): String =
+        withContext(Dispatchers.IO) {
+            val kind = detectKind(displayName, src)
+            if (kind == DocKind.UNSUPPORTED) {
+                throw ImportException(ImportException.Reason.UNSUPPORTED, explicitMessage(displayName))
+            }
+            com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let {
+                throw ImportException(ImportException.Reason.UNSUPPORTED, it)
+            }
+            if (src.length() > com.bettertalker.app.data.util.ImportLimits.LIBRARY_BYTES) {
+                throw ImportException(ImportException.Reason.TOO_BIG, "Arquivo muito grande (limite 400 MB).")
+            }
+            var dst: File? = null
+            try {
+                val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
+                val id = newId("att")
+                val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
+                val target = File(dir, "$id-$safe")
+                dst = target
+                src.copyTo(target, overwrite = true)
+                val slot = matchBaseSlot(displayName)
+                db.attachmentDao().upsert(
+                    AttachmentEntity(
+                        id, noteId, displayName, kind.ext, target.length(), target.absolutePath,
+                        false, System.currentTimeMillis(), slot, "indexing", null
+                    )
                 )
-            )
-            enqueueIndex(id)
-            SyncScheduler.requestSync(ctx)
-            return id
-        } catch (e: Exception) {
-            throw ImportException(ImportException.Reason.IO, "Falha ao importar o arquivo.")
+                enqueueIndex(id)
+                SyncScheduler.requestSync(ctx)
+                id
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                dst?.delete()
+                throw e
+            } catch (e: Exception) {
+                // Não deixa arquivo parcial na pasta de publicações.
+                dst?.delete()
+                throw ImportException(ImportException.Reason.IO, "Falha ao importar o arquivo.")
+            }
         }
-    }
 
     private fun explicitMessage(fileName: String): String {
         val ext = fileName.substringAfterLast('.', "").lowercase()

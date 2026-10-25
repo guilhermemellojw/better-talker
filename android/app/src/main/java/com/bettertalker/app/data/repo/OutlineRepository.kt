@@ -13,7 +13,9 @@ import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
 import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.detectKind
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
@@ -25,7 +27,7 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
 
     /** Importa DOCX/PDF/JWPUB via SAF e devolve o parse + refs para prévia (sem vincular). */
     @Throws(ImportException::class)
-    suspend fun previewFile(uri: Uri): OutlinePreview {
+    suspend fun previewFile(uri: Uri): OutlinePreview = withContext(Dispatchers.IO) {
         val name = try {
             ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
                 val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -87,7 +89,7 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
         val refsJson = com.bettertalker.app.data.util.RefDetector.detectedToJson(
             com.bettertalker.app.data.util.RefDetector.detect(text)
         )
-        return OutlinePreview(name, parsed, refsJson)
+        OutlinePreview(name, parsed, refsJson)
     }
 
     /** Vincula o esboço à nota (um por nota; substitui). O esqueleto vai
