@@ -71,10 +71,6 @@ sealed interface PasteKind {
     data class S34(val outline: ParsedOutline) : PasteKind
     data class VmTalk(val part: VmPart, val ignored: List<VmPart>) : PasteKind
     data class VmDemo(val part: VmPart, val ignored: List<VmPart>) : PasteKind
-    data class VmConsideration(
-        val part: VmPart,
-        val ignored: List<VmPart>,
-    ) : PasteKind
     data class VmRejected(val parts: List<VmPart>) : PasteKind
     data object FreeText : PasteKind
 }
@@ -181,8 +177,7 @@ fun publicationRefLabel(ref: PublicationRef): String = buildString {
  */
 fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
     val isVm = plan.kind is PasteKind.VmTalk ||
-        plan.kind is PasteKind.VmDemo ||
-        plan.kind is PasteKind.VmConsideration
+        plan.kind is PasteKind.VmDemo
     val currentMinutes = pastePlanMinutes(plan)
     val totalMinutes = (overrides.minutes ?: currentMinutes ?: 0).coerceIn(1, 60)
     val scenario = overrides.scenario ?: plan.scenario
@@ -215,13 +210,6 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
                 )
             )
             is PasteKind.VmDemo -> k.copy(
-                part = k.part.copy(
-                    minutes = totalMinutes,
-                    scenario = scenario,
-                    reference = reference,
-                )
-            )
-            is PasteKind.VmConsideration -> k.copy(
                 part = k.part.copy(
                     minutes = totalMinutes,
                     scenario = scenario,
@@ -372,7 +360,6 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
         is PasteKind.S34 -> "Esboço S-34"
         is PasteKind.VmTalk -> "V&M · Discurso"
         is PasteKind.VmDemo -> "V&M · Demonstração"
-        is PasteKind.VmConsideration -> "V&M · Consideração"
         is PasteKind.VmRejected -> "V&M · sem parte aplicável"
         PasteKind.FreeText -> "Texto livre"
     }
@@ -391,7 +378,6 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
             }
         }
         is PasteKind.VmDemo -> detailLines += vmPartPreviewLines(kind.part)
-        is PasteKind.VmConsideration -> detailLines += vmPartPreviewLines(kind.part)
         is PasteKind.VmRejected ->
             detailLines += kind.parts.map { "Parte ${it.partNumber} · ${it.nature.label()}" }
         PasteKind.FreeText -> detailLines += "Sem V&M/S-34 detectado"
@@ -407,7 +393,6 @@ fun pastePreviewOf(plan: PastePlan): PastePreview {
         is PasteKind.S34 -> "Introdução + ${kind.outline.sections.size} corpos + Conclusão"
         is PasteKind.VmTalk -> "${plan.sections.size} cards"
         is PasteKind.VmDemo -> "1 card (diálogo)"
-        is PasteKind.VmConsideration -> "1 card (consideração)"
         is PasteKind.VmRejected -> "0 cards"
         PasteKind.FreeText -> "1 card (Corpo)"
     }
@@ -474,7 +459,7 @@ fun pasteApplyFeedback(
         } else {
             plan.sections.size
         }
-        is PasteKind.VmDemo, is PasteKind.VmConsideration, PasteKind.FreeText -> 1
+        is PasteKind.VmDemo, PasteKind.FreeText -> 1
         is PasteKind.VmRejected -> 0
     }
     val feminine = kind is PasteKind.S34
@@ -829,40 +814,23 @@ fun planPaste(raw: String): PastePlan {
         )
     }
 
-    // Consideração (ex.: "O que você diria?"): UM card único, sem a estrutura
-    // de Intro/Corpo/Conclusão do discurso. Persistida como AVULSO (single
-    // BODY) para o gerador usar a persona de mentor, não o roteirista de demo.
+    // Consideração (ex.: "O que você diria?"): fora do escopo do app — não
+    // cria nota (o S-38 de consideração não existe no produto).
     val consideration = parts.firstOrNull { it.nature == VmNature.CONSIDERATION }
     if (consideration != null) {
-        val ignored = parts - consideration
-        val body = consideration.body.ifBlank { trimmed }
-        val partTitle = consideration.title.ifBlank { "Consideração" }
-        val minutes = consideration.minutes.takeIf { it > 0 } ?: 5
-        val (bible, pubs) = extractRefsFromBody(body)
-        val sections = listOf(
-            PastedSection(
-                role = SectionRole.BODY,
-                title = partTitle,
-                minutes = minutes,
-                contentHtml = paragraphsToHtml(body),
-                bibleRefs = bible,
-                publicationRefs = pubs,
-            ),
-        )
+        val (bible, pubs) = extractRefsFromBody(trimmed)
         return PastePlan(
-            kind = PasteKind.VmConsideration(consideration, ignored),
-            noteTitle = "$partTitle ($minutes min)",
-            discourseType = DiscourseType.AVULSO,
-            sections = sections,
-            plainText = normalizePastedText(body),
+            kind = PasteKind.VmRejected(parts),
+            noteTitle = pastedTitleOf(trimmed),
+            discourseType = DiscourseType.S34_DISCOURSE,
+            sections = emptyList(),
+            plainText = normalizePastedText(trimmed),
             bibleRefs = bible,
             publicationRefs = pubs,
-            generationProfile = GenerationProfile.SPEECH_MENTOR,
-            notice = "Consideração reconhecida: parte ${consideration.partNumber} " +
-                "(${minutes} min)." + ignoredSuffix(ignored),
-            ignoredParts = ignored,
-            scenario = consideration.scenario,
-            publicationReference = consideration.reference,
+            generationProfile = GenerationProfile.CHAT,
+            notice = "A parte 'O que você diria?' (consideração) não é suportada " +
+                "como discurso ou demonstração. Use 'Criar esboço do zero' se " +
+                "quiser preparar uma nota manualmente.",
         )
     }
 

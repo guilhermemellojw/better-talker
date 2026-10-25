@@ -98,11 +98,12 @@ class PastePreviewTest {
     }
 
     @Test
-    fun preview_consideracao_temUmCard() {
+    fun preview_consideracao_eRejeitada() {
         val p = pastePreviewOf(consideration)
-        assertEquals("V&M · Consideração", p.kindLabel)
-        assertEquals("1 card (consideração)", p.cardsLabel)
-        assertTrue(p.canApply)
+        assertEquals("V&M · sem parte aplicável", p.kindLabel)
+        assertEquals("0 cards", p.cardsLabel)
+        assertFalse(p.canApply)
+        assertTrue(p.rejectionMessage.orEmpty().contains("não é suportada"))
     }
 
     @Test
@@ -161,7 +162,9 @@ class PastePreviewTest {
     @Test
     fun feedback_demoConsideracaoFreeText() {
         assertEquals("1 card criado", pasteApplyFeedback(demo))
-        assertEquals("1 card criado", pasteApplyFeedback(consideration))
+        assertTrue(
+            pasteApplyFeedback(consideration).contains("não é suportada"),
+        )
         assertEquals("1 card criado", pasteApplyFeedback(freeText))
     }
 

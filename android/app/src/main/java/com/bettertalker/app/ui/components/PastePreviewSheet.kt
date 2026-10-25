@@ -127,9 +127,7 @@ fun PastePreviewSheet(
     // 1b-1a: revisão editável só na porta V&M (Home). A folha ANY do Editor
     // mantém o comportamento atual.
     val isVmReview = request.door == PasteDoor.VM_ONLY &&
-        (plan.kind is PasteKind.VmTalk ||
-            plan.kind is PasteKind.VmDemo ||
-            plan.kind is PasteKind.VmConsideration)
+        (plan.kind is PasteKind.VmTalk || plan.kind is PasteKind.VmDemo)
     var titleDraft by remember(plan) {
         mutableStateOf(pasteTitleWithoutMinutes(plan.noteTitle))
     }

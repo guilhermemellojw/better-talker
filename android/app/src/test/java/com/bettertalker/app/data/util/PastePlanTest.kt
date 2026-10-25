@@ -141,23 +141,16 @@ class PastePlanTest {
     }
 
     @Test
-    fun consideracao_criaUmCardUnicoComPersonaDeMentor() {
+    fun consideracao_eRejeitadaSemNota() {
         val text = """
             6. O que você diria? (6 min) Consideração.
             Pergunte à assistência como cada um responderia.
         """.trimIndent()
 
         val plan = planPaste(text)
-        assertTrue(plan.kind is PasteKind.VmConsideration)
-        assertEquals(DiscourseType.AVULSO, plan.discourseType)
-        assertEquals(GenerationProfile.SPEECH_MENTOR, plan.generationProfile)
-        assertEquals("O que você diria? (6 min)", plan.noteTitle)
-        assertEquals(1, plan.sections.size)
-        val card = plan.sections.single()
-        assertEquals("O que você diria?", card.title)
-        assertEquals(6, card.minutes)
-        assertTrue(card.contentHtml.contains("assistência"))
-        assertTrue(plan.notice.orEmpty().contains("Consideração"))
+        assertTrue(plan.kind is PasteKind.VmRejected)
+        assertTrue(plan.sections.isEmpty())
+        assertTrue(plan.notice.orEmpty().contains("não é suportada"))
     }
 
     @Test
@@ -509,11 +502,11 @@ class PastePlanTest {
     }
 
     @Test
-    fun parte6ConsideracaoSemCabecalho_retornaVmConsideration() {
+    fun parte6ConsideracaoSemCabecalho_eRejeitada() {
         val plan = planPaste(
             "6. O que você diria? (6 min) Consideração\n\nPergunte à assistência."
         )
-        assertTrue(plan.kind is PasteKind.VmConsideration)
+        assertTrue(plan.kind is PasteKind.VmRejected)
     }
 
     @Test

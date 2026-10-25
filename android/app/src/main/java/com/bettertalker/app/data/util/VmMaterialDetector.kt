@@ -196,6 +196,7 @@ private val VM_SCENARIOS = listOf(
     "DE CASA EM CASA",
     "TESTEMUNHO INFORMAL",
     "TESTEMUNHO PÚBLICO",
+    "ESTUDO BÍBLICO",
 )
 
 /**
@@ -223,7 +224,7 @@ private val VM_DEMO_PART_TYPES = listOf(
  * "lff 3:1-3". Puro/testável (reusado pelo DossierPromptBuilder).
  */
 private val VM_REFERENCE_RE = Regex(
-    """\(?\b((?:lmd|lff|th|be)\s+(?:li[çc][ãa]o\s*\d+(?:\s*,?\s*(?:ponto|par[áa]grafo)s?\s*\d+)?|\d+:\d+(?:-\d+)?))\)?""",
+    """\(?\b((?:lmd|lff|th|be)\s+(?:li[çc][ãa]o\s*\d+(?:\s*,?\s*(?:ponto|par[áa]grafo)s?\s*\d+)?|\d+:\d+(?:-\d+)?|ap[êe]ndice\s+[A-Z]\s*,?\s*pontos?\s+\d+))\)?""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -592,6 +593,79 @@ private fun hasRefSignal(text: String): Boolean {
     return bible.size + pubs.size >= 2
 }
 
+/** Título real da apostila sem número de parte. */
+private data class KnownUnnumberedPart(
+    val key: String,
+    val section: VmSection,
+    val number: Int,
+)
+
+/** Whitelist de títulos V&M reais (sem número) — evita sequestrar texto livre. */
+private val KNOWN_UNNUMBERED_PARTS = listOf(
+    KnownUnnumberedPart("iniciando conversas", VmSection.MINISTRY, 4),
+    KnownUnnumberedPart("cultivando o interesse", VmSection.MINISTRY, 4),
+    KnownUnnumberedPart("fazendo discipulos", VmSection.MINISTRY, 4),
+    KnownUnnumberedPart("fazer discipulos", VmSection.MINISTRY, 4),
+    KnownUnnumberedPart("explicando suas crencas", VmSection.MINISTRY, 6),
+    KnownUnnumberedPart("explicando as suas crencas", VmSection.MINISTRY, 6),
+    KnownUnnumberedPart("o que voce diria", VmSection.MINISTRY, 6),
+    KnownUnnumberedPart("discurso", VmSection.MINISTRY, 6),
+    KnownUnnumberedPart("joias espirituais", VmSection.TREASURES, 2),
+    KnownUnnumberedPart("leitura da biblia", VmSection.TREASURES, 3),
+    KnownUnnumberedPart("estudo biblico de congregacao", VmSection.CHRISTIAN_LIFE, 8),
+    KnownUnnumberedPart("estudo biblico", VmSection.CHRISTIAN_LIFE, 8),
+)
+
+/** "Tema: X" no corpo do discurso (vira título da nota). */
+private val THEME_RE = Regex("""(?i)\bTema:\s*(.+?)(?:\s*\(|$)""")
+
+/**
+ * Formato real da apostila SEM número de parte:
+ * `Título (N min) [cenário/label]. corpo (ref)`.
+ *
+ * Só aceita títulos conhecidos de V&M. Não basta ter "(N min)" e uma ref —
+ * isso transformaria texto livre em parte. O número da parte é inferido do
+ * tipo; no discurso, o "Tema:" vira o título da nota.
+ */
+private fun detectKnownUnnumberedPart(text: String): VmPart? {
+    val time = PAREN_MIN_RE.find(text) ?: return null
+    val minutes = time.groupValues[1].toIntOrNull() ?: return null
+    val rawTitle = text.substring(0, time.range.first)
+        .lineSequence()
+        .lastOrNull { it.isNotBlank() }
+        ?.trim()
+        .orEmpty()
+    if (rawTitle.isBlank() || rawTitle.length >= 80) return null
+    val key = normalizeText(rawTitle).trim().trimEnd('?', '.', '!', ':').trim()
+    val known = KNOWN_UNNUMBERED_PARTS.firstOrNull { it.key == key } ?: return null
+    val body = text.substring(time.range.last + 1).trim()
+    if (body.isBlank()) return null
+
+    val nature = vmNatureOf(known.section, known.number, rawTitle, body) ?: return null
+    val allowed = when (nature) {
+        VmNature.GEMS, VmNature.BIBLE_READING, VmNature.CONGREGATION_STUDY ->
+            minutes in 1..60
+        else -> minutes in 3..15
+    }
+    if (!allowed) return null
+
+    val built = buildPart(
+        section = known.section,
+        number = known.number,
+        title = rawTitle,
+        minutes = minutes,
+        bodyLines = body.lines(),
+    ) ?: return null
+    val theme = if (built.nature == VmNature.TALK) {
+        THEME_RE.find(body)?.groupValues?.get(1)?.trim()
+            ?.trimEnd('.', ',', ';', ' ')
+            ?.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
+    return if (theme != null) built.copy(title = theme) else built
+}
+
 /**
  * Título + `(N min)` no mesmo bloco, com ou sem quebras de linha:
  * cobre o Formato 5 (tudo inline) e os Formatos 1/4 depois que o
@@ -763,6 +837,8 @@ fun detectVmMaterial(text: String): List<VmPart> {
     if (normalized.isBlank()) return emptyList()
     // #24-fix A1: o formato real ("Título:" + "Tópico N:") não tem cabeçalho.
     titleFirstMaterial(normalized)?.let { return listOf(it) }
+    // 1b-3: formato real da apostila sem número de parte (whitelist de títulos).
+    detectKnownUnnumberedPart(normalized)?.let { return listOf(it) }
     // Formato 5: tudo inline, sem quebra de linha.
     detectSingleLineVmPart(normalized)?.let { return listOf(it) }
     // Parte única sem número/cabeçalho: título curto + "(N min)" + refs.
@@ -782,16 +858,7 @@ sealed interface VmPastePlan {
     /** S-38: demonstração (diálogo) — aceita quando não há TALK no material. */
     data class Demo(val demo: VmPart, val ignored: List<VmPart>) : VmPastePlan
 
-    /**
-     * Consideração (ex.: "O que você diria?"): UM card único, sem a estrutura
-     * de 3 cards do discurso.
-     */
-    data class Consideration(
-        val consideration: VmPart,
-        val ignored: List<VmPart>,
-    ) : VmPastePlan
-
-    /** Material V&M sem TALK, DEMO ou CONSIDERATION: rejeição limpa. */
+    /** Material V&M sem TALK/DEMO (consideração, Joias, Leitura, Estudo). */
     data class Rejected(val parts: List<VmPart>) : VmPastePlan
 
     /** Não é V&M: fluxo genérico (S-34/candidatos) intacto. */
@@ -808,10 +875,6 @@ fun vmPastePlan(text: String): VmPastePlan {
     // cabeçalho da seção (detecção solta "5. Título (4 min)" + cenário).
     parts.firstOrNull { it.nature == VmNature.DEMO }?.let { demo ->
         return VmPastePlan.Demo(demo, parts - demo)
-    }
-    // Consideração: card único (ex.: "O que você diria?").
-    parts.firstOrNull { it.nature == VmNature.CONSIDERATION }?.let { consideration ->
-        return VmPastePlan.Consideration(consideration, parts - consideration)
     }
     return VmPastePlan.Rejected(parts)
 }
@@ -836,23 +899,6 @@ fun vmDemoMessage(demo: VmPart, ignored: List<VmPart>): String = buildString {
     append(
         "✓ Parte ${demo.partNumber} (${demo.section.label()}): ${demo.title} " +
             "(${demo.minutes} min) — vou gerar a demonstração (diálogo)."
-    )
-    if (ignored.isNotEmpty()) {
-        append("\n\nIgnorei: ")
-        append(ignored.joinToString("; ") { "parte ${it.partNumber} — ${it.nature.label()}" })
-        append(".")
-    }
-}
-
-/** Mensagem do chat quando há CONSIDERATION (com o resto ignorado). */
-fun vmConsiderationMessage(
-    consideration: VmPart,
-    ignored: List<VmPart>,
-): String = buildString {
-    append("Reconheci material V&M.\n")
-    append(
-        "✓ Parte ${consideration.partNumber} (${consideration.section.label()}): " +
-            "${consideration.title} (${consideration.minutes} min) — vou preparar a consideração."
     )
     if (ignored.isNotEmpty()) {
         append("\n\nIgnorei: ")
