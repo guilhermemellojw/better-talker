@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-26 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (working tree, 2026-10-26)
+**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.0 (versionCode 25) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz final em validação)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -151,18 +151,35 @@ de contexto/refs não commitadas).
 | `budgetForRequest` | Discurso `palavras×1,5+200`; demo `réplicas×80+200`; coerce 2.048..8.192; acima de 8.192 divide em partes iguais. `reasoning=none`. |
 | DeepSeek | `max_tokens` até 8.192; retry por `length` (até 8.192); se o endpoint rejeitar 8.192, cai uma vez para 4.096 + divisão. |
 | Extensão | `section.minutes` vira extensão alvo no prompt. Card abaixo de 80% da meta com `finish=stop` dispara até 2 correções: a 1ª reescreve com piso; a 2ª reenvia o texto anterior, pede expansão dirigida e sobe o orçamento para 4.300. |
-| `draftOutputBudget` | Teto 8.192; seção de 20+ min com subpontos prefere `DraftTarget.SubPoint` (primeiro subponto); 45+ min usa 8.192. |
+| `OutputBudget.sectionDraft` | Teto 8.192; seção de 20+ min com subpontos prefere `DraftTarget.SubPoint` (primeiro subponto); 45+ min usa 8.192. Sub-ponto usa a fatia proporcional de `section.minutes`. |
 | “Texto total” | O chat não tenta um texto único: monta a fila por seção (20+ min por subponto) e abre o **DraftSheet** com “Próximo (N)”. Intro/Conclusão por seção; demo = 1 BODY. |
 | Prompt/chat | `blockMinutes = section.minutes`; `CHAT_TAIL_INSTRUCTIONS` e `SPEECH_MENTOR_CHAT_HINT` respeitam o bloco e não o discurso inteiro; a “TAREFA DE TEXTO LONGO” excepciona a regra de parágrafos curtos. |
 | Estrutura | `StructureSuggestion`/`PasteNoteBuilder` garantem Intro 1 + Conclusão 1 e soma = total; colagem V&M com total < 3 é ajustada para 3; demo 1 BODY. |
-| Telemetria | `generation` com `route`, `budget`, `finish_reason`, `chars`, `words`, `truncated`, `hasCard` e `thinking` no chat, oratória e draft. |
+| Telemetria | `generation` com `route`, `budget`, `finish_reason`, `chars`, `words`, `truncated`, `hasCard`, `thinking` e `retries` no chat, oratória, draft, proposta, estrutura, minimal, outline e tribuna. |
 | A34 — demo 4 min | Parte real “Cultivando o interesse (4 min) TESTEMUNHO INFORMAL… lmd lição 9 ponto 5” criada do zero: **11 réplicas**, 177 palavras no card, `budget=2048`, `finish=stop`, `truncated=false`. |
 | A34 — demo 5 min | Parte real “Fazendo discípulos (5 min) ESTUDO BÍBLICO… lmd lição 12 ponto 2” do zero: **12 réplicas**, 185 palavras no card, `budget=2048`, `finish=stop`, `truncated=false`. |
 | A34 — discurso 10 min | “Ter esperança é o segredo para o contentamento”: **1.159 palavras no card**, `budget=2150`, `finish=stop`, `truncated=false`, após 1 retry de extensão; ~89% da meta de 1.300 e acima do piso de 80%. |
 | A34 — “texto total” | Nota “A ordem nos céus (10 min)”: o chat abriu o DraftSheet na Seção 1 e mostrou “Próximo (4)”; aceite aplicou a Intro e o Desfazer reverteu. O parcial JSON do draft não vaza mais para a bolha do chat. |
 | Limite conhecido | O modelo ainda pode “fechar curto”; o piso de 80% + até 2 correções resolvem o caso de 10 min. Na medição final, 1 correção bastou. Para 20+ min, a divisão por subponto é o caminho preferido. |
 
-## Decisões pendentes (não remover ainda)
+## Resolvidos no C1 — orçamentos por caminho (2026-10-26)
+
+Commit `938c0f7` · **2.518 testes JVM verdes** · CI da branch · matriz final no A34 em andamento.
+
+| Item | Decisão/ação |
+|---|---|
+| Fonte única | `domain/planning/OutputBudget.kt` com funções nomeadas; `LlmRequest.maxOutputTokens = 0` significa “resolver pelo caminho”, nunca 1.000 silencioso. |
+| `continueGeneration` | 1.024–8.192; usa palavras/réplicas restantes da meta persistida no payload (`targetWords`/`targetTurns`). |
+| `createProposal` | 1.500–4.096; foco + nº estimado de operações; `finish=length` vira aviso, não proposta parcial. |
+| `requestApplyStructure` | 4.096–8.192; acima de 30 min divide em partes com títulos explícitos e une as respostas; aviso se alguma parte cortar. |
+| `answerMinimal` | 2.048–4.096; “texto completo” no modo colar é desviado para o DraftSheet (nunca resposta única). |
+| `OutlineGeneratorImpl` | 1.500 fixo (TPM de 8K); `finish=length` retorna null e loga telemetria. |
+| `generateOratory` | 1.280–4.096 por duração da seção/foco (substitui o 1.280 fixo); corte visível. |
+| `SectionGeneratorImpl` | `OutputBudget.sectionDraft` por `section.minutes` ou pela fatia do sub-ponto; `possiblyTruncated` preservado. |
+| Retry | `maxOutputTokensCap` por caminho; o provider sobe o budget no `length` até o cap e informa `retries` na telemetria (inclui extensão/fallback). |
+| Testes | `ContinueGenerationBudgetTest`, `ProposalBudgetTest`, `StructureBudgetTest`, `MinimalBudgetTest`, `OutputBudgetCapTest`, `TruncationRetryTest`, `StructurePartPromptTest`, `SectionDraftBudgetTest`. |
+
+
 
 | Item | Estado atual | O que falta decidir |
 |---|---|---|
