@@ -1978,28 +1978,28 @@ class CopilotViewModel(
             // Provider remoto (DeepSeek) + sua chave.
             // (try aberto acima cobre também as rotas com return@launch.)
             val remote = ProviderFactory.resolveRemote(settings, app)
-                if (ProviderFactory.useRemoteRoute(remote)) {
-                    // Guiado seção-a-seção: determinístico, antes do LLM
-                    // (mesmo padrão dos comandos de referência do Bug #7).
-                    if (resolveSectionNav(text)) return@launch
-                    // T3 (Bug #7): comandos de referência são determinísticos e
-                    // precisam funcionar com provider ativo — postam o card
-                    // (📖 No acervo / ⚠️ sem fonte) em vez de irem ao modelo.
-                    val refsIntent = ChatIntent.classify(
-                        text,
-                        outlineSections.value.map { ChatIntent.SectionRef(it.title, it.body) }
-                    )
-                    if (isRefsCommand(refsIntent)) {
-                        if (refsIntent is ChatIntent.Intent.OutlineRefs) answerOutlineRefs()
-                        else answerCheckRefs()
-                        return@launch
-                    }
-                    answerRemote(
-                        text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
-                        blockMinutes = blockMinutes,
-                    )
-                } else {
-                    sendMutex.withLock {
+            if (ProviderFactory.useRemoteRoute(remote)) {
+                // Guiado seção-a-seção: determinístico, antes do LLM
+                // (mesmo padrão dos comandos de referência do Bug #7).
+                if (resolveSectionNav(text)) return@launch
+                // T3 (Bug #7): comandos de referência são determinísticos e
+                // precisam funcionar com provider ativo — postam o card
+                // (📖 No acervo / ⚠️ sem fonte) em vez de irem ao modelo.
+                val refsIntent = ChatIntent.classify(
+                    text,
+                    outlineSections.value.map { ChatIntent.SectionRef(it.title, it.body) }
+                )
+                if (isRefsCommand(refsIntent)) {
+                    if (refsIntent is ChatIntent.Intent.OutlineRefs) answerOutlineRefs()
+                    else answerCheckRefs()
+                    return@launch
+                }
+                answerRemote(
+                    text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                    blockMinutes = blockMinutes,
+                )
+            } else {
+                sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
                     if (resolveSectionNav(text)) {
                         pendingConfirm = null
@@ -2034,7 +2034,7 @@ class CopilotViewModel(
                             ChatCodec.escMap(mapOf("text" to "Por nada! Seguimos juntos no discurso. 🙌")))
                     }
                 }
-                }
+            }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Cancelamento não é erro: o discurso fica intacto e o
                 // composer volta (§25 F15).
@@ -2246,10 +2246,10 @@ class CopilotViewModel(
                 ),
                 query = text
             )
-                if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
+            if (result !is com.bettertalker.app.data.repo.S34StructuralRetriever.Result.NoOutline) {
                 val doc = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
                     .getBySource(id)
-                        val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
+                val structural = com.bettertalker.app.data.copilot.structuralContextOf(result, doc)
                 _lastS34Document = doc
                 // F20-A: planejamento oratório derivado do MESMO documento.
                 val oratory = doc?.let { d ->

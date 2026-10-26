@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A1 — rede só HTTPS.
+  O app conversa com api.deepseek.com e jw.org; não há endpoint HTTP.
+  cleartextTrafficPermitted=false bloqueia qualquer tentativa acidental
+  (inclusive WebView e bibliotecas) e falha de forma visível.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

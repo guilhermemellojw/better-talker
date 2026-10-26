@@ -26,6 +26,7 @@ object SyncScheduler {
 
     /** Sync imediata (debounce via REPLACE) após cada alteração local. */
     fun requestSync(ctx: Context) {
+        if (!enabled(ctx)) return
         runCatching {
             WorkManager.getInstance(ctx.applicationContext).enqueueUniqueWork(
                 NOW,
@@ -36,6 +37,14 @@ object SyncScheduler {
             )
         }
     }
+
+    /**
+     * Sync só existe com Firebase configurado. Sem google-services.json o
+     * release não agenda worker nenhum (sync desligado/experimental).
+     */
+    private fun enabled(ctx: Context): Boolean =
+        runCatching { AuthRepository(ctx.applicationContext).isConfigured() }
+            .getOrDefault(false)
 
     /**
      * Auto-sync pós-edição (Gap A): coalesce rajadas de save num único worker
@@ -52,6 +61,7 @@ object SyncScheduler {
 
     /** Sync periódica de fundo (6h, só com rede). */
     fun ensurePeriodic(ctx: Context) {
+        if (!enabled(ctx)) return
         runCatching {
             WorkManager.getInstance(ctx.applicationContext).enqueueUniquePeriodicWork(
                 PERIODIC,

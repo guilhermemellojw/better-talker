@@ -8,6 +8,13 @@ google-services.json
 *.p12
 *.key
 
+# A1 — assinatura de release (keystore e senhas NUNCA no git)
+*.jks
+*.keystore
+keystore.properties
+android/keystore.properties
+release-keystore/
+
 # IDE and OS files
 .vscode/*
 !.vscode/extensions.json

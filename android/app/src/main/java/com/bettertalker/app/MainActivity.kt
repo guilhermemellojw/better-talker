@@ -38,6 +38,8 @@ import com.bettertalker.app.ui.stage.StageScreen
 import com.bettertalker.app.ui.stage.StageViewModel
 import com.bettertalker.app.ui.theme.BetterTalkerTheme
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -47,6 +49,14 @@ class MainActivity : FragmentActivity() {
         // e troca para o tema principal quando o app está pronto.
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        // A1: migra a chave histórica em texto claro para o Android Keystore
+        // antes de qualquer tela ler a configuração. Idempotente e em IO.
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.bettertalker.app.data.prefs.SettingsStore(applicationContext)
+                    .migrateLegacySecrets()
+            }
+        }
         // Sync periódica independe de o usuário abrir a tela de Conta.
         com.bettertalker.app.data.cloud.SyncScheduler.ensurePeriodic(applicationContext)
         enableEdgeToEdge()

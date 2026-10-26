@@ -18,6 +18,12 @@ class DeepSeekStatusTest {
     }
 
     @Test
+    fun falhaAoSalvarMostraErroEspecifico() {
+        assertEquals(DeepSeekUiStatus.SAVE_ERROR, deepSeekUiStatus("", "save-error"))
+        assertEquals(DeepSeekUiStatus.SAVE_ERROR, deepSeekUiStatus("sk", "save-error"))
+    }
+
+    @Test
     fun estadosDaSonda() {
         assertEquals(DeepSeekUiStatus.CHECKING, deepSeekUiStatus("sk", "checking"))
         assertEquals(DeepSeekUiStatus.ONLINE, deepSeekUiStatus("sk", "online"))

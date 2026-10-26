@@ -52,6 +52,10 @@ object PdfExportManager {
             printingWebView?.destroy()
             val webView = WebView(app).apply {
                 settings.javaScriptEnabled = false
+                // A1: impressão é offline e não abre arquivos/conteúdo externo.
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.blockNetworkLoads = true
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
                         val printManager =

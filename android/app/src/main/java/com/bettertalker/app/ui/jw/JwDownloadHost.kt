@@ -1,12 +1,13 @@
 package com.bettertalker.app.ui.jw
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.fragment.app.FragmentActivity
 
 @Composable
 fun JwDownloadDialog(url: String, onDismiss: () -> Unit) {
-    val activity = androidx.compose.ui.platform.LocalContext.current as? FragmentActivity ?: return
+    val activity = LocalActivity.current as? FragmentActivity ?: return
     // estado mais recente (evita callback obsoleto após recomposição)
     val currentOnDismiss = androidx.compose.runtime.rememberUpdatedState(onDismiss)
     DisposableEffect(url) {

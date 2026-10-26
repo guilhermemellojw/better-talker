@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.0 (versionCode 25) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz 5/15/20/30/45 no A34 em 2026-10-26)
+**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.1 (versionCode 26) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz 5/15/20/30/45 no A34 em 2026-10-26) · **A1/A2 — release seguro:** concluído (2.8.1/26; keystore, backup, HTTPS, assinatura e smoke no A34)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -191,11 +191,31 @@ Commit `938c0f7` · **2.518 testes JVM verdes** · CI da branch · matriz final 
 
 
 
+## Resolvidos na A — release seguro (2026-10-26)
+
+Build 2.8.1/26 · **2.524 testes JVM verdes** · `lintRelease` verde · APK assinado
+com certificado de release (RSA 4096) · SHA-256 `ca8a42a6…40e3cae`.
+
+| Item | Decisão/ação |
+|---|---|
+| Backup | `allowBackup=false` + `fullBackupContent=false`; `bmgr backupnow` responde “Backup is not allowed”. Sem export/import JSON ainda, não há backup automático. |
+| Chave DeepSeek | `KeystoreSecretCipher` AES/GCM, chave não exportável no Android Keystore. DataStore guarda `deepseek_api_key_encrypted`; migração automática do texto claro legado. Teste no A34: antes `sk-` presente, depois 0 ocorrências e conexão Online. |
+| Keystore de release | Gerada fora do repo em `~/.better-talker-keystore/` (PKCS12, alias `better-talker`, RSA 4096, validade até 2054). `android/keystore.properties` e `*.jks` ignorados. **Backup offline ainda obrigatório.** |
+| Assinatura | `signingConfigs.release` lê `keystore.properties`/env; `debuggable=false`; `apksigner verify` mostra o certificado de release. Release nunca usa a debug key. |
+| Rede/WebView | `usesCleartextTraffic=false` + `network_security_config`; WebView do jw.org só HTTPS e sem `allowFileAccess`/`allowContentAccess`; PDF export offline com `blockNetworkLoads`. |
+| Sync | Sem `google-services.json`, `SyncScheduler` não agenda worker; sync permanece desligado/experimental. |
+| ABI | `arm64-v8a` apenas. Documentado em [RELEASE.md](RELEASE.md). |
+| CI | `.github/workflows/android-release.yml`: testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e publicação no GitHub Releases por tag. Secrets: `BT_KEYSTORE_BASE64`, `BT_KEYSTORE_PASSWORD`, `BT_KEY_ALIAS`, `BT_KEY_PASSWORD`. |
+| A2 — A34 | Instalação limpa do release; chave salva/reiniciada/removida; S-34 `S-34_T_192.docx` importado; V&M 5 min (1+1+1+1+1) criado; demo 4 min `budget=2048/stop/hasCard`; chat real Online. Relatório: [validacao-2026-10-26-a34-release-2.8.1.md](reports/validacao-2026-10-26-a34-release-2.8.1.md). |
+| Pendente | Backup offline da keystore/senhas; secrets no GitHub; smoke de TTS/STT/export; aparelho limpo de um amigo. |
+
+## Decisões pendentes (não remover ainda)
+
 | Item | Estado atual | O que falta decidir |
 |---|---|---|
 | Folders/tags/cores/pin na Home | Schema Room dormente; UI usa lista simples | **Reativar, remover de vez ou manter dormente?** Não apagar schema/migração sem decisão. |
-| Backup / chave DeepSeek | `allowBackup` + DataStore em texto claro | `allowBackup=false`/`dataExtractionRules` excluindo DB/DataStore; Keystore para a chave. |
-| Keystore de release | Release assina com a debug keystore | Gerar keystore de release fora do repositório antes de distribuir. |
+| Backup / chave DeepSeek | **RESOLVIDO na A** | `allowBackup=false` + chave no Android Keystore (2.8.1/26). |
+| Keystore de release | **RESOLVIDO na A** | Keystore fora do repo; falta apenas o backup offline e os secrets do CI. |
 | Sync de seções/subpontos | P0 de 2026-10-19; correções posteriores | Revisar identidade/reconciliação multi-device antes de prometer sync. |
 
 ## Regra de processo

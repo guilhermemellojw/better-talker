@@ -117,7 +117,7 @@ private fun DeepSeekCard(vm: ModelViewModel) {
             }
             Text(
                 "Para desenvolver tópico por tópico. Crie sua chave em platform.deepseek.com — " +
-                    "ela fica só neste aparelho (DataStore local).",
+                    "ela fica cifrada no Android Keystore deste aparelho.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary
             )
@@ -150,7 +150,9 @@ private fun DeepSeekCard(vm: ModelViewModel) {
                         // A11y: amarelo primário falha AA no claro; onSurfaceVariant
                         // passa sobre o card (7.63/7.20+).
                         DeepSeekUiStatus.ONLINE -> MaterialTheme.colorScheme.onSurfaceVariant
-                        DeepSeekUiStatus.AUTH_ERROR, DeepSeekUiStatus.ERROR ->
+                        DeepSeekUiStatus.AUTH_ERROR,
+                        DeepSeekUiStatus.SAVE_ERROR,
+                        DeepSeekUiStatus.ERROR ->
                             MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.secondary
                     },
@@ -244,5 +246,6 @@ private fun deepSeekStatusLabel(s: DeepSeekUiStatus): String = when (s) {
     DeepSeekUiStatus.CHECKING -> "Testando…"
     DeepSeekUiStatus.ONLINE -> "Online"
     DeepSeekUiStatus.AUTH_ERROR -> "Erro de autenticação"
+    DeepSeekUiStatus.SAVE_ERROR -> "Não foi possível salvar a chave"
     DeepSeekUiStatus.ERROR -> "Erro de conexão"
 }

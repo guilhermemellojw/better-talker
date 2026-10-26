@@ -35,8 +35,15 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
 
     /** T4 — chave BYOD do DeepSeek; trocar chave/modelo invalida a sonda. */
     fun saveDeepseekApiKey(v: String) = viewModelScope.launch {
-        settings.setDeepseekApiKey(v)
-        _deepseekProbe.value = null
+        try {
+            settings.setDeepseekApiKey(v)
+            _deepseekProbe.value = null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Keystore indisponível/invalidado: nunca cair para texto claro.
+            _deepseekProbe.value = "save-error"
+        }
     }
     fun clearDeepseekApiKey() = viewModelScope.launch {
         settings.clearDeepseekApiKey()
@@ -87,9 +94,10 @@ class ModelViewModel(ctx: android.content.Context) : ViewModel() {
 }
 
 /** T4 — estado exibido do card DeepSeek. Puro/testável. */
-enum class DeepSeekUiStatus { NO_KEY, CONFIGURED, CHECKING, ONLINE, AUTH_ERROR, ERROR }
+enum class DeepSeekUiStatus { NO_KEY, CONFIGURED, CHECKING, ONLINE, AUTH_ERROR, SAVE_ERROR, ERROR }
 
 fun deepSeekUiStatus(apiKey: String, probe: String?): DeepSeekUiStatus = when {
+    probe == "save-error" -> DeepSeekUiStatus.SAVE_ERROR
     apiKey.isBlank() -> DeepSeekUiStatus.NO_KEY
     probe == null -> DeepSeekUiStatus.CONFIGURED
     probe == "checking" -> DeepSeekUiStatus.CHECKING

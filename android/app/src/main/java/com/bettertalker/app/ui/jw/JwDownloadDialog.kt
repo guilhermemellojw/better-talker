@@ -7,6 +7,7 @@ import android.view.View
 import android.webkit.DownloadListener
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageButton
@@ -73,7 +74,18 @@ class JwDownloadDialog : DialogFragment() {
         webView?.apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // A1: a WebView só abre HTTPS e não acessa arquivos locais.
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.allowFileAccessFromFileURLs = false
+            settings.allowUniversalAccessFromFileURLs = false
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                    val target = url ?: return true
+                    return !target.startsWith("https://")
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     updateNav()

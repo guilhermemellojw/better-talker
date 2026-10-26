@@ -6,15 +6,22 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.bettertalker.app.data.security.KeystoreSecretCipher
+import com.bettertalker.app.data.security.SecretCipher
 import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 private val Context.store by preferencesDataStore("settings")
 
-class SettingsStore(private val ctx: Context) {
+class SettingsStore(
+    private val ctx: Context,
+    private val secretCipher: SecretCipher = KeystoreSecretCipher(),
+) {
     /** Home: modo de visualização (GRID | LIST_COMPACT | LIST_DETAILED). */
     private val HOME_VIEW_MODE = stringPreferencesKey("home_view_mode")
     val homeViewMode: Flow<String> = ctx.store.data.map { it[HOME_VIEW_MODE] ?: "GRID" }
@@ -82,13 +89,80 @@ class SettingsStore(private val ctx: Context) {
 
     /**
      * T3 (DeepSeek) — chave BYOD do DeepSeek. Única chave de IA do app
-     * (cleanup multi-LLM). DataStore local, nunca em log/erro/telemetria —
-     * só sai do aparelho no POST HTTPS.
+     * (cleanup multi-LLM). O valor é cifrado com AES/GCM e a chave AES fica
+     * no Android Keystore; o DataStore guarda só o envelope. Nunca em log,
+     * erro, telemetria ou backup (allowBackup=false). Só sai do aparelho no
+     * POST HTTPS.
      */
-    private val DEEPSEEK_API_KEY = stringPreferencesKey("deepseek_api_key")
-    val deepseekApiKey: Flow<String> = ctx.store.data.map { it[DEEPSEEK_API_KEY].orEmpty() }
-    suspend fun setDeepseekApiKey(v: String) { ctx.store.edit { it[DEEPSEEK_API_KEY] = v.trim() } }
-    suspend fun clearDeepseekApiKey() { ctx.store.edit { it.remove(DEEPSEEK_API_KEY) } }
+    private val DEEPSEEK_API_KEY_LEGACY = stringPreferencesKey("deepseek_api_key")
+    private val DEEPSEEK_API_KEY_ENCRYPTED =
+        stringPreferencesKey("deepseek_api_key_encrypted")
+
+    val deepseekApiKey: Flow<String> = ctx.store.data.map { prefs ->
+        val encrypted = prefs[DEEPSEEK_API_KEY_ENCRYPTED]
+        if (encrypted != null) {
+            secretCipher.decrypt(encrypted).orEmpty()
+        } else {
+            // Compatibilidade durante a migração: some no primeiro
+            // migrateLegacySecrets() bem-sucedido.
+            prefs[DEEPSEEK_API_KEY_LEGACY].orEmpty()
+        }
+    }.flowOn(Dispatchers.IO)
+
+    suspend fun setDeepseekApiKey(v: String) {
+        val trimmed = v.trim()
+        if (trimmed.isBlank()) {
+            clearDeepseekApiKey()
+            return
+        }
+        // Se o Keystore falhar, a exceção sobe: nunca gravamos texto claro.
+        val encrypted = secretCipher.encrypt(trimmed)
+        ctx.store.edit {
+            it[DEEPSEEK_API_KEY_ENCRYPTED] = encrypted
+            it.remove(DEEPSEEK_API_KEY_LEGACY)
+        }
+    }
+
+    suspend fun clearDeepseekApiKey() {
+        ctx.store.edit {
+            it.remove(DEEPSEEK_API_KEY_ENCRYPTED)
+            it.remove(DEEPSEEK_API_KEY_LEGACY)
+        }
+    }
+
+    /**
+     * A1 — migra a chave histórica em texto claro para o envelope cifrado e
+     * limpa ciphertext que não decifra mais (Keystore invalidado/restaurado).
+     * Idempotente; chamado cedo no app, em IO.
+     */
+    suspend fun migrateLegacySecrets() {
+        val prefs = ctx.store.data.first()
+        val encrypted = prefs[DEEPSEEK_API_KEY_ENCRYPTED]
+        val legacy = prefs[DEEPSEEK_API_KEY_LEGACY].orEmpty().trim()
+        when {
+            encrypted != null -> {
+                val valid = secretCipher.decrypt(encrypted) != null
+                val hasLegacy = prefs[DEEPSEEK_API_KEY_LEGACY] != null
+                if (!valid || hasLegacy) {
+                    ctx.store.edit {
+                        if (!valid) {
+                            it.remove(DEEPSEEK_API_KEY_ENCRYPTED)
+                            it.remove(DEEPSEEK_API_KEY_LEGACY)
+                        } else {
+                            it.remove(DEEPSEEK_API_KEY_LEGACY)
+                        }
+                    }
+                }
+            }
+            legacy.isNotBlank() -> {
+                val encoded = secretCipher.encrypt(legacy)
+                ctx.store.edit {
+                    it[DEEPSEEK_API_KEY_ENCRYPTED] = encoded
+                    it.remove(DEEPSEEK_API_KEY_LEGACY)
+                }
+            }
+        }
+    }
 
     /** T3/T4 — modelo DeepSeek escolhido ("deepseek-flash" | "deepseek-v4-pro"). */
     private val DEEPSEEK_MODEL = stringPreferencesKey("deepseek_model")
