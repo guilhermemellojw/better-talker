@@ -15,6 +15,9 @@ import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.copilot.inferIntent
+import com.bettertalker.app.data.copilot.ProposalGateAction
+import com.bettertalker.app.data.copilot.proposalGateAction
+import com.bettertalker.app.data.copilot.proposalSummaryText
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
 import com.bettertalker.app.data.copilot.provenanceSummary
@@ -1534,8 +1537,8 @@ class CopilotViewModel(
         truncated: Boolean = false,
         // #23-fix-c (G1): escopo do turno (capturado no send) > vivo.
         targetScope: String? = turnScope ?: _chatScope.value,
-    ) {
-        val nid = noteId ?: return
+    ): String? {
+        val nid = noteId ?: return null
         // Origem embutida no JSON do payload (sem migration; histórico
         // antigo sem a chave decodifica como COPILOT).
         val withOrigin = ChatCodec.unescMap(payload)
@@ -1544,9 +1547,10 @@ class CopilotViewModel(
         if (durationMs != null && durationMs > 0) withOrigin["durationMs"] = durationMs.toString()
         // #ui-polish: flag de corte no payload JSON (sem migration).
         if (truncated) withOrigin["truncated"] = "1"
+        val messageId = newId("msg")
         db.chatDao().put(
             ChatEntity(
-                newId("msg"), nid, fromMe, kind, ChatCodec.escMap(withOrigin),
+                messageId, nid, fromMe, kind, ChatCodec.escMap(withOrigin),
                 System.currentTimeMillis(),
                 // F2.3: a mensagem pertence ao escopo do turno (G1) — não ao
                 // escopo vivo no momento em que a resposta chega.
@@ -1567,6 +1571,7 @@ class CopilotViewModel(
                 clearPartialJob = null
             }
         }
+        return messageId
     }
 
     private fun postText(t: String, origin: MessageOrigin = MessageOrigin.COPILOT) = viewModelScope.launch {
@@ -1722,6 +1727,9 @@ class CopilotViewModel(
             // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
             // do try e pulavam o finally — travando composer e runState.
             try {
+            // Fase 2: “Sim/Não” do cartão de proposta é ação pendente —
+            // executa antes do router/LLM, mas depois de postar a mensagem.
+            if (postUserMessage && resolveProposalShortAnswer(text)) return@launch
             // T2 (Fase 2.1): ordem dos intercepts — colagem NOVA primeiro; o
             // comando explícito de materializar vence o fallback do modo colar
             // (antes, o pasteBuffer sequestrava "insira tudo na nota").
@@ -2269,12 +2277,12 @@ class CopilotViewModel(
                     } else {
                         r.proposal
                     }
-                    _proposal.value = ProposalUi(
+                    _proposal.value = installProposal(ProposalUi(
                         proposal, block, sectionId = secId, sectionBaseHash = secHash,
                         notice = listOfNotNull(notice, removalNotice)
                             .joinToString(" ").ifBlank { null },
                         sectionContentHtml = section?.contentHtml.orEmpty(),
-                    )
+                    ))
                 }
                 is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
                     "A resposta do modelo veio em formato inválido. Tente gerar novamente."
@@ -2737,6 +2745,8 @@ class CopilotViewModel(
          * Vazio no caminho da nota (sem seção).
          */
         val sectionContentHtml: String = "",
+        /** Fase 2: id da mensagem-summary no chat (gate do “Sim”). */
+        val proposalMessageId: String? = null,
     )
 
     private val _proposal = MutableStateFlow<ProposalUi?>(null)
@@ -2939,6 +2949,22 @@ class CopilotViewModel(
      * local e determinístico (sem LLM); demais modos exigem chave BYOD.
      * Nunca insere direto no editor.
      */
+    /**
+     * Publica o summary legível da proposta no chat e devolve o id da
+     * mensagem. O card continua sendo a UI; o summary é o que entra no
+     * histórico/prompt e habilita o “Sim”.
+     */
+    private suspend fun installProposal(ui: ProposalUi): ProposalUi {
+        val sectionTitle = ui.sectionId?.let { db.speechSectionDao().get(it)?.title }
+        val summary = proposalSummaryText(sectionTitle, ui.proposal.explanation)
+        val messageId = post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf("text" to summary)),
+        )
+        return ui.copy(proposalMessageId = messageId)
+    }
+
     fun createProposal(messageId: String, mode: EditProposalMode = EditProposalMode.IMPROVE) {
         if (noteId == null || _chatBusy.value) return
         viewModelScope.launch {
@@ -2960,10 +2986,10 @@ class CopilotViewModel(
                 if (mode == EditProposalMode.DELETE) {
                     when (val r = parseEditProposal("", blocks, "focus", mode)) {
                         is com.bettertalker.app.data.edit.ParseResult.Ok ->
-                            _proposal.value = ProposalUi(
+                            _proposal.value = installProposal(ProposalUi(
                                 r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
                                 sectionContentHtml = section?.contentHtml.orEmpty(),
-                            )
+                            ))
                         else -> postText("Não consegui montar a proposta agora. Tente novamente.")
                     }
                     return@launch
@@ -3009,10 +3035,10 @@ class CopilotViewModel(
                     " offline=" + res.meta.offline)
                 when (val r = parseEditProposal(res.text, blocks, "focus", mode)) {
                     is com.bettertalker.app.data.edit.ParseResult.Ok ->
-                        _proposal.value = ProposalUi(
+                        _proposal.value = installProposal(ProposalUi(
                             r.proposal, focus, sectionId = secId, sectionBaseHash = secHash,
                             sectionContentHtml = section?.contentHtml.orEmpty(),
-                        )
+                        ))
                     is com.bettertalker.app.data.edit.ParseResult.Invalid -> {
                         android.util.Log.e("CopilotLLM", "proposal parse invalid reason=" + r.reason)
                         postText("A resposta do modelo veio em formato inválido. Tente gerar novamente.")
@@ -3084,85 +3110,103 @@ class CopilotViewModel(
     fun acceptProposal(forceReplace: Boolean = false) {
         val ui = _proposal.value ?: return
         if (ui.applied) return
-        val nid = noteId ?: return
-        viewModelScope.launch {
-            // ---- T2 (#14): foco em seção → aplica na seção ----
-            if (ui.sectionId != null) {
-                val section = db.speechSectionDao().get(ui.sectionId)
-                if (section == null) {
-                    _proposal.value = ui.copy(
-                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
-                    return@launch
-                }
-                val block = sectionProposalBlock(section.title, section.contentHtml)
-                if (ui.sectionBaseHash != null && hashText(block) != ui.sectionBaseHash) {
-                    _proposal.value = ui.copy(
-                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
-                    return@launch
-                }
-                if (validateEditProposal(listOf(EditBlock("focus", ui.focusText)), ui.proposal)
-                    !is com.bettertalker.app.data.edit.ValidationResult.Ok
-                ) {
-                    _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
-                    return@launch
-                }
-                val fullContent = applyProposalToSectionBlock(
-                    section.title, section.contentHtml, ui.focusText, ui.proposal
-                )
-                if (fullContent == null) {
-                    _proposal.value = ui.copy(
-                        notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
-                    return@launch
-                }
-                // #26-fix: append adaptativo — o trecho proposto (delta das
-                // ops, sem marcadores) é SOMADO à seção; "Substituir a seção"
-                // aplica o resultado completo (comportamento clássico).
-                val proposed = stripInternalTags(proposedAdditionContent(ui.proposal))
-                val newContent = proposalApplyContent(
-                    oldContentHtml = section.contentHtml,
-                    proposedContentHtml = proposed,
-                    fullContentHtml = fullContent,
-                    forceReplace = forceReplace,
-                )
-                proposalUndo.addLast(ProposalSnapshot.Section(section))
-                if (proposalUndo.size > 50) proposalUndo.removeFirst()
-                db.speechSectionDao().upsert(
-                    section.copy(contentHtml = newContent, updatedAt = System.currentTimeMillis())
-                )
-                _proposal.value = appliedProposalUi(ui)
-                return@launch
-            }
-            // ---- caminho da nota (seleção/corpo) ----
-            val note = db.noteDao().get(nid) ?: run {
-                _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
-                return@launch
-            }
-            val curPlain = stripHtmlToText(note.richHtml)
-            // Stale: o foco não está mais no texto atual.
-            if (!curPlain.contains(ui.focusText)) {
+        viewModelScope.launch { acceptProposalNow(ui, forceReplace) }
+    }
+
+    /**
+     * Núcleo do aceite, compartilhado pelo botão e pelo "Sim" do chat.
+     * Retorna true somente quando aplicou de fato (stale/inválida = false).
+     */
+    private suspend fun acceptProposalNow(ui: ProposalUi, forceReplace: Boolean): Boolean {
+        if (ui.applied) return false
+        val nid = noteId ?: return false
+        // ---- T2 (#14): foco em seção → aplica na seção ----
+        if (ui.sectionId != null) {
+            val section = db.speechSectionDao().get(ui.sectionId)
+            if (section == null) {
                 _proposal.value = ui.copy(
                     notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
-                return@launch
+                return false
+            }
+            val block = sectionProposalBlock(section.title, section.contentHtml)
+            if (ui.sectionBaseHash != null && hashText(block) != ui.sectionBaseHash) {
+                _proposal.value = ui.copy(
+                    notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+                return false
             }
             if (validateEditProposal(listOf(EditBlock("focus", ui.focusText)), ui.proposal)
                 !is com.bettertalker.app.data.edit.ValidationResult.Ok
             ) {
                 _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
-                return@launch
+                return false
             }
-            val applied = applyProposalOps(note.richHtml, note.mdText, ui.focusText, ui.proposal)
-            if (applied == null) {
+            val fullContent = applyProposalToSectionBlock(
+                section.title, section.contentHtml, ui.focusText, ui.proposal
+            )
+            if (fullContent == null) {
                 _proposal.value = ui.copy(
                     notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
-                return@launch
+                return false
             }
-            proposalUndo.addLast(ProposalSnapshot.Note(note.richHtml, note.mdText))
+            // #26-fix: append adaptativo — o trecho proposto (delta das
+            // ops, sem marcadores) é SOMADO à seção; "Substituir a seção"
+            // aplica o resultado completo (comportamento clássico).
+            val proposed = stripInternalTags(proposedAdditionContent(ui.proposal))
+            val newContent = proposalApplyContent(
+                oldContentHtml = section.contentHtml,
+                proposedContentHtml = proposed,
+                fullContentHtml = fullContent,
+                forceReplace = forceReplace,
+            )
+            proposalUndo.addLast(ProposalSnapshot.Section(section))
             if (proposalUndo.size > 50) proposalUndo.removeFirst()
-            // #19-fix-a2: o aceite não persiste marcadores internos (mesmo fix do section path).
-            notes.save(nid, note.title, applied.second, stripInternalTags(applied.first),
-                note.folderId, note.colorArgb, note.pinned)
+            db.speechSectionDao().upsert(
+                section.copy(contentHtml = newContent, updatedAt = System.currentTimeMillis())
+            )
             _proposal.value = appliedProposalUi(ui)
+            postProposalApplied()
+            return true
         }
+        // ---- caminho da nota (seleção/corpo) ----
+        val note = db.noteDao().get(nid) ?: run {
+            _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
+            return false
+        }
+        val curPlain = stripHtmlToText(note.richHtml)
+        // Stale: o foco não está mais no texto atual.
+        if (!curPlain.contains(ui.focusText)) {
+            _proposal.value = ui.copy(
+                notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+            return false
+        }
+        if (validateEditProposal(listOf(EditBlock("focus", ui.focusText)), ui.proposal)
+            !is com.bettertalker.app.data.edit.ValidationResult.Ok
+        ) {
+            _proposal.value = ui.copy(notice = "Proposta inválida para o estado atual. Gere novamente.")
+            return false
+        }
+        val applied = applyProposalOps(note.richHtml, note.mdText, ui.focusText, ui.proposal)
+        if (applied == null) {
+            _proposal.value = ui.copy(
+                notice = "Proposta obsoleta: o bloco mudou depois da geração. Gere novamente.")
+            return false
+        }
+        proposalUndo.addLast(ProposalSnapshot.Note(note.richHtml, note.mdText))
+        if (proposalUndo.size > 50) proposalUndo.removeFirst()
+        // #19-fix-a2: o aceite não persiste marcadores internos (mesmo fix do section path).
+        notes.save(nid, note.title, applied.second, stripInternalTags(applied.first),
+            note.folderId, note.colorArgb, note.pinned)
+        _proposal.value = appliedProposalUi(ui)
+        postProposalApplied()
+        return true
+    }
+
+    private suspend fun postProposalApplied() {
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf("text" to "Proposta aplicada. Você pode desfazer.")),
+        )
     }
 
     /** Desfaz o último aceite (snapshot pré-apply — nota ou seção). */
@@ -3187,7 +3231,22 @@ class CopilotViewModel(
 
     /** Rejeita: editor intacto, conversa continua. */
     fun rejectProposal() {
+        val ui = _proposal.value ?: return
+        if (ui.applied) {
+            // "Fechar" o card já aplicado não é rejeição.
+            _proposal.value = null
+            return
+        }
+        viewModelScope.launch { rejectProposalNow(ui) }
+    }
+
+    private suspend fun rejectProposalNow(ui: ProposalUi) {
         _proposal.value = null
+        post(
+            false,
+            "text",
+            ChatCodec.escMap(mapOf("text" to "Proposta rejeitada.")),
+        )
     }
 
     /**
@@ -3727,6 +3786,61 @@ class CopilotViewModel(
 
     fun dismissProposalNotice() {
         _proposal.value = _proposal.value?.copy(notice = null)
+    }
+
+    /**
+     * “Sim/Não” do cartão de proposta: ação pendente, executada antes do
+     * router/LLM. Só dispara quando a última fala do Copilot é o summary
+     * desta proposta; texto extra ou outra seção não aplicam.
+     */
+    private suspend fun resolveProposalShortAnswer(text: String): Boolean {
+        val pending = _proposal.value ?: return false
+        val nid = noteId ?: return false
+        val lastCopilot = db.chatDao().all(nid)
+            .lastOrNull { !it.fromMe && it.isActive }
+        val action = proposalGateAction(
+            text = text,
+            hasPendingProposal = true,
+            applied = pending.applied,
+            proposalMessageId = pending.proposalMessageId,
+            lastCopilotMessageId = lastCopilot?.id,
+            proposalSectionId = pending.sectionId,
+            currentScopeId = _chatScope.value,
+        )
+        return when (action) {
+            ProposalGateAction.NONE -> false
+            ProposalGateAction.OTHER_SCOPE -> {
+                val title = pending.sectionId
+                    ?.let { db.speechSectionDao().get(it)?.title }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "outra seção"
+                post(
+                    false,
+                    "text",
+                    ChatCodec.escMap(mapOf(
+                        "text" to "A proposta é da seção “$title”. Abra esse tópico para aplicar.",
+                    )),
+                )
+                true
+            }
+            ProposalGateAction.ACCEPT -> {
+                val applied = acceptProposalNow(pending, forceReplace = false)
+                if (!applied) {
+                    val notice = _proposal.value?.notice
+                        ?: "A proposta está desatualizada. Gere novamente."
+                    post(
+                        false,
+                        "text",
+                        ChatCodec.escMap(mapOf("text" to "Não apliquei: $notice")),
+                    )
+                }
+                true
+            }
+            ProposalGateAction.REJECT -> {
+                rejectProposalNow(pending)
+                true
+            }
+        }
     }
 
     /**
