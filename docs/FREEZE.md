@@ -207,6 +207,7 @@ com certificado de release (RSA 4096) · SHA-256 `ca8a42a6…40e3cae`.
 | ABI | `arm64-v8a` apenas. Documentado em [RELEASE.md](RELEASE.md). |
 | CI | `.github/workflows/android-release.yml`: testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e publicação no GitHub Releases por tag. Secrets: `BT_KEYSTORE_BASE64`, `BT_KEYSTORE_PASSWORD`, `BT_KEY_ALIAS`, `BT_KEY_PASSWORD`. |
 | A2 — A34 | Instalação limpa do release; chave salva/reiniciada/removida; S-34 `S-34_T_192.docx` importado; V&M 5 min (1+1+1+1+1) criado; demo 4 min `budget=2048/stop/hasCard`; chat real Online. Relatório: [validacao-2026-10-26-a34-release-2.8.1.md](reports/validacao-2026-10-26-a34-release-2.8.1.md). |
+| A2 — smoke restante | PDF A4 com texto/formatura ok (1 página, 17,8 KB); HTML share sheet ok; TTS play/stop ok; STT falhou no serviço do sistema (`error=10`) com fallback Interrupted/“Pouca fala” e sem áudio gravado; `w25.07` no acervo, mas chat ainda `refs=0`; `lmd` “Faltando” com ação de download. |
 | Pendente | Backup offline da keystore/senhas; secrets no GitHub; smoke de TTS/STT/export; aparelho limpo de um amigo. |
 
 ## Decisões pendentes (não remover ainda)

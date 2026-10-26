@@ -34,7 +34,10 @@
 | Chat com chave real | `budget=2048`, `finish=stop`, 323 palavras, sem truncamento. |
 | V&M discurso 5 min | Formulário “Criar esboço do zero” → Discurso público 5 min/3 pontos: prévia **Introdução 1 + Ponto 1 1 + Ponto 2 1 + Ponto 3 1 + Conclusão 1 = 5 min**; nota criada. |
 | Demo 4 min | “Criar esboço do zero” → Demonstração livre 4 min; chat gerou `budget=2048`, `finish=stop`, `hasCard=true`, 309 palavras, `retries=0`. |
-| Exportar/TTS/STT | **Não reexecutados nesta passada**; smoke anterior da v2.8.0 cobriu a base. Pendente para o smoke final antes de distribuir aos amigos. |
+| Exportação | ✅ “Salvar como PDF” gerou `N 192 — Você está no caminho para a vida eterna.PDF`: 1 página A4, 17.803 bytes, texto e formatação presentes (`pdfinfo`/`pdftotext`); “Compartilhar” abriu a share sheet com o `.html`; sem crash. |
+| TTS | ✅ Piper offline tocou a resposta no chat; botão alternou para “Parar leitura” e voltou para “Ouvir”; áudio ativo no AudioFlinger. Troca de voz/background não testados. |
+| STT | ⚠️ O serviço do sistema falhou no A34 (`SpeechRecognizer error=10`); o fallback mostrou “Serviço de voz interrompeu”, preservou a transcrição e ofereceu Retomar/Parar. Ao parar, abriu “Resultado do ensaio” com “Pouca fala capturada”, “Áudio não foi gravado” e aviso de que o serviço do sistema pode usar rede. Sem crash; fala humana não validada. |
+| Refs | ⚠️ `w25.07` importado e Biblioteca mostra “No acervo”; pergunta direta no chat ainda registrou `refs=0`/`inventory_chars=0`. `lmd` continua “Faltando” com ação de download. Inventário/chat de refs fica para o C2. |
 
 ## Gaps e próximos passos
 
