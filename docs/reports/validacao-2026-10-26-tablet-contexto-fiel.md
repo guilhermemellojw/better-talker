@@ -3,8 +3,9 @@
 **Data:** 2026-10-26
 **Aparelho:** Samsung Galaxy Tab (25040RP0AL), Android 16 (SDK 36), 1600×2560
 **APK:** debug 2.7.4 (versionCode 24), build de 2026-10-26 (working tree sobre `275709a`)
-**Testes JVM:** **2.467 / 0 falhas** (289 relatórios) no working tree;
-**2.383 / 0** no commit isolado da correção de refs (`5a9b2fe`, CI verde).
+**Testes JVM:** **2.467 / 0 falhas** no working tree original;
+**2.383 / 0** no commit isolado da correção de refs (`5a9b2fe`);
+**2.416 / 0** no commit isolado da Fase 1 (`2af4bed`).
 **ADB:** `adb-ij8tq8wojnhe7pem-y9MiYf._adb-tls-connect._tcp`
 
 > A A34 estava indisponível; a validação foi feita no tablet, com a chave
@@ -237,6 +238,10 @@ adb -s adb-ij8tq8wojnhe7pem-y9MiYf._adb-tls-connect._tcp logcat -s CopilotLLM:I 
 
 **Commit de refs:** `5a9b2fe` (`fix(copilot): referências como publicação + unidade`),
 CI [40349022999](https://github.com/guilhermemellojw/better-talker/actions/runs/40349022999) verde.
+
+**Commit da Fase 1:** `2af4bed` (`feat(copilot): contexto fiel — inventário de refs,
+histórico e telemetria`), branch `feat/copilot-context-fidelity`, CI
+[40360835920](https://github.com/guilhermemellojw/better-talker/actions/runs/40360835920) verde.
 
 **Arquivos principais:** `NoteRefsInventory.kt`, `ChatHistoryText.kt`,
 `RefDisplay.kt`, `ChatEngine.kt`, `CopilotRepository.kt` (`citedSources`),
