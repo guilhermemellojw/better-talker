@@ -6,9 +6,11 @@ import com.bettertalker.app.data.copilot.MAX_CONTENT_SOURCES
 import com.bettertalker.app.data.copilot.MAX_TOTAL_SOURCES
 import com.bettertalker.app.data.copilot.MAX_TRAINING_SOURCES
 import com.bettertalker.app.data.copilot.MINIMAL_SYSTEM_PROMPT
+import com.bettertalker.app.data.copilot.CHAT_TAIL_INSTRUCTIONS
 import com.bettertalker.app.data.copilot.blockSection
 import com.bettertalker.app.data.copilot.buildChatPrompt
 import com.bettertalker.app.data.copilot.buildDeepSeekPrompts
+import com.bettertalker.app.data.copilot.extensionTargetSection
 import com.bettertalker.app.data.copilot.focusLine
 import com.bettertalker.app.data.copilot.packFor
 import com.bettertalker.app.data.copilot.serializePack
@@ -174,6 +176,35 @@ class ChatPromptParityTest {
         assertTrue(sec.contains("Introdução"))
         assertTrue(sec.contains("5 minutos"))
         assertEquals("", blockSection(null, null))
+    }
+
+    @Test
+    fun extensaoAlvo_traduzMinutosEmPalavrasEReplicas() {
+        val ext = extensionTargetSection(5)
+        assertTrue(ext.contains("EXTENSÃO ALVO DO BLOCO"))
+        assertTrue(ext.contains("5 min"))
+        assertTrue(ext.contains("650 palavras"))
+        assertTrue(ext.contains("12 réplicas"))
+        assertTrue(ext.contains("SOMENTE este bloco"))
+        assertEquals("", extensionTargetSection(null))
+        assertEquals("", extensionTargetSection(0))
+    }
+
+    @Test
+    fun tarefaDeTextoLongo_temMetaEPisoDe80PorCento() {
+        val ext = extensionTargetSection(10, longText = true)
+        assertTrue(ext.contains("TAREFA DE TEXTO LONGO"))
+        assertTrue(ext.contains("1300 palavras"))
+        assertTrue(ext.contains("1040 palavras"))
+        assertTrue(ext.contains("80%"))
+        assertTrue(ext.contains("parágrafos curtos do chat NÃO se aplica"))
+    }
+
+    @Test
+    fun caudaDoChat_respeitaBlocoENaoForcaDiscursoInteiro() {
+        assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("bloco em foco com duração"))
+        assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("não o discurso inteiro"))
+        assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("painel de rascunho"))
     }
 
     // ---------- 4. foco: verificação rebaixa o treinamento ----------

@@ -43,6 +43,7 @@ fun DraftSheet(
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
     onUndo: () -> Unit,
+    onNext: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -62,6 +63,13 @@ fun DraftSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
+                    if (state.queueRemaining > 0) {
+                        Text(
+                            "Texto total: mais ${state.queueRemaining} parte(s) na fila.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
@@ -158,7 +166,12 @@ fun DraftSheet(
                     ) {
                         TextButton(onClick = onDismiss) { Text("Fechar") }
                         Spacer(Modifier.weight(1f))
-                        Button(onClick = onUndo) { Text("Desfazer") }
+                        TextButton(onClick = onUndo) { Text("Desfazer") }
+                        if (state.queueRemaining > 0) {
+                            Button(onClick = onNext) {
+                                Text("Próximo (${state.queueRemaining})")
+                            }
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                 }

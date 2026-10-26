@@ -2,6 +2,12 @@ package com.bettertalker.app.data.llm
 
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.planning.looksTruncated
+import com.bettertalker.app.domain.planning.LONG_TEXT_FALLBACK_MAX_OUTPUT_TOKENS
+import com.bettertalker.app.domain.planning.LONG_TEXT_MAX_OUTPUT_TOKENS
+import com.bettertalker.app.domain.planning.budgetForRequest
+import com.bettertalker.app.domain.planning.isLongTextUnderTarget
+import com.bettertalker.app.domain.planning.longTextExpansionInstruction
+import com.bettertalker.app.domain.planning.longTextSecondExpansionInstruction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -68,18 +74,36 @@ class DeepSeekProvider(
         // longos (oratória/proposta). T4 (Fase 2.1): o modo colar também usa
         // "none" — o esboço íntegro + histórico estouravam o orçamento no
         // thinking (validado no A34: maioria dos turnos exigia retry).
+        val longText = request.longTextRequest
         val effort = reasoningEffortFor(
             structured = structured,
             minimalPaste = request.minimalPaste != null,
             configured = reasoningEffort,
+            longText = longText != null,
         )
         // T2 — modelo de raciocínio pode consumir todo o orçamento no thinking
         // e devolver content vazio (finish_reason=length). Nesse caso o
         // provider refaz UMA vez com orçamento maior antes de falhar.
         // #8f: o modo "Profundo" (reasoning "high") consome o orçamento no
         // thinking — sobe o teto default para evitar o retry por content vazio.
-        var budget = outputBudgetFor(effort, request.maxOutputTokens)
+        var budget = longText
+            ?.let { budgetForRequest(it).maxTokens }
+            ?: outputBudgetFor(effort, request.maxOutputTokens)
+        // Teto de retry por length: texto longo pode subir até 8192; o chat
+        // comum mantém o teto histórico de 4096.
+        val retryCap = if (longText != null) {
+            LONG_TEXT_MAX_OUTPUT_TOKENS
+        } else {
+            CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES
+        }
         var budgetBumped = false
+        // Se o endpoint rejeitar 8192, cai UMA vez para 4096 (o chamador divide).
+        var budgetFallbackDone = false
+        // Texto longo que "fecha" curto (finish=stop) ganha até DUAS
+        // correções: reescrita com piso e, se ainda curto, expansão dirigida
+        // sobre o texto anterior. Nunca faz loop.
+        var underLengthRetries = 0
+        var promptSuffix = ""
         val url = "${endpoint.trimEnd('/')}/chat/completions"
         // Autorização e negociação do stream via header (nunca na URL, nunca em log).
         val headers = mapOf(
@@ -113,7 +137,7 @@ class DeepSeekProvider(
             val body = requestBody(
                 model = model,
                 system = system,
-                user = prompts.second,
+                user = prompts.second + promptSuffix,
                 maxOutputTokens = budget,
                 editProposal = wantProposal,
                 jsonSchema = if (request.responseFormat == ResponseFormat.JSON_SCHEMA) request.jsonSchema else null,
@@ -165,9 +189,41 @@ class DeepSeekProvider(
                         val vazioPorLength = vazio && finish == "length"
                         val cortado = !vazio && finish == "length" &&
                             looksTruncated(text, finish)
-                        if (shouldRetryOnLength(vazioPorLength, cortado, budgetBumped)) {
+                        // O modelo pode "fechar" curto com finish=stop. Para
+                        // texto longo, uma reescrita com piso de extensão.
+                        val underLength = longText != null &&
+                            !vazio &&
+                            finish != "length" &&
+                            underLengthRetries < 2 &&
+                            attempts < tries &&
+                            isLongTextUnderTarget(text, longText)
+                        if (underLength) {
+                            underLengthRetries++
+                            promptSuffix = if (underLengthRetries == 1) {
+                                longTextExpansionInstruction(text, longText)
+                            } else {
+                                longTextSecondExpansionInstruction(text, longText)
+                            }
+                            // A 2ª expansão reenvia o texto anterior; precisa
+                            // de espaço para ele + o texto novo.
+                            if (underLengthRetries == 2) {
+                                budget = maxOf(budget, 4300)
+                            }
+                            retryNotice = "Desenvolvendo mais para atingir o tempo…"
+                            log(
+                                "deepseek texto curto (${text.length} chars); " +
+                                    "retry de extensão $underLengthRetries tentativa=$attempts"
+                            )
+                            // Retry de qualidade não consome tentativa
+                            // transitória: ainda precisa sobrar espaço para o
+                            // retry por length (2150 → 4300).
+                            attempts--
+                            continue
+                        }
+                        val canBump = budget < retryCap && !budgetFallbackDone
+                        if (shouldRetryOnLength(vazioPorLength, cortado, budgetBumped, canBump)) {
                             budgetBumped = true
-                            budget = (budget * 2).coerceAtMost(4096)
+                            budget = (budget * 2).coerceAtMost(retryCap)
                             log(
                                 "deepseek ${if (vazio) "vazio" else "cortado"} por length; " +
                                     "retry com budget=$budget tentativa=$attempts"
@@ -245,6 +301,21 @@ class DeepSeekProvider(
                         ProviderErrorCode.AUTHENTICATION, "Chave de API inválida.", id, attempts
                     )
                     else -> {
+                        // Texto longo: o endpoint pode recusar 8192. Cai UMA
+                        // vez para 4096 e o chamador divide o trabalho.
+                        if (budget > LONG_TEXT_FALLBACK_MAX_OUTPUT_TOKENS &&
+                            !budgetFallbackDone &&
+                            isMaxTokensRejected(res.body)
+                        ) {
+                            budgetFallbackDone = true
+                            budget = LONG_TEXT_FALLBACK_MAX_OUTPUT_TOKENS
+                            log(
+                                "deepseek max_tokens rejeitado; " +
+                                    "fallback budget=$budget (dividir o texto)"
+                            )
+                            attempts-- // fallback não consome tentativa transitória
+                            continue
+                        }
                         // T1 (P0): só a rejeição ESPECÍFICA de response_format
                         // cai no fallback; 400 genérico propaga normalmente.
                         if (structured && modeIndex < modes.lastIndex &&
@@ -376,8 +447,16 @@ class DeepSeekProvider(
         /**
          * T4 (Fase 2.1) — esforço de reasoning por rota. Puro/testável.
          */
-        fun reasoningEffortFor(structured: Boolean, minimalPaste: Boolean, configured: String): String =
+        fun reasoningEffortFor(
+            structured: Boolean,
+            minimalPaste: Boolean,
+            configured: String,
+            longText: Boolean = false,
+        ): String =
             when {
+                // Texto longo nunca usa thinking: o reasoning consome o
+                // orçamento antes do content (finish=length/vazio).
+                longText -> STRUCTURED_REASONING_EFFORT
                 structured -> STRUCTURED_REASONING_EFFORT
                 minimalPaste -> MINIMAL_REASONING_EFFORT
                 // exp/chat-quality: "low" no chat livre comia o orçamento de
@@ -386,6 +465,22 @@ class DeepSeekProvider(
                 configured == REASONING_EFFORT_DEEP -> REASONING_EFFORT_DEEP
                 else -> CHAT_REASONING_EFFORT
             }
+
+        /**
+         * O endpoint rejeitou o `max_tokens` por ser grande demais?
+         * Só a mensagem específica cai no fallback 8192 → 4096.
+         */
+        fun isMaxTokensRejected(body: String): Boolean {
+            val b = body.lowercase()
+            if (!b.contains("max_tokens") && !b.contains("max output") &&
+                !b.contains("maximum output")
+            ) {
+                return false
+            }
+            return b.contains("too large") || b.contains("too big") ||
+                b.contains("exceed") || b.contains("greater") ||
+                b.contains("maximum") || b.contains("invalid")
+        }
 
         /**
          * Corpo chat/completions (puro/testável). `stream:true` + usage no fim;
@@ -715,6 +810,7 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             oratory = request.oratory,
             contextBlock = request.contextBlock,
             userContextBlock = request.userContextBlock,
+            longText = request.longTextRequest != null,
         )
         return parts.system to parts.user
     }
@@ -735,4 +831,5 @@ internal fun shouldRetryOnLength(
     emptyByLength: Boolean,
     cut: Boolean,
     budgetBumped: Boolean,
-): Boolean = (emptyByLength || cut) && !budgetBumped
+    canBump: Boolean = true,
+): Boolean = (emptyByLength || cut) && !budgetBumped && canBump

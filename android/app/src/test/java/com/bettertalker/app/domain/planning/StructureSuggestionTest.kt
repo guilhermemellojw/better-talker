@@ -33,6 +33,11 @@ class StructureSuggestionTest {
     }
 
     @Test
+    fun discurso20min3pontos_gera6_6_6() {
+        assertEquals(listOf(1, 6, 6, 6, 1), speech(20, 3)!!.sections.map { it.minutes })
+    }
+
+    @Test
     fun discurso30min3pontos_gera10_9_9() {
         assertEquals(listOf(1, 10, 9, 9, 1), speech(30, 3)!!.sections.map { it.minutes })
     }
@@ -75,6 +80,15 @@ class StructureSuggestionTest {
         assertEquals("Demonstração", s.sections.single().title)
         assertEquals(4, s.sections.single().minutes)
         assertEquals(0, s.effectivePoints)
+    }
+
+    @Test
+    fun demo5min_gera1Body5min() {
+        val s = suggestStructure(5, DiscourseType.FREE_DEMO)!!
+        assertEquals(1, s.sections.size)
+        assertEquals(SectionRole.BODY, s.sections.single().role)
+        assertEquals(5, s.sections.single().minutes)
+        assertEquals(5, s.sections.sumOf { it.minutes })
     }
 
     @Test

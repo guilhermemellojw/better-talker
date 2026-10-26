@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`)
+**Atualizado:** 2026-10-26 · **Build de referência:** v2.7.4 (versionCode 24) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (working tree, 2026-10-26)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -137,6 +137,30 @@ verdes**.
 | Offline | Serviço **padrão do sistema** (mesmo caminho dos apps que funcionam); sem `EXTRA_PREFER_OFFLINE`/extras de silêncio. O reconhecimento pode usar rede; a UI avisa. |
 | Calibração | Relógio de fala começa no primeiro texto reconhecido; `hasEnoughSpeech` exige ≥20 palavras, ≥10 s e ≥70 wpm; ensaio parcial não cobra cobertura/tempo total; aspas duplo-escapadas decodificadas. |
 | A34 | Pausar/retomar 2× sem perder tempo/transcrição; banner Pausado congela; resultado `Fala: 18 s · Sessão: 1 min 7 s`; Interrupted com Retomar/Parar; CTA de permissão negada; `Pouca fala capturada` validado no sheet. O STT do A34 falhou com 37 palavras/45 s (49 wpm) e depois `ERROR_SERVER_DISCONNECTED`/`TOO_MANY_REQUESTS`; captura real segue pendente no tablet. |
+
+## Geração longa com tempos corretos — 2026-10-26
+
+Working tree sobre `275709a` · validação real no A34 · **2.445 testes JVM
+verdes no tree atual** (o bloco long-text adiciona ~50; há mudanças paralelas
+de contexto/refs não commitadas).
+
+| Item | Decisão/ação |
+|---|---|
+| Regra de tempo | Geração de seção usa `section.minutes`, nunca o total. Demo V&M: 1 BODY, tempo da parte, `minutos × 2,5` réplicas. Discurso: Intro 1 + N BODY + Conclusão 1; BODYs usam `total - 2`. S-34: cada seção pelo seu tempo; soma = total. |
+| `LongTextRequest` | `kind` SPEECH/DEMO, `scope` SECTION/TOTAL, `minutes`, `sectionMinutes`, `targetWords`/`targetTurns`. Pedido explícito diferente da seção vira `NeedsConfirmation` (o chat avisa e mantém o tempo da seção). |
+| `budgetForRequest` | Discurso `palavras×1,5+200`; demo `réplicas×80+200`; coerce 2.048..8.192; acima de 8.192 divide em partes iguais. `reasoning=none`. |
+| DeepSeek | `max_tokens` até 8.192; retry por `length` (até 8.192); se o endpoint rejeitar 8.192, cai uma vez para 4.096 + divisão. |
+| Extensão | `section.minutes` vira extensão alvo no prompt. Card abaixo de 80% da meta com `finish=stop` dispara até 2 correções: a 1ª reescreve com piso; a 2ª reenvia o texto anterior, pede expansão dirigida e sobe o orçamento para 4.300. |
+| `draftOutputBudget` | Teto 8.192; seção de 20+ min com subpontos prefere `DraftTarget.SubPoint` (primeiro subponto); 45+ min usa 8.192. |
+| “Texto total” | O chat não tenta um texto único: monta a fila por seção (20+ min por subponto) e abre o **DraftSheet** com “Próximo (N)”. Intro/Conclusão por seção; demo = 1 BODY. |
+| Prompt/chat | `blockMinutes = section.minutes`; `CHAT_TAIL_INSTRUCTIONS` e `SPEECH_MENTOR_CHAT_HINT` respeitam o bloco e não o discurso inteiro; a “TAREFA DE TEXTO LONGO” excepciona a regra de parágrafos curtos. |
+| Estrutura | `StructureSuggestion`/`PasteNoteBuilder` garantem Intro 1 + Conclusão 1 e soma = total; colagem V&M com total < 3 é ajustada para 3; demo 1 BODY. |
+| Telemetria | `generation` com `route`, `budget`, `finish_reason`, `chars`, `words`, `truncated`, `hasCard` e `thinking` no chat, oratória e draft. |
+| A34 — demo 4 min | Parte real “Cultivando o interesse (4 min) TESTEMUNHO INFORMAL… lmd lição 9 ponto 5” criada do zero: **11 réplicas**, 177 palavras no card, `budget=2048`, `finish=stop`, `truncated=false`. |
+| A34 — demo 5 min | Parte real “Fazendo discípulos (5 min) ESTUDO BÍBLICO… lmd lição 12 ponto 2” do zero: **12 réplicas**, 185 palavras no card, `budget=2048`, `finish=stop`, `truncated=false`. |
+| A34 — discurso 10 min | “Ter esperança é o segredo para o contentamento”: **1.159 palavras no card**, `budget=2150`, `finish=stop`, `truncated=false`, após 1 retry de extensão; ~89% da meta de 1.300 e acima do piso de 80%. |
+| A34 — “texto total” | Nota “A ordem nos céus (10 min)”: o chat abriu o DraftSheet na Seção 1 e mostrou “Próximo (4)”; aceite aplicou a Intro e o Desfazer reverteu. O parcial JSON do draft não vaza mais para a bolha do chat. |
+| Limite conhecido | O modelo ainda pode “fechar curto”; o piso de 80% + até 2 correções resolvem o caso de 10 min. Na medição final, 1 correção bastou. Para 20+ min, a divisão por subponto é o caminho preferido. |
 
 ## Decisões pendentes (não remover ainda)
 

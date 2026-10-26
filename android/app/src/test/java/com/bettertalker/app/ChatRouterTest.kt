@@ -573,4 +573,43 @@ class ChatRouterTest {
             )
         )
     }
+
+    // ---------- Texto longo: total vs. seção ----------
+
+    @Test
+    fun textoTotal_detectaPedidos() {
+        for (t in listOf(
+            "escreva o texto completo",
+            "gere o discurso inteiro",
+            "monte todo o texto",
+            "quero todas as seções",
+            "redija a parte inteira",
+            "texto total",
+        )) {
+            assertTrue(t, ChatRouter.isTotalTextCommand(t))
+        }
+    }
+
+    @Test
+    fun textoTotal_naoSequestraPerguntasNemOutrosPedidos() {
+        for (t in listOf(
+            "qual o texto total?",
+            "o texto total está bom?",
+            "escreva uma introdução",
+            "desenvolva o ponto 2",
+            "como melhorar a conclusão?",
+        )) {
+            assertFalse(t, ChatRouter.isTotalTextCommand(t))
+        }
+    }
+
+    @Test
+    fun geracaoDeTextoLongo_exigeVerboEObjeto() {
+        assertTrue(ChatRouter.isLongTextGenerationRequest("escreva o texto desta seção"))
+        assertTrue(ChatRouter.isLongTextGenerationRequest("gere o diálogo do morador"))
+        assertTrue(ChatRouter.isLongTextGenerationRequest("desenvolva este ponto"))
+        assertFalse(ChatRouter.isLongTextGenerationRequest("escreva uma ilustração"))
+        assertFalse(ChatRouter.isLongTextGenerationRequest("explique o texto"))
+        assertFalse(ChatRouter.isLongTextGenerationRequest("o que acha desta seção?"))
+    }
 }

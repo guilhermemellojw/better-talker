@@ -23,20 +23,72 @@ sealed interface DraftTarget {
 /** Estado da geração de draft no editor (padrão ChatRunState). */
 sealed interface DraftUiState {
     data object Idle : DraftUiState
-    data class Loading(val target: DraftTarget) : DraftUiState
+
+    /** [queueRemaining] = partes ainda na fila do "texto total" (0 = avulso). */
+    data class Loading(
+        val target: DraftTarget,
+        val queueRemaining: Int = 0,
+    ) : DraftUiState
+
     data class Ready(val target: DraftTarget, val draft: SectionDraft) : DraftUiState
     data class Error(val target: DraftTarget, val message: String) : DraftUiState
 
     /**
      * Rascunho foi aplicado. Guarda o HTML anterior ([previousHtml]) para
      * undo e o aplicado ([appliedHtml]) como registro do que foi aplicado.
+     * [queueRemaining] > 0 mostra o botão "Próximo" no sheet.
      */
     data class Accepted(
         val target: DraftTarget,
         val previousHtml: String,
         val appliedHtml: String,
+        val queueRemaining: Int = 0,
     ) : DraftUiState
 }
+
+/** Seção longa (20+ min) deve ser dividida por sub-ponto para não truncar. */
+const val LONG_SECTION_MINUTES: Int = 20
+
+/**
+ * Alvo efetivo do draft: seções de 20+ min com sub-pontos são geradas por
+ * sub-ponto (o primeiro), preservando o tempo da seção sem estourar o teto
+ * de saída. Puro/testável.
+ */
+fun preferredDraftTarget(
+    target: DraftTarget,
+    sections: List<SectionUiState>,
+): DraftTarget {
+    if (target !is DraftTarget.Section) return target
+    val state = sections.firstOrNull { it.section.id == target.sectionId } ?: return target
+    if (state.section.role != SectionRole.BODY ||
+        state.section.minutes < LONG_SECTION_MINUTES ||
+        state.subPoints.isEmpty()
+    ) {
+        return target
+    }
+    val first = state.subPoints.minByOrNull { it.order } ?: return target
+    return DraftTarget.SubPoint(target.sectionId, first.id)
+}
+
+/**
+ * Fila do "texto total": Intro/Conclusão por seção; BODY de 20+ min por
+ * sub-ponto; demais BODYs por seção. A ordem segue a ordem da nota.
+ * Puro/testável.
+ */
+fun totalTextTargets(sections: List<SectionUiState>): List<DraftTarget> =
+    sections.sortedBy { it.section.order }.flatMap { state ->
+        val section = state.section
+        if (section.role == SectionRole.BODY &&
+            section.minutes >= LONG_SECTION_MINUTES &&
+            state.subPoints.isNotEmpty()
+        ) {
+            state.subPoints.sortedBy { it.order }.map {
+                DraftTarget.SubPoint(section.id, it.id)
+            }
+        } else {
+            listOf(DraftTarget.Section(section.id))
+        }
+    }
 
 /**
  * Rótulo PT-BR do alvo do draft (para a sheet). Puro/testável.

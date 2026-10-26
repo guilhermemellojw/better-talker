@@ -140,6 +140,37 @@ class PasteNoteBuilderTest {
     }
 
     @Test
+    fun talk_5a30min_somaIgualAoTotal_comIntroEConclusao1() {
+        for (total in listOf(5, 10, 15, 20, 30)) {
+            val built = buildPastedNote(
+                "TESOUROS DA PALAVRA DE DEUS\n1. Tema $total (${total} min)\n" +
+                    "Primeiro ponto (Gên. 1:1).\n\nSegundo ponto (Sal. 19:1)."
+            )
+            assertEquals("total=$total", total, built.sections.sumOf { it.minutes })
+            assertEquals(
+                "total=$total",
+                1,
+                built.sections.first { it.role == SectionRole.INTRO }.minutes,
+            )
+            assertEquals(
+                "total=$total",
+                1,
+                built.sections.first { it.role == SectionRole.CONCLUSION }.minutes,
+            )
+        }
+    }
+
+    @Test
+    fun talk_1min_ajustaPara3_eSomaBate() {
+        val built = buildPastedNote(
+            "TESOUROS DA PALAVRA DE DEUS\n1. Tema (1 min)\nPrimeiro ponto (Gên. 1:1)."
+        )
+        assertEquals(3, built.sections.sumOf { it.minutes })
+        assertEquals(1, built.sections.first().minutes)
+        assertEquals(1, built.sections.last().minutes)
+    }
+
+    @Test
     fun splitIntoBodyChunks_porParagrafos() {
         assertEquals(
             listOf("Primeiro.", "Segundo.", "Terceiro."),

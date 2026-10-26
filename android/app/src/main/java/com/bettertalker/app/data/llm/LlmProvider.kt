@@ -94,6 +94,13 @@ data class LlmRequest(
      * Null = modo padrão (comportamento anterior).
      */
     val minimalPaste: String? = null,
+    /**
+     * Texto longo com tempo correto (discurso/demonstração). Quando presente,
+     * o provider usa [budgetForRequest] (até 8192 tokens) e desliga o
+     * thinking; o chamador continua responsável por dividir o trabalho em
+     * seções quando o total passar do teto.
+     */
+    val longTextRequest: com.bettertalker.app.domain.planning.LongTextRequest? = null,
 )
 
 enum class ResponseFormat { TEXT, EDIT_PROPOSAL, JSON_SCHEMA }

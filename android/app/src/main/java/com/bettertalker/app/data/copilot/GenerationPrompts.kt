@@ -87,6 +87,8 @@ object GenerationPrompts {
         Não escreva o texto do discurso até o usuário pedir explicitamente ("escreva", "redija", "monte a fala").
         Quando o usuário disser 'gera', 'escreve' ou 'entrega', entregue o <texto-do-card> direto, sem orientar antes.
         Quando escrever, entregue apenas o trecho aplicável em <texto-do-card>...</texto-do-card>.
+        Use a duração do BLOCO ATUAL (≈130 palavras/min): escreva só esse bloco, nunca o discurso inteiro.
+        Se o usuário pedir o texto total, avise que ele será gerado seção por seção no painel de rascunho.
         Nunca use formato de diálogo.
         Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.
     """.trimIndent()
@@ -100,6 +102,7 @@ object GenerationPrompts {
         Sua primeira resposta deve orientar o publicador: cenário, abordagem, objeções e estratégia.
         Não escreva o diálogo até o usuário pedir explicitamente.
         Quando escrever, use <b>Publicador:</b> ... e <b>Morador:</b> ... com falas curtas.
+        Use a duração do BLOCO ATUAL (≈2,5 réplicas/min): escreva só essa seção, nunca o diálogo inteiro.
         Nunca escreva monólogos longos.
         Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.
     """.trimIndent()
@@ -110,6 +113,7 @@ object GenerationPrompts {
         Sua primeira resposta deve orientar o usuário: objetivo da conversa, papéis, objeções e estratégia.
         Não escreva o diálogo até o usuário pedir explicitamente.
         Quando escrever, use <b>Papel:</b> ... com falas curtas e papéis claros.
+        Use a duração do BLOCO ATUAL (≈2,5 réplicas/min): escreva só essa seção, nunca o diálogo inteiro.
         Nunca escreva monólogos longos.
         Não use S-38, cenário de reunião ou linguagem de parte da reunião.
         Esta instrução tem prioridade sobre a regra geral de sugerir um texto pronto.

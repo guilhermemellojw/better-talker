@@ -179,7 +179,13 @@ fun applyPasteOverrides(plan: PastePlan, overrides: PasteOverrides): PastePlan {
     val isVm = plan.kind is PasteKind.VmTalk ||
         plan.kind is PasteKind.VmDemo
     val currentMinutes = pastePlanMinutes(plan)
-    val totalMinutes = (overrides.minutes ?: currentMinutes ?: 0).coerceIn(1, 60)
+    // Discurso V&M com bordas: Intro 1 + BODY + Conclusão 1 nunca soma menos
+    // que 3 min. Demo (1 BODY) pode ficar em 1 min.
+    val hasEdges = plan.sections.any {
+        it.role == SectionRole.INTRO || it.role == SectionRole.CONCLUSION
+    }
+    val minTotal = if (isVm && hasEdges) MIN_TALK_TOTAL_MINUTES else 1
+    val totalMinutes = (overrides.minutes ?: currentMinutes ?: 0).coerceIn(minTotal, 60)
     val scenario = overrides.scenario ?: plan.scenario
     val reference = overrides.publicationReference ?: plan.publicationReference
     val metadataChanged = overrides.scenario != null ||
@@ -487,6 +493,9 @@ fun pasteApplyFeedback(
 /** Minutos dos cards vazios de abertura/fechamento (igual ao "Adicionar parte"). */
 internal const val EDGE_SECTION_MINUTES = 1
 
+/** Mínimo de um discurso V&M: Intro 1 + 1 BODY + Conclusão 1. */
+internal const val MIN_TALK_TOTAL_MINUTES = EDGE_SECTION_MINUTES * 2 + 1
+
 /** Duração assumida para texto corrido sem tempo declarado (igual ao fallback do esboço). */
 internal const val GENERIC_SECTION_MINUTES = 5
 
@@ -712,7 +721,11 @@ fun planPaste(raw: String): PastePlan {
         val ignored = parts - talk
         val body = talk.body.ifBlank { trimmed }
         val partTitle = talk.title.ifBlank { "Discurso" }
-        val minutes = talk.minutes.takeIf { it > 0 } ?: 10
+        // Intro 1 + N BODY + Conclusão 1: o total precisa caber as bordas.
+        val declaredMinutes = talk.minutes.takeIf { it > 0 } ?: 10
+        val minutes = declaredMinutes.coerceAtLeast(MIN_TALK_TOTAL_MINUTES)
+        val adjustedMinutes = minutes != declaredMinutes
+        val effectiveTalk = if (adjustedMinutes) talk.copy(minutes = minutes) else talk
         val (bible, pubs) = extractRefsFromBody(body)
         val type = discourseTypeFor(talk)
         val bodyMinutes = (minutes - EDGE_SECTION_MINUTES * 2).coerceAtLeast(1)
@@ -766,7 +779,7 @@ fun planPaste(raw: String): PastePlan {
             "${sections.count { it.role == SectionRole.BODY }} tópicos"
         }
         return PastePlan(
-            kind = PasteKind.VmTalk(talk, ignored),
+            kind = PasteKind.VmTalk(effectiveTalk, ignored),
             noteTitle = partTitle,
             discourseType = type,
             sections = sections,
@@ -774,11 +787,15 @@ fun planPaste(raw: String): PastePlan {
             bibleRefs = bible,
             publicationRefs = pubs,
             generationProfile = GenerationProfile.SPEECH_MENTOR,
-            notice = "Estrutura de discurso criada (Introdução, $bodyLabel, " +
+            notice = (if (adjustedMinutes) {
+                "Duração ajustada para $minutes min (mínimo de Introdução + Conclusão). "
+            } else {
+                ""
+            }) + "Estrutura de discurso criada (Introdução, $bodyLabel, " +
                 "Conclusão)." + ignoredSuffix(ignored),
             ignoredParts = ignored,
-            scenario = talk.scenario,
-            publicationReference = talk.reference,
+            scenario = effectiveTalk.scenario,
+            publicationReference = effectiveTalk.reference,
         )
     }
 

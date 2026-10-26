@@ -105,9 +105,19 @@ import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.OutlineProposalValidator
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
+import com.bettertalker.app.domain.planning.LongTextResolution
+import com.bettertalker.app.domain.planning.LongTextScope
+import com.bettertalker.app.domain.planning.budgetForRequest
+import com.bettertalker.app.domain.planning.longTextKindOf
+import com.bettertalker.app.domain.planning.longTextRequestFor
+import com.bettertalker.app.domain.planning.minutesMismatchNotice
+import com.bettertalker.app.domain.planning.requestedMinutesIn
+import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
+import com.bettertalker.app.ui.editor.SectionUiState
 import com.bettertalker.app.ui.editor.roleLabel
+import com.bettertalker.app.ui.editor.totalTextTargets
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.OutlineConversion
@@ -942,6 +952,17 @@ class CopilotViewModel(
         dossierProvider = provider
     }
 
+    /**
+     * Inicia a fila de drafts do "texto total" no editor. Injetado pelo
+     * MainActivity via `setDraftQueueStarter { editorVm.startDraftQueue(it) }`.
+     * Null = chat sem editor acoplado (orienta o usuário).
+     */
+    private var draftQueueStarter: ((List<DraftTarget>) -> Unit)? = null
+
+    fun setDraftQueueStarter(starter: (List<DraftTarget>) -> Unit) {
+        draftQueueStarter = starter
+    }
+
     /** Monta o bloco de contexto do dossiê para o prompt do chat (F2b). Puro. */
     private val dossierPromptBuilder =
         com.bettertalker.app.data.planning.DefaultDossierPromptBuilder()
@@ -1431,6 +1452,17 @@ class CopilotViewModel(
                     )
                 }
                 val cont = truncateIfCut(res.text, res.meta.finishReason)
+                android.util.Log.i(
+                    "CopilotLLM",
+                    generationTelemetry(
+                        route = "continue",
+                        text = cont,
+                        budget = res.meta.budget,
+                        finishReason = res.meta.finishReason,
+                        truncated = cont != res.text,
+                        thinking = res.meta.thinking,
+                    ).line(),
+                )
                 if (cont.isBlank()) {
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
                     return@launch
@@ -1716,6 +1748,13 @@ class CopilotViewModel(
                 null
             }
             lastDossier = dossier
+            // Regra do bloco: a geração de uma seção usa section.minutes,
+            // nunca o total do discurso.
+            val blockMinutes = if (_scopeMode.value == ScopeMode.WHOLE) {
+                null
+            } else {
+                dossier?.currentSection?.minutes
+            }
             val blockText = currentFocusText()
             // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
             if (postUserMessage) {
@@ -1770,6 +1809,18 @@ class CopilotViewModel(
             // T3 (Mini Discurso): comando determinístico de inserção — nunca
             // vai ao LLM (funciona com qualquer provider).
             if (resolveInsertCommand(text)) return@launch
+            // Texto total: divide por seção e encaminha ao DraftSheet.
+            if (com.bettertalker.app.data.copilot.ChatRouter.isTotalTextCommand(text)) {
+                requestTotalText()
+                return@launch
+            }
+            // Pedido explícito de outro tempo: avisa e mantém o tempo da seção
+            // (a soma do discurso não muda em silêncio).
+            requestedMinutesIn(text)?.let { requested ->
+                if (blockMinutes != null && requested != blockMinutes) {
+                    postText(minutesMismatchNotice(blockMinutes, requested))
+                }
+            }
             // F5b (Modo C): estruturar texto colado de publicação numa seção
             // — determinístico, pré-split (qualquer provider).
             if (com.bettertalker.app.data.copilot.ChatRouter.isStructureFromPastedCommand(text)) {
@@ -1796,7 +1847,9 @@ class CopilotViewModel(
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
-            val turnContext = buildTurnFor(text, intent.trainingCategory, historyBefore, isFirst, blockText)
+            val turnContext = buildTurnFor(
+                text, intent.trainingCategory, historyBefore, isFirst, blockText, blockMinutes
+            )
             // F5c: dedupe da ORIENTAÇÃO DO ORADOR — o dossiê só a repete
             // quando o bloco estrutural do S-34 (que já a carrega) não está
             // presente neste turno.
@@ -1861,6 +1914,7 @@ class CopilotViewModel(
                         answerRemote(
                             text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
                             noS34Warning = true,
+                            blockMinutes = blockMinutes,
                         )
                         return@launch
                     }
@@ -1922,7 +1976,10 @@ class CopilotViewModel(
                         else answerCheckRefs()
                         return@launch
                     }
-                    answerRemote(text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock)
+                    answerRemote(
+                        text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                        blockMinutes = blockMinutes,
+                    )
                 } else {
                     sendMutex.withLock {
                     if (resolveConfirm(text)) return@withLock
@@ -2001,12 +2058,57 @@ class CopilotViewModel(
     private fun scopeBlockTitle(): String? =
         if (_scopeMode.value == ScopeMode.WHOLE) null else _activeBlockTitle.value
 
+    /**
+     * "Texto total" no chat: NUNCA tenta um único texto gigante. Monta a fila
+     * por seção (20+ min por sub-ponto) e entrega ao DraftSheet do editor,
+     * onde cada parte é revisada/aceita antes de aplicar.
+     */
+    private suspend fun requestTotalText() {
+        val nid = noteId ?: return
+        val sections = db.speechSectionDao().forNote(nid)
+            .map { it.toDomain() }
+            .sortedBy { it.order }
+        if (sections.isEmpty()) {
+            postText(
+                "Esta nota ainda não tem seções. Estruture o esboço primeiro " +
+                    "ou peça uma introdução/desenvolvimento."
+            )
+            return
+        }
+        val states = sections.map { section ->
+            SectionUiState(
+                section = section,
+                subPoints = db.subPointDao().forSection(section.id).map { it.toDomain() },
+            )
+        }
+        val targets = totalTextTargets(states)
+        if (targets.isEmpty()) {
+            postText("Não encontrei seções para gerar o texto total.")
+            return
+        }
+        val starter = draftQueueStarter
+        if (starter == null) {
+            postText(
+                "O painel de rascunho não está disponível agora. Abra o editor e use " +
+                    "⋮ → Gerar com Copilot em cada seção."
+            )
+            return
+        }
+        postText(
+            "Vou gerar o texto em ${targets.size} parte(s), uma por seção, para respeitar " +
+                "o tempo. O painel abre na primeira; revise, aceite e toque em “Próximo” " +
+                "para seguir. Seções de 20+ min são divididas por sub-ponto."
+        )
+        starter(targets)
+    }
+
     private suspend fun buildTurnFor(
         text: String,
         trainingCategory: com.bettertalker.app.data.domain.TrainingCategory?,
         history: List<ChatTurn>,
         isFirst: Boolean,
-        blockText: String
+        blockText: String,
+        blockMinutes: Int? = null,
     ): com.bettertalker.app.data.copilot.ChatTurnContext {
         // RAG real (Fase 18 §9): RoomContextPackRepository + HybridRetrieval,
         // escopo por discurso (bases prontas + vinculados + citados).
@@ -2047,7 +2149,10 @@ class CopilotViewModel(
             includeTraining = trainingCategory != null,
             trainingCategory = trainingCategory,
             pinned = citedSources.sources,
-            unavailableRefs = citedSources.unavailable
+            // Prompt recebe o motivo (edição ausente × trecho ausente); a UI
+            // continua com o rótulo cru.
+            unavailableRefs = citedSources.unavailableDetails
+                .ifEmpty { citedSources.unavailable }
         )
         // F19-B.5: S-34 estrutural do attachment em foco (se houver).
         // Consome a B.4; NoOutline mantém o caminho legado intacto.
@@ -2058,7 +2163,7 @@ class CopilotViewModel(
             isFirstMessage = isFirst,
             pack = pack,
             blockTitle = scopeBlockTitle(),
-            blockMinutes = null,
+            blockMinutes = blockMinutes,
             blockText = blockText,
             structural = structural,
             oratory = oratory
@@ -2228,6 +2333,17 @@ class CopilotViewModel(
                             is EditOperation.Delete -> ""
                         }
                     }.trim().ifBlank { renderAfterText(r.proposal, focus) }
+                    android.util.Log.i(
+                        "CopilotLLM",
+                        generationTelemetry(
+                            route = "oratory",
+                            text = generated,
+                            budget = res.meta.budget,
+                            finishReason = res.meta.finishReason,
+                            truncated = false,
+                            thinking = res.meta.thinking,
+                        ).line(),
+                    )
                     val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
                         .check(generated, ready)
                     val notice = fidelityRevisionNotice(fidelity)
@@ -2366,6 +2482,17 @@ class CopilotViewModel(
         }
         val outText = truncateIfCut(res.text, res.meta.finishReason)
         val truncated = outText != res.text
+        android.util.Log.i(
+            "CopilotLLM",
+            generationTelemetry(
+                route = "minimal-paste",
+                text = outText,
+                budget = res.meta.budget,
+                finishReason = res.meta.finishReason,
+                truncated = truncated,
+                thinking = res.meta.thinking,
+            ).line(),
+        )
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
         // só avisado. Corpus = texto íntegro (o modelo citou o esboço).
         val corpus = listOf(pasted)
@@ -2441,6 +2568,8 @@ class CopilotViewModel(
         contextBlock: String? = null,
         /** #15a: rota sem S-34 degradada → aviso suave no fim da resposta. */
         noS34Warning: Boolean = false,
+        /** Tempo da seção em foco (extensão alvo do texto longo). */
+        blockMinutes: Int? = null,
     ) {
         // #17-fix: a rota de chat respeita o chip (Rápido = low / Profundo = high);
         // rotas estruturadas (oratória/proposta) forçam "none" dentro do provider.
@@ -2525,6 +2654,21 @@ class CopilotViewModel(
                 "chat remoto: ${questionPubs.size} trecho(s) de publicação da pergunta injetado(s)"
             )
         }
+        // Texto longo com o tempo da SEÇÃO: orçamento dinâmico e thinking off.
+        // Só entra quando a mensagem pede para escrever texto/diálogo; uma
+        // pergunta de orientação continua no orçamento normal do chat.
+        val longKind = longTextKindOf(lastDossier?.discourseType)
+        val longRequest = if (blockMinutes != null && blockMinutes > 0 &&
+            com.bettertalker.app.data.copilot.ChatRouter.isLongTextGenerationRequest(text)
+        ) {
+            (longTextRequestFor(
+                kind = longKind,
+                scope = LongTextScope.SECTION,
+                sectionMinutes = blockMinutes,
+            ) as? LongTextResolution.Ready)?.request
+        } else {
+            null
+        }
         // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
@@ -2537,17 +2681,22 @@ class CopilotViewModel(
                     history = history,
                     isFirstMessage = isFirst,
                     // #11-fix: folga quando há ref do acervo resolvida na pergunta.
-                    maxOutputTokens = answerOutputBudget(
-                        questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
-                    ),
+                    // Texto longo: orçamento do pedido (2048..8192).
+                    maxOutputTokens = longRequest
+                        ?.let { budgetForRequest(it).maxTokens }
+                        ?: answerOutputBudget(
+                            questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
+                        ),
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
                     blockTitle = scopeBlockTitle(),
+                    blockMinutes = blockMinutes,
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
                     contextBlock = stableContextBlock,
                     userContextBlock = volatileContextBlock,
+                    longTextRequest = longRequest,
                 )
             )
         }
@@ -3002,9 +3151,10 @@ class CopilotViewModel(
                 }
                 val brief = briefFor(messageId)
                 val history = conversationTurnsScoped()
+                val proposalMinutes = lastDossier?.currentSection?.minutes
                 val turnContext = buildTurnFor(
                     brief.ifBlank { focus }, inferIntent(brief.ifBlank { focus }, false).trainingCategory,
-                    history, history.none { it.fromMe }, focus)
+                    history, history.none { it.fromMe }, focus, proposalMinutes)
                 _chatEvidence.value = turnContext.evidence
                 android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
                 val provider = ProviderFactory.createFor(remote, app)
@@ -3018,6 +3168,7 @@ class CopilotViewModel(
                         isFirstMessage = false,
                         contextPack = turnContext.pack,
                         blockTitle = scopeBlockTitle(),
+                        blockMinutes = proposalMinutes,
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
                         brief = brief,

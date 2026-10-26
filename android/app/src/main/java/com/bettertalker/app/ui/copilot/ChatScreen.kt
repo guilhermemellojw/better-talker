@@ -156,6 +156,7 @@ fun ChatScreen(
     onDraftDismiss: () -> Unit = {},
     onDraftUndo: () -> Unit = {},
     onDraftRetry: () -> Unit = {},
+    onDraftNext: () -> Unit = {},
 ) {
     val messages by vm.messages.collectAsState()
     val busy by vm.chatBusy.collectAsState()
@@ -945,6 +946,7 @@ fun ChatScreen(
             onDismiss = onDraftDismiss,
             onRetry = onDraftRetry,
             onUndo = onDraftUndo,
+            onNext = onDraftNext,
         )
     }
 

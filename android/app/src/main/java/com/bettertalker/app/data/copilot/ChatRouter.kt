@@ -479,6 +479,61 @@ object ChatRouter {
             !SECTION_CONTEXT.containsMatchIn(n)
     }
 
+    // ---------- Texto longo: total vs. seção ----------
+
+    /** Pedido do texto TOTAL do discurso/demonstração. */
+    private val TOTAL_TEXT_CUE = Regex(
+        "\\b(texto total|texto completo|discurso inteiro|discurso todo|" +
+            "a parte inteira|todo o discurso|todo o texto|todas as secoes|" +
+            "todos os topicos|a nota inteira|o roteiro inteiro)\\b"
+    )
+    private val TOTAL_TEXT_REQUEST = Regex(
+        "\\b(gere|gerar|escreva|escrever|redija|redigir|monte|montar|crie|criar|" +
+            "faca|fazer|desenvolva|desenvolver|produza|produzir|quero|preciso|" +
+            "me de|manda|envie)\\b"
+    )
+
+    /**
+     * Pedido de TEXTO TOTAL ("escreva o texto completo", "gere o discurso
+     * inteiro"). O chat não tenta um único texto gigante: divide por seção e
+     * encaminha para o DraftSheet. Perguntas abertas ("qual o texto total?")
+     * não sequestram. Puro/testável.
+     */
+    fun isTotalTextCommand(text: String): Boolean {
+        val t = normalizeText(text).trim()
+        if (t.isEmpty()) return false
+        val padded = " $t "
+        if (!TOTAL_TEXT_CUE.containsMatchIn(padded)) return false
+        val requests = TOTAL_TEXT_REQUEST.containsMatchIn(padded)
+        if (!requests && (text.trim().endsWith("?") || QUESTION_OPENERS.containsMatchIn(t))) {
+            return false
+        }
+        return requests || t.length <= 40
+    }
+
+    /** Objeto de escrita: texto/discurso/diálogo/seção — não "uma ilustração". */
+    private val LONG_TEXT_OBJECT = Regex(
+        "\\b(texto|discurso|dialogo|fala|secao|secoes|topico|topicos|ponto|pontos|" +
+            "introducao|conclusao|desenvolvimento|demonstracao|roteiro|bloco)\\b"
+    )
+    private val LONG_TEXT_WRITE = Regex(
+        "\\b(escreva|escreve|escrever|gere|gera|gerar|redija|redige|redigir|" +
+            "monte|monta|montar|desenvolva|desenvolve|desenvolver|crie|cria|criar|" +
+            "produza|produz|produzir|faca|faz|fazer|refaca|refaz|refazer|" +
+            "reescreva|reescreve|reescrever|quero|preciso|me de|manda|envie)\\b"
+    )
+
+    /**
+     * A mensagem pede para ESCREVER um texto/diálogo (não só explicar)? Usado
+     * para aplicar o orçamento de texto longo com o tempo da seção.
+     * Puro/testável.
+     */
+    fun isLongTextGenerationRequest(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        if (isExplanationOnly(text)) return false
+        return LONG_TEXT_WRITE.containsMatchIn(t) && LONG_TEXT_OBJECT.containsMatchIn(t)
+    }
+
     private val TOPIC_OBJECTIVE = Regex("\\b(objetivo|proposito|meta|tema)\\b")
     private val TOPIC_POINTS = Regex("\\b(pontos principais|pontos|topicos|secoes|estrutura)\\b")
     private val TOPIC_SEQUENCE = Regex("\\b(sequencia|ordem|primeiro|ultimo|antes|depois)\\b")

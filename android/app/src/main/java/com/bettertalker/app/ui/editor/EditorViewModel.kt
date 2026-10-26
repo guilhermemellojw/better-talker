@@ -493,17 +493,60 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     private var draftJob: Job? = null
 
+    /** Fila do "texto total" (gerada seção a seção, com aceite explícito). */
+    private val draftQueue = ArrayDeque<DraftTarget>()
+
     /**
      * Gera um rascunho para [target] (sub-ponto ou seção). Assíncrono:
      * `Loading → Ready/Error` em [draftState]. Cancela geração anterior.
+     *
+     * Seções BODY de 20+ min com sub-pontos são geradas pelo primeiro
+     * sub-ponto (evita truncar no teto de 8192).
      *
      * Não faz nada sem chave configurada — defesa em profundidade.
      */
     fun startDraft(target: DraftTarget) {
         if (!_canGenerateDraft.value) return
         if (sectionGenerator == null) return
+        draftQueue.clear()
+        startDraftInternal(
+            preferredDraftTarget(target, _sections.value),
+            queueRemaining = 0,
+        )
+    }
+
+    /**
+     * Gera o texto TOTAL em partes: uma por seção (ou sub-ponto, em seções de
+     * 20+ min). O usuário revisa/aceita cada parte e toca em "Próximo" para
+     * seguir — nada é aplicado sem confirmação.
+     */
+    fun startDraftQueue(targets: List<DraftTarget>) {
+        if (!_canGenerateDraft.value) return
+        if (sectionGenerator == null) return
+        if (targets.isEmpty()) return
+        draftQueue.clear()
+        draftQueue.addAll(targets)
+        startNextQueuedDraft()
+    }
+
+    /** Avança para a próxima parte da fila (após aceitar a atual). */
+    fun nextDraft() {
+        if (draftQueue.isEmpty()) return
+        if (draftJob?.isActive == true) return
+        startNextQueuedDraft()
+    }
+
+    private fun startNextQueuedDraft() {
+        val next = draftQueue.removeFirstOrNull() ?: return
+        startDraftInternal(next, queueRemaining = draftQueue.size)
+    }
+
+    private fun startDraftInternal(target: DraftTarget, queueRemaining: Int) {
         draftJob?.cancel()
-        _draftState.value = DraftUiState.Loading(target)
+        // O draft usa o mesmo provider do chat; o parcial JSON não pode
+        // aparecer como resposta na bolha do Copilot (o sheet é modal).
+        com.bettertalker.app.data.llm.LocalProgress.clearPartial()
+        _draftState.value = DraftUiState.Loading(target, queueRemaining)
         draftJob = viewModelScope.launch {
             val draft = try {
                 generateDraftFor(target)
@@ -512,6 +555,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             } catch (_: Exception) {
                 null
             }
+            com.bettertalker.app.data.llm.LocalProgress.clearPartial()
             _draftState.value = if (draft != null) {
                 DraftUiState.Ready(target, draft)
             } else {
@@ -524,6 +568,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun cancelDraft() {
         draftJob?.cancel()
         draftJob = null
+        draftQueue.clear()
         _draftState.value = DraftUiState.Idle
     }
 
@@ -532,6 +577,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * (não deixa geração órfã).
      */
     fun dismissDraft() {
+        draftQueue.clear()
         when (_draftState.value) {
             is DraftUiState.Loading -> cancelDraft()
             else -> _draftState.value = DraftUiState.Idle
@@ -556,7 +602,12 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             is DraftTarget.SubPoint -> onSubPointContent(target.subPointId, applied)
             is DraftTarget.Section -> onSectionContent(target.sectionId, applied)
         }
-        _draftState.value = DraftUiState.Accepted(target, previous, applied)
+        _draftState.value = DraftUiState.Accepted(
+            target = target,
+            previousHtml = previous,
+            appliedHtml = applied,
+            queueRemaining = draftQueue.size,
+        )
     }
 
     /**
@@ -574,6 +625,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      */
     fun undoDraft() {
         val accepted = _draftState.value as? DraftUiState.Accepted ?: return
+        draftQueue.clear()
         when (val target = accepted.target) {
             is DraftTarget.SubPoint -> onSubPointContent(target.subPointId, accepted.previousHtml)
             is DraftTarget.Section -> onSectionContent(target.sectionId, accepted.previousHtml)

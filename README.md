@@ -1,15 +1,15 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.7.4+ — RC interno (sideload; branch `feat/copilot-citations`, 1b validada no Redmi 9 e Fases 2–3 + UX + confiança/agrupamento/refs unificadas + ensaio com análise concluídos no A34 e no tablet em 2026-10-25).**
+> **Estágio: v2.7.4+ — RC interno (sideload; branch `feat/copilot-citations`, 1b validada no Redmi 9 e Fases 2–3 + UX + confiança/agrupamento/refs unificadas + ensaio com análise + geração longa com tempos corretos concluídos no A34 e no tablet em 2026-10-25/26).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
 
-## 📌 Estado atual (2026-10-25)
+## 📌 Estado atual (2026-10-26)
 
-- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `83a76e1`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise concluídos no A34 e no tablet**.
+- **Versão:** 2.7.4 (versionCode 24), branch `feat/copilot-citations` @ `275709a` + geração longa no working tree; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise + geração longa concluídos no A34 e no tablet**.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -18,8 +18,10 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`No acervo`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Já baixei” abre a Biblioteca já procurando em Downloads.
 - **Refs unificadas:** `NoteRefsCollector` é a fonte única (título, mdText/plainText, esboço, seções e subpontos); checklist e Copilot usam a mesma lista, e a Bíblia da TNM entra como evidência no prompt.
 - **Ensaio com análise (T3-A):** STT nativo no Stage (serviço padrão do sistema, sem forçar offline) com controle explícito **iniciar → pausar → retomar → parar**; pausa/interrupção preservam a transcrição e nunca geram resultado automático. Rate limit vira **Interrupted** com “aguarde e retome”, sem martelar o serviço. Métricas locais (tempo de fala e tempo de sessão, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. O relógio de fala começa na primeira fala; captura curta (<70 wpm) vira “Pouca fala capturada”, e ensaio parcial não cobra cobertura do texto completo. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
+- **Geração longa com tempos corretos (2026-10-26):** `LongTextRequest`/`budgetForRequest` (discurso `palavras×1,5+200`; demo `réplicas×80+200`; coerce 2.048..8.192; divisão acima de 8.192). O DeepSeek usa `max_tokens` até 8.192, retry por `length`, fallback 8.192→4.096 e thinking desligado. A geração de seção usa `section.minutes` (nunca o total); se o card fica abaixo de 80% da meta, o provider faz até 2 correções de extensão (a 2ª reenvia o texto anterior e sobe o orçamento para 4.300). “Texto total” divide por seção/subponto e abre o **DraftSheet em fila** (“Próximo (N)”). S-34/colagem garantem Intro 1 + Conclusão 1 e soma = total; demo = 1 BODY. Telemetria: `generation|route|budget|finish_reason|chars|words|truncated|hasCard|thinking`.
+- **Validação real no A34 (2026-10-26, APK final):** demo real “Cultivando o interesse (4 min)” do zero → **11 réplicas**, 177 palavras no card, `budget=2048`, `finish=stop`, sem truncamento; demo real “Fazendo discípulos (5 min)” → **12 réplicas**, 185 palavras, `budget=2048`, `finish=stop`, sem truncamento; discurso de 10 min → **1.159 palavras no card**, `budget=2150`, `finish=stop`, sem truncamento, após 1 retry de extensão (~89% da meta de 1.300, acima do piso de 80%).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** 2.375 testes JVM.
+- **Testes:** 2.445 testes JVM no working tree (o bloco de geração longa adiciona ~50; há mudanças paralelas de contexto/refs não commitadas).
 - **Pendências de distribuição:** backup/keystore/chave de API (ver [FREEZE.md](docs/FREEZE.md) e a auditoria de 2026-10-19).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)

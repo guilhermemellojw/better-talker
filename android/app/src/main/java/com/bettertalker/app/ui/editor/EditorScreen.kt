@@ -717,6 +717,7 @@ fun EditorScreen(
             onDismiss = vm::dismissDraft,
             onRetry = { (draftState as? DraftUiState.Error)?.target?.let(vm::startDraft) },
             onUndo = vm::undoDraft,
+            onNext = vm::nextDraft,
         )
     }
 

@@ -121,4 +121,29 @@ class SectionGeneratorImplTest {
         assertTrue(req.jsonSchema!!.contains("section_draft"))
         assertEquals(1, req.maxAttempts)
     }
+
+    @Test
+    fun generate_usaMinutosDaSecaoNoOrcamentoLongo() = runBlocking {
+        val fake = FakeLlm { okResponse(validJson()) }
+        SectionGeneratorImpl(fake).generate(dossier())
+
+        val req = fake.received.single()
+        assertEquals(5, req.longTextRequest?.minutes)
+        assertEquals(5, req.longTextRequest?.sectionMinutes)
+        assertEquals(2048, req.maxOutputTokens)
+    }
+
+    @Test
+    fun generate_secaoLonga_usaOrcamentoMaior() = runBlocking {
+        val fake = FakeLlm { okResponse(validJson()) }
+        SectionGeneratorImpl(fake).generate(
+            dossier().copy(
+                currentSection = dossier().currentSection.copy(minutes = 30),
+            )
+        )
+
+        val req = fake.received.single()
+        assertEquals(30, req.longTextRequest?.minutes)
+        assertEquals(6050, req.maxOutputTokens)
+    }
 }

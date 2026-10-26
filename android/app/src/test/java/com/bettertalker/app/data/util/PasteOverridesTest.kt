@@ -81,6 +81,16 @@ class PasteOverridesTest {
     }
 
     @Test
+    fun duracao_vmTalk_1min_ajustaPara3_eSomaBate() {
+        val plan = planPaste(talkText)
+        val out = applyPasteOverrides(plan, PasteOverrides(minutes = 1))
+
+        assertEquals(3, out.sections.sumOf { it.minutes })
+        assertEquals(1, out.sections.first { it.role == SectionRole.INTRO }.minutes)
+        assertEquals(1, out.sections.last { it.role == SectionRole.CONCLUSION }.minutes)
+    }
+
+    @Test
     fun overrides_naoMudamTipoDeParte() {
         val demo = applyPasteOverrides(
             planPaste(part5),

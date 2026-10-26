@@ -4,6 +4,7 @@ import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.data.edit.EditProposalMode
 import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.domain.planning.SpeechPacing
 
 /**
  * Fase 16 — paridade do chat nativo com a F15 (web).
@@ -262,6 +263,42 @@ fun blockSection(blockTitle: String?, blockMinutes: Int?): String {
         "--- FIM DO BLOCO ---\n"
 }
 
+/**
+ * Extensão alvo do bloco em foco. É o antídoto contra o modelo escrever o
+ * discurso inteiro quando o usuário pede "o texto" de uma seção de 5 min.
+ * Puro/testável.
+ */
+fun extensionTargetSection(blockMinutes: Int?, longText: Boolean = false): String {
+    val minutes = blockMinutes?.takeIf { it > 0 } ?: return ""
+    val words = SpeechPacing.targetWords(minutes)
+    val turns = SpeechPacing.targetTurns(minutes)
+    if (!longText) {
+        return "\n\n--- EXTENSÃO ALVO DO BLOCO ---\n" +
+            "Duração: $minutes min\n" +
+            "Discurso: cerca de $words palavras " +
+            "(ritmo de ${SpeechPacing.WORDS_PER_MINUTE} palavras/min)\n" +
+            "Demonstração: cerca de $turns réplicas (2,5/min)\n" +
+            "Escreva SOMENTE este bloco. Não antecipe nem repita o restante do discurso.\n" +
+            "--- FIM DA EXTENSÃO ALVO ---\n"
+    }
+    // Pedido explícito de texto: vira TAREFA, não sugestão. O modelo tende a
+    // "fechar" curto com finish=stop; a estrutura por blocos e o piso de 80%
+    // são o que fazem o texto chegar perto do tempo.
+    return "\n\n## TAREFA DE TEXTO LONGO (PRIORIDADE MÁXIMA)\n" +
+        "O usuário pediu o TEXTO do bloco. Entregue o texto completo dentro de " +
+        "<texto-do-card>...</texto-do-card>; não entregue análise, resumo ou promessa.\n" +
+        "Duração: $minutes min.\n" +
+        "Discurso: meta de $words palavras. Demonstração: meta de $turns réplicas.\n" +
+        "Estrutura: abertura curta, desenvolvimento em blocos de ~2 min e conclusão. " +
+        "Cada bloco de desenvolvimento precisa de explicação, exemplo/ilustração e aplicação. " +
+        "Não encerre enquanto o texto não tiver pelo menos 80% da meta " +
+        "(${words * 8 / 10} palavras em discurso; ${turns * 8 / 10} réplicas em demonstração). " +
+        "Se o texto atual estiver curto, continue desenvolvendo em vez de resumir.\n" +
+        "Nesta tarefa, a regra de parágrafos curtos do chat NÃO se aplica: " +
+        "a extensão alvo manda.\n" +
+        "--- FIM DA TAREFA DE TEXTO LONGO ---\n"
+}
+
 /** Categoria serializável; desconhecida nunca vira categoria inventada. */
 private fun categorySerial(c: TrainingCategory?): String = c?.serial ?: TrainingCategory.UNKNOWN.serial
 
@@ -415,7 +452,15 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "transição, introdução, conclusão), envolva APENAS esse trecho em " +
         "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
         "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
-        "o marcador."
+        "o marcador." +
+        // Bloco de geração longa: a extensão vem do BLOCO ATUAL, não do total.
+        "\nQuando houver um bloco em foco com duração, escreva apenas esse bloco " +
+        "na extensão alvo — não o discurso inteiro. Se o usuário pedir o texto " +
+        "total, o app gera seção por seção no painel de rascunho." +
+        // Exceção explícita: a persona fala em parágrafos curtos; no texto
+        // longo a meta de tempo vence.
+        "\nSe a TAREFA DE TEXTO LONGO estiver presente, a extensão alvo manda: " +
+        "escreva vários parágrafos longos e não resuma."
 
 /** T2 — verbos/pedidos que pedem resposta estruturada (texto normalizado). */
 private val STRUCTURED_HINTS = Regex(
@@ -454,9 +499,11 @@ fun buildChatPrompt(
     structural: OutlineStructureContext? = null,
     oratory: OratoryStructure.Inferred? = null,
     userContextBlock: String? = null,
+    longText: Boolean = false,
 ): String {
     val context = serializePack(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
+    val extension = extensionTargetSection(blockMinutes, longText)
     val brief = chatBriefToText(message, history, isFirstMessage)
     val volatile = userContextBlock?.takeIf { it.isNotBlank() }
         ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }
@@ -465,7 +512,7 @@ fun buildChatPrompt(
     val s34Rules = if (structural != null) "\n$S34_PROMPT_RULES\n" else ""
     // F20-A: a regra da estrutura inferida acompanha o bloco quando existe.
     val oratoryRules = if (oratory != null) "\n$ORATORY_STRUCTURE_RULES\n" else ""
-    return "$brief$volatile\n\n${focusLine(message)}\n$context$block$s34Rules$oratoryRules\n" +
+    return "$brief$volatile\n\n${focusLine(message)}\n$context$block$extension$s34Rules$oratoryRules\n" +
         "Texto do bloco em foco:\n\"$blockText\"\n\n" +
         chatTailInstructions()
 }
@@ -516,9 +563,11 @@ fun buildDeepSeekPrompts(
     oratory: OratoryStructure.Inferred? = null,
     contextBlock: String? = null,
     userContextBlock: String? = null,
+    longText: Boolean = false,
 ): DeepSeekPrompts {
     val context = serializePackStable(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
+    val extension = extensionTargetSection(blockMinutes, longText)
     val s34Rules = if (structural != null) "\n$S34_PROMPT_RULES\n" else ""
     val oratoryRules = if (oratory != null) "\n$ORATORY_STRUCTURE_RULES\n" else ""
     val dossier = contextBlock?.takeIf { it.isNotBlank() }
@@ -527,8 +576,8 @@ fun buildDeepSeekPrompts(
     val sources = if (oratory != null || !contextBlock.isNullOrBlank()) "\n$ORATORY_SOURCES_BLOCK\n" else ""
     // T2 (TAIL condicional): o formato varia com a mensagem — turnos curtos
     // e estruturados geram dois prefixos estáveis (cache por classe).
-    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + sources + "\n" +
-        chatTailInstructions()).trim()
+    val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block +
+        extension + dossier + sources + "\n" + chatTailInstructions()).trim()
     // Fase 1: o que muda a cada pergunta fica no user (prefixo estável no system).
     val volatile = userContextBlock?.takeIf { it.isNotBlank() }
         ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }

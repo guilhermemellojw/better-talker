@@ -300,6 +300,8 @@ private fun AppNav(
                         com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
                     )
                 vm.setSectionGenerator(generator, canGenerate)
+                // "Texto total" no chat: fila de drafts seção a seção.
+                copilotVm.setDraftQueueStarter { targets -> vm.startDraftQueue(targets) }
             }
             // tema do esboço vira título da nota
             val titleEv by copilotVm.titleEvent.collectAsState()
@@ -392,6 +394,19 @@ private fun AppNav(
                 editorEntry, key = noteId,
                 factory = EditorViewModel.Factory(ctx, db, noteId)
             )
+            // O chat pode ser restaurado sem a rota do editor: garante o
+            // gerador para o fluxo "texto total" → DraftSheet.
+            androidx.compose.runtime.LaunchedEffect(editorVm) {
+                val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
+                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
+                val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
+                editorVm.setSectionGenerator(
+                    com.bettertalker.app.data.planning.SectionGeneratorImpl(
+                        com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
+                    ),
+                    canGenerate,
+                )
+            }
             // tema do esboço vira título da nota
             val chatTitleEv by copilotVm.titleEvent.collectAsState()
             androidx.compose.runtime.LaunchedEffect(chatTitleEv) {
@@ -421,7 +436,11 @@ private fun AppNav(
                     (draftState as? com.bettertalker.app.ui.editor.DraftUiState.Error)
                         ?.target?.let(editorVm::startDraft)
                 },
+                onDraftNext = editorVm::nextDraft,
             )
+            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+                copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
+            }
             // Fase 18 §17: seleção viva do editor -> contexto do Copilot.
             val liveSelection by editorVm.selectedText.collectAsState()
             androidx.compose.runtime.LaunchedEffect(liveSelection) {

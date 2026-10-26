@@ -9,7 +9,12 @@ import com.bettertalker.app.domain.planning.DossierFidelityCheck
 import com.bettertalker.app.domain.planning.GenerationProfile
 import com.bettertalker.app.domain.planning.SectionDraft
 import com.bettertalker.app.domain.planning.SectionGenerator
-import com.bettertalker.app.domain.planning.SpeechPacing
+import com.bettertalker.app.domain.planning.LONG_TEXT_MAX_OUTPUT_TOKENS
+import com.bettertalker.app.domain.planning.LongTextKind
+import com.bettertalker.app.domain.planning.LongTextRequest
+import com.bettertalker.app.domain.planning.LongTextScope
+import com.bettertalker.app.domain.planning.longTextKindOf
+import com.bettertalker.app.data.copilot.generationTelemetry
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -37,23 +42,29 @@ class SectionGeneratorImpl(
 
     override suspend fun generate(dossier: Dossier): SectionDraft? {
         val prompt = promptBuilder.build(dossier)
-        val budget = draftOutputBudget(dossier.currentSection.minutes)
+        val kind = longTextKindOf(dossier.discourseType)
+        val minutes = dossier.currentSection.minutes
+        val budget = draftOutputBudget(minutes, kind)
         // Fase A: persona pelo tipo persistido — MINISTRY_TALK é discurso.
         val profile = GenerationProfile.forDiscourseType(dossier.discourseType)
-        val first = callLlm(prompt, budget, profile) ?: return null
+        val first = callLlm(prompt, budget, profile, minutes, kind) ?: return null
         val firstParsed = parse(first) ?: return null
-        if (!looksTruncated(firstParsed.textHtml, first.meta.finishReason)) {
+        val firstCut = looksTruncated(firstParsed.textHtml, first.meta.finishReason)
+        logTelemetry("draft", first, firstParsed.textHtml, truncated = firstCut)
+        if (!firstCut) {
             return draftOf(firstParsed, dossier, truncated = false)
         }
         // Retry 1x com instrução reforçada (nunca mais de 1 — cota).
         val retryPrompt = prompt + "\n\n## ATENÇÃO\n" +
             "A resposta anterior foi cortada antes do fim. Escreva o " +
             "rascunho completo, encerrando com ponto final. Não pare no meio."
-        val second = callLlm(retryPrompt, budget, profile)
+        val second = callLlm(retryPrompt, budget, profile, minutes, kind)
             ?: return draftOf(firstParsed, dossier, truncated = true)
         val secondParsed = parse(second)
             ?: return draftOf(firstParsed, dossier, truncated = true)
-        if (!looksTruncated(secondParsed.textHtml, second.meta.finishReason)) {
+        val secondCut = looksTruncated(secondParsed.textHtml, second.meta.finishReason)
+        logTelemetry("draft-retry", second, secondParsed.textHtml, truncated = secondCut)
+        if (!secondCut) {
             return draftOf(secondParsed, dossier, truncated = false)
         }
         // Truncar até a última frase completa; sem pontuação, devolve
@@ -73,6 +84,8 @@ class SectionGeneratorImpl(
         prompt: String,
         maxOutputTokens: Int,
         profile: GenerationProfile,
+        minutes: Int,
+        kind: LongTextKind,
     ): LlmResponse? {
         val llmRequest = LlmRequest(
             text = prompt,
@@ -82,6 +95,14 @@ class SectionGeneratorImpl(
             timeoutMs = 30_000L,
             maxOutputTokens = maxOutputTokens,
             generationProfile = profile,
+            longTextRequest = minutes.takeIf { it > 0 }?.let {
+                LongTextRequest(
+                    kind = kind,
+                    scope = LongTextScope.SECTION,
+                    minutes = it,
+                    sectionMinutes = it,
+                )
+            },
         )
         return try {
             llmProvider.generate(llmRequest)
@@ -92,6 +113,24 @@ class SectionGeneratorImpl(
             log("draft falhou: ${e::class.simpleName}: ${e.message}")
             null
         }
+    }
+
+    private fun logTelemetry(
+        route: String,
+        response: LlmResponse,
+        text: String,
+        truncated: Boolean,
+    ) {
+        log(
+            generationTelemetry(
+                route = route,
+                text = text,
+                budget = response.meta.budget,
+                finishReason = response.meta.finishReason,
+                truncated = truncated,
+                thinking = response.meta.thinking,
+            ).line()
+        )
     }
 
     private fun parse(response: LlmResponse): ParsedDraft? {
@@ -134,14 +173,20 @@ class SectionGeneratorImpl(
 }
 
 /**
- * P0 (alinhamento persona/tempo): orçamento de saída proporcional à meta de
- * palavras da seção (~130 palavras/min; ~1,45 tokens/palavra + folga do
- * JSON). Piso 500 (comportamento antigo) e teto 1280 — o mesmo comprovado
- * no fluxo oratório (2048 sempre toma 429 no OTPM 1000/min do plano
- * gratuito; 1280 nunca truncou em execuções reais). Puro/testável.
+ * Orçamento de saída do draft proporcional ao tempo da SEÇÃO (nunca ao total
+ * do discurso). Usa a mesma fórmula do texto longo (palavras × 1,5 + 200 ou
+ * réplicas × 80 + 200), com piso 2048 e teto 8192. Acima de 8192 o chamador
+ * deve dividir por sub-ponto/seção. Puro/testável.
  */
-internal fun draftOutputBudget(minutes: Int?): Int {
-    val words = minutes?.takeIf { it > 0 }?.let { SpeechPacing.targetWords(it) } ?: 0
-    val tokens = words * 145 / 100 + 120
-    return tokens.coerceIn(500, 1280)
+internal fun draftOutputBudget(
+    minutes: Int?,
+    kind: LongTextKind = LongTextKind.SPEECH,
+): Int {
+    val safe = minutes?.takeIf { it > 0 } ?: return 500
+    val raw = if (kind == LongTextKind.DEMO) {
+        com.bettertalker.app.domain.planning.SpeechPacing.targetTurns(safe) * 80 + 200
+    } else {
+        com.bettertalker.app.domain.planning.SpeechPacing.targetWords(safe) * 3 / 2 + 200
+    }
+    return raw.coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
 }
