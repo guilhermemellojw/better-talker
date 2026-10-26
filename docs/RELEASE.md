@@ -43,6 +43,9 @@ secrets:
 Sem esses secrets, o workflow de release falha antes de gerar um APK sem
 assinatura. O release **nunca** volta a usar a debug key.
 
+O arquivo `~/.better-talker-keystore/github-secrets.txt` (600) já contém os
+quatro valores prontos para copiar no GitHub; ele não é versionado.
+
 ## Build local
 
 ```bash
