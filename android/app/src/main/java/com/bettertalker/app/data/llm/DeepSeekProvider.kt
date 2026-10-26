@@ -3,8 +3,6 @@ package com.bettertalker.app.data.llm
 import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.planning.looksTruncated
 import com.bettertalker.app.domain.planning.LONG_TEXT_FALLBACK_MAX_OUTPUT_TOKENS
-import com.bettertalker.app.domain.planning.LONG_TEXT_MAX_OUTPUT_TOKENS
-import com.bettertalker.app.domain.planning.budgetForRequest
 import com.bettertalker.app.domain.planning.isLongTextUnderTarget
 import com.bettertalker.app.domain.planning.longTextExpansionInstruction
 import com.bettertalker.app.domain.planning.longTextSecondExpansionInstruction
@@ -87,15 +85,25 @@ class DeepSeekProvider(
         // #8f: o modo "Profundo" (reasoning "high") consome o orçamento no
         // thinking — sobe o teto default para evitar o retry por content vazio.
         var budget = longText
-            ?.let { budgetForRequest(it).maxTokens }
-            ?: outputBudgetFor(effort, request.maxOutputTokens)
-        // Teto de retry por length: texto longo pode subir até 8192; o chat
-        // comum mantém o teto histórico de 4096.
-        val retryCap = if (longText != null) {
-            LONG_TEXT_MAX_OUTPUT_TOKENS
-        } else {
-            CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES
-        }
+            ?.let { com.bettertalker.app.domain.planning.OutputBudget.longText(it).maxTokens }
+            ?: outputBudgetFor(
+                effort,
+                request.maxOutputTokens.takeIf { it > 0 }
+                    ?: com.bettertalker.app.domain.planning.OutputBudget.chat(
+                        hasResolvedRefs = !request.contextBlock.isNullOrBlank() ||
+                            request.contextPack?.contentSources?.isNotEmpty() == true,
+                    ),
+            )
+        // C1: o caminho define até onde o retry por length pode subir. Sem cap
+        // explícito, chat/minimal ficam em 4096; estruturado e texto longo em
+        // 8192. Nunca abaixo do orçamento inicial.
+        val retryCap = (request.maxOutputTokensCap.takeIf { it > 0 }
+            ?: if (longText != null || structured) {
+                com.bettertalker.app.domain.planning.OutputBudget.MAX
+            } else {
+                com.bettertalker.app.domain.planning.OutputBudget.CHAT_WITH_SOURCES
+            })
+            .coerceIn(budget, com.bettertalker.app.domain.planning.OutputBudget.MAX)
         var budgetBumped = false
         // Se o endpoint rejeitar 8192, cai UMA vez para 4096 (o chamador divide).
         var budgetFallbackDone = false
@@ -111,6 +119,9 @@ class DeepSeekProvider(
             "Accept" to "text/event-stream",
         )
         var attempts = 0
+        // C1: retries de qualidade/fallback (não contam como tentativa
+        // transitória, mas precisam aparecer na telemetria).
+        var retries = 0
         var lastError: Exception? = null
         // Aviso da PRÓXIMA tentativa (definido no fim da anterior). A UI mostra
         // "Tentando novamente…" em vez de assistir ao parcial sumir em silêncio.
@@ -199,6 +210,7 @@ class DeepSeekProvider(
                             isLongTextUnderTarget(text, longText)
                         if (underLength) {
                             underLengthRetries++
+                            retries++
                             promptSuffix = if (underLengthRetries == 1) {
                                 longTextExpansionInstruction(text, longText)
                             } else {
@@ -223,6 +235,7 @@ class DeepSeekProvider(
                         val canBump = budget < retryCap && !budgetFallbackDone
                         if (shouldRetryOnLength(vazioPorLength, cortado, budgetBumped, canBump)) {
                             budgetBumped = true
+                            retries++
                             budget = (budget * 2).coerceAtMost(retryCap)
                             log(
                                 "deepseek ${if (vazio) "vazio" else "cortado"} por length; " +
@@ -280,6 +293,7 @@ class DeepSeekProvider(
                                 finishReason = finish,
                                 budget = budget,
                                 thinking = effort != STRUCTURED_REASONING_EFFORT,
+                                retries = maxOf(retries, attempts - 1),
                             )
                         )
                     }
@@ -309,6 +323,7 @@ class DeepSeekProvider(
                         ) {
                             budgetFallbackDone = true
                             budget = LONG_TEXT_FALLBACK_MAX_OUTPUT_TOKENS
+                            retries++
                             log(
                                 "deepseek max_tokens rejeitado; " +
                                     "fallback budget=$budget (dividir o texto)"
@@ -323,6 +338,7 @@ class DeepSeekProvider(
                         ) {
                             if (mode == DeepSeekStructuredMode.SCHEMA) jsonSchemaRejected = true
                             modeIndex++
+                            retries++
                             log(
                                 "deepseek 400 response_format indisponível; " +
                                     "fallback=${modes[modeIndex].name}"
@@ -491,7 +507,8 @@ class DeepSeekProvider(
             model: String = MODEL_FLASH,
             system: String,
             user: String,
-            maxOutputTokens: Int = DEFAULT_LLM_MAX_OUTPUT_TOKENS,
+            maxOutputTokens: Int =
+                com.bettertalker.app.domain.planning.OutputBudget.CHAT,
             editProposal: Boolean = false,
             jsonSchema: String? = null,
             reasoningEffort: String = REASONING_EFFORT,

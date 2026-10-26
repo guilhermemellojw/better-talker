@@ -57,10 +57,17 @@ data class LlmRequest(
     val timeoutMs: Long = DEFAULT_LLM_TIMEOUT_MS,
     val maxAttempts: Int = DEFAULT_LLM_MAX_ATTEMPTS,
     /**
-     * F20-E: teto de tokens de SAÍDA. O default histórico (1000) truncava
-     * respostas oratórias no meio do JSON (comprovado na validação real).
+     * C1: teto de tokens de SAÍDA do caminho. `0` = o provider resolve pelo
+     * caminho (nunca o default silencioso de 1.000). Todo chamador de produção
+     * passa o valor nomeado de [com.bettertalker.app.domain.planning.OutputBudget].
      */
-    val maxOutputTokens: Int = DEFAULT_LLM_MAX_OUTPUT_TOKENS,
+    val maxOutputTokens: Int = 0,
+    /**
+     * C1: teto do retry por `finish_reason=length`. O provider começa em
+     * [maxOutputTokens] e sobe até este valor quando o corte é por orçamento.
+     * `0` = teto padrão do caminho (chat 4.096; texto longo/estrutura 8.192).
+     */
+    val maxOutputTokensCap: Int = 0,
     /**
      * Fase 5 (BLOCO B): 'edit-proposal' pede JSON em cerca para virar
      * proposta (parse + validação locais). Default 'text'.
@@ -96,7 +103,8 @@ data class LlmRequest(
     val minimalPaste: String? = null,
     /**
      * Texto longo com tempo correto (discurso/demonstração). Quando presente,
-     * o provider usa [budgetForRequest] (até 8192 tokens) e desliga o
+     * o provider usa [com.bettertalker.app.domain.planning.OutputBudget.longText]
+     * (até 8192 tokens) e desliga o
      * thinking; o chamador continua responsável por dividir o trabalho em
      * seções quando o total passar do teto.
      */
@@ -126,6 +134,12 @@ data class LlmResponseMeta(
     val budget: Int = 0,
     /** true = o modelo rodou com thinking (reasoning_effort != "none"). */
     val thinking: Boolean = false,
+    /**
+     * C1: retries feitos além da primeira chamada — inclui length, extensão
+     * de texto curto e fallback de `max_tokens`/`response_format`. Diferente
+     * de [attempts], que conta só as tentativas transitórias válidas.
+     */
+    val retries: Int = 0,
 )
 
 /** Tokens observados de uma chamada real (nulos quando o endpoint omite). */
@@ -159,7 +173,6 @@ interface LlmProvider {
 /** Padrões centralizados, mesmos valores do web (§15 F15). */
 const val DEFAULT_LLM_TIMEOUT_MS: Long = 30_000L
 const val DEFAULT_LLM_MAX_ATTEMPTS: Int = 2
-const val DEFAULT_LLM_MAX_OUTPUT_TOKENS: Int = 1000
 
 /**
  * exp/chat-quality (2026-10-21): orçamento de saída do CHAT LIVRE.
@@ -167,11 +180,17 @@ const val DEFAULT_LLM_MAX_OUTPUT_TOKENS: Int = 1000
  * 1000 tokens cortavam a resposta no meio (medido: 37 caracteres com
  * finish=length). 2048 cabe uma introdução de discurso (~1300 palavras) e
  * com fontes resolvidas sobe para 4096.
+ *
+ * C1: valores canônicos vivem em
+ * [com.bettertalker.app.domain.planning.OutputBudget]; estes aliases mantêm
+ * os imports históricos.
  */
-const val CHAT_MAX_OUTPUT_TOKENS: Int = 2048
+const val CHAT_MAX_OUTPUT_TOKENS: Int =
+    com.bettertalker.app.domain.planning.OutputBudget.CHAT
 
 /** exp/chat-quality: com fontes resolvidas, a resposta cita e comenta → teto maior. */
-const val CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES: Int = 4096
+const val CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES: Int =
+    com.bettertalker.app.domain.planning.OutputBudget.CHAT_WITH_SOURCES
 
 /** Backoff entre tentativas transitórias: 400ms × tentativa (mesmo do web). */
 const val RETRY_BACKOFF_MS: Long = 400L

@@ -238,6 +238,28 @@ fun applyStructureMessage(pastedOutline: String?): String {
 }
 
 /**
+ * C1 — parte de uma estrutura grande (> 30 min). O chamador divide os títulos
+ * e une as respostas; o modelo nunca tenta o discurso inteiro numa resposta
+ * só. Puro/testável.
+ */
+fun applyStructurePartMessage(
+    pastedOutline: String?,
+    part: Int,
+    parts: Int,
+    titles: List<String>,
+): String {
+    val base = applyStructureMessage(pastedOutline)
+    if (parts <= 1 || titles.isEmpty()) return base
+    val list = titles.joinToString("\n") { "- $it" }
+    return base + "\n\n## DIVISÃO OBRIGATÓRIA (parte $part de $parts)\n" +
+        "A estrutura completa foi dividida pelo aplicativo. Nesta chamada, " +
+        "gere SOMENTE estas partes, cada uma com o texto completo que o orador " +
+        "deve falar:\n$list\n" +
+        "Não repita títulos de outras partes, não resuma e não pule nenhuma " +
+        "das partes listadas. O aplicativo vai unir as respostas na ordem."
+}
+
+/**
  * T1 — marcador de criação: o modelo envolve ilustrações/metáforas/exemplos
  * originais em 〈sugestão〉…〈/sugestão〉. O gate isenta a PROSA marcada, mas
  * NUNCA número nem referência inventados.

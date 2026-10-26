@@ -9,7 +9,6 @@ import com.bettertalker.app.domain.planning.DossierFidelityCheck
 import com.bettertalker.app.domain.planning.GenerationProfile
 import com.bettertalker.app.domain.planning.SectionDraft
 import com.bettertalker.app.domain.planning.SectionGenerator
-import com.bettertalker.app.domain.planning.LONG_TEXT_MAX_OUTPUT_TOKENS
 import com.bettertalker.app.domain.planning.LongTextKind
 import com.bettertalker.app.domain.planning.LongTextRequest
 import com.bettertalker.app.domain.planning.LongTextScope
@@ -43,11 +42,19 @@ class SectionGeneratorImpl(
     override suspend fun generate(dossier: Dossier): SectionDraft? {
         val prompt = promptBuilder.build(dossier)
         val kind = longTextKindOf(dossier.discourseType)
-        val minutes = dossier.currentSection.minutes
-        val budget = draftOutputBudget(minutes, kind)
+        val sectionMinutes = dossier.currentSection.minutes
+        // C1: se o alvo é um sub-ponto de uma seção longa, o orçamento usa a
+        // fatia do sub-ponto (não a seção inteira). A soma do discurso não muda.
+        val partMinutes = effectiveDraftMinutes(
+            sectionMinutes = sectionMinutes,
+            isSubPoint = dossier.currentSubPoint != null,
+            subPointCount = dossier.sectionSubPoints.size,
+        )
+        val budget = com.bettertalker.app.domain.planning.OutputBudget
+            .sectionDraft(partMinutes, kind)
         // Fase A: persona pelo tipo persistido — MINISTRY_TALK é discurso.
         val profile = GenerationProfile.forDiscourseType(dossier.discourseType)
-        val first = callLlm(prompt, budget, profile, minutes, kind) ?: return null
+        val first = callLlm(prompt, budget, profile, partMinutes, sectionMinutes, kind) ?: return null
         val firstParsed = parse(first) ?: return null
         val firstCut = looksTruncated(firstParsed.textHtml, first.meta.finishReason)
         logTelemetry("draft", first, firstParsed.textHtml, truncated = firstCut)
@@ -58,7 +65,7 @@ class SectionGeneratorImpl(
         val retryPrompt = prompt + "\n\n## ATENÇÃO\n" +
             "A resposta anterior foi cortada antes do fim. Escreva o " +
             "rascunho completo, encerrando com ponto final. Não pare no meio."
-        val second = callLlm(retryPrompt, budget, profile, minutes, kind)
+        val second = callLlm(retryPrompt, budget, profile, partMinutes, sectionMinutes, kind)
             ?: return draftOf(firstParsed, dossier, truncated = true)
         val secondParsed = parse(second)
             ?: return draftOf(firstParsed, dossier, truncated = true)
@@ -85,6 +92,7 @@ class SectionGeneratorImpl(
         maxOutputTokens: Int,
         profile: GenerationProfile,
         minutes: Int,
+        sectionMinutes: Int,
         kind: LongTextKind,
     ): LlmResponse? {
         val llmRequest = LlmRequest(
@@ -94,13 +102,14 @@ class SectionGeneratorImpl(
             maxAttempts = 1, // sem retry automático — evita queimar cota em 429
             timeoutMs = 30_000L,
             maxOutputTokens = maxOutputTokens,
+            maxOutputTokensCap = com.bettertalker.app.domain.planning.OutputBudget.DRAFT_MAX,
             generationProfile = profile,
             longTextRequest = minutes.takeIf { it > 0 }?.let {
                 LongTextRequest(
                     kind = kind,
                     scope = LongTextScope.SECTION,
                     minutes = it,
-                    sectionMinutes = it,
+                    sectionMinutes = sectionMinutes,
                 )
             },
         )
@@ -129,6 +138,8 @@ class SectionGeneratorImpl(
                 finishReason = response.meta.finishReason,
                 truncated = truncated,
                 thinking = response.meta.thinking,
+                attempts = response.meta.attempts,
+                retries = response.meta.retries,
             ).line()
         )
     }
@@ -173,20 +184,15 @@ class SectionGeneratorImpl(
 }
 
 /**
- * Orçamento de saída do draft proporcional ao tempo da SEÇÃO (nunca ao total
- * do discurso). Usa a mesma fórmula do texto longo (palavras × 1,5 + 200 ou
- * réplicas × 80 + 200), com piso 2048 e teto 8192. Acima de 8192 o chamador
- * deve dividir por sub-ponto/seção. Puro/testável.
+ * C1 — duração efetiva do alvo do draft. Um sub-ponto de uma seção longa usa
+ * a fatia proporcional; a seção inteira usa section.minutes (nunca o total do
+ * discurso). Puro/testável.
  */
-internal fun draftOutputBudget(
-    minutes: Int?,
-    kind: LongTextKind = LongTextKind.SPEECH,
+internal fun effectiveDraftMinutes(
+    sectionMinutes: Int,
+    isSubPoint: Boolean,
+    subPointCount: Int,
 ): Int {
-    val safe = minutes?.takeIf { it > 0 } ?: return 500
-    val raw = if (kind == LongTextKind.DEMO) {
-        com.bettertalker.app.domain.planning.SpeechPacing.targetTurns(safe) * 80 + 200
-    } else {
-        com.bettertalker.app.domain.planning.SpeechPacing.targetWords(safe) * 3 / 2 + 200
-    }
-    return raw.coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
+    if (!isSubPoint || subPointCount <= 1 || sectionMinutes <= 0) return sectionMinutes
+    return (sectionMinutes / subPointCount).coerceAtLeast(1)
 }

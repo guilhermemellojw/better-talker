@@ -10,6 +10,7 @@ import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
+import com.bettertalker.app.data.copilot.applyStructurePartMessage
 import com.bettertalker.app.data.copilot.clipboardMatches
 import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
@@ -107,7 +108,7 @@ import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
 import com.bettertalker.app.domain.planning.LongTextResolution
 import com.bettertalker.app.domain.planning.LongTextScope
-import com.bettertalker.app.domain.planning.budgetForRequest
+import com.bettertalker.app.domain.planning.OutputBudget
 import com.bettertalker.app.domain.planning.longTextKindOf
 import com.bettertalker.app.domain.planning.longTextRequestFor
 import com.bettertalker.app.domain.planning.minutesMismatchNotice
@@ -353,11 +354,7 @@ fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome 
  * finish=length). Base sobe para 2048 e 4096 quando há fontes resolvidas.
  */
 internal fun answerOutputBudget(hasResolvedRefs: Boolean): Int =
-    if (hasResolvedRefs) {
-        com.bettertalker.app.data.llm.CHAT_MAX_OUTPUT_TOKENS_WITH_SOURCES
-    } else {
-        com.bettertalker.app.data.llm.CHAT_MAX_OUTPUT_TOKENS
-    }
+    com.bettertalker.app.domain.planning.OutputBudget.chat(hasResolvedRefs)
 
 /**
  * T2 (chat minimalista): banner de setup só quando o setup está
@@ -1427,6 +1424,16 @@ class CopilotViewModel(
                 val target = db.chatDao().allScoped(nid, _chatScope.value)
                     .firstOrNull { it.id == messageId && !it.fromMe && it.kind == "text" }
                     ?: return@launch
+                // C1: o orçamento do "Continuar" olha para o que FALTA da meta,
+                // não para o tamanho da resposta anterior. A meta é persistida
+                // no payload quando a resposta veio de texto longo.
+                val oldMap = ChatCodec.unescMap(target.payload)
+                val existingText = oldMap["text"].orEmpty()
+                val continueBudget = OutputBudget.continueGeneration(
+                    currentText = existingText,
+                    targetWords = oldMap["targetWords"]?.toIntOrNull(),
+                    targetTurns = oldMap["targetTurns"]?.toIntOrNull(),
+                )
                 val remote = ProviderFactory.resolveRemote(settings, app)
                 if (!ProviderFactory.useRemoteRoute(remote)) {
                     postText("Configure a chave de IA na tela Modelo IA para gerar esta parte.")
@@ -1448,10 +1455,14 @@ class CopilotViewModel(
                             message = CONTINUE_INSTRUCTION,
                             history = history,
                             isFirstMessage = false,
+                            maxOutputTokens = continueBudget,
+                            maxOutputTokensCap = OutputBudget.MAX,
                         )
                     )
                 }
                 val cont = truncateIfCut(res.text, res.meta.finishReason)
+                val continueTruncated =
+                    res.meta.finishReason == "length" || cont != res.text
                 android.util.Log.i(
                     "CopilotLLM",
                     generationTelemetry(
@@ -1459,19 +1470,20 @@ class CopilotViewModel(
                         text = cont,
                         budget = res.meta.budget,
                         finishReason = res.meta.finishReason,
-                        truncated = cont != res.text,
+                        truncated = continueTruncated,
                         thinking = res.meta.thinking,
+                        attempts = res.meta.attempts,
+                        retries = res.meta.retries,
                     ).line(),
                 )
                 if (cont.isBlank()) {
                     postText("Não consegui continuar a resposta agora. Tente novamente.")
                     return@launch
                 }
-                val oldMap = ChatCodec.unescMap(target.payload)
-                val merged = mergeContinuation(oldMap["text"].orEmpty(), cont)
+                val merged = mergeContinuation(existingText, cont)
                 val newMap = oldMap.toMutableMap().apply {
                     put("text", merged)
-                    if (cont != res.text) put("truncated", "1") else remove("truncated")
+                    if (continueTruncated) put("truncated", "1") else remove("truncated")
                 }
                 db.chatDao().updateMessagePayload(target.id, ChatCodec.escMap(newMap))
                 // #streaming-fix: a bolha existente já recebeu o texto novo.
@@ -1801,7 +1813,13 @@ class CopilotViewModel(
                     return@launch
                 }
                 com.bettertalker.app.data.copilot.ChatRouter.Intercept.PASTE_CHAT -> {
-                    answerMinimal(text, historyBefore, isFirst)
+                    // C1: texto total NUNCA vai para o minimal (resposta única
+                    // de conversa). Vai para o DraftSheet, uma parte por seção.
+                    if (com.bettertalker.app.data.copilot.ChatRouter.isTotalTextCommand(text)) {
+                        requestTotalText()
+                    } else {
+                        answerMinimal(text, historyBefore, isFirst)
+                    }
                     return@launch
                 }
                 com.bettertalker.app.data.copilot.ChatRouter.Intercept.NONE -> Unit
@@ -2300,6 +2318,10 @@ class CopilotViewModel(
         }
         try {
             val provider = ProviderFactory.createFor(remote, app)
+            val oratoryBudget = OutputBudget.oratory(
+                focusChars = block.length,
+                minutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
+            )
             val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 provider.generate(
                     com.bettertalker.app.data.llm.LlmRequest(
@@ -2309,14 +2331,34 @@ class CopilotViewModel(
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
                         oratorySpec = ready,
-                        // F20-E/F1: 1000 truncava o JSON; 2048 reserva ~1541 e
-                        // SEMPRE toma 429 no OTPM 1000/min do plano gratuito
-                        // (comprovado no aparelho). 1280 nunca truncou em 23
-                        // execuções reais (saídas observadas <= 1207).
-                        maxOutputTokens = 1280,
+                        // C1: orçamento dinâmico (duração da seção/foco), não
+                        // mais o 1.280 fixo. O retry sobe até 4.096.
+                        maxOutputTokens = oratoryBudget,
+                        maxOutputTokensCap = OutputBudget.ORATORY_MAX,
                         contextBlock = contextBlock,
                     )
                 )
+            }
+            val oratoryCut = res.meta.finishReason == "length"
+            android.util.Log.i(
+                "CopilotLLM",
+                generationTelemetry(
+                    route = "oratory",
+                    text = res.text,
+                    budget = res.meta.budget,
+                    finishReason = res.meta.finishReason,
+                    truncated = oratoryCut,
+                    thinking = res.meta.thinking,
+                    attempts = res.meta.attempts,
+                        retries = res.meta.retries,
+                ).line(),
+            )
+            if (oratoryCut) {
+                postText(
+                    "A resposta da oratória foi cortada pelo limite de tokens. " +
+                        "Tente novamente ou reduza o foco desta seção."
+                )
+                return
             }
             val blocks = listOf(com.bettertalker.app.data.edit.EditBlock(targetId, block))
             when (val r = com.bettertalker.app.data.edit.parseEditProposal(
@@ -2333,17 +2375,6 @@ class CopilotViewModel(
                             is EditOperation.Delete -> ""
                         }
                     }.trim().ifBlank { renderAfterText(r.proposal, focus) }
-                    android.util.Log.i(
-                        "CopilotLLM",
-                        generationTelemetry(
-                            route = "oratory",
-                            text = generated,
-                            budget = res.meta.budget,
-                            finishReason = res.meta.finishReason,
-                            truncated = false,
-                            thinking = res.meta.thinking,
-                        ).line(),
-                    )
                     val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
                         .check(generated, ready)
                     val notice = fidelityRevisionNotice(fidelity)
@@ -2477,11 +2508,18 @@ class CopilotViewModel(
                     history = history,
                     isFirstMessage = isFirst,
                     minimalPaste = pasted,
+                    // C1: conversa sobre o esboço; texto completo não passa
+                    // por aqui (o chamador encaminha ao DraftSheet).
+                    maxOutputTokens = OutputBudget.minimal(
+                        pastedChars = pasted.length,
+                        asksForFullText = false,
+                    ),
+                    maxOutputTokensCap = OutputBudget.MINIMAL_MAX,
                 )
             )
         }
         val outText = truncateIfCut(res.text, res.meta.finishReason)
-        val truncated = outText != res.text
+        val truncated = res.meta.finishReason == "length" || outText != res.text
         android.util.Log.i(
             "CopilotLLM",
             generationTelemetry(
@@ -2491,6 +2529,8 @@ class CopilotViewModel(
                 finishReason = res.meta.finishReason,
                 truncated = truncated,
                 thinking = res.meta.thinking,
+                attempts = res.meta.attempts,
+                        retries = res.meta.retries,
             ).line(),
         )
         // Gate em modo aviso: o esboço colado É a fonte — nada é removido,
@@ -2683,10 +2723,17 @@ class CopilotViewModel(
                     // #11-fix: folga quando há ref do acervo resolvida na pergunta.
                     // Texto longo: orçamento do pedido (2048..8192).
                     maxOutputTokens = longRequest
-                        ?.let { budgetForRequest(it).maxTokens }
+                        ?.let { OutputBudget.longText(it).maxTokens }
                         ?: answerOutputBudget(
                             questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
                         ),
+                    // C1: o retry por length do chat sobe até 4.096; texto
+                    // longo pode usar o teto absoluto de 8.192.
+                    maxOutputTokensCap = if (longRequest != null) {
+                        OutputBudget.MAX
+                    } else {
+                        OutputBudget.CHAT_WITH_SOURCES
+                    },
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
                     contextPack = turnContext.pack,
@@ -2704,7 +2751,7 @@ class CopilotViewModel(
         // "stop" prematuro). Trunca até a última frase completa — nunca
         // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
         val text = truncateIfCut(res.text, res.meta.finishReason)
-        val truncated = text != res.text
+        val truncated = res.meta.finishReason == "length" || text != res.text
         val historyWindow = com.bettertalker.app.data.copilot.effectiveHistoryTurns(history)
         android.util.Log.i(
             "CopilotLLM",
@@ -2715,6 +2762,8 @@ class CopilotViewModel(
                 finishReason = res.meta.finishReason,
                 truncated = truncated,
                 thinking = res.meta.thinking,
+                attempts = res.meta.attempts,
+                        retries = res.meta.retries,
                 inputTokens = res.meta.usage?.inputTokens,
                 outputTokens = res.meta.usage?.outputTokens,
                 cachedTokens = res.meta.usage?.cachedTokens,
@@ -2805,7 +2854,18 @@ class CopilotViewModel(
             recordConsensus(verified.text)
         } catch (_: Exception) {
         }
-        post(false, "text", ChatCodec.escMap(mapOf("text" to persistedText)), MessageOrigin.COPILOT,
+        val persistedPayload = buildMap {
+            put("text", persistedText)
+            // C1: "Continuar gerando" usa a meta do texto longo (palavras/
+            // réplicas restantes) — sem novo schema, só chaves no payload.
+            longRequest?.targetWords?.takeIf { it > 0 }?.let {
+                put("targetWords", it.toString())
+            }
+            longRequest?.targetTurns?.takeIf { it > 0 }?.let {
+                put("targetTurns", it.toString())
+            }
+        }
+        post(false, "text", ChatCodec.escMap(persistedPayload), MessageOrigin.COPILOT,
             durationMs = res.meta.durationMs, truncated = truncated)
         // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
         // indexada não vinculada → sugere vincular (1× por sessão).
@@ -3158,6 +3218,10 @@ class CopilotViewModel(
                 _chatEvidence.value = turnContext.evidence
                 android.util.Log.e("CopilotLLM", "proposal context ok focus=" + focus.length)
                 val provider = ProviderFactory.createFor(remote, app)
+                val proposalBudget = OutputBudget.proposal(
+                    focusChars = focus.length,
+                    operations = 1 + focus.length / 6000,
+                )
                 // HTTP fora da Main (§50), igual ao answerRemote.
                 val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     provider.generate(LlmRequest(
@@ -3172,6 +3236,10 @@ class CopilotViewModel(
                         responseFormat = ResponseFormat.EDIT_PROPOSAL,
                         editMode = mode,
                         brief = brief,
+                        // C1: orçamento pelo tamanho do foco + nº estimado de
+                        // operações; retry por length até 4.096.
+                        maxOutputTokens = proposalBudget,
+                        maxOutputTokensCap = OutputBudget.PROPOSAL_MAX,
                         // F2b: dossiê do último send() (a proposta nasce do turno).
                         // F5c: dedupe da ORIENTAÇÃO DO ORADOR (igual ao send()).
                         contextBlock = lastDossier?.let {
@@ -3184,6 +3252,27 @@ class CopilotViewModel(
                 }
                 android.util.Log.e("CopilotLLM", "proposal generated len=" + res.text.length +
                     " offline=" + res.meta.offline)
+                val proposalCut = res.meta.finishReason == "length"
+                android.util.Log.i(
+                    "CopilotLLM",
+                    generationTelemetry(
+                        route = "proposal",
+                        text = res.text,
+                        budget = res.meta.budget,
+                        finishReason = res.meta.finishReason,
+                        truncated = proposalCut,
+                        thinking = res.meta.thinking,
+                        attempts = res.meta.attempts,
+                        retries = res.meta.retries,
+                    ).line(),
+                )
+                if (proposalCut) {
+                    postText(
+                        "A proposta foi cortada pelo limite de tokens. " +
+                            "Tente gerar novamente ou reduza o trecho em foco."
+                    )
+                    return@launch
+                }
                 when (val r = parseEditProposal(res.text, blocks, "focus", mode)) {
                     is com.bettertalker.app.data.edit.ParseResult.Ok ->
                         _proposal.value = installProposal(ProposalUi(
@@ -3861,7 +3950,8 @@ class CopilotViewModel(
                             text = prompt,
                             action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                             message = prompt,
-                            maxOutputTokens = 2048,
+                            maxOutputTokens = OutputBudget.tribuna(sections.size),
+                            maxOutputTokensCap = OutputBudget.TRIBUNA_MAX,
                         )
                     )
                 }
@@ -3872,6 +3962,26 @@ class CopilotViewModel(
             }
             if (res == null) {
                 postText("Não consegui gerar a Tribuna. Tente novamente.")
+                return@launch
+            }
+            android.util.Log.i(
+                "CopilotLLM",
+                generationTelemetry(
+                    route = "tribuna",
+                    text = res.text,
+                    budget = res.meta.budget,
+                    finishReason = res.meta.finishReason,
+                    truncated = res.meta.finishReason == "length",
+                    thinking = res.meta.thinking,
+                    attempts = res.meta.attempts,
+                        retries = res.meta.retries,
+                ).line(),
+            )
+            if (res.meta.finishReason == "length") {
+                postText(
+                    "A Tribuna foi cortada pelo limite de tokens. " +
+                        "Tente novamente com menos seções."
+                )
                 return@launch
             }
             val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
@@ -5317,17 +5427,93 @@ class CopilotViewModel(
         _runState.value = ChatRunState.Generating
         try {
             val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
-            val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                provider.generate(
-                    com.bettertalker.app.data.llm.LlmRequest(
-                        text = "",
-                        action = com.bettertalker.app.data.llm.LlmAction.CHAT,
-                        message = com.bettertalker.app.data.copilot.applyStructureMessage(pasteBuffer),
-                        history = history,
-                        isFirstMessage = false,
-                    )
-                )
+            // C1: orçamento pelo total de minutos/seções e divisão ANTES do
+            // teto. Acima de 30 min a resposta única é proibida: o modelo
+            // recebe os títulos de cada parte e o app une na ordem.
+            val existingSections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+            val structuralMinutes = _lastS34Document?.sections
+                ?.mapNotNull { it.minutes }
+                ?.takeIf { it.isNotEmpty() }
+                ?.sum()
+            val overviewMinutes = lastDossier?.overview
+                ?.sumOf { it.minutes }
+                ?.takeIf { it > 0 }
+            val existingMinutes = existingSections.sumOf { it.minutes }.takeIf { it > 0 }
+            val totalMinutes = structuralMinutes ?: overviewMinutes ?: existingMinutes
+            val titles = buildList {
+                _lastS34Document?.sections?.forEach { add(it.title) }
+                if (isEmpty()) lastDossier?.overview?.forEach { add(it.title) }
+                if (isEmpty()) existingSections.forEach { add(it.title) }
+            }.filter { it.isNotBlank() }.distinct()
+            val plan = OutputBudget.structure(
+                totalMinutes = totalMinutes,
+                sectionCount = titles.size.coerceAtLeast(1),
+                sourceChars = pasteBuffer?.length ?: 0,
+            )
+            // Intro/conclusão não precisam estar no S-34; a divisão as reserva
+            // para a primeira/última parte e evita título duplicado.
+            val bodyTitles = titles.filterNot {
+                it.contains("INTRODU", ignoreCase = true) ||
+                    it.contains("CONCLUS", ignoreCase = true)
             }
+            val groups = OutputBudget.splitStructureTitles(bodyTitles, plan.parts)
+            val messages = if (groups.size > 1) {
+                groups.mapIndexed { index, group ->
+                    val partTitles = buildList {
+                        if (index == 0) add("INTRODUÇÃO")
+                        addAll(group)
+                        if (index == groups.lastIndex) add("CONCLUSÃO")
+                    }
+                    com.bettertalker.app.data.copilot.applyStructurePartMessage(
+                        pastedOutline = pasteBuffer,
+                        part = index + 1,
+                        parts = groups.size,
+                        titles = partTitles,
+                    )
+                }
+            } else {
+                listOf(com.bettertalker.app.data.copilot.applyStructureMessage(pasteBuffer))
+            }
+            val responses = mutableListOf<com.bettertalker.app.data.llm.LlmResponse>()
+            messages.forEachIndexed { index, structureMessage ->
+                val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    provider.generate(
+                        com.bettertalker.app.data.llm.LlmRequest(
+                            text = "",
+                            action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                            message = structureMessage,
+                            history = history,
+                            isFirstMessage = false,
+                            maxOutputTokens = plan.maxTokens,
+                            maxOutputTokensCap = OutputBudget.STRUCTURE_MAX,
+                        )
+                    )
+                }
+                responses += res
+                android.util.Log.i(
+                    "CopilotLLM",
+                    generationTelemetry(
+                        route = if (messages.size > 1) {
+                            "structure-${index + 1}/${messages.size}"
+                        } else {
+                            "structure"
+                        },
+                        text = res.text,
+                        budget = res.meta.budget,
+                        finishReason = res.meta.finishReason,
+                        truncated = res.meta.finishReason == "length",
+                        thinking = res.meta.thinking,
+                        attempts = res.meta.attempts,
+                        retries = res.meta.retries,
+                    ).line(),
+                )
+                if (res.text.isBlank()) {
+                    postText("Não consegui gerar a estrutura (parte ${index + 1}). Tente de novo.")
+                    return
+                }
+            }
+            val combinedText = responses.joinToString("\n\n") { it.text }
+            val anyCut = responses.any { it.meta.finishReason == "length" }
             // #7e: gate de groundedness — o esboço colado é a fonte do gate;
             // o que estiver carregado (dossiê, S-34 e seções atuais) complementa.
             // Limitação: este caminho não monta ContextPack/RAG (reportado).
@@ -5337,11 +5523,11 @@ class CopilotViewModel(
                     add(dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote = false))
                 }
                 _lastS34Document?.let { addAll(s34CorpusTexts(it)) }
-                db.speechSectionDao().forNote(nid).forEach {
+                existingSections.forEach {
                     add(com.bettertalker.app.data.edit.stripHtmlToText(it.contentHtml))
                 }
             }.filter { it.isNotBlank() }
-            val verified = verifyGeneratedText(res.text, null, corpus)
+            val verified = verifyGeneratedText(combinedText, null, corpus)
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
@@ -5360,10 +5546,16 @@ class CopilotViewModel(
                 postText("Não consegui extrair a estrutura da resposta. Tente de novo.")
                 return
             }
-            val hasExisting = db.speechSectionDao().forNote(nid).isNotEmpty()
+            val hasExisting = existingSections.isNotEmpty()
             _structurePreview.value = StructurePreview(sections, hasExisting)
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Estrutura pronta (${sections.size} partes) — revise e confirme no painel.")))
+            if (anyCut) {
+                postText(
+                    "Aviso: uma parte da estrutura chegou ao limite de tokens e pode " +
+                        "estar incompleta. Revise a prévia antes de aplicar ou tente de novo."
+                )
+            }
             if (removalNotice != null) {
                 postText(removalNotice)
             }

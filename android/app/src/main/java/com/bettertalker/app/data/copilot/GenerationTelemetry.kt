@@ -16,6 +16,8 @@ data class GenerationTelemetry(
     val truncated: Boolean,
     val hasCard: Boolean,
     val thinking: Boolean,
+    /** C1: tentativas além da primeira (retry por length/transitório). */
+    val retries: Int = 0,
     /** Uso real do provider (null quando o endpoint não informa). */
     val inputTokens: Int? = null,
     val outputTokens: Int? = null,
@@ -35,6 +37,7 @@ data class GenerationTelemetry(
         append("|truncated=").append(truncated)
         append("|hasCard=").append(hasCard)
         append("|thinking=").append(thinking)
+        append("|retries=").append(retries)
         append("|in_tokens=").append(inputTokens ?: "?")
         append("|out_tokens=").append(outputTokens ?: "?")
         append("|cached_tokens=").append(cachedTokens ?: "?")
@@ -57,6 +60,10 @@ fun generationTelemetry(
     finishReason: String? = null,
     truncated: Boolean = false,
     thinking: Boolean = false,
+    /** C1: tentativas totais do provider; retries = attempts - 1 por padrão. */
+    attempts: Int = 1,
+    /** C1: retries de qualidade/fallback informados pelo provider. */
+    retries: Int = (attempts - 1).coerceAtLeast(0),
     inputTokens: Int? = null,
     outputTokens: Int? = null,
     cachedTokens: Int? = null,
@@ -73,6 +80,7 @@ fun generationTelemetry(
     truncated = truncated,
     hasCard = text.contains("<texto-do-card>"),
     thinking = thinking,
+    retries = retries,
     inputTokens = inputTokens,
     outputTokens = outputTokens,
     cachedTokens = cachedTokens,

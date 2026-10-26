@@ -157,6 +157,7 @@ class LongTextProviderTest {
         assertTrue(res.text.contains("palavra"))
         // O retry de extensão não consome tentativa transitória.
         assertEquals(1, res.meta.attempts)
+        assertEquals(1, res.meta.retries)
     }
 
     @Test
@@ -178,6 +179,7 @@ class LongTextProviderTest {
         assertTrue(http.bodies[2].contains("EXPANSÃO DIRIGIDA"))
         assertTrue(http.bodies[2].contains("\"max_tokens\":4300"))
         assertTrue(res.text.contains("palavra"))
+        assertEquals(2, res.meta.retries)
     }
 
     @Test

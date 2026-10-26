@@ -36,7 +36,9 @@ class OutlineGeneratorImpl(
             jsonSchema = OUTLINE_SCHEMA,
             maxAttempts = 1, // sem retry automático — evita queimar cota em 429
             timeoutMs = 30_000L, // 30s (free tier é rápido)
-            maxOutputTokens = 1500, // cabe no TPM de 8K
+            // C1: fixo e nomeado — o JSON de títulos cabe no TPM de 8K.
+            maxOutputTokens = com.bettertalker.app.domain.planning.OutputBudget
+                .outline(totalMinutes = request.totalMinutes, sectionCount = 0),
             generationProfile =
                 com.bettertalker.app.domain.planning.GenerationProfile.STRUCTURE_PLANNER,
         )
@@ -49,6 +51,22 @@ class OutlineGeneratorImpl(
             log("esboço falhou: ${e::class.simpleName}: ${e.message}")
             return null
         }
+        val truncated = response.meta.finishReason == "length"
+        log(
+            com.bettertalker.app.data.copilot.generationTelemetry(
+                route = "outline",
+                text = response.text,
+                budget = response.meta.budget,
+                finishReason = response.meta.finishReason,
+                truncated = truncated,
+                thinking = response.meta.thinking,
+                attempts = response.meta.attempts,
+                retries = response.meta.retries,
+            ).line(),
+        )
+        // finish=length nunca vira sucesso silencioso: o JSON pode ter fechado
+        // por acaso, mas o esboço veio incompleto.
+        if (truncated) return null
         if (response.text.isBlank()) return null
         return responseParser.parse(response.text, request)
     }

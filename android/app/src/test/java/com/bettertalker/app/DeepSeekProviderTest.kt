@@ -344,8 +344,8 @@ class DeepSeekProviderTest {
         val res = provider(http).generate(req())
         assertEquals("ok", res.text)
         assertEquals(2, res.meta.attempts)
-        assertTrue(http.bodies[0].contains("\"max_tokens\":1000"))
-        assertTrue(http.bodies[1].contains("\"max_tokens\":2000"))
+        assertTrue(http.bodies[0].contains("\"max_tokens\":2048"))
+        assertTrue(http.bodies[1].contains("\"max_tokens\":4096"))
         assertEquals("", http.partialsAtCall[1])
         assertEquals(
             "Tentando novamente com mais espaço…",
@@ -625,7 +625,7 @@ class DeepSeekProviderTest {
         val http = FakeStream(mutableListOf(onlyLength, okStream("ok")))
         val logs = mutableListOf<String>()
         DeepSeekProvider(apiKey = "sk-teste", stream = http, log = { logs += it }).generate(req())
-        assertTrue(logs.any { it.contains("vazio por length") && it.contains("retry com budget=2000") })
+        assertTrue(logs.any { it.contains("vazio por length") && it.contains("retry com budget=4096") })
     }
 
     @Test
