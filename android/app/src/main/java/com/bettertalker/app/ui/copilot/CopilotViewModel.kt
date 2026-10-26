@@ -3814,26 +3814,25 @@ class CopilotViewModel(
                     ?.let { db.speechSectionDao().get(it)?.title }
                     ?.takeIf { it.isNotBlank() }
                     ?: "outra seção"
-                post(
-                    false,
-                    "text",
-                    ChatCodec.escMap(mapOf(
-                        "text" to "A proposta é da seção “$title”. Abra esse tópico para aplicar.",
-                    )),
+                // Aviso no próprio card (não cria mensagem nova): a última
+                // fala do Copilot continua sendo o summary, então o usuário
+                // pode voltar ao tópico certo e responder "Sim".
+                _proposal.value = pending.copy(
+                    notice = "A proposta é da seção “$title”. Abra esse tópico para aplicar.",
                 )
                 true
             }
             ProposalGateAction.ACCEPT -> {
-                val applied = acceptProposalNow(pending, forceReplace = false)
-                if (!applied) {
-                    val notice = _proposal.value?.notice
-                        ?: "A proposta está desatualizada. Gere novamente."
-                    post(
-                        false,
-                        "text",
-                        ChatCodec.escMap(mapOf("text" to "Não apliquei: $notice")),
-                    )
+                // acceptProposalNow seta o notice quando stale/inválida; o
+                // próprio card mostra o motivo, sem nova mensagem quebrar o gate.
+                // O aviso de "outra seção" é descartado no aceite; notices de
+                // fidelidade da geração são preservados.
+                val toApply = if (pending.notice?.startsWith("A proposta é da seção") == true) {
+                    pending.copy(notice = null)
+                } else {
+                    pending
                 }
+                acceptProposalNow(toApply, forceReplace = false)
                 true
             }
             ProposalGateAction.REJECT -> {
