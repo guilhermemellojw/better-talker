@@ -8,6 +8,7 @@ import com.bettertalker.app.data.copilot.MAX_TRAINING_SOURCES
 import com.bettertalker.app.data.copilot.MINIMAL_SYSTEM_PROMPT
 import com.bettertalker.app.data.copilot.blockSection
 import com.bettertalker.app.data.copilot.buildChatPrompt
+import com.bettertalker.app.data.copilot.buildDeepSeekPrompts
 import com.bettertalker.app.data.copilot.focusLine
 import com.bettertalker.app.data.copilot.packFor
 import com.bettertalker.app.data.copilot.serializePack
@@ -325,5 +326,36 @@ class ChatPromptParityTest {
         assertTrue(out.contains("REFERÊNCIAS FORA DO ORÇAMENTO"))
         assertTrue(out.contains("- w25.07 §9"))
         assertTrue(out.contains("não citar como texto"))
+    }
+
+    @Test
+    fun inventarioFicaNoSystemETrechoDaPerguntaNoUser() {
+        val inventory = "--- REFERÊNCIAS DA NOTA (inventário completo) ---\n" +
+            "- lmd lição 7 ponto 4 — edição no acervo; trecho resolvido\n" +
+            "--- FIM DAS REFERÊNCIAS DA NOTA ---"
+        val volatile = "--- TEXTOS BÍBLICOS (pergunta atual) ---\nTRECHO_VOLATIL_XYZ"
+        val p = buildDeepSeekPrompts(
+            message = "quais referências esta parte usa?",
+            history = emptyList(),
+            isFirstMessage = true,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = null,
+            blockMinutes = null,
+            blockText = "x",
+            contextBlock = inventory,
+            userContextBlock = volatile,
+        )
+        assertTrue(p.system.contains("lmd lição 7 ponto 4"))
+        assertFalse(p.system.contains("TRECHO_VOLATIL_XYZ"))
+        assertTrue(p.user.contains("TRECHO_VOLATIL_XYZ"))
+    }
+
+    @Test
+    fun inventarioNaoVazaTextoCompletoDaPublicacao() {
+        val inventory = "--- REFERÊNCIAS DA NOTA (inventário completo) ---\n" +
+            "- w25.07 § 8 — edição no acervo; trecho resolvido\n" +
+            "--- FIM DAS REFERÊNCIAS DA NOTA ---"
+        assertFalse(inventory.contains("Baruque"))
+        assertFalse(inventory.contains("parágrafo citado"))
     }
 }

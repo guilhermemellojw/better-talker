@@ -10,6 +10,7 @@ import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.chatBriefToText
 import com.bettertalker.app.data.copilot.contextLabel
+import com.bettertalker.app.data.copilot.effectiveHistoryTurns
 import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.recentHistory
@@ -128,6 +129,50 @@ class ChatEngineParityTest {
         val out = recentHistory(listOf(ChatTurn(true, "oi"), ChatTurn(false, "olá")))
         assertTrue(out.contains("Usuário: oi"))
         assertTrue(out.contains("Copilot: olá"))
+    }
+
+    @Test
+    fun historicoPreservaInicioEFimDeMensagemLonga() {
+        val long = "INICIO " + "x".repeat(900) + " FIM"
+        val out = recentHistory(listOf(ChatTurn(false, long)))
+        assertTrue(out.contains("INICIO"))
+        assertTrue(out.contains("FIM"))
+        assertTrue(out.contains("…"))
+    }
+
+    @Test
+    fun historicoPreservaUltimaPerguntaMesmoForaDoTrechoCortado() {
+        // A pergunta fica no meio; o corte início+fim não a alcança.
+        val long = "a".repeat(300) +
+            " Quer que eu reescreva o diálogo inteiro…?" +
+            "b".repeat(600)
+        val turns = (1..10).map { ChatTurn(true, "msg $it") } +
+            ChatTurn(false, long) + ChatTurn(true, "Sim")
+        val out = recentHistory(turns)
+        assertTrue(out.contains("Quer que eu reescreva o diálogo inteiro…?"))
+        assertTrue(out.contains("Usuário: Sim"))
+    }
+
+    @Test
+    fun telemetriaUsaJanelaEfetivaNaoHistoricoBruto() {
+        val turns = (1..20).map { ChatTurn(it % 2 == 1, "msg $it") }
+        val window = effectiveHistoryTurns(turns)
+        assertEquals(MAX_HISTORY_MESSAGES, window.size)
+        assertTrue(window.last().text.contains("msg 20"))
+        assertFalse(window.any { it.text.contains("msg 8") })
+    }
+
+    @Test
+    fun briefIncluiUltimaPerguntaEInstrucaoDeRespostaCurta() {
+        val history = listOf(
+            ChatTurn(false, "Quer que eu reescreva o diálogo inteiro?"),
+            ChatTurn(true, "Sim"),
+        )
+        val brief = chatBriefToText("Sim", history, isFirstMessage = false)
+        assertTrue(brief.contains("Última pergunta do Copilot"))
+        assertTrue(brief.contains("Quer que eu reescreva o diálogo inteiro?"))
+        assertTrue(brief.contains("resposta curta"))
+        assertTrue(brief.contains("não peça para o usuário repetir"))
     }
 
     @Test

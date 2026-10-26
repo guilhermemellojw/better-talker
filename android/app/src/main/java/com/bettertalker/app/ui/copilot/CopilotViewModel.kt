@@ -13,6 +13,7 @@ import com.bettertalker.app.data.copilot.buildTurnContext
 import com.bettertalker.app.data.copilot.clipboardMatches
 import com.bettertalker.app.data.copilot.contextLabel
 import com.bettertalker.app.data.copilot.friendlyChatError
+import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
@@ -65,6 +66,8 @@ import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
 import com.bettertalker.app.data.util.NoteRefs
+import com.bettertalker.app.data.util.NoteRefsCollector
+import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.ParsedOutline
@@ -2399,6 +2402,27 @@ class CopilotViewModel(
         )
     }
 
+    /**
+     * Chaves canônicas das refs da SEÇÃO EM FOCO (S-34), para o inventário
+     * priorizar o que o usuário está desenvolvendo. Puro/testável.
+     */
+    private fun focusRefKeys(
+        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    ): Set<String> {
+        val current = turnContext.structural?.currentSection ?: return emptySet()
+        val text = buildString {
+            append(current.content).append('\n')
+            current.references.forEach { append(it.rawText).append('\n') }
+            current.subsections.forEach { sub ->
+                append(sub.content).append('\n')
+                sub.references.forEach { append(it.rawText).append('\n') }
+            }
+        }
+        return NoteRefsCollector.collect(mdText = text).publications
+            .map { NoteRefsCollector.sourceKey(it) }
+            .toSet()
+    }
+
     private suspend fun answerRemote(
         text: String,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
@@ -2436,8 +2460,48 @@ class CopilotViewModel(
                 pushedSectionTitle() ?: scopeBlockTitle().orEmpty(),
             )
         )
+        // Fase 1 (contexto fiel): inventário COMPLETO das refs da nota, com
+        // status do acervo. É metadado (não o texto) e entra no prefixo
+        // estável; os trechos citados na pergunta atual vão no user.
+        var refsCount = 0
+        var inventoryChars = 0
+        val refsInventory = try {
+            val nid = noteId
+            if (nid == null) null else {
+                val outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty()
+                val noteSources = repo.noteSources(
+                    noteId = nid,
+                    outlineRefsJson = outlineRefsJson,
+                    noteText = _noteText.value,
+                    noteTitle = _noteTitle.value,
+                )
+                com.bettertalker.app.data.copilot.buildNoteRefsInventory(
+                    sources = noteSources,
+                    focusKeys = focusRefKeys(turnContext),
+                ).takeIf { it.isNotBlank() }?.also { inventory ->
+                    refsCount = noteSources.total
+                    inventoryChars = inventory.length
+                    android.util.Log.i(
+                        "CopilotLLM",
+                        "chat refs inventory: refs=${noteSources.total} chars=${inventory.length}",
+                    )
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        // Estável entre turnos (cache): memória + inventário + dossiê.
+        val stableContextBlock = listOfNotNull(memory, refsInventory, contextBlock)
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+            .ifBlank { null }
+        // Volátil: trechos que a pergunta atual citou.
+        val volatileContextBlock = combineContextBlocks(null, questionVerses, questionPubs)
+        // Corpus do gate: tudo o que foi injetado, estável + volátil.
         val effectiveContextBlock = combineContextBlocks(
-            listOfNotNull(memory, contextBlock).joinToString("\n\n").ifBlank { null },
+            stableContextBlock,
             questionVerses,
             questionPubs,
         )
@@ -2452,7 +2516,8 @@ class CopilotViewModel(
                 "CopilotLLM",
                 "chat remoto: ${questionPubs.size} trecho(s) de publicação da pergunta injetado(s)"
             )
-        }        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
+        }
+        // HTTP fora da Main (§50): NetworkOnMainThreadException virava erro
         // genérico silencioso. Retrieval Room permanece onde está (provado
         // em aparelho); só a rede desce para IO.
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -2473,7 +2538,8 @@ class CopilotViewModel(
                     blockTitle = scopeBlockTitle(),
                     structural = turnContext.structural,
                     oratory = turnContext.oratory,
-                    contextBlock = effectiveContextBlock,
+                    contextBlock = stableContextBlock,
+                    userContextBlock = volatileContextBlock,
                 )
             )
         }
@@ -2482,6 +2548,27 @@ class CopilotViewModel(
         // entrega texto quebrado. Só chat geral (oratória/proposta têm schema).
         val text = truncateIfCut(res.text, res.meta.finishReason)
         val truncated = text != res.text
+        val historyWindow = com.bettertalker.app.data.copilot.effectiveHistoryTurns(history)
+        android.util.Log.i(
+            "CopilotLLM",
+            generationTelemetry(
+                route = "chat",
+                text = text,
+                budget = res.meta.budget,
+                finishReason = res.meta.finishReason,
+                truncated = truncated,
+                thinking = res.meta.thinking,
+                inputTokens = res.meta.usage?.inputTokens,
+                outputTokens = res.meta.usage?.outputTokens,
+                cachedTokens = res.meta.usage?.cachedTokens,
+                // Métrica do que foi REALMENTE enviado (janela + teto), não
+                // do histórico bruto do banco.
+                historyTurns = historyWindow.size,
+                historyChars = historyWindow.sumOf { it.text.length },
+                refsCount = refsCount,
+                inventoryChars = inventoryChars,
+            ).line(),
+        )
         // T1 — gate de alucinação universal (pós-filtro do streaming):
         // confere citações/refs contra o corpus injetado. Não bloqueia: remove
         // só frases claramente sem apoio e anexa o aviso padrão. T1/T3: o
@@ -2607,12 +2694,19 @@ class CopilotViewModel(
      */
     private suspend fun conversationTurnsScoped(): List<ChatTurn> {
         val nid = noteId ?: return emptyList()
-        return db.chatDao().allScoped(nid, _chatScope.value).mapNotNull { e ->
-            val t = when (e.kind) {
-                "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
-                else -> e.kind
-            }
-            if (t.isBlank()) null else ChatTurn(e.fromMe, t)
+        // Fase 1 (contexto fiel): histórico no nível da NOTA, não filtrado
+        // pela seção. Trocar de escopo não perde a pergunta anterior; cada
+        // turno leva o rótulo do foco em que foi produzido.
+        val titles = db.speechSectionDao().forNote(nid).associate { it.id to it.title }
+        return db.chatDao().all(nid).mapNotNull { e ->
+            // Payload legível, nunca o nome do kind.
+            val t = com.bettertalker.app.data.copilot.readableChatTurn(e.kind, e.payload)
+            if (t.isBlank()) null else ChatTurn(
+                e.fromMe,
+                com.bettertalker.app.data.copilot.labelChatTurn(
+                    t, e.sectionId, e.sectionId?.let { titles[it] }
+                ),
+            )
         }
     }
 
@@ -4222,14 +4316,15 @@ class CopilotViewModel(
     private suspend fun recentHistory(): List<String> {
         return try {
             val nid = noteId ?: return emptyList()
-            db.chatDao().allScoped(nid, _chatScope.value).takeLast(8).map { e ->
+            val titles = db.speechSectionDao().forNote(nid).associate { it.id to it.title }
+            db.chatDao().all(nid).takeLast(8).map { e ->
                 val who = if (e.fromMe) "você" else "copilot"
-                val t = when (e.kind) {
-                    "text" -> ChatCodec.unescMap(e.payload)["text"].orEmpty()
-                    "ideas" -> "ideias p/ ${ChatCodec.unescMap(e.payload)["section"].orEmpty()}"
-                    else -> e.kind
-                }.replace(Regex("\\s+"), " ").trim().take(120)
-                "$who: $t"
+                val t = com.bettertalker.app.data.copilot.readableChatTurnSummary(
+                    e.kind, e.payload, 120
+                )
+                "$who: " + com.bettertalker.app.data.copilot.labelChatTurn(
+                    t, e.sectionId, e.sectionId?.let { titles[it] }
+                )
             }
         } catch (_: Exception) {
             emptyList()
@@ -4254,21 +4349,29 @@ class CopilotViewModel(
 
     private suspend fun answerCheckRefs() {
         val nid = noteId
-        val fromNote = RefDetector.detect(_noteText.value)
-        val fromOutline = if (nid == null) emptyList()
-        else RefDetector.detectedFromJson(outlines.get(nid)?.refsJson.orEmpty())
-        val statuses = repo.checkRefsList(RefDetector.unionRefs(fromNote, fromOutline))
+        // Fase 1: mesma lista unificada do checklist (título, mdText, esboço,
+        // seções e subpontos) — não só _noteText + outlines.refsJson.
+        val refs = if (nid == null) NoteRefs.EMPTY else repo.collectNoteRefs(
+            noteId = nid,
+            noteText = _noteText.value,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteTitle = _noteTitle.value,
+        )
+        val statuses = repo.checkRefsList(refs.publications)
         _refs.value = statuses
         if (statuses.isEmpty()) {
+            val bibleHint = if (refs.bibles.isNotEmpty()) {
+                " A nota também cita ${refs.bibles.size} referência(s) bíblica(s); " +
+                    "veja o checklist Fontes no editor."
+            } else ""
             post(false, "text", ChatCodec.escMap(mapOf(
-                "text" to "Não encontrei menções a publicações nem na nota nem no esboço vinculado " +
-                    "(ex: Sentinela, Despertai!, be, th).")))
+                "text" to "Não encontrei menções a publicações na nota, no esboço, " +
+                    "nas seções ou nos subpontos (ex: Sentinela, Despertai!, be, th)." +
+                    bibleHint)))
             return
         }
-        val title = if (fromOutline.isNotEmpty()) "Referências da nota e do esboço"
-        else "Referências da nota"
         post(false, "refs", ChatCodec.escMap(mapOf(
-            "title" to title,
+            "title" to "Referências da nota",
             "detected" to RefDetector.detectedToJson(
                 statuses.map { it.ref }))))
     }
@@ -4279,13 +4382,29 @@ class CopilotViewModel(
      */
     private suspend fun missingMatterText(): String {
         val nid = noteId
-        val missingRefs = if (nid == null) emptyList()
-        else repo.outlineRefs(outlines.get(nid)?.refsJson.orEmpty()).filter { !it.resolved }
+        // Fase 1: usa o checklist completo (nota + esboço + seções/subpontos)
+        // e distingue edição ausente de trecho ausente.
+        val sources = if (nid == null) null else repo.noteSources(
+            noteId = nid,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteText = _noteText.value,
+            noteTitle = _noteTitle.value,
+        )
+        val missingEditions = sources?.sources
+            ?.filter { it.status == SourceStatus.EDITION_MISSING }
+            .orEmpty()
+        val missingTexts = sources?.sources
+            ?.filter { it.status == SourceStatus.TEXT_NOT_FOUND }
+            .orEmpty()
         val missingBases = repo.missingBases().map { repo.baseTitle(it) }
         val parts = mutableListOf<String>()
-        if (missingRefs.isNotEmpty()) {
+        if (missingEditions.isNotEmpty()) {
             parts += "Falta baixar a matéria citada: " +
-                missingRefs.take(3).joinToString("; ") { it.ref.label } + "."
+                missingEditions.take(3).joinToString("; ") { it.ref } + "."
+        }
+        if (missingTexts.isNotEmpty()) {
+            parts += "A edição está no acervo, mas o trecho não foi encontrado: " +
+                missingTexts.take(3).joinToString("; ") { it.ref } + "."
         }
         if (missingBases.isNotEmpty()) {
             parts += "Faltam as bases: ${missingBases.joinToString("; ")}."

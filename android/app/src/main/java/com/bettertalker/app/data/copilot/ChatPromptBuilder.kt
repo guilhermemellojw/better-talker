@@ -452,16 +452,20 @@ fun buildChatPrompt(
     blockText: String,
     legacyPassages: List<String> = emptyList(),
     structural: OutlineStructureContext? = null,
-    oratory: OratoryStructure.Inferred? = null
+    oratory: OratoryStructure.Inferred? = null,
+    userContextBlock: String? = null,
 ): String {
     val context = serializePack(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
     val brief = chatBriefToText(message, history, isFirstMessage)
+    val volatile = userContextBlock?.takeIf { it.isNotBlank() }
+        ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }
+        .orEmpty()
     // F19-B.5: as regras do S-34 entram no prompt quando há estrutura (§12).
     val s34Rules = if (structural != null) "\n$S34_PROMPT_RULES\n" else ""
     // F20-A: a regra da estrutura inferida acompanha o bloco quando existe.
     val oratoryRules = if (oratory != null) "\n$ORATORY_STRUCTURE_RULES\n" else ""
-    return "$brief\n\n${focusLine(message)}\n$context$block$s34Rules$oratoryRules\n" +
+    return "$brief$volatile\n\n${focusLine(message)}\n$context$block$s34Rules$oratoryRules\n" +
         "Texto do bloco em foco:\n\"$blockText\"\n\n" +
         chatTailInstructions()
 }
@@ -511,6 +515,7 @@ fun buildDeepSeekPrompts(
     structural: OutlineStructureContext? = null,
     oratory: OratoryStructure.Inferred? = null,
     contextBlock: String? = null,
+    userContextBlock: String? = null,
 ): DeepSeekPrompts {
     val context = serializePackStable(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
@@ -524,7 +529,12 @@ fun buildDeepSeekPrompts(
     // e estruturados geram dois prefixos estáveis (cache por classe).
     val system = (CHAT_PERSONA_FREE + "\n\n" + s34Rules + oratoryRules + context + block + dossier + sources + "\n" +
         chatTailInstructions()).trim()
-    val user = chatBriefToText(message, history, isFirstMessage) + "\n\n" + focusLine(message) +
+    // Fase 1: o que muda a cada pergunta fica no user (prefixo estável no system).
+    val volatile = userContextBlock?.takeIf { it.isNotBlank() }
+        ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }
+        .orEmpty()
+    val user = chatBriefToText(message, history, isFirstMessage) + volatile +
+        "\n\n" + focusLine(message) +
         "\n\nTexto do bloco em foco:\n\"$blockText\""
     return DeepSeekPrompts(system = system, user = user)
 }

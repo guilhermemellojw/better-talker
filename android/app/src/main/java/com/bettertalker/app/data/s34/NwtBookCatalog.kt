@@ -100,7 +100,12 @@ val NWT_BOOKS: Map<String, NwtBook> = mapOf(
  * texto cru) — fora do escopo desta tarefa.
  */
 val NWT_NAME_TO_ABBREV: Map<String, String> = buildMap {
-    NWT_BOOKS.values.forEach { put(it.name.lowercase(), it.abbrev) }
+    NWT_BOOKS.values.forEach {
+        put(it.name.lowercase(), it.abbrev)
+        // Fase 1: o inventário/TNM aceitam a abreviação já canônica ("Je",
+        // "1Co"), não só o nome por extenso.
+        put(it.abbrev.lowercase(), it.abbrev)
+    }
     put("cânticos", "Cân")
     put("cantares", "Cân")
     put("filemom", "Flm")

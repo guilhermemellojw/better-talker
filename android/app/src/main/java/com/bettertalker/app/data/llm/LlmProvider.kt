@@ -82,6 +82,12 @@ data class LlmRequest(
      */
     val contextBlock: String? = null,
     /**
+     * Fase 1 (contexto fiel): trechos voláteis da pergunta (versículos/
+     * publicações citados AGORA). Ficam na mensagem do usuário, não no system,
+     * para não invalidar o cache de prefixo entre turnos.
+     */
+    val userContextBlock: String? = null,
+    /**
      * T1 (modo colar e conversar): esboço colado íntegro. Quando presente,
      * o provider usa o prompt minimalista ([buildMinimalPastePrompts]) em
      * vez do prompt estruturado — sem S-34, dossiê, RAG ou TAIL.
@@ -109,13 +115,19 @@ data class LlmResponseMeta(
      * Null = endpoint não informou.
      */
     val finishReason: String? = null,
+    /** Orçamento de saída efetivamente enviado (telemetria). */
+    val budget: Int = 0,
+    /** true = o modelo rodou com thinking (reasoning_effort != "none"). */
+    val thinking: Boolean = false,
 )
 
 /** Tokens observados de uma chamada real (nulos quando o endpoint omite). */
 data class LlmUsage(
     val inputTokens: Int,
     val outputTokens: Int,
-    val totalTokens: Int
+    val totalTokens: Int,
+    /** Tokens de prefixo que o provedor serviu do cache (DeepSeek/OpenAI). */
+    val cachedTokens: Int = 0,
 )
 
 data class LlmResponse(val text: String, val meta: LlmResponseMeta)

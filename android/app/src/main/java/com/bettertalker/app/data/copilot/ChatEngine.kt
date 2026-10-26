@@ -14,11 +14,29 @@ import com.bettertalker.app.data.util.normalizeText
  * Puro/testável: sem IO, sem Android, sem estado.
  */
 
-/** Mensagens de contexto enviadas ao prompt — janela deliberada (§18 F15). */
-const val MAX_HISTORY_MESSAGES = 6
+/**
+ * Mensagens de contexto enviadas ao prompt.
+ *
+ * Fase 1 (contexto fiel): 12 mensagens (antes 6). A janela curta perdia a
+ * pergunta imediatamente anterior em conversas longas e fazia o modelo
+ * responder "sim o quê?".
+ */
+const val MAX_HISTORY_MESSAGES = 12
 
-/** Caracteres máximos por mensagem ao serializar o histórico (§18 F15). */
+/** Caracteres máximos por mensagem ao serializar o histórico. */
 const val MAX_HISTORY_CHARS = 500
+
+/** Início preservado de uma mensagem longa (Fase 1). */
+const val HISTORY_HEAD_CHARS = 200
+
+/** Fim preservado de uma mensagem longa — onde normalmente está a pergunta. */
+const val HISTORY_TAIL_CHARS = 300
+
+/**
+ * Teto total do histórico em caracteres (~6.000 tokens a 4 chars/token).
+ * O que vier primeiro entre [MAX_HISTORY_MESSAGES] e este teto vence.
+ */
+const val MAX_HISTORY_TOTAL_CHARS = 24_000
 
 /** Seleção máxima levada ao prompt (§17 F18): trecho, não o discurso. */
 const val MAX_SELECTION_CHARS = 2000
@@ -115,35 +133,114 @@ fun inferIntent(message: String, isFirstMessage: Boolean): InferredIntent {
 }
 
 /**
- * Conversa anterior serializada para o prompt. Mantém no máximo
- * [MAX_HISTORY_MESSAGES] mensagens, cada uma cortada em [MAX_HISTORY_CHARS].
+ * Corta uma mensagem longa preservando início E fim. O fim é onde costuma
+ * estar a pergunta que o usuário vai responder no próximo turno.
+ * Puro/testável.
+ */
+fun truncateHistoryText(
+    text: String,
+    maxChars: Int = MAX_HISTORY_CHARS,
+): String {
+    val clean = text.trim()
+    if (clean.length <= maxChars) return clean
+    return clean.take(HISTORY_HEAD_CHARS) + "…" + clean.takeLast(HISTORY_TAIL_CHARS)
+}
+
+/**
+ * Última pergunta feita pelo Copilot na conversa (não a do usuário).
+ * Usada para preservar a continuidade mesmo quando a mensagem foi cortada
+ * ou caiu fora da janela serializada. Puro/testável.
+ */
+fun lastCopilotQuestion(turns: List<ChatTurn>): String? {
+    val text = turns.lastOrNull { !it.fromMe && it.text.isNotBlank() }?.text
+        ?: return null
+    val questions = Regex("""[^?]{1,300}\?""").findAll(text).toList()
+    return questions.lastOrNull()?.value?.trim()?.takeIf { it.length >= 3 }
+}
+
+/**
+ * Turns que REALMENTE entram no prompt: janela de [limit] + teto total.
+ * Usado pelo `recentHistory` e pela telemetria — a métrica precisa medir o
+ * que foi enviado, não o histórico bruto do banco.
+ *
+ * Puro/testável.
+ */
+fun effectiveHistoryTurns(
+    turns: List<ChatTurn>,
+    limit: Int = MAX_HISTORY_MESSAGES,
+    maxTotalChars: Int = MAX_HISTORY_TOTAL_CHARS,
+): List<ChatTurn> {
+    val all = turns.filter { it.text.isNotBlank() }
+    if (all.isEmpty()) return emptyList()
+    val recent = all.takeLast(limit.coerceAtLeast(1))
+    // Orçamento total: entra do mais novo para o mais antigo; a mensagem
+    // mais recente é sempre mantida.
+    val selected = ArrayDeque<ChatTurn>()
+    var used = 0
+    for (turn in recent.asReversed()) {
+        val cost = minOf(turn.text.length, MAX_HISTORY_CHARS) + 12
+        if (selected.isNotEmpty() && used + cost > maxTotalChars) break
+        selected.addFirst(turn)
+        used += cost
+    }
+    return selected.toList()
+}
+
+/**
+ * Conversa anterior serializada para o prompt.
+ *
+ * Fase 1 (contexto fiel):
+ * - janela de [MAX_HISTORY_MESSAGES] mensagens OU [MAX_HISTORY_TOTAL_CHARS],
+ *   o que vier primeiro;
+ * - mensagem longa preserva início + fim ([truncateHistoryText]);
+ * - a última pergunta do Copilot é sempre preservada, mesmo que a mensagem
+ *   tenha sido cortada ou esteja fora da janela;
+ * - a mensagem mais recente (ex.: "Sim") nunca é descartada.
+ *
  * Puro/testável.
  */
 fun recentHistory(turns: List<ChatTurn>, limit: Int = MAX_HISTORY_MESSAGES): String {
-    val recent = turns.filter { it.text.isNotBlank() }.takeLast(limit)
-    if (recent.isEmpty()) return ""
-    val lines = recent.map { t ->
+    val selected = effectiveHistoryTurns(turns, limit)
+    if (selected.isEmpty()) return ""
+
+    val lines = selected.map { t ->
         val who = if (t.fromMe) "Usuário" else "Copilot"
-        val text = if (t.text.length > MAX_HISTORY_CHARS)
-            t.text.take(MAX_HISTORY_CHARS) + "…" else t.text
-        "$who: $text"
+        "$who: ${truncateHistoryText(t.text)}"
+    }.toMutableList()
+
+    // A pergunta pode ter sido cortada (meio da mensagem) ou estar fora da
+    // janela. Nesse caso, entra como linha explícita no fim do histórico.
+    val question = lastCopilotQuestion(turns)
+    if (question != null && lines.none { it.contains(question) }) {
+        lines += "Pergunta anterior do Copilot: $question"
     }
+
     return "--- CONVERSA ANTERIOR (contexto; continue a partir dela) ---\n" +
         lines.joinToString("\n") + "\n--- FIM DA CONVERSA ANTERIOR ---\n"
 }
 
 /**
  * Texto do "brief" da conversa: histórico + continuidade + a mensagem atual.
- * Sem histórico a vira só a mensagem, então a primeira pergunta não carrega
+ * Sem histórico vira só a mensagem, então a primeira pergunta não carrega
  * seções vazias no prompt. Puro/testável.
  */
-fun chatBriefToText(message: String, history: List<ChatTurn>, isFirstMessage: Boolean): String {    val parts = mutableListOf<String>()
+fun chatBriefToText(message: String, history: List<ChatTurn>, isFirstMessage: Boolean): String {
+    val parts = mutableListOf<String>()
     val historySection = recentHistory(history)
     if (historySection.isNotEmpty()) parts += historySection
     if (!isFirstMessage) {
         parts += "Continuidade: esta mensagem continua a conversa anterior — " +
             "\"isso/essa parte\" referem-se ao que já foi discutido. " +
             "Não peça informações que já foram dadas."
+        parts += "Os turnos anteriores podem ter sido feitos em outro foco " +
+            "(tópico ou discurso inteiro); use-os como contexto. " +
+            "O foco atual é o indicado abaixo."
+        lastCopilotQuestion(history)?.let { question ->
+            parts += "Última pergunta do Copilot: \"$question\""
+        }
+        parts += "Se a mensagem atual for uma resposta curta (\"sim\", \"não\", " +
+            "\"pode\", \"manda\"), ela responde à última pergunta do Copilot. " +
+            "Continue a partir dela; não peça para o usuário repetir."
     }
     parts += "Mensagem do usuário: \"$message\""
     return parts.joinToString("\n\n")

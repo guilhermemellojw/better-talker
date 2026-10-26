@@ -603,7 +603,10 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     data class CitedSources(
         val sources: List<EvidenceSource>,
+        /** Rótulos crus para a UI ("Fontes e apoio"). */
         val unavailable: List<String>,
+        /** Rótulos + motivo para o prompt (edição ausente × trecho ausente). */
+        val unavailableDetails: List<String> = emptyList(),
     )
 
     suspend fun citedSources(noteText: String, outlineRefsJson: String): CitedSources {
@@ -627,70 +630,81 @@ class CopilotRepository(private val db: AppDatabase) {
         bibles: List<RefDetector.BibleRef>,
     ): CitedSources {
         if (detected.isEmpty() && bibles.isEmpty()) {
-            return CitedSources(emptyList(), emptyList())
+            return CitedSources(emptyList(), emptyList(), emptyList())
         }
         val all = db.attachmentDao().all()
+        val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
+            db.passageDao(), db.attachmentDao()
+        )
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()
+        val unavailableDetails = mutableListOf<String>()
         for (ref in detected) {
-            val hit = RefDetector.matchEdition(ref, all)
-            if (hit == null) {
+            // be/th são orientação de oratória (TRAINING), nunca conteúdo.
+            if (isGuidePubRef(ref)) continue
+            val resolved = resolver.resolvePublication(publicationRefOf(ref))
+            val label = resolved.canonicalRef ?: ref.raw
+            val body = resolved.text?.trim().orEmpty()
+            if (isCitedSourceUsable(resolved.status) && body.isNotBlank()) {
+                sources += EvidenceSource(
+                    id = "cite-" + (resolved.passageId ?: ref.raw.hashCode()) +
+                        "-" + label.hashCode(),
+                    reference = label,
+                    text = body,
+                    sourceType = SourceType.CONTENT,
+                    publication = PubCatalog.titleOf(ref.pubKey) ?: ref.label,
+                    section = ref.article ?: ref.chapter,
+                    paragraph = ref.paragraph,
+                    page = ref.page,
+                    score = 1.0,
+                    foundBy = listOf("cited"),
+                )
+            } else {
+                // NUNCA silencioso: a edição pode existir e só o trecho faltar.
+                val editionPresent = RefDetector.matchEdition(ref, all) != null
                 unavailable += ref.raw
-                continue
+                unavailableDetails += citedUnavailableDetail(
+                    reference = ref.raw,
+                    status = resolved.status,
+                    editionPresent = editionPresent,
+                )
             }
-            val candidates = contentCandidatesFor(ref)
-            if (!candidates.corpusAvailable) {
-                unavailable += ref.raw
-                continue
-            }
-            val check = RefDetector.resolveContent(ref, candidates.passages, candidates.corpusAvailable)
-            val snippet = check.snippet?.takeIf { it.isNotBlank() }
-            if (!check.resolved || snippet == null) {
-                // A edição ESTÁ indexada; o § exato pode não ter page/paragraph
-                // (PDF) e o top-K ainda traz o trecho. NÃO declarar "sem texto":
-                // isso faria o modelo recusar uma fonte que ele tem.
-                continue
-            }
-            sources += EvidenceSource(
-                id = "cite-" + hit.id + "-" + ref.raw.hashCode(),
-                reference = ref.raw,
-                text = snippet,
-                sourceType = SourceType.CONTENT,
-                publication = PubCatalog.titleOf(ref.pubKey) ?: hit.fileName,
-                section = ref.article ?: ref.chapter,
-                paragraph = ref.paragraph,
-                page = ref.page,
-                score = 1.0,
-                foundBy = listOf("cited"),
-            )
         }
         // Bíblia: versículo exato da TNM indexada. Sem TNM (ou sem o versículo)
         // entra como referência sem texto — nunca inventa.
+        val tnmPresent = db.attachmentDao().baseReady("nwt") != null
         for (bible in bibles) {
             val label = "${bible.label} ${bible.chapter}:${bible.verse}"
-            val key = normalizeBibleBookName(bible.label)
-                ?.let { "$it ${bible.chapter}:${bible.verse}" }
-            val passage = key?.let { db.passageDao().findByRef(it) }
-            if (passage == null) {
+            val resolved = resolver.resolveBible(label)
+            val body = resolved.text?.trim().orEmpty()
+            if (isCitedSourceUsable(resolved.status) && body.isNotBlank()) {
+                sources += EvidenceSource(
+                    id = "cite-bible-" + (resolved.passageId ?: label.hashCode()),
+                    reference = resolved.canonicalRef ?: label,
+                    text = body,
+                    sourceType = SourceType.CONTENT,
+                    publication = baseTitle("nwt"),
+                    section = null,
+                    paragraph = null,
+                    page = null,
+                    score = 1.0,
+                    foundBy = listOf("cited"),
+                )
+            } else {
                 unavailable += label
-                continue
+                unavailableDetails += citedUnavailableDetail(
+                    reference = label,
+                    status = resolved.status,
+                    editionPresent = tnmPresent,
+                    bible = true,
+                    tnmPresent = tnmPresent,
+                )
             }
-            sources += EvidenceSource(
-                id = "cite-bible-" + key.hashCode(),
-                reference = label,
-                text = passage.text,
-                sourceType = SourceType.CONTENT,
-                publication = baseTitle("nwt"),
-                section = null,
-                paragraph = null,
-                page = null,
-                score = 1.0,
-                foundBy = listOf("cited"),
-            )
         }
         return CitedSources(
             sources = sources.distinctBy { it.reference },
             unavailable = unavailable.distinct(),
+            unavailableDetails = unavailableDetails.distinct(),
         )
     }
 

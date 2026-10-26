@@ -222,6 +222,8 @@ class DeepSeekProvider(
                                 usage = parseUsage(usageJson ?: ""),
                                 rateLimit = res.headers,
                                 finishReason = finish,
+                                budget = budget,
+                                thinking = effort != STRUCTURED_REASONING_EFFORT,
                             )
                         )
                     }
@@ -485,7 +487,11 @@ class DeepSeekProvider(
             val input = num("prompt_tokens") ?: return null
             val output = num("completion_tokens") ?: 0
             val total = num("total_tokens") ?: (input + output)
-            return LlmUsage(input, output, total)
+            // DeepSeek usa prompt_cache_hit_tokens; OpenAI usa cached_tokens.
+            val cached = num("prompt_cache_hit_tokens")
+                ?: num("cached_tokens")
+                ?: 0
+            return LlmUsage(input, output, total, cached)
         }
 
         /** Motivo de término do último chunk; null quando ausente. Puro/testável. */
@@ -708,6 +714,7 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             structural = request.structural,
             oratory = request.oratory,
             contextBlock = request.contextBlock,
+            userContextBlock = request.userContextBlock,
         )
         return parts.system to parts.user
     }
