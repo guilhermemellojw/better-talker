@@ -147,6 +147,9 @@ fun EditorScreen(
     /** #20-fix-a: gera a Tribuna da nota (cápsulas por seção). */
     onGenerateTribuna: () -> Unit = {},
 ) {
+    // Guarda de foco: ao abrir o chat, o editor solta o foco para que o
+    // teclado/IME não continue entregando texto ao campo errado.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val title by vm.title.collectAsState()
     val mdText by vm.mdText.collectAsState()   // fallback do contador (sem seções)
     val saving by vm.saving.collectAsState()
@@ -676,6 +679,9 @@ fun EditorScreen(
                                     onCopilot = {
                                         // Fase 1: o ✨ do card ativo abre o chat
                                         // existente, já com o contexto do ponto.
+                                        // Não devolver o foco ao fechar: o usuário
+                                        // toca no editor quando quiser.
+                                        focusManager.clearFocus()
                                         activeSectionId = sectionState.section.id
                                         vm.setActiveSectionTitle(sectionState.section.title)
                                         scope.launch {
