@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.0 (versionCode 25) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz final em validação)
+**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.0 (versionCode 25) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz 5/15/20/30/45 no A34 em 2026-10-26)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -177,6 +177,16 @@ Commit `938c0f7` · **2.518 testes JVM verdes** · CI da branch · matriz final 
 | `generateOratory` | 1.280–4.096 por duração da seção/foco (substitui o 1.280 fixo); corte visível. |
 | `SectionGeneratorImpl` | `OutputBudget.sectionDraft` por `section.minutes` ou pela fatia do sub-ponto; `possiblyTruncated` preservado. |
 | Retry | `maxOutputTokensCap` por caminho; o provider sobe o budget no `length` até o cap e informa `retries` na telemetria (inclui extensão/fallback). |
+| A34 — chat curto | `budget=2048`, `finish=stop`, 189 palavras, `retries=0`. |
+| A34 — seção 5 min | `budget=2048`, `finish=stop`, 748 palavras, `retries=0`. |
+| A34 — seção 15 min | `budget=3125` inicial → retry por `length` → `6250`, `finish=stop`, 2.311 palavras, `retries=2`. |
+| A34 — seção 20 min | `budget=4100`, `finish=stop`, 2.327 palavras, `retries=1`. |
+| A34 — seção 30 min | `budget=6050`, `finish=stop`, 3.491 palavras, `retries=1`. |
+| A34 — seção 45 min | “Texto completo” em 10 partes; a seção de 45 min com 5 subpontos virou 5 alvos + intro/conclusão; nenhuma resposta única. |
+| A34 — demo 4 min | `budget=2048`, `finish=stop`, 10 réplicas, 286 palavras, `retries=0`. |
+| A34 — proposta/“Sim” | `route=proposal budget=1500 finish=stop`; “Sim” aplicou sem logcat de LLM; undo disponível. |
+| Gaps | Seção 45 min sem subpontos ainda usa um draft no teto 8.192 (truncamento visível); V&M discurso 5 min não reexecutado do zero; `lmd_T.jwpub` continua `failed`. |
+| Relatório | [validacao-2026-10-26-a34-c1.md](reports/validacao-2026-10-26-a34-c1.md). |
 | Testes | `ContinueGenerationBudgetTest`, `ProposalBudgetTest`, `StructureBudgetTest`, `MinimalBudgetTest`, `OutputBudgetCapTest`, `TruncationRetryTest`, `StructurePartPromptTest`, `SectionDraftBudgetTest`. |
 
 
