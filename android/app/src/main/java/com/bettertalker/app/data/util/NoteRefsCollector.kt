@@ -111,11 +111,34 @@ object NoteRefsCollector {
         }
 
         return NoteRefs(
-            publications = publications.distinctBy { sourceKey(it) },
+            publications = dedupUnits(publications),
             bibles = bibles.distinctBy {
                 "${normalizeText(it.label)}|${it.chapter}|${it.verse}"
             },
         )
+    }
+
+    /**
+     * Dedup por publicação + unidade. Quando o mesmo ponto chega como
+     * "lmd § 4" (genérico, sem capítulo) e "lmd lição 7 ponto 4" (específico),
+     * a menção genérica não vira uma segunda linha — o grupo da publicação já
+     * cobre a menção; a unidade específica é a identidade.
+     */
+    private fun dedupUnits(refs: List<RefDetector.DetectedRef>): List<RefDetector.DetectedRef> {
+        val specific = refs.filter { !it.chapter.isNullOrBlank() || !it.article.isNullOrBlank() }
+        val generic = refs.filter { it.chapter.isNullOrBlank() && it.article.isNullOrBlank() }
+        val keptGeneric = generic.filterNot { g ->
+            specific.any { s ->
+                s.pubKey == g.pubKey && (
+                    // genérica sem unidade: a específica da mesma publicação cobre
+                    (g.page == null && g.paragraph == null && g.paragraphEnd == null) ||
+                        // mesmo ponto, mas a específica traz o capítulo/artigo
+                        (s.page == g.page && s.paragraph == g.paragraph &&
+                            s.paragraphEnd == g.paragraphEnd)
+                    )
+            }
+        }
+        return (specific + keptGeneric).distinctBy { sourceKey(it) }
     }
 
     /**

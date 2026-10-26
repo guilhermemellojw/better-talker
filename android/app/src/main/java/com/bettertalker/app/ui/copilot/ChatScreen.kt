@@ -114,6 +114,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.refDisplayLabel
+import com.bettertalker.app.data.copilot.refGroupHeader
+import com.bettertalker.app.data.copilot.refGroupKey
+import com.bettertalker.app.data.copilot.refUnitLabel
 import com.bettertalker.app.data.llm.LocalPhase
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
@@ -1905,8 +1909,24 @@ private fun RefsBody(
     } else if (cur.isEmpty()) {
         Text("Nenhuma referência encontrada.")
     } else {
-        cur.forEach { st ->
-            RefFullRow(st, dl, ctx, scope, onDownloaded = { tick++ })
+        // Uma publicação, N unidades: o grupo aparece uma vez e as unidades
+        // abaixo (ex.: Ame as Pessoas — Apêndice A × Lição 9, ponto 5).
+        cur.groupBy { refGroupKey(it.ref) }.forEach { (_, items) ->
+            val grouped = items.size > 1
+            if (grouped) {
+                Text(
+                    refGroupHeader(items.first().ref, items.size),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            items.forEach { st ->
+                RefFullRow(
+                    st, dl, ctx, scope,
+                    showLabel = !grouped,
+                    onDownloaded = { tick++ },
+                )
+            }
             Spacer(Modifier.height(4.dp))
         }
     }
@@ -1918,11 +1938,17 @@ private fun RefFullRow(
     dl: DownloadCtl,
     ctx: android.content.Context,
     scope: kotlinx.coroutines.CoroutineScope,
+    showLabel: Boolean = true,
     onDownloaded: () -> Unit
 ) {
+    val label = if (showLabel) {
+        refDisplayLabel(st.ref)
+    } else {
+        refUnitLabel(st.ref).ifBlank { refDisplayLabel(st.ref) }
+    }
     Column(Modifier.fillMaxWidth()) {
         Text(
-            (if (st.resolved) "✅ " else "⬇️ ") + st.ref.label,
+            (if (st.resolved) "✅ " else "⬇️ ") + label,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodySmall
         )

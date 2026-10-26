@@ -187,6 +187,13 @@ object RefDetector {
         """\blmd\s+ap[êe]ndice\s+([A-Z])(?:\s*[,;—-]?\s*(?:ponto|n\.?\s*[º°]?)\s*(\d{1,3}))?""",
         RegexOption.IGNORE_CASE,
     )
+    // Forma natural: "apêndice A da brochura Ame as Pessoas". A unidade vem
+    // ANTES do título por extenso; o ponto, quando existe, vem logo após a
+    // letra. Não captura o "ponto 5" de uma ref lmd lição 9 separada.
+    private val APPENDIX_TITLE_RE = Regex(
+        """ap[êe]ndice\s+([A-Z])(?:\s*[,;—-]?\s*(?:ponto|n\.?\s*[º°]?|§)\s*(\d{1,3}))?""",
+        RegexOption.IGNORE_CASE,
+    )
     // T2 (refs): estudo por ARTIGO + parágrafo: it "Gedalias" n.° 4,
     // rsg “Mispá, Mispé” § 5, it-1 ‘Gedalias’ n.º 4. Aspas opcionais
     // (retas/curvas); aceita "n.°"/"n.º"/"número"/"§"/"parág.". O artigo
@@ -258,15 +265,17 @@ object RefDetector {
         val seen = mutableSetOf<String>()
 
         fun add(ref: DetectedRef) {
-            // #24-fix: dedupe com granularidade PARA REVISTAS — a mesma edição
-            // com página/§ diferentes são citações distintas ("w25.07 22 §§ 8-9"
-            // × "w25.07 20 § 2"); duplicata real (mesmos campos) ainda cai.
-            // Livros mantêm o dedupe por edição (legado): os matchers de
-            // página se sobrepõem e o comportamento é travado por testes.
-            val key = if (ref.kind == Kind.MAGAZINE) {
-                "${ref.editionKey}|${ref.page ?: ""}|${ref.paragraph ?: ""}|${ref.paragraphEnd ?: ""}"
-            } else {
-                ref.editionKey
+            // Referência = publicação + UNIDADE. A mesma edição com unidades
+            // diferentes (lmd apêndice A × lmd lição 9 ponto 5) são citações
+            // distintas; a mesma unidade repetida cai. Antes, livros eram
+            // deduplicados só por editionKey e a segunda unidade desaparecia.
+            val key = buildString {
+                append(ref.editionKey)
+                append('|').append(normalizeText(ref.article.orEmpty()))
+                append('|').append(normalizeText(ref.chapter.orEmpty()))
+                append('|').append(ref.page ?: -1)
+                append('|').append(ref.paragraph ?: -1)
+                append('|').append(ref.paragraphEnd ?: -1)
             }
             if (seen.add(key)) out += ref
         }
@@ -510,7 +519,9 @@ object RefDetector {
                     m.value.trim(), Kind.BOOK, canonical,
                     "book|$canonical",
                     "${PubCatalog.titleOf(canonical) ?: canonical} (lição $li" +
-                        (if (ponto.isNotEmpty()) " ponto $ponto" else "") + ")"
+                        (if (ponto.isNotEmpty()) " ponto $ponto" else "") + ")",
+                    chapter = "lição $li",
+                    paragraph = ponto.toIntOrNull(),
                 )
             )
         }
@@ -531,6 +542,43 @@ object RefDetector {
                         (point?.let { ", ponto $it" } ?: ""),
                     article = "Apêndice $letter",
                     chapter = "Apêndice $letter",
+                    paragraph = point,
+                )
+            )
+        }
+        // Alias por título por extenso: "apêndice A da brochura Ame as
+        // Pessoas". Só cria a unidade quando o título ao redor é lmd; a
+        // menção genérica não é duplicada depois (bookKeys).
+        APPENDIX_TITLE_RE.findAll(text).forEach { m ->
+            val before = text.substring((m.range.first - 12).coerceAtLeast(0), m.range.first)
+            if (Regex("""\blmd\s*$""", RegexOption.IGNORE_CASE).containsMatchIn(before)) {
+                return@forEach // LMD_APPENDIX_RE já cobre "lmd apêndice A".
+            }
+            val start = (m.range.first - 100).coerceAtLeast(0)
+            val end = (m.range.last + 101).coerceAtMost(text.length)
+            val window = text.substring(start, end)
+            val normWindow = normalizeText(window)
+            val title = PubCatalog.titleIndex()
+                .filter { (t, sym) ->
+                    sym == "lmd" && t.length >= 4 && normWindow.contains(t)
+                }
+                .maxByOrNull { it.first.length }
+                ?: return@forEach
+            val canonical = PubCatalog.resolveSymbol(title.second) ?: "lmd"
+            val letter = m.groupValues[1].uppercase()
+            val point = m.groupValues[2].toIntOrNull()
+            val unit = "Apêndice $letter"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    raw = "$canonical $unit" + (point?.let { " ponto $it" } ?: ""),
+                    kind = Kind.BOOK,
+                    pubKey = canonical,
+                    editionKey = "book|$canonical",
+                    label = "${PubCatalog.titleOf(canonical) ?: canonical} — $unit" +
+                        (point?.let { ", ponto $it" } ?: ""),
+                    article = unit,
+                    chapter = unit,
                     paragraph = point,
                 )
             )
@@ -687,7 +735,24 @@ object RefDetector {
                 add(DetectedRef(name, Kind.BOOK, key, "book|$key", title))
             }
         }
-        return out
+        return dedupUnitRefs(out)
+    }
+
+    private fun DetectedRef.hasUnit(): Boolean =
+        !article.isNullOrBlank() || !chapter.isNullOrBlank() ||
+            page != null || paragraph != null || paragraphEnd != null
+
+    /**
+     * Matchers sobrepostos podem produzir a mesma publicação uma vez com
+     * unidade (it-1 813) e outra genérica ((it-1 813)). Quando há a versão
+     * específica, a genérica não vira linha própria; unidades diferentes
+     * continuam vivas (lmd apêndice A × lmd lição 9 ponto 5).
+     */
+    private fun dedupUnitRefs(refs: List<DetectedRef>): List<DetectedRef> {
+        val editionsWithSpecific = refs.filter { it.hasUnit() }
+            .map { it.editionKey }
+            .toSet()
+        return refs.filter { it.hasUnit() || it.editionKey !in editionsWithSpecific }
     }
 
     /**
