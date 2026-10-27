@@ -278,6 +278,33 @@ class RoomReferenceResolverTest {
     }
 
     @Test
+    fun resolvePublication_paragraphNoInicioDoTexto_casaSemColunaParagraph() = runBlocking {
+        // bhs/epub antigo: seção "Capítulo 5", coluna paragraph NULL, mas o
+        // texto do §10 começa com "10 ". O resolvedor deve achar o parágrafo.
+        val atts = listOf(
+            attachment("bhs", null).copy(fileName = "bhs_T.epub", symbol = null, baseSlot = null)
+        )
+        val rows = listOf(
+            passage(
+                "b1", "bhs", "bhs Capítulo 5 §1985",
+                "10 O que Jeová fez para nos libertar",
+                "10 o que jeova fez para nos libertar",
+                section = "Capítulo 5", ord = 1985,
+            ),
+            passage(
+                "b2", "bhs", "bhs Capítulo 5 §1986",
+                "Ele enviou seu Filho para dar a vida por nós.",
+                "ele enviou seu filho para dar a vida por nos",
+                section = "Capítulo 5", ord = 1986,
+            ),
+        )
+        val out = resolver(rows, atts)
+            .resolvePublication(PublicationRef("bhs", chapter = "cap 5", paragraph = 10))
+        assertEquals(ReferenceStatus.RESOLVED, out.status)
+        assertTrue(out.text!!.contains("10 O que Jeová fez"))
+    }
+
+    @Test
     fun resolvePublication_artigoInexistente_returnsUnresolved() = runBlocking {
         val out = resolver(itRows(), listOf(itAtt()))
             .resolvePublication(PublicationRef("it", article = "NaoExiste"))

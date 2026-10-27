@@ -74,7 +74,7 @@ class PublicationQuestionPromptTest {
     fun publicationRefOf_mapeiaUnidadeCitada() {
         val ref = publicationRefOf(detected("lff cap. 5", "lff", chapter = "cap 5"))
 
-        assertEquals(PublicationRef(symbol = "lff cap. 5", chapter = "cap 5"), ref)
+        assertEquals(PublicationRef(symbol = "lff", chapter = "cap 5"), ref)
     }
 
     @Test

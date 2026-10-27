@@ -255,4 +255,115 @@ class FocusSourceResolverTest {
         assertEquals("45:3", out.entries.first { it.key == FocusSourceResolver.bibleKey(bible) }.unit)
         assertEquals(SourceKind.BIBLE, out.entries.first { it.key == FocusSourceResolver.bibleKey(bible) }.kind)
     }
+
+    @Test
+    fun contagensReconciliamRefsDaNotaComExtrasDoTurno() {
+        val refs = NoteRefsCollector.collect(plainText = "$w2507; $jer")
+        val ref = RefDetector.detect(w2507).first()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val bible = RefDetector.detectBible(jer).first()
+        val bibleKey = FocusSourceResolver.bibleKey(bible)
+        val extra = "w25.07 1 § 2"
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = noteSourcesOf(
+                    refs,
+                    pubStatuses = mapOf(key to refStatus(ref)),
+                    bibleStatuses = mapOf(bibleKey to BibleSourceStatus(true, true)),
+                ),
+                resolvedTexts = mapOf(
+                    key to FocusText(w2507, "texto do ponto"),
+                    bibleKey to FocusText(jer, "texto bíblico"),
+                ),
+                sectionKeys = setOf(w2507),
+                packSources = listOf(
+                    evidence(w2507, "texto do pack"),
+                    evidence(extra, "extra do pack"),
+                ),
+                pinnedRefs = setOf(w2507),
+            ),
+        )
+
+        val counts = out.counts
+        assertEquals(1, counts.point)
+        assertEquals(1, counts.pointContent)
+        assertEquals(1, counts.content)
+        assertEquals(1, counts.pack)
+        assertEquals(2, counts.noteRefs)
+        assertEquals(3, counts.turnRefs)
+        assertEquals(1, counts.extras)
+        assertEquals(1, out.extras.size)
+        assertTrue(out.telemetryLine().contains("pack=1"))
+        assertTrue(out.telemetryLine().contains("note_refs=2"))
+        assertTrue(out.telemetryLine().contains("turn_refs=3"))
+        assertTrue(out.telemetryLine().contains("extras=1"))
+    }
+
+    @Test
+    fun orientacaoNaoEntraComoConteudoNemNoDenominador() {
+        val refs = NoteRefsCollector.collect(plainText = "th lição 3; $jer")
+        val th = refs.publications.single { it.pubKey == "th" }
+        val bible = refs.bibles.single()
+        val thKey = NoteRefsCollector.sourceKey(th)
+        val bibleKey = FocusSourceResolver.bibleKey(bible)
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = noteSourcesOf(
+                    refs,
+                    pubStatuses = mapOf(thKey to refStatus(th)),
+                    bibleStatuses = mapOf(bibleKey to BibleSourceStatus(true, true)),
+                ),
+                resolvedTexts = mapOf(
+                    thKey to FocusText("th lição 3", "orientação"),
+                    bibleKey to FocusText(jer, "texto bíblico"),
+                ),
+                subPointKeys = setOf("th lição 3", jer),
+                packSources = listOf(evidence(jer, "texto do pack")),
+            ),
+        )
+
+        val counts = out.counts
+        assertEquals(2, counts.point)
+        assertEquals(1, counts.pointContent)
+        assertEquals(1, counts.content)
+        assertEquals(1, counts.orientation)
+        assertEquals(1, counts.orientationInventory)
+        assertEquals(0, counts.extras)
+    }
+
+    @Test
+    fun noTextEBudgetSaoContadosSeparadamente() {
+        val refs = NoteRefsCollector.collect(plainText = "w24.01 § 3; $w2507")
+        val missing = refs.publications.first { it.editionKey == "w|2024|1" }
+        val present = refs.publications.first { it.editionKey == "w|2025|7" }
+        val missingKey = NoteRefsCollector.sourceKey(missing)
+        val presentKey = NoteRefsCollector.sourceKey(present)
+        val sources = NoteSourcesResolver.toNoteSources(
+            candidates = NoteSourcesResolver.candidatesOf(refs),
+            publicationStatuses = mapOf(
+                missingKey to RefDetector.RefStatus(ref = missing, resolved = false),
+                presentKey to RefDetector.RefStatus(
+                    ref = present, resolved = true, contentResolved = true,
+                ),
+            ),
+            bibleStatuses = emptyMap(),
+        )
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = sources,
+                resolvedTexts = mapOf(presentKey to FocusText(w2507, "x".repeat(600))),
+                sectionKeys = setOf("w24.01 § 3", w2507),
+                maxChars = 360,
+            ),
+        )
+
+        val counts = out.counts
+        assertEquals(1, counts.noText)
+        assertEquals(1, counts.newText)
+        assertEquals(1, counts.truncated)
+        assertEquals(0, counts.budget)
+    }
 }

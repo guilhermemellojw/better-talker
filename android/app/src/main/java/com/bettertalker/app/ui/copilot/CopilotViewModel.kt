@@ -2747,16 +2747,9 @@ class CopilotViewModel(
         lastFocusStructural = turnContext.structural
         lastFocusQuestion = text
         val focusBlock = focusSources?.block?.takeIf { it.isNotBlank() }
-        val focusRefs = focusSources?.pointSources?.size ?: 0
         val focusChars = focusBlock?.length ?: 0
-        val focusTruncated = focusSources?.promptSources?.count { it.isTruncated } ?: 0
-        val focusOmitted = focusSources?.omitted?.size ?: 0
-        if (focusBlock != null) {
-            android.util.Log.i(
-                "CopilotLLM",
-                "chat focus sources: refs=$focusRefs chars=$focusChars " +
-                    "truncated=$focusTruncated omitted=$focusOmitted",
-            )
+        if (focusSources != null) {
+            android.util.Log.i("CopilotLLM", focusSources.telemetryLine())
         }
         // C2.4: uma linha por ref do ponto (e por omitida), sem texto do
         // usuário. Metadados apenas: unidade, status, destino e motivo.
@@ -2769,7 +2762,7 @@ class CopilotViewModel(
                     "CopilotLLM",
                     "focus ref: ${source.reference} | unit=${source.unit ?: "-"} | " +
                         "status=${source.status} | dest=${source.destination} | " +
-                        "reason=${source.omissionReason ?: "-"}",
+                        "extra=${source.extra} | reason=${source.omissionReason ?: "-"}",
                 )
             }
         }
@@ -2877,10 +2870,7 @@ class CopilotViewModel(
                 historyChars = historyWindow.sumOf { it.text.length },
                 refsCount = refsCount,
                 inventoryChars = inventoryChars,
-                focusRefs = focusRefs,
                 focusChars = focusChars,
-                focusTruncated = focusTruncated,
-                focusOmitted = focusOmitted,
             ).line(),
         )
         // T1 — gate de alucinação universal (pós-filtro do streaming):

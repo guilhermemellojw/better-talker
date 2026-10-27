@@ -72,7 +72,13 @@ data class FocusSource(
     val publicationLabel: String? = null,
     /** Chave de agrupamento ("w", "lmd", "th", "be"). */
     val publicationKey: String? = null,
+    /** C2.1: fonte do pack/pergunta que não é ref da nota. */
+    val extra: Boolean = false,
 ) {
+    /** `be`/`th` são orientação de oratória, nunca conteúdo factual. */
+    val isOrientation: Boolean
+        get() = kind == SourceKind.PUBLICATION && publicationKey in setOf("be", "th")
+
     /** Texto que o prompt realmente recebe neste bloco. */
     val usedText: String
         get() = if (destination == FocusDestination.FOCUS_BLOCK) text else ""
@@ -81,10 +87,46 @@ data class FocusSource(
         get() = destination == FocusDestination.FOCUS_BLOCK && truncatedChars < originalChars
 }
 
+/** Contagens semânticas do turno (conteúdo × orientação × dedup × omissão). */
+data class FocusCounts(
+    /** Refs do ponto (subponto + seção), incluindo orientação e omitidas. */
+    val point: Int,
+    /** Refs de conteúdo do ponto (exclui be/th). */
+    val pointContent: Int,
+    /** Refs de conteúdo do ponto que entraram no prompt. */
+    val content: Int,
+    /** Orientações be/th do ponto. */
+    val orientation: Int,
+    /** Orientações do ponto que ficaram no inventário. */
+    val orientationInventory: Int,
+    /** Conteúdo já no dossiê. */
+    val dossier: Int,
+    /** Conteúdo já no pack. */
+    val pack: Int,
+    /** Conteúdo já no bloco da pergunta. */
+    val question: Int,
+    /** Conteúdo novo no bloco `## FONTES DO PONTO ATUAL`. */
+    val newText: Int,
+    /** Conteúdo do ponto sem texto (edição ausente/trecho não encontrado). */
+    val noText: Int,
+    /** Conteúdo do ponto fora do orçamento do bloco. */
+    val budget: Int,
+    /** Conteúdo do ponto truncado no bloco. */
+    val truncated: Int,
+    /** Refs canônicas da nota. */
+    val noteRefs: Int,
+    /** Total de entradas do turno (nota + extras do pack/pergunta). */
+    val turnRefs: Int,
+    /** Fontes do pack/pergunta que não são refs da nota. */
+    val extras: Int,
+)
+
 data class FocusSources(
     val entries: List<FocusSource>,
     val block: String,
     val maxChars: Int = MAX_FOCUS_BLOCK_CHARS,
+    /** Refs canônicas da nota (distinto de [entries], que inclui extras). */
+    val noteRefsCount: Int = 0,
 ) {
     val promptSources: List<FocusSource>
         get() = entries.filter { it.destination == FocusDestination.FOCUS_BLOCK }
@@ -93,6 +135,9 @@ data class FocusSources(
         get() = entries.filter {
             it.origin == FocusOrigin.SUBPOINT || it.origin == FocusOrigin.SECTION
         }
+    /** Refs de conteúdo do ponto (exclui orientação be/th). */
+    val pointContentEntries: List<FocusSource>
+        get() = pointEntries.filter { !it.isOrientation }
     /** Refs do ponto atual (subponto/seção) que entraram no prompt de alguma forma. */
     val pointSources: List<FocusSource>
         get() = pointEntries.filter {
@@ -103,7 +148,60 @@ data class FocusSources(
         }
     val omitted: List<FocusSource>
         get() = entries.filter { it.destination == FocusDestination.OMITTED }
+    val extras: List<FocusSource>
+        get() = entries.filter { it.extra }
     val isEmpty: Boolean get() = entries.isEmpty()
+
+    val counts: FocusCounts
+        get() {
+            val point = pointEntries
+            val content = pointContentEntries
+            val orientation = point.filter { it.isOrientation }
+            fun inPrompt(source: FocusSource): Boolean = when (source.destination) {
+                FocusDestination.FOCUS_BLOCK,
+                FocusDestination.DOSSIER,
+                FocusDestination.PACK,
+                FocusDestination.QUESTION -> true
+                FocusDestination.INVENTORY,
+                FocusDestination.OMITTED -> false
+            }
+            return FocusCounts(
+                point = point.size,
+                pointContent = content.size,
+                content = content.count { inPrompt(it) },
+                orientation = orientation.size,
+                orientationInventory = orientation.count {
+                    it.destination == FocusDestination.INVENTORY
+                },
+                dossier = content.count { it.destination == FocusDestination.DOSSIER },
+                pack = content.count { it.destination == FocusDestination.PACK },
+                question = content.count { it.destination == FocusDestination.QUESTION },
+                newText = content.count { it.destination == FocusDestination.FOCUS_BLOCK },
+                noText = content.count {
+                    it.destination == FocusDestination.OMITTED &&
+                        it.omissionReason != FOCUS_BUDGET_REASON
+                },
+                budget = content.count {
+                    it.destination == FocusDestination.OMITTED &&
+                        it.omissionReason == FOCUS_BUDGET_REASON
+                },
+                truncated = content.count { it.isTruncated },
+                noteRefs = noteRefsCount,
+                turnRefs = entries.size,
+                extras = entries.count { it.extra },
+            )
+        }
+
+    /** Linha explícita de telemetria (conteúdo × orientação × dedup × omissão). */
+    fun telemetryLine(): String {
+        val c = counts
+        return "focus|point=${c.point}|point_content=${c.pointContent}|content=${c.content}" +
+            "|orientation=${c.orientation}|orientation_inventory=${c.orientationInventory}" +
+            "|dossier=${c.dossier}|pack=${c.pack}|question=${c.question}" +
+            "|new=${c.newText}|no_text=${c.noText}|budget=${c.budget}" +
+            "|truncated=${c.truncated}|note_refs=${c.noteRefs}" +
+            "|turn_refs=${c.turnRefs}|extras=${c.extras}"
+    }
 
     fun destinationOf(key: String): FocusDestination? =
         entries.firstOrNull { it.key == key }?.destination
@@ -138,6 +236,7 @@ data class FocusSourcesInput(
 
 const val MAX_FOCUS_BLOCK_CHARS = 4_000
 const val FOCUS_BLOCK_HEADER = "## FONTES DO PONTO ATUAL"
+const val FOCUS_BUDGET_REASON = "orçamento do bloco esgotado"
 private const val MAX_PACK_FOCUS_SOURCES = 8
 
 /** Rótulo curto do status para a UI e para o bloco. */
@@ -177,6 +276,7 @@ object FocusSourceResolver {
 
         // 1. Espinha: todas as refs canônicas da nota, na ordem do coletor.
         noteRefEntries(input, normalized).forEach { entries.putIfAbsent(it.key, it) }
+        val noteKeys = entries.keys.toSet()
 
         // 2. Textos resolvidos que não vieram da nota.
         input.resolvedTexts.forEach { (key, text) ->
@@ -191,6 +291,7 @@ object FocusSourceResolver {
                     text = text.text,
                     originalChars = text.text.length,
                     publicationKey = publicationKeyOf(text.reference),
+                    extra = key !in noteKeys,
                 )
             }
         }
@@ -211,6 +312,7 @@ object FocusSourceResolver {
                     originalChars = source.text.length,
                     destination = FocusDestination.PACK,
                     publicationKey = publicationKeyOf(source.reference),
+                    extra = key !in noteKeys,
                 ),
             )
         }
@@ -233,6 +335,7 @@ object FocusSourceResolver {
                     originalChars = source.text.length,
                     destination = FocusDestination.QUESTION,
                     publicationKey = publicationKeyOf(source.reference),
+                    extra = key !in noteKeys,
                 )
             }
         }
@@ -241,7 +344,9 @@ object FocusSourceResolver {
         val classified = entries.values.map { classify(it, normalized) }
 
         // 5. Bloco: só o que ainda não está no dossiê/pack/pergunta e tem texto.
-        return buildBlock(classified, input.maxChars)
+        return buildBlock(classified, input.maxChars).copy(
+            noteRefsCount = input.noteRefs.publications.size + input.noteRefs.bibles.size,
+        )
     }
 
     private fun noteRefEntries(
@@ -307,6 +412,11 @@ object FocusSourceResolver {
         }
         if (source.text.isBlank()) {
             return source.copy(
+                status = if (source.status == FocusStatus.RESOLVED) {
+                    FocusStatus.TEXT_NOT_FOUND
+                } else {
+                    source.status
+                },
                 destination = FocusDestination.OMITTED,
                 omissionReason = "sem trecho utilizável no acervo",
                 originalChars = 0,
@@ -369,7 +479,7 @@ object FocusSourceResolver {
                 omittedByBudget = true
                 result[index] = source.copy(
                     destination = FocusDestination.OMITTED,
-                    omissionReason = "orçamento do bloco esgotado",
+                    omissionReason = FOCUS_BUDGET_REASON,
                     truncatedChars = 0,
                 )
                 continue
@@ -392,7 +502,7 @@ object FocusSourceResolver {
                 omittedByBudget = true
                 result[index] = source.copy(
                     destination = FocusDestination.OMITTED,
-                    omissionReason = "orçamento do bloco esgotado",
+                    omissionReason = FOCUS_BUDGET_REASON,
                     truncatedChars = 0,
                 )
                 continue

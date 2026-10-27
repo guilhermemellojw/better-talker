@@ -2027,6 +2027,7 @@ private fun FocusSourcesCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            val counts = sources.counts
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Fontes deste ponto",
@@ -2035,14 +2036,66 @@ private fun FocusSourcesCard(
                     modifier = Modifier.weight(1f),
                 )
                 Text(
-                    "${sources.pointSources.size}/${sources.pointEntries.size} no prompt · " +
-                        "${sources.pointEntries.count { it.destination == FocusDestination.OMITTED }} sem texto",
+                    if (counts.pointContent == 0) {
+                        "sem fontes de conteúdo"
+                    } else {
+                        "${counts.content} de ${counts.pointContent} fontes de conteúdo no prompt"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (counts.orientation > 0) {
+                val labels = sources.pointEntries
+                    .filter { it.isOrientation }
+                    .mapNotNull { it.publicationKey }
+                    .distinct()
+                    .joinToString("/")
+                    .ifBlank { "be/th" }
+                Text(
+                    "${counts.orientation} orientação ($labels) no inventário",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (counts.newText > 0) {
+                Text(
+                    "${counts.newText} texto novo no bloco",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+            if (counts.dossier + counts.pack + counts.question > 0) {
+                Text(
+                    listOfNotNull(
+                        counts.dossier.takeIf { it > 0 }?.let { "$it no dossiê" },
+                        counts.pack.takeIf { it > 0 }?.let { "$it no pack" },
+                        counts.question.takeIf { it > 0 }?.let { "$it na pergunta" },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (counts.noText > 0) {
+                Text(
+                    "${counts.noText} sem texto",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (counts.budget > 0) {
+                Text(
+                    "${counts.budget} fora do orçamento",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             Text(
-                "${sources.promptSources.size} com texto novo · ${sources.entries.size} refs mapeadas",
+                if (counts.extras > 0) {
+                    "${counts.noteRefs} refs da nota · ${counts.extras} extras do turno"
+                } else {
+                    "${counts.noteRefs} refs da nota"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
@@ -2060,9 +2113,13 @@ private fun FocusSourcesCard(
             if (showAll) {
                 val shown = sources.entries.take(40)
                 shown.forEach { source ->
+                    val tag = when {
+                        source.isOrientation -> "orientação"
+                        source.extra -> "extra do turno"
+                        else -> focusDestinationLabel(source.destination)
+                    }
                     Text(
-                        "• ${source.reference} — ${focusStatusLabel(source.status)} " +
-                            "(${focusDestinationLabel(source.destination)})",
+                        "• ${source.reference} — ${focusStatusLabel(source.status)} ($tag)",
                         style = MaterialTheme.typography.bodySmall,
                         color = focusStatusColor(source.status),
                     )
@@ -2076,7 +2133,7 @@ private fun FocusSourcesCard(
                 }
                 if (sources.entries.size > shown.size) {
                     Text(
-                        "… ${sources.entries.size - shown.size} refs no inventário da nota",
+                        "… ${sources.entries.size - shown.size} outras refs no inventário",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

@@ -835,7 +835,10 @@ internal fun isGuidePubRef(ref: RefDetector.DetectedRef): Boolean =
  */
 internal fun publicationRefOf(ref: RefDetector.DetectedRef): PublicationRef =
     PublicationRef(
-        symbol = ref.raw,
+        // Livros usam o símbolo canônico (`bhs`, `lmd`, `it`): o `raw` pode
+        // ser o título humano vindo do JSON do esboço ("Entenda a Bíblia") e
+        // não casa com o arquivo. Revistas mantêm o raw (traz data/edição).
+        symbol = if (ref.kind == RefDetector.Kind.BOOK) ref.pubKey else ref.raw,
         page = ref.page,
         pageEnd = ref.pageEnd,
         paragraph = ref.paragraph,

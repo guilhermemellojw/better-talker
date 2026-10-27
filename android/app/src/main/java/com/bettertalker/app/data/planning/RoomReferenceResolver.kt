@@ -97,7 +97,13 @@ class RoomReferenceResolver(
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
         //    unidade inteira (PARTIAL — texto real, recorte aproximado).
         val paragraph = ref.paragraph
-        val exact = if (paragraph != null) slice.filter { it.paragraph == paragraph } else emptyList()
+        val exact = if (paragraph != null) {
+            slice.filter {
+                it.paragraph == paragraph ||
+                    (it.paragraph == null &&
+                        RefDetector.leadingParagraphNumber(it.text) == paragraph)
+            }
+        } else emptyList()
         val chosen = exact.ifEmpty { slice }
         val text = chosen.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
         if (text.isBlank()) {

@@ -142,6 +142,16 @@ class FocusSourcesRealFixturesTest {
 
         // Seção 1: 10 refs, 2 já no dossiê/pinned, 8 no bloco.
         assertEquals(8, out.entries.count { it.destination == FocusDestination.FOCUS_BLOCK })
+        assertEquals(10, out.counts.point)
+        assertEquals(10, out.counts.pointContent)
+        assertEquals(10, out.counts.content)
+        assertEquals(1, out.counts.dossier)
+        assertEquals(1, out.counts.pack)
+        assertEquals(8, out.counts.newText)
+        assertEquals(70, out.counts.noteRefs)
+        assertEquals(70, out.counts.turnRefs)
+        assertEquals(0, out.counts.extras)
+        assertTrue(out.telemetryLine().contains("note_refs=70"))
 
         // Fora do ponto: resolvida vai para o inventário, com motivo.
         val outside = out.entries.first { it.reference.startsWith("Salmos 48:12") }
@@ -202,6 +212,13 @@ class FocusSourcesRealFixturesTest {
 
         assertEquals(5, out.entries.size)
         assertEquals(5, out.entries.count { it.destination == FocusDestination.FOCUS_BLOCK })
+        assertEquals(5, out.counts.point)
+        assertEquals(5, out.counts.pointContent)
+        assertEquals(5, out.counts.content)
+        assertEquals(5, out.counts.newText)
+        assertEquals(5, out.counts.noteRefs)
+        assertEquals(5, out.counts.turnRefs)
+        assertEquals(0, out.counts.extras)
         assertEquals(2, out.entries.count { it.kind == SourceKind.BIBLE })
         assertEquals(3, out.entries.count { it.kind == SourceKind.PUBLICATION })
         assertTrue(out.block.contains("Jeremias 45:3"))

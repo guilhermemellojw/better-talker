@@ -27,11 +27,8 @@ data class GenerationTelemetry(
     val historyChars: Int = 0,
     val refsCount: Int = 0,
     val inventoryChars: Int = 0,
-    /** C2.1: fontes do ponto atual injetadas/omitidas. */
-    val focusRefs: Int = 0,
+    /** C2.1: tamanho do bloco de fontes do ponto; contagens vão na linha `focus|…`. */
     val focusChars: Int = 0,
-    val focusTruncated: Int = 0,
-    val focusOmitted: Int = 0,
 ) {
     fun line(): String = buildString {
         append("generation|route=").append(route)
@@ -50,10 +47,7 @@ data class GenerationTelemetry(
         append("|history_chars=").append(historyChars)
         append("|refs=").append(refsCount)
         append("|inventory_chars=").append(inventoryChars)
-        append("|focus_refs=").append(focusRefs)
         append("|focus_chars=").append(focusChars)
-        append("|focus_truncated=").append(focusTruncated)
-        append("|focus_omitted=").append(focusOmitted)
     }
 }
 
@@ -80,10 +74,7 @@ fun generationTelemetry(
     historyChars: Int = 0,
     refsCount: Int = 0,
     inventoryChars: Int = 0,
-    focusRefs: Int = 0,
     focusChars: Int = 0,
-    focusTruncated: Int = 0,
-    focusOmitted: Int = 0,
 ): GenerationTelemetry = GenerationTelemetry(
     route = route,
     budget = budget,
@@ -101,8 +92,5 @@ fun generationTelemetry(
     historyChars = historyChars,
     refsCount = refsCount,
     inventoryChars = inventoryChars,
-    focusRefs = focusRefs,
     focusChars = focusChars,
-    focusTruncated = focusTruncated,
-    focusOmitted = focusOmitted,
 )

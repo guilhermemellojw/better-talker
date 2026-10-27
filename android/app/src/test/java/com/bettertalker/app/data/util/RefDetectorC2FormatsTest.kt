@@ -104,6 +104,35 @@ class RefDetectorC2FormatsTest {
     }
 
     @Test
+    fun paragraphNoInicioDoTextoContaComoUnidade() {
+        val text = "10 O que Jeová fez para nos libertar"
+        val passage = com.bettertalker.app.data.db.PassageEntity(
+            id = "p1",
+            attachmentId = "bhs",
+            text = text,
+            normalized = text.lowercase(),
+            section = "Capítulo 5",
+            ref = "bhs Capítulo 5 §1985",
+        )
+        val ref = RefDetector.DetectedRef(
+            raw = "bhs cap 5 §10",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "bhs",
+            editionKey = "book|bhs",
+            label = "Entenda a Bíblia",
+            chapter = "cap 5",
+            paragraph = 10,
+        )
+
+        assertEquals(10, RefDetector.leadingParagraphNumber(text))
+        assertNull(RefDetector.leadingParagraphNumber("1 João 4:8"))
+        assertNull(RefDetector.leadingParagraphNumber("1 Coríntios 14:33"))
+        val check = RefDetector.resolveContent(ref, listOf(passage), corpusAvailable = true)
+        assertTrue(check.resolved)
+        assertTrue(check.snippet!!.contains("O que Jeová fez"))
+    }
+
+    @Test
     fun s34RealAgoraDetectaBtEKrs() {
         val raw = javaClass.getResourceAsStream("/fixtures/S-34_T_003.txt")!!
             .bufferedReader().readText()

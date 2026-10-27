@@ -1254,6 +1254,23 @@ object RefDetector {
      *
      * Não altera `resolved` (edição baixada). Puro/testável.
      */
+    /**
+     * C2.2: número do parágrafo no começo do texto quando o índice não trouxe
+     * a coluna `paragraph` (bhs/epub antigo). Evita linhas curtas de citação
+     * bíblica ("1 João 4:8") — exige corpo com pelo menos 20 chars.
+     */
+    fun leadingParagraphNumber(text: String): Int? {
+        val trimmed = text.trim()
+        if (trimmed.length < 20) return null
+        // Linha de citação bíblica ("1 João 4:8", "1 Coríntios 14:33") não é
+        // parágrafo numerado — o "1" é o número do livro.
+        if (Regex("""^\d{1,3}\s+\S+\s+\d{1,3}:\d{1,3}""").containsMatchIn(trimmed)) {
+            return null
+        }
+        return Regex("""^(\d{1,3})[.)]?\s+[A-Za-zÀ-ÿ]""")
+            .find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
     fun resolveContent(
         ref: DetectedRef,
         passages: List<PassageEntity>,
@@ -1272,9 +1289,10 @@ object RefDetector {
         val parStart = ref.paragraph
         val parEnd = ref.paragraphEnd ?: parStart
         val structuredHits = passages.filter { p ->
-            if (p.paragraph == null) return@filter false
+            val pParagraph = p.paragraph ?: leadingParagraphNumber(p.text)
+            if (pParagraph == null) return@filter false
             val pageOk = ref.page == null || p.page == ref.page
-            val parOk = parStart == null || (p.paragraph in parStart..(parEnd ?: parStart))
+            val parOk = parStart == null || (pParagraph in parStart..(parEnd ?: parStart))
             pageOk && parOk
         }
         if (structuredHits.isNotEmpty()) {
