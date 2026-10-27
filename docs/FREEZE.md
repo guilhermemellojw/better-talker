@@ -5,6 +5,10 @@
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
+> **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
+> v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
+> máquina; o v2.8.2 continua **draft** e não inclui o C2.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
