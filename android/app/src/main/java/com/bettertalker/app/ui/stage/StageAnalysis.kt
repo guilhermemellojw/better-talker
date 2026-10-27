@@ -35,8 +35,9 @@ fun analysisStateLabel(state: AnalysisState): String? = when (state) {
     is AnalysisState.Result -> "Resultado pronto"
 }
 
-/** A análise está em andamento (escuta/pausa/interrupção)? Puro/testável. */
+/** A análise está em andamento (escuta/pausa/interrupção/processando)? Puro/testável. */
 fun isAnalysisActive(state: AnalysisState): Boolean =
     state is AnalysisState.Listening ||
         state is AnalysisState.Paused ||
-        state is AnalysisState.Interrupted
+        state is AnalysisState.Interrupted ||
+        state is AnalysisState.Processing

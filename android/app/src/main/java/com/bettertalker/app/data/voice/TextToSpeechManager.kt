@@ -125,8 +125,16 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
                             _speaking.value = false
                         }
 
+                        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                            _speaking.value = false
+                        }
+
                         @Deprecated("Deprecated in Java")
                         override fun onError(utteranceId: String?) {
+                            _speaking.value = false
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
                             _speaking.value = false
                         }
                     }
@@ -149,8 +157,12 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
         engine.stop()
         engine.setSpeechRate(rate.coerceIn(0.5f, 2.0f))
         engine.setPitch(pitch.coerceIn(0.5f, 2.0f))
-        _speaking.value = true
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "bt-speech")
+        // P0 voz: só marca falando quando o engine aceitou a fala. Um
+        // retorno ERROR não pode deixar o botão preso em "Parar".
+        val result = runCatching {
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "bt-speech")
+        }.getOrDefault(TextToSpeech.ERROR)
+        _speaking.value = ttsSpeakSucceeded(result)
     }
 
     override fun stop() {
@@ -177,3 +189,6 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
         _speaking.value = false
     }
 }
+
+/** P0 voz: o engine aceitou a fala? Puro/testável. */
+internal fun ttsSpeakSucceeded(result: Int): Boolean = result == TextToSpeech.SUCCESS

@@ -14,13 +14,14 @@ class VoiceRouterBehaviorTest {
     private class FakeEngine(readyNow: Boolean) : VoiceEngine {
         val spoken = mutableListOf<String>()
         var warmed = false
+        var stops = 0
         override val speaking: StateFlow<Boolean> = MutableStateFlow(false)
         override val ready: StateFlow<Boolean> = MutableStateFlow(readyNow)
         override val initialized: StateFlow<Boolean> = MutableStateFlow(true)
         override fun speak(text: String, rate: Float, pitch: Float) {
             spoken += text
         }
-        override fun stop() {}
+        override fun stop() { stops++ }
         override fun isSpeaking(): Boolean = false
         override fun warmUp() { warmed = true }
         override fun shutdown() {}
@@ -68,6 +69,43 @@ class VoiceRouterBehaviorTest {
         r.setPremiumEnabled(true)
         assertTrue(piper.warmed)
         r.setPremiumEnabled(false)
+    }
+
+    @Test
+    fun stopParaOsDoisMotores() {
+        val native = FakeEngine(true)
+        val piper = FakeEngine(true)
+        val r = VoiceRouter(native, piper, File("/nao-existe"))
+        r.setPremiumEnabled(true)
+        native.stops = 0
+        piper.stops = 0
+        r.stop()
+        assertEquals(1, native.stops)
+        assertEquals(1, piper.stops)
+    }
+
+    @Test
+    fun speakParaOsDoisAntesDeFalar() {
+        val native = FakeEngine(true)
+        val piper = FakeEngine(true)
+        val r = VoiceRouter(native, piper, File("/nao-existe"))
+        r.setPremiumEnabled(true)
+        native.stops = 0
+        piper.stops = 0
+        r.speak("x")
+        assertEquals(1, native.stops)
+        assertEquals(1, piper.stops)
+        assertEquals(listOf("x"), piper.spoken)
+    }
+
+    @Test
+    fun trocarPremiumParaAFalaDosDoisMotores() {
+        val native = FakeEngine(true)
+        val piper = FakeEngine(true)
+        val r = VoiceRouter(native, piper, File("/nao-existe"))
+        r.setPremiumEnabled(true)
+        assertEquals(1, native.stops)
+        assertEquals(1, piper.stops)
     }
 
     @Test

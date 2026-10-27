@@ -112,6 +112,8 @@ fun ChatPromptBar(
     onAttach: () -> Unit,
     voiceState: VoiceInputState = VoiceInputState.Idle,
     voiceSeconds: Int = 0,
+    /** P0 voz: microfone desabilitado enquanto o TTS estiver falando. */
+    ttsSpeaking: Boolean = false,
     onVoice: () -> Unit = {},
     onVoiceFinish: () -> Unit = {},
     onVoiceCancel: () -> Unit = {},
@@ -201,11 +203,11 @@ fun ChatPromptBar(
                     else -> {
                         val desc = voiceMicDescription(voiceState)
                         if (canSend) {
-                            IconButton(onClick = onVoice) {
+                            IconButton(onClick = onVoice, enabled = !ttsSpeaking) {
                                 Icon(Icons.Default.Mic, desc)
                             }
                         } else {
-                            FilledIconButton(onClick = onVoice) {
+                            FilledIconButton(onClick = onVoice, enabled = !ttsSpeaking) {
                                 Icon(Icons.Default.Mic, desc)
                             }
                         }

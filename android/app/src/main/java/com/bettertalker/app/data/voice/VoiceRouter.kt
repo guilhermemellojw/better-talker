@@ -50,16 +50,31 @@ class VoiceRouter(
 
     override val initialized: StateFlow<Boolean> get() = active.initialized
 
-    override fun speak(text: String, rate: Float, pitch: Float) = active.speak(text, rate, pitch)
-    override fun stop() = active.stop()
-    override fun isSpeaking(): Boolean = active.isSpeaking()
+    override fun speak(text: String, rate: Float, pitch: Float) {
+        // P0 voz: nunca deixar o motor anterior falando ao trocar de engine.
+        native.stop()
+        piper.stop()
+        active.speak(text, rate, pitch)
+    }
+
+    override fun stop() {
+        native.stop()
+        piper.stop()
+    }
+
+    override fun isSpeaking(): Boolean = native.isSpeaking() || piper.isSpeaking()
 
     override fun shutdown() {
+        native.stop()
+        piper.stop()
         native.shutdown()
         piper.shutdown()
     }
 
     fun setPremiumEnabled(enabled: Boolean) {
+        // P0 voz: a troca de engine para a fala antes de mudar o roteamento.
+        native.stop()
+        piper.stop()
         _premiumEnabled.value = enabled
         // #23-fix-a: ligar o premium já pré-carrega o Piper (o lazy sozinho
         // nunca ativava: ready só vira true depois do 1º speak).

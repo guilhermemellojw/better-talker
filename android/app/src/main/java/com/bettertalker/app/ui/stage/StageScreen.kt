@@ -236,7 +236,7 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 fontSp = fontSp,
                 onFontDelta = vm::bumpFont,
                 speaking = speaking,
-                speechReady = speechReady,
+                speechReady = speechReady && !isAnalysisActive(analysisState),
                 onToggleSpeech = vm::toggleSpeech,
                 analysisActive = isAnalysisActive(analysisState),
                 onStartAnalysis = requestAnalysis,

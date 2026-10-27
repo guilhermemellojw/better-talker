@@ -295,6 +295,8 @@ fun ChatScreen(
     val ttsReady by vm.ttsReady.collectAsState()
     val ttsInitialized by vm.ttsInitialized.collectAsState()
     val ttsSpeaking by vm.ttsSpeaking.collectAsState()
+    val voiceActive = voiceState is VoiceInputState.Listening ||
+        voiceState is VoiceInputState.Processing
     var speakingId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(ttsSpeaking) {
         if (!ttsSpeaking) speakingId = null
@@ -575,6 +577,7 @@ fun ChatScreen(
                     onAttach = { showAttach = true },
                     voiceState = voiceState,
                     voiceSeconds = voiceSeconds,
+                    ttsSpeaking = ttsSpeaking,
                     onVoice = {
                         if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
                             PackageManager.PERMISSION_GRANTED
@@ -693,7 +696,7 @@ fun ChatScreen(
                                     actions = { mod ->
                                         MessageActions(
                                             m, vm, hasScope = chatScope != null,
-                                            ttsReady = ttsReady,
+                                            ttsReady = ttsReady && !voiceActive,
                                             speaking = speakingId == m.id,
                                             onSpeak = {
                                                 speakingId = m.id

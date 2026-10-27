@@ -42,12 +42,12 @@ class AnalysisStateTest {
     }
 
     @Test
-    fun analiseAtivaIncluiEscutaPausaEInterrupcao() {
+    fun analiseAtivaIncluiEscutaPausaInterrupcaoEProcessamento() {
         assertTrue(isAnalysisActive(AnalysisState.Listening))
         assertTrue(isAnalysisActive(AnalysisState.Paused))
         assertTrue(isAnalysisActive(AnalysisState.Interrupted("sem serviço")))
+        assertTrue(isAnalysisActive(AnalysisState.Processing))
         org.junit.Assert.assertFalse(isAnalysisActive(AnalysisState.Idle))
-        org.junit.Assert.assertFalse(isAnalysisActive(AnalysisState.Processing))
     }
 
     @Test

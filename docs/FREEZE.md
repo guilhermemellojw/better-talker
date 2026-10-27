@@ -225,6 +225,21 @@ Branch `feat/v2.8.2-c2a` (a partir da main `0174496`) · **2.533 testes JVM / 0 
 | A34 | “o que w25.07 p. 22 §8 diz sobre este ponto?” → `1 trecho(s) de publicação da pergunta injetado(s)`; resposta usa Baruque/§8. Controle “w25.07 22 §8” também injetou 1. |
 | Relatório | [validacao-2026-10-27-a34-c2a.md](reports/validacao-2026-10-27-a34-c2a.md). |
 
+## P0 voz — coexistência TTS/STT (2026-10-27)
+
+Branch `fix/v2.8.2-voice-coexistence` (a partir da main `41c546d`) · **2.538 testes JVM / 0 falhas** · `lintRelease` verde.
+
+| Item | Ação |
+|---|---|
+| Stage | `startAnalysis()` para o TTS; “Ouvir” bloqueado durante Listening/Paused/Interrupted/Processing. |
+| Chat | Microfone bloqueado durante TTS; “Ouvir” bloqueado durante escuta/processamento; `startVoiceInput()` para o TTS. |
+| `VoiceRouter` | `speak`/`stop`/`shutdown`/`setPremiumEnabled` param os dois motores; troca de engine não deixa fala órfã. |
+| `TextToSpeechManager` | Checa retorno de `speak`; `onStop`/`onError` limpam `_speaking`. |
+| `SpeechRecognizerManager` | Timeout de 5 s no `finish()`; falha de `startListening` vira erro visível. |
+| Testes | `VoiceRouterBehaviorTest`, `TtsSpeakResultTest`, `AnalysisStateTest` + suíte. |
+| A34 | TTS→mic parou o TTS e abriu a análise; STT do sistema continua `error=10` com fallback Interrupted. |
+| Relatório | [validacao-2026-10-27-a34-voice-p0.md](reports/validacao-2026-10-27-a34-voice-p0.md). |
+
 ## Decisões pendentes (não remover ainda)
 
 | Item | Estado atual | O que falta decidir |

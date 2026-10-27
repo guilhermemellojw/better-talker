@@ -222,7 +222,13 @@ class StageViewModel(
 
     /** T2 — botão ▶ Ouvir / ⏸ Parar: uma leitura por vez (o manager flusha). */
     fun toggleSpeech() {
-        if (tts.speaking.value) tts.stop() else speakContent()
+        if (tts.speaking.value) {
+            tts.stop()
+            return
+        }
+        // P0 voz: não inicia TTS durante a análise (escuta/pausa/processando).
+        if (isAnalysisActive(_analysisState.value)) return
+        speakContent()
     }
 
     /** Modo Teleprompter: cicla o papel em destaque (null → 1º → 2º → …). */
@@ -233,6 +239,8 @@ class StageViewModel(
     }
 
     private fun speakContent() {
+        // P0 voz: TTS e STT nunca falam/ouvem ao mesmo tempo.
+        if (isAnalysisActive(_analysisState.value)) return
         // Modo Teleprompter: fala sem os rótulos de papel ("Publicador:").
         val text = com.bettertalker.app.data.voice.prepareForSpeech(speechText)
         if (text.isNotBlank()) tts.speak(text)
@@ -244,6 +252,8 @@ class StageViewModel(
 
     /** Inicia a escuta e o relógio da análise; o timer do Stage continua. */
     fun startAnalysis() {
+        // P0 voz: microfone e TTS são mutuamente exclusivos.
+        tts.stop()
         val current = _analysisState.value
         if (current is AnalysisState.Listening ||
             current is AnalysisState.Paused ||

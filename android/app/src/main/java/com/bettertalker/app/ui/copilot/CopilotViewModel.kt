@@ -5381,8 +5381,11 @@ class CopilotViewModel(
     val voiceState: StateFlow<com.bettertalker.app.data.voice.VoiceInputState> =
         speechRecognizer.state
 
-    /** Abre o microfone (a UI pede a permissão antes). */
-    fun startVoiceInput() = speechRecognizer.start()
+    /** Abre o microfone (a UI pede a permissão antes). P0: TTS para antes. */
+    fun startVoiceInput() {
+        textToSpeech.stop()
+        speechRecognizer.start()
+    }
 
     /** Conclui a escuta e pede a transcrição (quadrado-stop). */
     fun finishVoiceInput() = speechRecognizer.finish()
@@ -5642,6 +5645,11 @@ class CopilotViewModel(
 
     /** Lê uma resposta em voz alta — sempre o texto PÓS-GATE. */
     fun speakMessage(text: String) {
+        // P0 voz: não inicia TTS com o microfone ativo.
+        val voice = voiceState.value
+        if (voice is com.bettertalker.app.data.voice.VoiceInputState.Listening ||
+            voice is com.bettertalker.app.data.voice.VoiceInputState.Processing
+        ) return
         textToSpeech.speak(com.bettertalker.app.data.voice.prepareForSpeech(text))
     }
 

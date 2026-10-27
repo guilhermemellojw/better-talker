@@ -74,8 +74,22 @@ class SpeechRecognizerManager(private val context: Context) {
         }
     }
 
+    /**
+     * P0 voz: o `finish()` não pode deixar o composer preso em Processing se
+     * o serviço não responder. O timeout libera o estado com erro visível.
+     */
+    private val finishRunnable = Runnable {
+        if (_state.value is VoiceInputState.Processing) {
+            stopInternal()
+            _state.value = VoiceInputState.Error(
+                "O reconhecimento não respondeu. Tente de novo."
+            )
+        }
+    }
+
     /** Inicia a escuta em pt-BR (reinicia se já houver uma sessão). */
     fun start(timeoutMs: Long = DEFAULT_TIMEOUT_MS) {
+        handler.removeCallbacks(finishRunnable)
         stopInternal()
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _state.value = VoiceInputState.Error(
@@ -102,12 +116,14 @@ class SpeechRecognizerManager(private val context: Context) {
 
             override fun onError(error: Int) {
                 handler.removeCallbacks(timeoutRunnable)
+                handler.removeCallbacks(finishRunnable)
                 stopInternal()
                 _state.value = VoiceInputState.Error(voiceErrorMessage(error))
             }
 
             override fun onResults(results: Bundle?) {
                 handler.removeCallbacks(timeoutRunnable)
+                handler.removeCallbacks(finishRunnable)
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
@@ -139,12 +155,20 @@ class SpeechRecognizerManager(private val context: Context) {
         _state.value = VoiceInputState.Listening
         handler.removeCallbacks(timeoutRunnable)
         if (timeoutMs > 0) handler.postDelayed(timeoutRunnable, timeoutMs)
-        runCatching { r.startListening(intent) }
+        val started = runCatching { r.startListening(intent) }.isSuccess
+        if (!started) {
+            handler.removeCallbacks(timeoutRunnable)
+            stopInternal()
+            _state.value = VoiceInputState.Error(
+                "Não foi possível abrir o microfone. Tente de novo."
+            )
+        }
     }
 
     /** Cancela sem transcrever (botão X). */
     fun cancel() {
         handler.removeCallbacks(timeoutRunnable)
+        handler.removeCallbacks(finishRunnable)
         stopInternal()
         _state.value = VoiceInputState.Idle
     }
@@ -159,11 +183,16 @@ class SpeechRecognizerManager(private val context: Context) {
             _state.value = VoiceInputState.Processing
         }
         runCatching { recognizer?.stopListening() }
+        handler.removeCallbacks(finishRunnable)
+        if (_state.value is VoiceInputState.Processing) {
+            handler.postDelayed(finishRunnable, FINISH_TIMEOUT_MS)
+        }
     }
 
     /** Para a escuta (lifecycle) sem deixar erro visível. */
     fun stop() {
         handler.removeCallbacks(timeoutRunnable)
+        handler.removeCallbacks(finishRunnable)
         stopInternal()
         if (_state.value is VoiceInputState.Listening || _state.value is VoiceInputState.Processing) {
             _state.value = VoiceInputState.Idle
@@ -180,11 +209,13 @@ class SpeechRecognizerManager(private val context: Context) {
     /** Encerra o reconhecedor (onCleared do ViewModel). */
     fun destroy() {
         handler.removeCallbacks(timeoutRunnable)
+        handler.removeCallbacks(finishRunnable)
         stopInternal()
         _state.value = VoiceInputState.Idle
     }
 
     private fun stopInternal() {
+        handler.removeCallbacks(finishRunnable)
         runCatching { recognizer?.stopListening() }
         runCatching { recognizer?.cancel() }
         runCatching { recognizer?.destroy() }
@@ -197,5 +228,8 @@ class SpeechRecognizerManager(private val context: Context) {
 
         /** Teto de escuta (o serviço do aparelho também impõe limites próprios). */
         const val DEFAULT_TIMEOUT_MS = 60_000L
+
+        /** P0 voz: teto do `finish()` — o serviço precisa responder. */
+        const val FINISH_TIMEOUT_MS = 5_000L
     }
 }
