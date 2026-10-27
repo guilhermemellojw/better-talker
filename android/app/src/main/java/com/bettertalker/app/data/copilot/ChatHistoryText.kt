@@ -22,7 +22,18 @@ import com.bettertalker.app.data.util.RefDetector
 fun readableChatTurn(kind: String, payload: String): String {
     val map = ChatCodec.unescMap(payload)
     return when (kind) {
-        "text" -> map["text"].orEmpty()
+        "text" -> {
+            val text = map["text"].orEmpty()
+            if (map["cancelled"] == "1") {
+                if (text.isBlank()) {
+                    "Copilot (interrompido antes de gerar texto)"
+                } else {
+                    "Copilot (interrompido): ${text.take(600).trim()}"
+                }
+            } else {
+                text
+            }
+        }
 
         "ideas" -> {
             val cards = ChatCodec.cardsFromJson(map["cards"].orEmpty())

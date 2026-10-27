@@ -20,6 +20,25 @@ class ChatHistoryTextTest {
     }
 
     @Test
+    fun textoCanceladoViraInterrompidoNoHistorico() {
+        val payload = ChatCodec.escMap(
+            mapOf("text" to "Boa — mas primeiro um ajuste de rota.", "cancelled" to "1"),
+        )
+        val text = readableChatTurn("text", payload)
+        assertTrue(text.startsWith("Copilot (interrompido):"))
+        assertTrue(text.contains("Boa — mas primeiro"))
+    }
+
+    @Test
+    fun textoCanceladoSemParcialNaoViraRespostaVazia() {
+        val payload = ChatCodec.escMap(mapOf("text" to "", "cancelled" to "1"))
+        assertEquals(
+            "Copilot (interrompido antes de gerar texto)",
+            readableChatTurn("text", payload),
+        )
+    }
+
+    @Test
     fun ideiasViramTitulosComMarcador() {
         val cards = listOf(
             IdeaCard("Pergunta inicial", "corpo", "", "", "fonte", "Introdução"),
