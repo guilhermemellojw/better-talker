@@ -44,7 +44,7 @@ Não entra nesta fase:
 ### 3.1 Alvo capturado
 
 ```kotlin
-enum class CardTargetKind { SECTION, SUBPOINT, NOTE }
+enum class CardTargetKind { SECTION, NOTE } // SUBPOINT fica para a fase 4
 
 enum class CardCapturedFrom {
     PUSH,          // contexto empurrado pelo editor
@@ -52,7 +52,10 @@ enum class CardCapturedFrom {
     SELECTION,     // seleção no editor
     WHOLE,         // discurso inteiro
     TRANSFORM,     // "Transformar em card" a partir de seleção
+    USER_PICK,     // destino escolhido depois da geração (NO_TARGET)
 }
+
+enum class CardOrigin { CHAT, ORATORY, TRANSFORM, LEGACY }
 
 data class CardTarget(
     val kind: CardTargetKind,
@@ -66,26 +69,36 @@ data class CardTarget(
 
 - `baseHash` usa o mesmo `hashText` do editor e do `ProposalUi`.
 - O hash é calculado no **início da geração**, antes do modelo responder.
+- Se o foco for um subponto, o alvo é a **seção** que o contém e o card
+  mostra “Para: Ponto 2”; o subponto não é um `CardTargetKind` na fase 1.
 - Se não houver alvo inequívoco, o card nasce `NO_TARGET`; nunca escolhe
   “a primeira seção” no clique.
+- `NO_TARGET` só habilita insert depois de um `USER_PICK`: nesse momento o
+  app captura `baseHash`, mostra “Esta sugestão foi gerada sem o contexto
+  deste tópico. Revise antes de inserir.” e libera o botão.
 
 ### 3.2 Payload persistido (ChatEntity.payload, sem migration)
 
 ```text
-cardTargetKind   SECTION | SUBPOINT | NOTE
+cardSchema       1 (versão do payload)
+cardTargetKind   SECTION | NOTE
 cardTargetId     id do alvo
 cardTargetLabel  rótulo humano
-cardBaseHash     hash do alvo na geração
-cardCapturedFrom PUSH | ACTIVE_BLOCK | SELECTION | WHOLE | TRANSFORM
-cardSource       turnId que originou o card
-cardSummary      resumo curto (1 linha) para histórico/card
+cardBaseHash     hash do alvo na geração (ou no USER_PICK)
+cardCapturedFrom PUSH | ACTIVE_BLOCK | SELECTION | WHOLE | TRANSFORM | USER_PICK
+cardCapturedAt   epoch ms da captura
+cardTurnId       turnId que originou o card
+cardOrigin       CHAT | ORATORY | TRANSFORM | LEGACY
+cardSummary      resumo curto (≤160 chars) para histórico/card
 cardGateMessageId id da mensagem do card (âncora do "Sim")
 cardStatus       AVAILABLE | APPLIED | STALE | NO_TARGET |
                  TARGET_MISSING | SUPERSEDED | DISMISSED | FAILED
 cardAppliedAt    epoch ms (quando APPLIED)
 ```
 
-- `cardSource` é o `turnId` do M1; permite ligar card, pergunta e resposta.
+- `cardTurnId` é o `turnId` do M1; permite ligar card, pergunta e resposta.
+- `cardOrigin` diz de qual fluxo o card nasceu; não confundir com o turno.
+- `cardSummary` tem teto de 160 chars.
 - `cardGateMessageId` é a mensagem que o gate consulta; não é uma segunda
   mensagem.
 - O snapshot de undo fica em memória na sessão; não vai para o payload
@@ -118,7 +131,7 @@ data class CardUi(
 | `STALE` | alvo mudou desde a geração (`hash` diferente) | Inserir (append) com aviso; Substituir bloqueado; Verificar, Dispensar |
 | `NO_TARGET` | geração sem alvo inequívoco | Copiar; “Escolher destino” abre o seletor; sem insert direto |
 | `TARGET_MISSING` | seção/subponto/nota não existe mais | Copiar; Dispensar |
-| `SUPERSEDED` | existe card mais novo para o mesmo alvo | Copiar; “Sugestão anterior”; Dispensar |
+| `SUPERSEDED` | existe card mais novo para o mesmo alvo; é visual/gate, não terminal para insert | Inserir/Substituir se o hash conferir; Copiar; “Sugestão anterior”; Dispensar |
 | `DISMISSED` | usuário dispensou | Copiar (histórico) |
 | `FAILED` | insert/undo falhou | Tentar novamente; Copiar; Dispensar |
 
@@ -133,8 +146,13 @@ STALE     -> APPLIED      (somente append, com aviso)
 STALE     -> DISMISSED
 APPLIED   -> AVAILABLE    (undo restaurou o snapshot)
 APPLIED   -> STALE        (texto mudou depois do apply; undo bloqueado)
-SUPERSEDED/DISMISSED      terminal na sessão
+SUPERSEDED                visual/gate; insert/substituir seguem permitidos
+                          enquanto o hash do alvo conferir
 ```
+
+`SUPERSEDED` não é estado terminal para insert: o card antigo continua
+utilizável se o hash ainda for o da geração. O gate, sim, só aceita o card
+mais recente que é a última fala.
 
 `NO_TARGET` e `TARGET_MISSING` são derivados no carregamento; não são
 persistidos como status principal.
@@ -211,8 +229,8 @@ persistidos como status principal.
 - Se vierem múltiplos blocos: o primeiro vira card; os demais viram texto
   normal com aviso “Um card por resposta” (o prompt também proíbe).
 - Card novo no mesmo alvo marca os anteriores como `SUPERSEDED`.
-- Cards antigos aparecem com “Sugestão anterior” e ações de insert
-  desabilitadas.
+- Cards antigos aparecem com “Sugestão anterior”; insert/substituir
+  continuam habilitados se o hash conferir. Se o hash mudou, viram `STALE`.
 - O gate só olha o card mais recente que é a última fala.
 - Cards de alvos diferentes não se supersedem.
 
@@ -259,8 +277,11 @@ Um card por resposta.
 - O card vive dentro do item do turno (M1), abaixo do reasoning.
 - Durante `STREAMING`, o parcial é renderizado no shell do card; ao final,
   o card vira `AVAILABLE`.
-- `CANCELLED`: card/parcial congelado, “Geração parada”, retry/fechar.
-- `ERROR`: erro no card, retry/fechar.
+- `CANCELLED`/`ERROR` são **TurnPhase do M1**, não `CardStatus`. Nesses
+  estados o card é read-only: sem insert, sem replace, sem gate; mostra o
+  parcial congelado + “Geração parada”/erro + Retry/Fechar. Quando o turno
+  volta a `DONE`, o card vira `AVAILABLE`.
+- `FAILED` existe só para falha de insert/undo, nunca para cancelamento.
 - Selo de estado discreto (`Aplicado`, `Texto mudou`, `Sem destino`,
   `Sugestão anterior`).
 - Ações primárias visíveis; “Verificar”, “Copiar”, “Desfazer” e “Dispensar”
@@ -306,7 +327,7 @@ Integração/UI (A34 + tablet):
   aceita;
 - transformar seleção em card e revisar antes de inserir;
 - CANCELLED persistido + histórico marcado;
-- skeleton de escopo vazio (checklist de UI).
+- skeleton de escopo vazio (checklist de UI da fase 1, não “depois”).
 
 ## 14. Fases
 
