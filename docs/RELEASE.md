@@ -87,6 +87,17 @@ nunca `Android Debug`.
 > apenas o motor determinístico local. O backup do Android está desligado. O
 > sync em nuvem permanece desligado/experimental e não é incluído no release.
 
+## Draft e publicação
+
+O release v2.8.1 é criado como **draft**. O APK e o checksum ficam ocultos até
+o teste de restauração da keystore. Depois do teste:
+
+```bash
+gh release edit v2.8.1 --repo guilhermemellojw/better-talker --draft=false
+```
+
+O asset e o SHA não mudam ao publicar.
+
 ## O que este release não resolve
 
 C2 (contexto/refs, `lmd` literal, 45 min monolítico), card-first e sync.

@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.1 (versionCode 26) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz 5/15/20/30/45 no A34 em 2026-10-26) · **A1/A2 — release seguro:** concluído (2.8.1/26; keystore, backup, HTTPS, assinatura e smoke no A34) · **Release v2.8.1:** publicado (`1397ca64…a93133`)
+**Atualizado:** 2026-10-26 · **Build de referência:** v2.8.1 (versionCode 26) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`; matriz 5/15/20/30/45 no A34 em 2026-10-26) · **A1/A2 — release seguro:** concluído (2.8.1/26; keystore, backup, HTTPS, assinatura e smoke no A34) · **Release v2.8.1:** em **draft** (`1397ca64…a93133`) até o teste de restauração da keystore
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -209,7 +209,7 @@ com certificado de release (RSA 4096) · SHA-256 `ca8a42a6…40e3cae`.
 | Secrets | Os quatro `BT_*` + `GOOGLE_SERVICES_JSON` configurados; `gh secret list` confirma os nomes; `github-secrets.txt` apagado. |
 | A2 — A34 | Instalação limpa do release; chave salva/reiniciada/removida; S-34 `S-34_T_192.docx` importado; V&M 5 min (1+1+1+1+1) criado; demo 4 min `budget=2048/stop/hasCard`; chat real Online. Relatório: [validacao-2026-10-26-a34-release-2.8.1.md](reports/validacao-2026-10-26-a34-release-2.8.1.md). |
 | A2 — smoke restante | No APK da CI: PDF A4 com texto/formatação ok (1 página, 17,8 KB), HTML share sheet ok, TTS play/stop/background ok; STT falhou no serviço do sistema (`error=10`) com fallback Interrupted/“Pouca fala” e sem áudio gravado; `w25.07` no acervo, mas chat ainda `refs=0` (C2); `lmd` “Faltando” com ação de download. |
-| Release publicado | Tag `v2.8.1` → [release](https://github.com/guilhermemellojw/better-talker/releases/tag/v2.8.1); APK `1397ca64…a93133` + `.sha256`; baixado, assinatura conferida e instalado no A34. |
+| Release preparado | Tag `v2.8.1` → build `7eb6785`; release em **draft**; APK `1397ca64…a93133` + `.sha256`; baixado, assinatura conferida e instalado no A34. Publicar só após o teste de restauração da keystore. |
 | Escopo v2.8.1 | **Opção A — security-only.** `refs=0` é limitação C2, não regressão do C1. Refs/TTS/STT P0 ficam para v2.8.2. |
 | Pendente | Confirmar duas cópias offline da keystore; TTS troca de voz (sem seletor exposto); refs no chat (C2); aparelho limpo de um amigo. |
 
