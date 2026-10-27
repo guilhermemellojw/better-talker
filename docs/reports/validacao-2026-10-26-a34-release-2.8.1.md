@@ -3,7 +3,8 @@
 **Data:** 2026-10-26
 **Aparelho:** Samsung Galaxy A34 (Android 16)
 **APK:** release assinado 2.8.1 / versionCode 26
-**SHA-256 do APK:** `ca8a42a6b2fe1ca93d51f80f9c65c493af249bad1d4c65e69352852fc40e3cae`
+**SHA-256 do APK local (não é o artefato da CI):** `ca8a42a6b2fe1ca93d51f80f9c65c493af249bad1d4c65e69352852fc40e3cae`
+**CI dry-run:** run [40418833924](https://github.com/guilhermemellojw/better-talker/actions/runs/40418833924) — success; APK da CI com SHA-256 `dd49abf1b289737e3fc05007c1d29e34a14e68f06ef78ff689dce425a8e08781` e mesmo certificado de release.
 **Certificado:** `CN=Better Talker, OU=Release, O=Better Talker, L=Bom Jardim, ST=RJ, C=BR`
 **SHA-256 do certificado:** `ad1b0a302256a66aa083d76b767291eb2e3c8c4b07f07ae741dd99716233bba4`
 **Suíte:** **2.524 testes JVM / 0 falhas** · `lintRelease` verde
@@ -39,10 +40,21 @@
 | STT | ⚠️ O serviço do sistema falhou no A34 (`SpeechRecognizer error=10`); o fallback mostrou “Serviço de voz interrompeu”, preservou a transcrição e ofereceu Retomar/Parar. Ao parar, abriu “Resultado do ensaio” com “Pouca fala capturada”, “Áudio não foi gravado” e aviso de que o serviço do sistema pode usar rede. Sem crash; fala humana não validada. |
 | Refs | ⚠️ `w25.07` importado e Biblioteca mostra “No acervo”; pergunta direta no chat ainda registrou `refs=0`/`inventory_chars=0`. `lmd` continua “Faltando” com ação de download. Inventário/chat de refs fica para o C2. |
 
+## CI dry-run — 2026-10-26
+
+| Item | Resultado |
+|---|---|
+| Run | [40418833924](https://github.com/guilhermemellojw/better-talker/actions/runs/40418833924) — **success** |
+| Etapas | secrets, testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e upload — todas verdes |
+| APK da CI | SHA-256 `dd49abf1b289737e3fc05007c1d29e34a14e68f06ef78ff689dce425a8e08781` |
+| Certificado | mesmo certificado de release (`ad1b0a30…62c33bba4`) |
+| Download do artefato | **bloqueado nesta máquina**: o Azure Blob de artefatos está a ~6 KB/s (97 MB); não deu para baixar/instalar o APK da CI |
+| Secrets | quatro `BT_*` + `GOOGLE_SERVICES_JSON` aparecem em `gh secret list`; `github-secrets.txt` apagado |
+
 ## Gaps e próximos passos
 
-- A chave do Keystore está em `~/.better-talker-keystore/` (fora do repo). **Falta copiar para backup offline + gerenciador de senhas.**
-- Configurar os quatro secrets no GitHub para o workflow `android-release.yml`.
-- Confirmar o SHA-256 no release e anexar as notas de versão.
-- TTS/STT/export e o teste em aparelho limpo de um amigo ficam para o smoke final.
+- **Backup:** o arquivo cifrado está em `/home/guilherme/chave_apk_better_talker/.better-talker-backups/`; falta confirmar as duas cópias offline e o gerenciador de senhas.
+- **CI artifact:** baixar o APK da CI por um caminho mais rápido (GitHub UI/browser ou `gh run download` em outra rede) e instalar no A34; o hash esperado é `dd49abf1…a08781`.
+- **Smoke final no artefato da CI:** TTS (troca de voz/background), refs no chat, STT (limitação do serviço do sistema) e aparelho limpo de um amigo.
+- **Refs:** `w25.07` está no acervo, mas o chat ainda registra `refs=0`; isso é C2.
 - C2, card-first, 45 min monolítico, `lmd` literal e sync continuam fora deste release.
