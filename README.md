@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.8.1 — release interno (sideload; branch `feat/release-security`; C1 + chave no Android Keystore + backup desligado + assinatura de release + HTTPS/WebView).**
+> **Estágio: v2.8.2 — release interno (sideload; main; C2a + P0 voz + C1 + A1/A2).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,7 +9,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-26)
 
-- **Versão:** 2.8.1 (versionCode 26), branch `feat/release-security`; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise + geração longa + C1 + A1/A2 de release concluídos no A34 e no tablet**.
+- **Versão:** 2.8.2 (versionCode 27), main; parser de colagem v2.7.5 (1b) validado no Redmi 9 e **Fases 2–3 + UX + confiança/agrupamento/refs unificadas + atalho ✨ + ensaio com análise + geração longa + C1 + A1/A2 + C2a + P0 voz concluídos no A34 e no tablet**.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -25,8 +25,8 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **A1/A2 — release seguro (2026-10-26):** chave DeepSeek cifrada com AES/GCM e chave não exportável no **Android Keystore** (migração automática do texto claro legado); `allowBackup=false`; APK de release assinado com keystore fora do repo (RSA 4096), `debuggable=false`; HTTPS only e WebView sem acesso a arquivos/conteúdo; ABI `arm64-v8a`; CI de release com `lintRelease`, `assembleRelease`, verificação por `apksigner` e SHA-256 — dry-run verde. Keystore e senhas ficam fora do repo (backup offline obrigatório). Ver [RELEASE.md](docs/RELEASE.md).
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** **2.524 testes JVM verdes** na branch `feat/release-security` (C1 + A1 incluídos) · `lintRelease` verde.
-- **Distribuição:** **v2.8.1 preparada**; release em **draft** até o teste de restauração da keystore. APK SHA-256 `1397ca64…a93133`; tag `v2.8.1` no commit de build; keystore de release fora do repo. Depois do teste: publicar o draft. Ver [RELEASE.md](docs/RELEASE.md).
+- **Testes:** **2.538 testes JVM verdes** na main (C1 + A1 + C2a + P0 voz) · `lintRelease` verde.
+- **Distribuição:** **v2.8.2 em preparação** (C2a + P0 voz; dry-run final e tag). O release **v2.8.1** permanece em **draft** como checkpoint; não publicar os dois. Keystore de release fora do repo; ver [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
