@@ -127,6 +127,11 @@ class RefDetectorC2FormatsTest {
         assertEquals(10, RefDetector.leadingParagraphNumber(text))
         assertNull(RefDetector.leadingParagraphNumber("1 João 4:8"))
         assertNull(RefDetector.leadingParagraphNumber("1 Coríntios 14:33"))
+        assertNull(
+            RefDetector.leadingParagraphNumber(
+                "10 pessoas estavam na sala e conversavam sobre a vida.",
+            ),
+        )
         val check = RefDetector.resolveContent(ref, listOf(passage), corpusAvailable = true)
         assertTrue(check.resolved)
         assertTrue(check.snippet!!.contains("O que Jeová fez"))

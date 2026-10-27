@@ -1267,7 +1267,7 @@ object RefDetector {
         if (Regex("""^\d{1,3}\s+\S+\s+\d{1,3}:\d{1,3}""").containsMatchIn(trimmed)) {
             return null
         }
-        return Regex("""^(\d{1,3})[.)]?\s+[A-Za-zÀ-ÿ]""")
+        return Regex("""^(\d{1,3})[.)]?\s+[A-ZÀ-Ú]""")
             .find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
     }
 
