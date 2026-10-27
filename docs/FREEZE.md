@@ -9,6 +9,10 @@
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
 
+> **M1/M1.1:** mergeados na `main` em `ffeb1e3` (fast-forward), **sem tag**.
+> O turno único e o CANCELLED persistido estão validados no A34. A próxima
+> frente é o card-first; a v2.9.0 continua sem tag até tablet + keystore.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
