@@ -5,6 +5,7 @@
 **APK:** release assinado 2.8.1 / versionCode 26
 **SHA-256 do APK local (não é o artefato da CI):** `ca8a42a6b2fe1ca93d51f80f9c65c493af249bad1d4c65e69352852fc40e3cae`
 **CI dry-run:** run [40418833924](https://github.com/guilhermemellojw/better-talker/actions/runs/40418833924) — success; APK da CI com SHA-256 `dd49abf1b289737e3fc05007c1d29e34a14e68f06ef78ff689dce425a8e08781` e mesmo certificado de release.
+**Release publicado:** [v2.8.1](https://github.com/guilhermemellojw/better-talker/releases/tag/v2.8.1) — SHA-256 `1397ca64779d6ecc102c615f147345a9b70a65c483601d3dc3e21966cfa93133`.
 **Certificado:** `CN=Better Talker, OU=Release, O=Better Talker, L=Bom Jardim, ST=RJ, C=BR`
 **SHA-256 do certificado:** `ad1b0a302256a66aa083d76b767291eb2e3c8c4b07f07ae741dd99716233bba4`
 **Suíte:** **2.524 testes JVM / 0 falhas** · `lintRelease` verde
@@ -51,6 +52,18 @@
 | Download do artefato | ✅ baixado em 32 ranges paralelos; zip SHA-256 `4f1fe1c8…b45b520d`; APK `dd49abf1…a08781`; instalado no A34 |
 | Smoke no artefato da CI | ✅ chat real (`budget=2048/stop`), TTS play/stop/background, PDF A4 e HTML; STT `error=10` persistiu com fallback; refs=0 |
 | Secrets | quatro `BT_*` + `GOOGLE_SERVICES_JSON` aparecem em `gh secret list`; `github-secrets.txt` apagado |
+
+## Release publicado — v2.8.1
+
+| Item | Resultado |
+|---|---|
+| Release | [v2.8.1](https://github.com/guilhermemellojw/better-talker/releases/tag/v2.8.1) |
+| APK publicado | `app-release.apk` (102.671.973 bytes) |
+| SHA-256 | `1397ca64779d6ecc102c615f147345a9b70a65c483601d3dc3e21966cfa93133` (confere com `app-release.apk.sha256`) |
+| Assinatura | `CN=Better Talker, OU=Release` · SHA-256 `ad1b0a30…62c33bba4` |
+| Instalação | APK do release baixado com `gh release download`, verificado e instalado no A34 sobre o build anterior (mesma assinatura) |
+| Pós-instalação | 2.8.1/26 abriu; “Chave salva” persistiu; “Testar conexão” → **Online**; `bmgr backupnow` → “Backup is not allowed” |
+| Dry-run vs publicado | `dd49abf1…a08781` (CI dry-run) ≠ `1397ca64…a93133` (release). O hash válido é o do asset publicado. |
 
 ## Decisão de escopo
 
