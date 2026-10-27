@@ -8,6 +8,8 @@ import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
+import com.bettertalker.app.data.copilot.FocusDestination
+import com.bettertalker.app.data.copilot.FocusOrigin
 import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
@@ -2755,6 +2757,21 @@ class CopilotViewModel(
                 "chat focus sources: refs=$focusRefs chars=$focusChars " +
                     "truncated=$focusTruncated omitted=$focusOmitted",
             )
+        }
+        // C2.4: uma linha por ref do ponto (e por omitida), sem texto do
+        // usuário. Metadados apenas: unidade, status, destino e motivo.
+        focusSources?.entries?.forEach { source ->
+            if (source.origin == FocusOrigin.SUBPOINT ||
+                source.origin == FocusOrigin.SECTION ||
+                source.destination == FocusDestination.OMITTED
+            ) {
+                android.util.Log.i(
+                    "CopilotLLM",
+                    "focus ref: ${source.reference} | unit=${source.unit ?: "-"} | " +
+                        "status=${source.status} | dest=${source.destination} | " +
+                        "reason=${source.omissionReason ?: "-"}",
+                )
+            }
         }
         // Estável entre turnos (cache): memória + inventário + foco + dossiê.
         val stableContextBlock = listOfNotNull(memory, refsInventory, focusBlock, contextBlock)
