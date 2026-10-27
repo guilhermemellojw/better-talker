@@ -144,8 +144,23 @@ class RoomReferenceResolver(
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
+        // C2a: o detector devolve o match inteiro em `symbol` ("w25.07 p. 22
+        // §8"); a página/§ já vão em campos próprios. Remove a cauda para o
+        // rótulo canônico não duplicar ("w25.07 p. 22 §8 pág. 22 §8").
+        val baseSymbol = ref.symbol
+            .replace(
+                Regex(
+                    """\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?""" +
+                        """\d{1,3}(?:\s*§{1,2}\s*\d{1,3}""" +
+                        """(?:\s*[-–]\s*\d{1,3})?)?$""",
+                    RegexOption.IGNORE_CASE,
+                ),
+                "",
+            )
+            .trim()
+            .ifBlank { ref.symbol }
         val label = buildString {
-            append(ref.symbol)
+            append(baseSymbol)
             append(" pág. $page")
             append(" §$start")
             if (end != start) append("-$end")

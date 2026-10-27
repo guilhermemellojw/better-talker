@@ -118,12 +118,15 @@ object RefDetector {
         RegexOption.IGNORE_CASE
     )
     // w24.12 | w 24/12 (estudo mensal moderna) — #8a: tail opcional de
-    // página/§ ("w25.07 5 § 14"); #24-fix: §/§§ + range ("w25.07 22 §§ 8-9").
-    // O `\b` final impede phantom "w24.12" dentro de "w24.125" (o tail não
-    // pode terminar no meio de um número).
+    // página/§ ("w25.07 5 § 14"); #24-fix: §/§§ + range ("w25.07 22 §§ 8-9");
+    // C2a: prefixo de página opcional ("p.", "p.22", "pág.", "página", "pg.")
+    // antes do número. O `\b` final impede phantom "w24.12" dentro de
+    // "w24.125" (o tail não pode terminar no meio de um número).
     private val W_CODE_RE = Regex(
         """\bw\s*(\d{2})[./](\d{1,2})""" +
-            """(?:\s+(\d{1,3})(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b"""
+            """(?:\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?(\d{1,3})""" +
+            """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b""",
+        RegexOption.IGNORE_CASE
     )
     // #8a: apostila Vida e Ministério (mwb24.05 | mwb 24.05).
     private val MWB_CODE_RE = Regex("""\bmwb\s*(\d{2})[./](\d{1,2})\b""")

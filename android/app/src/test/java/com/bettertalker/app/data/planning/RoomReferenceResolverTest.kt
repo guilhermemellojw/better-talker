@@ -4,6 +4,9 @@ import com.bettertalker.app.data.db.AttachmentDao
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.repo.publicationHitOf
+import com.bettertalker.app.data.repo.publicationRefOf
+import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
 import kotlinx.coroutines.flow.Flow
@@ -344,6 +347,25 @@ class RoomReferenceResolverTest {
         assertTrue(out.text!!.contains("parágrafo nove"))
         assertFalse(out.text!!.contains("parágrafo oito"))
         assertEquals("w25.07 pág. 22 §9", out.canonicalRef)
+    }
+
+    @Test
+    fun perguntaComPrefixoDePagina_detectaEResolveUmTrecho() = runBlocking {
+        val detected = RefDetector.detect("o que w25.07 p. 22 §8 diz?").single()
+        assertEquals(22, detected.page)
+        assertEquals(8, detected.paragraph)
+
+        val resolved = resolver(wRows(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(publicationRefOf(detected))
+        assertEquals(ReferenceStatus.RESOLVED, resolved.status)
+        assertTrue(resolved.text!!.contains("parágrafo oito"))
+        assertEquals("w25.07 pág. 22 §8", resolved.canonicalRef)
+
+        val hits = listOfNotNull(
+            publicationHitOf(resolved, resolved.canonicalRef ?: detected.label)
+        )
+        assertEquals(1, hits.size)
+        assertTrue(hits.single().passage.text.contains("parágrafo oito"))
     }
 
     @Test

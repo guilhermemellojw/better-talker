@@ -324,6 +324,68 @@ class RefDetectorTest {
         assertEquals(14, ref.paragraph)
     }
 
+    // ---------- C2a: prefixo de página antes do número ----------
+
+    @Test
+    fun detect_wCode_aceitaPrefixoP() {
+        val ref = RefDetector.detect("w25.07 p. 22 §8").single()
+        assertEquals("w|2025|7", ref.editionKey)
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+        assertNull(ref.paragraphEnd)
+    }
+
+    @Test
+    fun detect_wCode_aceitaPSemEspaco() {
+        val ref = RefDetector.detect("w25.07 p.22 §8").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+    }
+
+    @Test
+    fun detect_wCode_aceitaPagAbreviado() {
+        val ref = RefDetector.detect("w25.07 pág. 22 §8").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+    }
+
+    @Test
+    fun detect_wCode_aceitaPaginaPorExtenso() {
+        val ref = RefDetector.detect("w25.07 página 22 §8").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+    }
+
+    @Test
+    fun detect_wCode_aceitaPgAbreviado() {
+        val ref = RefDetector.detect("w25.07 pg. 22 §8").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+    }
+
+    @Test
+    fun detect_wCode_prefixoComRange() {
+        val ref = RefDetector.detect("w25.07 p. 22 §§8-9").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+        assertEquals(9, ref.paragraphEnd)
+    }
+
+    @Test
+    fun detect_wCode_prefixoSoPagina() {
+        val ref = RefDetector.detect("w25.07 p. 22").single()
+        assertEquals(22, ref.page)
+        assertNull(ref.paragraph)
+        assertNull(ref.paragraphEnd)
+    }
+
+    @Test
+    fun detect_wCode_semPrefixoContinuaFuncionando() {
+        val ref = RefDetector.detect("w25.07 22 §8").single()
+        assertEquals(22, ref.page)
+        assertEquals(8, ref.paragraph)
+    }
+
     @Test
     fun detect_licaoComPonto_extraiParagrafo() {
         val ref = RefDetector.detect("(lff lição 24 ponto 3)").single()

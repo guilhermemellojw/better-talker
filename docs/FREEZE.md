@@ -213,6 +213,18 @@ com certificado de release (RSA 4096) · SHA-256 `ca8a42a6…40e3cae`.
 | Escopo v2.8.1 | **Opção A — security-only.** `refs=0` é limitação C2, não regressão do C1. Refs/TTS/STT P0 ficam para v2.8.2. |
 | Pendente | Confirmar duas cópias offline da keystore; TTS troca de voz (sem seletor exposto); refs no chat (C2); aparelho limpo de um amigo. |
 
+## C2a — refs com prefixo de página (2026-10-27)
+
+Branch `feat/v2.8.2-c2a` (a partir da main `0174496`) · **2.533 testes JVM / 0 falhas** · `lintRelease` verde.
+
+| Item | Decisão/ação |
+|---|---|
+| Detector | `W_CODE_RE` aceita `p.`, `p.22`, `pág.`, `página` e `pg.` antes da página; mantém `§`/`§§` e ranges. |
+| Rótulo | `resolveByPageParagraph` limpa a cauda do `symbol` para não duplicar `pág. 22 §8`. |
+| Testes | 8 casos puros em `RefDetectorTest` + integração `detect → resolvePublication → publicationHitOf` em `RoomReferenceResolverTest`. |
+| A34 | “o que w25.07 p. 22 §8 diz sobre este ponto?” → `1 trecho(s) de publicação da pergunta injetado(s)`; resposta usa Baruque/§8. Controle “w25.07 22 §8” também injetou 1. |
+| Relatório | [validacao-2026-10-27-a34-c2a.md](reports/validacao-2026-10-27-a34-c2a.md). |
+
 ## Decisões pendentes (não remover ainda)
 
 | Item | Estado atual | O que falta decidir |
