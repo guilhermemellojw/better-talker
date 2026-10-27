@@ -112,3 +112,20 @@ data class TurnUiState(
         return ((ms + 999) / 1000).toInt().coerceAtLeast(1)
     }
 }
+
+/**
+ * M1.1 — payload do turno cancelado persistido. Mantém o parcial, o
+ * `turnId` e os segundos de raciocínio depois de fechar/reabrir o app.
+ * Puro/testável.
+ */
+fun TurnUiState.cancelledPayload(now: Long = System.currentTimeMillis()): Map<String, String> =
+    buildMap {
+        put("text", partialText)
+        put("origin", "COPILOT")
+        put("turnId", turnId)
+        put("cancelled", "1")
+        put("partial", "1")
+        reasoningSeconds(now)?.takeIf { it > 0 }?.let {
+            put("reasoningSeconds", it.toString())
+        }
+    }

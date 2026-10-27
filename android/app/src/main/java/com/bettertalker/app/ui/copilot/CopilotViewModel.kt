@@ -13,6 +13,7 @@ import com.bettertalker.app.data.copilot.FocusOrigin
 import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
+import com.bettertalker.app.data.copilot.cancelledPayload
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
 import com.bettertalker.app.data.copilot.applyStructurePartMessage
@@ -855,6 +856,8 @@ class CopilotViewModel(
         val turnId: String = "",
         /** M1: duração do raciocínio para o resumo "Pensou por Xs". */
         val reasoningSeconds: Int = 0,
+        /** M1.1: turno cancelado persistido (parcial + "Geração parada"). */
+        val cancelled: Boolean = false,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -889,6 +892,7 @@ class CopilotViewModel(
     private val _activeTurn = MutableStateFlow<TurnUiState?>(null)
     val activeTurn = _activeTurn.asStateFlow()
     private var activeTurnProgressJob: Job? = null
+    private var cancelledPersistJob: Job? = null
     private var currentTurnId: String? = null
 
     /** M1 — troca de escopo: skeleton enquanto a primeira consulta chega. */
@@ -1425,6 +1429,15 @@ class CopilotViewModel(
         }
     }
 
+    /** M1.1 — "Fechar" no turno cancelado persistido (soft delete). */
+    fun dismissCancelled(messageId: String) = viewModelScope.launch {
+        db.chatDao().deactivateMessage(messageId)
+        if (_activeTurn.value?.finalMessageId == messageId) {
+            _activeTurn.value = null
+            resetLocalProgress()
+        }
+    }
+
     /**
      * #26-fix-c (D2): reenvia o turno SEM duplicar a pergunta — desativa a
      * resposta anterior (se houver) e refaz a geração com a última pergunta
@@ -1443,9 +1456,19 @@ class CopilotViewModel(
     fun regenerateLastResponse() = viewModelScope.launch {
         val nid = noteId ?: return@launch
         if (_chatBusy.value) return@launch
+        // M1.1: se o usuário tocou "Tentar novamente" logo após o stop, espera
+        // a gravação do CANCELLED terminar antes de montar o histórico.
+        cancelledPersistJob?.join()
+        cancelledPersistJob = null
         val active = db.chatDao().allScoped(nid, _chatScope.value)
         val lastUser = active.lastOrNull { it.fromMe } ?: return@launch
-        active.lastOrNull { !it.fromMe }?.let { db.chatDao().deactivateMessage(it.id) }
+        val lastAssistant = active.lastOrNull { !it.fromMe }
+        val keepCancelled = lastAssistant?.let {
+            ChatCodec.unescMap(it.payload)["cancelled"] == "1"
+        } == true
+        if (!keepCancelled) {
+            lastAssistant?.let { db.chatDao().deactivateMessage(it.id) }
+        }
         val text = ChatCodec.unescMap(lastUser.payload)["text"].orEmpty()
         if (text.isBlank()) return@launch
         lastUserMessage = text
@@ -1640,7 +1663,8 @@ class CopilotViewModel(
                             createdAt = e.createdAt,
                             isTruncated = m["truncated"] == "1",
                             turnId = m["turnId"].orEmpty(),
-                            reasoningSeconds = m["reasoningSeconds"]?.toIntOrNull() ?: 0)
+                            reasoningSeconds = m["reasoningSeconds"]?.toIntOrNull() ?: 0,
+                            cancelled = m["cancelled"] == "1")
                     }
                 }
             }
@@ -1655,17 +1679,62 @@ class CopilotViewModel(
     fun stopGeneration() {
         val turn = _activeTurn.value
         if (turn != null && !turn.isTerminal) {
-            _activeTurn.value = turn.cancelled()
+            val cancelled = turn.cancelled()
+            _activeTurn.value = cancelled
             android.util.Log.i(
                 "CopilotM1",
-                "turn=${turn.turnId} cancelled partial=${turn.partialText.length} " +
-                    "reasoning=${turn.reasoningText.length}",
+                "turn=${turn.turnId} cancelled partial=${cancelled.partialText.length} " +
+                    "reasoning=${cancelled.reasoningText.length}",
             )
+            val nid = noteId
+            val scope = turnScope ?: _chatScope.value
+            if (nid != null &&
+                (cancelled.partialText.isNotBlank() || cancelled.reasoningText.isNotBlank())
+            ) {
+                cancelledPersistJob?.cancel()
+                cancelledPersistJob = viewModelScope.launch {
+                    val messageId = persistCancelledTurn(nid, cancelled, scope)
+                    _activeTurn.value = _activeTurn.value?.let {
+                        if (it.turnId == cancelled.turnId) {
+                            it.copy(finalMessageId = messageId)
+                        } else {
+                            it
+                        }
+                    }
+                    android.util.Log.i(
+                        "CopilotM1",
+                        "turn=${cancelled.turnId} cancelled persisted message=$messageId " +
+                            "chars=${cancelled.partialText.length}",
+                    )
+                }
+            }
         } else if (turn == null) {
             resetLocalProgress()
         }
         currentGenerationJob?.cancel()
         currentGenerationJob = null
+    }
+
+    /** M1.1 — grava o turno cancelado para sobreviver a fechar/reabrir. */
+    private suspend fun persistCancelledTurn(
+        noteId: String,
+        turn: TurnUiState,
+        scope: String?,
+    ): String {
+        val payload = turn.cancelledPayload()
+        val messageId = newId("msg")
+        db.chatDao().put(
+            ChatEntity(
+                messageId,
+                noteId,
+                false,
+                "text",
+                ChatCodec.escMap(payload),
+                System.currentTimeMillis(),
+                sectionId = scope,
+            )
+        )
+        return messageId
     }
 
     private suspend fun post(
@@ -1754,6 +1823,8 @@ class CopilotViewModel(
         lastFocusQuestion = ""
         _activeTurn.value = null
         _scopeLoading.value = false
+        cancelledPersistJob?.cancel()
+        cancelledPersistJob = null
         // T1 (chat minimalista): sem balão de boas-vindas após limpar.
     }
 

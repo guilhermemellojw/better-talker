@@ -85,4 +85,20 @@ class TurnUiStateTest {
         assertEquals(1, reasoning.reasoningSeconds(now = 2_000L))
         assertEquals(2, reasoning.reasoningSeconds(now = 3_001L))
     }
+
+    @Test
+    fun cancelledPayloadPreservaParcialTurnoERaciocinio() {
+        val streaming = turn()
+            .withProgress("", "raciocínio", null, now = 2_000L)
+            .withProgress("parcial congelado", "raciocínio", null, now = 5_000L)
+            .cancelled()
+        val payload = streaming.cancelledPayload(now = 6_000L)
+
+        assertEquals("parcial congelado", payload["text"])
+        assertEquals("1", payload["cancelled"])
+        assertEquals("1", payload["partial"])
+        assertEquals("t1", payload["turnId"])
+        assertEquals("3", payload["reasoningSeconds"])
+        assertEquals("COPILOT", payload["origin"])
+    }
 }

@@ -334,7 +334,8 @@ fun ChatScreen(
         when (turn.phase) {
             TurnPhase.WAITING, TurnPhase.REASONING, TurnPhase.STREAMING -> true
             TurnPhase.DONE -> turn.finalMessageId != null && !finalTurnInMessages
-            TurnPhase.CANCELLED, TurnPhase.ERROR -> true
+            TurnPhase.CANCELLED -> turn.finalMessageId == null || !finalTurnInMessages
+            TurnPhase.ERROR -> true
         }
     } ?: false
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
@@ -721,6 +722,13 @@ fun ChatScreen(
                             m.id
                         }
                         item(key = messageKey) {
+                            if (m.cancelled) {
+                                PersistedCancelledItem(
+                                    item = m,
+                                    onRetry = vm::retry,
+                                    onDismiss = { vm.dismissCancelled(m.id) },
+                                )
+                            } else {
                             // T5: entrada com fade sutil (~300ms) + placement.
                             Box(
                                 Modifier.animateItem(
@@ -771,6 +779,7 @@ fun ChatScreen(
                                         },
                                     )
                                 }
+                            }
                             }
                         }
                     }
@@ -1274,6 +1283,44 @@ private fun PersistedReasoningHeader(seconds: Int) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * M1.1 — turno cancelado persistido: parcial congelado + “Pensou por Xs”
+ * + Geração parada/Retry. Não usa o MessageBubble normal (não é resposta).
+ */
+@Composable
+private fun PersistedCancelledItem(
+    item: CopilotViewModel.ChatItem,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val text = remember(item.text) { stripInternalTags(item.text) }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            if (item.reasoningSeconds > 0) {
+                PersistedReasoningHeader(item.reasoningSeconds)
+            }
+            if (text.isNotBlank()) {
+                Text(text, style = MaterialTheme.typography.bodyLarge)
+            }
+            ChatErrorRow(
+                "Geração parada.",
+                onDismiss = onDismiss,
+                onRetry = onRetry,
+            )
+        }
     }
 }
 
