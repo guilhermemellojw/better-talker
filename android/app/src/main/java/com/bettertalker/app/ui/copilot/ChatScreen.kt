@@ -114,6 +114,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.FocusDestination
+import com.bettertalker.app.data.copilot.FocusSource
+import com.bettertalker.app.data.copilot.FocusSources
+import com.bettertalker.app.data.copilot.FocusStatus
+import com.bettertalker.app.data.copilot.focusStatusLabel
 import com.bettertalker.app.data.copilot.refDisplayLabel
 import com.bettertalker.app.data.copilot.refGroupHeader
 import com.bettertalker.app.data.copilot.refGroupKey
@@ -196,6 +201,7 @@ fun ChatScreen(
     LaunchedEffect(vm) { vm.refreshReadiness() }
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
+    val focusSources by vm.focusSources.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
     // T4: nome do tópico em foco (confirmação da inserção).
     val topicName by vm.topicName.collectAsState()
@@ -567,6 +573,14 @@ fun ChatScreen(
                         }) { Text("Cancelar") }
                     }
                     Spacer(Modifier.height(2.dp))
+                }
+                focusSources?.takeIf { it.pointEntries.isNotEmpty() }?.let { sources ->
+                    FocusSourcesCard(
+                        sources = sources,
+                        busy = busy,
+                        onReanalyze = { vm.reanalyzeFocusSources() },
+                    )
+                    Spacer(Modifier.height(4.dp))
                 }
                 ChatPromptBar(
                     input = input,
@@ -1995,6 +2009,116 @@ private fun RefFullRow(
             )
         }
     }
+}
+
+@Composable
+private fun FocusSourcesCard(
+    sources: FocusSources,
+    busy: Boolean,
+    onReanalyze: () -> Unit,
+) {
+    var showAll by remember(sources) { mutableStateOf(false) }
+    var showText by remember(sources) { mutableStateOf(false) }
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Fontes deste ponto",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${sources.pointSources.size}/${sources.pointEntries.size} no prompt · " +
+                        "${sources.pointEntries.count { it.destination == FocusDestination.OMITTED }} sem texto",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                "${sources.promptSources.size} com texto novo · ${sources.entries.size} refs mapeadas",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(
+                    onClick = { showAll = !showAll },
+                    enabled = !busy,
+                ) { Text(if (showAll) "Ocultar fontes" else "Ver todas as fontes") }
+                TextButton(
+                    onClick = { showText = !showText },
+                    enabled = !busy,
+                ) { Text("Texto usado") }
+                TextButton(onClick = onReanalyze, enabled = !busy) { Text("Reanalisar") }
+            }
+            if (showAll) {
+                val shown = sources.entries.take(40)
+                shown.forEach { source ->
+                    Text(
+                        "• ${source.reference} — ${focusStatusLabel(source.status)} " +
+                            "(${focusDestinationLabel(source.destination)})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = focusStatusColor(source.status),
+                    )
+                    source.omissionReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                        Text(
+                            "  $reason",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (sources.entries.size > shown.size) {
+                    Text(
+                        "… ${sources.entries.size - shown.size} refs no inventário da nota",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (showText) {
+                val used = sources.promptSources
+                if (used.isEmpty()) {
+                    Text(
+                        "Nenhum texto novo: as fontes do ponto já estão no dossiê ou no pack.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    used.forEach { source ->
+                        Text(
+                            source.reference,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(source.text, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun focusStatusColor(status: FocusStatus): Color = when (status) {
+    FocusStatus.RESOLVED -> MaterialTheme.colorScheme.secondary
+    FocusStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.error
+}
+
+private fun focusDestinationLabel(destination: FocusDestination): String = when (destination) {
+    FocusDestination.FOCUS_BLOCK -> "no bloco"
+    FocusDestination.DOSSIER -> "no dossiê"
+    FocusDestination.PACK -> "no pack"
+    FocusDestination.QUESTION -> "na pergunta"
+    FocusDestination.INVENTORY -> "inventário"
+    FocusDestination.OMITTED -> "omitida"
 }
 
 @Composable

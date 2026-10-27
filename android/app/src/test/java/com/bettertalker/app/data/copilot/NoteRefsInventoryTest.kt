@@ -99,6 +99,18 @@ class NoteRefsInventoryTest {
     }
 
     @Test
+    fun inventarioDistingueIndexFailedDeFormatoNaoSuportado() {
+        val text = buildNoteRefsInventory(
+            sources(
+                pub("lmd lição 7 §4", SourceStatus.INDEX_FAILED, pubKey = "lmd", editionKey = "book|lmd"),
+                pub("w24.01 § 3", SourceStatus.UNSUPPORTED, pubKey = "w24.01", editionKey = "w|2024|1"),
+            ),
+        )
+        assertTrue(text.contains("lmd lição 7 §4 — edição importada; indexação falhou"))
+        assertTrue(text.contains("w24.01 § 3 — edição em formato não suportado"))
+    }
+
+    @Test
     fun inventarioGuiaNaoEntraComoConteudo() {
         val text = buildNoteRefsInventory(
             sources(

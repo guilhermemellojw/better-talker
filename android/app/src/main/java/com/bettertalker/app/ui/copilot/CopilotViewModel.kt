@@ -8,6 +8,7 @@ import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
+import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
 import com.bettertalker.app.data.copilot.applyStructurePartMessage
@@ -31,6 +32,7 @@ import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.db.toEntity
+import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.edit.CopilotEditProposal
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.edit.EditBlock
@@ -902,6 +904,16 @@ class CopilotViewModel(
     private val _chatEvidence = MutableStateFlow<List<EvidenceMeta>>(emptyList())
     val chatEvidence = _chatEvidence.asStateFlow()
 
+    /**
+     * C2.3 — status das fontes do ponto no último turno. É estado da tela,
+     * nunca uma mensagem: não entra no histórico nem quebra o gate do "Sim".
+     */
+    private val _focusSources = MutableStateFlow<FocusSources?>(null)
+    val focusSources = _focusSources.asStateFlow()
+    private var lastFocusPack: ContextPack? = null
+    private var lastFocusStructural: com.bettertalker.app.data.copilot.OutlineStructureContext? = null
+    private var lastFocusQuestion: String = ""
+
     val evidenceSummary: kotlinx.coroutines.flow.StateFlow<String> =
         MutableStateFlow(provenanceSummary(emptyList())).also { s ->
             viewModelScope.launch { _chatEvidence.collect { s.value = provenanceSummary(it) } }
@@ -1632,7 +1644,42 @@ class CopilotViewModel(
         // T1: o esboço colado vive só na conversa — limpar descarta o modo.
         pasteBuffer = null
         _pasteMode.value = false
+        _focusSources.value = null
+        lastFocusPack = null
+        lastFocusStructural = null
+        lastFocusQuestion = ""
         // T1 (chat minimalista): sem balão de boas-vindas após limpar.
+    }
+
+    /**
+     * C2.3 — reanalisa as fontes do ponto atual sem criar mensagem. Recoleta
+     * refs/status e reusa o último pack/dossiê: a UI atualiza o card de status.
+     */
+    fun reanalyzeFocusSources() = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val refs = repo.collectNoteRefs(
+            noteId = nid,
+            noteText = _noteText.value,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteTitle = _noteTitle.value,
+        )
+        val noteSources = repo.noteSources(
+            noteId = nid,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteText = _noteText.value,
+            noteTitle = _noteTitle.value,
+            refs = refs,
+        )
+        val cited = repo.citedSources(refs)
+        _focusSources.value = com.bettertalker.app.data.copilot.FocusSourcesAssembler.assemble(
+            refs = refs,
+            noteSources = noteSources,
+            citedSources = cited.sources,
+            pack = lastFocusPack ?: ContextPack(emptyList(), emptyList()),
+            dossier = lastDossier,
+            question = lastFocusQuestion,
+            structural = lastFocusStructural,
+        )
     }
 
     /** Resolve refs salvas numa mensagem contra os anexos atuais (p/ renderizar). */
@@ -2175,6 +2222,26 @@ class CopilotViewModel(
         // F19-B.5: S-34 estrutural do attachment em foco (se houver).
         // Consome a B.4; NoOutline mantém o caminho legado intacto.
         val (structural, oratory) = structuralFor(cited.keys.toList(), text)
+        val noteSources = noteId?.let { nid ->
+            repo.noteSources(
+                noteId = nid,
+                outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+                noteText = _noteText.value,
+                noteTitle = _noteTitle.value,
+                refs = refs,
+            )
+        }
+        val focusSources = noteSources?.let {
+            com.bettertalker.app.data.copilot.FocusSourcesAssembler.assemble(
+                refs = refs,
+                noteSources = it,
+                citedSources = citedSources.sources,
+                pack = pack,
+                dossier = lastDossier,
+                question = text,
+                structural = structural,
+            )
+        }
         return com.bettertalker.app.data.copilot.buildTurnContextFromPack(
             message = text,
             history = history,
@@ -2185,7 +2252,7 @@ class CopilotViewModel(
             blockText = blockText,
             structural = structural,
             oratory = oratory
-        )
+        ).copy(focusSources = focusSources, noteSources = noteSources)
     }
 
     /**
@@ -2646,7 +2713,7 @@ class CopilotViewModel(
             val nid = noteId
             if (nid == null) null else {
                 val outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty()
-                val noteSources = repo.noteSources(
+                val noteSources = turnContext.noteSources ?: repo.noteSources(
                     noteId = nid,
                     outlineRefsJson = outlineRefsJson,
                     noteText = _noteText.value,
@@ -2669,8 +2736,28 @@ class CopilotViewModel(
         } catch (_: Exception) {
             null
         }
-        // Estável entre turnos (cache): memória + inventário + dossiê.
-        val stableContextBlock = listOfNotNull(memory, refsInventory, contextBlock)
+        // C2.1: bloco das fontes do ponto atual (subponto → seção → pack →
+        // pergunta). Entra no prefixo estável; o que já está no dossiê/pack
+        // não repete texto.
+        val focusSources = turnContext.focusSources
+        _focusSources.value = focusSources
+        lastFocusPack = turnContext.pack
+        lastFocusStructural = turnContext.structural
+        lastFocusQuestion = text
+        val focusBlock = focusSources?.block?.takeIf { it.isNotBlank() }
+        val focusRefs = focusSources?.pointSources?.size ?: 0
+        val focusChars = focusBlock?.length ?: 0
+        val focusTruncated = focusSources?.promptSources?.count { it.isTruncated } ?: 0
+        val focusOmitted = focusSources?.omitted?.size ?: 0
+        if (focusBlock != null) {
+            android.util.Log.i(
+                "CopilotLLM",
+                "chat focus sources: refs=$focusRefs chars=$focusChars " +
+                    "truncated=$focusTruncated omitted=$focusOmitted",
+            )
+        }
+        // Estável entre turnos (cache): memória + inventário + foco + dossiê.
+        val stableContextBlock = listOfNotNull(memory, refsInventory, focusBlock, contextBlock)
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
             .ifBlank { null }
@@ -2773,6 +2860,10 @@ class CopilotViewModel(
                 historyChars = historyWindow.sumOf { it.text.length },
                 refsCount = refsCount,
                 inventoryChars = inventoryChars,
+                focusRefs = focusRefs,
+                focusChars = focusChars,
+                focusTruncated = focusTruncated,
+                focusOmitted = focusOmitted,
             ).line(),
         )
         // T1 — gate de alucinação universal (pós-filtro do streaming):

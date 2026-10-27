@@ -132,9 +132,16 @@ class RoomReferenceResolver(
         hit: AttachmentEntity,
     ): ResolvedReference {
         val page = ref.page ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        val pageEnd = ref.pageEnd?.takeIf { it > page }
         val start = ref.paragraph ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         val end = ref.paragraphEnd ?: start
-        val rows = passageDao.byPageParagraph(hit.id, page, start, end)
+        val rows = if (pageEnd != null) {
+            (page..pageEnd).flatMap { p ->
+                passageDao.byPageParagraph(hit.id, p, start, end)
+            }.distinctBy { it.id }
+        } else {
+            passageDao.byPageParagraph(hit.id, page, start, end)
+        }
         if (rows.isEmpty()) {
             // Sem linhas da página: UNRESOLVED (nunca trecho aproximado —
             // §§ repetem por artigo e o texto errado envenena o dossiê).
@@ -151,7 +158,8 @@ class RoomReferenceResolver(
             .replace(
                 Regex(
                     """\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?""" +
-                        """\d{1,3}(?:\s*§{1,2}\s*\d{1,3}""" +
+                        """\d{1,3}(?:\s*[-–]\s*\d{1,3})?""" +
+                        """(?:\s*§{1,2}\s*\d{1,3}""" +
                         """(?:\s*[-–]\s*\d{1,3})?)?$""",
                     RegexOption.IGNORE_CASE,
                 ),
@@ -161,7 +169,11 @@ class RoomReferenceResolver(
             .ifBlank { ref.symbol }
         val label = buildString {
             append(baseSymbol)
-            append(" pág. $page")
+            if (pageEnd != null) {
+                append(" pág. $page-$pageEnd")
+            } else {
+                append(" pág. $page")
+            }
             append(" §$start")
             if (end != start) append("-$end")
         }

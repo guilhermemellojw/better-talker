@@ -172,6 +172,7 @@ object NoteRefsCollector {
                 article = ref.article,
                 chapter = ref.chapter,
                 page = ref.page,
+                pageEnd = ref.pageEnd,
                 paragraph = ref.paragraph,
                 paragraphEnd = ref.paragraphEnd,
             )
@@ -192,6 +193,7 @@ object NoteRefsCollector {
             article = article,
             chapter = chapter,
             page = ref.page,
+            pageEnd = ref.pageEnd,
             paragraph = ref.paragraph,
             paragraphEnd = ref.paragraphEnd,
         )

@@ -17,4 +17,6 @@ data class PublicationRef(
     val paragraphEnd: Int? = null,
     val article: String? = null,
     val chapter: String? = null,
+    /** C2.2: fim da faixa de páginas ("26-28" → 28). */
+    val pageEnd: Int? = null,
 )

@@ -157,6 +157,8 @@ private fun statusLabel(source: NoteSource): String = when (source.kind) {
         SourceStatus.EDITION_MISSING -> "TNM ausente"
         SourceStatus.DOWNLOADING -> "TNM baixando"
         SourceStatus.INDEXING -> "TNM indexando"
+        SourceStatus.INDEX_FAILED -> "TNM importada; indexação falhou"
+        SourceStatus.UNSUPPORTED -> "TNM em formato não suportado"
     }
     SourceKind.PUBLICATION -> when (source.status) {
         SourceStatus.RESOLVED -> "edição no acervo; trecho resolvido"
@@ -164,5 +166,7 @@ private fun statusLabel(source: NoteSource): String = when (source.kind) {
         SourceStatus.EDITION_MISSING -> "edição ausente do acervo"
         SourceStatus.DOWNLOADING -> "baixando — acompanhe na Biblioteca"
         SourceStatus.INDEXING -> "indexando — o Copilot usa quando terminar"
+        SourceStatus.INDEX_FAILED -> "edição importada; indexação falhou"
+        SourceStatus.UNSUPPORTED -> "edição em formato não suportado"
     }
 }

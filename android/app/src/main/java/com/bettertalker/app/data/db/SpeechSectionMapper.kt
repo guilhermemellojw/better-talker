@@ -63,6 +63,7 @@ fun encodePublicationRefList(items: List<PublicationRef>): String {
         buildString {
             append("{\"symbol\":\"${escJson(ref.symbol)}\"")
             if (ref.page != null) append(",\"page\":${ref.page}")
+            if (ref.pageEnd != null) append(",\"pageEnd\":${ref.pageEnd}")
             if (ref.paragraph != null) append(",\"paragraph\":${ref.paragraph}")
             if (ref.paragraphEnd != null) append(",\"paragraphEnd\":${ref.paragraphEnd}")
             // T2 (refs unificadas): lição/artigo também precisam sobreviver ao
@@ -89,6 +90,7 @@ fun decodePublicationRefList(json: String): List<PublicationRef> {
             paragraphEnd = jsonIntField(obj, "paragraphEnd"),
             article = jsonStringField(obj, "article"),
             chapter = jsonStringField(obj, "chapter"),
+            pageEnd = jsonIntField(obj, "pageEnd"),
         )
     }
 }

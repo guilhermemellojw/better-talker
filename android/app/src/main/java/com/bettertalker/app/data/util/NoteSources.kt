@@ -16,6 +16,10 @@ enum class SourceStatus {
     DOWNLOADING,
     /** Arquivo importado; o índice ainda está sendo construído. */
     INDEXING,
+    /** Arquivo importado, mas a indexação falhou (worker/erro de extração). */
+    INDEX_FAILED,
+    /** Formato/arquivo que o pipeline não consegue indexar. */
+    UNSUPPORTED,
 }
 
 /** true para estados transitórios (não são "faltando" nem "no acervo"). */
@@ -24,7 +28,8 @@ fun SourceStatus.isPending(): Boolean =
 
 /** true quando a fonte ainda precisa de ação do usuário. */
 fun SourceStatus.isMissing(): Boolean =
-    this == SourceStatus.EDITION_MISSING || this == SourceStatus.TEXT_NOT_FOUND
+    this == SourceStatus.EDITION_MISSING || this == SourceStatus.TEXT_NOT_FOUND ||
+        this == SourceStatus.INDEX_FAILED || this == SourceStatus.UNSUPPORTED
 
 /**
  * Uma fonte citada pela nota, já classificada contra o acervo.
@@ -477,6 +482,10 @@ object NoteSourcesResolver {
             "Download iniciado — acompanhe na Biblioteca."
         SourceStatus.INDEXING ->
             "Indexando — o Copilot usa o trecho quando terminar."
+        SourceStatus.INDEX_FAILED ->
+            "Indexação falhou — reimporte ou tente outra cópia do arquivo."
+        SourceStatus.UNSUPPORTED ->
+            "Formato não suportado para indexação — use PDF, EPUB, DOCX, RTF, TXT ou JWPUB."
         else -> ""
     }
 }

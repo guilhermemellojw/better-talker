@@ -507,6 +507,12 @@ private fun SourceRow(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Acompanhar na Biblioteca") }
             }
+            SourceStatus.INDEX_FAILED, SourceStatus.UNSUPPORTED -> {
+                TextButton(
+                    onClick = onOpenLibrary,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Abrir Biblioteca") }
+            }
             SourceStatus.TEXT_NOT_FOUND -> {
                 val url = (source.downloadUrl ?: source.refStatus?.downloadUrl)
                     ?.takeIf { it.isNotBlank() }
@@ -541,6 +547,8 @@ internal fun sourceStatusLabel(status: SourceStatus): String = when (status) {
     SourceStatus.TEXT_NOT_FOUND -> "Texto não encontrado"
     SourceStatus.DOWNLOADING -> "Baixando…"
     SourceStatus.INDEXING -> "Indexando…"
+    SourceStatus.INDEX_FAILED -> "Indexação falhou"
+    SourceStatus.UNSUPPORTED -> "Formato não suportado"
 }
 
 /**

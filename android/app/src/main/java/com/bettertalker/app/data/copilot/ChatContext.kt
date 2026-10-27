@@ -5,6 +5,7 @@ import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.data.repo.ScopedHit
+import com.bettertalker.app.data.util.NoteSources
 
 /**
  * Fase 16 — paridade do chat nativo com a F15 (web).
@@ -132,7 +133,11 @@ data class ChatTurnContext(
     /** F19-B.5: estrutura do S-34 quando há outline neste turno (null = legado). */
     val structural: OutlineStructureContext? = null,
     /** F20-A: planejamento oratório derivado (null = legado). */
-    val oratory: OratoryStructure.Inferred? = null
+    val oratory: OratoryStructure.Inferred? = null,
+    /** C2.1: fontes do ponto atual (null = turno sem nota/refs). */
+    val focusSources: FocusSources? = null,
+    /** C2.1: checklist já resolvido (evita repetir a resolução no prompt). */
+    val noteSources: NoteSources? = null,
 )
 
 /**

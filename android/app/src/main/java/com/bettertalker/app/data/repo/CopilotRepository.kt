@@ -413,9 +413,11 @@ class CopilotRepository(private val db: AppDatabase) {
         outlineRefsJson: String,
         noteText: String? = null,
         noteTitle: String? = null,
+        /** C2.1: refs já coletadas pelo chamador (evita coletar duas vezes). */
+        refs: NoteRefs? = null,
     ): NoteSources {
-        val refs = collectNoteRefs(noteId, noteText, outlineRefsJson, noteTitle)
-        val candidates = NoteSourcesResolver.candidatesOf(refs)
+        val collected = refs ?: collectNoteRefs(noteId, noteText, outlineRefsJson, noteTitle)
+        val candidates = NoteSourcesResolver.candidatesOf(collected)
         if (candidates.isEmpty()) return NoteSources(emptyList(), 0, 0)
 
         val attachments = db.attachmentDao().all()
@@ -432,9 +434,14 @@ class CopilotRepository(private val db: AppDatabase) {
             if (RefDetector.matchEdition(ref, attachments) != null) return@mapNotNull null
             val hit = RefDetector.matchEdition(ref, attachments, includePending = true)
                 ?: return@mapNotNull null
-            val status = when (hit.status) {
-                "downloading" -> SourceStatus.DOWNLOADING
-                "indexing" -> SourceStatus.INDEXING
+            val status = when {
+                hit.status == "downloading" -> SourceStatus.DOWNLOADING
+                hit.status == "indexing" -> SourceStatus.INDEXING
+                hit.status == "failed" &&
+                    com.bettertalker.app.data.util.detectKind(hit.fileName) ==
+                    com.bettertalker.app.data.util.DocKind.UNSUPPORTED ->
+                    SourceStatus.UNSUPPORTED
+                hit.status == "failed" -> SourceStatus.INDEX_FAILED
                 else -> null
             } ?: return@mapNotNull null
             candidate.key to status
@@ -443,11 +450,15 @@ class CopilotRepository(private val db: AppDatabase) {
         val nwtAll = attachments.filter { it.baseSlot == "nwt" }
         val nwtReady = nwtAll.firstOrNull { it.indexed }
         val nwtPending = if (nwtReady == null) {
-            nwtAll.firstOrNull { !it.indexed && it.status in setOf("downloading", "indexing") }
-                ?.let {
-                    if (it.status == "downloading") SourceStatus.DOWNLOADING
-                    else SourceStatus.INDEXING
+            nwtAll.firstOrNull {
+                !it.indexed && it.status in setOf("downloading", "indexing", "failed")
+            }?.let {
+                when (it.status) {
+                    "downloading" -> SourceStatus.DOWNLOADING
+                    "indexing" -> SourceStatus.INDEXING
+                    else -> SourceStatus.INDEX_FAILED
                 }
+            }
         } else {
             null
         }
@@ -529,7 +540,15 @@ class CopilotRepository(private val db: AppDatabase) {
         if (ref.page != null && ref.paragraph != null) {
             val start = ref.paragraph
             val end = ref.paragraphEnd ?: start
-            val rows = db.passageDao().byPageParagraph(hit.id, ref.page, start, end)
+            val page = ref.page
+            val pageEnd = ref.pageEnd?.takeIf { it > page }
+            val rows = if (pageEnd != null) {
+                (page..pageEnd).flatMap { p ->
+                    db.passageDao().byPageParagraph(hit.id, p, start, end)
+                }.distinctBy { it.id }
+            } else {
+                db.passageDao().byPageParagraph(hit.id, page, start, end)
+            }
             if (rows.isNotEmpty()) return ContentCandidates(rows, true)
         }
         return ContentCandidates(
@@ -818,6 +837,7 @@ internal fun publicationRefOf(ref: RefDetector.DetectedRef): PublicationRef =
     PublicationRef(
         symbol = ref.raw,
         page = ref.page,
+        pageEnd = ref.pageEnd,
         paragraph = ref.paragraph,
         paragraphEnd = ref.paragraphEnd,
         article = ref.article,

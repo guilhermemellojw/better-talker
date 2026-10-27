@@ -43,6 +43,8 @@ object RefDetector {
         val chapter: String? = null,
         /** T2 (refs): página citada ("pág. 52"). */
         val page: Int? = null,
+        /** C2.2: fim da faixa de páginas ("pág. 26-28" → 28). */
+        val pageEnd: Int? = null,
         /** T2 (refs): parágrafo numerado da citação ("n.° 4" / "§ 4"). */
         val paragraph: Int? = null,
         /** #24-fix: parágrafo FINAL do range ("§§ 8-9" → 9). */
@@ -125,6 +127,7 @@ object RefDetector {
     private val W_CODE_RE = Regex(
         """\bw\s*(\d{2})[./](\d{1,2})""" +
             """(?:\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?(\d{1,3})""" +
+            """(?:\s*[-–]\s*(\d{1,3}))?""" +
             """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b""",
         RegexOption.IGNORE_CASE
     )
@@ -132,9 +135,22 @@ object RefDetector {
     private val MWB_CODE_RE = Regex("""\bmwb\s*(\d{2})[./](\d{1,2})\b""")
     // w99 1/5 | w99 15/5 (antiga dia/mês: dia 1º = pública, 15 = estudo)
     // Aceita também ponto como separador (w82 15.3) — 3.2.3a-fix3.
-    private val W_DAY_RE = Regex("""\bw\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})\b""")
+    // C2.2: faixa de página e §§ que seguem a edição ("w11 1/7 26-28 §§ 3-5").
+    private val W_DAY_RE = Regex(
+        """\bw\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})""" +
+            """(?:\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?(\d{1,3})""" +
+            """(?:\s*[-–]\s*(\d{1,3}))?""" +
+            """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b""",
+        RegexOption.IGNORE_CASE
+    )
     // g93 8/1 | g82 22.3 (Despertai quinzenal antiga, dia/mês) — 3.2.3a-fix3
-    private val G_OLD_RE = Regex("""\bg\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})\b""")
+    private val G_OLD_RE = Regex(
+        """\bg\s*(\d{2})\s+(\d{1,2})[./](\d{1,2})""" +
+            """(?:\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?(\d{1,3})""" +
+            """(?:\s*[-–]\s*(\d{1,3}))?""" +
+            """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?)?\b""",
+        RegexOption.IGNORE_CASE
+    )
     // wp24 N.º 1 | wp19.3 (pública por código)
     private val WP_CODE_RE = Regex("""\bwp\s*(\d{2})(?:[./](\d{1,2})|\s*(?:N\.?(?:º|o|°)?|n[úu]mero)\s*(\d{1,2}))?""")
     // g 1/24 | g1/24
@@ -160,7 +176,10 @@ object RefDetector {
     // "Re 1". Com `\b`, "15" não recua para "1" (não há fronteira), então o
     // lookahead é avaliado corretamente e rejeita.
     private val STUDY_BOOK_RE = Regex(
-        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi)\s+(\d{1,4})(?:-(\d{1,4}))?\b(?!\s*:)""",
+        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi|bt|kr)\s+(\d{1,4})""" +
+            """(?:\s*[-–]\s*(\d{1,4}))?""" +
+            """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?""" +
+            """\b(?!\s*:)""",
         RegexOption.IGNORE_CASE
     )
     // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
@@ -188,6 +207,14 @@ object RefDetector {
     // O ponto é opcional; a letra do apêndice é preservada no article/chapter.
     private val LMD_APPENDIX_RE = Regex(
         """\blmd\s+ap[êe]ndice\s+([A-Z])(?:\s*[,;—-]?\s*(?:ponto|n\.?\s*[º°]?)\s*(\d{1,3}))?""",
+        RegexOption.IGNORE_CASE,
+    )
+    // C2.1: "lmd" literal (sem unidade) — só quando é citação, não prosa
+    // ("Texto livre com lmd e (4 min)" continua sem ref). Aceita guia
+    // ("veja/consulte lmd"), parênteses ou pontuação de lista. O coletor
+    // remove a genérica quando há unidade específica.
+    private val BARE_LMD_RE = Regex(
+        """(?:\b(?:veja|consulte|leia|conforme)\s+lmd\b|\(\s*lmd\s*\)|\blmd\b(?=\s*[;,.):]))""",
         RegexOption.IGNORE_CASE,
     )
     // Forma natural: "apêndice A da brochura Ame as Pessoas". A unidade vem
@@ -277,6 +304,7 @@ object RefDetector {
                 append('|').append(normalizeText(ref.article.orEmpty()))
                 append('|').append(normalizeText(ref.chapter.orEmpty()))
                 append('|').append(ref.page ?: -1)
+                append('|').append(ref.pageEnd ?: -1)
                 append('|').append(ref.paragraph ?: -1)
                 append('|').append(ref.paragraphEnd ?: -1)
             }
@@ -373,19 +401,28 @@ object RefDetector {
             if (month in 1..12 && day in 1..31) {
                 val edition = if (day == 1) "pública" else "estudo"
                 val monthName = PT_MONTHS[month - 1]
-                // pág./§ logo após vão só para o rótulo (ex: "w08 15/10 11 § 18")
-                val tail = text.substring(m.range.last + 1)
-                    .let { Regex("""^\s*(\d+)?\s*(§\s*\d+)?""").find(it) }
+                val page = m.groupValues[4].toIntOrNull()
+                val pageEnd = m.groupValues[5].toIntOrNull()
+                val par = m.groupValues[6].toIntOrNull()
+                val parEnd = m.groupValues[7].toIntOrNull()
                 val extra = listOfNotNull(
-                    tail?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }?.let { "pág. $it" },
-                    tail?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
-                ).joinToString(" ").trim()
+                    page?.let {
+                        if (pageEnd != null && pageEnd != it) "pág. $it-$pageEnd" else "pág. $it"
+                    },
+                    par?.let {
+                        if (parEnd != null && parEnd != it) "§§ $it-$parEnd" else "§ $it"
+                    },
+                ).joinToString(" ")
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.MAGAZINE, "w",
                         "w|$year|$month|$day",
                         "A Sentinela, ${day}º de $monthName de $year ($edition)" +
-                            (if (extra.isNotEmpty()) " • $extra" else "")
+                            (if (extra.isNotEmpty()) " • $extra" else ""),
+                        page = page,
+                        pageEnd = pageEnd,
+                        paragraph = par,
+                        paragraphEnd = parEnd,
                     )
                 )
             }
@@ -408,18 +445,28 @@ object RefDetector {
             val day = m.groupValues[2].toInt()
             val month = m.groupValues[3].toInt()
             if (month in 1..12 && day in 1..31) {
-                val tail = text.substring(m.range.last + 1)
-                    .let { Regex("""^\s*(\d+)?\s*(§\s*\d+)?""").find(it) }
+                val page = m.groupValues[4].toIntOrNull()
+                val pageEnd = m.groupValues[5].toIntOrNull()
+                val par = m.groupValues[6].toIntOrNull()
+                val parEnd = m.groupValues[7].toIntOrNull()
                 val extra = listOfNotNull(
-                    tail?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }?.let { "pág. $it" },
-                    tail?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
-                ).joinToString(" ").trim()
+                    page?.let {
+                        if (pageEnd != null && pageEnd != it) "pág. $it-$pageEnd" else "pág. $it"
+                    },
+                    par?.let {
+                        if (parEnd != null && parEnd != it) "§§ $it-$parEnd" else "§ $it"
+                    },
+                ).joinToString(" ")
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.MAGAZINE, "g",
                         "g|$year|$month|$day",
                         "Despertai! $day/$month/$year" +
-                            (if (extra.isNotEmpty()) " • $extra" else "")
+                            (if (extra.isNotEmpty()) " • $extra" else ""),
+                        page = page,
+                        pageEnd = pageEnd,
+                        paragraph = par,
+                        paragraphEnd = parEnd,
                     )
                 )
             }
@@ -429,11 +476,14 @@ object RefDetector {
             val num = m.groupValues[2].toInt()
             // #8a: tail opcional — página/§ logo após a edição ("w25.07 5 § 14").
             val page = m.groupValues[3].toIntOrNull()
-            val par = m.groupValues[4].toIntOrNull()
+            val pageEnd = m.groupValues[4].toIntOrNull()
+            val par = m.groupValues[5].toIntOrNull()
             // #24-fix: §§ N-M preserva o fim do range.
-            val parEnd = m.groupValues[5].toIntOrNull()
+            val parEnd = m.groupValues[6].toIntOrNull()
             val extra = listOfNotNull(
-                page?.let { "pág. $it" },
+                page?.let {
+                    if (pageEnd != null && pageEnd != it) "pág. $it-$pageEnd" else "pág. $it"
+                },
                 par?.let { if (parEnd != null) "§§ $it-$parEnd" else "§ $it" },
             ).joinToString(" ")
             add(
@@ -441,7 +491,7 @@ object RefDetector {
                     m.value.trim(), Kind.MAGAZINE, "w",
                     "w|$year|$num", "A Sentinela $num/$year" +
                         (if (extra.isNotEmpty()) " • $extra" else ""),
-                    page = page, paragraph = par, paragraphEnd = parEnd,
+                    page = page, pageEnd = pageEnd, paragraph = par, paragraphEnd = parEnd,
                 )
             )
         }
@@ -485,28 +535,40 @@ object RefDetector {
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
             val page = m.groupValues[2]
             val end = m.groupValues[3]
+            val par = m.groupValues[4].toIntOrNull()
+            val parEnd = m.groupValues[5].toIntOrNull()
             val pageLabel = if (end.isEmpty()) page else "$page-$end"
+            val unitLabel = listOfNotNull(
+                "pág. $pageLabel",
+                par?.let { if (parEnd != null && parEnd != it) "§§ $it-$parEnd" else "§ $it" },
+            ).joinToString(" ")
             bookKeys += canonical
             add(
                 DetectedRef(
                     m.value.trim(), Kind.BOOK, canonical,
                     "book|$canonical",
-                    "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $pageLabel)",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} ($unitLabel)",
                     // T1 (refs por página): o número nu é página — expõe no
                     // campo para o aviso específico (UNRESOLVED continua).
                     page = page.toIntOrNull(),
+                    pageEnd = end.toIntOrNull(),
+                    paragraph = par,
+                    paragraphEnd = parEnd,
                 )
             )
         }
         // 3.2.3a-fix4: mrt por artigo ("mrt artigo 32")
         MRT_ARTICLE_RE.findAll(text).forEach { m ->
             val canonical = PubCatalog.resolveSymbol("mrt") ?: "mrt"
+            val article = "artigo ${m.groupValues[1]}"
             bookKeys += canonical
             add(
                 DetectedRef(
                     m.value.trim(), Kind.BOOK, canonical,
                     "book|$canonical",
-                    "${PubCatalog.titleOf(canonical) ?: canonical} (artigo ${m.groupValues[1]})"
+                    "${PubCatalog.titleOf(canonical) ?: canonical} ($article)",
+                    article = article,
+                    chapter = article,
                 )
             )
         }
@@ -546,6 +608,20 @@ object RefDetector {
                     article = "Apêndice $letter",
                     chapter = "Apêndice $letter",
                     paragraph = point,
+                )
+            )
+        }
+        // C2.1: menção genérica "lmd" (sem unidade) para o inventário.
+        BARE_LMD_RE.findAll(text).forEach { m ->
+            val canonical = PubCatalog.resolveSymbol("lmd") ?: "lmd"
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    raw = m.value.trim(),
+                    kind = Kind.BOOK,
+                    pubKey = canonical,
+                    editionKey = "book|$canonical",
+                    label = PubCatalog.titleOf(canonical) ?: canonical,
                 )
             )
         }
@@ -672,15 +748,20 @@ object RefDetector {
             if (!balanced) return@forEach
             val sym = m.groupValues[1].lowercase()
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
+            // Já há uma ref específica dessa publicação (ex.: "re 292" por
+            // página); o número avulso não é uma segunda unidade.
+            if (sym in bookKeys) return@forEach
             if (sym.length < 3 && !raw.startsWith("(")) return@forEach
             if (!PubCatalog.isSymbol(sym)) return@forEach
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            val unit = "estudo ${m.groupValues[2]}"
             bookKeys += canonical
             add(
                 DetectedRef(
                     raw, Kind.BOOK, canonical,
                     "book|$canonical",
-                    "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})"
+                    "${PubCatalog.titleOf(canonical) ?: canonical} ($unit)",
+                    chapter = unit,
                 )
             )
         }
@@ -1245,7 +1326,9 @@ object RefDetector {
             "{\"r\":\"${esc(it.raw)}\",\"k\":\"${it.kind.name}\"," +
                 "\"p\":\"${esc(it.pubKey)}\",\"e\":\"${esc(it.editionKey)}\",\"l\":\"${esc(it.label)}\"," +
                 "\"a\":\"${esc(it.article.orEmpty())}\",\"c\":\"${esc(it.chapter.orEmpty())}\"," +
-                "\"pg\":${it.page ?: -1},\"g\":${it.paragraph ?: -1}" +
+                "\"pg\":${it.page ?: -1}" +
+                (it.pageEnd?.let { pe -> ",\"pge\":$pe" } ?: "") +
+                ",\"g\":${it.paragraph ?: -1}" +
                 // #24-fix: fim do range ("§§ 8-9" → 9) — ausente quando null
                 // (compatível com o formato anterior).
                 (it.paragraphEnd?.let { pe -> ",\"ge\":$pe" } ?: "") + "}"
@@ -1260,7 +1343,7 @@ object RefDetector {
             val re = Regex(
                 """\{"r":"((?:[^"\\]|\\.)*)","k":"(MAGAZINE|BOOK)","p":"((?:[^"\\]|\\.)*)",""" +
                     """"e":"((?:[^"\\]|\\.)*)","l":"((?:[^"\\]|\\.)*)"""" +
-                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+),"g":(-?\d+)(?:,"ge":(-?\d+))?)?\}"""
+                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+)(?:,"pge":(-?\d+))?,"g":(-?\d+)(?:,"ge":(-?\d+))?)?\}"""
             )
             re.findAll(json).map { m ->
                 fun un(s: String) = s.replace("\\\"", "\"").replace("\\\\", "\\")
@@ -1271,8 +1354,9 @@ object RefDetector {
                     article = un(m.groupValues[6]).ifBlank { null },
                     chapter = un(m.groupValues[7]).ifBlank { null },
                     page = m.groupValues[8].toIntOrNull()?.takeIf { it >= 0 },
-                    paragraph = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
-                    paragraphEnd = m.groupValues[10].toIntOrNull()?.takeIf { it >= 0 },
+                    pageEnd = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
+                    paragraph = m.groupValues[10].toIntOrNull()?.takeIf { it >= 0 },
+                    paragraphEnd = m.groupValues[11].toIntOrNull()?.takeIf { it >= 0 },
                 )
             }.toList()
         } catch (_: Exception) {
