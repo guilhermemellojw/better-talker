@@ -205,11 +205,12 @@ com certificado de release (RSA 4096) · SHA-256 `ca8a42a6…40e3cae`.
 | Rede/WebView | `usesCleartextTraffic=false` + `network_security_config`; WebView do jw.org só HTTPS e sem `allowFileAccess`/`allowContentAccess`; PDF export offline com `blockNetworkLoads`. |
 | Sync | Sem `google-services.json`, `SyncScheduler` não agenda worker; sync permanece desligado/experimental. |
 | ABI | `arm64-v8a` apenas. Documentado em [RELEASE.md](RELEASE.md). |
-| CI | `.github/workflows/android-release.yml`: testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e publicação no GitHub Releases por tag. Dry-run [40418833924](https://github.com/guilhermemellojw/better-talker/actions/runs/40418833924) **success**; APK da CI `dd49abf1…a08781`. |
+| CI | `.github/workflows/android-release.yml`: testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e publicação no GitHub Releases por tag. Dry-run [40418833924](https://github.com/guilhermemellojw/better-talker/actions/runs/40418833924) **success**; APK da CI `dd49abf1…a08781`, baixado e instalado no A34. |
 | Secrets | Os quatro `BT_*` + `GOOGLE_SERVICES_JSON` configurados; `gh secret list` confirma os nomes; `github-secrets.txt` apagado. |
 | A2 — A34 | Instalação limpa do release; chave salva/reiniciada/removida; S-34 `S-34_T_192.docx` importado; V&M 5 min (1+1+1+1+1) criado; demo 4 min `budget=2048/stop/hasCard`; chat real Online. Relatório: [validacao-2026-10-26-a34-release-2.8.1.md](reports/validacao-2026-10-26-a34-release-2.8.1.md). |
-| A2 — smoke restante | PDF A4 com texto/formatura ok (1 página, 17,8 KB); HTML share sheet ok; TTS play/stop ok; STT falhou no serviço do sistema (`error=10`) com fallback Interrupted/“Pouca fala” e sem áudio gravado; `w25.07` no acervo, mas chat ainda `refs=0`; `lmd` “Faltando” com ação de download. |
-| Pendente | Confirmar duas cópias offline da keystore; baixar/instalar o APK da CI (hash `dd49abf1…a08781`; Azure Blob lento nesta máquina); TTS troca de voz/background; refs no chat (C2); aparelho limpo de um amigo. |
+| A2 — smoke restante | No APK da CI: PDF A4 com texto/formatação ok (1 página, 17,8 KB), HTML share sheet ok, TTS play/stop/background ok; STT falhou no serviço do sistema (`error=10`) com fallback Interrupted/“Pouca fala” e sem áudio gravado; `w25.07` no acervo, mas chat ainda `refs=0` (C2); `lmd` “Faltando” com ação de download. |
+| Escopo v2.8.1 | **Opção A — security-only.** `refs=0` é limitação C2, não regressão do C1. Refs/TTS/STT P0 ficam para v2.8.2. |
+| Pendente | Confirmar duas cópias offline da keystore; TTS troca de voz (sem seletor exposto); refs no chat (C2); aparelho limpo de um amigo. |
 
 ## Decisões pendentes (não remover ainda)
 

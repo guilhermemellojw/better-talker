@@ -35,10 +35,10 @@
 | Chat com chave real | `budget=2048`, `finish=stop`, 323 palavras, sem truncamento. |
 | V&M discurso 5 min | Formulário “Criar esboço do zero” → Discurso público 5 min/3 pontos: prévia **Introdução 1 + Ponto 1 1 + Ponto 2 1 + Ponto 3 1 + Conclusão 1 = 5 min**; nota criada. |
 | Demo 4 min | “Criar esboço do zero” → Demonstração livre 4 min; chat gerou `budget=2048`, `finish=stop`, `hasCard=true`, 309 palavras, `retries=0`. |
-| Exportação | ✅ “Salvar como PDF” gerou `N 192 — Você está no caminho para a vida eterna.PDF`: 1 página A4, 17.803 bytes, texto e formatação presentes (`pdfinfo`/`pdftotext`); “Compartilhar” abriu a share sheet com o `.html`; sem crash. |
-| TTS | ✅ Piper offline tocou a resposta no chat; botão alternou para “Parar leitura” e voltou para “Ouvir”; áudio ativo no AudioFlinger. Troca de voz/background não testados. |
-| STT | ⚠️ O serviço do sistema falhou no A34 (`SpeechRecognizer error=10`); o fallback mostrou “Serviço de voz interrompeu”, preservou a transcrição e ofereceu Retomar/Parar. Ao parar, abriu “Resultado do ensaio” com “Pouca fala capturada”, “Áudio não foi gravado” e aviso de que o serviço do sistema pode usar rede. Sem crash; fala humana não validada. |
-| Refs | ⚠️ `w25.07` importado e Biblioteca mostra “No acervo”; pergunta direta no chat ainda registrou `refs=0`/`inventory_chars=0`. `lmd` continua “Faltando” com ação de download. Inventário/chat de refs fica para o C2. |
+| Exportação | ✅ “Salvar como PDF” gerou `N 192 — Você está no caminho para a vida eterna.PDF` (local) e `…(1).PDF` no APK da CI: 1 página A4, 17.803 bytes, texto e formatação presentes (`pdfinfo`/`pdftotext`); “Compartilhar” abriu a share sheet com o `.html`; sem crash. |
+| TTS | ✅ Piper offline tocou a resposta no chat local e no APK da CI; botão alternou para “Parar leitura” e voltou para “Ouvir”; áudio continuou em background e parou ao voltar; sem crash. Troca de voz não tem seletor exposto (Piper é o padrão; fallback nativo automático). |
+| STT | ⚠️ Confirmado também no APK da CI: o serviço do sistema falhou (`SpeechRecognizer error=10`); o fallback mostrou “Serviço de voz interrompeu”, preservou a transcrição e ofereceu Retomar/Parar. Ao parar, abriu “Resultado do ensaio” com “Pouca fala capturada”, “Áudio não foi gravado” e aviso de que o serviço do sistema pode usar rede. Sem crash; fala humana não validada. |
+| Refs | ⚠️ `w25.07` importado e Biblioteca mostra “No acervo”; pergunta direta no chat registrou `refs=0`/`inventory_chars=0` no APK da CI. `lmd` continua “Faltando” com ação de download. Inventário/chat de refs fica para o C2. |
 
 ## CI dry-run — 2026-10-26
 
@@ -48,13 +48,20 @@
 | Etapas | secrets, testes, `lintRelease`, `assembleRelease`, `apksigner`, SHA-256 e upload — todas verdes |
 | APK da CI | SHA-256 `dd49abf1b289737e3fc05007c1d29e34a14e68f06ef78ff689dce425a8e08781` |
 | Certificado | mesmo certificado de release (`ad1b0a30…62c33bba4`) |
-| Download do artefato | **bloqueado nesta máquina**: o Azure Blob de artefatos está a ~6 KB/s (97 MB); não deu para baixar/instalar o APK da CI |
+| Download do artefato | ✅ baixado em 32 ranges paralelos; zip SHA-256 `4f1fe1c8…b45b520d`; APK `dd49abf1…a08781`; instalado no A34 |
+| Smoke no artefato da CI | ✅ chat real (`budget=2048/stop`), TTS play/stop/background, PDF A4 e HTML; STT `error=10` persistiu com fallback; refs=0 |
 | Secrets | quatro `BT_*` + `GOOGLE_SERVICES_JSON` aparecem em `gh secret list`; `github-secrets.txt` apagado |
+
+## Decisão de escopo
+
+**Opção A — v2.8.1 security-only.** O `refs=0` é limitação conhecida de C2,
+não regressão do C1 (as mudanças do C1 foram de orçamento/telemetria; a
+recuperação e o inventário não foram tocados). TTS/STT P0 e refs entram no
+v2.8.2. O v2.8.1 é o checkpoint de segurança/distribuição.
 
 ## Gaps e próximos passos
 
 - **Backup:** o arquivo cifrado está em `/home/guilherme/chave_apk_better_talker/.better-talker-backups/`; falta confirmar as duas cópias offline e o gerenciador de senhas.
-- **CI artifact:** baixar o APK da CI por um caminho mais rápido (GitHub UI/browser ou `gh run download` em outra rede) e instalar no A34; o hash esperado é `dd49abf1…a08781`.
-- **Smoke final no artefato da CI:** TTS (troca de voz/background), refs no chat, STT (limitação do serviço do sistema) e aparelho limpo de um amigo.
-- **Refs:** `w25.07` está no acervo, mas o chat ainda registra `refs=0`; isso é C2.
+- **CI artifact:** baixado, verificado (`dd49abf1…a08781`) e instalado no A34.
+- **Smoke final:** TTS play/stop/background e PDF/HTML passaram; STT fica como limitação do serviço do sistema; refs no chat ficam para C2; falta aparelho limpo de um amigo.
 - C2, card-first, 45 min monolítico, `lmd` literal e sync continuam fora deste release.
