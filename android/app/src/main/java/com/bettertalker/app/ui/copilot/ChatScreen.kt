@@ -118,6 +118,8 @@ import com.bettertalker.app.data.copilot.FocusDestination
 import com.bettertalker.app.data.copilot.FocusSource
 import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.FocusStatus
+import com.bettertalker.app.data.copilot.TurnPhase
+import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.focusStatusLabel
 import com.bettertalker.app.data.copilot.refDisplayLabel
 import com.bettertalker.app.data.copilot.refGroupHeader
@@ -171,6 +173,8 @@ fun ChatScreen(
     val localPartial by vm.localPartial.collectAsState()
     val localRetry by vm.localRetry.collectAsState()
     val localReasoning by vm.localReasoning.collectAsState()
+    val activeTurn by vm.activeTurn.collectAsState()
+    val scopeLoading by vm.scopeLoading.collectAsState()
     val thinkingMode by vm.thinkingMode.collectAsState()
     // #17-fix: parcial limpo durante o streaming (só marcadores internos —
     // HTML/markdown intactos; marcador sem par = removido como órfão).
@@ -321,9 +325,25 @@ fun ChatScreen(
                 l.visibleItemsInfo.lastOrNull()?.index == l.totalItemsCount - 1
         }
     }
+    // M1: o item do turno é único e usa `turn-<turnId>`; o final persistido
+    // assume a mesma key quando chega, sem duplicar typing/streaming/final.
+    val finalTurnInMessages = activeTurn?.finalMessageId?.let { id ->
+        messages.any { it.id == id }
+    } ?: false
+    val showActiveTurn = activeTurn?.let { turn ->
+        when (turn.phase) {
+            TurnPhase.WAITING, TurnPhase.REASONING, TurnPhase.STREAMING -> true
+            TurnPhase.DONE -> turn.finalMessageId != null && !finalTurnInMessages
+            TurnPhase.CANCELLED, TurnPhase.ERROR -> true
+        }
+    } ?: false
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
     // "para o fim" (garante os botões da última resposta visíveis).
-    val runStateItems = runStateItemCount(runState)
+    val runStateItems = if (activeTurn != null) {
+        if (showActiveTurn) 1 else 0
+    } else {
+        runStateItemCount(runState)
+    }
     // #25-fix-a/#26-fix: há card de proposta/estrutura no fim da lista?
     // (alvo do "fim" E gatilho da pílula quando o turno gera só proposta)
     val hasProposal = proposal != null || structureProposal != null ||
@@ -400,7 +420,7 @@ fun ChatScreen(
     // após o content começar, ancora no TOPO do item para o usuário ver o
     // auto-colapso; depois volta a seguir o FIM do texto.
     LaunchedEffect(localPartial, reasoningVisible, localReasoning) {
-        if (localPartial.isNotBlank() && followEnd) {
+        if (activeTurn == null && localPartial.isNotBlank() && followEnd) {
             val keepHeader = reasoningVisible && localReasoning.isNotBlank()
             if (keepHeader) {
                 // Âncora de topo é imediata (o cabeçalho precisa ficar visível).
@@ -415,7 +435,13 @@ fun ChatScreen(
     // (antes do partial). Sem este scroll ele nasce abaixo da viewport e o
     // usuário nunca vê o cabeçalho. Alinha o fim do item, como o parcial.
     LaunchedEffect(localReasoning) {
-        if (localReasoning.isNotBlank() && localPartial.isBlank() && followEnd) {
+        if (activeTurn == null && localReasoning.isNotBlank() && localPartial.isBlank() && followEnd) {
+            listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
+        }
+    }
+    // M1: âncora estável no TURNO (turnId), não no slot de streaming/final.
+    LaunchedEffect(activeTurn?.turnId, activeTurn?.partialText?.length, activeTurn?.phase) {
+        if (followEnd && showActiveTurn) {
             listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
@@ -670,19 +696,31 @@ fun ChatScreen(
                         }
                     }
                     // F2.3: conversa por tópico ainda vazia — estado explícito.
+                    // M1: durante a troca de escopo, skeleton até a 1ª emissão.
                     if (messages.isEmpty() && chatScope != null) {
                         item(key = "topic-empty") {
-                            Text(
-                                "Conversa deste tópico. Peça ao Copilot para " +
-                                    "desenvolver este tópico e depois diga " +
-                                    "“insira no tópico”.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
+                            if (scopeLoading) {
+                                ScopeSkeleton()
+                            } else {
+                                Text(
+                                    "Conversa deste tópico. Peça ao Copilot para " +
+                                        "desenvolver este tópico e depois diga " +
+                                        "“insira no tópico”.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                            }
                         }
                     }
                     messages.forEach { m ->
-                        item(key = m.id) {
+                        // M1: a resposta final assume a key do turno; o item
+                        // de streaming usa a MESMA key e sai no mesmo frame.
+                        val messageKey = if (!m.fromMe && m.turnId.isNotBlank()) {
+                            "turn-${m.turnId}"
+                        } else {
+                            m.id
+                        }
+                        item(key = messageKey) {
                             // T5: entrada com fade sutil (~300ms) + placement.
                             Box(
                                 Modifier.animateItem(
@@ -690,38 +728,49 @@ fun ChatScreen(
                                     fadeOutSpec = tween(STREAM_CROSSFADE_MS)
                                 )
                             ) {
-                                MessageBubble(
-                                    item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
-                                    destinations = destinations, sectionBusy = sectionBusy,
-                                    liveSections = outlineSections,
-                                    merges = merges, draft = draft,
-                                    onOpenLibrary = onOpenLibrary,
-                                    // #26-fix-c: preenche o composer e marca a
-                                    // pergunta — o envio substitui a antiga.
-                                    onEdit = { edited ->
-                                        editingMessageId = edited.id
-                                        editingMessageAt = edited.createdAt
-                                        input = edited.text
-                                        composerFocus.requestFocus()
-                                    },
-                                    // #22-fix (P2): o ⋮ vive DENTRO do item da
-                                    // mensagem (canto superior direito) — sem
-                                    // linha própria no LazyColumn.
-                                    actions = { mod ->
-                                        MessageActions(
-                                            m, vm, hasScope = chatScope != null,
-                                            ttsReady = ttsReady && !voiceActive,
-                                            speaking = speakingId == m.id,
-                                            onSpeak = {
-                                                speakingId = m.id
-                                                vm.speakMessage(m.text)
-                                            },
-                                            onStopSpeak = { vm.stopSpeaking() },
-                                            onClearConversation = { confirmClear = true },
-                                            modifier = mod,
-                                        )
-                                    },
-                                )
+                                Column {
+                                    val turnReasoning = activeTurn?.takeIf {
+                                        !m.fromMe && it.turnId == m.turnId &&
+                                            it.reasoningText.isNotBlank()
+                                    }
+                                    if (turnReasoning != null) {
+                                        TurnReasoningHeader(turnReasoning)
+                                    } else if (!m.fromMe && m.reasoningSeconds > 0) {
+                                        PersistedReasoningHeader(m.reasoningSeconds)
+                                    }
+                                    MessageBubble(
+                                        item = m, vm = vm, dl = dl, ctx = ctx, scope = scope,
+                                        destinations = destinations, sectionBusy = sectionBusy,
+                                        liveSections = outlineSections,
+                                        merges = merges, draft = draft,
+                                        onOpenLibrary = onOpenLibrary,
+                                        // #26-fix-c: preenche o composer e marca a
+                                        // pergunta — o envio substitui a antiga.
+                                        onEdit = { edited ->
+                                            editingMessageId = edited.id
+                                            editingMessageAt = edited.createdAt
+                                            input = edited.text
+                                            composerFocus.requestFocus()
+                                        },
+                                        // #22-fix (P2): o ⋮ vive DENTRO do item da
+                                        // mensagem (canto superior direito) — sem
+                                        // linha própria no LazyColumn.
+                                        actions = { mod ->
+                                            MessageActions(
+                                                m, vm, hasScope = chatScope != null,
+                                                ttsReady = ttsReady && !voiceActive,
+                                                speaking = speakingId == m.id,
+                                                onSpeak = {
+                                                    speakingId = m.id
+                                                    vm.speakMessage(m.text)
+                                                },
+                                                onStopSpeak = { vm.stopSpeaking() },
+                                                onClearConversation = { confirmClear = true },
+                                                modifier = mod,
+                                            )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -771,121 +820,98 @@ fun ChatScreen(
                             )
                         }
                     }
-                    // Estados legíveis: nada de spinner mudo (§30 F15).
-                    // O parcial/reasoning agora sobrevive ao runState Success
-                    // por um curto fade, para não desaparecer no mesmo frame
-                    // em que a resposta final entra no banco.
-                    val partialShown = cleanedPartial.isNotBlank()
-                    val reasoningShown = localReasoning.isNotBlank()
-                    val liveVisible = partialShown || reasoningShown
-                    when (val s = runState) {
-                        is ChatRunState.Sending, is ChatRunState.Generating -> {
-                            if (!liveVisible) {
-                                item {
-                                    // Retry honesto: o parcial anterior foi
-                                    // limpo de propósito para a nova tentativa.
-                                    val retry = localRetry
-                                    when {
-                                        retry != null -> Text(
-                                            retry,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                        )
-                                        localPhase == LocalPhase.LoadingModel -> Text(
-                                            "Carregando modelo…",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                        )
-                                        localPhase == LocalPhase.ReadingSources -> Text(
-                                            "Lendo as fontes…",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                        )
-                                        // "Pensando…" animado — a espera do
-                                        // primeiro token parece menor.
-                                        else -> TypingIndicator()
+                    // M1: um item por turno. O fallback antigo só roda quando
+                    // não há estado de turno (fluxos legados/fora do send).
+                    if (activeTurn == null) {
+                        val partialShown = cleanedPartial.isNotBlank()
+                        val reasoningShown = localReasoning.isNotBlank()
+                        val liveVisible = partialShown || reasoningShown
+                        when (val s = runState) {
+                            is ChatRunState.Sending, is ChatRunState.Generating -> {
+                                if (!liveVisible) {
+                                    item {
+                                        val retry = localRetry
+                                        when {
+                                            retry != null -> Text(
+                                                retry,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.secondary,
+                                            )
+                                            localPhase == LocalPhase.LoadingModel -> Text(
+                                                "Carregando modelo…",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.secondary,
+                                            )
+                                            localPhase == LocalPhase.ReadingSources -> Text(
+                                                "Lendo as fontes…",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.secondary,
+                                            )
+                                            else -> TypingIndicator()
+                                        }
                                     }
                                 }
                             }
+                            is ChatRunState.Error -> item {
+                                ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                            }
+                            is ChatRunState.Cancelled -> item {
+                                ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                            }
+                            else -> Unit
                         }
-                        is ChatRunState.Error -> item {
-                            ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
-                        }
-                        is ChatRunState.Cancelled -> item {
-                            ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
-                        }
-                        else -> Unit
-                    }
-                    if (liveVisible) {
-                        // O item de streaming entra/sai com fade. O cursor é
-                        // filho do mesmo item, então seu desaparecimento é
-                        // coberto por este fade (sem camada fantasma).
-                        item(key = "streaming") {
-                            Box(
-                                Modifier.animateItem(
-                                    fadeInSpec = tween(200),
-                                    fadeOutSpec = tween(200),
+                        if (liveVisible) {
+                            item(key = "streaming") {
+                                LegacyStreamingItem(
+                                    partial = cleanedPartial,
+                                    reasoning = localReasoning,
+                                    reasoningDone = reasoningDone,
+                                    reasoningExpanded = reasoningExpanded,
+                                    onToggleReasoning = {
+                                        reasoningExpanded = !reasoningExpanded
+                                    },
                                 )
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surface,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                ) {
-                                    Column(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                                            .animateContentSize(tween(250))
-                                    ) {
-                                    AnimatedVisibility(
-                                        visible = reasoningShown && reasoningVisible,
-                                        enter = fadeIn(tween(200)),
-                                        exit = fadeOut(tween(250)),
-                                    ) {
-                                        ReasoningSection(
-                                            text = localReasoning,
-                                            completed = reasoningDone,
-                                            expanded = reasoningExpanded,
-                                            onToggle = {
-                                                reasoningExpanded = !reasoningExpanded
-                                            },
-                                            modifier = Modifier.padding(bottom = 8.dp),
-                                        )
-                                    }
-                                    if (partialShown) {
-                                        // T3: cursor pulsante no fim do parcial —
-                                        // continua texto puro (sem parser); o item
-                                        // inteiro faz fadeOut quando o final chega.
-                                        val cursorAlpha by rememberInfiniteTransition(label = "cursor")
-                                            .animateFloat(
-                                                initialValue = 0.2f,
-                                                targetValue = 1f,
-                                                animationSpec = infiniteRepeatable(
-                                                    animation = tween(400, easing = LinearEasing),
-                                                    repeatMode = RepeatMode.Reverse
-                                                ),
-                                                label = "cursorAlpha"
-                                            )
-                                        val cursorColor = MaterialTheme.colorScheme.onSurface
-                                        Row(Modifier.fillMaxWidth()) {
-                                            Text(
-                                                buildAnnotatedString {
-                                                    append(cleanedPartial)
-                                                    withStyle(
-                                                        SpanStyle(
-                                                            color = cursorColor.copy(alpha = cursorAlpha)
-                                                        )
-                                                    ) { append("▍") }
-                                                },
-                                                style = MaterialTheme.typography.bodyLarge
-                                            )
-                                        }
-                                    }
-                                    }
+                            }
+                        }
+                    } else if (showActiveTurn) {
+                        val turn = activeTurn!!
+                        item(key = "turn-${turn.turnId}") {
+                            val finalId = turn.finalMessageId
+                            if (turn.phase == TurnPhase.DONE && finalId != null) {
+                                // Handoff sem buraco: o synthetic usa o mesmo
+                                // messageId/turnId que a linha do Room terá.
+                                val synthetic = CopilotViewModel.ChatItem(
+                                    id = finalId,
+                                    fromMe = false,
+                                    kind = "text",
+                                    text = turn.finalText,
+                                    createdAt = turn.startedAt,
+                                    turnId = turn.turnId,
+                                )
+                                Column {
+                                    TurnReasoningHeader(turn)
+                                    MessageBubble(
+                                        item = synthetic,
+                                        vm = vm,
+                                        dl = dl,
+                                        ctx = ctx,
+                                        scope = scope,
+                                        destinations = destinations,
+                                        sectionBusy = sectionBusy,
+                                        liveSections = outlineSections,
+                                        merges = merges,
+                                        draft = draft,
+                                        onOpenLibrary = onOpenLibrary,
+                                    )
                                 }
+                            } else {
+                                TurnLiveItem(
+                                    turn = turn,
+                                    localPhase = localPhase,
+                                    localRetry = localRetry,
+                                    onRetry = vm::retry,
+                                    onDismiss = vm::dismissError,
+                                )
                             }
                         }
                     }
@@ -1130,6 +1156,7 @@ private fun ReasoningSection(
     expanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    label: String = "Pensando…",
 ) {
     val transition = rememberInfiniteTransition(label = "reasoning")
     val pulse by transition.animateFloat(
@@ -1169,7 +1196,7 @@ private fun ReasoningSection(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Pensando…",
+                    label,
                     style = MaterialTheme.typography.labelMedium,
                     // exp/chat-contrast (2026-10-22): com alpha até 0,4 o texto
                     // caía a 1,83:1 (sumia). O pulso fica no ícone; o texto é
@@ -1198,6 +1225,217 @@ private fun ReasoningSection(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * M1 — cabeçalho de raciocínio do turno. Durante REASONING pulsa; depois
+ * colapsa em “Pensou por Xs” e permanece no item final.
+ */
+@Composable
+private fun TurnReasoningHeader(turn: TurnUiState) {
+    if (turn.reasoningText.isBlank()) return
+    var expanded by remember(turn.turnId) { mutableStateOf(false) }
+    val completed = turn.phase != TurnPhase.REASONING
+    ReasoningSection(
+        text = turn.reasoningText,
+        completed = completed,
+        expanded = expanded,
+        onToggle = { expanded = !expanded },
+        modifier = Modifier.padding(bottom = 8.dp),
+        label = if (completed) {
+            "Pensou por ${turn.reasoningSeconds()}s"
+        } else {
+            "Pensando…"
+        },
+    )
+}
+
+/**
+ * M1 — resumo persistido de raciocínio (sem o texto, que é transitório).
+ * Mantém “Pensou por Xs” depois que o turno vira mensagem do Room.
+ */
+@Composable
+private fun PersistedReasoningHeader(seconds: Int) {
+    Row(
+        Modifier.padding(bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.Psychology,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Pensou por ${seconds}s",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * M1 — um item por turno, do WAITING ao ERROR/CANCELLED. O parcial e o
+ * raciocínio são o corpo deste item, não mensagens separadas.
+ */
+@Composable
+private fun TurnLiveItem(
+    turn: TurnUiState,
+    localPhase: LocalPhase,
+    localRetry: String?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val partial = remember(turn.partialText) { stripInternalTags(turn.partialText) }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .animateContentSize(tween(250)),
+        ) {
+            if (turn.reasoningText.isNotBlank()) {
+                TurnReasoningHeader(turn)
+            }
+            if (partial.isNotBlank()) {
+                StreamingCursorText(partial)
+            } else if (turn.phase == TurnPhase.WAITING ||
+                turn.phase == TurnPhase.REASONING
+            ) {
+                when {
+                    localRetry != null -> Text(
+                        localRetry,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    localPhase == LocalPhase.LoadingModel -> Text(
+                        "Carregando modelo…",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    localPhase == LocalPhase.ReadingSources -> Text(
+                        "Lendo as fontes…",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    else -> TypingIndicator()
+                }
+            }
+            when (turn.phase) {
+                TurnPhase.CANCELLED -> ChatErrorRow(
+                    "Geração parada.",
+                    onDismiss = onDismiss,
+                    onRetry = onRetry,
+                )
+                TurnPhase.ERROR -> ChatErrorRow(
+                    turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
+                    onDismiss = onDismiss,
+                    onRetry = onRetry,
+                )
+                else -> Unit
+            }
+        }
+    }
+}
+
+/** Cursor pulsante do parcial — texto puro, sem parser. */
+@Composable
+private fun StreamingCursorText(text: String) {
+    val cursorAlpha by rememberInfiniteTransition(label = "cursor")
+        .animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(400, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "cursorAlpha",
+        )
+    val cursorColor = MaterialTheme.colorScheme.onSurface
+    Row(Modifier.fillMaxWidth()) {
+        Text(
+            buildAnnotatedString {
+                append(text)
+                withStyle(SpanStyle(color = cursorColor.copy(alpha = cursorAlpha))) {
+                    append("▍")
+                }
+            },
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
+}
+
+/**
+ * Fallback legado do streaming (quando não há `activeTurn`, ex.: fluxos que
+ * não passam pelo send). Mantém o comportamento anterior sem duplicar o M1.
+ */
+@Composable
+private fun LegacyStreamingItem(
+    partial: String,
+    reasoning: String,
+    reasoningDone: Boolean,
+    reasoningExpanded: Boolean,
+    onToggleReasoning: () -> Unit,
+) {
+    Box {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .animateContentSize(tween(250)),
+            ) {
+                AnimatedVisibility(
+                    visible = reasoning.isNotBlank(),
+                    enter = fadeIn(tween(200)),
+                    exit = fadeOut(tween(250)),
+                ) {
+                    ReasoningSection(
+                        text = reasoning,
+                        completed = reasoningDone,
+                        expanded = reasoningExpanded,
+                        onToggle = onToggleReasoning,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                if (partial.isNotBlank()) {
+                    StreamingCursorText(partial)
+                }
+            }
+        }
+    }
+}
+
+/** M1 — skeleton da troca de escopo, antes da primeira emissão do Room. */
+@Composable
+private fun ScopeSkeleton() {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        repeat(3) { index ->
+            Box(
+                Modifier
+                    .fillMaxWidth(if (index == 2) 0.6f else 1f)
+                    .height(14.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
         }
     }
 }

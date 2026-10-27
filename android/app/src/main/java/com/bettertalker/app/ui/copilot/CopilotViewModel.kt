@@ -11,6 +11,8 @@ import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.FocusDestination
 import com.bettertalker.app.data.copilot.FocusOrigin
 import com.bettertalker.app.data.copilot.FocusSources
+import com.bettertalker.app.data.copilot.TurnPhase
+import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.QUICK_ACTIONS
 import com.bettertalker.app.data.copilot.buildTurnContext
 import com.bettertalker.app.data.copilot.applyStructurePartMessage
@@ -140,6 +142,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -848,6 +851,10 @@ class CopilotViewModel(
         val createdAt: Long = 0,
         /** #ui-polish: resposta cortada por limite de tokens ("Continuar"). */
         val isTruncated: Boolean = false,
+        /** M1: id estável do turno (liga pergunta, streaming e resposta final). */
+        val turnId: String = "",
+        /** M1: duração do raciocínio para o resumo "Pensou por Xs". */
+        val reasoningSeconds: Int = 0,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -874,6 +881,19 @@ class CopilotViewModel(
      */
     private val _runState = MutableStateFlow<ChatRunState>(ChatRunState.Idle)
     val runState = _runState.asStateFlow()
+
+    /**
+     * M1 — item único do turno. O parcial/reasoning não são mensagens: são o
+     * corpo deste estado, com o mesmo `turnId` até DONE/CANCELLED/ERROR.
+     */
+    private val _activeTurn = MutableStateFlow<TurnUiState?>(null)
+    val activeTurn = _activeTurn.asStateFlow()
+    private var activeTurnProgressJob: Job? = null
+    private var currentTurnId: String? = null
+
+    /** M1 — troca de escopo: skeleton enquanto a primeira consulta chega. */
+    private val _scopeLoading = MutableStateFlow(false)
+    val scopeLoading = _scopeLoading.asStateFlow()
 
     /**
      * F2.1 — fases do provider on-device (só observa; o fluxo de send(),
@@ -1074,17 +1094,51 @@ class CopilotViewModel(
     /** #4 (UX S): job da geração atual — o botão "Parar" cancela por aqui. */
     private var currentGenerationJob: Job? = null
 
-    /**
-     * Quick win visual: o parcial/reasoning não morre no mesmo frame em que a
-     * resposta final entra no banco. A UI mantém o item de streaming por um
-     * curto fade; depois limpamos. Qualquer nova geração cancela este job.
-     */
-    private var clearPartialJob: Job? = null
-
     private fun resetLocalProgress() {
-        clearPartialJob?.cancel()
-        clearPartialJob = null
         com.bettertalker.app.data.llm.LocalProgress.reset()
+    }
+
+    private data class TurnProgress(
+        val partial: String,
+        val reasoning: String,
+        val retryNotice: String?,
+    )
+
+    /**
+     * M1 — espelha o streaming do provider no item do turno. O turno terminal
+     * não regride; o coletor é cancelado no finally do send.
+     */
+    private fun startTurnProgress(turnId: String) {
+        activeTurnProgressJob?.cancel()
+        activeTurnProgressJob = viewModelScope.launch {
+            var lastPhase: TurnPhase? = null
+            kotlinx.coroutines.flow.combine(
+                com.bettertalker.app.data.llm.LocalProgress.partialText,
+                com.bettertalker.app.data.llm.LocalProgress.reasoningText,
+                com.bettertalker.app.data.llm.LocalProgress.retryNotice,
+            ) { partial, reasoning, retry ->
+                TurnProgress(partial, reasoning, retry)
+            }.collect { progress ->
+                val current = _activeTurn.value ?: return@collect
+                if (current.turnId != turnId) return@collect
+                val next = current.withProgress(
+                    partial = progress.partial,
+                    reasoning = progress.reasoning,
+                    retryNotice = progress.retryNotice,
+                    now = System.currentTimeMillis(),
+                )
+                if (next.phase != lastPhase) {
+                    android.util.Log.i(
+                        "CopilotM1",
+                        "turn=$turnId phase=${next.phase} " +
+                            "partial=${next.partialText.length} " +
+                            "reasoning=${next.reasoningText.length}",
+                    )
+                    lastPhase = next.phase
+                }
+                _activeTurn.value = next
+            }
+        }
     }
 
     /**
@@ -1365,6 +1419,10 @@ class CopilotViewModel(
     /** Dispensa o erro e devolve o composer. */
     fun dismissError() {
         _runState.value = ChatRunState.Idle
+        if (_activeTurn.value?.isTerminal == true) {
+            _activeTurn.value = null
+            resetLocalProgress()
+        }
     }
 
     /**
@@ -1526,9 +1584,21 @@ class CopilotViewModel(
             // G3 (UX S): o parcial da geração anterior não vaza para o escopo novo.
             resetLocalProgress()
             // G2 (UX S): esvazia a lista antes do novo emit — sem "fantasma"
-            // da conversa da seção anterior por ~150ms.
+            // da conversa da seção anterior por ~150ms. O skeleton fica até a
+            // PRIMEIRA emissão real do Room.
+            var syntheticEmission = true
             db.chatDao().observeScoped(noteId, scope)
-                .onStart { emit(emptyList()) }
+                .onStart {
+                    _scopeLoading.value = true
+                    emit(emptyList())
+                }
+                .onEach {
+                    if (syntheticEmission) {
+                        syntheticEmission = false
+                    } else {
+                        _scopeLoading.value = false
+                    }
+                }
         }.map { list ->
             list.map { e ->
                 when (e.kind) {
@@ -1568,7 +1638,9 @@ class CopilotViewModel(
                             text = m["text"].orEmpty(), origin = messageOriginOf(m),
                             durationMs = m["durationMs"]?.toLongOrNull(),
                             createdAt = e.createdAt,
-                            isTruncated = m["truncated"] == "1")
+                            isTruncated = m["truncated"] == "1",
+                            turnId = m["turnId"].orEmpty(),
+                            reasoningSeconds = m["reasoningSeconds"]?.toIntOrNull() ?: 0)
                     }
                 }
             }
@@ -1578,11 +1650,22 @@ class CopilotViewModel(
     }
 
     /** #4 (UX S): para a geração em andamento — o send trata o cancelamento
-     *  (runState → Cancelled, composer destrava no finally). */
+     *  (runState → Cancelled, composer destrava no finally). M1: congela o
+     *  parcial/reasoning no item do turno; não apaga o que já foi lido. */
     fun stopGeneration() {
+        val turn = _activeTurn.value
+        if (turn != null && !turn.isTerminal) {
+            _activeTurn.value = turn.cancelled()
+            android.util.Log.i(
+                "CopilotM1",
+                "turn=${turn.turnId} cancelled partial=${turn.partialText.length} " +
+                    "reasoning=${turn.reasoningText.length}",
+            )
+        } else if (turn == null) {
+            resetLocalProgress()
+        }
         currentGenerationJob?.cancel()
         currentGenerationJob = null
-        resetLocalProgress()
     }
 
     private suspend fun post(
@@ -1595,6 +1678,8 @@ class CopilotViewModel(
         truncated: Boolean = false,
         // #23-fix-c (G1): escopo do turno (capturado no send) > vivo.
         targetScope: String? = turnScope ?: _chatScope.value,
+        /** M1: id estável do turno; só o texto final vira o item do turno. */
+        turnId: String? = currentTurnId,
     ): String? {
         val nid = noteId ?: return null
         // Origem embutida no JSON do payload (sem migration; histórico
@@ -1605,6 +1690,20 @@ class CopilotViewModel(
         if (durationMs != null && durationMs > 0) withOrigin["durationMs"] = durationMs.toString()
         // #ui-polish: flag de corte no payload JSON (sem migration).
         if (truncated) withOrigin["truncated"] = "1"
+        // M1: a pergunta e a resposta final compartilham o turnId; avisos
+        // intermediários não recebem a chave para não colidirem no LazyColumn.
+        val effectiveTurnId = turnId?.takeIf {
+            fromMe || (kind == "text" && durationMs != null)
+        }
+        if (effectiveTurnId != null) withOrigin["turnId"] = effectiveTurnId
+        val reasoningSeconds = if (!fromMe && effectiveTurnId != null) {
+            _activeTurn.value?.reasoningSeconds() ?: 0
+        } else {
+            0
+        }
+        if (reasoningSeconds > 0) {
+            withOrigin["reasoningSeconds"] = reasoningSeconds.toString()
+        }
         val messageId = newId("msg")
         db.chatDao().put(
             ChatEntity(
@@ -1615,18 +1714,21 @@ class CopilotViewModel(
                 sectionId = targetScope,
             )
         )
-        // Quick win visual: o parcial/reasoning fica no item de streaming
-        // enquanto o fade do final acontece; só então limpamos. Uma nova
-        // geração cancela este job em resetLocalProgress().
-        if (fromMe) {
-            clearPartialJob?.cancel()
-            clearPartialJob = null
-        } else {
-            clearPartialJob?.cancel()
-            clearPartialJob = viewModelScope.launch {
-                delay(400)
+        if (!fromMe) {
+            // M1: o final entra no MESMO item do turno; sem fade de 400 ms e
+            // sem parcial duplicado. O parcial é limpo no mesmo frame.
+            if (effectiveTurnId != null) {
+                _activeTurn.value = _activeTurn.value?.done(
+                    messageId = messageId,
+                    text = withOrigin["text"].orEmpty(),
+                    now = System.currentTimeMillis(),
+                )
+                android.util.Log.i(
+                    "CopilotM1",
+                    "turn=$effectiveTurnId done message=$messageId " +
+                        "chars=${withOrigin["text"].orEmpty().length}",
+                )
                 com.bettertalker.app.data.llm.LocalProgress.clearPartial()
-                clearPartialJob = null
             }
         }
         return messageId
@@ -1650,6 +1752,8 @@ class CopilotViewModel(
         lastFocusPack = null
         lastFocusStructural = null
         lastFocusQuestion = ""
+        _activeTurn.value = null
+        _scopeLoading.value = false
         // T1 (chat minimalista): sem balão de boas-vindas após limpar.
     }
 
@@ -1780,6 +1884,15 @@ class CopilotViewModel(
             // #streaming-fix: zera o parcial do turno anterior ANTES de mostrar
             // "Sending"; sem isso o texto antigo reaparece durante o RAG.
             resetLocalProgress()
+            // M1: um turno, um item. O turnId liga pergunta, streaming e final.
+            val turnId = newId("turn")
+            currentTurnId = turnId
+            _activeTurn.value = TurnUiState(
+                turnId = turnId,
+                phase = TurnPhase.WAITING,
+                startedAt = System.currentTimeMillis(),
+            )
+            startTurnProgress(turnId)
             _runState.value = ChatRunState.Sending
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
@@ -2086,7 +2199,8 @@ class CopilotViewModel(
             }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Cancelamento não é erro: o discurso fica intacto e o
-                // composer volta (§25 F15).
+                // composer volta (§25 F15). M1: o parcial fica congelado.
+                _activeTurn.value = _activeTurn.value?.cancelled()
                 _runState.value = ChatRunState.Cancelled()
                 throw e
             } catch (e: Exception) {
@@ -2097,12 +2211,25 @@ class CopilotViewModel(
                     e.javaClass.simpleName + " code=$code attempts=" +
                     ((e as? com.bettertalker.app.data.llm.ProviderError)?.attempts))
                 val msg = friendlyChatError(e)
+                _activeTurn.value = _activeTurn.value?.failed(msg)
                 _runState.value = ChatRunState.Error(msg)
                 postText(msg)
             } finally {
                 // O composer SEMPRE destrava aqui — inclusive depois de erro.
                 // #23-fix-c: turno acabado — posts fora dele usam o escopo vivo.
+                activeTurnProgressJob?.cancel()
+                activeTurnProgressJob = null
+                val finishedTurn = _activeTurn.value
+                if (finishedTurn != null && finishedTurn.turnId == turnId && finishedTurn.isLive) {
+                    _activeTurn.value = finishedTurn.copy(phase = TurnPhase.DONE)
+                }
+                android.util.Log.i(
+                    "CopilotM1",
+                    "turn=$turnId end phase=${_activeTurn.value?.phase} " +
+                        "final=${_activeTurn.value?.finalMessageId ?: "-"}",
+                )
                 turnScope = null
+                currentTurnId = null
                 currentGenerationJob = null
                 _chatBusy.value = false
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
