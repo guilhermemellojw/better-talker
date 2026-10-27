@@ -26,7 +26,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **2.538 testes JVM verdes** na main (C1 + A1 + C2a + P0 voz) · `lintRelease` verde.
-- **Distribuição:** **v2.8.2 publicada** em [GitHub Releases](https://github.com/guilhermemellojw/better-talker/releases/tag/v2.8.2) — APK SHA-256 `4f4efa1c…dbd5a5`; v2.8.1 permanece em **draft** como checkpoint. Keystore de release fora do repo; ver [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v2.8.2 preparada** — release em **draft** (`4f4efa1c…dbd5a5`) até as duas cópias offline da keystore e o teste de restauração em outra máquina. O v2.8.1 também permanece em draft como checkpoint. Publicar depois com `gh release edit v2.8.2 --draft=false`. Ver [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
