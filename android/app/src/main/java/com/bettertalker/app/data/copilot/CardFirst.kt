@@ -225,6 +225,26 @@ fun extractCardText(raw: String, maxChars: Int = 20_000): String? {
     return raw.substring(start, close).trim().take(maxChars).takeIf { it.isNotBlank() }
 }
 
+/**
+ * `NO_TARGET` → destino escolhido pelo usuário. O hash é capturado AGORA
+ * (não no clique de inserir) e a UI mostra o aviso de revisão.
+ */
+fun applyUserPick(
+    card: CardPayload,
+    sectionId: String,
+    label: String,
+    contentHtml: String,
+    now: Long,
+): CardPayload = card.copy(
+    targetKind = CardTargetKind.SECTION,
+    targetId = sectionId,
+    targetLabel = label,
+    baseHash = hashText(contentHtml),
+    capturedFrom = CardCapturedFrom.USER_PICK,
+    capturedAt = now,
+    status = CardStatus.AVAILABLE,
+)
+
 /** Chave estável do alvo; null quando o card não tem alvo. */
 fun cardTargetKey(card: CardPayload): String? {
     val kind = card.targetKind ?: return null
@@ -278,5 +298,5 @@ fun cardStatusLabel(status: CardStatus): String = when (status) {
     CardStatus.TARGET_MISSING -> "Destino não existe mais"
     CardStatus.SUPERSEDED -> "Sugestão anterior"
     CardStatus.DISMISSED -> "Sugestão dispensada"
-    CardStatus.FAILED -> "Falha ao inserir"
+    CardStatus.FAILED -> "Falha na ação"
 }

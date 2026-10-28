@@ -100,5 +100,8 @@ class TurnUiStateTest {
         assertEquals("t1", payload["turnId"])
         assertEquals("3", payload["reasoningSeconds"])
         assertEquals("COPILOT", payload["origin"])
+        // Card-first: turno cancelado não vira card acionável — sem payload
+        // de card, sem insert/gate; o parcial fica congelado e read-only.
+        assertTrue(payload.keys.none { it.startsWith("card") })
     }
 }

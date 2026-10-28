@@ -1616,6 +1616,13 @@ private fun CardFirstActions(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+        if (status == CardStatus.TARGET_MISSING) {
+            Text(
+                "O destino não existe mais. Copie o texto ou dispense a sugestão.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (status == CardStatus.APPLIED && !item.cardCanUndo) {
             Text(
                 "Sessão encerrada: não é possível desfazer esta inserção.",
@@ -1766,11 +1773,20 @@ private fun CardFirstActions(
             title = { Text("Escolher destino") },
             text = {
                 Column {
-                    destinations.filter { it.sectionId != null }.take(8).forEach { dest ->
-                        TextButton(onClick = {
-                            showTargets = false
-                            vm.pickCardTarget(item.id, dest.sectionId!!)
-                        }) { Text(dest.label) }
+                    val choices = destinations.filter { it.sectionId != null }.take(8)
+                    if (choices.isEmpty()) {
+                        Text(
+                            "Nenhum tópico disponível nesta nota. " +
+                                "Gere novamente com o tópico em foco.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        choices.forEach { dest ->
+                            TextButton(onClick = {
+                                showTargets = false
+                                vm.pickCardTarget(item.id, dest.sectionId!!)
+                            }) { Text(dest.label) }
+                        }
                     }
                 }
             },
