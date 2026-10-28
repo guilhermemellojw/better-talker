@@ -46,6 +46,15 @@
 > conversa. Relatório em `docs/reports/card-first-fase3-corpus.md`.
 > `main`: **2.611 testes / 0 falhas**, lint/CI verdes.
 
+> **Card-first fase 4:** mergeado na `main` em `0a3ea40` (fast-forward),
+> **sem tag**. Oratória de texto agora emite card (`buildCardPrompt`), com
+> alvo capturado, `suggestedAction=REPLACE` e confirmação; refinamento semeia
+> a sessão com o conteúdo da seção; explicação/análise não vira card; refs
+> têm `text`. Tablet: 6 cards / 7 pedidos com alvo (86%) e 6/8 incluindo
+> transição sem S-34 (75%), 0 propostas de texto, 0 alvo errado, 1 replaced,
+> 1 undo. Transição com S-34 carregado ainda precisa de amostra. `main`:
+> **2.614 testes / 0 falhas**, lint/CI verdes.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
