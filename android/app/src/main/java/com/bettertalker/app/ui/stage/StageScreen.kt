@@ -649,6 +649,15 @@ private fun AnalysisResultSheet(
                         } else "",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (metrics.missingTerms.isNotEmpty()) {
+                    Text(
+                        "Termos que faltaram: " +
+                            metrics.missingTerms.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             } else {
                 // Não inventar ritmo/cobertura quando o STT perdeu fala.
                 Text(
