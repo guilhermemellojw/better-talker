@@ -633,32 +633,34 @@ private fun AnalysisResultSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            Text(
-                "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
-                    "(alvo ${metrics.targetWpm})",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "Cobertura do texto alvo ${metrics.coveragePercent}% · " +
-                    "Muletas ${metrics.fillerTotal}" +
-                    if (metrics.fillerCounts.isNotEmpty()) {
-                        " (" + metrics.fillerCounts.entries.joinToString(", ") {
-                            "${it.key} ${it.value}"
-                        } + ")"
-                    } else "",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            if (metrics.hasEnoughSpeech) {
+                Text(
+                    "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
+                        "(alvo ${metrics.targetWpm})",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Cobertura do texto alvo ${metrics.coveragePercent}% · " +
+                        "Muletas ${metrics.fillerTotal}" +
+                        if (metrics.fillerCounts.isNotEmpty()) {
+                            " (" + metrics.fillerCounts.entries.joinToString(", ") {
+                                "${it.key} ${it.value}"
+                            } + ")"
+                        } else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            } else {
+                // Não inventar ritmo/cobertura quando o STT perdeu fala.
+                Text(
+                    "Pouca fala capturada (${metrics.spokenWords} palavras) — " +
+                        "ritmo e cobertura não são confiáveis.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             result.warning?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     "Aviso: $it",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-            if (!metrics.hasEnoughSpeech) {
-                Text(
-                    "Pouca fala capturada — ritmo e cobertura ainda não são confiáveis.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 6.dp),

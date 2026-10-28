@@ -61,8 +61,8 @@
   timer correu após o Começar (`restam 04:55`); leitura sem microfone.
 - “Sem cronômetro” mostrou “sem cronômetro” e a análise funcionou.
 - “Com análise” abriu o STT automaticamente; Parar gerou
-  **“Resultado do treino”** com “Pouca fala capturada…” (0 palavras na amostra
-  sem fala), sem métricas inventadas.
+  **“Resultado do treino”** com “Pouca fala capturada (0 palavras)…”, sem
+  exibir wpm/cobertura numéricos na amostra sem fala (sem métricas inventadas).
 - “Treinar de novo” voltou a ouvir; “Treinar outro trecho” voltou à preparação.
 - Fechar e reabrir a nota preservou escopo, modo e cronômetro (persistência).
 - Discurso inteiro mostrou o texto completo e meta **32:00** (soma das seções).
