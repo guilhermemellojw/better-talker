@@ -20,9 +20,9 @@
 > tablet segue pendente; a v2.9.0 só sai depois de tablet + keystore.
 
 > **Card-first — estados A34-only:** branch `fix/card-first-estados`
-> (`5ad9c1c`), **sem merge**. Fecha `NO_TARGET`/`USER_PICK`,
+> (`4b283fe`), **sem merge**. Fecha `NO_TARGET`/`USER_PICK`,
 > `TARGET_MISSING`, `FAILED` (retry da ação certa), `CANCELLED` read-only e
-> SUPERSEDED sem alvo; **2.606 testes / 0 falhas**, lint/CI verdes. O A34
+> SUPERSEDED sem alvo; **2.607 testes / 0 falhas**, lint/CI verdes. O A34
 > ficou offline antes do smoke; merge só depois de exercitar os cinco
 > fluxos no aparelho.
 
