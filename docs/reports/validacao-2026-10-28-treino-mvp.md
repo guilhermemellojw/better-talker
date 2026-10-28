@@ -3,8 +3,8 @@
 - Branch: `feat/v2.10-treino-mvp` (base `084eba3`, `main` da `v2.9.0`).
 - Spec: `docs/specs/treino-mvp.md`.
 - Dispositivo: tablet Xiaomi `25040RP0AL` (Android 16/API 36), build debug.
-- A34: adiado para o aceite da v2.10 (build release instalado; debug exigiria
-  desinstalar e apagar os dados).
+- A34: **validado no fluxo de UI** (preparação, seletor de trecho, sessão em
+  leitura, análise e resultado) em 1080x2340; falta apenas a fala humana.
 - Suíte: **2.627 testes / 0 falhas**. `lintRelease`: **verde**.
 
 ## O que foi implementado
@@ -69,6 +69,15 @@
 - Discurso inteiro mostrou o texto completo e meta **32:00** (soma das seções).
 - Nenhuma gravação de áudio; log sem crash de `StageViewModel`/STT.
 
+### A34 (1080x2340)
+
+- App debug instalado (o aparelho não tinha o app) e base restaurada do tablet.
+- Preparação cabe sem rolagem; seletor de trecho abre como sheet e rola.
+- Sessão em leitura: escopo, texto, meta 04:00, timer e “sem microfone”.
+- Análise: permissão concedida, STT abriu, Parar gerou o resultado.
+- Resultado cabe na tela; “Pouca fala capturada (0 palavras)…” sem wpm/cobertura
+  numéricos, com as três ações e o aviso de privacidade.
+
 ### Amostra de métricas com áudio (sintética)
 
 - Piper (voz Jeff) leu um trecho conhecido de 425 chars (~27 s) no alto-falante
@@ -84,9 +93,8 @@
 
 ## Pendências e decisões
 
-- **A34:** adiada para o aceite da v2.10, como combinado. O aparelho apareceu
-  no adb, mas está com build release assinado; instalar o debug exige
-  desinstalar e apagar os dados.
+- **A34:** fluxo de UI validado; resta a mesma amostra de fala humana do
+  tablet para o aceite final.
 - **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
   histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
   (escopo/modo/timer) por nota.
