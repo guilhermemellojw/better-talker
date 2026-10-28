@@ -3,7 +3,8 @@
 - Branch: `feat/v2.10-treino-mvp` (base `084eba3`, `main` da `v2.9.0`).
 - Spec: `docs/specs/treino-mvp.md`.
 - Dispositivo: tablet Xiaomi `25040RP0AL` (Android 16/API 36), build debug.
-- A34: ocupado; validação nele ainda pendente.
+- A34: adiado para o aceite da v2.10 (build release instalado; debug exigiria
+  desinstalar e apagar os dados).
 - Suíte: **2.627 testes / 0 falhas**. `lintRelease`: **verde**.
 
 ## O que foi implementado
@@ -68,14 +69,29 @@
 - Discurso inteiro mostrou o texto completo e meta **32:00** (soma das seções).
 - Nenhuma gravação de áudio; log sem crash de `StageViewModel`/STT.
 
+### Amostra de métricas com áudio (sintética)
+
+- Piper (voz Jeff) leu um trecho conhecido de 425 chars (~27 s) no alto-falante
+  do tablet; o STT do sistema ouviu pelo microfone, sem injeção de transcrição.
+- Resultado: **42 palavras**, **93 wpm**, **cobertura 55%**, **0 muletas**,
+  27 s de fala/34 s de sessão, `hasEnoughSpeech=true`.
+- Termos faltantes exibidos (ex.: “Milhões”, “aguardam”, “entusiasmo”).
+- Feedback coerente: ensaio parcial de 5 min, poucas muletas, ritmo abaixo da
+  faixa e exercício de leitura sem pausas longas.
+- Limitação: é **voz sintética**, não fala humana; a leitura humana de 1–2 min
+  continua pendente. Em amostras longas o STT perdeu parte da fala
+  (`error=7`), o que reforça o caminho “pouca fala capturada”.
+
 ## Pendências e decisões
 
-- **A34:** validação pendente (aparelho ocupado); aceite da spec pede A34 +
-  tablet.
-- **“Continuar último treino”/“última vez treinada”:** o MVP não persiste
-  histórico de sessões (spec §12); fica para a evolução com progresso.
-- **Amostra com fala real:** a amostra de STT no tablet foi curta/sem fala;
-  falta um corpus com fala para conferir ritmo/cobertura/feedback com números
-  reais. O caminho de falha/pouca fala foi validado.
+- **A34:** adiada para o aceite da v2.10, como combinado. O aparelho apareceu
+  no adb, mas está com build release assinado; instalar o debug exige
+  desinstalar e apagar os dados.
+- **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
+  histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
+  (escopo/modo/timer) por nota.
+- **Amostra com fala humana:** o pipeline foi exercitado com áudio sintético
+  (42 palavras/55% de cobertura/93 wpm); falta a leitura humana de 1–2 min para
+  o aceite final. O caminho de falha/pouca fala também foi validado.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.
