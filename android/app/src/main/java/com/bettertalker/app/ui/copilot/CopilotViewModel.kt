@@ -2388,6 +2388,7 @@ class CopilotViewModel(
                     gateMessageId = messageId,
                     status = if (target == null) CardStatus.NO_TARGET else CardStatus.AVAILABLE,
                 )
+                logCard(messageId, "EMIT", card, cardText.length)
                 withOrigin.putAll(card.toMap())
             }
         }

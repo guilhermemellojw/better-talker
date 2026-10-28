@@ -126,21 +126,20 @@ val CHAT_PERSONA_BASE =
 val CHAT_PERSONA = CHAT_PERSONA_BASE
 
 /**
- * Correção 1 do A/B: o card é para ESCRITA explícita. Explicação/análise/
- * orientação fica na conversa — o modelo não deve embrulhar tudo em
- * `<texto-do-card>` só porque a resposta é organizada.
+ * Fase 2 — regra ÚNICA do card-first. Vale para o chat e para os prompts de
+ * geração; não é repetida na persona nem em blocos diferentes do mesmo
+ * system prompt. Texto aplicável dentro, conversa fora, um card por resposta.
  */
-const val CARD_INTENT_RULE =
+const val CARD_FIRST_RULE =
     "Texto aplicável (discurso, desenvolvimento, transição, introdução, conclusão, " +
         "diálogo) vai dentro de <texto-do-card>...</texto-do-card>. Explicações, " +
         "análise, perguntas e conversa ficam FORA. Um card por resposta."
 
 /**
- * Versão A do A/B de naturalidade: o chat livre mantém a persona, o contexto,
- * o S-34 e os marcadores, mas não empilha o guia de linguagem de geração.
- * A regra de intenção do card entra só no chat livre, não na geração.
+ * O chat livre mantém a persona, o contexto, o S-34 e os marcadores, mas a
+ * regra do card vive uma única vez na cauda ([CHAT_TAIL_INSTRUCTIONS]).
  */
-val CHAT_PERSONA_FREE = CHAT_PERSONA_BASE + "\n\n" + CARD_INTENT_RULE
+val CHAT_PERSONA_FREE = CHAT_PERSONA_BASE
 
 /**
  * P0 (alinhamento persona/tempo): linha de voz para os fluxos de GERAÇÃO
@@ -467,13 +466,10 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // marque com 〈decisão〉…〈/decisão〉 para o app lembrar e continuar daqui.
         "\nAo registrar um consenso ou decisão com o usuário, marque com " +
         "〈decisão〉…〈/decisão〉." +
-        // #21-fix: distinção texto-aplicável vs conversa — o app destaca o
-        // bloco com botão próprio ("Usar no card").
-        "\nQuando devolver texto pronto para aplicar no card (discurso, desenvolvimento, " +
-        "transição, introdução, conclusão), envolva APENAS esse trecho em " +
-        "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
-        "do bloco. Um card por resposta. Se a resposta for só conversa, não use " +
-        "o marcador." +
+        // Fase 2: a regra do card aparece UMA vez no system; a persona não a
+        // repete e os prompts de geração usam a mesma redação.
+        "\n$CARD_FIRST_RULE" +
+        "\nSe a resposta for só conversa, não use o marcador." +
         // Bloco de geração longa: a extensão vem do BLOCO ATUAL, não do total.
         "\nQuando houver um bloco em foco com duração, escreva apenas esse bloco " +
         "na extensão alvo — não o discurso inteiro. Se o usuário pedir o texto " +

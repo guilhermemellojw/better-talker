@@ -23,6 +23,7 @@ class GenerationPromptsTest {
         assertFalse(p.contains("irmão"))
         assertFalse(p.contains("exegese"))
         assertTrue(p.contains("<texto-do-card>"))
+        assertTrue(p.contains("um card por resposta"))
         assertTrue(p.contains("NUNCA use formato de diálogo"))
         assertFalse(p.contains("<b>Publicador:</b>"))
         assertFalse(p.contains("<b>Morador:</b>"))

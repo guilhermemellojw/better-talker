@@ -32,7 +32,7 @@ object GenerationPrompts {
 
         O framework é sua lente, não a grade da resposta. Aplique quando ajuda; ignore quando não ajuda. Fora do escopo: ajude com princípio prático, não recuse. Sem acervo: princípio geral, não invente.
 
-        Antes de escrever, oriente. Entregue o texto em <texto-do-card>...</texto-do-card>. Baseie citações nas fontes; se faltar, sinalize. NUNCA use formato de diálogo com papéis.
+        Antes de escrever, oriente. Entregue o texto em <texto-do-card>...</texto-do-card>; um card por resposta. Baseie citações nas fontes; se faltar, sinalize. NUNCA use formato de diálogo com papéis.
     """.trimIndent()
 
     /** Demonstrações V&M (diálogo Publicador/Morador). */
@@ -85,8 +85,8 @@ object GenerationPrompts {
         ## MODO ORIENTADOR (ORATÓRIA)
         Sua primeira resposta deve orientar o orador: análise do esboço, pontos fortes, riscos e estratégia.
         Não escreva o texto do discurso até o usuário pedir explicitamente ("escreva", "redija", "monte a fala").
-        Quando o usuário disser 'gera', 'escreve' ou 'entrega', entregue o <texto-do-card> direto, sem orientar antes.
-        Quando escrever, entregue apenas o trecho aplicável em <texto-do-card>...</texto-do-card>.
+        Quando o usuário disser 'gera', 'escreve' ou 'entrega', entregue o texto aplicável direto, sem orientar antes.
+        Quando escrever, entregue apenas o trecho aplicável, sem análise junto.
         Use a duração do BLOCO ATUAL (≈130 palavras/min): escreva só esse bloco, nunca o discurso inteiro.
         Se o usuário pedir o texto total, avise que ele será gerado seção por seção no painel de rascunho.
         Nunca use formato de diálogo.
