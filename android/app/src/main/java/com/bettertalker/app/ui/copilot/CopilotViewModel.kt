@@ -18,6 +18,7 @@ import com.bettertalker.app.data.copilot.canInsertCard
 import com.bettertalker.app.data.copilot.canReplaceCard
 import com.bettertalker.app.data.copilot.replaceCardTextBlock
 import com.bettertalker.app.data.copilot.supersededCardMessageIds
+import com.bettertalker.app.data.copilot.applyUserPick
 import com.bettertalker.app.data.copilot.cardTargetForNote
 import com.bettertalker.app.data.copilot.cardTargetForSection
 import com.bettertalker.app.data.copilot.capCardSummary
@@ -860,15 +861,21 @@ class CopilotViewModel(
         applyCard(messageId, CardInsertMode.REPLACE)
     }
 
-    /** FAILED (insert/undo): volta para AVAILABLE e tenta o append de novo. */
+    /** FAILED (insert/undo): repete a MESMA ação que falhou. */
     fun retryCard(messageId: String) = viewModelScope.launch {
         val nid = noteId ?: return@launch
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return@launch
         if (card.status != CardStatus.FAILED) return@launch
-        updateCardPayload(messageId, map, card.copy(status = CardStatus.AVAILABLE))
-        applyCard(messageId, CardInsertMode.APPEND)
+        when (cardRetry[messageId]) {
+            CardRetry.UNDO -> undoCardNow(messageId)
+            CardRetry.INSERT, null -> {
+                cardRetry[messageId] = CardRetry.INSERT
+                updateCardPayload(messageId, map, card.copy(status = CardStatus.AVAILABLE))
+                applyCard(messageId, CardInsertMode.APPEND)
+            }
+        }
     }
 
     fun dismissCard(messageId: String) = viewModelScope.launch {
@@ -880,6 +887,7 @@ class CopilotViewModel(
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
+        cardRetry.remove(messageId)
         updateCardPayload(messageId, map, card.copy(status = CardStatus.DISMISSED))
         logCard(messageId, "DISMISS", card, 0)
     }
@@ -1056,33 +1064,32 @@ class CopilotViewModel(
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return@launch
-        val now = System.currentTimeMillis()
-        updateCardPayload(
-            messageId,
-            map,
-            card.copy(
-                targetKind = CardTargetKind.SECTION,
-                targetId = section.id,
-                targetLabel = section.title,
-                baseHash = hashText(section.contentHtml),
-                capturedFrom = CardCapturedFrom.USER_PICK,
-                capturedAt = now,
-                status = CardStatus.AVAILABLE,
-            ),
+        val picked = applyUserPick(
+            card = card,
+            sectionId = section.id,
+            label = section.title,
+            contentHtml = section.contentHtml,
+            now = System.currentTimeMillis(),
         )
+        updateCardPayload(messageId, map, picked)
+        logCard(messageId, "USER_PICK", picked, 0)
     }
 
     fun undoCard(messageId: String) = viewModelScope.launch {
-        val nid = noteId ?: return@launch
-        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
+        undoCardNow(messageId)
+    }
+
+    private suspend fun undoCardNow(messageId: String) {
+        val nid = noteId ?: return
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
         val map = ChatCodec.unescMap(entity.payload)
-        val card = CardPayload.fromMap(map) ?: return@launch
+        val card = CardPayload.fromMap(map) ?: return
         val snapshot = cardUndo[messageId]
         if (snapshot == null) {
             _cardEvents.tryEmit(
                 CardUiEvent("Sessão encerrada: não é possível desfazer esta inserção."),
             )
-            return@launch
+            return
         }
         val now = System.currentTimeMillis()
         val currentHash = when (snapshot.targetKind) {
@@ -1096,22 +1103,23 @@ class CopilotViewModel(
             _cardEvents.tryEmit(
                 CardUiEvent("O texto mudou depois da inserção; não é possível desfazer."),
             )
-            return@launch
+            return
         }
         try {
             when (snapshot.targetKind) {
                 CardTargetKind.SECTION -> {
-                    val section = db.speechSectionDao().get(snapshot.targetId) ?: return@launch
+                    val section = db.speechSectionDao().get(snapshot.targetId) ?: return
                     db.speechSectionDao().upsert(
                         section.copy(contentHtml = snapshot.previousHtml, updatedAt = now),
                     )
                 }
                 CardTargetKind.NOTE -> {
-                    val note = db.noteDao().get(snapshot.targetId) ?: return@launch
+                    val note = db.noteDao().get(snapshot.targetId) ?: return
                     db.noteDao().upsert(note.copy(richHtml = snapshot.previousHtml, updatedAt = now))
                 }
             }
             cardUndo.remove(messageId)
+            cardRetry.remove(messageId)
             updateCardPayload(
                 messageId,
                 map,
@@ -1122,6 +1130,7 @@ class CopilotViewModel(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
+            cardRetry[messageId] = CardRetry.UNDO
             updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
             _cardEvents.tryEmit(CardUiEvent("Não foi possível desfazer agora. Tente novamente."))
         }
@@ -1207,6 +1216,7 @@ class CopilotViewModel(
                 previousHtml = previousHtml,
                 postHash = hashText(postHtml),
             )
+            cardRetry.remove(messageId)
             updateCardPayload(
                 messageId,
                 map,
@@ -1230,6 +1240,7 @@ class CopilotViewModel(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
+            cardRetry[messageId] = CardRetry.INSERT
             updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
             _cardEvents.tryEmit(CardUiEvent("Não foi possível inserir o texto. Tente novamente."))
         }
@@ -1349,6 +1360,9 @@ class CopilotViewModel(
         val postHash: String,
     )
     private val cardUndo = mutableMapOf<String, CardUndoSnapshot>()
+    /** Qual ação falhou (insert/undo) para o "Tentar novamente" repetir a certa. */
+    private enum class CardRetry { INSERT, UNDO }
+    private val cardRetry = mutableMapOf<String, CardRetry>()
     /** Card-first: avisos efêmeros (snackbar), sem criar mensagem no chat. */
     data class CardUiEvent(val message: String, val undoMessageId: String? = null)
     private val _cardEvents = MutableSharedFlow<CardUiEvent>(extraBufferCapacity = 4)

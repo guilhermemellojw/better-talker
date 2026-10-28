@@ -184,6 +184,77 @@ class CardFirstTest {
     }
 
     @Test
+    fun userPickCapturaHashNoMomentoEMostraAviso() {
+        val noTarget = payload().copy(
+            targetKind = null,
+            targetId = null,
+            targetLabel = null,
+            baseHash = null,
+            capturedFrom = null,
+            capturedAt = null,
+            status = CardStatus.NO_TARGET,
+        )
+        val picked = applyUserPick(
+            card = noTarget,
+            sectionId = "sec-9",
+            label = "Ponto 9",
+            contentHtml = "<p>conteúdo atual</p>",
+            now = 9_000L,
+        )
+        assertEquals(CardTargetKind.SECTION, picked.targetKind)
+        assertEquals("sec-9", picked.targetId)
+        assertEquals("Ponto 9", picked.targetLabel)
+        assertEquals(
+            com.bettertalker.app.data.edit.hashText("<p>conteúdo atual</p>"),
+            picked.baseHash,
+        )
+        assertEquals(CardCapturedFrom.USER_PICK, picked.capturedFrom)
+        assertEquals(9_000L, picked.capturedAt)
+        assertEquals(CardStatus.AVAILABLE, picked.status)
+    }
+
+    @Test
+    fun alvoRemovidoViraTargetMissingESoDispensa() {
+        val status = resolveCardStatus(
+            payload = payload(),
+            targetExists = false,
+            currentTargetHash = null,
+        )
+        assertEquals(CardStatus.TARGET_MISSING, status)
+        assertFalse(canInsertCard(status))
+        assertFalse(canReplaceCard(status, hashMatches = true))
+        assertFalse(canGateCard(status, isLastCopilotMessage = true, applied = false))
+        assertEquals("Destino não existe mais", cardStatusLabel(status))
+    }
+
+    @Test
+    fun failedNaoPermiteInsertNemGate() {
+        val status = CardStatus.FAILED
+        assertFalse(canInsertCard(status))
+        assertFalse(canReplaceCard(status, hashMatches = true))
+        assertFalse(canGateCard(status, isLastCopilotMessage = true, applied = false))
+        assertEquals("Falha na ação", cardStatusLabel(status))
+    }
+
+    @Test
+    fun semAlvoNaoAceitaGate() {
+        val status = CardStatus.NO_TARGET
+        assertFalse(canGateCard(status, isLastCopilotMessage = true, applied = false))
+        assertFalse(canInsertCard(status))
+    }
+
+    @Test
+    fun cardSemAlvoNaoEntraNoSuperseded() {
+        val noTarget = payload().copy(targetKind = null, targetId = null)
+        val withTarget = payload().copy(targetId = "sec-1")
+        val flags = supersededCardMessageIds(
+            listOf("no-target" to noTarget, "target" to withTarget),
+        )
+        assertTrue("no-target" !in flags)
+        assertTrue("target" !in flags)
+    }
+
+    @Test
     fun cardMaisNovoNoMesmoAlvoMarcaOsAnterioresComoSuperseded() {
         val a = payload().copy(targetId = "sec-1")
         val b = payload().copy(targetId = "sec-1")
@@ -203,6 +274,10 @@ class CardFirstTest {
         assertEquals(
             "Conversa antes.\n<texto-do-card>Novo texto</texto-do-card>\nConversa depois.",
             updated,
+        )
+        assertEquals(
+            "Conversa antes.\n<texto-do-card>Novo</texto-do-card>\nConversa depois.",
+            replaceCardTextBlock(raw, "Novo</texto-do-card>"),
         )
         assertNull(replaceCardTextBlock("sem card", "x"))
     }
