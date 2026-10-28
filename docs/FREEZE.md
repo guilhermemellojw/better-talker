@@ -38,6 +38,13 @@
 > retry sem duplicar (5.941, uma ocorrência). Relatório em
 > `docs/reports/validacao-2026-10-28-card-atomicity.md`.
 
+> **Card-first fase 3 — métricas:** branch `exp/card-metrics` (`46118a2`),
+> **sem merge**. Só telemetria `CardMetrics` (sem mudar UX/prompt):
+> emitted/applied/replaced/undone/stale/dismissed/gate/target/failed/
+> second_ignored/transform/proposal_text. **2.611 testes / 0 falhas**,
+> lint/CI verdes. Corpus de 20 turnos no A34 pendente; o aparelho caiu da
+> rede antes da coleta.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
