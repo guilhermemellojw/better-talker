@@ -31,6 +31,13 @@
 > Validado no A34 na rota de chat; a rota oratória legada ainda usa
 > ProposalUi (fase 4). `main`: **2.608 testes / 0 falhas**, lint/CI verdes.
 
+> **Atomicidade insert/undo:** mergeado na `main` em `29b8b93` (fast-forward),
+> **sem tag**. `applyCard`/`undoCardNow` usam `db.withTransaction` (alvo +
+> status do card no mesmo commit). No A34, um trigger SQLite abortando o
+> UPDATE para `APPLIED` provou rollback do alvo (5.922 chars, sem texto) e
+> retry sem duplicar (5.941, uma ocorrência). Relatório em
+> `docs/reports/validacao-2026-10-28-card-atomicity.md`.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
