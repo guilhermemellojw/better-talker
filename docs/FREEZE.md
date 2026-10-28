@@ -38,12 +38,13 @@
 > retry sem duplicar (5.941, uma ocorrência). Relatório em
 > `docs/reports/validacao-2026-10-28-card-atomicity.md`.
 
-> **Card-first fase 3 — métricas:** branch `exp/card-metrics` (`3bdbe3b`),
-> **sem merge**. Só telemetria `CardMetrics` (sem mudar UX/prompt):
-> emitted/applied/replaced/undone/stale/dismissed/gate/target/failed/
-> second_ignored/transform/proposal_text. **2.611 testes / 0 falhas**,
-> lint/CI verdes. Corpus de 20 turnos no A34 pendente; o aparelho caiu da
-> rede antes da coleta.
+> **Card-first fase 3 — métricas:** mergeado na `main` em `ed51465`
+> (merge commit), **sem tag**. Só telemetria `CardMetrics` (sem mudar
+> UX/prompt). Corpus A34: 20 turnos, **6 cards** (6/11 turnos com texto
+> aplicável), 5 SUPERSEDED, 2 aplicados, 1 undo, 1 dismissed, 1 gate
+> ACCEPT; 3 pedidos ainda caíram na ProposalUi oratória e 2 ficaram na
+> conversa. Relatório em `docs/reports/card-first-fase3-corpus.md`.
+> `main`: **2.611 testes / 0 falhas**, lint/CI verdes.
 
 ## Congelados / removidos
 
