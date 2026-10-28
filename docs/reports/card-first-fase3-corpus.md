@@ -1,9 +1,10 @@
-# Card-first fase 3 — métricas e corpus (2026-10-28)
+# Card-first fase 3 — métricas e corpus A34 (2026-10-28)
 
 - Branch: `exp/card-metrics` (base `dcb8f3f`, inclui atomicidade).
-- Commit: `46118a2`.
+- Commit: `46118a2` + relatório.
 - Suíte: **2.611 testes / 0 falhas**. `lintRelease`/CI: verdes.
 - Escopo: **só telemetria**; nenhuma mudança de UX, prompt ou fluxo.
+- Corpus: 20 turnos reais no A34, tópico `FOMOS CRIADOS...`, Android 16/API 36.
 
 ## Eventos implementados
 
@@ -27,48 +28,80 @@
 As linhas são puras/testáveis (`CardMetricsTest`); nenhum texto de
 usuário/card entra no log.
 
-## Corpus planejado (A34)
+## Corpus — 20 turnos
 
-20 turnos no tópico `FOMOS CRIADOS...`, cobrindo:
+| # | Pedido | Rota | Card? |
+|---|---|---|---|
+| 1 | “me de uma sugestao para este ponto” | chat | não (sugestão na conversa) |
+| 2 | “reescreva esse texto de forma mais curta” | oratória | não (“ainda não gerei”) |
+| 3 | “deixe mais natural” | oratória | não (“ainda não gerei”) |
+| 4 | “outra versao” | chat | **sim** |
+| 5 | “e o ponto 2?” | chat | não |
+| 6 | “quais referencias apoiam este ponto?” | resposta vazia | não |
+| 7 | “gere um texto para este ponto” | chat | **sim** |
+| 8 | “me de uma introducao curta” | chat | **sim** |
+| 9 | “explique o que e vida eterna” | chat | não |
+| 10 | “o que voce acha deste esboco?” | chat | não |
+| 11 | “me de uma transicao para este ponto” | oratória/ProposalUi | não |
+| 12 | “me de uma conclusao curta” | chat | **sim** |
+| 13 | “faca uma versao mais direta” | chat | **sim** |
+| 14 | “resuma este ponto em uma frase” | oratória/ProposalUi | não |
+| 15 | “quais sao os pontos principais?” | chat | não |
+| 16 | “como aplicar isso na pratica?” | chat | não |
+| 17 | “me de uma ilustracao para este ponto” | chat | não |
+| 18 | “escreva um paragrafo de abertura” | oratória/ProposalUi | não |
+| 19 | “quero uma versao mais calorosa” | chat | **sim** |
+| 20 | “o que significa eternidade no coracao?” | chat | não |
 
-1. sugestão para o ponto;
-2. reescrever mais curto;
-3. mais natural;
-4. outra versão;
-5. “e o ponto 2?”;
-6. pergunta de referências;
-7. gerar texto para o ponto;
-8. introdução curta;
-9. explicação (não deve virar card);
-10. opinião sobre o esboço (não deve virar card);
-11. transição;
-12. conclusão;
-13. versão mais direta;
-14. resumo em uma frase;
-15. pontos principais;
-16. aplicação prática;
-17. ilustração;
-18. parágrafo de abertura;
-19. versão mais calorosa;
-20. pergunta conceitual (“eternidade no coração?”).
+### Números do corpus
 
-O runner está em `/tmp/opencode/run_card_corpus.sh` e o banco limpo em
-`/tmp/opencode/metrics-corpus.db`. Ele instala o APK, abre o tópico,
-envia os 20 turnos com ADBKeyboard e coleta `CardMetrics`.
+- Cards emitidos: **6/20** (30%).
+- Turnos com texto aplicável: **11**; cards **6/11** (55%).
+  - 3/11 foram para a rota oratória/ProposalUi;
+  - 2/11 ficaram na conversa (sugestão/ilustração).
+- Cards `SUPERSEDED`: **5** (cada novo card no mesmo alvo marcou os
+  anteriores).
+- Cards aplicados no corpus: **0** até a ação manual; depois:
+  - 1 append manual + undo;
+  - 1 gate ACCEPT + append (teste pós-corpus);
+  - total **2 aplicados**, 1 undo, 1 dismissed.
+- Gate: **1 ACCEPT** válido, **0 falso positivo**; REJECT/IGNORED não
+  exercitados.
+- Alvo errado: **0** — todos os cards (7, incluindo o pós-corpus) miravam
+  `SECTION:c987ef29...`.
+- Stale: **6 detecções** após o primeiro append; o append stale com aviso
+  não foi reexercitado nesta rodada.
+- Propostas de texto: **3 geradas**, **0 usadas**.
+- Chat exploratório: 5 pedidos de explicação/opinião/lista não viraram
+  card — comportamento correto.
+- Resposta vazia: o pedido de referências voltou sem texto (`len=0`);
+  “reescreva”/“deixe mais natural” responderam “ainda não gerei nenhuma
+  parte”. São achados de qualidade, não do card.
 
-## Bloqueio atual
+## Critérios de saída
 
-O A34 caiu da rede antes da coleta: `192.168.3.5` sem rota, sem mDNS e
-sem dispositivo ADB. O tablet (`192.168.3.15`) está ocupado e é gate da
-tag, não da fase 3. **Nenhum número de corpus foi inventado**; a branch
-fica sem merge até rodar os 20 turnos.
+| Critério | Resultado |
+|---|---|
+| Card cobre a maioria dos turnos com texto aplicável | **Parcial**: 6/11 = 55% (maioria mínima); 6/20 no total |
+| Cards aplicados > propostas no chat | **Depende da leitura**: 2 aplicados vs 3 propostas geradas / 0 usadas |
+| Zero insert no alvo errado | **Sim** (0/7) |
+| Gate sem falso positivo | **1/1**, sem falso positivo; amostra pequena |
+| Sem aumento de citações sem apoio | **Não medido** neste corpus |
+| Oratória inalterada | **Sim**: 3 turnos na rota oratória/ProposalUi |
+| Suíte + lintRelease verdes | **Sim**: 2.611/0 e lint/CI verdes |
 
-## Critérios de saída (a medir)
+## Leitura
 
-- cobertura de card nos turnos com texto aplicável;
-- aplicados > propostas no chat;
-- zero insert no alvo errado;
-- gate sem falso positivo;
-- sem aumento de citação sem apoio;
-- oratória inalterada;
-- suíte + lintRelease verdes.
+- O card-first já cobre o caminho de chat quando o modelo decide escrever,
+  mas ainda perde para a rota oratória/ProposalUi em “transição”,
+  “resumo” e “parágrafo de abertura”.
+- “Sugestão” e “ilustração” ficaram na conversa; são os dois ajustes de
+  prompt/roteamento mais óbvios antes da fase 4.
+- Aplicar um card torna os cards antigos do mesmo alvo `STALE` (hash
+  mudou) antes de `SUPERSEDED`; o comportamento é tecnicamente correto,
+  mas vale decidir se a UI deve preferir “Sugestão anterior” nesse caso.
+- A resposta vazia de referências e os dois “ainda não gerei” precisam de
+  investigação separada; não são causados pela telemetria.
+- Recomendação: **fase 4** para limitar/aposentar a ProposalUi nos pedidos
+  de texto e ajustar a decisão de card para “sugestão/ilustração”, com
+  nova medição usando `CardMetrics`.
