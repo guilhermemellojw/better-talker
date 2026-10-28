@@ -63,6 +63,16 @@
 > aplicadas, 0 propostas de texto, 0 alvo errado. C2 refs + M1 stop/retry
 > confirmados no tablet. **2.617 testes / 0 falhas**, lint/CI verdes.
 
+> **Tablet (gate):** fechado para C2 + M1 + card-first 1–4. No tablet:
+> refs C2, stop/retry M1, fase 4 e transição com S-34; card-first 1–3 já
+> estavam validados no A34. Só a **keystore em outra máquina** separa a
+> `v2.9.0/28`.
+>
+> **Métricas:** `card_coverage = cards_emitted/text_requests` (7/8 = 87,5%);
+> `card_adoption = cards_applied/cards_emitted` (2/7 = 29%, majoritariamente
+> iteração/superseded, não rejeição); `card_share_of_text_outputs` é
+> `cards/(cards+proposals)` = 100% e **não** é cobertura de pedidos.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
