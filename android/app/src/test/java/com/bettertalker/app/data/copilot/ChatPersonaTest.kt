@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.ContextPack
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,14 +19,33 @@ class ChatPersonaTest {
         blockText = "x",
     ).system
 
+    private fun occurrences(haystack: String, needle: String): Int {
+        var count = 0
+        var from = 0
+        while (true) {
+            val at = haystack.indexOf(needle, from)
+            if (at < 0) return count
+            count++
+            from = at + needle.length
+        }
+    }
+
     @Test
     fun systemDoChatContemAPersona() {
         val s = system()
         assertTrue(s.startsWith(CHAT_PERSONA_FREE))
         assertTrue(s.contains("Testemunhas de Jeová"))
         assertTrue(s.contains("Evite formalidade excessiva"))
-        assertTrue(s.contains("Um card por resposta"))
-        assertFalse(CHAT_PERSONA.contains("Um card por resposta"))
+        assertTrue(s.contains(CARD_FIRST_RULE))
+        assertEquals(1, occurrences(s, CARD_FIRST_RULE))
+        assertFalse(CHAT_PERSONA_FREE.contains(CARD_FIRST_RULE))
+        assertFalse(CHAT_PERSONA.contains(CARD_FIRST_RULE))
+    }
+
+    @Test
+    fun regraDoCardViveSoNaCaudaDoChat() {
+        assertTrue(chatTailInstructions().contains(CARD_FIRST_RULE))
+        assertEquals(1, occurrences(chatTailInstructions(), CARD_FIRST_RULE))
     }
 
     @Test
