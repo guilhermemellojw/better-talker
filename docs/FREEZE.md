@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-27 · **Build de referência:** v2.8.2 (versionCode 27) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-10-28 · **Build de referência:** v2.8.2 (versionCode 27) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -19,18 +19,17 @@
 > no A34; **2.601 testes / 0 falhas** e `lintRelease` verde. A validação no
 > tablet segue pendente; a v2.9.0 só sai depois de tablet + keystore.
 
-> **Card-first — estados A34-only:** branch `fix/card-first-estados`
-> (`4b283fe`), **sem merge**. Fecha `NO_TARGET`/`USER_PICK`,
-> `TARGET_MISSING`, `FAILED` (retry da ação certa), `CANCELLED` read-only e
-> SUPERSEDED sem alvo; **2.607 testes / 0 falhas**, lint/CI verdes. O A34
-> ficou offline antes do smoke; merge só depois de exercitar os cinco
-> fluxos no aparelho.
+> **Card-first — estados A34-only:** mergeado na `main` em `cda89e6`
+> (merge commit), **sem tag**. `NO_TARGET`/`USER_PICK`, `TARGET_MISSING`,
+> `FAILED` (retry da ação certa), `CANCELLED` read-only e SUPERSEDED sem
+> alvo validados no A34; relatório em
+> `docs/reports/validacao-2026-10-28-card-first-estados.md`.
 
-> **Card-first fase 2:** branch `feat/card-first-fase2-prompt` (`97f5cc4`),
-> **sem merge**. Regra única em `CHAT_TAIL_INSTRUCTIONS`, “um card por
-> resposta”, segundo bloco vira texto com aviso e telemetria `EMIT`;
-> **2.602 testes / 0 falhas**, lint/CI verdes. Aguarda smoke A34 para
-> confirmar a emissão de um card por resposta.
+> **Card-first fase 2:** mergeado na `main` em `1b989e3` (merge commit),
+> **sem tag**. Regra única em `CHAT_TAIL_INSTRUCTIONS`, “um card por
+> resposta”, segundo bloco vira texto com aviso e telemetria `EMIT`.
+> Validado no A34 na rota de chat; a rota oratória legada ainda usa
+> ProposalUi (fase 4). `main`: **2.608 testes / 0 falhas**, lint/CI verdes.
 
 ## Congelados / removidos
 
