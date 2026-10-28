@@ -332,4 +332,50 @@ class CardFirstTest {
         assertEquals("TRANSFORM", map["cardOrigin"])
         assertFalse(map.containsKey("cardSource"))
     }
+
+    @Test
+    fun tresCardsMesmoAlvoDoisSupersededUmAvailable() {
+        val cards = listOf(payload(), payload(), payload())
+        val ids = supersededCardMessageIds(
+            listOf("a" to cards[0], "b" to cards[1], "c" to cards[2]),
+        )
+        assertEquals(setOf("a", "b"), ids)
+        val statuses = cards.mapIndexed { index, card ->
+            resolveCardStatus(
+                card,
+                targetExists = true,
+                currentTargetHash = card.baseHash,
+                superseded = when (index) {
+                    0, 1 -> true
+                    else -> false
+                },
+            )
+        }
+        assertEquals(
+            listOf(CardStatus.SUPERSEDED, CardStatus.SUPERSEDED, CardStatus.AVAILABLE),
+            statuses,
+        )
+    }
+
+    @Test
+    fun cardsEmAlvosDiferentesNaoSeSupersedem() {
+        val a = payload().copy(targetId = "sec-1")
+        val b = payload().copy(targetId = "sec-2")
+        val c = payload().copy(targetId = "sec-3")
+        assertTrue(supersededCardMessageIds(listOf("a" to a, "b" to b, "c" to c)).isEmpty())
+    }
+
+    @Test
+    fun cardAppliedNaoViraSuperseded() {
+        val applied = payload(CardStatus.APPLIED)
+        assertEquals(
+            CardStatus.APPLIED,
+            resolveCardStatus(
+                applied,
+                targetExists = true,
+                currentTargetHash = applied.baseHash,
+                superseded = true,
+            ),
+        )
+    }
 }
