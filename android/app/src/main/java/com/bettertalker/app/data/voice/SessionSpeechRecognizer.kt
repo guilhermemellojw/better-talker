@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Estado do STT de sessão do Ensaio. */
 sealed interface SessionSpeechState {
     data object Idle : SessionSpeechState
+
+    /** Serviço acionado, mas o microfone ainda não está pronto. */
+    data object Preparing : SessionSpeechState
     data object Listening : SessionSpeechState
     data object Paused : SessionSpeechState
     data object Processing : SessionSpeechState
@@ -107,7 +110,9 @@ class SessionSpeechRecognizer(private val context: Context) {
         stopRequested = false
         retryCount = 0
         _speechStarted.value = false
-        _state.value = SessionSpeechState.Listening
+        // Preparing até onReadyForSpeech: o início da fala não deve ser
+        // consumido enquanto o serviço ainda está abrindo o microfone.
+        _state.value = SessionSpeechState.Preparing
         // Dá tempo ao serviço anterior de soltar o microfone.
         main.postDelayed({ if (active && !paused && !stopRequested) startListening() }, START_DELAY_MS)
     }
@@ -134,7 +139,7 @@ class SessionSpeechRecognizer(private val context: Context) {
         active = true
         stopRequested = false
         retryCount = 0
-        _state.value = SessionSpeechState.Listening
+        _state.value = SessionSpeechState.Preparing
         main.postDelayed({ if (active && !paused && !stopRequested) startListening() }, START_DELAY_MS)
     }
 

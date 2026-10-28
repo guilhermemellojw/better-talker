@@ -59,6 +59,22 @@ class SpeechSessionTimerTest {
     }
 
     @Test
+    fun falaDurantePreparacaoNaoContaAntesDoMicrofonePronto() {
+        var now = 0L
+        val timer = SpeechSessionTimer { now }
+        timer.start()
+        now = 2_000
+        timer.markSpeechStarted()
+        now = 5_000
+        assertEquals(0, timer.speechSeconds()) // ainda no countdown
+
+        timer.beginListeningAfterPrepare()
+        now = 15_000
+        assertEquals(10, timer.speechSeconds())
+        assertEquals(15, timer.sessionSeconds())
+    }
+
+    @Test
     fun pausarDuasVezesNaoSomaTempoDuplicado() {
         var now = 0L
         val timer = SpeechSessionTimer { now }

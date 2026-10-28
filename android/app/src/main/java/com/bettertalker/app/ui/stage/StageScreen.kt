@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +49,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -131,8 +134,12 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val hasTrainingText by vm.hasTrainingText.collectAsState()
     val analysisAvailable by vm.analysisAvailable.collectAsState()
     val scopeLabel by vm.scopeLabel.collectAsState()
+    val readingGate by vm.readingGate.collectAsState()
+    val prepareCountdown by vm.prepareCountdown.collectAsState()
+    val micWarning by vm.micWarning.collectAsState()
     val scroll = rememberScrollState()
     var micDenied by remember { mutableStateOf(false) }
+    var pendingInitialAnalysis by remember { mutableStateOf(false) }
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -141,14 +148,19 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             vm.startAnalysis()
         } else {
             micDenied = true
+            if (pendingInitialAnalysis) vm.onMicDenied()
         }
+        pendingInitialAnalysis = false
     }
-    val requestAnalysis: () -> Unit = {
+    fun requestAnalysis() {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
             vm.startAnalysis()
         } else {
+            // Se o countdown está ativo, negar a permissão precisa liberar a
+            // leitura/timer (onMicDenied); no toque manual não há gate.
+            pendingInitialAnalysis = vm.readingGate.value
             micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -184,7 +196,9 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 vm.startTraining(chosen)
                 // "Com análise" abre o microfone junto do Começar treino
                 // (a permissão é pedida aqui; negada, o timer continua).
-                if (vm.prep.value.mode == TrainMode.ANALYSIS) requestAnalysis()
+                if (vm.prep.value.mode == TrainMode.ANALYSIS) {
+                    requestAnalysis()
+                }
             },
             onBack = onBack,
         )
@@ -280,7 +294,7 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 readingMode = prep.mode == TrainMode.READING,
                 analysisAvailable = analysisAvailable,
                 analysisActive = isAnalysisActive(analysisState),
-                onStartAnalysis = requestAnalysis,
+                onStartAnalysis = { requestAnalysis() },
                 onExit = onBack,
             )
         }
@@ -343,6 +357,74 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                     .fillMaxWidth(progress)
                     .background(StageAccent)
             )
+        }
+
+        // Countdown inicial: cobre o texto e só libera leitura/timer quando o
+        // microfone está pronto (ou no fallback com aviso).
+        if (readingGate) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(StageBg.copy(alpha = 0.97f))
+                    .pointerInput(Unit) { detectTapGestures { } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                ) {
+                    Text(
+                        "Prepare-se",
+                        color = StageFg,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    if (prepareCountdown != null) {
+                        Text(
+                            "$prepareCountdown",
+                            color = StageAccent,
+                            fontSize = 84.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "O treino começa em instantes.",
+                            color = StageDim,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.width(34.dp).height(34.dp),
+                            strokeWidth = 3.dp,
+                            color = StageAccent,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Abrindo o microfone…",
+                            color = StageDim,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    if (!micWarning.isNullOrBlank()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            micWarning.orEmpty(),
+                            color = StageAmber,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "A leitura começa depois da contagem.",
+                        color = StageDim.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
         }
     }
 
@@ -487,6 +569,27 @@ private fun StageAnalysisBanner(
 ) {
     when (state) {
         AnalysisState.Idle, is AnalysisState.Result -> Unit
+        AnalysisState.Preparing -> AnalysisSurface(modifier) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.width(18.dp).height(18.dp),
+                    strokeWidth = 2.dp,
+                    color = StageAccent,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Preparando microfone…", color = StageFg, fontWeight = FontWeight.Bold)
+                    Text(
+                        "A leitura começa em instantes.",
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
         AnalysisState.Listening -> AnalysisSurface(modifier) {
             Row(
                 Modifier.padding(horizontal = 14.dp, vertical = 6.dp),

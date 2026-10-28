@@ -1,9 +1,11 @@
 # Treino MVP — implementação e validação (2026-10-28)
 
-**Status:** MVP fechado com ressalva de captura do STT. Fluxo completo validado
-no tablet e no A34; duas leituras humanas ficaram em ~40 s/67–70 palavras e o
-serviço perdeu o início da fala, mas o resultado foi honesto (parcial,
-cobertura e termos faltantes) e não houve crash nem áudio salvo.
+**Status:** MVP funcional fechado; countdown de microfone implementado. Fluxo
+completo validado no tablet e no A34; duas leituras humanas ficaram em
+~40 s/67–70 palavras e o serviço perdeu o início da fala, mas o resultado foi
+honesto (parcial, cobertura e termos faltantes) e não houve crash nem áudio
+salvo. O countdown ainda precisa de uma leitura humana para confirmar a
+captura do início.
 
 - Branch: `feat/v2.10-treino-mvp` (base `084eba3`, `main` da `v2.9.0`).
 - Spec: `docs/specs/treino-mvp.md`.
@@ -128,6 +130,19 @@ cobertura e termos faltantes) e não houve crash nem áudio salvo.
   atingido por perda de fala do STT; repetir não mudou o padrão.
 - Nota temporária “Amostra de fala — 1 min” removida do tablet; #192 preservada.
 
+## Countdown do microfone (correção pós-validação)
+
+- O STT agora expõe `Preparing` até `onReadyForSpeech`; o app não entra em
+  `Listening` antes disso.
+- No modo “Com análise”, o texto fica coberto por **“Prepare-se”** com
+  contagem **3 · 2 · 1**; só no fim o timer começa e a leitura é liberada.
+- Se o serviço não avisar em **2,5 s**, o app libera mesmo assim e mostra
+  **“O início pode não ser capturado.”** (também vai para o aviso do resultado).
+- Permissão negada: libera leitura/timer e mantém o banner de microfone.
+- Toque manual no microfone depois do início não bloqueia a leitura: mostra
+  “Preparando microfone…” e entra em escuta quando o serviço responder.
+- Testes: **2.628 / 0 falhas**; `lintRelease` verde.
+
 ## Pendências e decisões
 
 - **A34:** fluxo de UI validado; resta a mesma amostra de fala humana do
@@ -135,10 +150,12 @@ cobertura e termos faltantes) e não houve crash nem áudio salvo.
 - **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
   histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
   (escopo/modo/timer) por nota.
-- **Amostra com fala humana:** fechada com ressalva. Duas leituras deram
-  ~40 s/67–70 palavras e o STT perdeu o início nas duas; o comportamento é
-  honesto (“Ensaio parcial”, cobertura, termos faltantes), mas não atingiu
-  ~1 min/100–160 palavras. Registrado como limitação do STT do sistema.
-  Nota temporária removida; #192 preservada.
+- **Amostra com fala humana:** duas leituras deram ~40 s/67–70 palavras e o
+  STT perdeu o início nas duas. O countdown foi implementado para atacar
+  exatamente esse padrão; falta repetir a leitura no build novo para confirmar
+  que “Boa · noite · irmãos…” deixa de faltar. Até lá, a limitação do STT
+  permanece registrada. Nota temporária removida; #192 preservada.
+- **Validação do countdown no dispositivo:** pendente; tablet/A34 ficaram
+  offline no fim da sessão. O build passou por compile, suíte e lint.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.

@@ -28,6 +28,7 @@ class AnalysisStateTest {
     @Test
     fun rotulosDosEstados() {
         assertNull(analysisStateLabel(AnalysisState.Idle))
+        assertEquals("Preparando microfone…", analysisStateLabel(AnalysisState.Preparing))
         assertEquals("Ouvindo…", analysisStateLabel(AnalysisState.Listening))
         assertEquals("Pausado", analysisStateLabel(AnalysisState.Paused))
         assertEquals("Analisando…", analysisStateLabel(AnalysisState.Processing))
@@ -42,7 +43,8 @@ class AnalysisStateTest {
     }
 
     @Test
-    fun analiseAtivaIncluiEscutaPausaInterrupcaoEProcessamento() {
+    fun analiseAtivaIncluiPreparacaoEscutaPausaInterrupcaoEProcessamento() {
+        assertTrue(isAnalysisActive(AnalysisState.Preparing))
         assertTrue(isAnalysisActive(AnalysisState.Listening))
         assertTrue(isAnalysisActive(AnalysisState.Paused))
         assertTrue(isAnalysisActive(AnalysisState.Interrupted("sem serviço")))

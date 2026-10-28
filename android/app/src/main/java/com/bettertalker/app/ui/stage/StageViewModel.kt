@@ -96,6 +96,20 @@ class StageViewModel(
     private val _analysisElapsed = MutableStateFlow(0L)
     val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
 
+    // Countdown inicial: só libera a leitura/timer quando o microfone está
+    // pronto (onReadyForSpeech) ou depois do timeout de segurança.
+    private val _readingGate = MutableStateFlow(false)
+    val readingGate: StateFlow<Boolean> = _readingGate.asStateFlow()
+
+    private val _prepareCountdown = MutableStateFlow<Int?>(null)
+    val prepareCountdown: StateFlow<Int?> = _prepareCountdown.asStateFlow()
+
+    private val _micWarning = MutableStateFlow<String?>(null)
+    val micWarning: StateFlow<String?> = _micWarning.asStateFlow()
+
+    private var prepareFallbackJob: Job? = null
+    private var prepareCountdownJob: Job? = null
+
     /** STT do sistema disponível (sem ele, "Com análise" fica desabilitado). */
     private val hasSpeechRecognizer = android.speech.SpeechRecognizer
         .isRecognitionAvailable(appCtx)
@@ -174,10 +188,13 @@ class StageViewModel(
     init {
         // T3-A: falha persistente do STT → Interrupted (sem resultado
         // automático); a transcrição fica preservada para Retomar/Parar.
+        // Listening só chega no onReadyForSpeech: é o sinal para o countdown.
         viewModelScope.launch {
             sessionStt.state.collect { st ->
-                if (st is SessionSpeechState.Interrupted) {
-                    onSessionInterrupted(st.message)
+                when (st) {
+                    is SessionSpeechState.Interrupted -> onSessionInterrupted(st.message)
+                    SessionSpeechState.Listening -> onSpeechReady()
+                    else -> Unit
                 }
             }
         }
@@ -299,8 +316,14 @@ class StageViewModel(
         speechText = stageSpeechText(_turns.value, _content.value)
         sectionTitles = scopedSectionTitles(safe.scope)
         _duoRole.value = null
+        // Com análise, o texto fica coberto pelo countdown e o timer só
+        // começa quando o microfone está pronto (releaseReading).
+        val gateReading = safe.mode == TrainMode.ANALYSIS
+        _readingGate.value = gateReading
+        _prepareCountdown.value = null
+        _micWarning.value = null
         _trainingStarted.value = true
-        if (safe.timerEnabled) {
+        if (safe.timerEnabled && !gateReading) {
             startTimer()
         } else {
             _timerRunning.value = false
@@ -396,21 +419,33 @@ class StageViewModel(
 
     // ---------- T3-A — Ensaio com análise (STT local) ----------
 
-    /** Inicia a escuta e o relógio da análise; o timer do Stage continua. */
+    /**
+     * Inicia a escuta. No começo do treino, fica em [AnalysisState.Preparing]
+     * até o onReadyForSpeech; a leitura só é liberada depois do countdown.
+     * Num toque manual posterior, a leitura já está liberada e só o banner
+     * "Preparando microfone…" aparece.
+     */
     fun startAnalysis() {
         // P0 voz: microfone e TTS são mutuamente exclusivos.
         tts.stop()
         val current = _analysisState.value
-        if (current is AnalysisState.Listening ||
+        if (current is AnalysisState.Preparing ||
+            current is AnalysisState.Listening ||
             current is AnalysisState.Paused ||
             current is AnalysisState.Processing
         ) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _micWarning.value = null
         sessionStt.cancelSession()
         sessionTimer.start()
         _analysisElapsed.value = 0
-        _analysisState.value = AnalysisState.Listening
-        startAnalysisTicker()
+        _analysisState.value = AnalysisState.Preparing
         sessionStt.startSession()
+        startPrepareFallback()
     }
 
     /** Pausa a escuta sem perder a transcrição; o timer do Stage continua. */
@@ -426,21 +461,113 @@ class StageViewModel(
     fun resumeAnalysis() {
         val current = _analysisState.value
         if (current !is AnalysisState.Paused && current !is AnalysisState.Interrupted) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        _micWarning.value = null
         sessionTimer.resume()
-        _analysisState.value = AnalysisState.Listening
+        _analysisState.value = AnalysisState.Preparing
         sessionStt.resumeSession()
+        startPrepareFallback()
+    }
+
+    /**
+     * O usuário negou o microfone no "Começar treino": libera a leitura e o
+     * timer, mantém a sessão em modo leitura e deixa o banner de permissão.
+     */
+    fun onMicDenied() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _micWarning.value = "Microfone não permitido. O início não será analisado."
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (wasGate && _prep.value.timerEnabled) startTimer()
+    }
+
+    /** onReadyForSpeech: começa o countdown (ou libera a análise manual). */
+    private fun onSpeechReady() {
+        if (_analysisState.value !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        if (_readingGate.value) {
+            beginPrepareCountdown(warning = null)
+        } else {
+            _analysisState.value = AnalysisState.Listening
+            startAnalysisTicker()
+        }
+    }
+
+    /** Se o serviço não avisar que está pronto, libera com aviso. */
+    private fun startPrepareFallback() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = viewModelScope.launch {
+            delay(MIC_READY_TIMEOUT_MS)
+            if (_analysisState.value !is AnalysisState.Preparing) return@launch
+            if (_readingGate.value) {
+                beginPrepareCountdown("O início pode não ser capturado.")
+            } else {
+                _micWarning.value = "O início da análise pode não ter sido capturado."
+                releaseReadingNow()
+            }
+        }
+    }
+
+    /** "Prepare-se… 3, 2, 1": só depois libera leitura e timer. */
+    private fun beginPrepareCountdown(warning: String?) {
+        if (_analysisState.value !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        _micWarning.value = warning
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = viewModelScope.launch {
+            for (second in 3 downTo 1) {
+                _prepareCountdown.value = second
+                delay(1_000)
+            }
+            _prepareCountdown.value = null
+            prepareCountdownJob = null
+            releaseReadingNow()
+        }
+    }
+
+    /** Libera a leitura/timer quando o microfone está pronto ou no fallback. */
+    private fun releaseReadingNow() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (_analysisState.value is AnalysisState.Preparing) {
+            sessionTimer.beginListeningAfterPrepare()
+            _analysisState.value = AnalysisState.Listening
+            startAnalysisTicker()
+        }
+        if (wasGate && _prep.value.timerEnabled) startTimer()
     }
 
     /** Parar explícito: espera o último segmento e calcula as métricas. */
     fun stopAnalysis() {
         val current = _analysisState.value
-        if (current !is AnalysisState.Listening &&
+        if (current !is AnalysisState.Preparing &&
+            current !is AnalysisState.Listening &&
             current !is AnalysisState.Paused &&
             current !is AnalysisState.Interrupted &&
             current !is AnalysisState.Processing
         ) return
         val warning = (current as? AnalysisState.Interrupted)?.message
-        if (current is AnalysisState.Listening) sessionTimer.pause()
+        if (current is AnalysisState.Preparing || current is AnalysisState.Listening) {
+            sessionTimer.pause()
+        }
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _readingGate.value = false
         _analysisState.value = AnalysisState.Processing
         sessionStt.stopSession()
         viewModelScope.launch {
@@ -454,6 +581,13 @@ class StageViewModel(
 
     /** Descarta o resultado e a transcrição (privacidade). */
     fun dismissAnalysis() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _readingGate.value = false
+        _micWarning.value = null
         sessionStt.cancelSession()
         analysisTimerJob?.cancel()
         analysisTimerJob = null
@@ -489,7 +623,20 @@ class StageViewModel(
     }
 
     private fun onSessionInterrupted(message: String) {
-        if (_analysisState.value !is AnalysisState.Listening) return
+        val current = _analysisState.value
+        if (current !is AnalysisState.Listening && current !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (wasGate) {
+            _micWarning.value = "O início pode não ser capturado."
+            sessionTimer.beginListeningAfterPrepare()
+            if (_prep.value.timerEnabled) startTimer()
+        }
         sessionTimer.pause()
         _analysisElapsed.value = sessionTimer.speechSeconds()
         _analysisState.value = AnalysisState.Interrupted(message)
@@ -512,8 +659,14 @@ class StageViewModel(
             targetMinutes = _totalMinutes.value,
             sectionTitles = sectionTitles,
         )
+        val startWarning = _micWarning.value?.takeIf { it.isNotBlank() }
+        val combinedWarning = listOfNotNull(warning, startWarning)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" ")
+            .ifBlank { null }
         _analysisElapsed.value = speechSec.toLong()
-        _analysisState.value = AnalysisState.Result(metrics, feedback, warning)
+        _analysisState.value = AnalysisState.Result(metrics, feedback, combinedWarning)
         // A transcrição não sobrevive ao cálculo: só métricas/feedback ficam.
         sessionStt.clearTranscript()
     }
@@ -528,6 +681,8 @@ class StageViewModel(
 
     companion object {
         private const val ANALYSIS_STOP_TIMEOUT_MS = 4_500L
+        /** Sem onReadyForSpeech nesse prazo, libera a leitura com aviso. */
+        private const val MIC_READY_TIMEOUT_MS = 2_500L
     }
 
     class Factory(
