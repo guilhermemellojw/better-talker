@@ -2176,6 +2176,20 @@ fun ChatMessageText(
                     block is MdBlock.Bullet || block is MdBlock.Check || block is MdBlock.Para
                 val mark = if (isTextBlock) markPending else null
                 if (isTextBlock) markPending = null
+                // Card-first: um card por resposta. Se o modelo devolver um
+                // segundo bloco, ele vira texto normal com aviso — nunca uma
+                // segunda ação de insert.
+                if (block is MdBlock.TextForCard && cardActions != null && actionsPlaced) {
+                    Text(
+                        "Um card por resposta — este trecho extra não foi incluído.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    cardInnerBlocks(block.text).forEach { inner ->
+                        RenderBlock(inner, mark = null, onUseInCard = null)
+                    }
+                    return@forEach
+                }
                 // #20-fix-a: render extraído (reusado pelo preview do card).
                 RenderBlock(block, mark, onUseInCard, collapseCard)
                 // Card-first: o card é o objeto principal; as ações ficam
