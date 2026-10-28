@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
@@ -880,10 +881,10 @@ class CopilotViewModel(
     }
 
     fun dismissCard(messageId: String) = viewModelScope.launch {
-        dismissCardNow(messageId)
+        dismissCardNow(messageId, reason = "USER")
     }
 
-    private suspend fun dismissCardNow(messageId: String) {
+    private suspend fun dismissCardNow(messageId: String, reason: String = "USER") {
         val nid = noteId ?: return
         val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
         val map = ChatCodec.unescMap(entity.payload)
@@ -891,6 +892,7 @@ class CopilotViewModel(
         cardRetry.remove(messageId)
         updateCardPayload(messageId, map, card.copy(status = CardStatus.DISMISSED))
         logCard(messageId, "DISMISS", card, 0)
+        CardMetrics.dismissed(reason)
     }
 
     /**
@@ -962,6 +964,11 @@ class CopilotViewModel(
                 ),
                 targetScope = targetScope,
                 cardOrigin = CardOrigin.TRANSFORM,
+            )
+            CardMetrics.transform(
+                target = target?.kind?.name ?: "NO_TARGET",
+                source = target?.capturedFrom?.name,
+                chars = text.length,
             )
             _cardEvents.tryEmit(
                 CardUiEvent("Card criado a partir da seleção. Revise antes de inserir."),
@@ -1074,6 +1081,11 @@ class CopilotViewModel(
         )
         updateCardPayload(messageId, map, picked)
         logCard(messageId, "USER_PICK", picked, 0)
+        CardMetrics.target(
+            kind = "NO_TARGET",
+            picked = "USER_PICK",
+            target = picked.targetKind?.name,
+        )
     }
 
     fun undoCard(messageId: String) = viewModelScope.launch {
@@ -1141,11 +1153,13 @@ class CopilotViewModel(
             cardUndo.remove(messageId)
             cardRetry.remove(messageId)
             logCard(messageId, "UNDO", card, 0, undo = true)
+            CardMetrics.undone()
             _cardEvents.tryEmit(CardUiEvent("Texto restaurado."))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             cardRetry[messageId] = CardRetry.UNDO
+            CardMetrics.failed("UNDO")
             updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
             _cardEvents.tryEmit(CardUiEvent("Não foi possível desfazer agora. Tente novamente."))
         }
@@ -1250,6 +1264,17 @@ class CopilotViewModel(
                 postHash = hashText(postHtml),
             )
             cardRetry.remove(messageId)
+            if (mode == CardInsertMode.REPLACE) {
+                CardMetrics.replaced(confirmed = true, stale = stale, chars = text.length)
+            } else {
+                CardMetrics.applied(
+                    action = "APPEND",
+                    stale = stale,
+                    undo = true,
+                    chars = text.length,
+                )
+            }
+            if (stale) CardMetrics.stale("APPEND", text.length)
             logCard(
                 messageId,
                 if (gate) "GATE_YES" else mode.name,
@@ -1269,6 +1294,7 @@ class CopilotViewModel(
             throw e
         } catch (_: Exception) {
             cardRetry[messageId] = CardRetry.INSERT
+            CardMetrics.failed("INSERT")
             updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
             _cardEvents.tryEmit(CardUiEvent("Não foi possível inserir o texto. Tente novamente."))
         }
@@ -1391,6 +1417,8 @@ class CopilotViewModel(
     /** Qual ação falhou (insert/undo) para o "Tentar novamente" repetir a certa. */
     private enum class CardRetry { INSERT, UNDO }
     private val cardRetry = mutableMapOf<String, CardRetry>()
+    /** Fase 3: evita repetir "stale/missing/superseded" a cada emissão. */
+    private val cardStateLogged = mutableSetOf<String>()
     /** Card-first: avisos efêmeros (snackbar), sem criar mensagem no chat. */
     data class CardUiEvent(val message: String, val undoMessageId: String? = null)
     private val _cardEvents = MutableSharedFlow<CardUiEvent>(extraBufferCapacity = 4)
@@ -2300,6 +2328,18 @@ class CopilotViewModel(
                 currentTargetHash = hash,
                 superseded = item.id in supersededIds,
             )
+            when (status) {
+                CardStatus.STALE -> if (cardStateLogged.add("stale:${item.id}")) {
+                    CardMetrics.stale("DETECTED")
+                }
+                CardStatus.TARGET_MISSING -> if (cardStateLogged.add("missing:${item.id}")) {
+                    CardMetrics.target("TARGET_MISSING", picked = "NONE")
+                }
+                CardStatus.SUPERSEDED -> if (cardStateLogged.add("superseded:${item.id}")) {
+                    CardMetrics.superseded(card.targetKind?.name ?: "NONE")
+                }
+                else -> Unit
+            }
             item.copy(
                 cardPayload = card.copy(status = status),
                 cardTargetEmpty = empty,
@@ -2431,6 +2471,16 @@ class CopilotViewModel(
                     status = if (target == null) CardStatus.NO_TARGET else CardStatus.AVAILABLE,
                 )
                 logCard(messageId, "EMIT", card, cardText.length)
+                val full = withOrigin["text"].orEmpty()
+                val cardCount = Regex("<texto-do-card>").findAll(full).count()
+                CardMetrics.emitted(
+                    route = if (cardOrigin == CardOrigin.TRANSFORM) "TRANSFORM" else "CHAT",
+                    target = card.targetKind?.name ?: "NO_TARGET",
+                    source = card.capturedFrom?.name,
+                    chars = cardText.length,
+                    cards = cardCount,
+                )
+                if (cardCount > 1) CardMetrics.secondIgnored(cardCount)
                 withOrigin.putAll(card.toMap())
             }
         }
@@ -4403,6 +4453,7 @@ class CopilotViewModel(
     }
 
     private suspend fun postProposalApplied() {
+        CardMetrics.proposalUsed("ORATORY")
         post(
             false,
             "text",
@@ -5024,7 +5075,10 @@ class CopilotViewModel(
             ?: return false
         val map = ChatCodec.unescMap(lastCopilot.payload)
         val card = CardPayload.fromMap(map) ?: return false
-        if (card.gateMessageId != lastCopilot.id) return false
+        if (card.gateMessageId != lastCopilot.id) {
+            CardMetrics.gate("IGNORED", "not_last")
+            return false
+        }
         var exists = false
         var hash: String? = null
         when (card.targetKind) {
@@ -5047,15 +5101,26 @@ class CopilotViewModel(
                 applied = card.status == CardStatus.APPLIED,
             )
         ) {
+            val reason = when {
+                card.status == CardStatus.APPLIED -> "applied"
+                status == CardStatus.SUPERSEDED -> "superseded"
+                status == CardStatus.NO_TARGET -> "no_target"
+                status == CardStatus.TARGET_MISSING -> "target_missing"
+                status == CardStatus.DISMISSED || status == CardStatus.FAILED -> "status"
+                else -> "not_gateable"
+            }
+            CardMetrics.gate("IGNORED", reason)
             return false
         }
         return when {
             ChatIntent.isYes(text) -> {
+                CardMetrics.gate("ACCEPT")
                 applyCard(lastCopilot.id, CardInsertMode.APPEND, gate = true)
                 true
             }
             ChatIntent.isNo(text) -> {
-                dismissCardNow(lastCopilot.id)
+                CardMetrics.gate("REJECT")
+                dismissCardNow(lastCopilot.id, reason = "GATE_NO")
                 logCard(lastCopilot.id, "GATE_NO", card, 0, gate = true)
                 true
             }
