@@ -106,8 +106,22 @@
   palavras; o resultado foi honesto ao não inventar métricas.
 - Achado de UI: os **termos faltantes** não apareciam no resultado. Corrigido
   no commit `94d07b3` (“Termos que faltaram: …” quando `hasEnoughSpeech`).
-- Nenhum arquivo de áudio em `files/`/`cache/` (só o modelo Piper); nenhum
-  crash no log.
+- Segunda leitura no build corrigido:
+  - **40 s de fala · 47 s de sessão · 67 palavras · 101 wpm · cobertura 53% ·
+    1 muleta (“certo”)**;
+  - **Termos que faltaram:** Boa · noite · irmãos · Hoje · vamos (início da
+    leitura);
+  - o padrão se repetiu: o STT do sistema perdeu o começo da fala nas duas
+    tentativas. Registrado como limitação do serviço, não do Treino;
+  - “Treinar de novo” reiniciou a análise; “Treinar outro trecho” voltou à
+    preparação;
+  - nenhum arquivo de áudio em `files/`/`cache/` (só o modelo Piper); nenhum
+    crash no log.
+- A amostra é **parcial** (40 s/67–70 palavras), mas plausível e honesta: o
+  app marcou “Ensaio parcial”, mostrou a cobertura e os termos faltantes, sem
+  inventar ritmo/cobertura. O critério de ~1 min/100–160 palavras não foi
+  atingido por perda de fala do STT; repetir não mudou o padrão.
+- Nota temporária “Amostra de fala — 1 min” removida do tablet; #192 preservada.
 
 ## Pendências e decisões
 
@@ -116,10 +130,10 @@
 - **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
   histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
   (escopo/modo/timer) por nota.
-- **Amostra com fala humana:** registrada (40 s/70 palavras/105 wpm/51%),
-  porém parcial. Falta repetir uma leitura mais próxima de 1 min no build com
-  a linha de termos faltantes para fechar o critério. A nota temporária
-  **“Amostra de fala — 1 min”** segue no tablet, já na preparação; remover
-  depois do aceite.
+- **Amostra com fala humana:** fechada com ressalva. Duas leituras deram
+  ~40 s/67–70 palavras e o STT perdeu o início nas duas; o comportamento é
+  honesto (“Ensaio parcial”, cobertura, termos faltantes), mas não atingiu
+  ~1 min/100–160 palavras. Registrado como limitação do STT do sistema.
+  Nota temporária removida; #192 preservada.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.
