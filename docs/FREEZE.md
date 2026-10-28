@@ -55,6 +55,14 @@
 > 1 undo. Transição com S-34 carregado ainda precisa de amostra. `main`:
 > **2.614 testes / 0 falhas**, lint/CI verdes.
 
+> **Card-first fase 4.1:** mergeada na `main` em `afbb75f` (merge commit),
+> **sem tag**. Transição com S-34 agora mira a **próxima seção** e gera card
+> (validado no tablet: 771 chars, append/undo); testes de SUPERSEDED
+> (3 no mesmo alvo → 2 SUPERSEDED + 1 AVAILABLE; alvos diferentes → 0;
+> APPLIED preservado). Amostra: 7/8 pedidos com card (87,5%), 2 operações
+> aplicadas, 0 propostas de texto, 0 alvo errado. C2 refs + M1 stop/retry
+> confirmados no tablet. **2.617 testes / 0 falhas**, lint/CI verdes.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
