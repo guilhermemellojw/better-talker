@@ -408,4 +408,13 @@ class OratoryGenerationTest {
         assertEquals(before, doc)
         assertEquals(3, doc.sections.size)
     }
+
+    @Test
+    fun cardPromptPedeTextoAplicavelSemJson() {
+        val p = OratoryGeneration.buildCardPrompt(spec(Mode.DEVELOPMENT), "reescreva o ponto")
+        assertTrue(p.contains("<texto-do-card>"))
+        assertTrue(p.contains("Um card por resposta"))
+        assertFalse(p.contains("```json"))
+        assertFalse(p.contains("\"operations\""))
+    }
 }

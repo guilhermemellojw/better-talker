@@ -133,7 +133,11 @@ val CHAT_PERSONA = CHAT_PERSONA_BASE
 const val CARD_FIRST_RULE =
     "Texto aplicável (discurso, desenvolvimento, transição, introdução, conclusão, " +
         "diálogo) vai dentro de <texto-do-card>...</texto-do-card>. Explicações, " +
-        "análise, perguntas e conversa ficam FORA. Um card por resposta."
+        "análise, perguntas e conversa ficam FORA. Um card por resposta. " +
+        "Se houver um parágrafo, transição ou ilustração PRONTA para aplicar, use o card; " +
+        "se for apenas ideia, lista ou análise, responda na conversa. " +
+        "Perguntas de explicação/análise (por que, o que significa, o que acha) sem pedido " +
+        "explícito de escrita ficam na conversa, mesmo que a resposta tenha parágrafos."
 
 /**
  * O chat livre mantém a persona, o contexto, o S-34 e os marcadores, mas a

@@ -122,6 +122,7 @@ import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardPayload
 import com.bettertalker.app.data.copilot.CardStatus
+import com.bettertalker.app.data.copilot.CardSuggestedAction
 import com.bettertalker.app.data.copilot.canInsertCard
 import com.bettertalker.app.data.copilot.canReplaceCard
 import com.bettertalker.app.data.copilot.cardStatusLabel
@@ -1578,6 +1579,7 @@ private fun CardFirstActions(
     val status = card.status
     val canInsert = canInsertCard(status)
     val canReplace = canReplaceCard(status, hashMatches = true)
+    val replaceSuggested = canReplace && card.suggestedAction == CardSuggestedAction.REPLACE
     val canEdit = status != CardStatus.APPLIED &&
         status != CardStatus.DISMISSED &&
         status != CardStatus.FAILED
@@ -1598,6 +1600,13 @@ private fun CardFirstActions(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (replaceSuggested && status == CardStatus.AVAILABLE) {
+            Text(
+                "Sugestão: substituir o texto atual (com confirmação).",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
             )
         }
         if (card.capturedFrom == CardCapturedFrom.USER_PICK) {
@@ -1635,12 +1644,15 @@ private fun CardFirstActions(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.weight(1f),
             ) {
+                if (replaceSuggested) {
+                    TextButton(onClick = { showReplace = true }) { Text("Substituir") }
+                }
                 if (canInsert) {
                     TextButton(onClick = { vm.appendCard(item.id) }) {
                         Text(if (item.cardTargetEmpty) "Usar este texto" else "Adicionar ao final")
                     }
                 }
-                if (canReplace) {
+                if (canReplace && !replaceSuggested) {
                     TextButton(onClick = { showReplace = true }) { Text("Substituir") }
                 }
                 if (status == CardStatus.NO_TARGET) {

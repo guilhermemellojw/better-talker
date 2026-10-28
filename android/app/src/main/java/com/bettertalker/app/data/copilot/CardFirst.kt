@@ -26,6 +26,9 @@ enum class CardOrigin { CHAT, ORATORY, TRANSFORM, LEGACY }
 
 enum class CardInsertMode { APPEND, REPLACE }
 
+/** Ação sugerida pelo fluxo (reescrita → substituir; geração → append). */
+enum class CardSuggestedAction { APPEND, REPLACE }
+
 enum class CardStatus {
     AVAILABLE,
     APPLIED,
@@ -67,6 +70,7 @@ data class CardPayload(
     val gateMessageId: String? = null,
     val status: CardStatus = CardStatus.AVAILABLE,
     val appliedAt: Long? = null,
+    val suggestedAction: CardSuggestedAction = CardSuggestedAction.APPEND,
 ) {
     fun toMap(): Map<String, String> = buildMap {
         put("cardSchema", schema.toString())
@@ -81,6 +85,7 @@ data class CardPayload(
         put("cardSummary", capCardSummary(summary))
         gateMessageId?.let { put("cardGateMessageId", it) }
         put("cardStatus", status.name)
+        put("cardSuggestedAction", suggestedAction.name)
         appliedAt?.let { put("cardAppliedAt", it.toString()) }
     }
 
@@ -112,6 +117,9 @@ data class CardPayload(
                 gateMessageId = map["cardGateMessageId"]?.takeIf { it.isNotBlank() },
                 status = status(map["cardStatus"]),
                 appliedAt = map["cardAppliedAt"]?.toLongOrNull(),
+                suggestedAction = map["cardSuggestedAction"]?.let {
+                    runCatching { CardSuggestedAction.valueOf(it) }.getOrNull()
+                } ?: CardSuggestedAction.APPEND,
             )
         }
     }

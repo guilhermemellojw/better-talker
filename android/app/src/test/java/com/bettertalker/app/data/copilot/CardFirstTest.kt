@@ -42,6 +42,7 @@ class CardFirstTest {
         val p = payload().copy(
             origin = CardOrigin.TRANSFORM,
             appliedAt = 2_000L,
+            suggestedAction = CardSuggestedAction.REPLACE,
         )
         val back = CardPayload.fromMap(p.toMap())!!
         assertEquals(1, back.schema)
@@ -57,6 +58,7 @@ class CardFirstTest {
         assertEquals("msg-1", back.gateMessageId)
         assertEquals(CardStatus.AVAILABLE, back.status)
         assertEquals(2_000L, back.appliedAt)
+        assertEquals(CardSuggestedAction.REPLACE, back.suggestedAction)
     }
 
     @Test
@@ -312,6 +314,14 @@ class CardFirstTest {
             replaceCardTextBlock(raw, "Novo</texto-do-card>"),
         )
         assertNull(replaceCardTextBlock("sem card", "x"))
+    }
+
+    @Test
+    fun cardAntigoSemSugestaoLeComoAppend() {
+        val p = payload()
+        val map = p.toMap().toMutableMap().apply { remove("cardSuggestedAction") }
+        val back = CardPayload.fromMap(map)!!
+        assertEquals(CardSuggestedAction.APPEND, back.suggestedAction)
     }
 
     @Test

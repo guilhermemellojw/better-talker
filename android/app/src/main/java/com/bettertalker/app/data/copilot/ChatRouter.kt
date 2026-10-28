@@ -92,6 +92,16 @@ object ChatRouter {
         data class General(val reason: String) : Route
     }
 
+    /** Fase 4: rotas de explicação/análise não transformam a resposta em card. */
+    fun allowsCard(route: Route): Boolean = when (route) {
+        is Route.General -> route.reason !in setOf(
+            "pedido de explicação/análise",
+            "pergunta de orientação, não geração",
+            "meta-linguagem sobre um termo",
+        )
+        else -> true
+    }
+
     /** T1 — texto longo sem estrutura vira candidato a colar-e-conversar. */
     const val PASTE_MIN_CHARS = 500
 

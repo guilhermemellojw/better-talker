@@ -612,4 +612,11 @@ class ChatRouterTest {
         assertFalse(ChatRouter.isLongTextGenerationRequest("explique o texto"))
         assertFalse(ChatRouter.isLongTextGenerationRequest("o que acha desta seção?"))
     }
+
+    @Test
+    fun explicacaoNaoPermiteCardMasChatLivrePermite() {
+        assertFalse(ChatRouter.allowsCard(Route.General("pedido de explicação/análise")))
+        assertFalse(ChatRouter.allowsCard(Route.General("pergunta de orientação, não geração")))
+        assertTrue(ChatRouter.allowsCard(Route.General("chat livre")))
+    }
 }

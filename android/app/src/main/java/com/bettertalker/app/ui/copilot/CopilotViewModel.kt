@@ -13,6 +13,7 @@ import com.bettertalker.app.data.copilot.CardInsertMode
 import com.bettertalker.app.data.copilot.CardOrigin
 import com.bettertalker.app.data.copilot.CardPayload
 import com.bettertalker.app.data.copilot.CardStatus
+import com.bettertalker.app.data.copilot.CardSuggestedAction
 import com.bettertalker.app.data.copilot.CardTarget
 import com.bettertalker.app.data.copilot.CardTargetKind
 import com.bettertalker.app.data.copilot.canGateCard
@@ -2426,6 +2427,10 @@ class CopilotViewModel(
         turnId: String? = currentTurnId,
         /** Card-first: origem do card (CHAT na geração; TRANSFORM na seleção). */
         cardOrigin: CardOrigin = CardOrigin.CHAT,
+        /** Fase 4: reescrita sugere REPLACE; geração sugere APPEND. */
+        cardSuggestedAction: CardSuggestedAction = CardSuggestedAction.APPEND,
+        /** Fase 4: false = resposta explicativa não vira card. */
+        allowCard: Boolean = true,
     ): String? {
         val nid = noteId ?: return null
         // Origem embutida no JSON do payload (sem migration; histórico
@@ -2453,7 +2458,7 @@ class CopilotViewModel(
         val messageId = newId("msg")
         // Card-first: se a resposta tem <texto-do-card>, o alvo capturado na
         // geração vira payload do card. O gate aponta para esta mensagem.
-        if (!fromMe) {
+        if (!fromMe && allowCard) {
             val cardText = extractCardText(withOrigin["text"].orEmpty())
             if (cardText != null) {
                 val target = activeCardTarget
@@ -2469,12 +2474,17 @@ class CopilotViewModel(
                     summary = capCardSummary(cardText),
                     gateMessageId = messageId,
                     status = if (target == null) CardStatus.NO_TARGET else CardStatus.AVAILABLE,
+                    suggestedAction = cardSuggestedAction,
                 )
                 logCard(messageId, "EMIT", card, cardText.length)
                 val full = withOrigin["text"].orEmpty()
                 val cardCount = Regex("<texto-do-card>").findAll(full).count()
                 CardMetrics.emitted(
-                    route = if (cardOrigin == CardOrigin.TRANSFORM) "TRANSFORM" else "CHAT",
+                    route = when (cardOrigin) {
+                        CardOrigin.TRANSFORM -> "TRANSFORM"
+                        CardOrigin.ORATORY -> "ORATORY"
+                        else -> "CHAT"
+                    },
                     target = card.targetKind?.name ?: "NO_TARGET",
                     source = card.capturedFrom?.name,
                     chars = cardText.length,
@@ -2483,6 +2493,10 @@ class CopilotViewModel(
                 if (cardCount > 1) CardMetrics.secondIgnored(cardCount)
                 withOrigin.putAll(card.toMap())
             }
+        } else if (!fromMe && !allowCard) {
+            // Explicação/análise: o modelo pode ter usado o marcador por
+            // engano; o conteúdo continua na conversa, sem card acionável.
+            withOrigin["text"] = stripInternalTags(withOrigin["text"].orEmpty())
         }
         db.chatDao().put(
             ChatEntity(
@@ -2832,6 +2846,34 @@ class CopilotViewModel(
             }
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
+            // Fase 4 — refinamento de seção sem geração anterior: o texto
+            // atual da seção É a base. Sem isso, "reescreva"/"mais natural"
+            // caíam em "ainda não gerei nenhuma parte".
+            val focusedSectionId = turnContext.structural?.currentSection?.id
+                ?: _chatScope.value
+                ?: _pushedContext?.sectionId
+            val previousOratory = lastOratory
+            if (focusedSectionId != null &&
+                com.bettertalker.app.data.copilot.OratorySession.isRefinement(text) &&
+                (previousOratory == null ||
+                    previousOratory.sectionId == null ||
+                    previousOratory.sectionId != focusedSectionId)
+            ) {
+                val section = db.speechSectionDao().get(focusedSectionId)
+                if (section != null && section.contentHtml.isNotBlank()) {
+                    val mode = when (section.role) {
+                        com.bettertalker.app.domain.speech.SectionRole.INTRO.name ->
+                            com.bettertalker.app.data.copilot.OratoryGeneration.Mode.INTRODUCTION
+                        com.bettertalker.app.domain.speech.SectionRole.CONCLUSION.name ->
+                            com.bettertalker.app.data.copilot.OratoryGeneration.Mode.CONCLUSION
+                        else -> com.bettertalker.app.data.copilot.OratoryGeneration.Mode.DEVELOPMENT
+                    }
+                    lastOratory = com.bettertalker.app.data.copilot.OratorySession.LastGeneration(
+                        mode,
+                        focusedSectionId,
+                    )
+                }
+            }
             // F20-D: roteamento natural ANTES do chat — oratória, consulta
             // estrutural, réplica de proposta ou chat geral.
             val route = com.bettertalker.app.data.copilot.ChatRouter.route(
@@ -2944,6 +2986,7 @@ class CopilotViewModel(
                 answerRemote(
                     text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
                     blockMinutes = blockMinutes,
+                    allowCard = com.bettertalker.app.data.copilot.ChatRouter.allowsCard(route),
                 )
             } else {
                 sendMutex.withLock {
@@ -3277,11 +3320,8 @@ class CopilotViewModel(
         val ready = (spec as com.bettertalker.app.data.copilot.OratoryGeneration.Result.Ready).spec
         val focus = currentFocusText()
         // T2 (Bug #14): foco por título de seção → proposta aplica na seção.
-        val section = sectionForFocus(focus)
-        val secId = section?.id
-        val secHash = section?.let {
-            hashText(sectionProposalBlock(it.title, it.contentHtml))
-        }
+        val section = route.sectionId?.let { db.speechSectionDao().get(it) }
+            ?: sectionForFocus(focus)
         // #16-fix-b: o LLM precisa ver a PROSA da seção (não só o título via
         // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
         // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
@@ -3292,11 +3332,21 @@ class CopilotViewModel(
             sectionContentHtml = section?.contentHtml,
             fallbackFocus = focus,
         )
-        val targetId = "focus"
-        val mode = if (route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE) {
-            com.bettertalker.app.data.edit.EditProposalMode.IMPROVE
+        val cardTarget = section?.let {
+            cardTargetForSection(
+                sectionId = it.id,
+                label = it.title,
+                contentHtml = it.contentHtml,
+                capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
+                capturedAt = System.currentTimeMillis(),
+            )
+        }
+        val suggestedAction = if (
+            route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE
+        ) {
+            CardSuggestedAction.REPLACE
         } else {
-            com.bettertalker.app.data.edit.EditProposalMode.INSERT
+            CardSuggestedAction.APPEND
         }
         try {
             val provider = ProviderFactory.createFor(remote, app)
@@ -3304,20 +3354,25 @@ class CopilotViewModel(
                 focusChars = block.length,
                 minutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
             )
+            // Fase 4: a oratória deixa de pedir JSON de proposta e passa a
+            // devolver texto aplicável, que o app transforma em card. O alvo
+            // já foi capturado acima; o modelo nunca escolhe a seção.
+            val cardPrompt = com.bettertalker.app.data.copilot.OratoryGeneration
+                .buildCardPrompt(ready, message)
             val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 provider.generate(
                     com.bettertalker.app.data.llm.LlmRequest(
                         text = block,
                         action = com.bettertalker.app.data.llm.LlmAction.CHAT,
-                        message = message,
-                        responseFormat = ResponseFormat.EDIT_PROPOSAL,
-                        editMode = mode,
-                        oratorySpec = ready,
-                        // C1: orçamento dinâmico (duração da seção/foco), não
-                        // mais o 1.280 fixo. O retry sobe até 4.096.
+                        message = cardPrompt,
+                        responseFormat = ResponseFormat.TEXT,
                         maxOutputTokens = oratoryBudget,
                         maxOutputTokensCap = OutputBudget.ORATORY_MAX,
                         contextBlock = contextBlock,
+                        structural = turnContext.structural,
+                        oratory = turnContext.oratory,
+                        blockTitle = section?.title,
+                        blockMinutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
                     )
                 )
             }
@@ -3325,14 +3380,14 @@ class CopilotViewModel(
             android.util.Log.i(
                 "CopilotLLM",
                 generationTelemetry(
-                    route = "oratory",
+                    route = "oratory-card",
                     text = res.text,
                     budget = res.meta.budget,
                     finishReason = res.meta.finishReason,
                     truncated = oratoryCut,
                     thinking = res.meta.thinking,
                     attempts = res.meta.attempts,
-                        retries = res.meta.retries,
+                    retries = res.meta.retries,
                 ).line(),
             )
             if (oratoryCut) {
@@ -3342,80 +3397,73 @@ class CopilotViewModel(
                 )
                 return
             }
-            val blocks = listOf(com.bettertalker.app.data.edit.EditBlock(targetId, block))
-            when (val r = com.bettertalker.app.data.edit.parseEditProposal(
-                res.text, blocks, targetId, mode
-            )) {
-                is com.bettertalker.app.data.edit.ParseResult.Ok -> {
-                    // T2 — fidelidade oratória (não bloqueante): confere refs e
-                    // números do TEXTO GERADO contra o Spec; não olha o foco
-                    // do usuário para não acusar números que já eram dele.
-                    val generated = r.proposal.operations.joinToString("\n\n") { op ->
-                        when (op) {
-                            is EditOperation.Insert -> stripHtmlToText(op.contentHtml)
-                            is EditOperation.Replace -> stripHtmlToText(op.contentHtml)
-                            is EditOperation.Delete -> ""
-                        }
-                    }.trim().ifBlank { renderAfterText(r.proposal, focus) }
-                    val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                        .check(generated, ready)
-                    val notice = fidelityRevisionNotice(fidelity)
-                    if (notice != null) {
-                        android.util.Log.w(
-                            "CopilotLLM",
-                            "oratória: aviso de fidelidade (invented=${fidelity.inventedReferences.size} " +
-                                "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
-                        )
-                    }
-                    // #7e: gate de groundedness — mesmo verificador do chat,
-                    // agora também no texto de oratória (citações/refs contra o
-                    // corpus do turno + dossiê em contexto + foco).
-                    val verified = verifyGeneratedText(
-                        generated,
-                        turnContext,
-                        listOfNotNull(
-                            contextBlock,
-                            // #16-fix-b: o corpus do gate inclui a prosa da seção
-                            // (texto puro) — o modelo agora a vê e pode citá-la.
-                            stripHtmlToText(block).takeIf { it.isNotBlank() },
-                        ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
-                    )
-                    if (verified.metrics.hasFlags) {
-                        val strictChars = verified.text
-                            .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
-                        android.util.Log.i(
-                            "CopilotLLM",
-                            "verifier oratory: flags=${verified.metrics.summary()} " +
-                                "flaggedChars=${verified.metrics.flaggedChars} " +
-                                "strictChars=$strictChars",
-                        )
-                    }
-                    // Com remoções, o texto da proposta vira o verificado
-                    // (frases sem apoio fora). #7e-fix: o aviso do verificador
-                    // NÃO entra no conteúdo — vai para o `notice` da proposta.
-                    val (cleanText, removalNotice) = stripRemovalNotice(verified.text)
-                    val proposal = if (verified.hasRemovals) {
-                        r.proposal.copy(
-                            operations = listOf(
-                                com.bettertalker.app.data.edit.EditOperation.Replace(
-                                    targetId,
-                                    com.bettertalker.app.data.export.markdownToSimpleHtml(cleanText),
-                                )
-                            )
-                        )
-                    } else {
-                        r.proposal
-                    }
-                    _proposal.value = installProposal(ProposalUi(
-                        proposal, block, sectionId = secId, sectionBaseHash = secHash,
-                        notice = listOfNotNull(notice, removalNotice)
-                            .joinToString(" ").ifBlank { null },
-                        sectionContentHtml = section?.contentHtml.orEmpty(),
-                    ))
-                }
-                is com.bettertalker.app.data.edit.ParseResult.Invalid -> postText(
-                    "A resposta do modelo veio em formato inválido. Tente gerar novamente."
+            val cardText = extractCardText(res.text)
+            if (cardText == null) {
+                // Fail-open: não inventa card a partir de análise; o texto
+                // volta como conversa e o usuário pode pedir novamente.
+                post(
+                    false,
+                    "text",
+                    ChatCodec.escMap(mapOf("text" to res.text)),
                 )
+                return
+            }
+            // Fidelidade estrita mantida: o mesmo gate da oratória agora
+            // audita o texto do card, e remoções do verificador entram no
+            // texto final (não no payload de conversa).
+            val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
+                .check(cardText, ready)
+            val fidelityNotice = fidelityRevisionNotice(fidelity)
+            if (fidelityNotice != null) {
+                android.util.Log.w(
+                    "CopilotLLM",
+                    "oratória-card: aviso de fidelidade (invented=${fidelity.inventedReferences.size} " +
+                        "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
+                )
+            }
+            val verified = verifyGeneratedText(
+                cardText,
+                turnContext,
+                listOfNotNull(
+                    contextBlock,
+                    stripHtmlToText(block).takeIf { it.isNotBlank() },
+                ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
+            )
+            if (verified.metrics.hasFlags) {
+                val strictChars = verified.text
+                    .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length
+                android.util.Log.i(
+                    "CopilotLLM",
+                    "verifier oratory-card: flags=${verified.metrics.summary()} " +
+                        "flaggedChars=${verified.metrics.flaggedChars} " +
+                        "strictChars=$strictChars",
+                )
+            }
+            val (cleanText, removalNotice) = stripRemovalNotice(verified.text)
+            val finalText = if (verified.hasRemovals) cleanText else cardText
+            val finalResponse = if (finalText == cardText) {
+                res.text
+            } else {
+                replaceCardTextBlock(res.text, finalText) ?: res.text
+            }
+            val previous = activeCardTarget
+            activeCardTarget = cardTarget
+            try {
+                val messageId = post(
+                    fromMe = false,
+                    kind = "text",
+                    payload = ChatCodec.escMap(mapOf("text" to finalResponse)),
+                    cardOrigin = CardOrigin.ORATORY,
+                    cardSuggestedAction = suggestedAction,
+                )
+                val notice = listOfNotNull(fidelityNotice, removalNotice)
+                    .joinToString(" ").ifBlank { null }
+                if (messageId != null && notice != null) {
+                    _cardVerificationNotices.value =
+                        _cardVerificationNotices.value + (messageId to notice)
+                }
+            } finally {
+                activeCardTarget = previous
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             _runState.value = ChatRunState.Cancelled()
@@ -3592,6 +3640,8 @@ class CopilotViewModel(
         noS34Warning: Boolean = false,
         /** Tempo da seção em foco (extensão alvo do texto longo). */
         blockMinutes: Int? = null,
+        /** Fase 4: explicação/análise não vira card, mesmo com marcador. */
+        allowCard: Boolean = true,
     ) {
         // #17-fix: a rota de chat respeita o chip (Rápido = low / Profundo = high);
         // rotas estruturadas (oratória/proposta) forçam "none" dentro do provider.
@@ -3877,7 +3927,7 @@ class CopilotViewModel(
             }
         }
         post(false, "text", ChatCodec.escMap(persistedPayload), MessageOrigin.COPILOT,
-            durationMs = res.meta.durationMs, truncated = truncated)
+            durationMs = res.meta.durationMs, truncated = truncated, allowCard = allowCard)
         // #15d-escopo: RAG fraco + nota sem anexos indexados + publicação
         // indexada não vinculada → sugere vincular (1× por sessão).
         if (!scopeSuggestionShown) {
@@ -5540,6 +5590,7 @@ class CopilotViewModel(
         if (statuses.isNotEmpty()) {
             post(false, "refs", ChatCodec.escMap(mapOf(
                 "title" to "Referências de “${target.title}”",
+                "text" to "Referências de “${target.title}”",
                 "detected" to RefDetector.detectedToJson(statuses.map { it.ref }))),
                 MessageOrigin.LOCAL)
         }
@@ -5825,6 +5876,7 @@ class CopilotViewModel(
         }
         post(false, "refs", ChatCodec.escMap(mapOf(
             "title" to "Referências da nota",
+            "text" to "Referências da nota",
             "detected" to RefDetector.detectedToJson(
                 statuses.map { it.ref }))))
     }
@@ -5930,6 +5982,7 @@ class CopilotViewModel(
         }
         post(false, "refs", ChatCodec.escMap(mapOf(
             "title" to "Referências do esboço",
+            "text" to "Referências do esboço",
             "detected" to RefDetector.detectedToJson(statuses.map { it.ref }))))
     }
 
@@ -6371,6 +6424,7 @@ class CopilotViewModel(
                 "text" to "O esboço cita ${missing.size} ${if (missing.size == 1) "publicação que ainda não está" else "publicações que ainda não estão"} baixada(s). Baixe no site para eu citar a matéria:")))
             post(false, "refs", ChatCodec.escMap(mapOf(
                 "title" to "Referências do esboço",
+                "text" to "Referências do esboço",
                 "detected" to RefDetector.detectedToJson(missing.map { it.ref }))))
         }
         // Onboarding F2a: o estado mudou (esboço vinculado) — revalida o banner.

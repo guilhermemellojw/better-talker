@@ -394,6 +394,15 @@ REGRAS DE GERAÇÃO ORATÓRIA (valem para todos os modos):
 Para substituir conteúdo existente, use {"type": "replace", "content": "<p>...</p>"}.
 """.trimIndent()
 
+    /**
+     * Fase 4 — mesma base, mas o produto final é um card de texto, não um
+     * ProposalUi JSON. O alvo vem do router; o modelo só escreve o texto.
+     */
+    val CARD_RULES = BASE_RULES.substringBefore("11. Responda SOMENTE") +
+        "11. Responda SOMENTE com o texto aplicável dentro de " +
+        "<texto-do-card>...</texto-do-card>. Explicações, análise e conversa " +
+        "ficam FORA do bloco. Um card por resposta. Nada de JSON."
+
     /** Instruções específicas do modo. */
     fun modeInstructions(mode: Mode): String = when (mode) {
         Mode.INTRODUCTION ->
@@ -415,9 +424,15 @@ Para substituir conteúdo existente, use {"type": "replace", "content": "<p>...<
     /**
      * Prompt completo: BASE + ESTRUTURA + FONTES + TREINAMENTO + MODO.
      */
-    fun buildPrompt(spec: Spec, userRequest: String): String {
+    fun buildPrompt(spec: Spec, userRequest: String): String =
+        buildPromptWithRules(spec, userRequest, BASE_RULES)
+
+    fun buildCardPrompt(spec: Spec, userRequest: String): String =
+        buildPromptWithRules(spec, userRequest, CARD_RULES)
+
+    private fun buildPromptWithRules(spec: Spec, userRequest: String, rules: String): String {
         val sb = StringBuilder()
-        sb.append(BASE_RULES).append("\n\n")
+        sb.append(rules).append("\n\n")
         sb.append("--- ESTRUTURA DO S-34 (INFERIDA, NÃO MUDA) ---\n")
         sb.append("[S34] Discurso: ${spec.outlineTitle.ifBlank { "(sem título)" }}\n")
         sb.append("[S34] Objetivo: ${spec.objective ?: "não declarado no S-34"}\n")
