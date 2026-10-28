@@ -131,10 +131,9 @@ val CHAT_PERSONA = CHAT_PERSONA_BASE
  * `<texto-do-card>` só porque a resposta é organizada.
  */
 const val CARD_INTENT_RULE =
-    "Use <texto-do-card>...</texto-do-card> SOMENTE quando o usuário pedir " +
-        "explicitamente para escrever, redigir, montar ou criar a fala/o texto/o " +
-        "diálogo. Para explicar, analisar, listar tópicos ou orientar, responda " +
-        "na conversa, SEM card."
+    "Texto aplicável (discurso, desenvolvimento, transição, introdução, conclusão, " +
+        "diálogo) vai dentro de <texto-do-card>...</texto-do-card>. Explicações, " +
+        "análise, perguntas e conversa ficam FORA. Um card por resposta."
 
 /**
  * Versão A do A/B de naturalidade: o chat livre mantém a persona, o contexto,
@@ -473,7 +472,7 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "\nQuando devolver texto pronto para aplicar no card (discurso, desenvolvimento, " +
         "transição, introdução, conclusão), envolva APENAS esse trecho em " +
         "<texto-do-card>...</texto-do-card>. Explicações, comentários e conversa ficam FORA " +
-        "do bloco. Um bloco por resposta (se houver). Se a resposta for só conversa, não use " +
+        "do bloco. Um card por resposta. Se a resposta for só conversa, não use " +
         "o marcador." +
         // Bloco de geração longa: a extensão vem do BLOCO ATUAL, não do total.
         "\nQuando houver um bloco em foco com duração, escreva apenas esse bloco " +

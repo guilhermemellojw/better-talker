@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -68,8 +70,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -92,6 +96,7 @@ import com.bettertalker.app.data.util.stripInternalTags
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -114,6 +119,13 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.CardCapturedFrom
+import com.bettertalker.app.data.copilot.CardPayload
+import com.bettertalker.app.data.copilot.CardStatus
+import com.bettertalker.app.data.copilot.canInsertCard
+import com.bettertalker.app.data.copilot.canReplaceCard
+import com.bettertalker.app.data.copilot.cardStatusLabel
+import com.bettertalker.app.data.copilot.extractCardText
 import com.bettertalker.app.data.copilot.FocusDestination
 import com.bettertalker.app.data.copilot.FocusSource
 import com.bettertalker.app.data.copilot.FocusSources
@@ -166,6 +178,7 @@ fun ChatScreen(
     onDraftNext: () -> Unit = {},
 ) {
     val messages by vm.messages.collectAsState()
+    val canTransformSelection by vm.canTransformSelection.collectAsState()
     val busy by vm.chatBusy.collectAsState()
     val runState by vm.runState.collectAsState()
     // Fases de progresso do provider (o DeepSeek alimenta Generating/parcial).
@@ -241,6 +254,19 @@ fun ChatScreen(
     val draft by vm.draft.collectAsState()
     val snack = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Card-first: “Texto inserido” + “Desfazer” sem criar mensagem no chat.
+    LaunchedEffect(vm) {
+        vm.cardEvents.collect { event ->
+            val result = snack.showSnackbar(
+                message = event.message,
+                actionLabel = event.undoMessageId?.let { "Desfazer" },
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                event.undoMessageId?.let { vm.undoCard(it) }
+            }
+        }
+    }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
@@ -529,6 +555,25 @@ fun ChatScreen(
                             expanded = topMenuOpen,
                             onDismissRequest = { topMenuOpen = false },
                         ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Transformar seleção em card")
+                                        if (!canTransformSelection) {
+                                            Text(
+                                                "Selecione um texto no editor primeiro.",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                },
+                                enabled = canTransformSelection,
+                                onClick = {
+                                    topMenuOpen = false
+                                    vm.transformSelectionToCard()
+                                },
+                            )
                             DropdownMenuItem(
                                 text = {
                                     Text(
@@ -1079,13 +1124,34 @@ private fun MessageBubble(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .animateContentSize(tween(250))
                 ) {
+                    val card = item.cardPayload
                     // #22-fix (P1): selo "BT · " inline no primeiro bloco —
                     // sem coluna de avatar (texto em x=0).
                     ChatMessageText(
                         item.text,
                         Modifier.fillMaxWidth(),
-                        onUseInCard = { vm.insertTextIntoScope(it) },
+                        // Card-first: o botão legado "Usar no card" só existe
+                        // quando não há payload de card; as ações novas ficam
+                        // logo abaixo do bloco do card, antes da conversa.
+                        onUseInCard = if (card == null) {
+                            { text -> vm.insertTextIntoScope(text) }
+                        } else {
+                            null
+                        },
                         leadingMark = assistantInlineMark(),
+                        collapseCard = card != null,
+                        cardActions = if (card != null) {
+                            {
+                                CardFirstActions(
+                                    item = item,
+                                    card = card,
+                                    vm = vm,
+                                    destinations = destinations,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                     )
                 // #17-fix: tempo de resposta sob a bolha (payload; sem schema).
                 item.durationMs?.let { ms ->
@@ -1487,6 +1553,263 @@ private fun ScopeSkeleton() {
     }
 }
 
+/**
+ * Card-first fase 1 — ações do card abaixo do preview do
+ * `<texto-do-card>`. O alvo/estado vêm do payload capturado na geração.
+ */
+@Composable
+private fun CardFirstActions(
+    item: CopilotViewModel.ChatItem,
+    card: CardPayload,
+    vm: CopilotViewModel,
+    destinations: List<InsertDestination>,
+) {
+    var showReplace by remember(item.id) { mutableStateOf(false) }
+    var showTargets by remember(item.id) { mutableStateOf(false) }
+    var showMenu by remember(item.id) { mutableStateOf(false) }
+    var showEdit by remember(item.id) { mutableStateOf(false) }
+    var editText by remember(item.id) { mutableStateOf("") }
+    val verifications by vm.cardVerifications.collectAsState()
+    val verifying by vm.cardVerifying.collectAsState()
+    val notices by vm.cardVerificationNotices.collectAsState()
+    val copy = rememberCopyToClipboard()
+    val cardText = remember(item.text) { extractCardText(item.text).orEmpty() }
+    val verification = verifications[item.id]
+    val status = card.status
+    val canInsert = canInsertCard(status)
+    val canReplace = canReplaceCard(status, hashMatches = true)
+    val canEdit = status != CardStatus.APPLIED &&
+        status != CardStatus.DISMISSED &&
+        status != CardStatus.FAILED
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            cardStatusLabel(status),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (status == CardStatus.STALE || status == CardStatus.FAILED) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.secondary
+            },
+        )
+        card.targetLabel?.takeIf { it.isNotBlank() }?.let { target ->
+            Text(
+                "Destino: $target",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (card.capturedFrom == CardCapturedFrom.USER_PICK) {
+            Text(
+                "Esta sugestão foi gerada sem o contexto deste tópico. " +
+                    "Revise antes de inserir.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (status == CardStatus.STALE) {
+            Text(
+                "O texto mudou desde a geração. Você pode adicionar ao final, " +
+                    "sem substituir.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (status == CardStatus.APPLIED && !item.cardCanUndo) {
+            Text(
+                "Sessão encerrada: não é possível desfazer esta inserção.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                if (canInsert) {
+                    TextButton(onClick = { vm.appendCard(item.id) }) {
+                        Text(if (item.cardTargetEmpty) "Usar este texto" else "Adicionar ao final")
+                    }
+                }
+                if (canReplace) {
+                    TextButton(onClick = { showReplace = true }) { Text("Substituir") }
+                }
+                if (status == CardStatus.NO_TARGET) {
+                    TextButton(onClick = { showTargets = true }) { Text("Escolher destino") }
+                }
+                if (status == CardStatus.FAILED) {
+                    TextButton(onClick = { vm.retryCard(item.id) }) { Text("Tentar novamente") }
+                }
+            }
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        "Mais ações do card",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Editar texto") },
+                        enabled = canEdit,
+                        onClick = {
+                            showMenu = false
+                            editText = cardText
+                            showEdit = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(if (item.id in verifying) "Verificando..." else "Verificar")
+                        },
+                        enabled = item.id !in verifying && cardText.isNotBlank(),
+                        onClick = {
+                            showMenu = false
+                            vm.verifyCard(item.id)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copiar") },
+                        enabled = cardText.isNotBlank(),
+                        onClick = {
+                            showMenu = false
+                            copy(cardText)
+                        },
+                    )
+                    if (status == CardStatus.APPLIED) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (item.cardCanUndo) "Desfazer"
+                                    else "Desfazer (sessão encerrada)",
+                                )
+                            },
+                            enabled = item.cardCanUndo,
+                            onClick = {
+                                showMenu = false
+                                vm.undoCard(item.id)
+                            },
+                        )
+                    }
+                    if (status != CardStatus.APPLIED && status != CardStatus.DISMISSED) {
+                        DropdownMenuItem(
+                            text = { Text("Dispensar") },
+                            onClick = {
+                                showMenu = false
+                                vm.dismissCard(item.id)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        notices[item.id]?.let { notice ->
+            Text(
+                notice,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        verification?.let { v ->
+            Text(
+                "Verificação: ✓ ${v.summary.supported} · ⚠ ${v.summary.partial} · " +
+                    "? ${v.summary.insufficient} · 💡 ${v.summary.creative}" +
+                    if (v.limited) " (avaliação local)" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            v.claims
+                .filter { it.status != com.bettertalker.app.data.verify.SupportStatus.SUPPORTED }
+                .take(3)
+                .forEach { claim ->
+                    Text(
+                        "⚠ “${claim.claim.text.take(80)}” — ${claim.reason}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+        }
+    }
+    if (showReplace) {
+        AlertDialog(
+            onDismissRequest = { showReplace = false },
+            title = { Text("Substituir o texto?") },
+            text = {
+                Text(
+                    "O conteúdo atual de “${card.targetLabel ?: "destino"}” será " +
+                        "substituído pelo texto do card.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showReplace = false
+                    vm.replaceCard(item.id)
+                }) { Text("Substituir") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReplace = false }) { Text("Cancelar") }
+            },
+        )
+    }
+    if (showTargets) {
+        AlertDialog(
+            onDismissRequest = { showTargets = false },
+            title = { Text("Escolher destino") },
+            text = {
+                Column {
+                    destinations.filter { it.sectionId != null }.take(8).forEach { dest ->
+                        TextButton(onClick = {
+                            showTargets = false
+                            vm.pickCardTarget(item.id, dest.sectionId!!)
+                        }) { Text(dest.label) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTargets = false }) { Text("Cancelar") }
+            },
+        )
+    }
+    if (showEdit) {
+        AlertDialog(
+            onDismissRequest = { showEdit = false },
+            title = { Text("Revisar texto do card") },
+            text = {
+                OutlinedTextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp),
+                    minLines = 6,
+                    maxLines = 14,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = editText.isNotBlank(),
+                    onClick = {
+                        showEdit = false
+                        vm.updateCardText(item.id, editText)
+                    },
+                ) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEdit = false }) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
 /** #22-fix (P1): selo "BT · " inline — substitui a coluna de avatar (24dp). */
 @Composable
 private fun assistantInlineMark(): AnnotatedString {
@@ -1825,6 +2148,10 @@ fun ChatMessageText(
     onUseInCard: ((String) -> Unit)? = null,
     /** #22-fix (P1): selo prependado ao primeiro bloco de texto (ex.: "BT · "). */
     leadingMark: AnnotatedString? = null,
+    /** Card-first: preview longo do card nasce recolhido (ações visíveis). */
+    collapseCard: Boolean = false,
+    /** Card-first: ações renderizadas logo abaixo do bloco `<texto-do-card>`. */
+    cardActions: (@Composable () -> Unit)? = null,
 ) {
     if (md.isBlank()) return
     // #21-fix: parse ANTES do strip — o <texto-do-card> vira bloco próprio
@@ -1841,6 +2168,7 @@ fun ChatMessageText(
                 )
             }
             var markPending = leadingMark
+            var actionsPlaced = false
             blocks.forEach { block ->
                 // #22-fix (P1): o selo entra no PRIMEIRO bloco de texto
                 // (Divider/TextForCard não consomem).
@@ -1849,7 +2177,13 @@ fun ChatMessageText(
                 val mark = if (isTextBlock) markPending else null
                 if (isTextBlock) markPending = null
                 // #20-fix-a: render extraído (reusado pelo preview do card).
-                RenderBlock(block, mark, onUseInCard)
+                RenderBlock(block, mark, onUseInCard, collapseCard)
+                // Card-first: o card é o objeto principal; as ações ficam
+                // coladas no preview, não depois da conversa que o segue.
+                if (block is MdBlock.TextForCard && !actionsPlaced) {
+                    actionsPlaced = true
+                    cardActions?.invoke()
+                }
             }
         }
     }
@@ -1865,6 +2199,7 @@ internal fun RenderBlock(
     block: MdBlock,
     mark: AnnotatedString?,
     onUseInCard: ((String) -> Unit)?,
+    collapseCard: Boolean = false,
 ) {
     when (block) {
         is MdBlock.Title -> Text(
@@ -1888,7 +2223,7 @@ internal fun RenderBlock(
             markInline(block.text, mark),
             style = MaterialTheme.typography.bodyLarge
         )
-        is MdBlock.TextForCard -> RenderTextForCard(block, onUseInCard)
+        is MdBlock.TextForCard -> RenderTextForCard(block, onUseInCard, collapseCard)
     }
 }
 
@@ -1968,7 +2303,11 @@ private fun RenderCheck(block: MdBlock.Check, mark: AnnotatedString?) {
 private fun RenderTextForCard(
     block: MdBlock.TextForCard,
     onUseInCard: ((String) -> Unit)?,
+    collapse: Boolean = false,
 ) {
+    val canCollapse = collapse && block.text.length > 700
+    var expanded by remember(block.text) { mutableStateOf(false) }
+    val showCollapsed = canCollapse && !expanded
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1998,8 +2337,33 @@ private fun RenderTextForCard(
         }
         Spacer(Modifier.height(6.dp))
         val innerBlocks = remember(block.text) { cardInnerBlocks(block.text) }
-        innerBlocks.forEach { inner ->
-            RenderBlock(inner, mark = null, onUseInCard = null)
+        // Card-first: cards reais podem ter milhares de caracteres. Mostrar
+        // tudo empurrava "Adicionar ao final"/"Substituir" para fora da tela;
+        // o preview nasce recolhido e o texto completo fica a um toque.
+        Column(
+            modifier = if (showCollapsed) {
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 210.dp)
+                    .clipToBounds()
+            } else {
+                Modifier.fillMaxWidth()
+            },
+        ) {
+            innerBlocks.forEach { inner ->
+                RenderBlock(inner, mark = null, onUseInCard = null)
+            }
+        }
+        if (canCollapse) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text(
+                    if (expanded) "Recolher texto" else "Ver texto completo",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
     }
 }

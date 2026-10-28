@@ -6,6 +6,23 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.CardCapturedFrom
+import com.bettertalker.app.data.copilot.CardInsertMode
+import com.bettertalker.app.data.copilot.CardOrigin
+import com.bettertalker.app.data.copilot.CardPayload
+import com.bettertalker.app.data.copilot.CardStatus
+import com.bettertalker.app.data.copilot.CardTarget
+import com.bettertalker.app.data.copilot.CardTargetKind
+import com.bettertalker.app.data.copilot.canGateCard
+import com.bettertalker.app.data.copilot.canInsertCard
+import com.bettertalker.app.data.copilot.canReplaceCard
+import com.bettertalker.app.data.copilot.replaceCardTextBlock
+import com.bettertalker.app.data.copilot.supersededCardMessageIds
+import com.bettertalker.app.data.copilot.cardTargetForNote
+import com.bettertalker.app.data.copilot.cardTargetForSection
+import com.bettertalker.app.data.copilot.capCardSummary
+import com.bettertalker.app.data.copilot.extractCardText
+import com.bettertalker.app.data.copilot.resolveCardStatus
 import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.FocusDestination
@@ -95,6 +112,7 @@ import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.parseInsertSnippet
+import com.bettertalker.app.data.util.paragraphsToHtml
 import com.bettertalker.app.data.util.planPaste
 import com.bettertalker.app.data.util.snippetLabel
 import com.bettertalker.app.data.util.stripInternalTags
@@ -830,6 +848,428 @@ class CopilotViewModel(
         if (_insert.value == null) _insert.value = pendingInserts.removeFirstOrNull()
     }
 
+    // ---------- card-first fase 1: insert/replace/undo ----------
+
+    /** Insere o card ao final do alvo (primário). */
+    fun appendCard(messageId: String) = viewModelScope.launch {
+        applyCard(messageId, CardInsertMode.APPEND)
+    }
+
+    /** Substitui o alvo; a confirmação é da UI. */
+    fun replaceCard(messageId: String) = viewModelScope.launch {
+        applyCard(messageId, CardInsertMode.REPLACE)
+    }
+
+    /** FAILED (insert/undo): volta para AVAILABLE e tenta o append de novo. */
+    fun retryCard(messageId: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return@launch
+        if (card.status != CardStatus.FAILED) return@launch
+        updateCardPayload(messageId, map, card.copy(status = CardStatus.AVAILABLE))
+        applyCard(messageId, CardInsertMode.APPEND)
+    }
+
+    fun dismissCard(messageId: String) = viewModelScope.launch {
+        dismissCardNow(messageId)
+    }
+
+    private suspend fun dismissCardNow(messageId: String) {
+        val nid = noteId ?: return
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return
+        updateCardPayload(messageId, map, card.copy(status = CardStatus.DISMISSED))
+        logCard(messageId, "DISMISS", card, 0)
+    }
+
+    /**
+     * “Transformar em card”: a seleção vira o texto do card, sem chamar o
+     * LLM e sem alterar a nota. O alvo/hash são capturados AGORA; a revisão
+     * (editar/inserir/dispensar) é a mesma dos cards gerados.
+     */
+    fun transformSelectionToCard() = viewModelScope.launch {
+        if (_chatBusy.value) {
+            _cardEvents.tryEmit(CardUiEvent("Aguarde a geração atual terminar."))
+            return@launch
+        }
+        val selected = lastEditorSelection
+        val text = (selected?.text ?: _selection.value).trim()
+        if (text.isBlank()) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Selecione um texto no editor para transformar em card."),
+            )
+            return@launch
+        }
+        val target = captureTransformTarget(
+            sectionIdHint = selected?.sectionId,
+            subPointIdHint = selected?.subPointId,
+        )
+        // A revisão precisa acontecer no MESMO tópico do alvo.
+        val targetScope = selected?.sectionId ?: target?.id
+        if (selected != null) {
+            _chatScope.value = selected.sectionId
+            _scopeMode.value = ScopeMode.SECTION
+        }
+        postTransformCard(text, target, targetScope)
+        lastEditorSelection = null
+        _canTransformSelection.value = false
+    }
+
+    /**
+     * Transformação disparada DENTRO do editor (a seleção não se perde ao
+     * navegar). Captura a seção agora e já abre a revisão no chat.
+     */
+    fun transformSelectionToCardFrom(sectionId: String, text: String) =
+        viewModelScope.launch {
+            if (_chatBusy.value) {
+                _cardEvents.tryEmit(CardUiEvent("Aguarde a geração atual terminar."))
+                return@launch
+            }
+            val clean = text.trim().take(MAX_SELECTION_CHARS)
+            if (clean.isBlank()) return@launch
+            val target = captureTransformTarget(sectionIdHint = sectionId)
+            _chatScope.value = sectionId
+            _scopeMode.value = ScopeMode.SECTION
+            postTransformCard(clean, target, sectionId)
+            lastEditorSelection = null
+            _canTransformSelection.value = false
+        }
+
+    private suspend fun postTransformCard(
+        text: String,
+        target: CardTarget?,
+        targetScope: String?,
+    ) {
+        val previous = activeCardTarget
+        activeCardTarget = target
+        try {
+            post(
+                fromMe = false,
+                kind = "text",
+                payload = ChatCodec.escMap(
+                    mapOf("text" to "<texto-do-card>$text</texto-do-card>"),
+                ),
+                targetScope = targetScope,
+                cardOrigin = CardOrigin.TRANSFORM,
+            )
+            _cardEvents.tryEmit(
+                CardUiEvent("Card criado a partir da seleção. Revise antes de inserir."),
+            )
+        } finally {
+            activeCardTarget = previous
+        }
+    }
+
+    private suspend fun captureTransformTarget(
+        sectionIdHint: String? = null,
+        subPointIdHint: String? = null,
+    ): CardTarget? {
+        val nid = noteId ?: return null
+        val now = System.currentTimeMillis()
+        val sectionId = sectionIdHint
+            ?: _chatScope.value
+            ?: _pushedContext?.sectionId
+        if (sectionId == null) {
+            if (_scopeMode.value == ScopeMode.WHOLE) {
+                val note = db.noteDao().get(nid) ?: return null
+                return cardTargetForNote(
+                    noteId = nid,
+                    label = note.title,
+                    richHtml = note.richHtml,
+                    capturedFrom = CardCapturedFrom.TRANSFORM,
+                    capturedAt = now,
+                )
+            }
+            return null
+        }
+        val section = db.speechSectionDao().get(sectionId) ?: return null
+        val focus = subPointIdHint?.let { id ->
+            db.subPointDao().get(id)?.let { "Ponto ${it.order + 1}" }
+        }
+        return cardTargetForSection(
+            sectionId = sectionId,
+            label = section.title,
+            contentHtml = section.contentHtml,
+            capturedFrom = CardCapturedFrom.TRANSFORM,
+            capturedAt = now,
+            focusLabel = focus,
+        )
+    }
+
+    /** Revisão do card: troca só o bloco do card, preservando a conversa. */
+    fun updateCardText(messageId: String, newText: String) = viewModelScope.launch {
+        val clean = newText.trim().take(20_000)
+        if (clean.isBlank()) return@launch
+        val nid = noteId ?: return@launch
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return@launch
+        if (card.status == CardStatus.APPLIED ||
+            card.status == CardStatus.DISMISSED ||
+            card.status == CardStatus.FAILED
+        ) {
+            return@launch
+        }
+        val updated = replaceCardTextBlock(map["text"].orEmpty(), clean) ?: return@launch
+        val newMap = map.toMutableMap().apply {
+            put("text", updated)
+            put("cardSummary", capCardSummary(clean))
+        }
+        db.chatDao().updateMessagePayload(messageId, ChatCodec.escMap(newMap))
+    }
+
+    /** Verificação warn-only: informa, nunca remove texto nem bloqueia insert. */
+    fun verifyCard(messageId: String) = viewModelScope.launch {
+        if (messageId in _cardVerifying.value) return@launch
+        val nid = noteId ?: return@launch
+        val map = db.chatDao().all(nid).firstOrNull { it.id == messageId }
+            ?.let { ChatCodec.unescMap(it.payload) } ?: return@launch
+        val card = CardPayload.fromMap(map) ?: return@launch
+        val text = extractCardText(map["text"].orEmpty()) ?: return@launch
+        _cardVerifying.value = _cardVerifying.value + messageId
+        try {
+            val v = verifyText(
+                text,
+                blockId = null,
+                scopeKey = nid,
+                retrieve = ::verifyRetrieve,
+            )
+            _cardVerifications.value = _cardVerifications.value + (messageId to v)
+            _cardVerificationNotices.value = _cardVerificationNotices.value - messageId
+            logCard(messageId, "VERIFY", card, text.length)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            _cardVerificationNotices.value = _cardVerificationNotices.value +
+                (messageId to "Não foi possível verificar agora (acervo indisponível).")
+        } finally {
+            _cardVerifying.value = _cardVerifying.value - messageId
+        }
+    }
+
+    /** NO_TARGET: escolhe a seção e captura o hash NAQUELE momento. */
+    fun pickCardTarget(messageId: String, sectionId: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val section = db.speechSectionDao().get(sectionId) ?: return@launch
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return@launch
+        val now = System.currentTimeMillis()
+        updateCardPayload(
+            messageId,
+            map,
+            card.copy(
+                targetKind = CardTargetKind.SECTION,
+                targetId = section.id,
+                targetLabel = section.title,
+                baseHash = hashText(section.contentHtml),
+                capturedFrom = CardCapturedFrom.USER_PICK,
+                capturedAt = now,
+                status = CardStatus.AVAILABLE,
+            ),
+        )
+    }
+
+    fun undoCard(messageId: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return@launch
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return@launch
+        val snapshot = cardUndo[messageId]
+        if (snapshot == null) {
+            _cardEvents.tryEmit(
+                CardUiEvent("Sessão encerrada: não é possível desfazer esta inserção."),
+            )
+            return@launch
+        }
+        val now = System.currentTimeMillis()
+        val currentHash = when (snapshot.targetKind) {
+            CardTargetKind.SECTION -> db.speechSectionDao().get(snapshot.targetId)
+                ?.let { hashText(it.contentHtml) }
+            CardTargetKind.NOTE -> db.noteDao().get(snapshot.targetId)
+                ?.let { hashText(it.richHtml) }
+        }
+        if (currentHash != snapshot.postHash) {
+            updateCardPayload(messageId, map, card.copy(status = CardStatus.STALE))
+            _cardEvents.tryEmit(
+                CardUiEvent("O texto mudou depois da inserção; não é possível desfazer."),
+            )
+            return@launch
+        }
+        try {
+            when (snapshot.targetKind) {
+                CardTargetKind.SECTION -> {
+                    val section = db.speechSectionDao().get(snapshot.targetId) ?: return@launch
+                    db.speechSectionDao().upsert(
+                        section.copy(contentHtml = snapshot.previousHtml, updatedAt = now),
+                    )
+                }
+                CardTargetKind.NOTE -> {
+                    val note = db.noteDao().get(snapshot.targetId) ?: return@launch
+                    db.noteDao().upsert(note.copy(richHtml = snapshot.previousHtml, updatedAt = now))
+                }
+            }
+            cardUndo.remove(messageId)
+            updateCardPayload(
+                messageId,
+                map,
+                card.copy(status = CardStatus.AVAILABLE, appliedAt = null),
+            )
+            logCard(messageId, "UNDO", card, 0, undo = true)
+            _cardEvents.tryEmit(CardUiEvent("Texto restaurado."))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
+            _cardEvents.tryEmit(CardUiEvent("Não foi possível desfazer agora. Tente novamente."))
+        }
+    }
+
+    private suspend fun applyCard(
+        messageId: String,
+        mode: CardInsertMode,
+        gate: Boolean = false,
+    ) {
+        val nid = noteId ?: return
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return
+        val map = ChatCodec.unescMap(entity.payload)
+        val card = CardPayload.fromMap(map) ?: return
+        val text = extractCardText(map["text"].orEmpty()) ?: return
+        val now = System.currentTimeMillis()
+        try {
+            val previousHtml: String
+            val postHtml: String
+            var stale = false
+            when (card.targetKind) {
+                CardTargetKind.SECTION -> {
+                    val section = card.targetId?.let { db.speechSectionDao().get(it) } ?: return
+                    val currentHash = hashText(section.contentHtml)
+                    val status = resolveCardStatus(
+                        card,
+                        targetExists = true,
+                        currentTargetHash = currentHash,
+                    )
+                    if (!canInsertCard(status)) return
+                    stale = status == CardStatus.STALE
+                    if (mode == CardInsertMode.REPLACE &&
+                        !canReplaceCard(status, currentHash == card.baseHash)
+                    ) {
+                        updateCardPayload(messageId, map, card.copy(status = CardStatus.STALE))
+                        _cardEvents.tryEmit(
+                            CardUiEvent("O texto mudou; substituição bloqueada."),
+                        )
+                        return
+                    }
+                    previousHtml = section.contentHtml
+                    postHtml = if (mode == CardInsertMode.REPLACE) {
+                        paragraphsToHtml(text)
+                    } else {
+                        appendCardHtml(previousHtml, text)
+                    }
+                    db.speechSectionDao().upsert(
+                        section.copy(contentHtml = postHtml, updatedAt = now),
+                    )
+                }
+                CardTargetKind.NOTE -> {
+                    val note = card.targetId?.let { db.noteDao().get(it) } ?: return
+                    val currentHash = hashText(note.richHtml)
+                    val status = resolveCardStatus(
+                        card,
+                        targetExists = true,
+                        currentTargetHash = currentHash,
+                    )
+                    if (!canInsertCard(status)) return
+                    stale = status == CardStatus.STALE
+                    if (mode == CardInsertMode.REPLACE &&
+                        !canReplaceCard(status, currentHash == card.baseHash)
+                    ) {
+                        updateCardPayload(messageId, map, card.copy(status = CardStatus.STALE))
+                        _cardEvents.tryEmit(
+                            CardUiEvent("O texto mudou; substituição bloqueada."),
+                        )
+                        return
+                    }
+                    previousHtml = note.richHtml
+                    postHtml = if (mode == CardInsertMode.REPLACE) {
+                        paragraphsToHtml(text)
+                    } else {
+                        appendCardHtml(previousHtml, text)
+                    }
+                    db.noteDao().upsert(note.copy(richHtml = postHtml, updatedAt = now))
+                }
+                null -> return
+            }
+            cardUndo[messageId] = CardUndoSnapshot(
+                targetKind = card.targetKind!!,
+                targetId = card.targetId!!,
+                previousHtml = previousHtml,
+                postHash = hashText(postHtml),
+            )
+            updateCardPayload(
+                messageId,
+                map,
+                card.copy(status = CardStatus.APPLIED, appliedAt = now),
+            )
+            logCard(
+                messageId,
+                if (gate) "GATE_YES" else mode.name,
+                card,
+                text.length,
+                stale = stale,
+                undo = true,
+                gate = gate,
+            )
+            _cardEvents.tryEmit(
+                CardUiEvent(
+                    if (mode == CardInsertMode.REPLACE) "Texto substituído." else "Texto inserido.",
+                    undoMessageId = messageId,
+                ),
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            updateCardPayload(messageId, map, card.copy(status = CardStatus.FAILED))
+            _cardEvents.tryEmit(CardUiEvent("Não foi possível inserir o texto. Tente novamente."))
+        }
+    }
+
+    /** Telemetria do card: metadados apenas, nunca o texto. */
+    private fun logCard(
+        messageId: String,
+        action: String,
+        card: CardPayload,
+        chars: Int,
+        stale: Boolean = false,
+        undo: Boolean = false,
+        gate: Boolean = false,
+    ) {
+        android.util.Log.i(
+            "CopilotCard",
+            "card|msg=$messageId|turn=${card.turnId ?: "-"}|status=${card.status}|" +
+                "target=${card.targetKind ?: "-"}:${card.targetId ?: "-"}|" +
+                "source=${card.capturedFrom ?: "-"}|action=$action|stale=$stale|" +
+                "undo=$undo|gate=$gate|chars=$chars",
+        )
+    }
+
+    private suspend fun updateCardPayload(
+        messageId: String,
+        base: Map<String, String>,
+        card: CardPayload,
+    ) {
+        val clean = base.filterKeys { !it.startsWith("card") }
+        db.chatDao().updateMessagePayload(
+            messageId,
+            ChatCodec.escMap(clean + card.toMap()),
+        )
+    }
+
+    private fun appendCardHtml(previous: String, text: String): String =
+        if (previous.isBlank()) paragraphsToHtml(text)
+        else previous.trimEnd() + "\n" + paragraphsToHtml(text)
+
     // ---------- conversa (chat colaborativo, salvo por nota) ----------
 
     data class ChatItem(
@@ -858,6 +1298,12 @@ class CopilotViewModel(
         val reasoningSeconds: Int = 0,
         /** M1.1: turno cancelado persistido (parcial + "Geração parada"). */
         val cancelled: Boolean = false,
+        /** Card-first: payload do card (alvo, status, gate). */
+        val cardPayload: CardPayload? = null,
+        /** Card-first: alvo está vazio (rótulo "Usar este texto"). */
+        val cardTargetEmpty: Boolean = false,
+        /** Card-first: snapshot de undo existe NESTA sessão. */
+        val cardCanUndo: Boolean = false,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -894,6 +1340,26 @@ class CopilotViewModel(
     private var activeTurnProgressJob: Job? = null
     private var cancelledPersistJob: Job? = null
     private var currentTurnId: String? = null
+    /** Card-first: alvo capturado no início da geração, nunca no clique. */
+    private var activeCardTarget: CardTarget? = null
+    private data class CardUndoSnapshot(
+        val targetKind: CardTargetKind,
+        val targetId: String,
+        val previousHtml: String,
+        val postHash: String,
+    )
+    private val cardUndo = mutableMapOf<String, CardUndoSnapshot>()
+    /** Card-first: avisos efêmeros (snackbar), sem criar mensagem no chat. */
+    data class CardUiEvent(val message: String, val undoMessageId: String? = null)
+    private val _cardEvents = MutableSharedFlow<CardUiEvent>(extraBufferCapacity = 4)
+    val cardEvents: SharedFlow<CardUiEvent> = _cardEvents.asSharedFlow()
+    /** Verificação warn-only por card; nunca altera o texto. */
+    private val _cardVerifications = MutableStateFlow<Map<String, TextVerification>>(emptyMap())
+    val cardVerifications = _cardVerifications.asStateFlow()
+    private val _cardVerifying = MutableStateFlow<Set<String>>(emptySet())
+    val cardVerifying = _cardVerifying.asStateFlow()
+    private val _cardVerificationNotices = MutableStateFlow<Map<String, String>>(emptyMap())
+    val cardVerificationNotices = _cardVerificationNotices.asStateFlow()
 
     /** M1 — troca de escopo: skeleton enquanto a primeira consulta chega. */
     private val _scopeLoading = MutableStateFlow(false)
@@ -958,8 +1424,28 @@ class CopilotViewModel(
     private val _selection = MutableStateFlow("")
     val selection = _selection.asStateFlow()
 
-    fun setSelection(text: String) {
-        _selection.value = text.trim().take(MAX_SELECTION_CHARS)
+    /** Seleção capturada no editor para "Transformar em card". */
+    data class EditorSelection(
+        val text: String,
+        val sectionId: String,
+        val subPointId: String? = null,
+    )
+    /** Última seleção NÃO vazia; sobrevive à navegação até ser usada. */
+    private var lastEditorSelection: EditorSelection? = null
+    private val _canTransformSelection = MutableStateFlow(false)
+    val canTransformSelection = _canTransformSelection.asStateFlow()
+
+    fun setSelection(
+        text: String,
+        sectionId: String? = null,
+        subPointId: String? = null,
+    ) {
+        val clean = text.trim().take(MAX_SELECTION_CHARS)
+        _selection.value = clean
+        if (clean.isNotBlank() && sectionId != null) {
+            lastEditorSelection = EditorSelection(clean, sectionId, subPointId)
+            _canTransformSelection.value = true
+        }
     }
 
     /**
@@ -1100,6 +1586,56 @@ class CopilotViewModel(
 
     private fun resetLocalProgress() {
         com.bettertalker.app.data.llm.LocalProgress.reset()
+    }
+
+    /**
+     * Card-first: captura o alvo no INÍCIO da geração. Subponto não é alvo
+     * de inserção nesta fase; o card aponta para a seção e guarda o rótulo
+     * do foco ("Ponto 2").
+     */
+    private suspend fun captureCardTarget(
+        target: DraftTarget?,
+        dossier: Dossier?,
+    ): CardTarget? {
+        val nid = noteId ?: return null
+        val now = System.currentTimeMillis()
+        if (_scopeMode.value == ScopeMode.WHOLE) {
+            val note = db.noteDao().get(nid) ?: return null
+            return cardTargetForNote(
+                noteId = nid,
+                label = note.title,
+                richHtml = note.richHtml,
+                capturedFrom = CardCapturedFrom.WHOLE,
+                capturedAt = now,
+            )
+        }
+        // Fallback: o tópico aberto no chat também é alvo inequívoco.
+        val sectionId = target?.sectionId
+            ?: _pushedContext?.sectionId
+            ?: _chatScope.value.takeIf { _scopeMode.value == ScopeMode.SECTION }
+            ?: return null
+        val section = db.speechSectionDao().get(sectionId) ?: return null
+        val from = when {
+            target is DraftTarget.SubPoint -> CardCapturedFrom.ACTIVE_BLOCK
+            _selection.value.isNotBlank() -> CardCapturedFrom.SELECTION
+            _pushedContext != null -> CardCapturedFrom.PUSH
+            else -> CardCapturedFrom.ACTIVE_BLOCK
+        }
+        val focus = if (target is DraftTarget.SubPoint) {
+            db.subPointDao().get(target.subPointId)?.let { "Ponto ${it.order + 1}" }
+        } else {
+            dossier?.currentSubPoint?.let { sub ->
+                sub.outlineText.lineSequence().firstOrNull { it.isNotBlank() }?.take(40)
+            }
+        }
+        return cardTargetForSection(
+            sectionId = sectionId,
+            label = section.title,
+            contentHtml = section.contentHtml,
+            capturedFrom = from,
+            capturedAt = now,
+            focusLabel = focus,
+        )
     }
 
     private data class TurnProgress(
@@ -1603,6 +2139,13 @@ class CopilotViewModel(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val messages = if (noteId != null) {
+        // Card-first: o status do card depende do conteúdo ATUAL do alvo.
+        // Observar as seções/nota faz o card virar STALE na hora em que o
+        // usuário edita o texto, sem esperar uma nova mensagem no chat.
+        val targetChanges = combine(
+            db.speechSectionDao().observeForNote(noteId),
+            db.noteDao().observeById(noteId),
+        ) { _, _ -> Unit }
         _chatScope.flatMapLatest { scope ->
             // G3 (UX S): o parcial da geração anterior não vaza para o escopo novo.
             resetLocalProgress()
@@ -1622,8 +2165,9 @@ class CopilotViewModel(
                         _scopeLoading.value = false
                     }
                 }
-        }.map { list ->
-            list.map { e ->
+        }.combine(targetChanges) { list, _ -> list }
+            .map { list ->
+            val items = list.map { e ->
                 when (e.kind) {
                     "ideas" -> {
                         val m = ChatCodec.unescMap(e.payload)
@@ -1657,6 +2201,7 @@ class CopilotViewModel(
                     }
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
+                        val cardPayload = CardPayload.fromMap(m)
                         ChatItem(e.id, e.fromMe, "text",
                             text = m["text"].orEmpty(), origin = messageOriginOf(m),
                             durationMs = m["durationMs"]?.toLongOrNull(),
@@ -1664,13 +2209,61 @@ class CopilotViewModel(
                             isTruncated = m["truncated"] == "1",
                             turnId = m["turnId"].orEmpty(),
                             reasoningSeconds = m["reasoningSeconds"]?.toIntOrNull() ?: 0,
-                            cancelled = m["cancelled"] == "1")
+                            cancelled = m["cancelled"] == "1",
+                            cardPayload = cardPayload)
                     }
                 }
             }
+            resolveCardUi(items)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     } else {
         MutableStateFlow(emptyList())
+    }
+
+    /**
+     * Card-first: status é derivado do alvo ATUAL no carregamento.
+     * - hash diferente → STALE;
+     * - alvo ausente → TARGET_MISSING;
+     * - sem alvo → NO_TARGET;
+     * - card mais novo no mesmo alvo marca os anteriores como SUPERSEDED.
+     * APPLIED/DISMISSED/FAILED são preservados (terminais de exibição).
+     */
+    private suspend fun resolveCardUi(items: List<ChatItem>): List<ChatItem> {
+        val supersededIds = supersededCardMessageIds(
+            items.mapNotNull { item -> item.cardPayload?.let { item.id to it } },
+        )
+        return items.map { item ->
+            val card = item.cardPayload ?: return@map item
+            var exists = false
+            var hash: String? = null
+            var empty = false
+            when (card.targetKind) {
+                CardTargetKind.SECTION -> {
+                    val section = card.targetId?.let { db.speechSectionDao().get(it) }
+                    exists = section != null
+                    hash = section?.let { hashText(it.contentHtml) }
+                    empty = section?.contentHtml.isNullOrBlank()
+                }
+                CardTargetKind.NOTE -> {
+                    val note = card.targetId?.let { db.noteDao().get(it) }
+                    exists = note != null
+                    hash = note?.let { hashText(it.richHtml) }
+                    empty = note?.richHtml.isNullOrBlank()
+                }
+                null -> Unit
+            }
+            val status = resolveCardStatus(
+                payload = card,
+                targetExists = exists,
+                currentTargetHash = hash,
+                superseded = item.id in supersededIds,
+            )
+            item.copy(
+                cardPayload = card.copy(status = status),
+                cardTargetEmpty = empty,
+                cardCanUndo = cardUndo.containsKey(item.id),
+            )
+        }
     }
 
     /** #4 (UX S): para a geração em andamento — o send trata o cancelamento
@@ -1749,6 +2342,8 @@ class CopilotViewModel(
         targetScope: String? = turnScope ?: _chatScope.value,
         /** M1: id estável do turno; só o texto final vira o item do turno. */
         turnId: String? = currentTurnId,
+        /** Card-first: origem do card (CHAT na geração; TRANSFORM na seleção). */
+        cardOrigin: CardOrigin = CardOrigin.CHAT,
     ): String? {
         val nid = noteId ?: return null
         // Origem embutida no JSON do payload (sem migration; histórico
@@ -1774,6 +2369,28 @@ class CopilotViewModel(
             withOrigin["reasoningSeconds"] = reasoningSeconds.toString()
         }
         val messageId = newId("msg")
+        // Card-first: se a resposta tem <texto-do-card>, o alvo capturado na
+        // geração vira payload do card. O gate aponta para esta mensagem.
+        if (!fromMe) {
+            val cardText = extractCardText(withOrigin["text"].orEmpty())
+            if (cardText != null) {
+                val target = activeCardTarget
+                val card = CardPayload(
+                    targetKind = target?.kind,
+                    targetId = target?.id,
+                    targetLabel = target?.displayLabel,
+                    baseHash = target?.baseHash,
+                    capturedFrom = target?.capturedFrom,
+                    capturedAt = target?.capturedAt,
+                    turnId = effectiveTurnId ?: currentTurnId,
+                    origin = cardOrigin,
+                    summary = capCardSummary(cardText),
+                    gateMessageId = messageId,
+                    status = if (target == null) CardStatus.NO_TARGET else CardStatus.AVAILABLE,
+                )
+                withOrigin.putAll(card.toMap())
+            }
+        }
         db.chatDao().put(
             ChatEntity(
                 messageId, nid, fromMe, kind, ChatCodec.escMap(withOrigin),
@@ -2001,6 +2618,7 @@ class CopilotViewModel(
                 dossier?.currentSection?.minutes
             }
             val blockText = currentFocusText()
+            activeCardTarget = captureCardTarget(target, dossier)
             // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
             if (postUserMessage) {
                 post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
@@ -2011,6 +2629,9 @@ class CopilotViewModel(
             // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
             // do try e pulavam o finally — travando composer e runState.
             try {
+            // Card-first: “Sim/Não” ancorado em cardGateMessageId; só o card
+            // mais recente que é a última fala aceita. Antes do gate antigo.
+            if (postUserMessage && resolveCardShortAnswer(text)) return@launch
             // Fase 2: “Sim/Não” do cartão de proposta é ação pendente —
             // executa antes do router/LLM, mas depois de postar a mensagem.
             if (postUserMessage && resolveProposalShortAnswer(text)) return@launch
@@ -2301,6 +2922,7 @@ class CopilotViewModel(
                 )
                 turnScope = null
                 currentTurnId = null
+                activeCardTarget = null
                 currentGenerationJob = null
                 _chatBusy.value = false
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
@@ -4343,6 +4965,59 @@ class CopilotViewModel(
 
     fun dismissProposalNotice() {
         _proposal.value = _proposal.value?.copy(notice = null)
+    }
+
+    /**
+     * “Sim/Não” do CARD: a âncora é `cardGateMessageId` e o card precisa ser
+     * a última fala do Copilot. “Sim” faz append; “Não” dispensa. Qualquer
+     * outro texto (ou card que não é a última fala) segue o fluxo normal.
+     */
+    private suspend fun resolveCardShortAnswer(text: String): Boolean {
+        if (!ChatIntent.isYes(text) && !ChatIntent.isNo(text)) return false
+        val nid = noteId ?: return false
+        val lastCopilot = db.chatDao().all(nid)
+            .filter { it.isActive && it.sectionId == _chatScope.value }
+            .lastOrNull { !it.fromMe }
+            ?: return false
+        val map = ChatCodec.unescMap(lastCopilot.payload)
+        val card = CardPayload.fromMap(map) ?: return false
+        if (card.gateMessageId != lastCopilot.id) return false
+        var exists = false
+        var hash: String? = null
+        when (card.targetKind) {
+            CardTargetKind.SECTION -> {
+                val section = card.targetId?.let { db.speechSectionDao().get(it) }
+                exists = section != null
+                hash = section?.let { hashText(it.contentHtml) }
+            }
+            CardTargetKind.NOTE -> {
+                val note = card.targetId?.let { db.noteDao().get(it) }
+                exists = note != null
+                hash = note?.let { hashText(it.richHtml) }
+            }
+            null -> Unit
+        }
+        val status = resolveCardStatus(card, targetExists = exists, currentTargetHash = hash)
+        if (!canGateCard(
+                status = status,
+                isLastCopilotMessage = true,
+                applied = card.status == CardStatus.APPLIED,
+            )
+        ) {
+            return false
+        }
+        return when {
+            ChatIntent.isYes(text) -> {
+                applyCard(lastCopilot.id, CardInsertMode.APPEND, gate = true)
+                true
+            }
+            ChatIntent.isNo(text) -> {
+                dismissCardNow(lastCopilot.id)
+                logCard(lastCopilot.id, "GATE_NO", card, 0, gate = true)
+                true
+            }
+            else -> false
+        }
     }
 
     /**

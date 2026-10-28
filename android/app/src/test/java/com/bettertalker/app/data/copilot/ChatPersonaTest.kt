@@ -24,8 +24,8 @@ class ChatPersonaTest {
         assertTrue(s.startsWith(CHAT_PERSONA_FREE))
         assertTrue(s.contains("Testemunhas de Jeová"))
         assertTrue(s.contains("Evite formalidade excessiva"))
-        assertTrue(s.contains("SOMENTE quando o usuário pedir"))
-        assertFalse(CHAT_PERSONA.contains("SOMENTE quando o usuário pedir"))
+        assertTrue(s.contains("Um card por resposta"))
+        assertFalse(CHAT_PERSONA.contains("Um card por resposta"))
     }
 
     @Test

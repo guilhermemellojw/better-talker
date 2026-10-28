@@ -432,8 +432,28 @@ fun EditorScreen(
                 // #13-fix-a: toolbar extraída para FormattingToolbar.kt
                 // (linha fina no phone + sheet; inline no tablet).
                 // Opera o editor ATIVO; sem foco = desabilitada.
+                val toolbarSelection by vm.selection.collectAsState()
                 EditorFormattingToolbar(
                     activeEditorState = activeEditorState,
+                    onTransformCard = copilotVm?.let { cvm ->
+                        {
+                            val sel = vm.selection.value
+                            if (sel != null && sel.selectedText.isNotBlank()) {
+                                cvm.transformSelectionToCardFrom(
+                                    sectionId = sel.sectionId,
+                                    text = sel.selectedText,
+                                )
+                                // O chat coleta pushedContext ao entrar; sem
+                                // isto ele voltaria ao escopo global e o card
+                                // recém-criado ficaria invisível.
+                                scope.launch {
+                                    vm.pushContextForChat(DraftTarget.Section(sel.sectionId))
+                                    onOpenChat()
+                                }
+                            }
+                        }
+                    },
+                    canTransformCard = toolbarSelection?.selectedText?.isNotBlank() == true,
                     modifier = Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)

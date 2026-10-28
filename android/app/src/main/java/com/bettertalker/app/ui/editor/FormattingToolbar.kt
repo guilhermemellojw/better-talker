@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatClear
@@ -90,6 +91,9 @@ import com.mohamedrejeb.richeditor.model.RichTextState
 fun EditorFormattingToolbar(
     activeEditorState: RichTextState?,
     modifier: Modifier = Modifier,
+    /** Card-first: seleção viva → card (sem perder o alvo ao navegar). */
+    onTransformCard: (() -> Unit)? = null,
+    canTransformCard: Boolean = false,
 ) {
     val enabled = activeEditorState != null
     // Block 2: cores de fonte conforme o modo (preto → onSurface no escuro).
@@ -232,6 +236,16 @@ fun EditorFormattingToolbar(
                 item { ToolBtn(Icons.Default.FormatClear, "Limpar formatação", enabled = enabled, onClick = onClear) }
                 item { ToolBtn(Icons.AutoMirrored.Filled.Undo, "Desfazer", enabled = enabled && canUndo, onClick = onUndo) }
                 item { ToolBtn(Icons.AutoMirrored.Filled.Redo, "Refazer", enabled = enabled && canRedo, onClick = onRedo) }
+                if (canTransformCard && onTransformCard != null) {
+                    item {
+                        ToolBtn(
+                            Icons.Default.Create,
+                            "Transformar em card",
+                            enabled = enabled,
+                            onClick = onTransformCard,
+                        )
+                    }
+                }
             }
         } else {
             // #13-fix-a2: linha fina FULL-WIDTH — 3 grupos com separadores
@@ -274,11 +288,17 @@ fun EditorFormattingToolbar(
                     ) { sheet = SheetMode.HIGHLIGHT }
                 }
                 VerticalDivider(modifier = Modifier.height(24.dp))
-                // Grupo 3 — menu.
+                // Grupo 3 — card + menu.
                 Row(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(2f),
                     horizontalArrangement = Arrangement.Center,
                 ) {
+                    if (canTransformCard && onTransformCard != null) {
+                        ToolBtn(
+                            Icons.Default.Create, "Transformar em card",
+                            enabled = enabled, onClick = onTransformCard,
+                        )
+                    }
                     ToolBtn(
                         Icons.Default.MoreVert, "Mais opções",
                         active = sheet == SheetMode.MORE, enabled = enabled,

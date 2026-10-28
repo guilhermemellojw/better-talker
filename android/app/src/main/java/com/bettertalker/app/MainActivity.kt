@@ -328,6 +328,17 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(activeSectionTitle) {
                 copilotVm.setActiveBlock(activeSectionTitle)
             }
+            // Card-first: captura a seleção ENQUANTO o editor está na tela
+            // (a rota do chat não vê mudanças de seleção do editor).
+            val liveSelection by vm.selection.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(liveSelection) {
+                val sel = liveSelection
+                copilotVm.setSelection(
+                    text = sel?.selectedText.orEmpty(),
+                    sectionId = sel?.sectionId,
+                    subPointId = sel?.subPointId,
+                )
+            }
             EditorScreen(
                 vm,
                 onBack = { nav.popBackStack() },
@@ -451,11 +462,8 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
                 copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
             }
-            // Fase 18 §17: seleção viva do editor -> contexto do Copilot.
-            val liveSelection by editorVm.selectedText.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(liveSelection) {
-                copilotVm.setSelection(liveSelection)
-            }
+            // A seleção é capturada na rota do editor (acima) e persiste
+            // na instância única do CopilotViewModel ancorada no editor.
             // Fase 3.5b.3: dossiê da seção ativa sob demanda (F2b: com alvo explícito).
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
                 copilotVm.setDossierProvider { target -> editorVm.buildDossierFor(target) }
