@@ -1,9 +1,9 @@
 # Card-first — estados A34-only (2026-10-28)
 
 - Branch: `fix/card-first-estados` (base `23df2fd`, sem merge).
-- Commit: `d689ec1`.
+- Commit: `4b283fe`.
 - Suíte: **2.607 testes / 0 falhas**. `lintRelease`: **verde**.
-- CI: **verde** (run `40662478026`).
+- CI: **verde** (run `40669479048`).
 
 ## O que foi fechado no código
 
