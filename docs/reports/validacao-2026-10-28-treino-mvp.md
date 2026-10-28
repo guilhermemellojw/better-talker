@@ -91,6 +91,24 @@
   continua pendente. Em amostras longas o STT perdeu parte da fala
   (`error=7`), o que reforça o caminho “pouca fala capturada”.
 
+### Amostra com fala humana (tablet, 2026-10-28)
+
+- Leitura natural da nota “Amostra de fala — 1 min” (802 chars, 143 palavras).
+- Resultado registrado na tela:
+  - **Fala: 40 s · Sessão: 47 s**;
+  - **70 palavras · 105 wpm** (alvo 130);
+  - **cobertura 51% · 1 muleta (“certo”)**;
+  - `hasEnoughSpeech=true`; o app marcou “Ensaio parcial: 40 s de uma meta de
+    2 min”;
+  - feedback coerente: poucas muletas, pausas fora do ritmo, ritmo abaixo da
+    faixa e exercício de leitura sem pausas longas.
+- A amostra é **parcial** (40 s/70 palavras), não o alvo de ~1 min/100–160
+  palavras; o resultado foi honesto ao não inventar métricas.
+- Achado de UI: os **termos faltantes** não apareciam no resultado. Corrigido
+  no commit `94d07b3` (“Termos que faltaram: …” quando `hasEnoughSpeech`).
+- Nenhum arquivo de áudio em `files/`/`cache/` (só o modelo Piper); nenhum
+  crash no log.
+
 ## Pendências e decisões
 
 - **A34:** fluxo de UI validado; resta a mesma amostra de fala humana do
@@ -98,10 +116,10 @@
 - **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
   histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
   (escopo/modo/timer) por nota.
-- **Amostra com fala humana:** o pipeline foi exercitado com áudio sintético
-  (42 palavras/55% de cobertura/93 wpm); falta a leitura humana de 1–2 min para
-  o aceite final. O caminho de falha/pouca fala também foi validado.
-  Nota temporária **“Amostra de fala — 1 min”** (802 chars) deixada no tablet,
-  já na preparação; remover depois do aceite.
+- **Amostra com fala humana:** registrada (40 s/70 palavras/105 wpm/51%),
+  porém parcial. Falta repetir uma leitura mais próxima de 1 min no build com
+  a linha de termos faltantes para fechar o critério. A nota temporária
+  **“Amostra de fala — 1 min”** segue no tablet, já na preparação; remover
+  depois do aceite.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.
