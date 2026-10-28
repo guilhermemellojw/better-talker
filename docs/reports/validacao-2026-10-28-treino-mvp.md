@@ -101,5 +101,7 @@
 - **Amostra com fala humana:** o pipeline foi exercitado com áudio sintético
   (42 palavras/55% de cobertura/93 wpm); falta a leitura humana de 1–2 min para
   o aceite final. O caminho de falha/pouca fala também foi validado.
+  Nota temporária **“Amostra de fala — 1 min”** (802 chars) deixada no tablet,
+  já na preparação; remover depois do aceite.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.
