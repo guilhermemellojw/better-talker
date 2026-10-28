@@ -2879,7 +2879,7 @@ class CopilotViewModel(
             val route = com.bettertalker.app.data.copilot.ChatRouter.route(
                 text,
                 _lastS34Document,
-                turnContext.structural?.currentSection?.id,
+                turnContext.structural?.currentSection?.id ?: _chatScope.value,
                 lastOratory
             )
             // Diagnóstico de sessão: route + reason, nunca o texto do usuário.
@@ -3332,7 +3332,27 @@ class CopilotViewModel(
             sectionContentHtml = section?.contentHtml,
             fallbackFocus = focus,
         )
-        val cardTarget = section?.let {
+        // Transição aponta para a PRÓXIMA seção; os demais modos, para a
+        // seção em foco. O alvo é capturado antes da chamada.
+        val targetSectionId = if (ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION) {
+            ready.nextSectionId
+        } else {
+            section?.id
+        }
+        val targetSection = if (ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION) {
+            // O S-34 usa ids próprios (s34-...:sec-N); a nota usa UUIDs.
+            // Casa o próximo ponto pelo título antes de cair no foco atual.
+            val nextTitle = ready.orderedSections
+                .firstOrNull { it.sectionId == ready.nextSectionId }
+                ?.title
+            val noteSections = noteId?.let { db.speechSectionDao().forNote(it) }.orEmpty()
+            noteSections.firstOrNull { sec ->
+                nextTitle != null && sec.title.trim().equals(nextTitle.trim(), ignoreCase = true)
+            } ?: targetSectionId?.let { db.speechSectionDao().get(it) } ?: section
+        } else {
+            targetSectionId?.let { db.speechSectionDao().get(it) } ?: section
+        }
+        val cardTarget = targetSection?.let {
             cardTargetForSection(
                 sectionId = it.id,
                 label = it.title,

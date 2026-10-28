@@ -1,7 +1,7 @@
 # Card-first fase 4 — oratória no card e qualidade (2026-10-28)
 
 - Branch: `feat/v2.9-card-fase4` (base `d820362`).
-- Suíte: **2.614 testes / 0 falhas**. `lintRelease`: **verde**.
+- Suíte: **2.617 testes / 0 falhas**. `lintRelease`: **verde**.
 - Validação: tablet Xiaomi `25040RP0AL` (Android 16/API 36), A34 ocupado.
 
 ## O que mudou
@@ -64,29 +64,47 @@ Nota “# 192...”, seção Introdução (2.115 chars de conteúdo).
 - `quais referencias apoiam este ponto?`:
   - rota `STRUCTURAL_QUERY`, mensagem `refs` com `text=Referências da nota`;
   - sem resposta vazia.
-- `me de uma transicao para este ponto`:
-  - no tablet, a nota não tinha S-34 carregado na sessão (`section=—`), então o
-  app pediu quais pontos; sem card.
-  - o caminho com alvo S-34 usa o mesmo `generateOratory`/card; falta uma
-  amostra com S-34 carregado.
+- `me de uma transicao para este ponto` (seção BODY com S-34 carregado):
+  - rota `ORATORY mode=TRANSITION section=sec-1`;
+  - card de 771 chars;
+  - alvo **próxima seção** `COMO COMEÇAR A ANDAR...` (`996f25c2...`);
+  - `suggestedAction=APPEND`, status `AVAILABLE`;
+  - `Usar este texto` → 793 chars na próxima seção; undo restaurou 0.
+  - Sem S-34 carregado o app pede os pontos (caso anterior); o seletor
+  pré-geração ainda é uma pendência.
 
-### Números da amostra
+### Métricas da amostra (definições corrigidas)
 
-- Pedidos de texto: 8 (7 com alvo utilizável no tablet + transição sem S-34).
-- Cards emitidos: 6.
-- Cobertura: **6/7 = 86%** dos pedidos com alvo; **6/8 = 75%** incluindo a
-  transição sem alvo S-34.
-- Propostas de texto geradas/usadas nessa rota: **0/0**.
-- Alvo errado: **0** (todos os cards da Introdução em `650ec896...`).
+| Métrica | Valor |
+|---|---|
+| `text_requests` | 8 |
+| `cards_emitted` | 7 (inclui a transição com S-34) |
+| `card_coverage` | **7/8 = 87,5%** |
+| `card_adoption` | 2/7 = 29% (1 replace + 1 append) |
+| `proposal_generated` | 0 |
+| `proposal_adoption` | n/a (0 geradas) |
+| `text_requests_by_card` | 7/(7+0) = **100%** |
+| `applied_text_ops` | 2 (replace + append) |
+| `no_target_rate` | 0/8 na amostra com S-34; transição sem S-34 pede pontos |
+| `clarified_then_card` | 1 (transição sem S-34 → depois card com S-34) |
+
+- Alvo errado: **0**; todos os cards da introdução/transição usaram o alvo
+  capturado (`650ec896...` ou a próxima `996f25c2...`).
 - Explicação/refs: sem card, como esperado.
-- `replaced`: 1; `undone`: 1; `superseded`: 6.
+- `replaced`: 1; `undone`: 1; `superseded`: 6 **eventos**.
+- **Superseded:** com N cards no mesmo alvo, os N-1 anteriores viram
+  `SUPERSEDED` e o último fica `AVAILABLE`. O `6` é contagem de eventos, não
+  estados finais. Testes puros: 3 cards → 2 `SUPERSEDED` + 1 `AVAILABLE`; alvos
+  diferentes → nenhum; `APPLIED` não vira `SUPERSEDED`.
 
 ## Ainda pendente
 
-- Amostra de **transição** com S-34 carregado e próximo ponto.
+- Seletor de alvo **pré-geração** para transição sem S-34; hoje o app pede os
+  pontos, não abre o `USER_PICK` antes de gerar.
 - Eventos `USER_PICK`/`TARGET_MISSING`/`failed`/`transform`/`proposal_text|used`
   no corpus da fase 4; os estados/atomicidade já foram validados no A34, mas a
   amostra de telemetria ficou zero nesta rodada.
-- Repetir a medição com as definições `text_requests`, `card_coverage`,
-  `card_adoption`, `proposal_generated/adoption` e `applied_text_ops`.
-- Tablet/keystore continuam gates da `v2.9.0`.
+- Corpus final com 20–30 turnos usando as definições acima; esta amostra de
+  tablet é de 8 pedidos e serve de checkpoint.
+- Tablet: C2 refs e M1 stop/retry validados neste build; card-first 1–3 já foi
+  validado no A34. Keystore continua gate da `v2.9.0`.
