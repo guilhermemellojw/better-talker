@@ -19,6 +19,19 @@
 > no A34; **2.601 testes / 0 falhas** e `lintRelease` verde. A validação no
 > tablet segue pendente; a v2.9.0 só sai depois de tablet + keystore.
 
+> **Card-first — estados A34-only:** branch `fix/card-first-estados`
+> (`5ad9c1c`), **sem merge**. Fecha `NO_TARGET`/`USER_PICK`,
+> `TARGET_MISSING`, `FAILED` (retry da ação certa), `CANCELLED` read-only e
+> SUPERSEDED sem alvo; **2.606 testes / 0 falhas**, lint/CI verdes. O A34
+> ficou offline antes do smoke; merge só depois de exercitar os cinco
+> fluxos no aparelho.
+
+> **Card-first fase 2:** branch `feat/card-first-fase2-prompt` (`97f5cc4`),
+> **sem merge**. Regra única em `CHAT_TAIL_INSTRUCTIONS`, “um card por
+> resposta”, segundo bloco vira texto com aviso e telemetria `EMIT`;
+> **2.602 testes / 0 falhas**, lint/CI verdes. Aguarda smoke A34 para
+> confirmar a emissão de um card por resposta.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
