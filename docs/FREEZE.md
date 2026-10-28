@@ -38,7 +38,7 @@
 > retry sem duplicar (5.941, uma ocorrência). Relatório em
 > `docs/reports/validacao-2026-10-28-card-atomicity.md`.
 
-> **Card-first fase 3 — métricas:** branch `exp/card-metrics` (`46118a2`),
+> **Card-first fase 3 — métricas:** branch `exp/card-metrics` (`3bdbe3b`),
 > **sem merge**. Só telemetria `CardMetrics` (sem mudar UX/prompt):
 > emitted/applied/replaced/undone/stale/dismissed/gate/target/failed/
 > second_ignored/transform/proposal_text. **2.611 testes / 0 falhas**,
