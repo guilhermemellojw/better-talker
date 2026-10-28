@@ -73,6 +73,14 @@
 > iteração/superseded, não rejeição); `card_share_of_text_outputs` é
 > `cards/(cards+proposals)` = 100% e **não** é cobertura de pedidos.
 
+> **Specs salvas:** `docs/specs/treino-mvp.md` e
+> `docs/specs/apresentar-live.md` (commit `bc4f96a`). Nenhum código de
+> Treino/Apresentar iniciado; dependem da `v2.9.0`.
+>
+> **Fase 4.2 (opcional, não bloqueia a v2.9.0):** seletor de alvo antes de
+> gerar quando não há S-34 e motivos explícitos de dispensa para separar
+> iteração de rejeição.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
