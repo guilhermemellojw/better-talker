@@ -1,5 +1,10 @@
 # Treino MVP — implementação e validação (2026-10-28)
 
+**Status:** MVP fechado com ressalva de captura do STT. Fluxo completo validado
+no tablet e no A34; duas leituras humanas ficaram em ~40 s/67–70 palavras e o
+serviço perdeu o início da fala, mas o resultado foi honesto (parcial,
+cobertura e termos faltantes) e não houve crash nem áudio salvo.
+
 - Branch: `feat/v2.10-treino-mvp` (base `084eba3`, `main` da `v2.9.0`).
 - Spec: `docs/specs/treino-mvp.md`.
 - Dispositivo: tablet Xiaomi `25040RP0AL` (Android 16/API 36), build debug.
