@@ -13,6 +13,12 @@
 > O turno único e o CANCELLED persistido estão validados no A34. A próxima
 > frente é o card-first; a v2.9.0 continua sem tag até tablet + keystore.
 
+> **Card-first fase 1:** mergeado na `main` em `03004b1` (fast-forward),
+> **sem tag**. Alvo capturado na geração, append/replace, undo, gate “Sim”,
+> stale, SUPERSEDED, verificação warn-only e “Transformar em card” validados
+> no A34; **2.601 testes / 0 falhas** e `lintRelease` verde. A validação no
+> tablet segue pendente; a v2.9.0 só sai depois de tablet + keystore.
+
 ## Congelados / removidos
 
 | Item | Status | Observação |
