@@ -83,7 +83,7 @@ Nota “# 192...”, seção Introdução (2.115 chars de conteúdo).
 | `card_adoption` | 2/7 = 29% (1 replace + 1 append) |
 | `proposal_generated` | 0 |
 | `proposal_adoption` | n/a (0 geradas) |
-| `text_requests_by_card` | 7/(7+0) = **100%** |
+| `card_share_of_text_outputs` | 7/(7+0) = **100%** (dos outputs de texto, não dos pedidos) |
 | `applied_text_ops` | 2 (replace + append) |
 | `no_target_rate` | 0/8 na amostra com S-34; transição sem S-34 pede pontos |
 | `clarified_then_card` | 1 (transição sem S-34 → depois card com S-34) |
@@ -92,6 +92,19 @@ Nota “# 192...”, seção Introdução (2.115 chars de conteúdo).
   capturado (`650ec896...` ou a próxima `996f25c2...`).
 - Explicação/refs: sem card, como esperado.
 - `replaced`: 1; `undone`: 1; `superseded`: 6 **eventos**.
+
+### Leitura do `card_adoption` (2/7 = 29%)
+
+- A amostra tem 7 cards; 2 operações aplicadas (1 replace + 1 append).
+- A maior parte dos não aplicados foi **iteração no mesmo alvo**: o usuário
+  pediu “mais natural”, “outra versão”, “mais direta” e o card novo marcou o
+  anterior como `SUPERSEDED`. Isso é o fluxo esperado, não rejeição de
+  qualidade.
+- Não houve `dismissed`/`stale` nessa amostra; o número não mede “não gostei
+  do texto”. Para separar iteração de rejeição, a telemetria precisa de um
+  motivo explícito de dispensa/feedback (fase 4.2 opcional).
+- `card_coverage` continua sendo `cards_emitted / text_requests` (7/8 = 87,5%);
+  `card_share_of_text_outputs` não deve ser lido como cobertura de pedidos.
 - **Superseded:** com N cards no mesmo alvo, os N-1 anteriores viram
   `SUPERSEDED` e o último fica `AVAILABLE`. O `6` é contagem de eventos, não
   estados finais. Testes puros: 3 cards → 2 `SUPERSEDED` + 1 `AVAILABLE`; alvos
