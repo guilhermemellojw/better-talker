@@ -12,6 +12,9 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.voice.SessionSpeechRecognizer
 import com.bettertalker.app.data.voice.SessionSpeechState
 import com.bettertalker.app.data.voice.prepareForSpeech
+import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SpeechSection
+import com.bettertalker.app.domain.speech.SubPoint
 import com.bettertalker.app.domain.coach.SpeechSessionTimer
 import com.bettertalker.app.domain.coach.buildCoachFeedback
 import com.bettertalker.app.domain.coach.coachFeedbackSpeech
@@ -26,12 +29,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Ensaio v1 — estado do leitor de tribuna: texto agregado da nota,
- * cronômetro global (decorrido/meta/restante) e preferências de leitura.
+ * Treino — estado da sessão: fonte da nota, preparação (escopo/modo/timer),
+ * texto recortado, cronômetro (decorrido/meta/restante) e análise STT local.
  *
- * Cronômetro: inicia ao entrar na tela e pode ser pausado/retomado tocando
- * no relógio (tempo de preparação não contamina a leitura). Meta = Σ dos
- * `minutes` das seções (dado já existente no S-34).
+ * Cronômetro: NÃO inicia ao entrar; só depois do "Começar treino". A meta é
+ * a soma das seções no discurso inteiro ou a duração da seção no trecho.
+ * O texto e a transcrição não são gravados; a transcrição é descartada após
+ * as métricas.
  */
 
 /** Estados/cor do cronômetro pela fração da meta. */
@@ -92,9 +96,47 @@ class StageViewModel(
     private val _analysisElapsed = MutableStateFlow(0L)
     val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
 
+    /** STT do sistema disponível (sem ele, "Com análise" fica desabilitado). */
+    private val hasSpeechRecognizer = android.speech.SpeechRecognizer
+        .isRecognitionAvailable(appCtx)
+    private val _analysisAvailable = MutableStateFlow(hasSpeechRecognizer)
+    val analysisAvailable: StateFlow<Boolean> = _analysisAvailable.asStateFlow()
+
     private val sessionTimer = SpeechSessionTimer()
     private var analysisTimerJob: Job? = null
     private var sectionTitles: List<String> = emptyList()
+
+    // ---------- Treino MVP (preparação + escopo) ----------
+
+    /** Opções de trecho (seções/subpontos) carregadas do banco. */
+    private val _trainingSections = MutableStateFlow<List<TrainSectionOption>>(emptyList())
+    val trainingSections: StateFlow<List<TrainSectionOption>> =
+        _trainingSections.asStateFlow()
+
+    /** Última preparação escolhida nesta nota. */
+    private val _prep = MutableStateFlow(defaultTrainPrep(hasSpeechRecognizer))
+    val prep: StateFlow<TrainPrep> = _prep.asStateFlow()
+
+    /** Fonte carregada: a preparação já pode ser mostrada. */
+    private val _prepReady = MutableStateFlow(false)
+    val prepReady: StateFlow<Boolean> = _prepReady.asStateFlow()
+
+    /** O treino só começa no "Começar treino" (timer não corre ao abrir). */
+    private val _trainingStarted = MutableStateFlow(false)
+    val trainingStarted: StateFlow<Boolean> = _trainingStarted.asStateFlow()
+
+    /** Existe texto utilizável em algum escopo. */
+    private val _hasTrainingText = MutableStateFlow(false)
+    val hasTrainingText: StateFlow<Boolean> = _hasTrainingText.asStateFlow()
+
+    /** Rótulo do escopo atual ("Discurso inteiro", título da seção...). */
+    private val _scopeLabel = MutableStateFlow("")
+    val scopeLabel: StateFlow<String> = _scopeLabel.asStateFlow()
+
+    private var sections: List<SpeechSection> = emptyList()
+    private var subPointsBySection: Map<String, List<SubPoint>> = emptyMap()
+    private var discourseType: DiscourseType = DiscourseType.S34_DISCOURSE
+    private var allTurns: List<StageTurn> = emptyList()
 
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
@@ -114,14 +156,14 @@ class StageViewModel(
     /** Texto falado pelo TTS: só as falas (sem rótulos) quando há diálogo. */
     private var speechText: String = ""
 
-    /** Meta global = soma dos minutos das seções (0 = sem meta). */
+    /** Meta do escopo atual (soma das seções ou duração da seção; 0 = sem meta). */
     private val _totalMinutes = MutableStateFlow(0)
     val totalMinutes: StateFlow<Int> = _totalMinutes.asStateFlow()
 
     private val _elapsed = MutableStateFlow(0L)
     val elapsed: StateFlow<Long> = _elapsed.asStateFlow()
 
-    private val _timerRunning = MutableStateFlow(true)
+    private val _timerRunning = MutableStateFlow(false)
     val timerRunning: StateFlow<Boolean> = _timerRunning.asStateFlow()
 
     private val _fontSp = MutableStateFlow(STAGE_FONT_DEFAULT_SP)
@@ -155,45 +197,47 @@ class StageViewModel(
         viewModelScope.launch {
             settings.stageFontSp.collect { _fontSp.value = it }
         }
-        // Conteúdo da nota: agregado pronto para leitura.
+        // Fonte da nota + preparação do Treino. O cronômetro NÃO começa aqui:
+        // o spec exige "Começar treino" explícito.
         viewModelScope.launch {
-            val sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
-            val subPoints = sections.associate { s ->
+            sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
+            subPointsBySection = sections.associate { s ->
                 s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
             }
             val note = db.noteDao().get(noteId)
             _title.value = note?.title.orEmpty()
+            discourseType = DiscourseType.fromNameOrDefault(note?.discourseType)
             _totalMinutes.value = sections.sumOf { it.minutes }
             sectionTitles = sections.sortedBy { it.order }
                 .map { it.title }
                 .filter { it.isNotBlank() }
-            val type = com.bettertalker.app.domain.speech.DiscourseType
-                .fromNameOrDefault(note?.discourseType)
             // Ensaio por tipo: S-34 lê subpontos; V&M lê contentHtml, sem
             // títulos/metadados (o Stage antigo lia o texto agregado inteiro).
-            _content.value = buildStageContent(type, sections, subPoints)
+            _content.value = buildStageContent(discourseType, sections, subPointsBySection)
             // Modo Teleprompter: turnos do diálogo — só demonstrações V&M com
             // ≥2 papéis distintos (evita falso positivo em negritos de discurso).
-            val isDemo = type ==
-                com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART ||
-                type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO
-            val parsed = if (isDemo) {
-                sections.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
-            } else {
-                emptyList()
-            }
-            val turns = if (parsed.map { it.speaker.lowercase() }.distinct().size >= 2) {
-                parsed
-            } else {
-                emptyList()
-            }
-            _turns.value = turns
-            speechText = stageSpeechText(turns, _content.value)
+            allTurns = parsedTurnsFor(sections, discourseType)
+            _turns.value = allTurns
+            speechText = stageSpeechText(allTurns, _content.value)
+            _trainingSections.value = trainSectionOptions(sections, subPointsBySection)
+            _hasTrainingText.value = _content.value.isNotBlank() || allTurns.isNotEmpty()
+            _prep.value = decodeTrainPrep(
+                raw = settings.trainPrep(noteId),
+                sections = sections,
+                subPointsBySection = subPointsBySection,
+                analysisAvailable = hasSpeechRecognizer,
+            )
+            _prepReady.value = true
         }
-        startTimer()
     }
 
     fun startTimer() {
+        if (!_prep.value.timerEnabled) {
+            _timerRunning.value = false
+            timerJob?.cancel()
+            timerJob = null
+            return
+        }
         _timerRunning.value = true
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
@@ -212,6 +256,108 @@ class StageViewModel(
 
     fun toggleTimer() {
         if (_timerRunning.value) pauseTimer() else startTimer()
+    }
+
+    // ---------- Treino MVP — preparação e escopo ----------
+
+    /** Atualiza a preparação na UI (a persistência acontece no Começar). */
+    fun updatePrep(prep: TrainPrep) {
+        _prep.value = sanitizeTrainPrep(
+            prep = prep,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            analysisAvailable = hasSpeechRecognizer,
+        )
+    }
+
+    /**
+     * "Começar treino": fixa escopo/modo/timer, recorta o texto e a meta e só
+     * então inicia o cronômetro (se ligado). A análise é iniciada pela tela
+     * (depois da permissão de microfone) quando o modo é ANALYSIS.
+     */
+    fun startTraining(prep: TrainPrep = _prep.value) {
+        if (!_prepReady.value) return
+        val safe = sanitizeTrainPrep(
+            prep = prep,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            analysisAvailable = hasSpeechRecognizer,
+        )
+        _prep.value = safe
+        tts.stop()
+        dismissAnalysis()
+        _elapsed.value = 0L
+        _scopeLabel.value = trainScopeLabel(sections, subPointsBySection, safe.scope)
+        _totalMinutes.value = trainTargetMinutes(sections, subPointsBySection, safe.scope)
+        _content.value = buildStageContentForScope(
+            discourseType = discourseType,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            scope = safe.scope,
+        )
+        _turns.value = turnsForScope(safe.scope)
+        speechText = stageSpeechText(_turns.value, _content.value)
+        sectionTitles = scopedSectionTitles(safe.scope)
+        _duoRole.value = null
+        _trainingStarted.value = true
+        if (safe.timerEnabled) {
+            startTimer()
+        } else {
+            _timerRunning.value = false
+            timerJob?.cancel()
+            timerJob = null
+        }
+        viewModelScope.launch { settings.setTrainPrep(noteId, encodeTrainPrep(safe)) }
+    }
+
+    /** "Treinar de novo": mesmo escopo/modo, timer e análise do zero. */
+    fun restartTraining() = startTraining(_prep.value)
+
+    /** "Treinar outro trecho": volta para a preparação sem manter o timer. */
+    fun backToPrep() {
+        tts.stop()
+        dismissAnalysis()
+        pauseTimer()
+        _elapsed.value = 0L
+        _trainingStarted.value = false
+    }
+
+    private fun scopedSectionTitles(scope: TrainScope): List<String> {
+        val ordered = sections.sortedBy { it.order }
+        val scoped = when (scope.kind) {
+            TrainScopeKind.WHOLE -> ordered
+            TrainScopeKind.SECTION -> ordered.filter { it.id == scope.sectionId }
+            TrainScopeKind.SUBPOINT -> ordered.filter { section ->
+                subPointsBySection[section.id].orEmpty().any { it.id == scope.subPointId }
+            }
+        }
+        return scoped.map { it.title }.filter { it.isNotBlank() }
+    }
+
+    /** Turnos do teleprompter limitados ao escopo (subponto = texto corrido). */
+    private fun turnsForScope(scope: TrainScope): List<StageTurn> = when (scope.kind) {
+        TrainScopeKind.WHOLE -> allTurns
+        TrainScopeKind.SECTION -> parsedTurnsFor(
+            sections.filter { it.id == scope.sectionId },
+            discourseType,
+        )
+        TrainScopeKind.SUBPOINT -> emptyList()
+    }
+
+    /** Demonstrações V&M com ≥2 papéis; os demais tipos leem texto corrido. */
+    private fun parsedTurnsFor(
+        source: List<SpeechSection>,
+        type: DiscourseType,
+    ): List<StageTurn> {
+        val isDemo = type == DiscourseType.MINISTRY_PART ||
+            type == DiscourseType.FREE_DEMO
+        if (!isDemo) return emptyList()
+        val parsed = source.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
+        return if (parsed.map { it.speaker.lowercase() }.distinct().size >= 2) {
+            parsed
+        } else {
+            emptyList()
+        }
     }
 
     fun bumpFont(delta: Int) {
