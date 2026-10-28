@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.CardCapturedFrom
@@ -1106,25 +1107,39 @@ class CopilotViewModel(
             return
         }
         try {
+            // Undo atômico: o texto do alvo e o status do card (AVAILABLE)
+            // commitam juntos; se o status falhar, o texto NÃO é restaurado
+            // pela metade.
             when (snapshot.targetKind) {
                 CardTargetKind.SECTION -> {
                     val section = db.speechSectionDao().get(snapshot.targetId) ?: return
-                    db.speechSectionDao().upsert(
-                        section.copy(contentHtml = snapshot.previousHtml, updatedAt = now),
-                    )
+                    db.withTransaction {
+                        db.speechSectionDao().upsert(
+                            section.copy(contentHtml = snapshot.previousHtml, updatedAt = now),
+                        )
+                        updateCardPayload(
+                            messageId,
+                            map,
+                            card.copy(status = CardStatus.AVAILABLE, appliedAt = null),
+                        )
+                    }
                 }
                 CardTargetKind.NOTE -> {
                     val note = db.noteDao().get(snapshot.targetId) ?: return
-                    db.noteDao().upsert(note.copy(richHtml = snapshot.previousHtml, updatedAt = now))
+                    db.withTransaction {
+                        db.noteDao().upsert(
+                            note.copy(richHtml = snapshot.previousHtml, updatedAt = now),
+                        )
+                        updateCardPayload(
+                            messageId,
+                            map,
+                            card.copy(status = CardStatus.AVAILABLE, appliedAt = null),
+                        )
+                    }
                 }
             }
             cardUndo.remove(messageId)
             cardRetry.remove(messageId)
-            updateCardPayload(
-                messageId,
-                map,
-                card.copy(status = CardStatus.AVAILABLE, appliedAt = null),
-            )
             logCard(messageId, "UNDO", card, 0, undo = true)
             _cardEvents.tryEmit(CardUiEvent("Texto restaurado."))
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1151,6 +1166,7 @@ class CopilotViewModel(
             val previousHtml: String
             val postHtml: String
             var stale = false
+            var committed = false
             when (card.targetKind) {
                 CardTargetKind.SECTION -> {
                     val section = card.targetId?.let { db.speechSectionDao().get(it) } ?: return
@@ -1177,9 +1193,16 @@ class CopilotViewModel(
                     } else {
                         appendCardHtml(previousHtml, text)
                     }
-                    db.speechSectionDao().upsert(
-                        section.copy(contentHtml = postHtml, updatedAt = now),
-                    )
+                    val updated = section.copy(contentHtml = postHtml, updatedAt = now)
+                    db.withTransaction {
+                        db.speechSectionDao().upsert(updated)
+                        updateCardPayload(
+                            messageId,
+                            map,
+                            card.copy(status = CardStatus.APPLIED, appliedAt = now),
+                        )
+                    }
+                    committed = true
                 }
                 CardTargetKind.NOTE -> {
                     val note = card.targetId?.let { db.noteDao().get(it) } ?: return
@@ -1206,10 +1229,20 @@ class CopilotViewModel(
                     } else {
                         appendCardHtml(previousHtml, text)
                     }
-                    db.noteDao().upsert(note.copy(richHtml = postHtml, updatedAt = now))
+                    val updated = note.copy(richHtml = postHtml, updatedAt = now)
+                    db.withTransaction {
+                        db.noteDao().upsert(updated)
+                        updateCardPayload(
+                            messageId,
+                            map,
+                            card.copy(status = CardStatus.APPLIED, appliedAt = now),
+                        )
+                    }
+                    committed = true
                 }
                 null -> return
             }
+            if (!committed) return
             cardUndo[messageId] = CardUndoSnapshot(
                 targetKind = card.targetKind!!,
                 targetId = card.targetId!!,
@@ -1217,11 +1250,6 @@ class CopilotViewModel(
                 postHash = hashText(postHtml),
             )
             cardRetry.remove(messageId)
-            updateCardPayload(
-                messageId,
-                map,
-                card.copy(status = CardStatus.APPLIED, appliedAt = now),
-            )
             logCard(
                 messageId,
                 if (gate) "GATE_YES" else mode.name,
