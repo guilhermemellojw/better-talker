@@ -237,6 +237,38 @@ class CardFirstTest {
     }
 
     @Test
+    fun matrizDeAcoesPorEstado() {
+        val insertable = listOf(
+            CardStatus.AVAILABLE,
+            CardStatus.STALE,
+            CardStatus.SUPERSEDED,
+        )
+        val blocked = listOf(
+            CardStatus.APPLIED,
+            CardStatus.NO_TARGET,
+            CardStatus.TARGET_MISSING,
+            CardStatus.DISMISSED,
+            CardStatus.FAILED,
+        )
+        insertable.forEach { assertTrue("insert $it", canInsertCard(it)) }
+        blocked.forEach { assertFalse("insert $it", canInsertCard(it)) }
+
+        assertTrue(canReplaceCard(CardStatus.AVAILABLE, hashMatches = true))
+        assertTrue(canReplaceCard(CardStatus.SUPERSEDED, hashMatches = true))
+        assertFalse(canReplaceCard(CardStatus.STALE, hashMatches = true))
+        blocked.forEach { assertFalse("replace $it", canReplaceCard(it, hashMatches = true)) }
+
+        val gateYes = listOf(CardStatus.AVAILABLE, CardStatus.STALE)
+        val gateNo = blocked + CardStatus.SUPERSEDED
+        gateYes.forEach {
+            assertTrue("gate $it", canGateCard(it, isLastCopilotMessage = true, applied = false))
+        }
+        gateNo.forEach {
+            assertFalse("gate $it", canGateCard(it, isLastCopilotMessage = true, applied = false))
+        }
+    }
+
+    @Test
     fun semAlvoNaoAceitaGate() {
         val status = CardStatus.NO_TARGET
         assertFalse(canGateCard(status, isLastCopilotMessage = true, applied = false))

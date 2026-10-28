@@ -2,7 +2,7 @@
 
 - Branch: `fix/card-first-estados` (base `23df2fd`, sem merge).
 - Commit: `d689ec1`.
-- Suíte: **2.606 testes / 0 falhas**. `lintRelease`: **verde**.
+- Suíte: **2.607 testes / 0 falhas**. `lintRelease`: **verde**.
 - CI: **verde** (run `40662478026`).
 
 ## O que foi fechado no código
