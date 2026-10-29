@@ -5,7 +5,10 @@
 - Dispositivos: A34 `SM-A346M` (1080x2340) e tablet `25040RP0AL`
   (1600x2560, retrato/paisagem).
 - Suíte: **2.622 testes / 0 falhas**. `lintRelease`: **verde**.
-- **Status:** primeira entrega + os quatro ajustes pós-validação fechados.
+- **Status:** MVP do Apresentar live aprovado no tablet/A34; os quatro
+  ajustes pós-validação e o bug da Tribuna vazia foram fechados. Resta apenas
+  uma pendência operacional de limpeza de dados de teste no tablet, que ficou
+  offline.
 
 ## O que foi implementado
 
