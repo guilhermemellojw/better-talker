@@ -32,8 +32,13 @@
   motion acionados; screenshots e vídeo local (`/tmp/opencode/m2a.mp4`).
 - Sem crash; nenhum dado do app foi alterado.
 - **Tablet:** pendente (offline no momento da validação).
+- **Testes:** **2.620 / 0 falhas** (inclui o teste do predicado de erro);
+  `lintRelease` verde.
 - Sem infra Compose instrumentada; validação manual + screenshots/vídeo,
   conforme spec.
+- Predicado puro `shouldShowStandaloneError(activeTurn, runState)` implementado
+  na branch do protótipo com 3 testes: com turno ativo nunca mostra o row
+  avulso; sem turno, Error/Cancelled mostram; estados normais não.
 
 ## Limitações
 
