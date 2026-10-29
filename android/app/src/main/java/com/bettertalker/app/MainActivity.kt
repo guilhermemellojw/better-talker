@@ -348,10 +348,16 @@ private fun AppNav(
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
                 onGenerateTribuna = {
-                    // #20-fix-c: gera em background e abre a tela — os cards
-                    // reagem ao tribunaJson (observe live) quando chega.
-                    copilotVm.generateTribuna()
-                    nav.navigate(Routes.tribuna(noteId))
+                    // Só abre a Tribuna se a geração salvou ao menos uma
+                    // cápsula; falha permanece no editor com erro/retry.
+                    copilotVm.generateTribuna { ok ->
+                        if (ok) {
+                            nav.navigate(Routes.tribuna(noteId))
+                        } else {
+                            editorNotice = noteId to
+                                "Não consegui gerar a Tribuna. Tente novamente pelo menu ⋮ → Gerar Tribuna."
+                        }
+                    }
                 },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
                 onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },

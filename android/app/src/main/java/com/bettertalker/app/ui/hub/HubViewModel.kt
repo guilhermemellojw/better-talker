@@ -9,7 +9,9 @@ import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
 import com.bettertalker.app.ui.present.PresentReadiness
+import com.bettertalker.app.ui.present.decodePresentSession
 import com.bettertalker.app.ui.present.presentReadiness
+import com.bettertalker.app.ui.stage.formatClock
 import com.bettertalker.app.ui.stage.parseStageTurns
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,6 +35,8 @@ data class HubNoteCard(
     val colorArgb: Long = 0L,
     /** Apresentar: prontidão da Tribuna; null nos demais hubs. */
     val presentReadiness: PresentReadiness? = null,
+    /** Apresentar: sessão salva ("Continuar da seção 2 · 01:23"). */
+    val presentResumeLabel: String? = null,
 )
 
 /** Rótulo do tipo da nota no card ("Demonstração" × "Discurso"). Puro/testável. */
@@ -95,6 +99,10 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                     entity.tribunaJson?.let { tribunaCapsuleFromJson(it) } != null
                 }
             }
+            val saved = decodePresentSession(
+                raw = settings.presentSession(note.id),
+                totalSections = sections.size,
+            )
             HubNoteCard(
                 id = note.id,
                 title = note.title.ifBlank { "Sem título" },
@@ -105,6 +113,9 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                 pinned = note.pinned,
                 colorArgb = note.colorArgb,
                 presentReadiness = presentReadiness(sections.size, readySections),
+                presentResumeLabel = saved?.let {
+                    "Continuar da seção ${it.index + 1} · ${formatClock(it.elapsedSec)}"
+                },
             )
         }
     }

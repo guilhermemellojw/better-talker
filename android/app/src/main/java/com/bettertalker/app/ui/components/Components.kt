@@ -123,7 +123,7 @@ fun NoteCard(
                         statusText,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.tertiary,
-                        maxLines = 1,
+                        maxLines = 2,
                     )
                 }
                 Spacer(Modifier.height(4.dp))

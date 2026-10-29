@@ -1,10 +1,11 @@
-# Apresentar live — implementação inicial e validação (2026-10-28)
+# Apresentar live — implementação inicial e validação (2026-10-28/29)
 
 - Branch: `feat/v2.11-apresentar-live` (base `084eba3`).
 - Spec: `docs/specs/apresentar-live.md`.
 - Dispositivos: A34 `SM-A346M` (1080x2340) e tablet `25040RP0AL`
   (1600x2560, retrato/paisagem).
 - Suíte: **2.622 testes / 0 falhas**. `lintRelease`: **verde**.
+- **Status:** primeira entrega + os quatro ajustes pós-validação fechados.
 
 ## O que foi implementado
 
@@ -83,14 +84,29 @@
 - Demo: Roteiro no tablet, papel Ana, turno atual/próximo e contador de turno.
 - Notas de teste removidas; #192 preservada.
 
+## Ajustes pós-validação
+
+- **Swipe (tablet + A34):** avançar/voltar uma seção funciona; o timer da
+  seção reinicia; swipe vertical não muda de seção; gesto horizontal curto
+  não dispara. Botões Anterior/Próxima continuam disponíveis.
+- **Bateria <20%:** simulei `dumpsys battery unplug` + `level 15` no tablet;
+  o pré-voo mostrou “Bateria em 15% e sem carregador — carregue antes.”;
+  `dumpsys battery reset` foi executado.
+- **Continuar no hub:** o card agora mostra
+  **“Tribuna pronta · Continuar da seção 2 · 04:22”** (tablet e A34); o
+  pré-voo continua com o chip de continuar.
+- **Bug da Tribuna vazia:** `generateTribuna` agora devolve sucesso/falha e o
+  editor só navega para a Tribuna quando ao menos uma cápsula foi salva.
+  Testado no tablet sem chave de IA: permaneceu no editor, com snackbar de
+  erro e sem abrir Tribuna vazia.
+
 ## Pendências
 
-- **Swipe:** implementado; os botões Anterior/Próxima foram validados nos
-  dois aparelhos. A rotação foi validada no tablet; no A34 o sistema estava
-  com `ignoreOrientationRequest`, por isso ficou retrato.
-- **Bateria baixa:** código preparado; não exercitado com bateria <20%.
-- **Continuar de onde parei:** existe no pré-voo; ainda não há atalho direto
-  no card do hub.
-- **Bug do chat/Tribuna vazia:** não foi alterado nesta primeira entrega.
+- **Swipe:** validado no tablet e no A34 (seção/timer; vertical não muda).
+  A rotação foi validada no tablet; no A34 o sistema estava com
+  `ignoreOrientationRequest`, por isso ficou retrato.
+- **Limpeza do tablet:** o tablet ficou offline antes de restaurar a base de
+  teste; as notas de teste ainda estão nele. Ao voltar, restaurar
+  `restored-better-talker.db` (o A34 já foi limpo).
 - **Merge/release:** nada do Apresentar vai para a `main` antes da tag
   `v2.9.0/28`; a keystore continua o gate externo.

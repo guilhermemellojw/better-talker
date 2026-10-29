@@ -296,7 +296,7 @@ fun NoteRowDetailed(
                     statusText,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.tertiary,
-                    maxLines = 1,
+                    maxLines = 2,
                 )
             }
             Text(

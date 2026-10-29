@@ -17,7 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.bettertalker.app.ui.components.ViewModeMenu
 import com.bettertalker.app.ui.present.PresentReadiness
 import com.bettertalker.app.ui.present.presentReadinessLabel
@@ -44,7 +47,14 @@ fun PresentHomeScreen(
     val cards by vm.cards.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
     var blockedNoteId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { vm.refresh() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         // O Scaffold global (MainActivity) + a barra cuidam dos insets do
@@ -82,7 +92,10 @@ fun PresentHomeScreen(
                     }
                 },
                 statusText = { card ->
-                    card.presentReadiness?.let { presentReadinessLabel(it) }
+                    listOfNotNull(
+                        card.presentReadiness?.let { presentReadinessLabel(it) },
+                        card.presentResumeLabel,
+                    ).joinToString(" · ").ifBlank { null }
                 },
             )
         }

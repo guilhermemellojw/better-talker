@@ -5008,17 +5008,23 @@ class CopilotViewModel(
      * por seção, salvas em `tribunaJson`. Não streama; não passa pelo gate
      * (o texto é para o usuário editar).
      */
-    fun generateTribuna() {
+    fun generateTribuna(onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            val nid = noteId ?: return@launch
+            val nid = noteId
+            if (nid == null) {
+                onResult(false)
+                return@launch
+            }
             val remote = ProviderFactory.resolveRemote(settings, app)
             if (!ProviderFactory.useRemoteRoute(remote)) {
                 postText("Configure a chave de IA na tela Modelo IA para gerar a Tribuna.")
+                onResult(false)
                 return@launch
             }
             val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
             if (sections.none { it.contentHtml.isNotBlank() }) {
                 postText("As seções ainda estão vazias — desenvolva o discurso antes de gerar a Tribuna.")
+                onResult(false)
                 return@launch
             }
             val prompt = com.bettertalker.app.data.copilot.buildTribunaPrompt(sections)
@@ -5044,6 +5050,7 @@ class CopilotViewModel(
             }
             if (res == null) {
                 postText("Não consegui gerar a Tribuna. Tente novamente.")
+                onResult(false)
                 return@launch
             }
             android.util.Log.i(
@@ -5064,6 +5071,7 @@ class CopilotViewModel(
                     "A Tribuna foi cortada pelo limite de tokens. " +
                         "Tente novamente com menos seções."
                 )
+                onResult(false)
                 return@launch
             }
             val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
@@ -5082,6 +5090,7 @@ class CopilotViewModel(
             }
             if (saved == 0) {
                 postText("A resposta da Tribuna veio vazia ou em formato inesperado. Tente novamente.")
+                onResult(false)
             } else {
                 post(
                     false,
@@ -5090,6 +5099,7 @@ class CopilotViewModel(
                         "text" to "— Tribuna gerada para $saved seções —",
                     )),
                 )
+                onResult(true)
             }
         }
     }
