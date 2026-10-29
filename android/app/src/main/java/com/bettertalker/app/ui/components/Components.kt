@@ -69,6 +69,8 @@ fun NoteCard(
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
     durationText: String? = null,
+    /** Apresentar: prontidão da Tribuna ("Tribuna pronta") — null = não mostra. */
+    statusText: String? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = if (colorArgb != 0L) {
@@ -114,6 +116,15 @@ fun NoteCard(
                             )
                         }
                     }
+                }
+                if (statusText != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1,
+                    )
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(previewOf(md), style = MaterialTheme.typography.bodySmall, maxLines = 4)

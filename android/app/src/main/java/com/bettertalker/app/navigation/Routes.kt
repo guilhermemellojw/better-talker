@@ -19,10 +19,13 @@ object Routes {
     const val TRAIN_HOME = "train"
     /** Hub "Apresentar": escolha visual da nota antes da Tribuna. */
     const val PRESENT_HOME = "present"
+    /** Apresentar live — pré-voo + palco read-only (imersivo). */
+    const val PRESENT = "present/{noteId}"
     fun editor(noteId: String) = "editor/$noteId"
     fun chat(noteId: String) = "chat/$noteId"
     fun tribuna(noteId: String) = "tribuna/$noteId"
     fun stage(noteId: String) = "stage/$noteId"
+    fun present(noteId: String) = "present/$noteId"
     fun library(linkNote: String? = null, scan: Boolean = false) =
         "library?linkNote=${linkNote.orEmpty()}&scan=$scan"
 }

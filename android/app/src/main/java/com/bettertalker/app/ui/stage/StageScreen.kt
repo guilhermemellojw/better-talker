@@ -71,10 +71,10 @@ import androidx.core.view.WindowInsetsControllerCompat
  *
  * Toque no relógio pausa/retoma. Os controles não somem sozinhos.
  */
-private val StageBg = Color(0xFF030712)
-private val StageFg = Color(0xFFF8FAFC)
-private val StageDim = Color(0xFF94A3B8)
-private val StageAccent = Color(0xFFF59E0B)
+internal val StageBg = Color(0xFF030712)
+internal val StageFg = Color(0xFFF8FAFC)
+internal val StageDim = Color(0xFF94A3B8)
+internal val StageAccent = Color(0xFFF59E0B)
 
 /** Cores dos papéis — fundo escuro (Ensaio) e fundo claro (Tribuna). */
 private val StageSpeakerColorsDark = listOf(

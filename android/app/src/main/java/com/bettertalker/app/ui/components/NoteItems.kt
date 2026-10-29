@@ -160,6 +160,8 @@ fun NoteRowCompact(
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
     durationText: String? = null,
+    /** Apresentar: prontidão da Tribuna — null = não mostra. */
+    statusText: String? = null,
 ) {
     Row(
         Modifier
@@ -203,11 +205,22 @@ fun NoteRowCompact(
                 }
             }
         }
-        Text(
-            noteDate(updatedAt),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (statusText != null) {
+            Text(
+                statusText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        } else {
+            Text(
+                noteDate(updatedAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
     }
 }
@@ -228,6 +241,8 @@ fun NoteRowDetailed(
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
     durationText: String? = null,
+    /** Apresentar: prontidão da Tribuna — null = não mostra. */
+    statusText: String? = null,
 ) {
     Row(
         Modifier
@@ -275,6 +290,14 @@ fun NoteRowDetailed(
                         )
                     }
                 }
+            }
+            if (statusText != null) {
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    maxLines = 1,
+                )
             }
             Text(
                 previewOf(md),

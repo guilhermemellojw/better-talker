@@ -40,6 +40,8 @@ internal fun HubNoteList(
     mode: HomeViewMode,
     emptyText: String,
     onOpen: (String) -> Unit,
+    /** Apresentar: prontidão por nota; null = não mostra. */
+    statusText: (HubNoteCard) -> String? = { null },
 ) {
     if (cards.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -70,7 +72,7 @@ internal fun HubNoteList(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(cards, key = { it.id }) { card ->
-                    HubNoteItem(card, HomeViewMode.GRID, onOpen)
+                    HubNoteItem(card, HomeViewMode.GRID, onOpen, statusText)
                 }
             }
             HomeViewMode.LIST_COMPACT -> LazyColumn(
@@ -79,7 +81,7 @@ internal fun HubNoteList(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(cards, key = { it.id }) { card ->
-                    HubNoteItem(card, HomeViewMode.LIST_COMPACT, onOpen)
+                    HubNoteItem(card, HomeViewMode.LIST_COMPACT, onOpen, statusText)
                 }
             }
             HomeViewMode.LIST_DETAILED -> LazyColumn(
@@ -88,7 +90,7 @@ internal fun HubNoteList(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(cards, key = { it.id }) { card ->
-                    HubNoteItem(card, HomeViewMode.LIST_DETAILED, onOpen)
+                    HubNoteItem(card, HomeViewMode.LIST_DETAILED, onOpen, statusText)
                 }
             }
         }
@@ -101,25 +103,30 @@ private fun HubNoteItem(
     card: HubNoteCard,
     mode: HomeViewMode,
     onOpen: (String) -> Unit,
+    statusText: (HubNoteCard) -> String?,
 ) {
     val badge = if (card.isDemonstration) "Demonstração" else "Discurso"
     val duration = card.minutes?.let { "$it min" }
+    val status = statusText(card)
     val onClick = { onOpen(card.id) }
     when (mode) {
         HomeViewMode.GRID -> NoteCard(
             title = card.title, md = card.preview, updatedAt = card.updatedAt,
             pinned = card.pinned, attachCount = 0, colorArgb = card.colorArgb,
             onClick = onClick, badgeText = badge, durationText = duration,
+            statusText = status,
         )
         HomeViewMode.LIST_COMPACT -> NoteRowCompact(
             title = card.title, updatedAt = card.updatedAt, pinned = card.pinned,
             colorArgb = card.colorArgb, onClick = onClick,
             badgeText = badge, durationText = duration,
+            statusText = status,
         )
         HomeViewMode.LIST_DETAILED -> NoteRowDetailed(
             title = card.title, md = card.preview, updatedAt = card.updatedAt,
             pinned = card.pinned, colorArgb = card.colorArgb, onClick = onClick,
             badgeText = badge, durationText = duration,
+            statusText = status,
         )
     }
 }
