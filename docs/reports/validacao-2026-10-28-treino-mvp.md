@@ -1,11 +1,9 @@
 # Treino MVP — implementação e validação (2026-10-28)
 
-**Status:** MVP funcional fechado; countdown de microfone implementado. Fluxo
-completo validado no tablet e no A34; duas leituras humanas ficaram em
-~40 s/67–70 palavras e o serviço perdeu o início da fala, mas o resultado foi
-honesto (parcial, cobertura e termos faltantes) e não houve crash nem áudio
-salvo. O countdown ainda precisa de uma leitura humana para confirmar a
-captura do início.
+**Status:** MVP fechado. Fluxo completo validado no tablet e no A34; o
+countdown 3·2·1 foi validado no A34 e o início da leitura passou a ser
+capturado (os termos faltantes deixaram de ser as primeiras palavras). Sem
+crash e sem áudio salvo.
 
 - Branch: `feat/v2.10-treino-mvp` (base `084eba3`, `main` da `v2.9.0`).
 - Spec: `docs/specs/treino-mvp.md`.
@@ -130,6 +128,23 @@ captura do início.
   atingido por perda de fala do STT; repetir não mudou o padrão.
 - Nota temporária “Amostra de fala — 1 min” removida do tablet; #192 preservada.
 
+### Leitura com countdown (A34)
+
+- O overlay **“Prepare-se 3·2·1”** apareceu após o Começar treino e o timer
+  só passou a correr depois da contagem.
+- Leitura do primeiro parágrafo, já com o microphone pronto:
+  - **Fala: 42 s · Sessão: 48 s**;
+  - **78 palavras · 111 wpm** (alvo 130; faixa 110–150);
+  - **cobertura 60% · 1 muleta (“certo”)**;
+  - **Termos que faltaram: olhamos · aves · seguem · plano · trata** — as
+    primeiras palavras (“Boa”, “noite”, “irmãos”, “Hoje”, “vamos”) foram
+    capturadas; o problema de início perdido não se repetiu;
+  - feedback: ritmo dentro da faixa, ensaio parcial de 42 s de 2 min, nada a
+    ajustar e exercício para continuar do ponto.
+- “Treinar de novo” rearmou a sessão/contagem; “Treinar outro trecho” voltou à
+  preparação. Nenhum áudio em `files/`/`cache/`; nenhum crash.
+- Nota de amostra removida do A34; #192 preservada.
+
 ## Countdown do microfone (correção pós-validação)
 
 - O STT agora expõe `Preparing` até `onReadyForSpeech`; o app não entra em
@@ -150,12 +165,13 @@ captura do início.
 - **“Continuar último treino”/“última vez treinada”:** spec §4 alinhada —
   histórico de sessão fica para a **v2.10.1**; o MVP só lembra a preparação
   (escopo/modo/timer) por nota.
-- **Amostra com fala humana:** duas leituras deram ~40 s/67–70 palavras e o
-  STT perdeu o início nas duas. O countdown foi implementado para atacar
-  exatamente esse padrão; falta repetir a leitura no build novo para confirmar
-  que “Boa · noite · irmãos…” deixa de faltar. Até lá, a limitação do STT
-  permanece registrada. Nota temporária removida; #192 preservada.
-- **Validação do countdown no dispositivo:** pendente; tablet/A34 ficaram
-  offline no fim da sessão. O build passou por compile, suíte e lint.
+- **Amostra com fala humana:** as duas primeiras leituras (antes do
+  countdown) perderam o início. A terceira, no A34 com countdown, capturou as
+  primeiras palavras e deu 42 s/78 palavras/111 wpm/60%; a amostra é parcial
+  (primeiro parágrafo), mas o alvo do teste — início capturado — foi cumprido.
+  Uma leitura longa de 1 min segue como amostra opcional, não como bloqueio.
+- **Countdown no dispositivo:** validado no A34 (overlay 3·2·1, timer só
+  depois; início capturado). O tablet ficou offline no fim, mas o A34 cobre a
+  validação de UI do fluxo.
 - **Fase 4.2** (card-first) e o release `v2.9.0` seguem fora desta branch; a
   keystore continua o gate da `v2.9.0/28`.
