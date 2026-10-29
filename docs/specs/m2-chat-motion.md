@@ -107,22 +107,42 @@ Critérios técnicos:
 
 ### 4.3 Cards
 
-Aplicar `animateItem` com key estável a:
+**Dois tipos de card, duas técnicas diferentes:**
 
-- card de texto (`ProposalCard`);
-- fontes do ponto (`ScopeSuggestionCard`/proveniência quando aplicável);
-- erro do turno;
-- propostas de estrutura (`StructureProposalCard`,
-  `NoteStructureProposalCard`, `MultiProposalCard`).
+- **Top-level do LazyColumn** — `ProposalCard`/`ProposalUi` (edição
+  cirúrgica), `StructureProposalCard`, `NoteStructureProposalCard`,
+  `MultiProposalCard`, `ScopeSuggestionCard`/fontes do ponto. São itens
+  próprios da lista (`item(key = ...)`) e usam **`animateItem`**.
+- **Aninhados no turno** — o card-first de `<texto-do-card>` (principal),
+  fontes/verificação dentro de `turn-<turnId>` e o erro/bloco de status.
+  Não são itens do LazyColumn; usam **`AnimatedVisibility`/
+  `AnimatedContent`** no slot do turno. `animateItem` não se aplica a filho.
 
-Spec de movimento:
+Aplicar `animateItem` com key estável aos top-level:
+
+- `ProposalCard` (proposta de texto/ProposalUi);
+- `StructureProposalCard`;
+- `NoteStructureProposalCard`;
+- `MultiProposalCard`;
+- `ScopeSuggestionCard`/proveniência quando renderizados como item.
+
+Spec de movimento (top-level):
 
 - entrada: fade + deslocamento de **8 dp** para cima, 150–200 ms;
 - saída: fade + shrink (scale 0.98) 150 ms;
-- substituição de card (novo card no mesmo alvo): crossfade no mesmo slot;
+- substituição de card no mesmo slot: crossfade;
 - “Sugestão anterior” (card superseded/antigo) com peso visual menor
   (alpha/surface reduzidos), sem animação de destaque;
 - sem animar a altura do preview de texto que está sendo digitado.
+
+Spec de movimento (aninhado no turno):
+
+- card-first entra/sai com `AnimatedVisibility` (fade + expand/shrink
+  150–200 ms) dentro do turno; a key do turno não muda;
+- fontes/verificação seguem o mesmo padrão;
+- troca de variante do card (ex.: parcial → aplicado) com crossfade no
+  mesmo slot;
+- `animateItem` nunca é usado no card-first.
 
 ### 4.4 Erro único
 
@@ -130,8 +150,13 @@ Spec de movimento:
   - “Não consegui responder”;
   - motivo humano já sanitizado;
   - **Tentar novamente** e **Fechar**.
-- Não renderizar `ChatErrorRow` separado no `runState` quando o turno ativo
-  já mostra o erro (nem mensagem duplicada).
+- Regra de fallback sem turno ativo:
+  - `activeTurn.phase == ERROR` → erro **somente** dentro do turno; o
+    `ChatErrorRow` do `runState` fica escondido;
+  - `activeTurn == null` e `runState` em `Error`/`Cancelled` (fluxos
+    legados, erro antes de criar o turno) → `ChatErrorRow` normal;
+  - **nunca os dois ao mesmo tempo**; extrair
+    `shouldShowStandaloneError(activeTurn, runState)` puro/testável.
 - O bloco entra com `AnimatedVisibility` fade + expand 150–200 ms; o texto
   anterior/parcial fica congelado acima, sem sumir.
 - `CANCELLED`: mesmo bloco, mensagem “Geração parada.”, parcial congelado e
@@ -211,6 +236,32 @@ Spec de movimento:
 - animação por token;
 - reescrever o renderizador markdown.
 
+## 6.1 Protótipo M2a — definição de pronto
+
+Protótipo isolado, com **estado fake** (sem LLM, rotas, card-first ou
+persistência). Deve provar:
+
+1. WAITING → REASONING → STREAMING → DONE no mesmo `turn-<turnId>`;
+2. sem salto de altura e sem texto duplicado;
+3. stop/retry mantendo o parcial;
+4. raciocínio colapsa/expande e permanece;
+5. card entra/sai animado (top-level com `animateItem`; aninhado com
+   `AnimatedVisibility`);
+6. erro aparece uma vez (inline com turno; fallback sem turno);
+7. aviso/“Continuar gerando” não reflowa o texto;
+8. troca de escopo com skeleton/crossfade;
+9. pílula “N novas” e âncora de scroll;
+10. reduced motion instantâneo.
+
+Validação: A34 + tablet, screenshots/vídeo, sem merge. Nada de LLM, rotas ou
+card-first no protótipo.
+
+Ordem interna do M2a:
+
+1. **M2a.1** — handoff, raciocínio, erro, reduced motion;
+2. **M2a.2** — cards, avisos, escopo, auto-scroll;
+3. **M2b** — markdown/card shell, microinterações, haptics, TalkBack.
+
 ## 7. Decisões fechadas
 
 1. Markdown no streaming: **crossfade primeiro**, incremental depois.
@@ -229,7 +280,8 @@ M2a:
 - stop congela e mantém o parcial; retry não apaga o anterior;
 - raciocínio colapsa/expande e permanece;
 - cards entram/saem animados sem jank;
-- erro aparece uma vez;
+- erro aparece uma vez: inline com turno ativo, fallback `ChatErrorRow` sem
+  turno, nunca ambos;
 - avisos/“Continuar gerando” não reflowam o texto;
 - troca de escopo mostra skeleton/crossfade e não pisca vazio;
 - auto-scroll não puxa quem está lendo; pílula “N novas” funciona;
