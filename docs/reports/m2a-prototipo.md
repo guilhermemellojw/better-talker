@@ -37,8 +37,9 @@
 - Sem infra Compose instrumentada; validação manual + screenshots/vídeo,
   conforme spec.
 - Predicado puro `shouldShowStandaloneError(activeTurn, runState)` implementado
-  na branch do protótipo com 3 testes: com turno ativo nunca mostra o row
-  avulso; sem turno, Error/Cancelled mostram; estados normais não.
+  em `src/debug` (não produção) com 3 testes em `src/testDebug`: com turno
+  ativo nunca mostra o row avulso; sem turno, Error/Cancelled mostram;
+  estados normais não.
 
 ## Limitações
 
