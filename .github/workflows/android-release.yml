@@ -108,10 +108,10 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               android/app/build/outputs/apk/release/app-release.apk \
               android/app/build/outputs/apk/release/app-release.apk.sha256 \
-              --title "Better Talker ${GITHUB_REF_NAME}" --notes-file "$NOTES"
+              --title "Better Talker ${GITHUB_REF_NAME}" --notes-file "$NOTES" --draft
           else
             gh release create "$GITHUB_REF_NAME" \
               android/app/build/outputs/apk/release/app-release.apk \
               android/app/build/outputs/apk/release/app-release.apk.sha256 \
-              --title "Better Talker ${GITHUB_REF_NAME}" --generate-notes
+              --title "Better Talker ${GITHUB_REF_NAME}" --generate-notes --draft
           fi
