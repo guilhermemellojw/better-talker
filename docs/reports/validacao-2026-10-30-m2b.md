@@ -1,8 +1,9 @@
 # M2b — streaming com markdown e microinterações (2026-10-30)
 
 **Status:** implementação em branch, **sem merge** (por decisão do produto).
-Streaming/REASONING/stop/retry reais validados no tablet com chave; **A34
-continua como gate** de layout/performance antes do merge.
+Streaming/REASONING/stop/retry reais validados no tablet; **A34 validado**
+(layout menor + streaming real + parcial cancelado com markdown). Falta
+aplicar a DB limpa no tablet quando ele reconectar.
 
 - Branch: `feat/m2b-streaming` (base `6a455c8`, `main` 2.8.2/27).
 - Testes: **2.666 JVM / 0 falhas** (+9).
@@ -101,15 +102,41 @@ Tablet Xiaomi `25040RP0AL`, Android 16/API 36, build debug; chave DeepSeek
   removidas, histórico anterior intacto, `integrity_check=ok`. Falta só
   push/restart quando o tablet reconectar.
 
+## Validação no A34 (1080x2340, Android 16)
+
+- Chat da Introdução da #192 abriu com layout menor sem cortar o card, as
+  ações (Adicionar/Substituir) ou o composer.
+- Turno real `turn-822ec588…`: `WAITING → STREAMING → DONE`, card-first com
+  título/lista e ações; sem crash.
+- Stop com markdown `turn-548defdc…`:
+  - `REASONING` com 5976 chars → “Pensou por 11s”;
+  - `CANCELLED` com **1876 chars** persistidos;
+  - parcial cancelado renderizado como **markdown de verdade**: título,
+    parágrafos e lista numerada, **sem `**` cru**;
+  - “Geração parada.” + Tentar novamente/Fechar;
+  - sem duplicar a mensagem persistida com a ativa.
+- Stop com shell `turn-f898d6bf…`: “Texto para o card” apareceu durante o
+  cancelamento **sem ações** de inserir/substituir.
+- Screenshots: `/tmp/opencode/a34-cancelled2.png` (título/lista) e
+  `/tmp/opencode/a34-cancelled4.png` (fim + Geração parada).
+- Limpeza do A34: **6 mensagens de teste** removidas da seção Introdução da
+  #192; histórico anterior intacto (`integrity_check=ok`); app reabriu em
+  Home e o chat antigo continua.
+- A34 cumpriu o gate de layout menor/streaming; o smoke limpo arm64 da
+  release 3.0.0 continua obrigatório.
+
 ## Limitações / gates
 
 - **Merge aceito com tablet + streaming real + confirmação visual** do parcial
-  cancelado com markdown. Falta apenas essa confirmação (tablet offline) e o
-  push da DB limpa.
-- **A34** fica como **gate da release final 3.0.0** (layout menor/performance);
-  não bloqueia o merge do M2b, desde que registrado.
+  cancelado com markdown — confirmação feita no A34. Falta apenas aplicar a
+  DB limpa no tablet quando ele reconectar. A DB final está pronta em
+  `/tmp/opencode/m2b-192-clean/better-talker.db` (0 mensagens de teste,
+  sem o caso controlado, `integrity_check=ok`).
+- **A34** validado neste fluxo; o **smoke limpo arm64** da release final
+  3.0.0 continua obrigatório (instalação limpa, keystore, performance).
 - Sem medição automatizada de fps; throttle reduz parse/recomposição, mas o
   “60 fps” ainda é inspeção visual.
 - O frame de STREAMING é curto (2–4 s); o vídeo pegou o card final e o
   parcial congelado, não todos os frames de markdown incremental.
-- **Não mergear** antes da confirmação visual + limpeza da #192.
+- **Não mergear** antes de aplicar a DB limpa no tablet (pendente: tablet
+  offline) e limpar as mensagens de teste do A34.
