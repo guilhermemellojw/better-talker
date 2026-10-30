@@ -2,6 +2,13 @@ package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -125,6 +132,7 @@ fun ChatPromptBar(
     // Vazio nunca envia; e o bloqueio some quando o turno termina — inclusive
     // depois de erro (§24 F15).
     val canSend = input.isNotBlank() && !busy
+    val haptic = LocalHapticFeedback.current
     Surface(
         modifier = modifier.fillMaxWidth().imePadding(),
         shape = RoundedCornerShape(28.dp),
@@ -213,24 +221,38 @@ fun ChatPromptBar(
                         }
                     }
                 }
-                // #4 (UX S): durante a geração o botão vira "Parar" (cancela
-                // o job; o parcial some e o composer destrava no finally).
-                if (busy) {
-                    FilledIconButton(
-                        onClick = onStop,
-                        colors = IconButtonDefaults.filledIconButtonColors(
+                // #4 (UX S) + M2b: durante a geração o botão vira "Parar"
+                // (cancela o job) com morph de ícone de 150 ms e haptic leve.
+                FilledIconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        if (busy) onStop() else onSend()
+                    },
+                    enabled = busy || canSend,
+                    colors = if (busy) {
+                        IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer,
                             contentColor = MaterialTheme.colorScheme.onErrorContainer,
                         )
-                    ) { Icon(Icons.Default.Stop, "Parar geração") }
-                } else {
-                    FilledIconButton(
-                        onClick = onSend,
-                        enabled = canSend,
-                        colors = IconButtonDefaults.filledIconButtonColors(
+                    } else {
+                        IconButtonDefaults.filledIconButtonColors(
                             disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
                         )
-                    ) { Icon(Icons.AutoMirrored.Filled.Send, "Enviar") }
+                    },
+                ) {
+                    AnimatedContent(
+                        targetState = busy,
+                        transitionSpec = {
+                            (fadeIn(tween(150)) + scaleIn(initialScale = 0.8f)) togetherWith
+                                (fadeOut(tween(150)) + scaleOut(targetScale = 0.8f))
+                        },
+                        label = "send-stop",
+                    ) { isBusy ->
+                        Icon(
+                            if (isBusy) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
+                            if (isBusy) "Parar geração" else "Enviar",
+                        )
+                    }
                 }
             }
         }
