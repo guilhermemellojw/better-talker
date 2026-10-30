@@ -54,12 +54,11 @@
 > verdes). **A34 validado**: lista de vozes, teste do Piper, persistência da
 > voz escolhida e microfone on-device em “Ouvindo…” sem crash. Sem bump/tag.
 
-> **2026-10-30 — v3.0.0/31 (release prep):** bump para 3.0.0 (versionCode 31)
-> e notas em `docs/releases/v3.0.0.md`. Reúne C2.5, M2a/M2b, 45 min,
-> fontes/gate, voz/STT, Treino e Apresentar. **2.737 testes/0**, lint verde.
-> APK release assinado e **smoke limpo arm64** no A34 (instalação do zero,
-> versionCode 31, Home, editor e Voz). Falta a tag; v2.8.2/v2.8.1 seguem em
-> draft.
+> **2026-10-30 — v3.0.0/31 publicada:** tag `v3.0.0` no merge `497409b`;
+> release workflow verde, APK assinado (CN=Better Talker) e SHA-256
+> `2f7c9af3…1de783`. Reúne C2.5, M2a/M2b, 45 min, fontes/gate, voz/STT,
+> Treino e Apresentar. **2.737 testes/0**, lint verde, smoke limpo arm64 no
+> A34. v2.8.2/v2.8.1 seguem em draft como checkpoints.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
