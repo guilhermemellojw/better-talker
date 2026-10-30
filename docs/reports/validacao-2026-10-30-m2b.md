@@ -1,7 +1,8 @@
 # M2b — streaming com markdown e microinterações (2026-10-30)
 
 **Status:** implementação em branch, **sem merge** (por decisão do produto).
-A34 e streaming real continuam como gates antes de qualquer merge.
+Streaming/REASONING/stop/retry reais validados no tablet com chave; **A34
+continua como gate** de layout/performance antes do merge.
 
 - Branch: `feat/m2b-streaming` (base `6a455c8`, `main` 2.8.2/27).
 - Testes: **2.666 JVM / 0 falhas** (+9).
@@ -23,6 +24,8 @@ A34 e streaming real continuam como gates antes de qualquer merge.
   card” com o parcial dentro; as ações só aparecem no card final.
 - Markdown parcial usa o mesmo `parseBlocks`/`RenderBlock` do renderizador
   final (títulos, listas, citações, negrito etc.).
+- **Parcial cancelado** também usa `ChatMessageText`: o markdown/shell que
+  estava no streaming não volta a mostrar `**` cru depois do stop.
 
 ### Cursor
 
@@ -66,22 +69,39 @@ A34 e streaming real continuam como gates antes de qualquer merge.
 - mapeamento das fases para TalkBack;
 - singular/plural da pílula.
 
-## Validação no tablet
+## Validação real no tablet (com chave)
 
-- Build debug instalado no Xiaomi `25040RP0AL` (dados preservados).
-- Turno local WAITING → DONE: sem crash; `content-desc` “Pensando” presente
-  durante a espera e botão “Parar geração” no lugar de “Enviar”.
-- Após DONE, botão volta a “Enviar” e a resposta local aparece.
-- Sem `FATAL EXCEPTION`.
-- Mensagens de teste (“oi” + resposta) removidas; #192 e o histórico anterior
-  preservados.
+Tablet Xiaomi `25040RP0AL`, Android 16/API 36, build debug; chave DeepSeek
+“Online” na tela IA. Prompt em modo **Profundo**.
+
+- **Turno `turn-dd72aa62…`** (introdução longa + raciocínio):
+  - `WAITING` → `REASONING` → `STREAMING` → `DONE` no **mesmo turnId**;
+  - “Pensou por 5s ▸” persistido no topo do item;
+  - resposta longa com título, parágrafos e card-first;
+  - “pensou 6,3s” sob a bolha; `final=msg-5f69…`.
+- **Card/markdown** (`turn-2d1df902…`): card “Texto para o card” com título
+  “Introdução”, subtítulo e lista numerada; ações (Adicionar/Substituir) só
+  no final.
+- **Stop real** (`turn-ae04bedf…`):
+  - `phase=CANCELLED`, parcial de **2115 chars** persistido;
+  - “Geração parada.” + Tentar novamente/Fechar;
+  - screenshot mostra o parcial congelado (antes do ajuste, com `**` cru).
+- **Retry** (`turn-fe493019…`): novo turno abaixo, turno cancelado anterior
+  preservado; sem reativar o antigo.
+- **TalkBack**: nó “Pensando” (`focusable="false"`), botão “Parar geração”
+  durante a geração, “Geração parada” no stop; CANCELLED sem anúncio
+  duplicado (`announce = false`).
+- Sem `FATAL EXCEPTION`; vídeos/frames em `/tmp/opencode/m2b-*.mp4`.
+- O tablet caiu do ADB durante a limpeza final; as mensagens de teste do chat
+  da #192 ainda precisam ser removidas quando reconectar.
 
 ## Limitações / gates
 
-- **Sem chave de IA no tablet**, não houve STREAMING/REASONING real; o
-  markdown incremental, o cursor e o card shell foram cobertos por testes
-  puros e compilação, não por vídeo de tokens reais.
-- **A34 não conectado** ao ADB; repetir o roteiro (incl. stop/retry) nele.
+- **A34 não apareceu no ADB**; repetir layout menor, streaming, stop/retry e
+  TalkBack nele antes do merge.
 - Sem medição automatizada de fps; throttle reduz parse/recomposição, mas o
   “60 fps” ainda é inspeção visual.
-- **Não mergear** antes de A34 + streaming real + stop/retry sem regressão.
+- O frame de STREAMING é curto (2–4 s); o vídeo pegou o card final e o
+  parcial congelado, não todos os frames de markdown incremental.
+- Limpeza das mensagens de teste da #192 pendente (tablet offline).
+- **Não mergear** antes de A34 + limpeza + confirmação visual final.

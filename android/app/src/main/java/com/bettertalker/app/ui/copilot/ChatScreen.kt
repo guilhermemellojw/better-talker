@@ -1550,7 +1550,10 @@ private fun PersistedCancelledItem(
                 PersistedReasoningHeader(item.reasoningSeconds)
             }
             if (text.isNotBlank()) {
-                Text(text, style = MaterialTheme.typography.bodyLarge)
+                // M2b: o parcial congelado mantém o markdown/shell que tinha
+                // no streaming (antes voltava a mostrar ** cru e um único
+                // TextView gigante para o TalkBack).
+                ChatMessageText(item.text, Modifier.fillMaxWidth())
             }
             ChatErrorRow(
                 "Geração parada.",
