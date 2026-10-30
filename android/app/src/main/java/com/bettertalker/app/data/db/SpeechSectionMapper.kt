@@ -74,6 +74,9 @@ fun encodePublicationRefList(items: List<PublicationRef>): String {
             if (!ref.chapter.isNullOrBlank()) {
                 append(",\"chapter\":\"${escJson(ref.chapter)}\"")
             }
+            if (!ref.context.isNullOrBlank()) {
+                append(",\"context\":\"${escJson(ref.context)}\"")
+            }
             append("}")
         }
     }
@@ -91,6 +94,7 @@ fun decodePublicationRefList(json: String): List<PublicationRef> {
             article = jsonStringField(obj, "article"),
             chapter = jsonStringField(obj, "chapter"),
             pageEnd = jsonIntField(obj, "pageEnd"),
+            context = jsonStringField(obj, "context"),
         )
     }
 }

@@ -185,7 +185,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     private fun explicitMessage(fileName: String): String {
         val ext = fileName.substringAfterLast('.', "").lowercase()
         return when (ext) {
-            "jwpub" -> "JWPUB ainda não suportado — baixe EPUB ou PDF no site."
+            "jwpub" -> "Este JWPUB não pôde ser aberto (arquivo corrompido ou formato não reconhecido). " +
+                "Tente reindexar; se persistir, baixe o EPUB."
             "brl", "bes" -> "Formato $ext ainda não suportado — baixe EPUB ou PDF no site."
             "mp3", "aac", "m4a" -> "Áudio não é indexado — baixe o texto (PDF/EPUB) no site."
             else -> "Formato não suportado: $fileName. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB."

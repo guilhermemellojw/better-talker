@@ -6,6 +6,8 @@ import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.bestContextMatch
+import com.bettertalker.app.data.util.contextTerms
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceResolver
@@ -129,67 +131,186 @@ class RoomReferenceResolver(
     }
 
     /**
-     * RC1 — resolve "símbolo pág. N §§ S(–E)" sem artigo/capítulo: busca os
-     * parágrafos da página no índice T4 (JWPUB) e devolve o texto literal.
-     * Sem página/parágrafo ou sem linhas no acervo → UNRESOLVED (nunca lixo).
+     * C2.6 — resolve citação por unidade sem artigo/capítulo:
+     * 1. página + § indexados → RESOLVED;
+     * 2. página/faixa sem § → PARTIAL com o texto real da página;
+     * 3. § sem página → PARTIAL via byParagraphRange;
+     * 4. sem página/§ indexados → contexto do esboço acima do threshold;
+     * 5. nada → UNRESOLVED (nunca trecho aleatório).
      */
     private suspend fun resolveByPageParagraph(
         ref: PublicationRef,
         hit: AttachmentEntity,
     ): ResolvedReference {
-        val page = ref.page ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
-        val pageEnd = ref.pageEnd?.takeIf { it > page }
-        val start = ref.paragraph ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
-        val end = ref.paragraphEnd ?: start
-        val rows = if (pageEnd != null) {
-            (page..pageEnd).flatMap { p ->
-                passageDao.byPageParagraph(hit.id, p, start, end)
+        val page = ref.page
+        val pageEnd = ref.pageEnd?.takeIf { p -> page != null && p > page }
+        val start = ref.paragraph
+        val end = ref.paragraphEnd?.takeIf { p -> start != null && p > start } ?: start
+        val base = baseSymbolOf(ref.symbol)
+
+        if (page != null && start != null) {
+            val rows = (page..(pageEnd ?: page)).flatMap { p ->
+                passageDao.byPageParagraph(hit.id, p, start, end ?: start)
             }.distinctBy { it.id }
-        } else {
-            passageDao.byPageParagraph(hit.id, page, start, end)
+            if (rows.isNotEmpty()) {
+                return resolved(
+                    ref = ref,
+                    label = pageParagraphLabel(base, page, pageEnd, start, end),
+                    rows = rows,
+                    status = ReferenceStatus.RESOLVED,
+                )
+            }
         }
-        if (rows.isEmpty()) {
-            // Sem linhas da página: UNRESOLVED (nunca trecho aproximado —
-            // §§ repetem por artigo e o texto errado envenena o dossiê).
-            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+
+        // Página sem § → PARTIAL. Página com § só cai aqui quando o índice
+        // antigo NÃO tem números de parágrafo (todas as linhas com
+        // paragraph=null): aí o texto da página é a melhor leitura real.
+        // Se há §§ indexados e nenhum casa, não devolve a página errada.
+        if (page != null) {
+            val rows = passageDao.byPage(
+                hit.id,
+                page,
+                pageEnd ?: page,
+                MAX_CONTEXT_PASSAGES,
+            )
+            val pageUsable = start == null || rows.all { it.paragraph == null }
+            if (rows.isNotEmpty() && pageUsable) {
+                return resolved(
+                    ref = ref,
+                    label = pageLabel(base, page, pageEnd),
+                    rows = rows,
+                    status = ReferenceStatus.PARTIAL,
+                )
+            }
         }
+
+        if (start != null) {
+            val rows = passageDao.byParagraphRange(
+                hit.id,
+                start,
+                end ?: start,
+                MAX_CONTEXT_PASSAGES,
+            )
+            if (rows.isNotEmpty()) {
+                return resolved(
+                    ref = ref,
+                    label = paragraphLabel(base, start, end),
+                    rows = rows,
+                    status = ReferenceStatus.PARTIAL,
+                )
+            }
+        }
+
+        // PDF/EPUB sem página/§ indexados: usa a frase do esboço. O piso de
+        // termos evita devolver um trecho aleatório.
+        val context = ref.context?.takeIf { it.isNotBlank() }
+        if (context != null) {
+            val candidates = contextPassages(
+                passageDao,
+                hit.id,
+                context,
+                MAX_CONTEXT_PASSAGES,
+            )
+            val match = bestContextMatch(candidates.map { it.text }, context)
+            if (match != null) {
+                val center = candidates[match.index]
+                val window = passageDao.betweenOrd(
+                    hit.id,
+                    (center.ord - 2).coerceAtLeast(0),
+                    center.ord + 2,
+                    MAX_CONTEXT_PASSAGES,
+                ).ifEmpty { listOf(center) }
+                return resolved(
+                    ref = ref,
+                    label = "$base — contexto do esboço",
+                    rows = window,
+                    status = ReferenceStatus.PARTIAL,
+                )
+            }
+        }
+
+        return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+    }
+
+    private fun resolved(
+        ref: PublicationRef,
+        label: String,
+        rows: List<PassageEntity>,
+        status: ReferenceStatus,
+    ): ResolvedReference {
         val text = rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
-        }
-        // C2a: o detector devolve o match inteiro em `symbol` ("w25.07 p. 22
-        // §8"); a página/§ já vão em campos próprios. Remove a cauda para o
-        // rótulo canônico não duplicar ("w25.07 p. 22 §8 pág. 22 §8").
-        val baseSymbol = ref.symbol
-            .replace(
-                Regex(
-                    """\s+(?:(?:p[áa]g(?:ina)?|pg|p)\.?\s*)?""" +
-                        """\d{1,3}(?:\s*[-–]\s*\d{1,3})?""" +
-                        """(?:\s*§{1,2}\s*\d{1,3}""" +
-                        """(?:\s*[-–]\s*\d{1,3})?)?$""",
-                    RegexOption.IGNORE_CASE,
-                ),
-                "",
-            )
-            .trim()
-            .ifBlank { ref.symbol }
-        val label = buildString {
-            append(baseSymbol)
-            if (pageEnd != null) {
-                append(" pág. $page-$pageEnd")
-            } else {
-                append(" pág. $page")
-            }
-            append(" §$start")
-            if (end != start) append("-$end")
         }
         return ResolvedReference(
             original = ref.symbol,
             canonicalRef = label,
             text = text,
             passageId = rows.first().id,
-            status = ReferenceStatus.RESOLVED,
+            status = status,
         )
+    }
+
+    private fun baseSymbolOf(symbol: String): String = symbol
+        .replace(
+            Regex(
+                """\s+(?:(?:p[áa]g(?:ina)?s?|pg|p)\.?\s*)?""" +
+                    """\d{1,3}(?:\s*[-–]\s*\d{1,3})?""" +
+                    """(?:\s*(?:§{1,2}|par[áa]g(?:rafo)?s?\.?)\s*\d{1,3}""" +
+                    """(?:\s*[-–]\s*\d{1,3})?)?$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            "",
+        )
+        .trim()
+        .ifBlank { symbol }
+
+    private fun pageLabel(base: String, page: Int, pageEnd: Int?): String = buildString {
+        append(base).append(" pág. ").append(page)
+        pageEnd?.let { append('-').append(it) }
+    }
+
+    private fun paragraphLabel(base: String, start: Int, end: Int?): String = buildString {
+        append(base).append(" §").append(start)
+        end?.takeIf { it > start }?.let { append('-').append(it) }
+    }
+
+    private fun pageParagraphLabel(
+        base: String,
+        page: Int,
+        pageEnd: Int?,
+        start: Int,
+        end: Int?,
+    ): String = pageLabel(base, page, pageEnd) +
+        paragraphLabel("", start, end)
+
+    private companion object {
+        /** Teto de passagens por página/contexto (o prompt trunca de novo). */
+        const val MAX_CONTEXT_PASSAGES = 80
+    }
+}
+
+/**
+ * C2.6 — candidatos para o fallback por contexto: busca os termos mais
+ * longos da frase do esboço no índice da edição. Se a busca não retornar
+ * nada (PDF sem texto normalizado?), cai nas primeiras passagens.
+ */
+internal suspend fun contextPassages(
+    passageDao: PassageDao,
+    attachmentId: String,
+    context: String,
+    limit: Int = 120,
+): List<PassageEntity> {
+    val terms = contextTerms(context)
+        .sortedByDescending { it.length }
+        .take(6)
+    val hits = terms
+        .flatMap { term -> passageDao.searchLikeIn(listOf(attachmentId), term, 80) }
+        .distinctBy { it.id }
+    return if (hits.isNotEmpty()) {
+        hits.take(limit)
+    } else {
+        passageDao.forAttachment(attachmentId).take(limit)
     }
 }
 

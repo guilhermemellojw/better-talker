@@ -114,7 +114,7 @@ class OutlineConverterTest {
         assertEquals(1, sub.publicationRefs.size)
         // 3.2.3a-fix2: símbolo canonicalizado com edição.
         assertEquals("g 8/13", sub.publicationRefs.single().symbol)
-        assertEquals(null, sub.publicationRefs.single().page)
+        assertEquals(6, sub.publicationRefs.single().page)
         assertEquals("Precisamos estar vivos para ter esperança.", sub.outlineText)
     }
 

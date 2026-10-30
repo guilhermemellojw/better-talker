@@ -282,6 +282,8 @@ class OutlineConverter(
                     paragraphEnd = ref.paragraphEnd,
                     article = ref.article,
                     chapter = ref.chapter,
+                    pageEnd = ref.pageEnd,
+                    context = line.trim().take(500),
                 )
             }
         }.distinct()

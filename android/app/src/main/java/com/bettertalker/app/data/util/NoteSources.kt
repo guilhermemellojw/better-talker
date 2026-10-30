@@ -402,7 +402,12 @@ object NoteSourcesResolver {
                         st?.resolved == true -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            citation = CitationStatus(EditionStatus.READY, TextStatus.RESOLVED),
+                            citation = CitationStatus(
+                                edition = EditionStatus.READY,
+                                text = if (st.contentPartial) TextStatus.PARTIAL
+                                else TextStatus.RESOLVED,
+                            ),
+                            hint = st.contentNote,
                             fileName = st.fileName,
                             refStatus = st,
                             editionKey = editionKey,

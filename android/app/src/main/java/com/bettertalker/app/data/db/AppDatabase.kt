@@ -247,6 +247,22 @@ interface PassageDao {
     ): List<PassageEntity>
 
     /**
+     * C2.6: trechos de uma página/faixa SEM § — a citação pode ser só
+     * "pág. 6" ou "pág. 6-7". Devolve o texto real da página; o chamador
+     * marca PARTIAL (página localizada, § não exato).
+     */
+    @Query(
+        "SELECT * FROM passages WHERE attachmentId = :attachmentId " +
+            "AND page BETWEEN :start AND :end ORDER BY page ASC, ord ASC LIMIT :limit"
+    )
+    suspend fun byPage(
+        attachmentId: String,
+        start: Int,
+        end: Int,
+        limit: Int,
+    ): List<PassageEntity>
+
+    /**
      * RC1-fallback: §start–§end SEM página — para acervo indexado por um
      * indexador antigo (pages NULL). PARTIAL: texto real, página não verificada.
      */

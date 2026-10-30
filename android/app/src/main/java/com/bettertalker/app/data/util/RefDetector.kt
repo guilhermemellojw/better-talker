@@ -57,6 +57,8 @@ object RefDetector {
         val ambiguous: Boolean = false,
         /** Explicação da ambiguidade (ex.: "g 1/16 pode ser ..."). */
         val ambiguityNote: String? = null,
+        /** C2.6: frase do esboço que contém a citação (fallback por contexto). */
+        val context: String? = null,
     )
 
     data class RefStatus(
@@ -79,6 +81,10 @@ object RefDetector {
          * pesquisado não há veredito.
          */
         val contentResolved: Boolean = false,
+        /** C2.6: trecho localizado por página/contexto, não por § exato. */
+        val contentPartial: Boolean = false,
+        /** C2.6: motivo curto ("página localizada", "contexto do esboço"). */
+        val contentNote: String? = null,
         /** Trecho do corpus que sustenta a citação (quando [contentResolved]). */
         val snippet: String? = null,
         /** Aviso quando a citação não tem fonte no acervo pesquisado. */
@@ -93,7 +99,10 @@ object RefDetector {
     data class ContentCheck(
         val resolved: Boolean,
         val snippet: String? = null,
-        val warning: String? = null
+        val warning: String? = null,
+        /** C2.6: localizado por página/contexto, sem § exato. */
+        val partial: Boolean = false,
+        val note: String? = null,
     )
 
     const val CONTENT_WARNING = "⚠️ citação sem fonte no acervo"
@@ -287,19 +296,6 @@ object RefDetector {
     private fun expandYear(value: Int, digits: Int): Int =
         if (digits >= 3) value else fullYear(value)
 
-    /** "pág. N[-M]" / "parág. N" logo após uma menção (vão para o rótulo). */
-    private fun sentinelaTail(text: String, lastIndex: Int): String {
-        val tail = text.substring(lastIndex + 1, (lastIndex + 41).coerceAtMost(text.length))
-        val pag = Regex("""p[áa]g\.?\s*(\d{1,4}(?:-\d{1,4})?)""", RegexOption.IGNORE_CASE)
-            .find(tail)?.groupValues?.get(1)
-        val par = Regex("""par[áa]g\.?\s*(\d{1,3}(?:-\d{1,3})?)""", RegexOption.IGNORE_CASE)
-            .find(tail)?.groupValues?.get(1)
-        return listOfNotNull(
-            pag?.let { "pág. $it" },
-            par?.let { "parág. $it" },
-        ).joinToString(" • ")
-    }
-
     /**
      * C2.5 — normaliza a edição de revista com [MagazineEditionParser].
      *
@@ -317,20 +313,23 @@ object RefDetector {
         pageEnd: Int? = null,
         paragraph: Int? = null,
         paragraphEnd: Int? = null,
+        tail: MagazineTail = MagazineTail(),
     ): DetectedRef {
         val parsed = MagazineEditionParser.parse(raw)
         val ambiguous = parsed?.isAmbiguous == true
         val note = parsed?.note
+        val tailLabel = tail.label()
+        val fullLabel = if (tailLabel.isBlank()) label else "$label • $tailLabel"
         return DetectedRef(
             raw = raw,
             kind = Kind.MAGAZINE,
             pubKey = pubKey,
             editionKey = parsed?.editionKey() ?: fallbackEditionKey,
-            label = if (ambiguous && note != null) "$label — ambíguo: $note" else label,
-            page = page,
-            pageEnd = pageEnd,
-            paragraph = paragraph,
-            paragraphEnd = paragraphEnd,
+            label = if (ambiguous && note != null) "$fullLabel — ambíguo: $note" else fullLabel,
+            page = page ?: tail.page,
+            pageEnd = pageEnd ?: tail.pageEnd,
+            paragraph = paragraph ?: tail.paragraph,
+            paragraphEnd = paragraphEnd ?: tail.paragraphEnd,
             ambiguous = ambiguous,
             ambiguityNote = note,
         )
@@ -366,7 +365,8 @@ object RefDetector {
             add(
                 magazineRef(
                     m.value.trim(), "g",
-                    "g|$year|$month", "Despertai! $month/$year"
+                    "g|$year|$month", "Despertai! $month/$year",
+                    tail = parseMagazineTail(text, m.range.last),
                 )
             )
         }
@@ -376,7 +376,8 @@ object RefDetector {
             add(
                 magazineRef(
                     m.value.trim(), "gn",
-                    "gn|$year|$num", "Despertai! N.º $num $year"
+                    "gn|$year|$num", "Despertai! N.º $num $year",
+                    tail = parseMagazineTail(text, m.range.last),
                 )
             )
         }
@@ -386,7 +387,8 @@ object RefDetector {
             add(
                 magazineRef(
                     m.value.trim(), "wp",
-                    "wp|$year|$num", "A Sentinela N.º $num $year (pública)"
+                    "wp|$year|$num", "A Sentinela N.º $num $year (pública)",
+                    tail = parseMagazineTail(text, m.range.last),
                 )
             )
         }
@@ -398,7 +400,8 @@ object RefDetector {
                 add(
                     magazineRef(
                         m.value.trim(), "w",
-                        "w|$year|$month", "A Sentinela (estudo), $monthName de $year"
+                        "w|$year|$month", "A Sentinela (estudo), $monthName de $year",
+                        tail = parseMagazineTail(text, m.range.last),
                     )
                 )
             }
@@ -412,13 +415,12 @@ object RefDetector {
                 // MM/AA — estudo mensal moderna ("Sentinela 01/20" → w|2020|1)
                 if (a in 1..12) {
                     val year = expandYear(b, 2)
-                    val tail = sentinelaTail(text, m.range.last)
                     add(
                         magazineRef(
                             m.value.trim(), "w",
                             "w|$year|$a",
-                            "A Sentinela (estudo), ${PT_MONTHS[a - 1]} de $year" +
-                                (if (tail.isNotEmpty()) " • $tail" else "")
+                            "A Sentinela (estudo), ${PT_MONTHS[a - 1]} de $year",
+                            tail = parseMagazineTail(text, m.range.last),
                         )
                     )
                 }
@@ -429,13 +431,12 @@ object RefDetector {
                 val year = expandYear(yy.toInt(), yy.length)
                 if (month in 1..12 && day in 1..31) {
                     val edition = if (day == 1) "pública" else "estudo"
-                    val tail = sentinelaTail(text, m.range.last)
                     add(
                         magazineRef(
                             m.value.trim(), "w",
                             "w|$year|$month|$day",
-                            "A Sentinela, ${day}º de ${PT_MONTHS[month - 1]} de $year ($edition)" +
-                                (if (tail.isNotEmpty()) " • $tail" else "")
+                            "A Sentinela, ${day}º de ${PT_MONTHS[month - 1]} de $year ($edition)",
+                            tail = parseMagazineTail(text, m.range.last),
                         )
                     )
                 }
@@ -1373,6 +1374,40 @@ object RefDetector {
             val snippet = structuredHits.joinToString(" ") { it.text }.trim().take(600)
             return ContentCheck(resolved = true, snippet = snippet, warning = null)
         }
+        // C2.6: página sem § — texto real da página. Com § explícito, um
+        // parágrafo diferente na mesma página não sustenta a citação; a
+        // exceção é índice antigo sem NENHUM paragraph (g 2013/wp 2019).
+        if (ref.page != null) {
+            val pageEnd = ref.pageEnd?.takeIf { it > ref.page } ?: ref.page
+            val pageRows = passages.filter { p ->
+                p.page != null && p.page in ref.page..pageEnd
+            }
+            val pageUsable = ref.paragraph == null || pageRows.all { it.paragraph == null }
+            if (pageRows.isNotEmpty() && pageUsable) {
+                val snippet = pageRows.joinToString(" ") { it.text }.trim().take(600)
+                return ContentCheck(
+                    resolved = true,
+                    snippet = snippet,
+                    warning = null,
+                    partial = ref.paragraph == null,
+                    note = if (ref.paragraph == null) "página localizada" else null,
+                )
+            }
+        }
+        // C2.6: PDF/EPUB sem página/§ — frase do esboço acima do threshold.
+        val context = ref.context?.takeIf { it.isNotBlank() }
+        if (context != null) {
+            val match = bestContextMatch(passages.map { it.text }, context)
+            if (match != null) {
+                return ContentCheck(
+                    resolved = true,
+                    snippet = passages[match.index].text.take(600).trim(),
+                    warning = null,
+                    partial = true,
+                    note = "trecho localizado pelo contexto",
+                )
+            }
+        }
         val hit = passages.firstOrNull { p ->
             val refNorm = normalizeText(p.ref)
             val refMatch = refNorm.length >= 3 &&
@@ -1421,7 +1456,9 @@ object RefDetector {
                 ",\"g\":${it.paragraph ?: -1}" +
                 // #24-fix: fim do range ("§§ 8-9" → 9) — ausente quando null
                 // (compatível com o formato anterior).
-                (it.paragraphEnd?.let { pe -> ",\"ge\":$pe" } ?: "") + "}"
+                (it.paragraphEnd?.let { pe -> ",\"ge\":$pe" } ?: "") +
+                (it.context?.takeIf { c -> c.isNotBlank() }
+                    ?.let { c -> ",\"ctx\":\"${esc(c)}\"" } ?: "") + "}"
         }
     }
 
@@ -1433,7 +1470,7 @@ object RefDetector {
             val re = Regex(
                 """\{"r":"((?:[^"\\]|\\.)*)","k":"(MAGAZINE|BOOK)","p":"((?:[^"\\]|\\.)*)",""" +
                     """"e":"((?:[^"\\]|\\.)*)","l":"((?:[^"\\]|\\.)*)"""" +
-                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+)(?:,"pge":(-?\d+))?,"g":(-?\d+)(?:,"ge":(-?\d+))?)?\}"""
+                    """(?:,"a":"((?:[^"\\]|\\.)*)","c":"((?:[^"\\]|\\.)*)","pg":(-?\d+)(?:,"pge":(-?\d+))?,"g":(-?\d+)(?:,"ge":(-?\d+))?)?(?:,"ctx":"((?:[^"\\]|\\.)*)")?\}"""
             )
             re.findAll(json).map { m ->
                 fun un(s: String) = s.replace("\\\"", "\"").replace("\\\\", "\\")
@@ -1455,6 +1492,7 @@ object RefDetector {
                     paragraphEnd = m.groupValues[11].toIntOrNull()?.takeIf { it >= 0 },
                     ambiguous = parsed?.isAmbiguous == true,
                     ambiguityNote = parsed?.takeIf { it.isAmbiguous }?.note,
+                    context = un(m.groupValues[12]).ifBlank { null },
                 )
             }.toList()
         } catch (_: Exception) {

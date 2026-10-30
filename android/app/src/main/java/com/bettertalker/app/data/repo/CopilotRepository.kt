@@ -7,6 +7,7 @@ import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.planning.RoomReferenceResolver
+import com.bettertalker.app.data.planning.contextPassages
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.planning.ResolvedReference
@@ -31,6 +32,9 @@ import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.data.util.splitRawSentences
 import com.bettertalker.app.data.util.toSectionRefs
 import com.bettertalker.app.data.util.toSubPointRefs
+
+/** C2.6: teto de passagens para página/contexto na verificação de conteúdo. */
+private const val CONTENT_CONTEXT_LIMIT = 80
 
 data class IdeaCard(
     val title: String,
@@ -501,6 +505,8 @@ class CopilotRepository(private val db: AppDatabase) {
             val check = RefDetector.resolveContent(st.ref, candidates.passages, candidates.corpusAvailable)
             st.copy(
                 contentResolved = check.resolved,
+                contentPartial = check.partial,
+                contentNote = check.note,
                 snippet = check.snippet,
                 contentWarning = check.warning
             )
@@ -552,6 +558,27 @@ class CopilotRepository(private val db: AppDatabase) {
             } else {
                 db.passageDao().byPageParagraph(hit.id, page, start, end)
             }
+            if (rows.isNotEmpty()) return ContentCandidates(rows, true)
+        }
+        // C2.6: página sem § (ou § não indexado) — texto real da página.
+        if (ref.page != null) {
+            val page = ref.page
+            val rows = db.passageDao().byPage(
+                hit.id,
+                page,
+                ref.pageEnd?.takeIf { it > page } ?: page,
+                CONTENT_CONTEXT_LIMIT,
+            )
+            if (rows.isNotEmpty()) return ContentCandidates(rows, true)
+        }
+        // C2.6: PDF/EPUB sem página/§ — candidatos pela frase do esboço.
+        if (!ref.context.isNullOrBlank()) {
+            val rows = contextPassages(
+                db.passageDao(),
+                hit.id,
+                ref.context,
+                CONTENT_CONTEXT_LIMIT,
+            )
             if (rows.isNotEmpty()) return ContentCandidates(rows, true)
         }
         return ContentCandidates(
@@ -916,6 +943,7 @@ internal fun publicationRefOf(ref: RefDetector.DetectedRef): PublicationRef =
         paragraphEnd = ref.paragraphEnd,
         article = ref.article,
         chapter = ref.chapter,
+        context = ref.context,
     )
 
 /** Teto por trecho de publicação no bloco da pergunta (o prompt trunca de novo). */

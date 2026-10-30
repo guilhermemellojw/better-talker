@@ -177,6 +177,7 @@ object NoteRefsCollector {
                 pageEnd = ref.pageEnd,
                 paragraph = ref.paragraph,
                 paragraphEnd = ref.paragraphEnd,
+                context = ref.context,
             )
         }
         val canonical = PubCatalog.resolveSymbol(symbol) ?: return null
@@ -198,6 +199,7 @@ object NoteRefsCollector {
             pageEnd = ref.pageEnd,
             paragraph = ref.paragraph,
             paragraphEnd = ref.paragraphEnd,
+            context = ref.context,
         )
     }
 

@@ -6706,7 +6706,8 @@ class CopilotViewModel(
                 lib.enqueueRegisterDownload(dmId, direct.fileName, ph)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     android.widget.Toast.makeText(
-                        app, "Download iniciado — acompanhe na Biblioteca",
+                        app,
+                        "Baixando ${direct.format} — acompanhe na Biblioteca",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                 }

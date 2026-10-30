@@ -8,6 +8,7 @@ import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.util.normalizeText
 
 /**
@@ -363,7 +364,11 @@ object FocusSourceResolver {
                 reference = ref.raw,
                 kind = SourceKind.PUBLICATION,
                 origin = originOf(key, normalized),
-                status = mergeStatus(note?.status, text?.status),
+                status = if (note?.citation?.text == TextStatus.PARTIAL) {
+                    FocusStatus.PARTIAL
+                } else {
+                    mergeStatus(note?.status, text?.status)
+                },
                 unit = unitOf(ref),
                 text = text?.text.orEmpty(),
                 originalChars = text?.text?.length ?: 0,
@@ -380,7 +385,11 @@ object FocusSourceResolver {
                 reference = "${bible.label} ${bible.chapter}:${bible.verse}",
                 kind = SourceKind.BIBLE,
                 origin = originOf(key, normalized),
-                status = mergeStatus(note?.status, text?.status),
+                status = if (note?.citation?.text == TextStatus.PARTIAL) {
+                    FocusStatus.PARTIAL
+                } else {
+                    mergeStatus(note?.status, text?.status)
+                },
                 unit = "${bible.chapter}:${bible.verse}",
                 text = text?.text.orEmpty(),
                 originalChars = text?.text?.length ?: 0,
