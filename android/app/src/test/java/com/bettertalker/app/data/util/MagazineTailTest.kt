@@ -56,4 +56,38 @@ class MagazineTailTest {
         assertEquals(8, ref.paragraph)
         assertEquals(9, ref.paragraphEnd)
     }
+
+    @Test
+    fun nbspEZerowidthNaoPerdemUnidade() {
+        val despertai = RefDetector.detect("Despertai! 10/10 pág. 3")
+            .single { it.kind == RefDetector.Kind.MAGAZINE }
+        assertEquals(3, despertai.page)
+        val sentinela = RefDetector.detect("Sentinela 15/04/10 pág. 9 parág. 11")
+            .single { it.kind == RefDetector.Kind.MAGAZINE }
+        assertEquals(9, sentinela.page)
+        assertEquals(11, sentinela.paragraph)
+        val range = RefDetector.detect("w15 15/4 22-​23 §§ 14")
+            .single { it.kind == RefDetector.Kind.MAGAZINE }
+        assertEquals(22, range.page)
+        assertEquals(23, range.pageEnd)
+        assertEquals(14, range.paragraph)
+    }
+
+    @Test
+    fun pilcrowViraParagrafo() {
+        val ref = RefDetector.detect("w98 15/2 26 § ¶5")
+            .single { it.kind == RefDetector.Kind.MAGAZINE }
+        assertEquals(26, ref.page)
+        assertEquals(5, ref.paragraph)
+    }
+
+    @Test
+    fun lvsComPaginaEParagraph() {
+        val ref = RefDetector.detect("lvs 8-9 §§ 8-9")
+            .single { it.editionKey == "book|lvs" }
+        assertEquals(8, ref.page)
+        assertEquals(9, ref.pageEnd)
+        assertEquals(8, ref.paragraph)
+        assertEquals(9, ref.paragraphEnd)
+    }
 }
