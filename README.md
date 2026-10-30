@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v3.0.1/32 — publicado (C2.6 + C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar).**
+> **Estágio: v3.0.2/33 — publicado (matriz C2.6 + C2.6 + C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,7 +9,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-30)
 
-- **Versão:** 3.0.1 (versionCode 32), publicada; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + seletor de voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Apresentar live** mergeados. 45 min, gate de fontes e voz/STT validados no A34.
+- **Versão:** 3.0.2 (versionCode 33), publicada; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + seletor de voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Apresentar live** mergeados. 45 min, gate de fontes e voz/STT validados no A34.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -26,8 +26,8 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **A1/A2 — release seguro (2026-10-26):** chave DeepSeek cifrada com AES/GCM e chave não exportável no **Android Keystore** (migração automática do texto claro legado); `allowBackup=false`; APK de release assinado com keystore fora do repo (RSA 4096), `debuggable=false`; HTTPS only e WebView sem acesso a arquivos/conteúdo; ABI `arm64-v8a`; CI de release com `lintRelease`, `assembleRelease`, verificação por `apksigner` e SHA-256 — dry-run verde. Keystore e senhas ficam fora do repo (backup offline obrigatório). Ver [RELEASE.md](docs/RELEASE.md).
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** **2.754 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar) · `lintRelease` verde.
-- **Distribuição:** **v3.0.1/32 publicada** (APK assinado + SHA-256, arm64; hash `e57bcb1d…5dd6f`). O v2.8.2 e o v2.8.1 continuam em draft como checkpoints. Ver [v3.0.1](docs/releases/v3.0.1.md) e [RELEASE.md](docs/RELEASE.md).
+- **Testes:** **2.757 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar) · `lintRelease` verde.
+- **Distribuição:** **v3.0.2/33 publicada** (APK assinado + SHA-256, arm64). O v2.8.2 e o v2.8.1 continuam em draft como checkpoints. Ver [v3.0.2](docs/releases/v3.0.2.md) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
