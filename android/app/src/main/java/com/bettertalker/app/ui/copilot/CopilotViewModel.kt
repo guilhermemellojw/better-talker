@@ -6728,11 +6728,21 @@ class CopilotViewModel(
     val voiceState: StateFlow<com.bettertalker.app.data.voice.VoiceInputState> =
         speechRecognizer.state
 
+    /** Aviso único de fallback do STT (snackbar, não mensagem). */
+    val voiceNotice: StateFlow<String?> = speechRecognizer.notice
+
     /** Abre o microfone (a UI pede a permissão antes). P0: TTS para antes. */
     fun startVoiceInput() {
         textToSpeech.stop()
-        speechRecognizer.start()
+        viewModelScope.launch {
+            val preferOnDevice = runCatching { settings.sttOnDevice.first() }
+                .getOrDefault(true)
+            speechRecognizer.start(preferOnDevice = preferOnDevice)
+        }
     }
+
+    /** Limpa o aviso de fallback depois do snackbar. */
+    fun consumeVoiceNotice() = speechRecognizer.consumeNotice()
 
     /** Conclui a escuta e pede a transcrição (quadrado-stop). */
     fun finishVoiceInput() = speechRecognizer.finish()

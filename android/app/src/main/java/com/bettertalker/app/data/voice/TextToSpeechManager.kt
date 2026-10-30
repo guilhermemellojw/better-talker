@@ -89,10 +89,12 @@ private val NON_SPEECH_EMOJIS = listOf(
  * - Uma fala por vez: [speak] para a anterior antes de começar.
  * - Ciclo de vida: [shutdown] no `onCleared` do ViewModel.
  */
-class TextToSpeechManager(context: Context) : VoiceEngine {
+class TextToSpeechManager(context: Context) : VoiceEngine, SystemVoiceEngine {
 
     private var tts: TextToSpeech? = null
     private var languageOk = false
+    /** Voz escolhida antes da inicialização assíncrona do TTS. */
+    private var pendingVoiceName: String? = null
 
     private val _ready = MutableStateFlow(false)
     override val ready: StateFlow<Boolean> = _ready.asStateFlow()
@@ -115,6 +117,7 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
                 languageOk = result != TextToSpeech.LANG_MISSING_DATA &&
                     result != TextToSpeech.LANG_NOT_SUPPORTED
                 _ready.value = languageOk
+                applyPendingVoice()
                 tts?.setOnUtteranceProgressListener(
                     object : android.speech.tts.UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
@@ -145,6 +148,41 @@ class TextToSpeechManager(context: Context) : VoiceEngine {
             }
             _initialized.value = true
         }
+    }
+
+    /**
+     * Vozes pt-BR disponíveis no motor do sistema. Pode vir vazio antes do
+     * `onInit`; a tela de Voz oferece "Atualizar lista".
+     */
+    override fun systemVoices(): List<SystemVoice> {
+        val available = runCatching { tts?.voices.orEmpty() }.getOrDefault(emptySet())
+        val source = available.map { voice ->
+            SystemVoice(
+                name = voice.name,
+                localeTag = voice.locale.toLanguageTag(),
+                label = systemVoiceLabel(
+                    localeDisplayName = voice.locale.displayName,
+                    quality = voice.quality,
+                    requiresNetwork = voice.isNetworkConnectionRequired,
+                ),
+                requiresNetwork = voice.isNetworkConnectionRequired,
+                quality = voice.quality,
+            )
+        }
+        return systemVoiceOptions(source)
+    }
+
+    /** Aplica a voz escolhida agora ou guarda para o fim do `onInit`. */
+    override fun setSystemVoice(name: String?) {
+        pendingVoiceName = name
+        applyPendingVoice()
+    }
+
+    private fun applyPendingVoice() {
+        val name = pendingVoiceName ?: return
+        val engine = tts ?: return
+        val voice = engine.voices?.firstOrNull { it.name == name } ?: return
+        runCatching { engine.voice = voice }
     }
 
     /**

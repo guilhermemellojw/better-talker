@@ -9,6 +9,8 @@ object Routes {
     const val CHAT = "chat/{noteId}"
     const val MODEL = "model"
     const val SETTINGS = "settings"
+    /** Tela de Voz (TTS + STT no aparelho). */
+    const val VOICE = "voice"
     /** Tela de Aparência (tema + paleta com miniaturas). */
     const val APPEARANCE = "appearance"
     /** #20-fix-b: a Tribuna — mapa de memória do discurso. */

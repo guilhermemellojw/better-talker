@@ -81,6 +81,15 @@ class VoiceRouter(
         if (enabled) piper.warmUp()
     }
 
+    /** Vozes pt-BR do motor nativo (usadas no seletor de Voz). */
+    fun systemVoices(): List<SystemVoice> =
+        (native as? SystemVoiceEngine)?.systemVoices().orEmpty()
+
+    /** Escolhe a voz do motor nativo; o Piper tem voz única. */
+    fun setSystemVoice(name: String?) {
+        (native as? SystemVoiceEngine)?.setSystemVoice(name)
+    }
+
     /**
      * Se o premium está ligado mas o modelo sumiu do disco, desliga o toggle
      * (a UI reflete). O download é sempre explícito na Settings.

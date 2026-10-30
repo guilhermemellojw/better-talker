@@ -203,6 +203,20 @@ class SettingsStore(
     val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: true }
     suspend fun setVoicePremiumEnabled(v: Boolean) { ctx.store.edit { it[VOICE_PREMIUM] = v } }
 
+    /** Voz pt-BR do motor do sistema (null = padrão do aparelho). */
+    private val TTS_VOICE_NAME = stringPreferencesKey("tts_voice_name")
+    val ttsVoiceName: Flow<String?> = ctx.store.data.map { it[TTS_VOICE_NAME] }
+    suspend fun setTtsVoiceName(v: String?) {
+        ctx.store.edit {
+            if (v.isNullOrBlank()) it.remove(TTS_VOICE_NAME) else it[TTS_VOICE_NAME] = v
+        }
+    }
+
+    /** STT: preferir o reconhecedor no aparelho (offline) quando existir. */
+    private val STT_ON_DEVICE = booleanPreferencesKey("stt_on_device")
+    val sttOnDevice: Flow<Boolean> = ctx.store.data.map { it[STT_ON_DEVICE] ?: true }
+    suspend fun setSttOnDevice(v: Boolean) { ctx.store.edit { it[STT_ON_DEVICE] = v } }
+
     /**
      * Treino MVP: última preparação escolhida, por nota (escopo|modo|timer).
      * A string é opaca aqui; o StageViewModel codifica/decodifica e valida
