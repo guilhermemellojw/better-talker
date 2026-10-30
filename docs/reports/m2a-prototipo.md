@@ -30,8 +30,13 @@
 - **A34:** fluxo, stop/retry, raciocínio, card top-level/aninhado, erro
   inline × fallback, aviso/continuar, escopo com skeleton, pílula e reduced
   motion acionados; screenshots e vídeo local (`/tmp/opencode/m2a.mp4`).
-- Sem crash; nenhum dado do app foi alterado.
-- **Tablet:** pendente (offline no momento da validação).
+- **Tablet (25040RP0AL):** mesmas fases WAITING → REASONING → STREAMING
+  observadas no vídeo (`/tmp/opencode/m2a-tablet.mp4`), stop/retry com
+  parcial, erro inline × fallback, escopo/skeleton e reduced motion.
+  Screenshots em `/tmp/opencode/m2proto-tablet-*.png`.
+- Sem crash; nenhum dado do app foi alterado. O tablet foi restaurado para o
+  build do Apresentar depois do teste; #192 preservada e notas de teste
+  removidas.
 - **Testes:** **2.620 / 0 falhas** (inclui o teste do predicado de erro);
   `lintRelease` verde.
 - Sem infra Compose instrumentada; validação manual + screenshots/vídeo,
@@ -44,8 +49,7 @@
 ## Limitações
 
 - O protótipo é uma tela fake; não prova integração com o `ChatScreen` real.
-- Frame rate/“sem jank” precisa de inspeção visual no dispositivo; não há
-  medição automatizada de fps.
-- Tablet ainda precisa repetir a mesma passagem.
+- Frame rate/“sem jank” foi inspecionado visualmente; não há medição
+  automatizada de fps.
 - Nada será mergeado antes da v2.9.0; o protótipo é descartável e não entra
   no release.
