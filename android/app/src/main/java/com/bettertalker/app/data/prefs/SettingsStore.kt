@@ -203,6 +203,21 @@ class SettingsStore(
     val voicePremiumEnabled: Flow<Boolean> = ctx.store.data.map { it[VOICE_PREMIUM] ?: true }
     suspend fun setVoicePremiumEnabled(v: Boolean) { ctx.store.edit { it[VOICE_PREMIUM] = v } }
 
+    /**
+     * Treino MVP: última preparação escolhida, por nota (escopo|modo|timer).
+     * A string é opaca aqui; o StageViewModel codifica/decodifica e valida
+     * ids contra o banco (seção removida → discurso inteiro).
+     */
+    private fun trainPrepKey(noteId: String) =
+        stringPreferencesKey("train_prep_$noteId")
+
+    suspend fun trainPrep(noteId: String): String? =
+        ctx.store.data.map { it[trainPrepKey(noteId)] }.first()
+
+    suspend fun setTrainPrep(noteId: String, value: String) {
+        ctx.store.edit { it[trainPrepKey(noteId)] = value }
+    }
+
     /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */
     private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
     val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }

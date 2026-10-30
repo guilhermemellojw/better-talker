@@ -11,6 +11,9 @@ import com.bettertalker.app.domain.coach.SpeechMetrics
  */
 sealed interface AnalysisState {
     data object Idle : AnalysisState
+
+    /** STT acionado; aguardando o microfone ficar pronto (countdown). */
+    data object Preparing : AnalysisState
     data object Listening : AnalysisState
     data object Paused : AnalysisState
     data object Processing : AnalysisState
@@ -28,6 +31,7 @@ sealed interface AnalysisState {
 /** Rótulo curto do indicador de análise. Puro/testável. */
 fun analysisStateLabel(state: AnalysisState): String? = when (state) {
     AnalysisState.Idle -> null
+    AnalysisState.Preparing -> "Preparando microfone…"
     AnalysisState.Listening -> "Ouvindo…"
     AnalysisState.Paused -> "Pausado"
     AnalysisState.Processing -> "Analisando…"
@@ -37,7 +41,8 @@ fun analysisStateLabel(state: AnalysisState): String? = when (state) {
 
 /** A análise está em andamento (escuta/pausa/interrupção/processando)? Puro/testável. */
 fun isAnalysisActive(state: AnalysisState): Boolean =
-    state is AnalysisState.Listening ||
+    state is AnalysisState.Preparing ||
+        state is AnalysisState.Listening ||
         state is AnalysisState.Paused ||
         state is AnalysisState.Interrupted ||
         state is AnalysisState.Processing

@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +49,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,10 +74,10 @@ import androidx.core.view.WindowInsetsControllerCompat
  *
  * Toque no relógio pausa/retoma. Os controles não somem sozinhos.
  */
-private val StageBg = Color(0xFF030712)
-private val StageFg = Color(0xFFF8FAFC)
-private val StageDim = Color(0xFF94A3B8)
-private val StageAccent = Color(0xFFF59E0B)
+internal val StageBg = Color(0xFF030712)
+internal val StageFg = Color(0xFFF8FAFC)
+internal val StageDim = Color(0xFF94A3B8)
+internal val StageAccent = Color(0xFFF59E0B)
 
 /** Cores dos papéis — fundo escuro (Ensaio) e fundo claro (Tribuna). */
 private val StageSpeakerColorsDark = listOf(
@@ -124,8 +127,19 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val speechReady by vm.ttsReady.collectAsState()
     val analysisState by vm.analysisState.collectAsState()
     val analysisElapsed by vm.analysisElapsed.collectAsState()
+    val prepReady by vm.prepReady.collectAsState()
+    val trainingStarted by vm.trainingStarted.collectAsState()
+    val prep by vm.prep.collectAsState()
+    val prepSections by vm.trainingSections.collectAsState()
+    val hasTrainingText by vm.hasTrainingText.collectAsState()
+    val analysisAvailable by vm.analysisAvailable.collectAsState()
+    val scopeLabel by vm.scopeLabel.collectAsState()
+    val readingGate by vm.readingGate.collectAsState()
+    val prepareCountdown by vm.prepareCountdown.collectAsState()
+    val micWarning by vm.micWarning.collectAsState()
     val scroll = rememberScrollState()
     var micDenied by remember { mutableStateOf(false) }
+    var pendingInitialAnalysis by remember { mutableStateOf(false) }
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -134,14 +148,19 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             vm.startAnalysis()
         } else {
             micDenied = true
+            if (pendingInitialAnalysis) vm.onMicDenied()
         }
+        pendingInitialAnalysis = false
     }
-    val requestAnalysis: () -> Unit = {
+    fun requestAnalysis() {
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
             vm.startAnalysis()
         } else {
+            // Se o countdown está ativo, negar a permissão precisa liberar a
+            // leitura/timer (onMicDenied); no toque manual não há gate.
+            pendingInitialAnalysis = vm.readingGate.value
             micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -162,6 +181,28 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             // T3-A: microfone nunca fica aberto fora da tela.
             vm.dismissAnalysis()
         }
+    }
+
+    if (!trainingStarted) {
+        TrainingPrepScreen(
+            noteTitle = title,
+            sections = prepSections,
+            prep = prep,
+            analysisAvailable = analysisAvailable,
+            hasText = hasTrainingText,
+            ready = prepReady,
+            onPrepChange = vm::updatePrep,
+            onStart = { chosen ->
+                vm.startTraining(chosen)
+                // "Com análise" abre o microfone junto do Começar treino
+                // (a permissão é pedida aqui; negada, o timer continua).
+                if (vm.prep.value.mode == TrainMode.ANALYSIS) {
+                    requestAnalysis()
+                }
+            },
+            onBack = onBack,
+        )
+        return
     }
 
     // v2.7.2 (Sessão 2): controles fixos — sem auto-hide de 3s e sem
@@ -188,11 +229,22 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                 )
+            }
+            if (scopeLabel.isNotBlank()) {
+                Text(
+                    scopeLabel,
+                    color = StageAccent.copy(alpha = 0.85f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                )
+            }
+            if (title.isNotBlank() || scopeLabel.isNotBlank()) {
                 Spacer(Modifier.height(18.dp))
             }
             if (turns.isEmpty()) {
                 Text(
-                    content.ifBlank { "Esta nota ainda não tem texto para o ensaio." },
+                    content.ifBlank { "Esta nota ainda não tem texto para o treino." },
                     color = StageFg,
                     fontSize = fontSp.sp,
                     lineHeight = (fontSp * 1.6).sp,
@@ -232,14 +284,17 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 totalMinutes = totalMinutes,
                 running = running,
                 timerState = timerState,
+                timerEnabled = prep.timerEnabled,
                 onToggleTimer = vm::toggleTimer,
                 fontSp = fontSp,
                 onFontDelta = vm::bumpFont,
                 speaking = speaking,
                 speechReady = speechReady && !isAnalysisActive(analysisState),
                 onToggleSpeech = vm::toggleSpeech,
+                readingMode = prep.mode == TrainMode.READING,
+                analysisAvailable = analysisAvailable,
                 analysisActive = isAnalysisActive(analysisState),
-                onStartAnalysis = requestAnalysis,
+                onStartAnalysis = { requestAnalysis() },
                 onExit = onBack,
             )
         }
@@ -303,6 +358,74 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                     .background(StageAccent)
             )
         }
+
+        // Countdown inicial: cobre o texto e só libera leitura/timer quando o
+        // microfone está pronto (ou no fallback com aviso).
+        if (readingGate) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(StageBg.copy(alpha = 0.97f))
+                    .pointerInput(Unit) { detectTapGestures { } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                ) {
+                    Text(
+                        "Prepare-se",
+                        color = StageFg,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    if (prepareCountdown != null) {
+                        Text(
+                            "$prepareCountdown",
+                            color = StageAccent,
+                            fontSize = 84.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "O treino começa em instantes.",
+                            color = StageDim,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.width(34.dp).height(34.dp),
+                            strokeWidth = 3.dp,
+                            color = StageAccent,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "Abrindo o microfone…",
+                            color = StageDim,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    if (!micWarning.isNullOrBlank()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            micWarning.orEmpty(),
+                            color = StageAmber,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "A leitura começa depois da contagem.",
+                        color = StageDim.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
     }
 
     val result = analysisState as? AnalysisState.Result
@@ -312,8 +435,14 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
             speaking = speaking,
             speechReady = speechReady,
             onSpeak = vm::toggleFeedbackSpeech,
-            onRestart = vm::restartAnalysis,
-            onDismiss = vm::dismissAnalysis,
+            onRestart = {
+                vm.restartTraining()
+                if (vm.prep.value.mode == TrainMode.ANALYSIS) requestAnalysis()
+            },
+            onAnotherScope = {
+                vm.backToPrep()
+            },
+            onBack = onBack,
         )
     }
 }
@@ -324,12 +453,15 @@ private fun StageControlBar(
     totalMinutes: Int,
     running: Boolean,
     timerState: StageTimerState,
+    timerEnabled: Boolean,
     onToggleTimer: () -> Unit,
     fontSp: Int,
     onFontDelta: (Int) -> Unit,
     speaking: Boolean,
     speechReady: Boolean,
     onToggleSpeech: () -> Unit,
+    readingMode: Boolean,
+    analysisAvailable: Boolean,
     analysisActive: Boolean,
     onStartAnalysis: () -> Unit,
     onExit: () -> Unit,
@@ -345,22 +477,32 @@ private fun StageControlBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Relógio: toque pausa/retoma (tempo de preparação não conta).
-            Column(
-                Modifier
-                    .clickable { onToggleTimer() }
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
+            // "Sem cronômetro" esconde o relógio e a meta.
+            if (timerEnabled) {
+                Column(
+                    Modifier
+                        .clickable { onToggleTimer() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        formatClock(elapsed),
+                        color = stageTimerColor(timerState),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Text(
+                        stageClockSubtitle(elapsed, totalMinutes, running),
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                }
+            } else {
                 Text(
-                    formatClock(elapsed),
-                    color = stageTimerColor(timerState),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Text(
-                    stageClockSubtitle(elapsed, totalMinutes, running),
+                    "sem cronômetro",
                     color = StageDim,
                     fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -371,18 +513,21 @@ private fun StageControlBar(
                 Text("A+", color = StageFg, fontWeight = FontWeight.Bold)
             }
             // T3-A: porta do Ensaio com análise (STT local, sem áudio salvo).
-            IconButton(
-                onClick = onStartAnalysis,
-                enabled = !analysisActive,
-                modifier = Modifier.semantics {
-                    contentDescription = "Ensaio com análise"
-                },
-            ) {
-                Icon(
-                    Icons.Default.Mic,
-                    contentDescription = null,
-                    tint = if (analysisActive) StageDim else StageFg,
-                )
+            // "Só leitura" não mostra microfone; sem STT o botão fica inativo.
+            if (!readingMode) {
+                IconButton(
+                    onClick = onStartAnalysis,
+                    enabled = !analysisActive && analysisAvailable,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Treino com análise"
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = if (analysisActive || !analysisAvailable) StageDim else StageFg,
+                    )
+                }
             }
             // T2: ensaio em voz alta (▶ Ouvir / ⏸ Parar) — mesmo rótulo do chat.
             TextButton(onClick = onToggleSpeech, enabled = speechReady) {
@@ -393,7 +538,7 @@ private fun StageControlBar(
                 )
             }
             IconButton(onClick = onExit) {
-                Icon(Icons.Default.Close, "Sair do Ensaio", tint = StageFg)
+                Icon(Icons.Default.Close, "Sair do treino", tint = StageFg)
             }
         }
     }
@@ -424,6 +569,27 @@ private fun StageAnalysisBanner(
 ) {
     when (state) {
         AnalysisState.Idle, is AnalysisState.Result -> Unit
+        AnalysisState.Preparing -> AnalysisSurface(modifier) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.width(18.dp).height(18.dp),
+                    strokeWidth = 2.dp,
+                    color = StageAccent,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text("Preparando microfone…", color = StageFg, fontWeight = FontWeight.Bold)
+                    Text(
+                        "A leitura começa em instantes.",
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
         AnalysisState.Listening -> AnalysisSurface(modifier) {
             Row(
                 Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
@@ -545,12 +711,13 @@ private fun AnalysisResultSheet(
     speechReady: Boolean,
     onSpeak: () -> Unit,
     onRestart: () -> Unit,
-    onDismiss: () -> Unit,
+    onAnotherScope: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val metrics = result.metrics
     val feedback = result.feedback
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(onDismissRequest = onBack, sheetState = sheetState) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -559,7 +726,7 @@ private fun AnalysisResultSheet(
                 .padding(bottom = 24.dp),
         ) {
             Text(
-                "Resultado do ensaio",
+                "Resultado do treino",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -569,32 +736,43 @@ private fun AnalysisResultSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            Text(
-                "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
-                    "(alvo ${metrics.targetWpm})",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "Cobertura do texto completo ${metrics.coveragePercent}% · " +
-                    "Muletas ${metrics.fillerTotal}" +
-                    if (metrics.fillerCounts.isNotEmpty()) {
-                        " (" + metrics.fillerCounts.entries.joinToString(", ") {
-                            "${it.key} ${it.value}"
-                        } + ")"
-                    } else "",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            if (metrics.hasEnoughSpeech) {
+                Text(
+                    "${metrics.spokenWords} palavras · ${metrics.wpm} wpm " +
+                        "(alvo ${metrics.targetWpm})",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Cobertura do texto alvo ${metrics.coveragePercent}% · " +
+                        "Muletas ${metrics.fillerTotal}" +
+                        if (metrics.fillerCounts.isNotEmpty()) {
+                            " (" + metrics.fillerCounts.entries.joinToString(", ") {
+                                "${it.key} ${it.value}"
+                            } + ")"
+                        } else "",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (metrics.missingTerms.isNotEmpty()) {
+                    Text(
+                        "Termos que faltaram: " +
+                            metrics.missingTerms.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            } else {
+                // Não inventar ritmo/cobertura quando o STT perdeu fala.
+                Text(
+                    "Pouca fala capturada (${metrics.spokenWords} palavras) — " +
+                        "ritmo e cobertura não são confiáveis.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
             result.warning?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     "Aviso: $it",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-            if (!metrics.hasEnoughSpeech) {
-                Text(
-                    "Pouca fala capturada — ritmo e cobertura ainda não são confiáveis.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 6.dp),
@@ -618,6 +796,12 @@ private fun AnalysisResultSheet(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Treinar de novo") }
                 TextButton(
+                    onClick = onAnotherScope,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Treinar outro trecho") }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
                     onClick = onSpeak,
                     enabled = speechReady,
                     modifier = Modifier.heightIn(min = 48.dp),
@@ -628,12 +812,11 @@ private fun AnalysisResultSheet(
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Spacer(Modifier.weight(1f))
                 TextButton(
-                    onClick = onDismiss,
+                    onClick = onBack,
                     modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Descartar") }
+                ) { Text("Voltar") }
             }
             Text(
                 "Áudio não foi gravado. A transcrição foi descartada. " +

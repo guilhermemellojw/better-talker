@@ -22,8 +22,8 @@ import androidx.compose.ui.graphics.Color
 import com.bettertalker.app.ui.components.ViewModeMenu
 
 /**
- * Hub "Treinar": escolha visual da nota antes do Ensaio (Modo Teleprompter).
- * Substitui o atalho silencioso de última nota / sheet de escolha.
+ * Hub "Treino": escolha visual da nota antes da preparação (escopo/modo/timer).
+ * O Treino só começa depois do "Começar treino" na tela de preparação.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,7 +44,7 @@ fun TrainHomeScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
-                title = { Text("Treinar") },
+                title = { Text("Treino") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")

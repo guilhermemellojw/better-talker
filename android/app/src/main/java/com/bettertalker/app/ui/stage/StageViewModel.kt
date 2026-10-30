@@ -12,6 +12,9 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.voice.SessionSpeechRecognizer
 import com.bettertalker.app.data.voice.SessionSpeechState
 import com.bettertalker.app.data.voice.prepareForSpeech
+import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.SpeechSection
+import com.bettertalker.app.domain.speech.SubPoint
 import com.bettertalker.app.domain.coach.SpeechSessionTimer
 import com.bettertalker.app.domain.coach.buildCoachFeedback
 import com.bettertalker.app.domain.coach.coachFeedbackSpeech
@@ -26,12 +29,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Ensaio v1 — estado do leitor de tribuna: texto agregado da nota,
- * cronômetro global (decorrido/meta/restante) e preferências de leitura.
+ * Treino — estado da sessão: fonte da nota, preparação (escopo/modo/timer),
+ * texto recortado, cronômetro (decorrido/meta/restante) e análise STT local.
  *
- * Cronômetro: inicia ao entrar na tela e pode ser pausado/retomado tocando
- * no relógio (tempo de preparação não contamina a leitura). Meta = Σ dos
- * `minutes` das seções (dado já existente no S-34).
+ * Cronômetro: NÃO inicia ao entrar; só depois do "Começar treino". A meta é
+ * a soma das seções no discurso inteiro ou a duração da seção no trecho.
+ * O texto e a transcrição não são gravados; a transcrição é descartada após
+ * as métricas.
  */
 
 /** Estados/cor do cronômetro pela fração da meta. */
@@ -92,9 +96,61 @@ class StageViewModel(
     private val _analysisElapsed = MutableStateFlow(0L)
     val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
 
+    // Countdown inicial: só libera a leitura/timer quando o microfone está
+    // pronto (onReadyForSpeech) ou depois do timeout de segurança.
+    private val _readingGate = MutableStateFlow(false)
+    val readingGate: StateFlow<Boolean> = _readingGate.asStateFlow()
+
+    private val _prepareCountdown = MutableStateFlow<Int?>(null)
+    val prepareCountdown: StateFlow<Int?> = _prepareCountdown.asStateFlow()
+
+    private val _micWarning = MutableStateFlow<String?>(null)
+    val micWarning: StateFlow<String?> = _micWarning.asStateFlow()
+
+    private var prepareFallbackJob: Job? = null
+    private var prepareCountdownJob: Job? = null
+
+    /** STT do sistema disponível (sem ele, "Com análise" fica desabilitado). */
+    private val hasSpeechRecognizer = android.speech.SpeechRecognizer
+        .isRecognitionAvailable(appCtx)
+    private val _analysisAvailable = MutableStateFlow(hasSpeechRecognizer)
+    val analysisAvailable: StateFlow<Boolean> = _analysisAvailable.asStateFlow()
+
     private val sessionTimer = SpeechSessionTimer()
     private var analysisTimerJob: Job? = null
     private var sectionTitles: List<String> = emptyList()
+
+    // ---------- Treino MVP (preparação + escopo) ----------
+
+    /** Opções de trecho (seções/subpontos) carregadas do banco. */
+    private val _trainingSections = MutableStateFlow<List<TrainSectionOption>>(emptyList())
+    val trainingSections: StateFlow<List<TrainSectionOption>> =
+        _trainingSections.asStateFlow()
+
+    /** Última preparação escolhida nesta nota. */
+    private val _prep = MutableStateFlow(defaultTrainPrep(hasSpeechRecognizer))
+    val prep: StateFlow<TrainPrep> = _prep.asStateFlow()
+
+    /** Fonte carregada: a preparação já pode ser mostrada. */
+    private val _prepReady = MutableStateFlow(false)
+    val prepReady: StateFlow<Boolean> = _prepReady.asStateFlow()
+
+    /** O treino só começa no "Começar treino" (timer não corre ao abrir). */
+    private val _trainingStarted = MutableStateFlow(false)
+    val trainingStarted: StateFlow<Boolean> = _trainingStarted.asStateFlow()
+
+    /** Existe texto utilizável em algum escopo. */
+    private val _hasTrainingText = MutableStateFlow(false)
+    val hasTrainingText: StateFlow<Boolean> = _hasTrainingText.asStateFlow()
+
+    /** Rótulo do escopo atual ("Discurso inteiro", título da seção...). */
+    private val _scopeLabel = MutableStateFlow("")
+    val scopeLabel: StateFlow<String> = _scopeLabel.asStateFlow()
+
+    private var sections: List<SpeechSection> = emptyList()
+    private var subPointsBySection: Map<String, List<SubPoint>> = emptyMap()
+    private var discourseType: DiscourseType = DiscourseType.S34_DISCOURSE
+    private var allTurns: List<StageTurn> = emptyList()
 
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
@@ -114,14 +170,14 @@ class StageViewModel(
     /** Texto falado pelo TTS: só as falas (sem rótulos) quando há diálogo. */
     private var speechText: String = ""
 
-    /** Meta global = soma dos minutos das seções (0 = sem meta). */
+    /** Meta do escopo atual (soma das seções ou duração da seção; 0 = sem meta). */
     private val _totalMinutes = MutableStateFlow(0)
     val totalMinutes: StateFlow<Int> = _totalMinutes.asStateFlow()
 
     private val _elapsed = MutableStateFlow(0L)
     val elapsed: StateFlow<Long> = _elapsed.asStateFlow()
 
-    private val _timerRunning = MutableStateFlow(true)
+    private val _timerRunning = MutableStateFlow(false)
     val timerRunning: StateFlow<Boolean> = _timerRunning.asStateFlow()
 
     private val _fontSp = MutableStateFlow(STAGE_FONT_DEFAULT_SP)
@@ -132,10 +188,13 @@ class StageViewModel(
     init {
         // T3-A: falha persistente do STT → Interrupted (sem resultado
         // automático); a transcrição fica preservada para Retomar/Parar.
+        // Listening só chega no onReadyForSpeech: é o sinal para o countdown.
         viewModelScope.launch {
             sessionStt.state.collect { st ->
-                if (st is SessionSpeechState.Interrupted) {
-                    onSessionInterrupted(st.message)
+                when (st) {
+                    is SessionSpeechState.Interrupted -> onSessionInterrupted(st.message)
+                    SessionSpeechState.Listening -> onSpeechReady()
+                    else -> Unit
                 }
             }
         }
@@ -155,45 +214,47 @@ class StageViewModel(
         viewModelScope.launch {
             settings.stageFontSp.collect { _fontSp.value = it }
         }
-        // Conteúdo da nota: agregado pronto para leitura.
+        // Fonte da nota + preparação do Treino. O cronômetro NÃO começa aqui:
+        // o spec exige "Começar treino" explícito.
         viewModelScope.launch {
-            val sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
-            val subPoints = sections.associate { s ->
+            sections = db.speechSectionDao().forNote(noteId).map { it.toDomain() }
+            subPointsBySection = sections.associate { s ->
                 s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
             }
             val note = db.noteDao().get(noteId)
             _title.value = note?.title.orEmpty()
+            discourseType = DiscourseType.fromNameOrDefault(note?.discourseType)
             _totalMinutes.value = sections.sumOf { it.minutes }
             sectionTitles = sections.sortedBy { it.order }
                 .map { it.title }
                 .filter { it.isNotBlank() }
-            val type = com.bettertalker.app.domain.speech.DiscourseType
-                .fromNameOrDefault(note?.discourseType)
             // Ensaio por tipo: S-34 lê subpontos; V&M lê contentHtml, sem
             // títulos/metadados (o Stage antigo lia o texto agregado inteiro).
-            _content.value = buildStageContent(type, sections, subPoints)
+            _content.value = buildStageContent(discourseType, sections, subPointsBySection)
             // Modo Teleprompter: turnos do diálogo — só demonstrações V&M com
             // ≥2 papéis distintos (evita falso positivo em negritos de discurso).
-            val isDemo = type ==
-                com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART ||
-                type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO
-            val parsed = if (isDemo) {
-                sections.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
-            } else {
-                emptyList()
-            }
-            val turns = if (parsed.map { it.speaker.lowercase() }.distinct().size >= 2) {
-                parsed
-            } else {
-                emptyList()
-            }
-            _turns.value = turns
-            speechText = stageSpeechText(turns, _content.value)
+            allTurns = parsedTurnsFor(sections, discourseType)
+            _turns.value = allTurns
+            speechText = stageSpeechText(allTurns, _content.value)
+            _trainingSections.value = trainSectionOptions(sections, subPointsBySection)
+            _hasTrainingText.value = _content.value.isNotBlank() || allTurns.isNotEmpty()
+            _prep.value = decodeTrainPrep(
+                raw = settings.trainPrep(noteId),
+                sections = sections,
+                subPointsBySection = subPointsBySection,
+                analysisAvailable = hasSpeechRecognizer,
+            )
+            _prepReady.value = true
         }
-        startTimer()
     }
 
     fun startTimer() {
+        if (!_prep.value.timerEnabled) {
+            _timerRunning.value = false
+            timerJob?.cancel()
+            timerJob = null
+            return
+        }
         _timerRunning.value = true
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
@@ -212,6 +273,114 @@ class StageViewModel(
 
     fun toggleTimer() {
         if (_timerRunning.value) pauseTimer() else startTimer()
+    }
+
+    // ---------- Treino MVP — preparação e escopo ----------
+
+    /** Atualiza a preparação na UI (a persistência acontece no Começar). */
+    fun updatePrep(prep: TrainPrep) {
+        _prep.value = sanitizeTrainPrep(
+            prep = prep,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            analysisAvailable = hasSpeechRecognizer,
+        )
+    }
+
+    /**
+     * "Começar treino": fixa escopo/modo/timer, recorta o texto e a meta e só
+     * então inicia o cronômetro (se ligado). A análise é iniciada pela tela
+     * (depois da permissão de microfone) quando o modo é ANALYSIS.
+     */
+    fun startTraining(prep: TrainPrep = _prep.value) {
+        if (!_prepReady.value) return
+        val safe = sanitizeTrainPrep(
+            prep = prep,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            analysisAvailable = hasSpeechRecognizer,
+        )
+        _prep.value = safe
+        tts.stop()
+        dismissAnalysis()
+        _elapsed.value = 0L
+        _scopeLabel.value = trainScopeLabel(sections, subPointsBySection, safe.scope)
+        _totalMinutes.value = trainTargetMinutes(sections, subPointsBySection, safe.scope)
+        _content.value = buildStageContentForScope(
+            discourseType = discourseType,
+            sections = sections,
+            subPointsBySection = subPointsBySection,
+            scope = safe.scope,
+        )
+        _turns.value = turnsForScope(safe.scope)
+        speechText = stageSpeechText(_turns.value, _content.value)
+        sectionTitles = scopedSectionTitles(safe.scope)
+        _duoRole.value = null
+        // Com análise, o texto fica coberto pelo countdown e o timer só
+        // começa quando o microfone está pronto (releaseReading).
+        val gateReading = safe.mode == TrainMode.ANALYSIS
+        _readingGate.value = gateReading
+        _prepareCountdown.value = null
+        _micWarning.value = null
+        _trainingStarted.value = true
+        if (safe.timerEnabled && !gateReading) {
+            startTimer()
+        } else {
+            _timerRunning.value = false
+            timerJob?.cancel()
+            timerJob = null
+        }
+        viewModelScope.launch { settings.setTrainPrep(noteId, encodeTrainPrep(safe)) }
+    }
+
+    /** "Treinar de novo": mesmo escopo/modo, timer e análise do zero. */
+    fun restartTraining() = startTraining(_prep.value)
+
+    /** "Treinar outro trecho": volta para a preparação sem manter o timer. */
+    fun backToPrep() {
+        tts.stop()
+        dismissAnalysis()
+        pauseTimer()
+        _elapsed.value = 0L
+        _trainingStarted.value = false
+    }
+
+    private fun scopedSectionTitles(scope: TrainScope): List<String> {
+        val ordered = sections.sortedBy { it.order }
+        val scoped = when (scope.kind) {
+            TrainScopeKind.WHOLE -> ordered
+            TrainScopeKind.SECTION -> ordered.filter { it.id == scope.sectionId }
+            TrainScopeKind.SUBPOINT -> ordered.filter { section ->
+                subPointsBySection[section.id].orEmpty().any { it.id == scope.subPointId }
+            }
+        }
+        return scoped.map { it.title }.filter { it.isNotBlank() }
+    }
+
+    /** Turnos do teleprompter limitados ao escopo (subponto = texto corrido). */
+    private fun turnsForScope(scope: TrainScope): List<StageTurn> = when (scope.kind) {
+        TrainScopeKind.WHOLE -> allTurns
+        TrainScopeKind.SECTION -> parsedTurnsFor(
+            sections.filter { it.id == scope.sectionId },
+            discourseType,
+        )
+        TrainScopeKind.SUBPOINT -> emptyList()
+    }
+
+    /** Demonstrações V&M com ≥2 papéis; os demais tipos leem texto corrido. */
+    private fun parsedTurnsFor(
+        source: List<SpeechSection>,
+        type: DiscourseType,
+    ): List<StageTurn> {
+        val isDemo = type == DiscourseType.MINISTRY_PART ||
+            type == DiscourseType.FREE_DEMO
+        if (!isDemo) return emptyList()
+        val parsed = source.sortedBy { it.order }.flatMap { parseStageTurns(it.contentHtml) }
+        return if (parsed.map { it.speaker.lowercase() }.distinct().size >= 2) {
+            parsed
+        } else {
+            emptyList()
+        }
     }
 
     fun bumpFont(delta: Int) {
@@ -250,21 +419,33 @@ class StageViewModel(
 
     // ---------- T3-A — Ensaio com análise (STT local) ----------
 
-    /** Inicia a escuta e o relógio da análise; o timer do Stage continua. */
+    /**
+     * Inicia a escuta. No começo do treino, fica em [AnalysisState.Preparing]
+     * até o onReadyForSpeech; a leitura só é liberada depois do countdown.
+     * Num toque manual posterior, a leitura já está liberada e só o banner
+     * "Preparando microfone…" aparece.
+     */
     fun startAnalysis() {
         // P0 voz: microfone e TTS são mutuamente exclusivos.
         tts.stop()
         val current = _analysisState.value
-        if (current is AnalysisState.Listening ||
+        if (current is AnalysisState.Preparing ||
+            current is AnalysisState.Listening ||
             current is AnalysisState.Paused ||
             current is AnalysisState.Processing
         ) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _micWarning.value = null
         sessionStt.cancelSession()
         sessionTimer.start()
         _analysisElapsed.value = 0
-        _analysisState.value = AnalysisState.Listening
-        startAnalysisTicker()
+        _analysisState.value = AnalysisState.Preparing
         sessionStt.startSession()
+        startPrepareFallback()
     }
 
     /** Pausa a escuta sem perder a transcrição; o timer do Stage continua. */
@@ -280,21 +461,113 @@ class StageViewModel(
     fun resumeAnalysis() {
         val current = _analysisState.value
         if (current !is AnalysisState.Paused && current !is AnalysisState.Interrupted) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        _micWarning.value = null
         sessionTimer.resume()
-        _analysisState.value = AnalysisState.Listening
+        _analysisState.value = AnalysisState.Preparing
         sessionStt.resumeSession()
+        startPrepareFallback()
+    }
+
+    /**
+     * O usuário negou o microfone no "Começar treino": libera a leitura e o
+     * timer, mantém a sessão em modo leitura e deixa o banner de permissão.
+     */
+    fun onMicDenied() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _micWarning.value = "Microfone não permitido. O início não será analisado."
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (wasGate && _prep.value.timerEnabled) startTimer()
+    }
+
+    /** onReadyForSpeech: começa o countdown (ou libera a análise manual). */
+    private fun onSpeechReady() {
+        if (_analysisState.value !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        if (_readingGate.value) {
+            beginPrepareCountdown(warning = null)
+        } else {
+            _analysisState.value = AnalysisState.Listening
+            startAnalysisTicker()
+        }
+    }
+
+    /** Se o serviço não avisar que está pronto, libera com aviso. */
+    private fun startPrepareFallback() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = viewModelScope.launch {
+            delay(MIC_READY_TIMEOUT_MS)
+            if (_analysisState.value !is AnalysisState.Preparing) return@launch
+            if (_readingGate.value) {
+                beginPrepareCountdown("O início pode não ser capturado.")
+            } else {
+                _micWarning.value = "O início da análise pode não ter sido capturado."
+                releaseReadingNow()
+            }
+        }
+    }
+
+    /** "Prepare-se… 3, 2, 1": só depois libera leitura e timer. */
+    private fun beginPrepareCountdown(warning: String?) {
+        if (_analysisState.value !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        _micWarning.value = warning
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = viewModelScope.launch {
+            for (second in 3 downTo 1) {
+                _prepareCountdown.value = second
+                delay(1_000)
+            }
+            _prepareCountdown.value = null
+            prepareCountdownJob = null
+            releaseReadingNow()
+        }
+    }
+
+    /** Libera a leitura/timer quando o microfone está pronto ou no fallback. */
+    private fun releaseReadingNow() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (_analysisState.value is AnalysisState.Preparing) {
+            sessionTimer.beginListeningAfterPrepare()
+            _analysisState.value = AnalysisState.Listening
+            startAnalysisTicker()
+        }
+        if (wasGate && _prep.value.timerEnabled) startTimer()
     }
 
     /** Parar explícito: espera o último segmento e calcula as métricas. */
     fun stopAnalysis() {
         val current = _analysisState.value
-        if (current !is AnalysisState.Listening &&
+        if (current !is AnalysisState.Preparing &&
+            current !is AnalysisState.Listening &&
             current !is AnalysisState.Paused &&
             current !is AnalysisState.Interrupted &&
             current !is AnalysisState.Processing
         ) return
         val warning = (current as? AnalysisState.Interrupted)?.message
-        if (current is AnalysisState.Listening) sessionTimer.pause()
+        if (current is AnalysisState.Preparing || current is AnalysisState.Listening) {
+            sessionTimer.pause()
+        }
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _readingGate.value = false
         _analysisState.value = AnalysisState.Processing
         sessionStt.stopSession()
         viewModelScope.launch {
@@ -308,6 +581,13 @@ class StageViewModel(
 
     /** Descarta o resultado e a transcrição (privacidade). */
     fun dismissAnalysis() {
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        _readingGate.value = false
+        _micWarning.value = null
         sessionStt.cancelSession()
         analysisTimerJob?.cancel()
         analysisTimerJob = null
@@ -343,7 +623,20 @@ class StageViewModel(
     }
 
     private fun onSessionInterrupted(message: String) {
-        if (_analysisState.value !is AnalysisState.Listening) return
+        val current = _analysisState.value
+        if (current !is AnalysisState.Listening && current !is AnalysisState.Preparing) return
+        prepareFallbackJob?.cancel()
+        prepareFallbackJob = null
+        prepareCountdownJob?.cancel()
+        prepareCountdownJob = null
+        _prepareCountdown.value = null
+        val wasGate = _readingGate.value
+        _readingGate.value = false
+        if (wasGate) {
+            _micWarning.value = "O início pode não ser capturado."
+            sessionTimer.beginListeningAfterPrepare()
+            if (_prep.value.timerEnabled) startTimer()
+        }
         sessionTimer.pause()
         _analysisElapsed.value = sessionTimer.speechSeconds()
         _analysisState.value = AnalysisState.Interrupted(message)
@@ -366,8 +659,14 @@ class StageViewModel(
             targetMinutes = _totalMinutes.value,
             sectionTitles = sectionTitles,
         )
+        val startWarning = _micWarning.value?.takeIf { it.isNotBlank() }
+        val combinedWarning = listOfNotNull(warning, startWarning)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString(" ")
+            .ifBlank { null }
         _analysisElapsed.value = speechSec.toLong()
-        _analysisState.value = AnalysisState.Result(metrics, feedback, warning)
+        _analysisState.value = AnalysisState.Result(metrics, feedback, combinedWarning)
         // A transcrição não sobrevive ao cálculo: só métricas/feedback ficam.
         sessionStt.clearTranscript()
     }
@@ -382,6 +681,8 @@ class StageViewModel(
 
     companion object {
         private const val ANALYSIS_STOP_TIMEOUT_MS = 4_500L
+        /** Sem onReadyForSpeech nesse prazo, libera a leitura com aviso. */
+        private const val MIC_READY_TIMEOUT_MS = 2_500L
     }
 
     class Factory(

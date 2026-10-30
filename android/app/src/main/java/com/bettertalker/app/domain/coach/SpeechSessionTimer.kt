@@ -41,6 +41,17 @@ class SpeechSessionTimer(
         running = true
     }
 
+    /**
+     * Libera a contagem depois da preparação do microfone. Se a primeira fala
+     * chegou enquanto o serviço ainda abria, o tempo de fala começa agora
+     * (não conta a espera do countdown).
+     */
+    fun beginListeningAfterPrepare() {
+        if (!started || !speechStarted || running) return
+        listeningStartMs = clock()
+        running = true
+    }
+
     fun pause() {
         if (!running) return
         accumulatedMs += (clock() - listeningStartMs).coerceAtLeast(0L)

@@ -29,7 +29,11 @@ TREINAR (hub) → escolher nota → preparar treino → Treino → Resultado
 - Lista notas ativas com tipo e duração.
 - Última vez treinada e último resultado, quando houver.
 - Ação principal: "Treinar".
-- "Continuar último treino" quando houver sessão recente.
+- "Continuar último treino" — **v2.10.1** (histórico de sessão; fora do MVP).
+
+> Histórico de sessões, "última vez treinada" e "último resultado" ficam
+> para a **v2.10.1**. O MVP é stateless entre sessões: só a preparação
+> (escopo/modo/timer) é lembrada por nota.
 - Estado vazio: "Nenhuma nota ainda. Crie uma na Home para treinar."
 - Não é dashboard; é lista simples com ação clara.
 

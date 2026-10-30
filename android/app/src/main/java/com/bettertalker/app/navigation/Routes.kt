@@ -13,9 +13,9 @@ object Routes {
     const val APPEARANCE = "appearance"
     /** #20-fix-b: a Tribuna — mapa de memória do discurso. */
     const val TRIBUNA = "tribuna/{noteId}"
-    /** Ensaio — leitor de tribuna em tela cheia (imersivo). */
+    /** Treino — preparação + leitor em tela cheia (imersivo). */
     const val STAGE = "stage/{noteId}"
-    /** Hub "Treinar": escolha visual da nota antes do Ensaio. */
+    /** Hub "Treino": escolha visual da nota antes da preparação. */
     const val TRAIN_HOME = "train"
     /** Hub "Apresentar": escolha visual da nota antes da Tribuna. */
     const val PRESENT_HOME = "present"
