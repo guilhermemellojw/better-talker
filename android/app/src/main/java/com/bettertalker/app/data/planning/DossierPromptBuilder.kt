@@ -3,6 +3,7 @@ package com.bettertalker.app.data.planning
 import com.bettertalker.app.data.copilot.GenerationPrompts
 import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.domain.planning.DraftPartSpec
 import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.planning.SpeechPacing
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -26,6 +27,12 @@ private const val MAX_SUBPOINT_PROSE_CHARS = 2000
  */
 interface DossierPromptBuilder {
     fun build(dossier: Dossier): String
+
+    /**
+     * Variante para uma parte interna (45 min monolítico). O default delega
+     * para [build] — fakes/testes antigos continuam compilando.
+     */
+    fun buildPart(dossier: Dossier, part: DraftPartSpec): String = build(dossier)
 
     /**
      * Monta SÓ o bloco de contexto (seção + refs + overview) do dossiê,
@@ -54,14 +61,19 @@ class DefaultDossierPromptBuilder(
     private val refCharLimit: Int = 1000,
 ) : DossierPromptBuilder {
 
-    override fun build(dossier: Dossier): String {
+    override fun build(dossier: Dossier): String = buildInternal(dossier, null)
+
+    override fun buildPart(dossier: Dossier, part: DraftPartSpec): String =
+        buildInternal(dossier, part)
+
+    private fun buildInternal(dossier: Dossier, part: DraftPartSpec?): String {
         return buildString {
             appendLine(HEADER.trimIndent())
             appendLine()
             // Draft (JSON): a persona vem do system prompt do provider; o
             // bloco de chat "MODO MENTOR" não entra aqui.
             appendContext(dossier, includeMentorHint = false)
-            appendTask(dossier)
+            appendTask(dossier, part)
             appendJsonFormat()
         }.trim()
     }
@@ -414,24 +426,98 @@ class DefaultDossierPromptBuilder(
         appendLine()
     }
 
-    private fun StringBuilder.appendTask(d: Dossier) {
+    private fun StringBuilder.appendTask(d: Dossier, part: DraftPartSpec?) {
         appendLine("## TAREFA")
         val hasSubPoint = d.currentSubPoint != null
         val minutes = d.currentSection.minutes
+        val targetWords = part?.targetWords
         when (d.currentSection.role) {
             SectionRole.BODY -> appendLine(
                 if (hasSubPoint) {
                     bodySubPointTask(
-                        targetWords = subPointTargetWords(minutes, d.sectionSubPoints.size),
+                        targetWords = targetWords
+                            ?: subPointTargetWords(minutes, d.sectionSubPoints.size),
                     )
                 } else {
-                    bodySectionTask(targetWords = targetWordsForMinutes(minutes))
+                    bodySectionTask(
+                        targetWords = targetWords ?: targetWordsForMinutes(minutes),
+                    )
                 }
             )
-            SectionRole.INTRO -> appendLine(introTask(targetWordsForMinutes(minutes)))
-            SectionRole.CONCLUSION -> appendLine(conclusionTask(targetWordsForMinutes(minutes)))
+            SectionRole.INTRO -> appendLine(
+                introTask(targetWords ?: targetWordsForMinutes(minutes))
+            )
+            SectionRole.CONCLUSION -> appendLine(
+                conclusionTask(targetWords ?: targetWordsForMinutes(minutes))
+            )
         }
         appendLine()
+        if (part != null) appendPartInstructions(part)
+    }
+
+    /**
+     * Instrução explícita de parte (M3): a parte 1 não conclui; a última
+     * conclui; a continuação recebe o final da anterior para não repetir.
+     */
+    private fun StringBuilder.appendPartInstructions(part: DraftPartSpec) {
+        if (part.continuation) {
+            appendLine("## CONTINUAÇÃO DIRIGIDA")
+            appendLine(
+                "Continue exatamente do trecho final da seção, NÃO repita o que " +
+                    "já foi escrito e desenvolva mais. NÃO escreva uma nova " +
+                    "conclusão; a conclusão só deve aparecer no fim real da seção."
+            )
+            appendLine("Meta desta continuação: ~${formatWords(part.targetWords)} palavras.")
+            part.previousTail?.takeIf { it.isNotBlank() }?.let { tail ->
+                appendLine()
+                appendLine("## FINAL DA SEÇÃO (continue exatamente daqui)")
+                appendLine(htmlToPlainText(tail).takeLast(500).trim())
+            }
+            appendLine()
+            return
+        }
+        appendLine("## PARTE ${part.index} DE ${part.count}")
+        when {
+            part.isFirst && part.count > 1 -> {
+                appendLine(
+                    "Esta é a primeira parte da seção. Comece a seção, " +
+                        "desenvolva a ideia e NÃO conclua. Termine com uma frase " +
+                        "de transição para a parte ${part.index + 1}."
+                )
+            }
+            part.isLast -> {
+                appendLine(
+                    "Esta é a última parte da seção. Continue exatamente do " +
+                        "trecho final da parte anterior, NÃO repita o que já foi " +
+                        "escrito e conclua a seção."
+                )
+            }
+            else -> {
+                appendLine(
+                    "Esta é uma parte intermediária. Continue do trecho final " +
+                        "da parte anterior, NÃO repita o que já foi escrito e " +
+                        "NÃO conclua a seção."
+                )
+            }
+        }
+        appendLine("Meta desta parte: ~${formatWords(part.targetWords)} palavras.")
+        part.previousTail?.takeIf { it.isNotBlank() }?.let { tail ->
+            appendLine()
+            appendLine("## FINAL DA PARTE ANTERIOR (continue exatamente daqui)")
+            appendLine(htmlToPlainText(tail).takeLast(500).trim())
+        }
+        appendLine()
+    }
+
+    /** "2.990" para o prompt (PT-BR), sem depender de Locale do aparelho. */
+    private fun formatWords(n: Int): String {
+        val s = n.coerceAtLeast(0).toString()
+        val sb = StringBuilder()
+        s.forEachIndexed { i, c ->
+            if (i > 0 && (s.length - i) % 3 == 0) sb.append('.')
+            sb.append(c)
+        }
+        return sb.toString()
     }
 
     private fun StringBuilder.appendJsonFormat() {

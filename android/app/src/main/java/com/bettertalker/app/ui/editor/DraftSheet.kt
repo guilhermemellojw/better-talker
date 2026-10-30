@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -44,13 +45,13 @@ fun DraftSheet(
     onRetry: () -> Unit,
     onUndo: () -> Unit,
     onNext: () -> Unit = {},
+    onContinue: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
-                .semantics { liveRegion = LiveRegionMode.Polite },
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             when (state) {
@@ -69,6 +70,42 @@ fun DraftSheet(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )
+                    }
+                    val progressLabel = if (state.continuation) {
+                        draftContinuationLabel(state.targetWords, state.wordsSoFar)
+                    } else {
+                        draftPartProgressLabel(
+                            partIndex = state.partIndex,
+                            partCount = state.partCount,
+                            targetWords = state.targetWords,
+                            wordsSoFar = state.wordsSoFar,
+                        )
+                    }
+                    progressLabel?.let { progress ->
+                        Text(
+                            progress,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                            // M3: anuncia a troca de parte UMA vez.
+                            modifier = Modifier.semantics {
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        )
+                        if (state.targetWords > 0) {
+                            val fraction = if (state.continuation) {
+                                val total = (state.wordsSoFar + state.targetWords)
+                                    .coerceAtLeast(1)
+                                (state.wordsSoFar.toFloat() / total.toFloat())
+                                    .coerceIn(0f, 1f)
+                            } else {
+                                (state.wordsSoFar.toFloat() /
+                                    state.targetWords.toFloat()).coerceIn(0f, 1f)
+                            }
+                            LinearProgressIndicator(
+                                progress = { fraction },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -94,6 +131,9 @@ fun DraftSheet(
                         state.message,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Polite
+                        },
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = onRetry) { Text("Tentar novamente") }
@@ -128,6 +168,21 @@ fun DraftSheet(
                     }
 
                     Spacer(Modifier.height(4.dp))
+                    Text(
+                        draftWordsLabel(state.words, state.targetWords),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    state.notice?.let { notice ->
+                        Text(
+                            notice,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics {
+                                liveRegion = LiveRegionMode.Polite
+                            },
+                        )
+                    }
                     // Aviso de truncamento (informativo — nunca bloqueia o aceite).
                     if (state.draft.possiblyTruncated) {
                         Text(
@@ -145,10 +200,20 @@ fun DraftSheet(
                             .verticalScroll(rememberScrollState()),
                     )
 
+                    val needsContinue = draftNeedsContinuation(
+                        possiblyTruncated = state.draft.possiblyTruncated,
+                        words = state.words,
+                        targetWords = state.targetWords,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = onDismiss) { Text("Descartar") }
                         Spacer(Modifier.weight(1f))
-                        Button(onClick = onAccept) { Text("Aceitar") }
+                        if (needsContinue) {
+                            TextButton(onClick = onContinue) { Text("Continuar geração") }
+                        }
+                        Button(onClick = onAccept) {
+                            Text(draftAcceptLabel(needsContinue))
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
                 }

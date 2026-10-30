@@ -15,8 +15,13 @@ import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DossierBuilder
 import com.bettertalker.app.domain.planning.SectionWithSubPoints
 import com.bettertalker.app.domain.planning.buildDossierFrom
+import com.bettertalker.app.domain.planning.LongTextKind
 import com.bettertalker.app.domain.planning.SectionDraft
 import com.bettertalker.app.domain.planning.SectionGenerator
+import com.bettertalker.app.domain.planning.SpeechPacing
+import com.bettertalker.app.domain.planning.cardWordCount
+import com.bettertalker.app.domain.planning.longTextKindOf
+import com.bettertalker.app.data.planning.effectiveDraftMinutes
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SectionValidationResult
@@ -548,18 +553,91 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         com.bettertalker.app.data.llm.LocalProgress.clearPartial()
         _draftState.value = DraftUiState.Loading(target, queueRemaining)
         draftJob = viewModelScope.launch {
-            val draft = try {
-                generateDraftFor(target)
+            val result = try {
+                generateDraftFor(target) { progress ->
+                    _draftState.value = DraftUiState.Loading(
+                        target = target,
+                        queueRemaining = queueRemaining,
+                        partIndex = progress.partIndex,
+                        partCount = progress.partCount,
+                        targetWords = progress.targetWords,
+                        wordsSoFar = progress.wordsSoFar,
+                    )
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
                 null
             }
             com.bettertalker.app.data.llm.LocalProgress.clearPartial()
-            _draftState.value = if (draft != null) {
-                DraftUiState.Ready(target, draft)
+            _draftState.value = if (result != null) {
+                DraftUiState.Ready(
+                    target = target,
+                    draft = result.draft,
+                    targetWords = result.targetWords,
+                    words = cardWordCount(result.draft.textHtml),
+                )
             } else {
                 DraftUiState.Error(target, "Não consegui gerar o rascunho. Tente novamente.")
+            }
+        }
+    }
+
+    /**
+     * M3 — "Continuar geração" no DraftSheet. Estende o parcial atual; se
+     * falhar, mantém o draft e mostra o aviso, sem perder o que já existe.
+     */
+    fun continueDraft() {
+        if (draftJob?.isActive == true) return
+        val ready = _draftState.value as? DraftUiState.Ready ?: return
+        if (!draftNeedsContinuation(
+                possiblyTruncated = ready.draft.possiblyTruncated,
+                words = ready.words,
+                targetWords = ready.targetWords,
+            )
+        ) {
+            return
+        }
+        val generator = sectionGenerator ?: return
+        val target = ready.target
+        val remaining = (ready.targetWords - ready.words).coerceAtLeast(300)
+        _draftState.value = DraftUiState.Loading(
+            target = target,
+            queueRemaining = draftQueue.size,
+            partIndex = 2,
+            partCount = 2,
+            targetWords = remaining,
+            wordsSoFar = ready.words,
+            continuation = true,
+        )
+        draftJob = viewModelScope.launch {
+            val dossier = buildDossierFor(target)
+            val continued = try {
+                if (dossier != null) {
+                    generator.continueDraft(
+                        dossier = dossier,
+                        currentText = ready.draft.textHtml,
+                        currentUsedSources = ready.draft.usedSources,
+                        targetWords = ready.targetWords,
+                    )
+                } else {
+                    null
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            com.bettertalker.app.data.llm.LocalProgress.clearPartial()
+            _draftState.value = if (continued != null) {
+                DraftUiState.Ready(
+                    target = target,
+                    draft = continued,
+                    targetWords = ready.targetWords,
+                    words = cardWordCount(continued.textHtml),
+                )
+            } else {
+                ready.copy(notice = "Não consegui continuar o rascunho. Tente novamente.")
             }
         }
     }
@@ -696,10 +774,30 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * Gera o draft para [target]. Null em falha tratável (sem gerador,
      * seção ausente, LLM indisponível). CancellationException propaga.
      */
-    private suspend fun generateDraftFor(target: DraftTarget): SectionDraft? {
+    private data class GeneratedDraft(
+        val draft: SectionDraft,
+        val targetWords: Int,
+    )
+
+    private suspend fun generateDraftFor(
+        target: DraftTarget,
+        onProgress: (com.bettertalker.app.domain.planning.DraftProgress) -> Unit = {},
+    ): GeneratedDraft? {
         val generator = sectionGenerator ?: return null
         val dossier = buildDossierFor(target) ?: return null
-        return generator.generate(dossier)
+        val draft = generator.generateWithProgress(dossier, onProgress) ?: return null
+        return GeneratedDraft(draft, draftTargetWords(dossier))
+    }
+
+    /** Meta de palavras do alvo (0 em demonstração). Puro/testável. */
+    private fun draftTargetWords(dossier: Dossier): Int {
+        if (longTextKindOf(dossier.discourseType) == LongTextKind.DEMO) return 0
+        val minutes = effectiveDraftMinutes(
+            sectionMinutes = dossier.currentSection.minutes,
+            isSubPoint = dossier.currentSubPoint != null,
+            subPointCount = dossier.sectionSubPoints.size,
+        )
+        return SpeechPacing.targetWords(minutes)
     }
     val outline: kotlinx.coroutines.flow.Flow<List<com.bettertalker.app.data.db.OutlineEntity>> by lazy {
         outlines.observe(noteId)

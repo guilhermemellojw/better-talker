@@ -481,6 +481,7 @@ private fun AppNav(
                         ?.target?.let(editorVm::startDraft)
                 },
                 onDraftNext = editorVm::nextDraft,
+                onDraftContinue = editorVm::continueDraft,
             )
             androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
                 copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }

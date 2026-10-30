@@ -28,9 +28,24 @@ sealed interface DraftUiState {
     data class Loading(
         val target: DraftTarget,
         val queueRemaining: Int = 0,
+        /** M3: parte interna atual (1-based) e total. */
+        val partIndex: Int = 1,
+        val partCount: Int = 1,
+        val targetWords: Int = 0,
+        val wordsSoFar: Int = 0,
+        /** "Continuar geração" (não é uma parte do plano inicial). */
+        val continuation: Boolean = false,
     ) : DraftUiState
 
-    data class Ready(val target: DraftTarget, val draft: SectionDraft) : DraftUiState
+    data class Ready(
+        val target: DraftTarget,
+        val draft: SectionDraft,
+        /** Meta total da seção (0 = demo/desconhecida). */
+        val targetWords: Int = 0,
+        val words: Int = 0,
+        /** Falha ao continuar um parcial; o draft atual é preservado. */
+        val notice: String? = null,
+    ) : DraftUiState
     data class Error(val target: DraftTarget, val message: String) : DraftUiState
 
     /**
@@ -121,6 +136,72 @@ fun alvoLabel(target: DraftTarget, sections: List<SectionUiState>): String {
             }
         }
     }
+}
+
+/**
+ * M3 — o parcial é curto/cortado e o sheet deve oferecer "Continuar geração".
+ * 80% da meta (mesma régua do card). Puro/testável.
+ */
+internal fun draftNeedsContinuation(
+    possiblyTruncated: Boolean,
+    words: Int,
+    targetWords: Int,
+): Boolean {
+    if (possiblyTruncated) return true
+    if (targetWords <= 0) return false
+    return words < targetWords * 80 / 100
+}
+
+/** "Parte 1 de 2 · ~2.990 palavras" (+ escritas quando houver). */
+internal fun draftPartProgressLabel(
+    partIndex: Int,
+    partCount: Int,
+    targetWords: Int,
+    wordsSoFar: Int,
+): String? {
+    if (partCount <= 1) return null
+    val base = "Parte $partIndex de $partCount" +
+        if (targetWords > 0) " · ~${formatDraftWords(targetWords)} palavras" else ""
+    return if (wordsSoFar > 0) {
+        "$base · ${formatDraftWords(wordsSoFar)} escritas"
+    } else {
+        base
+    }
+}
+
+/** "Continuação · ~1.455 palavras · 4.395 escritas". */
+internal fun draftContinuationLabel(targetWords: Int, wordsSoFar: Int): String =
+    buildString {
+        append("Continuação")
+        if (targetWords > 0) {
+            append(" · ~").append(formatDraftWords(targetWords)).append(" palavras")
+        }
+        if (wordsSoFar > 0) {
+            append(" · ").append(formatDraftWords(wordsSoFar)).append(" escritas")
+        }
+    }
+
+/** "5.862 de ~5.850 palavras" (ou só "5.862 palavras" sem meta). */
+internal fun draftWordsLabel(words: Int, targetWords: Int): String =
+    if (targetWords > 0) {
+        "${formatDraftWords(words)} de ~${formatDraftWords(targetWords)} palavras"
+    } else {
+        "${formatDraftWords(words)} palavras"
+    }
+
+/** "Aceitar" quando completo; "Aceitar mesmo assim" quando curto/cortado. */
+internal fun draftAcceptLabel(needsContinuation: Boolean): String =
+    if (needsContinuation) "Aceitar mesmo assim" else "Aceitar"
+
+/** Palavras com separador PT-BR ("5.850"), sem Locale do aparelho. */
+internal fun formatDraftWords(n: Int): String {
+    val s = n.coerceAtLeast(0).toString()
+    val sb = StringBuilder()
+    s.forEachIndexed { i, c ->
+        if (i > 0 && (s.length - i) % 3 == 0) sb.append('.')
+        sb.append(c)
+    }
+    return sb.toString()
 }
 
 /**
