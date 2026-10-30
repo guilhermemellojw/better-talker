@@ -39,6 +39,15 @@
 > aviso de truncamento; nota vazia mantém o fallback honesto. 45 min com
 > subpontos segue na fila por subponto. Sem bump/tag.
 
+> **2026-10-30 — status único das fontes + gate:** `CitationStatus`
+> (edição/texto/ação) compartilhado por checklist, prompt e card; `citedSources`
+> passa a usar a lista do `NoteSourcesResolver`; card “Fontes necessárias” com
+> baixar/reindexar/confirmar/continuar sem; gate determinístico antes do LLM.
+> Merge `7cff1d0` (2.734 testes/0, lint/CI verdes). **A34 validado**: w25.07
+> resolvido sem card; §999 `READY/NOT_FOUND` → reindexar; lmd `INDEX_FAILED` →
+> reindexar; w24.01/mwb ausentes → baixar; g 1/16 ambíguo → confirmar; “Continuar
+> sem” registra a ausência sem inventar. Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
