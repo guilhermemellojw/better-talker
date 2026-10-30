@@ -119,7 +119,7 @@ class SectionGeneratorImplTest {
         assertEquals(ResponseFormat.JSON_SCHEMA, req.responseFormat)
         assertNotNull(req.jsonSchema)
         assertTrue(req.jsonSchema!!.contains("section_draft"))
-        assertEquals(1, req.maxAttempts)
+        assertEquals(2, req.maxAttempts)
     }
 
     @Test

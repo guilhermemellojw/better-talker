@@ -37,6 +37,10 @@ data class LongTextRequest(
     },
     /** Minutos pedidos explicitamente pelo usuário (null = usou o padrão). */
     val requestedMinutes: Int? = null,
+    /** 1-based quando este pedido é uma parte interna (45 min monolítico). */
+    val partIndex: Int? = null,
+    /** Total de partes internas; null/1 = pedido único. */
+    val partCount: Int? = null,
 ) {
     val isDemo: Boolean get() = kind == LongTextKind.DEMO
 
@@ -122,13 +126,35 @@ data class LongTextBudget(
 )
 
 fun budgetForRequest(request: LongTextRequest): LongTextBudget {
-    val raw = if (request.kind == LongTextKind.DEMO) {
-        request.targetTurns.coerceAtLeast(1) * 80 + 200
+    // Parte interna: o orçamento é o da SEÇÃO (ex.: 45 min → 4.488 por
+    // parte), não o da fatia de minutos. O prompt usa os minutos da parte,
+    // mas a saída precisa caber no teto de uma parte do total.
+    val partCount = request.partCount?.takeIf { it > 1 }
+    val budgetMinutes = if (partCount != null) {
+        request.sectionMinutes?.takeIf { it > 0 } ?: request.minutes
     } else {
-        request.targetWords.coerceAtLeast(1) * 3 / 2 + 200
+        request.minutes
     }
-    val parts = ((raw + LONG_TEXT_MAX_OUTPUT_TOKENS - 1) / LONG_TEXT_MAX_OUTPUT_TOKENS)
-        .coerceAtLeast(1)
+    val raw = if (request.kind == LongTextKind.DEMO) {
+        // A parte usa o orçamento da SEÇÃO (45 min) e o divide pelo número
+        // de partes; a meta de palavras da parte fica no prompt.
+        val turns = if (partCount != null) {
+            SpeechPacing.targetTurns(budgetMinutes)
+        } else {
+            request.targetTurns
+        }
+        turns.coerceAtLeast(1) * 80 + 200
+    } else {
+        val words = if (partCount != null) {
+            SpeechPacing.targetWords(budgetMinutes)
+        } else {
+            request.targetWords
+        }
+        words.coerceAtLeast(1) * 3 / 2 + 200
+    }
+    val parts = partCount
+        ?: ((raw + LONG_TEXT_MAX_OUTPUT_TOKENS - 1) / LONG_TEXT_MAX_OUTPUT_TOKENS)
+            .coerceAtLeast(1)
     val perPart = ((raw + parts - 1) / parts)
         .coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
     return LongTextBudget(

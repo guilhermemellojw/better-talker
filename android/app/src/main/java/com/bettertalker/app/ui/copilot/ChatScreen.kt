@@ -187,6 +187,7 @@ fun ChatScreen(
     onDraftUndo: () -> Unit = {},
     onDraftRetry: () -> Unit = {},
     onDraftNext: () -> Unit = {},
+    onDraftContinue: () -> Unit = {},
 ) {
     val messages by vm.messages.collectAsState()
     val canTransformSelection by vm.canTransformSelection.collectAsState()
@@ -1185,6 +1186,7 @@ fun ChatScreen(
             onRetry = onDraftRetry,
             onUndo = onDraftUndo,
             onNext = onDraftNext,
+            onContinue = onDraftContinue,
         )
     }
 

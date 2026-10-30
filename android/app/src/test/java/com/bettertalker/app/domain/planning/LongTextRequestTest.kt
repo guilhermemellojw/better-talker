@@ -109,6 +109,39 @@ class LongTextRequestTest {
     }
 
     @Test
+    fun parteDe45_usaOrcamentoDaSecaoE4488() {
+        val p1 = LongTextRequest(
+            kind = LongTextKind.SPEECH,
+            scope = LongTextScope.SECTION,
+            minutes = 23,
+            sectionMinutes = 45,
+            targetWords = 2990,
+            partIndex = 1,
+            partCount = 2,
+        )
+        val b1 = budgetForRequest(p1)
+        assertEquals(8975, b1.rawTokens)
+        assertEquals(2, b1.parts)
+        assertEquals(4488, b1.maxTokens)
+
+        val p2 = p1.copy(minutes = 22, targetWords = 2860, partIndex = 2)
+        assertEquals(4488, budgetForRequest(p2).maxTokens)
+    }
+
+    @Test
+    fun pedidoDe10minDentroDe45_naoUsaOrcamentoDaSecao() {
+        val r = LongTextRequest(
+            kind = LongTextKind.SPEECH,
+            scope = LongTextScope.SECTION,
+            minutes = 10,
+            sectionMinutes = 45,
+        )
+        val b = budgetForRequest(r)
+        assertEquals(2150, b.maxTokens)
+        assertEquals(1, b.parts)
+    }
+
+    @Test
     fun secaoSemPedido_usaSectionMinutes() {
         val resolution = longTextRequestFor(
             kind = LongTextKind.SPEECH,

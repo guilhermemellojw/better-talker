@@ -46,6 +46,15 @@ class SectionDraftParserTest {
     }
 
     @Test
+    fun parsePartial_jsonCortado_salvaTextEMarcaTruncado() {
+        val json = "{\"text\":\"<p>parcial sem fim"
+        assertNull(parser.parse(json))
+        val partial = parser.parsePartial(json, null)
+        assertEquals("<p>parcial sem fim", partial?.textHtml)
+        assertTrue(partial?.possiblyTruncated == true)
+    }
+
+    @Test
     fun parse_lengthFinishReason_marksPossiblyTruncated() {
         val json = """{"text":"<p>x</p>","usedSources":[]}"""
         assertTrue(parser.parse(json, "length")?.possiblyTruncated == true)
