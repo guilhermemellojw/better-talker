@@ -1608,7 +1608,7 @@ private fun TurnLiveItem(
                 when (phase) {
                     TurnPhase.WAITING, TurnPhase.REASONING -> {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         } else {
                             when {
                                 localRetry != null -> Text(
@@ -1630,25 +1630,27 @@ private fun TurnLiveItem(
                             }
                         }
                     }
-                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true)
+                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase))
                     TurnPhase.DONE -> {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                     }
                     TurnPhase.CANCELLED -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                         ChatErrorRow(
                             "Geração parada.",
                             onDismiss = onDismiss,
                             onRetry = onRetry,
+                            // “Interrompido” já é o anúncio live desta fase.
+                            announce = false,
                         )
                     }
                     TurnPhase.ERROR -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                         ChatErrorRow(
                             turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",

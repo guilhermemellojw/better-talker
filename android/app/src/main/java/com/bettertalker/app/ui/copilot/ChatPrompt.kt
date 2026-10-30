@@ -339,14 +339,20 @@ fun ChatErrorRow(
     message: String,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** false quando um status live region já anuncia o mesmo evento. */
+    announce: Boolean = true,
 ) {
+    val base = modifier
+        .fillMaxWidth()
+        .padding(vertical = 4.dp)
     Column(
-        modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
+        if (announce) {
             // Erro é lido ao aparecer, sem sequestrar o foco do campo.
-            .semantics { liveRegion = LiveRegionMode.Polite }
+            base.semantics { liveRegion = LiveRegionMode.Polite }
+        } else {
+            base
+        }
     ) {
         Text(
             message,

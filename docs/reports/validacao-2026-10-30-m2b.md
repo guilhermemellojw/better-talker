@@ -4,7 +4,7 @@
 A34 e streaming real continuam como gates antes de qualquer merge.
 
 - Branch: `feat/m2b-streaming` (base `6a455c8`, `main` 2.8.2/27).
-- Testes: **2.663 JVM / 0 falhas** (+6).
+- Testes: **2.666 JVM / 0 falhas** (+9).
 - `lintRelease`: **verde**.
 - Sem bump/tag; release intocado.
 
@@ -15,6 +15,9 @@ A34 e streaming real continuam como gates antes de qualquer merge.
 - `StreamingMarkdown` parseia o parcial em blocos a cada **~100 ms**
   (`STREAM_THROTTLE_MS`), não a cada token.
 - Primeiro token entra imediatamente; updates seguintes são coalescidos.
+- **Fases terminais** (DONE/CANCELLED/ERROR) usam `streamThrottleFor(phase) = 0`:
+  o efeito cancela a espera pendente e congela o parcial no mesmo frame do
+  stop/erro.
 - O texto cresce no slot sem `animateContentSize` (sem animar altura por token).
 - `<texto-do-card>` durante o streaming já renderiza o **shell** “Texto para o
   card” com o parcial dentro; as ações só aparecem no card final.
@@ -43,17 +46,23 @@ A34 e streaming real continuam como gates antes de qualquer merge.
 ### TalkBack
 
 - Anúncio por fase: “Pensando”, “Gerando”, “Interrompido”, “Resultado pronto”
-  (`liveRegion = Polite`, 1 dp, sem duplicar o erro).
+  (`liveRegion = Polite`, 1 dp; nó observado no uiautomator com
+  `focusable="false"`, sem foco separado).
 - ERROR fica só com o `ChatErrorRow` (já Polite).
-- Pílula “N novas” com anúncio “1 nova mensagem”/“N novas mensagens”.
+- CANCELLED: o status anuncia “Interrompido” e o `ChatErrorRow` é renderizado
+  com `announce = false` — sem leitura duplicada.
+- Pílula “N novas” com `contentDescription` “1 nova mensagem”/“N novas
+  mensagens” (o texto visual não é lido duas vezes).
 
 ## Testes puros novos
 
-`ChatStreamingTest` (6):
+`ChatStreamingTest` (9):
 - markdown com título/lista/card;
-- card aberto sem fechar ainda vira shell;
+- card aberto sem fechar ainda vira shell (1 bloco `TextForCard`, sem a tag);
+- card aberto multilinha mantém o parcial dentro do shell;
+- card fechado + texto restante separa card e parágrafo;
 - texto vazio não renderiza;
-- throttle = 100 ms;
+- throttle = 100 ms em fases vivas e **0** em DONE/CANCELLED/ERROR;
 - mapeamento das fases para TalkBack;
 - singular/plural da pílula.
 

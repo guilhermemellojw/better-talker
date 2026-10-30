@@ -25,10 +25,37 @@ class ChatStreamingTest {
     @Test
     fun streamingBlocks_cardSemFechar_aindaViraShell() {
         val blocks = streamingBlocks("<texto-do-card>parcial sem fechar")
-        assertEquals(
-            "parcial sem fechar",
-            blocks.filterIsInstance<MdBlock.TextForCard>().single().text,
-        )
+        val card = blocks.filterIsInstance<MdBlock.TextForCard>().single()
+        assertEquals("parcial sem fechar", card.text)
+        // O shell é o mesmo bloco do card final; a tag não vaza para o texto.
+        assertTrue(!card.text.contains("texto-do-card"))
+        // Ação de inserir/substituir só existe no card final (onUseInCard
+        // passado pelo MessageBubble; o streaming passa null).
+        assertEquals(1, blocks.size)
+    }
+
+    @Test
+    fun streamingBlocks_cardAbertoMultilinha_mantemParcial() {
+        val blocks = streamingBlocks("<texto-do-card>\nlinha 1\nlinha 2")
+        val card = blocks.filterIsInstance<MdBlock.TextForCard>().single()
+        assertEquals("linha 1\nlinha 2", card.text)
+    }
+
+    @Test
+    fun streamingBlocks_cardFechadoComResto_separaCardETexto() {
+        val blocks = streamingBlocks("<texto-do-card>card</texto-do-card> resto")
+        assertEquals("card", blocks.filterIsInstance<MdBlock.TextForCard>().single().text)
+        assertEquals("resto", blocks.filterIsInstance<MdBlock.Para>().single().text)
+    }
+
+    @Test
+    fun streamThrottleFor_terminalRenderizaImediato() {
+        assertEquals(0L, streamThrottleFor(TurnPhase.DONE))
+        assertEquals(0L, streamThrottleFor(TurnPhase.CANCELLED))
+        assertEquals(0L, streamThrottleFor(TurnPhase.ERROR))
+        assertEquals(STREAM_THROTTLE_MS, streamThrottleFor(TurnPhase.WAITING))
+        assertEquals(STREAM_THROTTLE_MS, streamThrottleFor(TurnPhase.REASONING))
+        assertEquals(STREAM_THROTTLE_MS, streamThrottleFor(TurnPhase.STREAMING))
     }
 
     @Test

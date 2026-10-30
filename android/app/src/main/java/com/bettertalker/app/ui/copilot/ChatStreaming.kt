@@ -43,6 +43,15 @@ internal const val CURSOR_FADE_MS = 150
 internal fun streamingBlocks(text: String): List<MdBlock> =
     if (text.isBlank()) emptyList() else cleanBlocks(parseBlocks(text))
 
+/**
+ * Throttle por fase: terminal (DONE/CANCELLED/ERROR) renderiza o parcial
+ * imediatamente — o stop não pode congelar um texto 100 ms atrasado.
+ */
+internal fun streamThrottleFor(phase: TurnPhase): Long = when (phase) {
+    TurnPhase.DONE, TurnPhase.CANCELLED, TurnPhase.ERROR -> 0L
+    else -> STREAM_THROTTLE_MS
+}
+
 /** TalkBack: anúncio curto por fase; ERROR fica com o ChatErrorRow. */
 internal fun turnStatusAnnouncement(phase: TurnPhase): String? = when (phase) {
     TurnPhase.WAITING, TurnPhase.REASONING -> "Pensando"
@@ -67,11 +76,15 @@ internal fun rememberThrottledStreamingText(
 ): String {
     // Inicializa com o texto atual: recriação de fase não pisca vazio.
     var rendered by remember { mutableStateOf(text) }
-    LaunchedEffect(text) {
+    // A chave inclui throttleMs: ao virar terminal (0), o efeito cancela a
+    // espera pendente e mostra o parcial imediatamente.
+    LaunchedEffect(text, throttleMs) {
         if (text == rendered) return@LaunchedEffect
         // Primeiro token entra imediatamente; updates rápidos esperam a
         // janela para não parsear markdown a cada emissão.
-        if (rendered.isNotEmpty() && text.length > rendered.length) delay(throttleMs)
+        if (throttleMs > 0 && rendered.isNotEmpty() && text.length > rendered.length) {
+            delay(throttleMs)
+        }
         rendered = text
     }
     return rendered
@@ -82,9 +95,10 @@ internal fun rememberThrottledStreamingText(
 internal fun StreamingMarkdown(
     text: String,
     showCursor: Boolean,
+    throttleMs: Long = STREAM_THROTTLE_MS,
     modifier: Modifier = Modifier,
 ) {
-    val throttled = rememberThrottledStreamingText(text)
+    val throttled = rememberThrottledStreamingText(text, throttleMs)
     val blocks = remember(throttled) { streamingBlocks(throttled) }
     val motion = motionMillis(CURSOR_FADE_MS, rememberMotionScale())
     Column(
