@@ -53,9 +53,14 @@ object JwpubExtractor {
         } catch (e: JwpubException) {
             throw e
         } catch (_: Exception) {
-            throw JwpubException("Arquivo .jwpub inválido.")
+            throw JwpubException(
+                "JWPUB inválido ou corrompido (ZIP/manifest). " +
+                    "Tente reindexar; se persistir, baixe o EPUB."
+            )
         }
-        val dbFile = File(cacheDir, "jwpub-${System.currentTimeMillis()}.db")
+        // UUID: o reindexAll enfileira vários JWPUBs; millis colidia e dois
+        // workers compartilhavam o MESMO .db/.zip de cache (CRC/ENOENT).
+        val dbFile = File(cacheDir, "jwpub-${java.util.UUID.randomUUID()}.db")
         try {
             val dbName = manifestDbName(outer.manifestJson)
             unzipDb(outer.contentsFile, dbName, dbFile)
@@ -90,7 +95,10 @@ object JwpubExtractor {
                         if (total > maxBytes) throw JwpubException("Arquivo .jwpub muito grande.")
                         manifest = String(bytes, Charsets.UTF_8)
                     } else {
-                        val dst = File(cacheDir, "jwpub-contents-${System.currentTimeMillis()}.zip")
+                        val dst = File(
+                            cacheDir,
+                            "jwpub-contents-${java.util.UUID.randomUUID()}.zip",
+                        )
                         dst.outputStream().buffered().use { out ->
                             val buf = ByteArray(64 * 1024)
                             while (true) {
@@ -112,8 +120,12 @@ object JwpubExtractor {
                 entry = zin.nextEntry
             }
         }
-        val c = contents ?: throw JwpubException("Arquivo .jwpub inválido.")
-        val m = manifest ?: throw JwpubException("Arquivo .jwpub inválido (sem manifest).")
+        val c = contents ?: throw JwpubException(
+            "JWPUB sem conteúdo interno. Tente reindexar; se persistir, baixe o EPUB."
+        )
+        val m = manifest ?: throw JwpubException(
+            "JWPUB sem manifest. Tente reindexar; se persistir, baixe o EPUB."
+        )
         return Outer(m, c)
     }
 
@@ -161,7 +173,9 @@ object JwpubExtractor {
                 entry = zin.nextEntry
             }
         }
-        if (!wrote) throw JwpubException("Banco de dados não encontrado no .jwpub.")
+        if (!wrote) throw JwpubException(
+            "Banco interno não encontrado no JWPUB. Tente reindexar; se persistir, baixe o EPUB."
+        )
     }
 
     private fun readDb(dbFile: File): String {
@@ -177,7 +191,9 @@ object JwpubExtractor {
             var count = 0
             db.rawQuery(
                 "SELECT DocumentId, Title, TocTitle, Content, FirstPageNumber, LastPageNumber, " +
-                    "ContentLength FROM Document ORDER BY DocumentId",
+                    // lmd (schema 9) não tem a coluna ContentLength; `length(Content)`
+                    // devolve o tamanho do blob e mantém a estimativa de página.
+                    "length(Content) AS ContentLength FROM Document ORDER BY DocumentId",
                 null
             ).use { c ->
                 val iDoc = c.getColumnIndex("DocumentId")
@@ -194,7 +210,8 @@ object JwpubExtractor {
                     if (!c.isNull(iContent)) {
                         val html = decryptInflate(c.getBlob(iContent), key, iv)
                             ?: throw JwpubException(
-                                "Esquema de criptografia não suportado — baixe EPUB ou PDF no site."
+                                "Esquema do JWPUB não suportado. Tente reindexar; " +
+                                    "se persistir, baixe o EPUB."
                             )
                         // RC1-pages: §§ do artigo ganham a página estimada
                         // (Document.First/LastPageNumber + posição do §).
@@ -204,7 +221,11 @@ object JwpubExtractor {
                             lastPage = c.getInt(iLast),
                             contentLength = c.getInt(iLen),
                         )
-                        sb.append(withPageMarkers(markParagraphs(html), pages)).append('\n')
+                        val marked = markParagraphs(html)
+                        sb.append(
+                            if (marked.contains("=== PAGE:")) marked
+                            else withPageMarkers(marked, pages)
+                        ).append('\n')
                     }
                     count++
                 }
@@ -214,8 +235,16 @@ object JwpubExtractor {
             return text
         } catch (e: JwpubException) {
             throw e
+        } catch (e: android.database.sqlite.SQLiteException) {
+            throw JwpubException(
+                "Banco interno do JWPUB inválido (${e.message?.take(80) ?: "SQLite"}). " +
+                    "Tente reindexar; se persistir, baixe o EPUB."
+            )
         } catch (_: Exception) {
-            throw JwpubException("Não foi possível ler o .jwpub (arquivo inválido ou corrompido).")
+            throw JwpubException(
+                "Não foi possível ler o JWPUB (arquivo inválido ou corrompido). " +
+                    "Tente reindexar; se persistir, baixe o EPUB."
+            )
         } finally {
             runCatching { db?.close() }
         }
@@ -243,13 +272,27 @@ object JwpubExtractor {
     internal fun markParagraphs(html: String): String =
         stripXml(
             PAR_NUM_RE.replace(
-                NUMBERED_P_RE.replace(html) { m ->
-                    m.groupValues[1] + "\n§" + m.groupValues[2] + " "
+                PAGE_NUM_RE.replace(html) { m ->
+                    "\n=== PAGE: ${m.groupValues[1]} ===\n"
+                }.let { withPages ->
+                    NUMBERED_P_RE.replace(withPages) { m ->
+                        m.groupValues[1] + "\n§" + m.groupValues[2] + " "
+                    }
                 }
             ) { m ->
                 "§" + m.groupValues[1] + " "
             }
         )
+
+    /**
+     * JWPUB antigo (g 2013/wp 2019) traz a página impressa no próprio HTML:
+     * `<span id="page6" class="pageNum" data-no="6">`. Usar esse marcador é
+     * mais fiel que estimar a página pela posição do §.
+     */
+    private val PAGE_NUM_RE = Regex(
+        """<span[^>]*class="[^"]*pageNum[^"]*"[^>]*data-no="(\d{1,4})"[^>]*>.*?</span>""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+    )
 
     private val NUMBERED_P_RE = Regex(
         """(<p\b(?![^>]*class="(?:si|sn)")[^>]*>)\s*<strong>(\d{1,3})\.</strong>"""
@@ -265,9 +308,25 @@ object JwpubExtractor {
     /** RC1-pages: posições dos §§ numerados do artigo (label → BeginPosition). */
     private fun labeledParagraphPositions(db: SQLiteDatabase, docId: Long): List<Pair<Int, Int>> {
         val out = mutableListOf<Pair<Int, Int>>()
+        // Esquemas antigos (g 2013, user_version 7) não têm
+        // ParagraphNumberLabel. Sem a coluna, ParagraphIndex é a melhor
+        // aproximação posicional; se nem ela existir, não inventa página.
+        val columns = mutableSetOf<String>()
+        runCatching {
+            db.rawQuery("PRAGMA table_info(DocumentParagraph)", null).use { c ->
+                val iName = c.getColumnIndex("name")
+                while (c.moveToNext()) columns += c.getString(iName).orEmpty()
+            }
+        }
+        val labelColumn = when {
+            "ParagraphNumberLabel" in columns -> "ParagraphNumberLabel"
+            "ParagraphIndex" in columns -> "ParagraphIndex"
+            else -> return emptyList()
+        }
+        if ("BeginPosition" !in columns) return emptyList()
         db.rawQuery(
-            "SELECT ParagraphNumberLabel, BeginPosition FROM DocumentParagraph " +
-                "WHERE DocumentId = ? AND ParagraphNumberLabel IS NOT NULL",
+            "SELECT $labelColumn, BeginPosition FROM DocumentParagraph " +
+                "WHERE DocumentId = ? AND $labelColumn IS NOT NULL",
             arrayOf(docId.toString()),
         ).use { c ->
             while (c.moveToNext()) out += c.getInt(0) to c.getInt(1)

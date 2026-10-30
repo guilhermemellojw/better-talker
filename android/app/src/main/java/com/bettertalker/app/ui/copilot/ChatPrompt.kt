@@ -3,6 +3,9 @@ package com.bettertalker.app.ui.copilot
 import com.bettertalker.app.ui.theme.CONTENT_BLOCK_ALPHA
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -78,8 +81,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.copilot.EvidenceMeta
+import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.QuickAction
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
@@ -281,9 +286,16 @@ internal fun voiceMicDescription(state: VoiceInputState): String = when (state) 
 fun ProvenanceDisclosure(
     evidence: List<EvidenceMeta>,
     summary: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** Fontes do ponto atual; quando presente, entram no mesmo disclosure. */
+    focusSources: FocusSources? = null,
+    onReanalyze: () -> Unit = {},
+    busy: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val motionScale = rememberMotionScale()
+    val expandMotion = motionMillis(CARD_MOTION_MS, motionScale)
+    val headerSummary = focusSources?.let { focusSourcesSummary(it.counts) } ?: summary
     Column(modifier.fillMaxWidth()) {
         TextButton(
             onClick = { expanded = !expanded },
@@ -294,12 +306,34 @@ fun ProvenanceDisclosure(
         ) {
             Text("Fontes e apoio ▸", style = MaterialTheme.typography.labelMedium)
             Text(
-                " $summary",
+                " $headerSummary",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
         }
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(expandMotion)) + expandVertically(tween(expandMotion)),
+            exit = fadeOut(tween(expandMotion)) + shrinkVertically(tween(expandMotion)),
+        ) {
+            Column {
+            // Informação do ponto: mesmo lugar do turno, sem card separado
+            // acima do composer e sem um segundo controle de expandir.
+            focusSources?.let { sources ->
+                FocusSourcesSection(
+                    sources = sources,
+                    busy = busy,
+                    onReanalyze = onReanalyze,
+                )
+                if (evidence.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Do turno",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
             evidence.take(5).forEach { e ->
                 Row(
                     Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -325,6 +359,7 @@ fun ProvenanceDisclosure(
                         }
                     }
                 }
+            }
             }
         }
     }

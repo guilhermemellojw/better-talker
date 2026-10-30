@@ -90,6 +90,14 @@ class JwpubTest {
     }
 
     @Test
+    fun markParagraphs_preservaPaginaImpressaDoHtml() {
+        val html = """<p class="contextTtl"><span id="page6" class="pageNum" data-no="6"></span><strong>MATÉRIA DE CAPA</strong></p><p class="sb">Texto da página seis.</p>"""
+        val out = JwpubExtractor.markParagraphs(html)
+        assertTrue(out, out.contains("=== PAGE: 6 ==="))
+        assertTrue(out, out.contains("Texto da página seis."))
+    }
+
+    @Test
     fun markParagraphs_naoQuebraPalavraEntreSpansInline() {
         val html = "<p class=\"sb\"><span>Jeov</span><span>á</span> Deus dá vida.</p>"
         val out = JwpubExtractor.markParagraphs(html)

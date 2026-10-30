@@ -137,10 +137,7 @@ import com.bettertalker.app.data.copilot.canInsertCard
 import com.bettertalker.app.data.copilot.canReplaceCard
 import com.bettertalker.app.data.copilot.cardStatusLabel
 import com.bettertalker.app.data.copilot.extractCardText
-import com.bettertalker.app.data.copilot.FocusDestination
-import com.bettertalker.app.data.copilot.FocusSource
 import com.bettertalker.app.data.copilot.FocusSources
-import com.bettertalker.app.data.copilot.FocusStatus
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.focusStatusLabel
@@ -742,14 +739,6 @@ fun ChatScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                focusSources?.takeIf { it.pointEntries.isNotEmpty() }?.let { sources ->
-                    FocusSourcesCard(
-                        sources = sources,
-                        busy = busy,
-                        onReanalyze = { vm.reanalyzeFocusSources() },
-                    )
-                    Spacer(Modifier.height(4.dp))
-                }
                 ChatPromptBar(
                     input = input,
                     onInput = { input = it },
@@ -938,10 +927,17 @@ fun ChatScreen(
                             }
                         }
                     }
-                    // Fontes e apoio: proveniência recolhível, discreta (§14).
-                    if (evidence.isNotEmpty()) {
+                    // Fontes e apoio: proveniência + fontes do ponto no MESMO
+                    // disclosure recolhível; o card antigo saiu do composer.
+                    if (evidence.isNotEmpty() || focusSources != null) {
                         item(key = "prov") {
-                            ProvenanceDisclosure(evidence, evidenceSummary)
+                            ProvenanceDisclosure(
+                                evidence = evidence,
+                                summary = evidenceSummary,
+                                focusSources = focusSources,
+                                onReanalyze = { vm.reanalyzeFocusSources() },
+                                busy = busy,
+                            )
                         }
                     }
                     // Fase 18 §21: proposta F5 — texto novo em preview formatado
@@ -3059,6 +3055,9 @@ private fun SourcesNeededCard(
                 }
                 if (indexSource != null) {
                     TextButton(onClick = onReindex) { Text("Reindexar") }
+                    if (indexSource.fileName?.endsWith(".jwpub", ignoreCase = true) == true) {
+                        TextButton(onClick = onOpenLibrary) { Text("Baixar EPUB") }
+                    }
                 }
                 if (confirmSource != null) {
                     TextButton(onClick = onOpenEditor) { Text("Corrigir referência") }
@@ -3077,173 +3076,6 @@ private fun SourcesNeededCard(
             }
         }
     }
-}
-
-@Composable
-private fun FocusSourcesCard(
-    sources: FocusSources,
-    busy: Boolean,
-    onReanalyze: () -> Unit,
-) {
-    var showAll by remember(sources) { mutableStateOf(false) }
-    var showText by remember(sources) { mutableStateOf(false) }
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            val counts = sources.counts
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Fontes deste ponto",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    if (counts.pointContent == 0) {
-                        "sem fontes de conteúdo"
-                    } else {
-                        "${counts.content} de ${counts.pointContent} fontes de conteúdo no prompt"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (counts.orientation > 0) {
-                val labels = sources.pointEntries
-                    .filter { it.isOrientation }
-                    .mapNotNull { it.publicationKey }
-                    .distinct()
-                    .joinToString("/")
-                    .ifBlank { "be/th" }
-                Text(
-                    "${counts.orientation} orientação ($labels) no inventário",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (counts.newText > 0) {
-                Text(
-                    "${counts.newText} texto novo no bloco",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-            if (counts.dossier + counts.pack + counts.question > 0) {
-                Text(
-                    listOfNotNull(
-                        counts.dossier.takeIf { it > 0 }?.let { "$it no dossiê" },
-                        counts.pack.takeIf { it > 0 }?.let { "$it no pack" },
-                        counts.question.takeIf { it > 0 }?.let { "$it na pergunta" },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (counts.noText > 0) {
-                Text(
-                    "${counts.noText} sem texto",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            if (counts.budget > 0) {
-                Text(
-                    "${counts.budget} fora do orçamento",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-            Text(
-                if (counts.extras > 0) {
-                    "${counts.noteRefs} refs da nota · ${counts.extras} extras do turno"
-                } else {
-                    "${counts.noteRefs} refs da nota"
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                TextButton(
-                    onClick = { showAll = !showAll },
-                    enabled = !busy,
-                ) { Text(if (showAll) "Ocultar fontes" else "Ver todas as fontes") }
-                TextButton(
-                    onClick = { showText = !showText },
-                    enabled = !busy,
-                ) { Text("Texto usado") }
-                TextButton(onClick = onReanalyze, enabled = !busy) { Text("Reanalisar") }
-            }
-            if (showAll) {
-                val shown = sources.entries.take(40)
-                shown.forEach { source ->
-                    val tag = when {
-                        source.isOrientation -> "orientação"
-                        source.extra -> "extra do turno"
-                        else -> focusDestinationLabel(source.destination)
-                    }
-                    Text(
-                        "• ${source.reference} — ${focusStatusLabel(source.status)} ($tag)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = focusStatusColor(source.status),
-                    )
-                    source.omissionReason?.takeIf { it.isNotBlank() }?.let { reason ->
-                        Text(
-                            "  $reason",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                if (sources.entries.size > shown.size) {
-                    Text(
-                        "… ${sources.entries.size - shown.size} outras refs no inventário",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (showText) {
-                val used = sources.promptSources
-                if (used.isEmpty()) {
-                    Text(
-                        "Nenhum texto novo: as fontes do ponto já estão no dossiê ou no pack.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    used.forEach { source ->
-                        Text(
-                            source.reference,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(source.text, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun focusStatusColor(status: FocusStatus): Color = when (status) {
-    FocusStatus.RESOLVED -> MaterialTheme.colorScheme.secondary
-    FocusStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
-    else -> MaterialTheme.colorScheme.error
-}
-
-private fun focusDestinationLabel(destination: FocusDestination): String = when (destination) {
-    FocusDestination.FOCUS_BLOCK -> "no bloco"
-    FocusDestination.DOSSIER -> "no dossiê"
-    FocusDestination.PACK -> "no pack"
-    FocusDestination.QUESTION -> "na pergunta"
-    FocusDestination.INVENTORY -> "inventário"
-    FocusDestination.OMITTED -> "omitida"
 }
 
 @Composable

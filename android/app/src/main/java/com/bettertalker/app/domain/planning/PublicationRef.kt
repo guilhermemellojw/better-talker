@@ -19,4 +19,9 @@ data class PublicationRef(
     val chapter: String? = null,
     /** C2.2: fim da faixa de páginas ("26-28" → 28). */
     val pageEnd: Int? = null,
+    /**
+     * C2.6: frase do esboço que contém a citação. Usada só como fallback
+     * quando a edição é PDF/EPUB sem página/§ indexados.
+     */
+    val context: String? = null,
 )

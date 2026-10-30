@@ -62,6 +62,16 @@ class RoomReferenceResolverTest {
                 it.attachmentId == attachmentId && it.page == page &&
                     it.paragraph?.let { p -> p in start..end } == true
             }.sortedWith(compareBy({ it.paragraph }, { it.ord }))
+        override suspend fun byPage(
+            attachmentId: String,
+            start: Int,
+            end: Int,
+            limit: Int,
+        ): List<PassageEntity> =
+            rows.filter {
+                it.attachmentId == attachmentId &&
+                    it.page?.let { p -> p in start..end } == true
+            }.sortedWith(compareBy({ it.page }, { it.ord })).take(limit)
         override suspend fun byParagraphRange(
             attachmentId: String,
             start: Int,
@@ -413,9 +423,9 @@ class RoomReferenceResolverTest {
     }
 
     @Test
-    fun resolvePublication_indiceSemPagina_returnsUnresolved() = runBlocking {
-        // Índice antigo (pages NULL): sem página não há como desambiguar os
-        // §§ (repetem por artigo) — UNRESOLVED, nunca trecho de artigo errado.
+    fun resolvePublication_indiceSemPagina_paragrafoResolveParcial() = runBlocking {
+        // C2.6: § sem página cai no byParagraphRange e devolve PARTIAL com o
+        // texto real — antes ficava UNRESOLVED e o Copilot não via o trecho.
         val rows = listOf(
             passage("n8", "w25.07", "w25.07 §8", "Parágrafo oito sem página.",
                 "paragrafo oito sem pagina", ord = 0, paragraph = 8),
@@ -424,6 +434,84 @@ class RoomReferenceResolverTest {
         )
         val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
             .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 9))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("Parágrafo oito"))
+        assertTrue(out.text.orEmpty().contains("Parágrafo nove"))
+        assertTrue(out.canonicalRef.orEmpty().contains("§8-9"))
+    }
+
+    @Test
+    fun resolvePublication_paginaSemParagrafo_parcialComTextoDaPagina() = runBlocking {
+        val rows = listOf(
+            passage("p6a", "g_T_201308", "g 08/13 pág. 6", "Primeira linha da página seis.",
+                "primeira linha da pagina seis", ord = 0, page = 6),
+            passage("p6b", "g_T_201308", "g 08/13 pág. 6", "Segunda linha da página seis.",
+                "segunda linha da pagina seis", ord = 1, page = 6),
+        )
+        val out = resolver(rows, listOf(attachment("g_T_201308", "g")))
+            .resolvePublication(PublicationRef("Despertai! 08/13", page = 6))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertEquals("Despertai! 08/13 pág. 6", out.canonicalRef)
+        assertTrue(out.text.orEmpty().contains("Primeira linha"))
+        assertTrue(out.text.orEmpty().contains("Segunda linha"))
+    }
+
+    @Test
+    fun resolvePublication_paginaFaixaSemParagrafo_parcial() = runBlocking {
+        val rows = listOf(
+            passage("p6", "wp_T_201903", "Sentinela 3/2019 pág. 6", "Texto da página seis.",
+                "texto da pagina seis", ord = 0, page = 6),
+            passage("p7", "wp_T_201903", "Sentinela 3/2019 pág. 7", "Texto da página sete.",
+                "texto da pagina sete", ord = 1, page = 7),
+        )
+        val out = resolver(rows, listOf(attachment("wp_T_201903", "wp")))
+            .resolvePublication(
+                PublicationRef("Sentinela número 3 de 2019", page = 6, pageEnd = 7),
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertEquals("Sentinela número 3 de 2019 pág. 6-7", out.canonicalRef)
+        assertTrue(out.text.orEmpty().contains("página seis"))
+        assertTrue(out.text.orEmpty().contains("página sete"))
+    }
+
+    @Test
+    fun resolvePublication_contextoDoEsboco_parcial() = runBlocking {
+        val rows = listOf(
+            passage(
+                "ctx", "g_T_201308", "g 08/13 pág. 6",
+                "O tempo passa muito rápido e a vida parece muito curta. " +
+                    "Temos o desejo de continuar vivendo e nunca morrer.",
+                "o tempo passa muito rapido e a vida parece muito curta " +
+                    "temos o desejo de continuar vivendo e nunca morrer",
+                ord = 0, page = null,
+            ),
+        )
+        val out = resolver(rows, listOf(attachment("g_T_201308", "g")))
+            .resolvePublication(
+                PublicationRef(
+                    "Despertai! 08/13",
+                    context = "O tempo passa muito rápido e a vida parece muito curta. " +
+                        "Temos o desejo de continuar vivendo e nunca morrer.",
+                ),
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.canonicalRef.orEmpty().contains("contexto"))
+        assertTrue(out.text.orEmpty().contains("vida parece muito curta"))
+    }
+
+    @Test
+    fun resolvePublication_contextoFraco_naoDevolveTrechoAleatorio() = runBlocking {
+        val rows = listOf(
+            passage("x", "g_T_201308", "g 08/13 pág. 6", "Texto sem relação com a frase.",
+                "texto sem relacao com a frase", ord = 0, page = null),
+        )
+        val out = resolver(rows, listOf(attachment("g_T_201308", "g")))
+            .resolvePublication(
+                PublicationRef(
+                    "Despertai! 08/13",
+                    context = "O tempo passa muito rápido e a vida parece muito curta.",
+                ),
+            )
         assertEquals(ReferenceStatus.UNRESOLVED, out.status)
         assertNull(out.text)
     }

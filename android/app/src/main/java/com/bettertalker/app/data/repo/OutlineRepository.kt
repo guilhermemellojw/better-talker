@@ -87,7 +87,14 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
             )
         }
         val refsJson = com.bettertalker.app.data.util.RefDetector.detectedToJson(
-            com.bettertalker.app.data.util.RefDetector.detect(text)
+            com.bettertalker.app.data.util.RefDetector.detect(text).map { ref ->
+                // C2.6: guarda a linha do esboço como contexto para o fallback
+                // quando a edição não tem página/§ indexados.
+                val line = text.lineSequence()
+                    .firstOrNull { it.contains(ref.raw, ignoreCase = false) }
+                    ?.trim()
+                if (line.isNullOrBlank()) ref else ref.copy(context = line.take(500))
+            }
         )
         OutlinePreview(name, parsed, refsJson)
     }

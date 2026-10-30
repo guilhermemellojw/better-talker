@@ -142,6 +142,7 @@ fun actionLabel(action: SourceAction): String = when (action) {
 fun citationReason(source: NoteSource): String {
     val c = source.citation
     val bible = source.kind == SourceKind.BIBLE
+    val pdf = source.fileName?.endsWith(".pdf", ignoreCase = true) == true
     return when {
         c.text == TextStatus.AMBIGUOUS ->
             source.hint?.takeIf { it.isNotBlank() }
@@ -161,7 +162,12 @@ fun citationReason(source: NoteSource): String {
             if (bible) "TNM presente; versículo não encontrado"
             else "edição no acervo; trecho não encontrado"
         c.text == TextStatus.PARTIAL ->
-            "edição no acervo; trecho parcial (confira a unidade)"
+            when {
+                pdf -> "PDF no acervo; trecho localizado pelo contexto (confira)"
+                !source.hint.isNullOrBlank() -> source.hint
+                else -> "edição no acervo; trecho parcial (confira a unidade)"
+            }
+        pdf -> "PDF no acervo (página/§ não indexados)"
         else ->
             if (bible) "TNM resolvida" else "edição no acervo; trecho resolvido"
     }

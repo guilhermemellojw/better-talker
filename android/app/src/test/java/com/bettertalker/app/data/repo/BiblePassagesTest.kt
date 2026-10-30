@@ -46,6 +46,12 @@ class BiblePassagesTest {
             attachmentId: String, page: Int, start: Int, end: Int,
         ): List<PassageEntity> = emptyList()
 
+        override suspend fun byPage(
+            attachmentId: String, start: Int, end: Int, limit: Int,
+        ): List<PassageEntity> = rows.filter {
+            it.attachmentId == attachmentId && it.page?.let { p -> p in start..end } == true
+        }.sortedWith(compareBy({ it.page }, { it.ord })).take(limit)
+
         override suspend fun byParagraphRange(
             attachmentId: String, start: Int, end: Int, limit: Int,
         ): List<PassageEntity> = emptyList()

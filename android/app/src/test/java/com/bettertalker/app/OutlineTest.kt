@@ -549,8 +549,9 @@ S-34-T N.º 35 5/20
             setOf("g|2013|8", "g|2008|12", "wp|2019|3", "wp|2017|2", "book|bhs", "book|be"),
             detected.map { it.editionKey }.toSet()
         )
-        // sem duplicatas (08/13 e 3/2019 citados 2x)
-        assertEquals(6, detected.size)
+        // 08/13 e 3/2019 aparecem 2x com páginas diferentes: são citações
+        // distintas (a unidade faz parte da identidade desde o C2.6).
+        assertEquals(8, detected.size)
         // bhs com título do catálogo e finder
         val bhs = detected.first { it.pubKey == "bhs" }
         assertEquals("Entenda a Bíblia", bhs.label)

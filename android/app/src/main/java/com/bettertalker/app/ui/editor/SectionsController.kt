@@ -631,6 +631,7 @@ internal fun withTitleRefs(section: SpeechSection, title: String, now: Long): Sp
                 paragraphEnd = ref.paragraphEnd,
                 article = ref.article,
                 chapter = ref.chapter,
+                context = title.take(500),
             )
         }
     return section.copy(
