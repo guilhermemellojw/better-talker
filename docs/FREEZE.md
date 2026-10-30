@@ -11,6 +11,11 @@
 > final será uma versão maior (3.0.0) depois de C2.5/M2, com bump, keystore e
 > smoke em aparelho limpo. `v2.8.2` e `v2.8.1` continuam **draft**.
 
+> **2026-10-30 — C2.5:** parser puro de Sentinela/Despertai + integração no
+> detector/checklist mergeados em `59dc0aa` (2.652 testes/0, lint/CI verdes).
+> `g 1/16` fica ambíguo e nunca resolve sozinho. Validado no tablet; **A34
+> pendente** (aparelho não conectado). Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
