@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.s34.S34Parser
 import com.bettertalker.app.data.util.BibleSourceStatus
+import com.bettertalker.app.data.util.CitationStatus
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSources
@@ -9,6 +10,8 @@ import com.bettertalker.app.data.util.NoteSourcesResolver
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.defaultTextStatus
+import com.bettertalker.app.data.util.editionStatusOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -61,7 +64,7 @@ class FocusSourcesRealFixturesTest {
     private fun withStatus(sources: NoteSources, editionKey: String, status: SourceStatus): NoteSources =
         sources.copy(
             sources = sources.sources.map {
-                if (it.editionKey == editionKey) it.copy(status = status) else it
+                if (it.editionKey == editionKey) it.copy(citation = CitationStatus(editionStatusOf(status), defaultTextStatus(status))) else it
             },
             resolved = sources.sources.count {
                 val effective = if (it.editionKey == editionKey) status else it.status
@@ -241,8 +244,8 @@ class FocusSourcesRealFixturesTest {
             base.copy(
                 sources = base.sources.map {
                     when {
-                        it.publicationKey == "lmd" -> it.copy(status = SourceStatus.INDEX_FAILED)
-                        it.publicationKey == "w24.01" -> it.copy(status = SourceStatus.EDITION_MISSING)
+                        it.publicationKey == "lmd" -> it.copy(citation = CitationStatus(editionStatusOf(SourceStatus.INDEX_FAILED), defaultTextStatus(SourceStatus.INDEX_FAILED)))
+                        it.publicationKey == "w24.01" -> it.copy(citation = CitationStatus(editionStatusOf(SourceStatus.EDITION_MISSING), defaultTextStatus(SourceStatus.EDITION_MISSING)))
                         else -> it
                     }
                 },
@@ -288,7 +291,7 @@ class FocusSourcesRealFixturesTest {
             base.copy(
                 sources = base.sources.map {
                     if (it.publicationKey == "lmd") {
-                        it.copy(status = SourceStatus.INDEX_FAILED)
+                        it.copy(citation = CitationStatus(editionStatusOf(SourceStatus.INDEX_FAILED), defaultTextStatus(SourceStatus.INDEX_FAILED)))
                     } else it
                 },
             )

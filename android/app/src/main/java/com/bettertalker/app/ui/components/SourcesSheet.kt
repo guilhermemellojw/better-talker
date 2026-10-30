@@ -52,6 +52,7 @@ import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.SourceGroup
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.citationStatusLabel
 import com.bettertalker.app.data.util.groupNoteSources
 import com.bettertalker.app.data.util.isPending
 import com.bettertalker.app.ui.copilot.DownloadCtl
@@ -439,12 +440,11 @@ private fun SourceRow(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                sourceStatusLabel(source.status),
+                sourceStatusLabel(source),
                 style = MaterialTheme.typography.labelSmall,
                 color = when {
-                    source.status == SourceStatus.RESOLVED ->
-                        MaterialTheme.colorScheme.secondary
-                    source.status.isPending() -> MaterialTheme.colorScheme.tertiary
+                    source.citation.isReady -> MaterialTheme.colorScheme.secondary
+                    source.citation.isPending -> MaterialTheme.colorScheme.tertiary
                     else -> MaterialTheme.colorScheme.error
                 },
             )
@@ -550,6 +550,10 @@ internal fun sourceStatusLabel(status: SourceStatus): String = when (status) {
     SourceStatus.INDEX_FAILED -> "Indexação falhou"
     SourceStatus.UNSUPPORTED -> "Formato não suportado"
 }
+
+/** Rótulo do MESMO modelo de status usado pelo prompt (edição/texto/ação). */
+internal fun sourceStatusLabel(source: com.bettertalker.app.data.util.NoteSource): String =
+    citationStatusLabel(source)
 
 /**
  * Abre a página da edição no WebView (DownloadCtl). Sem URL/controle, cai na

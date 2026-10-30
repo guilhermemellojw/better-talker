@@ -45,6 +45,8 @@ import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.ProposalGateAction
 import com.bettertalker.app.data.copilot.proposalGateAction
+import com.bettertalker.app.data.copilot.SourceGate
+import com.bettertalker.app.data.copilot.SourceGateDecision
 import com.bettertalker.app.data.copilot.proposalSummaryText
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
@@ -99,6 +101,7 @@ import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
+import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
@@ -168,6 +171,7 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -716,6 +720,25 @@ class CopilotViewModel(
                 } catch (_: Exception) {
                 }
             }
+        }
+        // Fonte única reativa: download/indexação/reindexação mudam o status
+        // do checklist. O chat reavalia o card do gate e o card do ponto sem
+        // precisar fechar/reabrir a tela.
+        viewModelScope.launch {
+            db.attachmentDao().observe().collectLatest {
+                delay(500)
+                onAttachmentsChanged()
+            }
+        }
+    }
+
+    private suspend fun onAttachmentsChanged() {
+        refreshBases()
+        if (pendingSourceGate != null) {
+            refreshSourcesNeededInternal()
+        }
+        if (_focusSources.value != null) {
+            reanalyzeFocusSourcesNow()
         }
     }
 
@@ -1476,6 +1499,31 @@ class CopilotViewModel(
     private var lastFocusPack: ContextPack? = null
     private var lastFocusStructural: com.bettertalker.app.data.copilot.OutlineStructureContext? = null
     private var lastFocusQuestion: String = ""
+
+    /**
+     * Gate determinístico de fontes: pergunta específica que depende de ref
+     * ausente/falha/ambígua fica aguardando uma decisão explícita. Não é
+     * gated por `chatSetupSeen` — o card aparece enquanto houver bloqueio.
+     */
+    data class SourcesNeededUi(
+        val question: String,
+        val refs: List<NoteSource>,
+        /** true quando veio de uma pergunta já enviada. */
+        val pendingQuestion: Boolean = true,
+    )
+
+    private val _sourcesNeeded = MutableStateFlow<SourcesNeededUi?>(null)
+    val sourcesNeeded = _sourcesNeeded.asStateFlow()
+
+    private data class PendingSourceGate(
+        val question: String,
+        val historyBefore: List<ChatTurn>,
+        val refs: List<NoteSource>,
+    )
+
+    private var pendingSourceGate: PendingSourceGate? = null
+    /** Fontes dispensadas no turno "Continuar sem" (entram no prompt). */
+    private var activeWaivedRefs: List<NoteSource> = emptyList()
 
     val evidenceSummary: kotlinx.coroutines.flow.StateFlow<String> =
         MutableStateFlow(provenanceSummary(emptyList())).also { s ->
@@ -2542,6 +2590,9 @@ class CopilotViewModel(
         pasteBuffer = null
         _pasteMode.value = false
         _focusSources.value = null
+        _sourcesNeeded.value = null
+        pendingSourceGate = null
+        activeWaivedRefs = emptyList()
         lastFocusPack = null
         lastFocusStructural = null
         lastFocusQuestion = ""
@@ -2556,8 +2607,10 @@ class CopilotViewModel(
      * C2.3 — reanalisa as fontes do ponto atual sem criar mensagem. Recoleta
      * refs/status e reusa o último pack/dossiê: a UI atualiza o card de status.
      */
-    fun reanalyzeFocusSources() = viewModelScope.launch {
-        val nid = noteId ?: return@launch
+    fun reanalyzeFocusSources() = viewModelScope.launch { reanalyzeFocusSourcesNow() }
+
+    private suspend fun reanalyzeFocusSourcesNow() {
+        val nid = noteId ?: return
         val refs = repo.collectNoteRefs(
             noteId = nid,
             noteText = _noteText.value,
@@ -2571,7 +2624,7 @@ class CopilotViewModel(
             noteTitle = _noteTitle.value,
             refs = refs,
         )
-        val cited = repo.citedSources(refs)
+        val cited = repo.citedSources(noteSources)
         _focusSources.value = com.bettertalker.app.data.copilot.FocusSourcesAssembler.assemble(
             refs = refs,
             noteSources = noteSources,
@@ -2581,6 +2634,86 @@ class CopilotViewModel(
             question = lastFocusQuestion,
             structural = lastFocusStructural,
         )
+    }
+
+    // ---------- Gate determinístico de fontes ----------
+
+    /** "Já baixei": revalida o checklist. Se destravou, retoma a pergunta. */
+    fun refreshSourcesNeeded() = viewModelScope.launch {
+        refreshSourcesNeededInternal()
+    }
+
+    /** Reindexa os anexos das refs bloqueantes (falha de índice). */
+    fun reindexSourcesNeeded() = viewModelScope.launch {
+        val pending = pendingSourceGate ?: return@launch
+        val all = db.attachmentDao().all()
+        val ids = pending.refs.mapNotNull { source ->
+            source.refStatus?.ref?.let { ref ->
+                RefDetector.matchEdition(ref, all, includePending = true)?.id
+            }
+        }.distinct()
+        if (ids.isEmpty()) {
+            postText("Não encontrei o arquivo dessas fontes. Abra a Biblioteca e importe a edição.")
+            return@launch
+        }
+        val library = com.bettertalker.app.data.repo.LibraryRepository(app, db)
+        ids.forEach { library.reindex(it) }
+        postText(
+            "Reindexação iniciada (${ids.size} arquivo(s)). " +
+                "O card atualiza quando terminar."
+        )
+        refreshSourcesNeededInternal()
+    }
+
+    /**
+     * "Continuar sem": registra a ausência no prompt e retoma a pergunta
+     * original sem chamar o LLM antes da decisão do usuário.
+     */
+    fun continueWithoutSources() {
+        if (_chatBusy.value) return
+        val pending = pendingSourceGate ?: return
+        pendingSourceGate = null
+        _sourcesNeeded.value = null
+        activeWaivedRefs = pending.refs
+        send(
+            raw = pending.question,
+            postUserMessage = false,
+            historyOverride = pending.historyBefore,
+            waived = pending.refs.map { it.ref }.toSet(),
+        )
+    }
+
+    private suspend fun refreshSourcesNeededInternal() {
+        val pending = pendingSourceGate ?: return
+        val nid = noteId ?: return
+        val sources = repo.noteSources(
+            noteId = nid,
+            outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+            noteText = _noteText.value,
+            noteTitle = _noteTitle.value,
+        )
+        when (val decision = SourceGate.decide(pending.question, sources)) {
+            is SourceGateDecision.Ask -> {
+                pendingSourceGate = pending.copy(refs = decision.refs)
+                _sourcesNeeded.value = SourcesNeededUi(
+                    question = pending.question,
+                    refs = decision.refs,
+                )
+            }
+            is SourceGateDecision.Proceed -> {
+                // Fontes ficaram prontas: retoma a pergunta original. Não é
+                // "continuar sem" — nada entra como waived no prompt.
+                pendingSourceGate = null
+                _sourcesNeeded.value = null
+                activeWaivedRefs = emptyList()
+                send(
+                    raw = pending.question,
+                    postUserMessage = false,
+                    historyOverride = pending.historyBefore,
+                    waived = emptySet(),
+                )
+            }
+        }
     }
 
     /** Resolve refs salvas numa mensagem contra os anexos atuais (p/ renderizar). */
@@ -2664,12 +2797,20 @@ class CopilotViewModel(
         raw: String,
         postUserMessage: Boolean,
         historyOverride: List<ChatTurn>?,
+        /** Refs dispensadas pelo usuário ("Continuar sem") neste turno. */
+        waived: Set<String> = emptySet(),
     ) {
         // Mensagem vazia nunca sai: mesmo gate do web.
         val text = validateOutgoingMessage(raw) ?: return
         if (noteId == null) return
         // mínimo anti rajada/toque duplo: a UI também desabilita o envio com chatBusy
         if (_chatBusy.value) return
+        // Nova pergunta cancela um gate pendente; "Continuar sem" não é nova
+        // pergunta e preserva o estado até o envio.
+        if (postUserMessage) {
+            pendingSourceGate = null
+            _sourcesNeeded.value = null
+        }
         lastUserMessage = text
         // #23-fix-c (G1): captura o escopo do turno ANTES de gerar.
         turnScope = _chatScope.value
@@ -2887,6 +3028,42 @@ class CopilotViewModel(
                 "ChatRouter",
                 com.bettertalker.app.data.copilot.ChatRouter.describe(route),
             )
+            // Gate determinístico de fontes: só rotas que consultam o LLM.
+            // Comando de refs/estrutura já retornou antes; aqui a pergunta
+            // específica sobre ref bloqueante espera a decisão do usuário.
+            val gateApplies = when (route) {
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.Oratory,
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.StructuralQuery,
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.General -> true
+                else -> false
+            }
+            if (gateApplies) {
+                android.util.Log.i(
+                    "SourceGate",
+                    "question refs=" + RefDetector.detect(text).joinToString {
+                        "${it.raw}[${it.editionKey};p=${it.paragraph}]"
+                    } + " noteRefs=" + (turnContext.noteSources?.total ?: 0) +
+                        " blocking=" + (turnContext.noteSources?.blocking?.size ?: 0),
+                )
+            }
+            val gateDecision = if (gateApplies) {
+                SourceGate.decide(text, turnContext.noteSources, waived)
+            } else {
+                SourceGateDecision.Proceed(null)
+            }
+            if (gateDecision is SourceGateDecision.Ask) {
+                pendingSourceGate = PendingSourceGate(
+                    question = text,
+                    historyBefore = historyBefore,
+                    refs = gateDecision.refs,
+                )
+                _sourcesNeeded.value = SourcesNeededUi(
+                    question = text,
+                    refs = gateDecision.refs,
+                )
+                _runState.value = ChatRunState.Success
+                return@launch
+            }
             when (route) {
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.OutOfScope -> {
                     postText(route.message)
@@ -3061,6 +3238,7 @@ class CopilotViewModel(
                 activeCardTarget = null
                 currentGenerationJob = null
                 _chatBusy.value = false
+                activeWaivedRefs = emptyList()
                 if (_runState.value is ChatRunState.Generating || _runState.value is ChatRunState.Sending) {
                     _runState.value = ChatRunState.Success
                 }
@@ -3146,10 +3324,22 @@ class CopilotViewModel(
                 noteTitle = _noteTitle.value,
             )
         } ?: NoteRefs.EMPTY
+        // Fonte única de status: o checklist é calculado ANTES das citações e
+        // alimenta o caminho do Copilot (nunca reduz tudo a MISSING_CORPUS).
+        val noteSources = noteId?.let { nid ->
+            repo.noteSources(
+                noteId = nid,
+                outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
+                noteText = _noteText.value,
+                noteTitle = _noteTitle.value,
+                refs = refs,
+            )
+        }
         val cited = repo.refScopeIds(refs.publications)
         // Citações com o trecho EXATO (page/paragraph), independente do top-K;
         // as sem texto entram como referência explícita.
-        val citedSources = repo.citedSources(refs)
+        val citedSources = noteSources?.let { repo.citedSources(it) }
+            ?: repo.citedSources(refs)
         val scope = noteScope(cited.keys.toList())
         val packRepo = com.bettertalker.app.data.repo.RoomContextPackRepository(
             com.bettertalker.app.data.repo.RoomRetrievalRepository(
@@ -3180,15 +3370,6 @@ class CopilotViewModel(
         // F19-B.5: S-34 estrutural do attachment em foco (se houver).
         // Consome a B.4; NoOutline mantém o caminho legado intacto.
         val (structural, oratory) = structuralFor(cited.keys.toList(), text)
-        val noteSources = noteId?.let { nid ->
-            repo.noteSources(
-                noteId = nid,
-                outlineRefsJson = outlines.get(nid)?.refsJson.orEmpty(),
-                noteText = _noteText.value,
-                noteTitle = _noteTitle.value,
-                refs = refs,
-            )
-        }
         val focusSources = noteSources?.let {
             com.bettertalker.app.data.copilot.FocusSourcesAssembler.assemble(
                 refs = refs,
@@ -3750,7 +3931,10 @@ class CopilotViewModel(
             }
         }
         // Estável entre turnos (cache): memória + inventário + foco + dossiê.
-        val stableContextBlock = listOfNotNull(memory, refsInventory, focusBlock, contextBlock)
+        val waivedBlock = SourceGate.waivedBlock(activeWaivedRefs)
+        val stableContextBlock = listOfNotNull(
+            memory, refsInventory, focusBlock, contextBlock, waivedBlock,
+        )
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
             .ifBlank { null }

@@ -152,6 +152,37 @@ class NoteRefsCollectorTest {
     }
 
     @Test
+    fun checklistEPromptPartemDaMesmaColetaUnificada() {
+        val collected = NoteRefsCollector.collect(
+            noteTitle = "w25.07 no título",
+            mdText = "Gên 3:6 no texto",
+            outlineRefsJson = RefDetector.detectedToJson(
+                RefDetector.detect("lmd lição 7 ponto 4"),
+            ),
+            sections = listOf(
+                section(
+                    contentHtml = "<p>w24.01 § 3</p>",
+                    bibleRefs = listOf("Jer. 45:3"),
+                ),
+            ).map { it.toSectionRefs() },
+            subPoints = listOf(
+                subPoint(developedHtml = "<p>w25.07 22 §§ 8-9</p>"),
+            ).map { it.toSubPointRefs() },
+        )
+
+        val candidates = NoteSourcesResolver.candidatesOf(collected)
+        assertEquals(
+            collected.publications.size + collected.bibles.size,
+            candidates.map { it.key }.distinct().size,
+        )
+        assertTrue(candidates.any { it.ref.contains("w25.07") })
+        assertTrue(candidates.any { it.ref.contains("lmd") })
+        assertTrue(candidates.any { it.ref.contains("w24.01") })
+        assertTrue(candidates.any { it.ref == "Jeremias 45:3" })
+        assertTrue(candidates.any { it.ref == "Gênesis 3:6" })
+    }
+
+    @Test
     fun publicationRefComArtigoECapituloSobreviveAoRoundTripDoCodec() {
         val items = listOf(
             PublicationRef("lmd", chapter = "lição 7", paragraph = 4),

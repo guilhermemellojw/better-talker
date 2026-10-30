@@ -7,6 +7,10 @@ import com.bettertalker.app.domain.speech.SubPoint
 /** Tipo de fonte citada na nota. */
 enum class SourceKind { BIBLE, PUBLICATION }
 
+/** be/th orientam a oratória; nunca são fonte de conteúdo. */
+fun NoteSource.isTrainingSource(): Boolean =
+    kind == SourceKind.PUBLICATION && publicationKey in setOf("be", "th")
+
 /** Estado de uma fonte no acervo local. */
 enum class SourceStatus {
     RESOLVED,
@@ -41,7 +45,7 @@ fun SourceStatus.isMissing(): Boolean =
 data class NoteSource(
     val ref: String,
     val kind: SourceKind,
-    val status: SourceStatus,
+    val citation: CitationStatus,
     val hint: String? = null,
     val downloadUrl: String? = null,
     val fileName: String? = null,
@@ -56,7 +60,13 @@ data class NoteSource(
     val publicationKey: String? = null,
     /** Rótulo humano da edição ("TNM", "A Sentinela — julho de 2025"). */
     val publicationLabel: String? = null,
-)
+) {
+    /** Compatibilidade: status agregado do checklist/sheet. */
+    val status: SourceStatus get() = citation.legacyStatus
+    val editionStatus: EditionStatus get() = citation.edition
+    val textStatus: TextStatus get() = citation.text
+    val action: SourceAction get() = citation.action
+}
 
 /** Resultado do checklist de fontes de uma nota. */
 data class NoteSources(
@@ -68,6 +78,12 @@ data class NoteSources(
     val allResolved: Boolean get() = total > 0 && resolved == total
     /** Fontes em download/indexação (transitórias). */
     val pending: Int get() = sources.count { it.status.isPending() }
+
+    /** Fontes que ainda exigem uma ação/decisão do usuário. */
+    val needsAction: Int get() = sources.count { it.citation.needsAction }
+
+    /** Fontes que impedem uma resposta ancorada sem decisão do usuário. */
+    val blocking: List<NoteSource> get() = sources.filter { it.citation.blocksAnswer }
 }
 
 /** Status agregado de um grupo do sheet. */
@@ -136,7 +152,7 @@ fun groupNoteSources(sources: List<NoteSource>): List<SourceGroup> {
                     book = book,
                     label = if (book == "Outros") "Outras referências bíblicas" else book,
                     sources = ordered,
-                    resolved = ordered.count { it.status == SourceStatus.RESOLVED },
+                    resolved = ordered.count { it.citation.text == TextStatus.RESOLVED },
                     total = ordered.size,
                     status = groupStatus(ordered),
                 )
@@ -147,7 +163,7 @@ fun groupNoteSources(sources: List<NoteSource>): List<SourceGroup> {
             label = "TNM",
             kind = SourceKind.BIBLE,
             sources = books.flatMap { it.sources },
-            resolved = bibleItems.count { it.status == SourceStatus.RESOLVED },
+            resolved = bibleItems.count { it.citation.text == TextStatus.RESOLVED },
             total = bibleItems.size,
             status = groupStatus(bibleItems),
             bookGroups = books,
@@ -174,7 +190,7 @@ fun groupNoteSources(sources: List<NoteSource>): List<SourceGroup> {
                 ?: "Outras publicações",
             kind = SourceKind.PUBLICATION,
             sources = items,
-            resolved = items.count { it.status == SourceStatus.RESOLVED },
+            resolved = items.count { it.citation.text == TextStatus.RESOLVED },
             total = items.size,
             status = groupStatus(items),
         )
@@ -188,7 +204,7 @@ fun groupNoteSources(sources: List<NoteSource>): List<SourceGroup> {
 }
 
 private fun groupStatus(items: List<NoteSource>): GroupStatus {
-    val resolved = items.count { it.status == SourceStatus.RESOLVED }
+    val resolved = items.count { it.citation.text == TextStatus.RESOLVED }
     return when {
         resolved == items.size -> GroupStatus.OK
         resolved == 0 -> GroupStatus.MISSING
@@ -358,7 +374,7 @@ object NoteSourcesResolver {
                 return@map NoteSource(
                     ref = candidate.ref,
                     kind = SourceKind.PUBLICATION,
-                    status = SourceStatus.EDITION_MISSING,
+                    citation = CitationStatus(EditionStatus.MISSING, TextStatus.AMBIGUOUS),
                     hint = "Referência ambígua: " +
                         (ambiguousPub.ambiguityNote ?: "confirme a edição (mês/ano ou número)."),
                     editionKey = editionKey,
@@ -374,7 +390,7 @@ object NoteSourcesResolver {
                         st?.resolved == true && !st.contentResolved -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.TEXT_NOT_FOUND,
+                            citation = CitationStatus(EditionStatus.READY, TextStatus.NOT_FOUND),
                             hint = st.contentWarning
                                 ?: "Edição importada, mas o trecho não foi encontrado no índice.",
                             fileName = st.fileName,
@@ -386,7 +402,7 @@ object NoteSourcesResolver {
                         st?.resolved == true -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.RESOLVED,
+                            citation = CitationStatus(EditionStatus.READY, TextStatus.RESOLVED),
                             fileName = st.fileName,
                             refStatus = st,
                             editionKey = editionKey,
@@ -396,7 +412,10 @@ object NoteSourcesResolver {
                         pending != null -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            status = pending,
+                            citation = CitationStatus(
+                                edition = editionStatusOf(pending),
+                                text = TextStatus.NOT_FOUND,
+                            ),
                             hint = pendingHint(pending),
                             downloadUrl = st?.downloadUrl?.takeIf { it.isNotBlank() },
                             refStatus = st,
@@ -407,7 +426,7 @@ object NoteSourcesResolver {
                         st == null -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.EDITION_MISSING,
+                            citation = CitationStatus(EditionStatus.MISSING, TextStatus.NOT_FOUND),
                             hint = "Não foi possível verificar a edição.",
                             editionKey = editionKey,
                             publicationKey = publicationKey,
@@ -416,7 +435,7 @@ object NoteSourcesResolver {
                         else -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.PUBLICATION,
-                            status = SourceStatus.EDITION_MISSING,
+                            citation = CitationStatus(EditionStatus.MISSING, TextStatus.NOT_FOUND),
                             hint = st.hint.ifBlank { "Edição não importada." },
                             downloadUrl = st.downloadUrl.takeIf { it.isNotBlank() },
                             refStatus = st,
@@ -432,7 +451,7 @@ object NoteSourcesResolver {
                         st?.available == true && !st.verseFound -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
-                            status = SourceStatus.TEXT_NOT_FOUND,
+                            citation = CitationStatus(EditionStatus.READY, TextStatus.NOT_FOUND),
                             hint = "Versículo não encontrado no índice da TNM.",
                             fileName = "TNM",
                             editionKey = "bible|nwt",
@@ -445,7 +464,7 @@ object NoteSourcesResolver {
                         st?.available == true -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
-                            status = SourceStatus.RESOLVED,
+                            citation = CitationStatus(EditionStatus.READY, TextStatus.RESOLVED),
                             fileName = "TNM",
                             editionKey = "bible|nwt",
                             book = book,
@@ -457,7 +476,10 @@ object NoteSourcesResolver {
                         st?.pending != null -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
-                            status = st.pending,
+                            citation = CitationStatus(
+                                edition = editionStatusOf(st.pending),
+                                text = TextStatus.NOT_FOUND,
+                            ),
                             hint = pendingHint(st.pending),
                             downloadUrl = BASE_PUBS.firstOrNull { it.slot == "nwt" }?.landingUrl,
                             editionKey = "bible|nwt",
@@ -470,7 +492,7 @@ object NoteSourcesResolver {
                         else -> NoteSource(
                             ref = candidate.ref,
                             kind = SourceKind.BIBLE,
-                            status = SourceStatus.EDITION_MISSING,
+                            citation = CitationStatus(EditionStatus.MISSING, TextStatus.NOT_FOUND),
                             hint = "Baixe a Tradução do Novo Mundo para o Copilot citar o versículo.",
                             downloadUrl = BASE_PUBS.firstOrNull { it.slot == "nwt" }?.landingUrl,
                             editionKey = "bible|nwt",
@@ -486,7 +508,7 @@ object NoteSourcesResolver {
         }
         return NoteSources(
             sources = sources,
-            resolved = sources.count { it.status == SourceStatus.RESOLVED },
+            resolved = sources.count { it.citation.text == TextStatus.RESOLVED },
             total = sources.size,
         )
     }

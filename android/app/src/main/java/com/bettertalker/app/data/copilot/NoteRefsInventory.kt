@@ -6,6 +6,7 @@ import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.citationDetailLine
 import com.bettertalker.app.data.util.isMissing
 import com.bettertalker.app.data.util.isPending
 
@@ -29,7 +30,8 @@ import com.bettertalker.app.data.util.isPending
 
 const val MAX_REFS_INVENTORY_CHARS = 4_000
 
-private const val HEADER = "--- REFERÊNCIAS DA NOTA (inventário completo) ---"
+private const val HEADER = """--- REFERÊNCIAS DA NOTA (inventário completo) ---
+Regras: NÃO diga que uma referência não existe; ela pode estar apenas ausente do acervo local. Use o motivo EXATO de cada linha (edição ausente, indexação falhou, baixando, ambígua) e informe a ação indicada. NUNCA invente o conteúdo da fonte nem use outra edição."""
 private const val FOOTER = "--- FIM DAS REFERÊNCIAS DA NOTA ---"
 
 data class NoteRefsInventory(
@@ -84,7 +86,7 @@ fun buildNoteRefsInventoryDetailed(
             group = group,
             source = source,
             priority = priorityOf(source, focusKeys),
-            line = "- ${source.ref} — ${statusLabel(source)}",
+            line = "- ${source.ref} — ${citationDetailLine(source)}",
         )
     }
 
@@ -148,25 +150,4 @@ private fun isFocus(source: NoteSource, focusKeys: Set<String>): Boolean {
     return (key != null && key in focusKeys) ||
         source.ref in focusKeys ||
         (source.editionKey != null && source.editionKey in focusKeys)
-}
-
-private fun statusLabel(source: NoteSource): String = when (source.kind) {
-    SourceKind.BIBLE -> when (source.status) {
-        SourceStatus.RESOLVED -> "TNM resolvida"
-        SourceStatus.TEXT_NOT_FOUND -> "TNM presente; versículo não encontrado"
-        SourceStatus.EDITION_MISSING -> "TNM ausente"
-        SourceStatus.DOWNLOADING -> "TNM baixando"
-        SourceStatus.INDEXING -> "TNM indexando"
-        SourceStatus.INDEX_FAILED -> "TNM importada; indexação falhou"
-        SourceStatus.UNSUPPORTED -> "TNM em formato não suportado"
-    }
-    SourceKind.PUBLICATION -> when (source.status) {
-        SourceStatus.RESOLVED -> "edição no acervo; trecho resolvido"
-        SourceStatus.TEXT_NOT_FOUND -> "edição no acervo; trecho não encontrado"
-        SourceStatus.EDITION_MISSING -> "edição ausente do acervo"
-        SourceStatus.DOWNLOADING -> "baixando — acompanhe na Biblioteca"
-        SourceStatus.INDEXING -> "indexando — o Copilot usa quando terminar"
-        SourceStatus.INDEX_FAILED -> "edição importada; indexação falhou"
-        SourceStatus.UNSUPPORTED -> "edição em formato não suportado"
-    }
 }

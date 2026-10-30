@@ -9,7 +9,10 @@ import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.NoteSourcesResolver
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.SourceKind
+import com.bettertalker.app.data.util.CitationStatus
+import com.bettertalker.app.data.util.EditionStatus
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.TextStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -201,7 +204,7 @@ class FocusSourceResolverTest {
         // Força o estado de falha de indexação no checklist.
         val withFailed = sources.copy(
             sources = sources.sources.map {
-                if (it.refStatus?.ref?.pubKey == "lmd") it.copy(status = SourceStatus.INDEX_FAILED) else it
+                if (it.refStatus?.ref?.pubKey == "lmd") it.copy(citation = CitationStatus(EditionStatus.INDEX_FAILED, TextStatus.NOT_FOUND)) else it
             },
         )
         val out = FocusSourceResolver.resolve(
