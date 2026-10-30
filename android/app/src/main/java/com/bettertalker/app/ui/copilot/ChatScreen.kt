@@ -6,10 +6,18 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -156,8 +164,8 @@ import kotlinx.coroutines.launch
  * Conversa com o Copilot (exclusiva do FAB do editor). Histórico salvo por nota.
  * Todo o guia (seções, draft, refs, bases) vive aqui como mensagem/comando.
  */
-/** Duração do fade de entrada/saída das mensagens (inclui a resposta final). */
-private const val STREAM_CROSSFADE_MS = 300
+/** M2a: fade de entrada/saída das mensagens (dentro da faixa 150–250 ms). */
+private const val STREAM_CROSSFADE_MS = 180
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -269,6 +277,10 @@ fun ChatScreen(
         }
     }
     val ctx = LocalContext.current
+    // M2a: motion respeita a escala de animação do sistema (0 = instantâneo).
+    val motionScale = rememberMotionScale()
+    val cardMotion = motionMillis(CARD_MOTION_MS, motionScale)
+    val streamFade = motionMillis(STREAM_CROSSFADE_MS, motionScale)
     val listState = rememberLazyListState()
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
@@ -345,6 +357,10 @@ fun ChatScreen(
     }
     // auto-scroll só se já estiver no fim; senão acumula pílula "novas"
     var unseenCount by remember { mutableStateOf(0) }
+    // Mantém o último número durante o exit da pílula (não mostra "0 novas").
+    var pillCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(unseenCount) { if (unseenCount > 0) pillCount = unseenCount }
+    val pillMotion = motionMillis(PILL_MOTION_MS, motionScale)
     val atBottom by remember {
         derivedStateOf {
             val l = listState.layoutInfo
@@ -372,6 +388,8 @@ fun ChatScreen(
     } else {
         runStateItemCount(runState)
     }
+    // M2a: erro avulso só quando NÃO há turno ativo (nunca os dois).
+    val showStandaloneError = shouldShowStandaloneError(activeTurn, runState)
     // #25-fix-a/#26-fix: há card de proposta/estrutura no fim da lista?
     // (alvo do "fim" E gatilho da pílula quando o turno gera só proposta)
     val hasProposal = proposal != null || structureProposal != null ||
@@ -383,6 +401,13 @@ fun ChatScreen(
         hasProvenance = evidence.isNotEmpty(),
         hasProposal = hasProposal,
         runStateItems = runStateItems
+    )
+    // M2a: âncora do turno (não o último card/proposta).
+    val turnAnchor = turnAnchorIndex(
+        messageCount = messages.size,
+        hasContext = messages.isNotEmpty(),
+        hasTopicEmpty = messages.isEmpty() && chatScope != null,
+        activeTurnVisible = showActiveTurn,
     )
 
     val outlinePicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -403,6 +428,9 @@ fun ChatScreen(
     // pelo botão "novas". Antes, a checagem de layout corria com a própria
     // inserção do item e o fim do texto ficava abaixo do fold.
     var followEnd by remember { mutableStateOf(true) }
+    // M2a: distingue o primeiro frame do turno (âncora no início) dos updates
+    // de streaming (âncora no fim do texto).
+    var seenTurnId by remember { mutableStateOf<String?>(null) }
     // #25-fix-a/#26-fix: o que já foi "visto" — distingue CHEGADA de remoção
     // (fechar proposta não conta como novidade). Inicia em 0/false para o
     // primeiro efeito rolar até o fim ao abrir a conversa.
@@ -467,10 +495,17 @@ fun ChatScreen(
             listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
-    // M1: âncora estável no TURNO (turnId), não no slot de streaming/final.
+    // M2a: âncora estável no TURNO (turnId), não no slot de streaming/final.
+    // Primeiro frame do turno → topo; updates → fim do texto (se followEnd).
     LaunchedEffect(activeTurn?.turnId, activeTurn?.partialText?.length, activeTurn?.phase) {
-        if (followEnd && showActiveTurn) {
-            listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
+        val turn = activeTurn
+        if (followEnd && showActiveTurn && turn != null) {
+            if (seenTurnId != turn.turnId) {
+                seenTurnId = turn.turnId
+                listState.scrollToItem(turnAnchor, 0)
+            } else {
+                listState.animateScrollToItem(turnAnchor, Int.MAX_VALUE)
+            }
         }
     }
     // #ui-polish (Item 4): teclado — se o usuário já acompanhava o fim, a
@@ -533,11 +568,24 @@ fun ChatScreen(
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text(
-                                "${guideIndex + 1}/${guideSections.size}",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            AnimatedContent(
+                                targetState = guideIndex to guideSections.size,
+                                transitionSpec = {
+                                    if (cardMotion == 0) {
+                                        EnterTransition.None togetherWith ExitTransition.None
+                                    } else {
+                                        fadeIn(tween(cardMotion)) togetherWith
+                                            fadeOut(tween(cardMotion))
+                                    }
+                                },
+                                label = "section-index",
+                            ) { (index, total) ->
+                                Text(
+                                    "${index + 1}/$total",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     } else {
                         Text("Copilot", style = MaterialTheme.typography.titleMedium)
@@ -611,20 +659,36 @@ fun ChatScreen(
                 // flutua sobre a lista; o texto nunca fica coberto. Aparece
                 // também durante a geração (busy) para não deixar o usuário
                 // sem indicador enquanto o parcial cresce.
-                if (unseenCount > 0) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        androidx.compose.material3.FilledTonalButton(
-                            onClick = {
-                                unseenCount = 0
-                                followEnd = true
-                                scope.launch { listState.animateScrollToItem(lastItemIndex) }
+                AnimatedVisibility(
+                    visible = unseenCount > 0,
+                    enter = fadeIn(tween(pillMotion)) +
+                        slideInVertically(tween(pillMotion)) { it / 2 },
+                    exit = fadeOut(tween(pillMotion)) +
+                        slideOutVertically(tween(pillMotion)) { it / 2 },
+                ) {
+                    Column {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            androidx.compose.material3.FilledTonalButton(
+                                onClick = {
+                                    unseenCount = 0
+                                    followEnd = true
+                                    scope.launch { listState.animateScrollToItem(lastItemIndex) }
+                                }
+                            ) {
+                                Text(
+                                    if (pillCount == 1) {
+                                        "Nova mensagem ↓"
+                                    } else {
+                                        "$pillCount novas ↓"
+                                    }
+                                )
                             }
-                        ) { Text(if (unseenCount == 1) "Nova mensagem ↓" else "$unseenCount novas ↓") }
+                        }
+                        Spacer(Modifier.height(6.dp))
                     }
-                    Spacer(Modifier.height(6.dp))
                 }
                 // #26-fix-c: aviso de edição pendente — enviar substitui a
                 // pergunta antiga; "Cancelar" descarta a edição.
@@ -746,16 +810,30 @@ fun ChatScreen(
                     // M1: durante a troca de escopo, skeleton até a 1ª emissão.
                     if (messages.isEmpty() && chatScope != null) {
                         item(key = "topic-empty") {
-                            if (scopeLoading) {
-                                ScopeSkeleton()
-                            } else {
-                                Text(
-                                    "Conversa deste tópico. Peça ao Copilot para " +
-                                        "desenvolver este tópico e depois diga " +
-                                        "“insira no tópico”.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
+                            // M2a: skeleton e vazio no MESMO slot, com crossfade.
+                            AnimatedContent(
+                                targetState = scopeLoading,
+                                transitionSpec = {
+                                    if (cardMotion == 0) {
+                                        EnterTransition.None togetherWith ExitTransition.None
+                                    } else {
+                                        fadeIn(tween(cardMotion)) togetherWith
+                                            fadeOut(tween(cardMotion))
+                                    }
+                                },
+                                label = "scope-empty",
+                            ) { loading ->
+                                if (loading) {
+                                    ScopeSkeleton()
+                                } else {
+                                    Text(
+                                        "Conversa deste tópico. Peça ao Copilot para " +
+                                            "desenvolver este tópico e depois diga " +
+                                            "“insira no tópico”.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
                             }
                         }
                     }
@@ -778,8 +856,8 @@ fun ChatScreen(
                             // T5: entrada com fade sutil (~300ms) + placement.
                             Box(
                                 Modifier.animateItem(
-                                    fadeInSpec = tween(STREAM_CROSSFADE_MS),
-                                    fadeOutSpec = tween(STREAM_CROSSFADE_MS)
+                                    fadeInSpec = tween(streamFade),
+                                    fadeOutSpec = tween(streamFade)
                                 )
                             ) {
                                 Column {
@@ -840,39 +918,64 @@ fun ChatScreen(
                     val prop = proposal
                     if (prop != null) {
                         item(key = "proposal") {
-                            ProposalCard(prop, vm, sectionContentHtml = prop.sectionContentHtml)
+                            Box(Modifier.animateItem(
+                                    fadeInSpec = tween(cardMotion),
+                                    fadeOutSpec = tween(cardMotion),
+                                )) {
+                                ProposalCard(prop, vm, sectionContentHtml = prop.sectionContentHtml)
+                            }
                         }
                     }
                     // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
                     structureProposal?.let { sp ->
                         item(key = "structure-proposal") {
-                            StructureProposalCard(sp, vm)
+                            Box(Modifier.animateItem(
+                                    fadeInSpec = tween(cardMotion),
+                                    fadeOutSpec = tween(cardMotion),
+                                )) {
+                                StructureProposalCard(sp, vm)
+                            }
                         }
                     }
                     // F5d (Modo B): opções/ângulos — acima do cartão de
                     // aplicação (a escolha alimenta o fluxo do #5b).
                     multiProposal?.let { mp ->
                         item(key = "multi-proposal") {
-                            MultiProposalCard(mp, vm)
+                            Box(Modifier.animateItem(
+                                    fadeInSpec = tween(cardMotion),
+                                    fadeOutSpec = tween(cardMotion),
+                                )) {
+                                MultiProposalCard(mp, vm)
+                            }
                         }
                     }
                     // F5b (Modo C): proposta de estrutura da nota inteira.
                     noteStructureProposal?.let { nsp ->
                         item(key = "note-structure-proposal") {
-                            NoteStructureProposalCard(nsp, vm)
+                            Box(Modifier.animateItem(
+                                    fadeInSpec = tween(cardMotion),
+                                    fadeOutSpec = tween(cardMotion),
+                                )) {
+                                NoteStructureProposalCard(nsp, vm)
+                            }
                         }
                     }
                     // #15d-escopo: card discreto — vincular publicações quando
                     // o RAG falhou por escopo (não bloqueia; 1× por sessão).
                     if (scopeSuggestion) {
                         item(key = "scope-suggestion") {
-                            ScopeSuggestionCard(
-                                onOpenLibrary = {
-                                    vm.dismissScopeSuggestion()
-                                    onOpenLibrary()
-                                },
-                                onDismiss = { vm.dismissScopeSuggestion() },
-                            )
+                            Box(Modifier.animateItem(
+                                    fadeInSpec = tween(cardMotion),
+                                    fadeOutSpec = tween(cardMotion),
+                                )) {
+                                ScopeSuggestionCard(
+                                    onOpenLibrary = {
+                                        vm.dismissScopeSuggestion()
+                                        onOpenLibrary()
+                                    },
+                                    onDismiss = { vm.dismissScopeSuggestion() },
+                                )
+                            }
                         }
                     }
                     // M1: um item por turno. O fallback antigo só roda quando
@@ -907,11 +1010,15 @@ fun ChatScreen(
                                     }
                                 }
                             }
-                            is ChatRunState.Error -> item {
-                                ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                            is ChatRunState.Error -> if (showStandaloneError) {
+                                item {
+                                    ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                                }
                             }
-                            is ChatRunState.Cancelled -> item {
-                                ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                            is ChatRunState.Cancelled -> if (showStandaloneError) {
+                                item {
+                                    ChatErrorRow(s.message, onDismiss = vm::dismissError, onRetry = vm::retry)
+                                }
                             }
                             else -> Unit
                         }
@@ -932,41 +1039,56 @@ fun ChatScreen(
                         val turn = activeTurn!!
                         item(key = "turn-${turn.turnId}") {
                             val finalId = turn.finalMessageId
-                            if (turn.phase == TurnPhase.DONE && finalId != null) {
-                                // Handoff sem buraco: o synthetic usa o mesmo
-                                // messageId/turnId que a linha do Room terá.
-                                val synthetic = CopilotViewModel.ChatItem(
-                                    id = finalId,
-                                    fromMe = false,
-                                    kind = "text",
-                                    text = turn.finalText,
-                                    createdAt = turn.startedAt,
-                                    turnId = turn.turnId,
-                                )
-                                Column {
-                                    TurnReasoningHeader(turn)
-                                    MessageBubble(
-                                        item = synthetic,
-                                        vm = vm,
-                                        dl = dl,
-                                        ctx = ctx,
-                                        scope = scope,
-                                        destinations = destinations,
-                                        sectionBusy = sectionBusy,
-                                        liveSections = outlineSections,
-                                        merges = merges,
-                                        draft = draft,
-                                        onOpenLibrary = onOpenLibrary,
+                            val showFinal = turn.phase == TurnPhase.DONE && finalId != null
+                            // M2a: parcial → final no MESMO slot, com crossfade.
+                            AnimatedContent(
+                                targetState = showFinal,
+                                transitionSpec = {
+                                    if (streamFade == 0) {
+                                        EnterTransition.None togetherWith ExitTransition.None
+                                    } else {
+                                        fadeIn(tween(streamFade)) togetherWith
+                                            fadeOut(tween(streamFade))
+                                    }
+                                },
+                                label = "turn-final",
+                            ) { isFinal ->
+                                if (isFinal && finalId != null) {
+                                    // Handoff sem buraco: o synthetic usa o mesmo
+                                    // messageId/turnId que a linha do Room terá.
+                                    val synthetic = CopilotViewModel.ChatItem(
+                                        id = finalId,
+                                        fromMe = false,
+                                        kind = "text",
+                                        text = turn.finalText,
+                                        createdAt = turn.startedAt,
+                                        turnId = turn.turnId,
+                                    )
+                                    Column {
+                                        TurnReasoningHeader(turn)
+                                        MessageBubble(
+                                            item = synthetic,
+                                            vm = vm,
+                                            dl = dl,
+                                            ctx = ctx,
+                                            scope = scope,
+                                            destinations = destinations,
+                                            sectionBusy = sectionBusy,
+                                            liveSections = outlineSections,
+                                            merges = merges,
+                                            draft = draft,
+                                            onOpenLibrary = onOpenLibrary,
+                                        )
+                                    }
+                                } else {
+                                    TurnLiveItem(
+                                        turn = turn,
+                                        localPhase = localPhase,
+                                        localRetry = localRetry,
+                                        onRetry = vm::retry,
+                                        onDismiss = vm::dismissError,
                                     )
                                 }
-                            } else {
-                                TurnLiveItem(
-                                    turn = turn,
-                                    localPhase = localPhase,
-                                    localRetry = localRetry,
-                                    onRetry = vm::retry,
-                                    onDismiss = vm::dismissError,
-                                )
                             }
                         }
                     }
@@ -1078,6 +1200,7 @@ private fun MessageBubble(
     /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
     actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
+    val motion = motionMillis(CARD_MOTION_MS, rememberMotionScale())
     if (item.fromMe) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Column(horizontalAlignment = Alignment.End) {
@@ -1123,7 +1246,6 @@ private fun MessageBubble(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .animateContentSize(tween(250))
                 ) {
                     val card = item.cardPayload
                     // #22-fix (P1): selo "BT · " inline no primeiro bloco —
@@ -1143,12 +1265,20 @@ private fun MessageBubble(
                         collapseCard = card != null,
                         cardActions = if (card != null) {
                             {
-                                CardFirstActions(
-                                    item = item,
-                                    card = card,
-                                    vm = vm,
-                                    destinations = destinations,
-                                )
+                                // M2a: card aninhado entra com fade + expand
+                                // (nunca `animateItem`, que é só para itens da lista).
+                                AnimatedVisibility(
+                                    visible = true,
+                                    enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+                                    exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
+                                ) {
+                                    CardFirstActions(
+                                        item = item,
+                                        card = card,
+                                        vm = vm,
+                                        destinations = destinations,
+                                    )
+                                }
                             }
                         } else {
                             null
@@ -1167,7 +1297,11 @@ private fun MessageBubble(
                 }
                 // #ui-polish (Continuar gerando): resposta cortada por
                 // limite de tokens — estende a MESMA bolha.
-                if (item.isTruncated) {
+                AnimatedVisibility(
+                    visible = item.isTruncated,
+                    enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+                    exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
+                ) {
                     TextButton(
                         onClick = { vm.continueGeneration(item.id) },
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
@@ -1192,6 +1326,7 @@ private fun MessageBubble(
  */
 @Composable
 private fun TypingIndicator(modifier: Modifier = Modifier) {
+    val reduced = rememberMotionScale() <= 0f
     val transition = rememberInfiniteTransition(label = "typing")
     Row(
         modifier = modifier.semantics { contentDescription = "Copilot está escrevendo…" },
@@ -1200,10 +1335,14 @@ private fun TypingIndicator(modifier: Modifier = Modifier) {
     ) {
         repeat(3) { i ->
             val alpha by transition.animateFloat(
-                initialValue = 0.2f,
+                initialValue = if (reduced) 1f else 0.2f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    animation = tween(600, delayMillis = i * 160, easing = LinearEasing),
+                    animation = tween(
+                        if (reduced) 1 else 600,
+                        delayMillis = if (reduced) 0 else i * 160,
+                        easing = LinearEasing,
+                    ),
                     repeatMode = RepeatMode.Reverse,
                 ),
                 label = "dot$i",
@@ -1234,12 +1373,14 @@ private fun ReasoningSection(
     modifier: Modifier = Modifier,
     label: String = "Pensando…",
 ) {
+    val scale = rememberMotionScale()
+    val motion = motionMillis(REASONING_MOTION_MS, scale)
     val transition = rememberInfiniteTransition(label = "reasoning")
     val pulse by transition.animateFloat(
-        initialValue = 0.55f,
+        initialValue = if (scale <= 0f) 1f else 0.55f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = LinearEasing),
+            animation = tween(if (scale <= 0f) 1 else 900, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "reasoningPulse",
@@ -1252,7 +1393,7 @@ private fun ReasoningSection(
     ) {
         Column(
             Modifier
-                .animateContentSize()
+                .animateContentSize(tween(motion))
                 .padding(12.dp)
         ) {
             Row(
@@ -1292,6 +1433,13 @@ private fun ReasoningSection(
                         modifier = Modifier.size(16.dp),
                     )
                 }
+                // M2a: affordance consistente de expandir/recolher.
+                Text(
+                    if (expanded) "▾" else "▸",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
             }
             if (expanded) {
                 Text(
@@ -1404,6 +1552,7 @@ private fun TurnLiveItem(
     onDismiss: () -> Unit,
 ) {
     val partial = remember(turn.partialText) { stripInternalTags(turn.partialText) }
+    val motion = motionMillis(TURN_CROSSFADE_MS, rememberMotionScale())
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
@@ -1414,62 +1563,96 @@ private fun TurnLiveItem(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .animateContentSize(tween(250)),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
+            // M2a: cabeçalho estável — não é recriado a cada fase.
             if (turn.reasoningText.isNotBlank()) {
                 TurnReasoningHeader(turn)
             }
-            if (partial.isNotBlank()) {
-                StreamingCursorText(partial)
-            } else if (turn.phase == TurnPhase.WAITING ||
-                turn.phase == TurnPhase.REASONING
-            ) {
-                when {
-                    localRetry != null -> Text(
-                        localRetry,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    localPhase == LocalPhase.LoadingModel -> Text(
-                        "Carregando modelo…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    localPhase == LocalPhase.ReadingSources -> Text(
-                        "Lendo as fontes…",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    else -> TypingIndicator()
+            // Crossfade só quando o GRUPO visual muda; o texto do streaming
+            // cresce dentro do mesmo slot, sem animar altura por token.
+            AnimatedContent(
+                targetState = turn.phase,
+                transitionSpec = {
+                    if (motion == 0) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn(tween(motion)) togetherWith fadeOut(tween(motion))
+                    }
+                },
+                contentKey = { it.visualGroup() },
+                label = "turn-phase",
+            ) { phase ->
+                when (phase) {
+                    TurnPhase.WAITING, TurnPhase.REASONING -> {
+                        if (partial.isNotBlank()) {
+                            StreamingCursorText(partial, showCursor = false)
+                        } else {
+                            when {
+                                localRetry != null -> Text(
+                                    localRetry,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                                localPhase == LocalPhase.LoadingModel -> Text(
+                                    "Carregando modelo…",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                                localPhase == LocalPhase.ReadingSources -> Text(
+                                    "Lendo as fontes…",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                                else -> TypingIndicator()
+                            }
+                        }
+                    }
+                    TurnPhase.STREAMING -> StreamingCursorText(partial)
+                    TurnPhase.DONE -> {
+                        if (partial.isNotBlank()) {
+                            StreamingCursorText(partial, showCursor = false)
+                        }
+                    }
+                    TurnPhase.CANCELLED -> Column {
+                        if (partial.isNotBlank()) {
+                            StreamingCursorText(partial, showCursor = false)
+                        }
+                        ChatErrorRow(
+                            "Geração parada.",
+                            onDismiss = onDismiss,
+                            onRetry = onRetry,
+                        )
+                    }
+                    TurnPhase.ERROR -> Column {
+                        if (partial.isNotBlank()) {
+                            StreamingCursorText(partial, showCursor = false)
+                        }
+                        ChatErrorRow(
+                            turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
+                            onDismiss = onDismiss,
+                            onRetry = onRetry,
+                        )
+                    }
                 }
-            }
-            when (turn.phase) {
-                TurnPhase.CANCELLED -> ChatErrorRow(
-                    "Geração parada.",
-                    onDismiss = onDismiss,
-                    onRetry = onRetry,
-                )
-                TurnPhase.ERROR -> ChatErrorRow(
-                    turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
-                    onDismiss = onDismiss,
-                    onRetry = onRetry,
-                )
-                else -> Unit
             }
         }
     }
 }
 
-/** Cursor pulsante do parcial — texto puro, sem parser. */
+/**
+ * Cursor pulsante do parcial — texto puro, sem parser.
+ * [showCursor] falso congela o texto sem o cursor (erro/cancelamento/final).
+ */
 @Composable
-private fun StreamingCursorText(text: String) {
+private fun StreamingCursorText(text: String, showCursor: Boolean = true) {
+    val scale = rememberMotionScale()
     val cursorAlpha by rememberInfiniteTransition(label = "cursor")
         .animateFloat(
-            initialValue = 0.2f,
+            initialValue = if (scale <= 0f) 1f else 0.2f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(400, easing = LinearEasing),
+                animation = tween(if (scale <= 0f) 1 else 400, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "cursorAlpha",
@@ -1479,8 +1662,10 @@ private fun StreamingCursorText(text: String) {
         Text(
             buildAnnotatedString {
                 append(text)
-                withStyle(SpanStyle(color = cursorColor.copy(alpha = cursorAlpha))) {
-                    append("▍")
+                if (showCursor) {
+                    withStyle(SpanStyle(color = cursorColor.copy(alpha = cursorAlpha))) {
+                        append("▍")
+                    }
                 }
             },
             style = MaterialTheme.typography.bodyLarge,
@@ -1500,6 +1685,7 @@ private fun LegacyStreamingItem(
     reasoningExpanded: Boolean,
     onToggleReasoning: () -> Unit,
 ) {
+    val motion = motionMillis(TURN_CROSSFADE_MS, rememberMotionScale())
     Box {
         Surface(
             color = MaterialTheme.colorScheme.surface,
@@ -1511,13 +1697,12 @@ private fun LegacyStreamingItem(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .animateContentSize(tween(250)),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 AnimatedVisibility(
                     visible = reasoning.isNotBlank(),
-                    enter = fadeIn(tween(200)),
-                    exit = fadeOut(tween(250)),
+                    enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+                    exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
                 ) {
                     ReasoningSection(
                         text = reasoning,
@@ -1573,6 +1758,7 @@ private fun CardFirstActions(
     val verifications by vm.cardVerifications.collectAsState()
     val verifying by vm.cardVerifying.collectAsState()
     val notices by vm.cardVerificationNotices.collectAsState()
+    val motion = motionMillis(CARD_MOTION_MS, rememberMotionScale())
     val copy = rememberCopyToClipboard()
     val cardText = remember(item.text) { extractCardText(item.text).orEmpty() }
     val verification = verifications[item.id]
@@ -1731,31 +1917,54 @@ private fun CardFirstActions(
                 }
             }
         }
-        notices[item.id]?.let { notice ->
-            Text(
-                notice,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+        // M2a: avisos/verificação entram e saem abaixo do card, sem reflow
+        // seco. Guarda o último valor para o exit não ficar em branco.
+        val notice = notices[item.id]
+        var lastNotice by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(notice) { if (notice != null) lastNotice = notice }
+        AnimatedVisibility(
+            visible = notice != null,
+            enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+            exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
+        ) {
+            lastNotice?.let { text ->
+                Text(
+                    text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
-        verification?.let { v ->
-            Text(
-                "Verificação: ✓ ${v.summary.supported} · ⚠ ${v.summary.partial} · " +
-                    "? ${v.summary.insufficient} · 💡 ${v.summary.creative}" +
-                    if (v.limited) " (avaliação local)" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            v.claims
-                .filter { it.status != com.bettertalker.app.data.verify.SupportStatus.SUPPORTED }
-                .take(3)
-                .forEach { claim ->
+        var lastVerification by remember {
+            mutableStateOf<com.bettertalker.app.data.verify.TextVerification?>(null)
+        }
+        LaunchedEffect(verification) { if (verification != null) lastVerification = verification }
+        AnimatedVisibility(
+            visible = verification != null,
+            enter = fadeIn(tween(motion)) + expandVertically(tween(motion)),
+            exit = fadeOut(tween(motion)) + shrinkVertically(tween(motion)),
+        ) {
+            lastVerification?.let { v ->
+                Column {
                     Text(
-                        "⚠ “${claim.claim.text.take(80)}” — ${claim.reason}",
+                        "Verificação: ✓ ${v.summary.supported} · ⚠ ${v.summary.partial} · " +
+                            "? ${v.summary.insufficient} · 💡 ${v.summary.creative}" +
+                            if (v.limited) " (avaliação local)" else "",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    v.claims
+                        .filter { it.status != com.bettertalker.app.data.verify.SupportStatus.SUPPORTED }
+                        .take(3)
+                        .forEach { claim ->
+                            Text(
+                                "⚠ “${claim.claim.text.take(80)}” — ${claim.reason}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                 }
+            }
         }
     }
     if (showReplace) {
@@ -2032,6 +2241,25 @@ internal fun lastMessageIndex(
 ): Int {
     val offset = (if (hasContext) 1 else 0) + (if (hasTopicEmpty) 1 else 0)
     return (offset + messageCount - 1).coerceAtLeast(0)
+}
+
+/**
+ * M2a — âncora do turno ativo: índice do item `turn-<turnId>` (começo dele).
+ * Com turno visível, fica DEPOIS das mensagens; sem turno, cai na última
+ * mensagem (não em card/proposta). Puro/testável.
+ */
+internal fun turnAnchorIndex(
+    messageCount: Int,
+    hasContext: Boolean,
+    hasTopicEmpty: Boolean,
+    activeTurnVisible: Boolean,
+): Int {
+    val offset = (if (hasContext) 1 else 0) + (if (hasTopicEmpty) 1 else 0)
+    return if (activeTurnVisible) {
+        offset + messageCount
+    } else {
+        lastMessageIndex(messageCount, hasContext, hasTopicEmpty)
+    }
 }
 
 /** #25-fix-a: ação do efeito de mensagem nova. Puro/testável. */
@@ -2912,9 +3140,25 @@ private fun ScopeChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val motion = motionMillis(TURN_CROSSFADE_MS, rememberMotionScale())
     AssistChip(
         onClick = onClick,
-        label = { Text(if (whole) "Discurso inteiro" else "Tópico") },
+        label = {
+            // M2a: troca de escopo com crossfade curto.
+            AnimatedContent(
+                targetState = whole,
+                transitionSpec = {
+                    if (motion == 0) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn(tween(motion)) togetherWith fadeOut(tween(motion))
+                    }
+                },
+                label = "scope-chip",
+            ) { w ->
+                Text(if (w) "Discurso inteiro" else "Tópico")
+            }
+        },
         leadingIcon = {
             Icon(
                 Icons.Default.SwapHoriz,
