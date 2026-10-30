@@ -1334,19 +1334,19 @@ private fun TypingIndicator(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(3) { i ->
-            val alpha by transition.animateFloat(
-                initialValue = if (reduced) 1f else 0.2f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(
-                        if (reduced) 1 else 600,
-                        delayMillis = if (reduced) 0 else i * 160,
-                        easing = LinearEasing,
+            // Reduced motion: sem animação infinita (não agenda frames).
+            val alpha = if (reduced) 1f else {
+                val a by transition.animateFloat(
+                    initialValue = 0.2f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(600, delayMillis = i * 160, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse,
                     ),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "dot$i",
-            )
+                    label = "dot$i",
+                )
+                a
+            }
             Box(
                 Modifier
                     .size(7.dp)
@@ -1376,15 +1376,19 @@ private fun ReasoningSection(
     val scale = rememberMotionScale()
     val motion = motionMillis(REASONING_MOTION_MS, scale)
     val transition = rememberInfiniteTransition(label = "reasoning")
-    val pulse by transition.animateFloat(
-        initialValue = if (scale <= 0f) 1f else 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (scale <= 0f) 1 else 900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "reasoningPulse",
-    )
+    // Reduced motion: sem animação infinita (não agenda frames).
+    val pulse = if (scale <= 0f) 1f else {
+        val p by transition.animateFloat(
+            initialValue = 0.55f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "reasoningPulse",
+        )
+        p
+    }
     val alpha = if (completed) 1f else pulse
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -1647,16 +1651,19 @@ private fun TurnLiveItem(
 @Composable
 private fun StreamingCursorText(text: String, showCursor: Boolean = true) {
     val scale = rememberMotionScale()
-    val cursorAlpha by rememberInfiniteTransition(label = "cursor")
-        .animateFloat(
-            initialValue = if (scale <= 0f) 1f else 0.2f,
+    // Reduced motion: cursor estático, sem animação infinita.
+    val cursorAlpha = if (scale <= 0f) 1f else {
+        val a by rememberInfiniteTransition(label = "cursor").animateFloat(
+            initialValue = 0.2f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(if (scale <= 0f) 1 else 400, easing = LinearEasing),
+                animation = tween(400, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "cursorAlpha",
         )
+        a
+    }
     val cursorColor = MaterialTheme.colorScheme.onSurface
     Row(Modifier.fillMaxWidth()) {
         Text(
