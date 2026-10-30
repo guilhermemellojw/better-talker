@@ -21,9 +21,12 @@ import com.bettertalker.app.data.util.PastedOutlineAnalyzer
 import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.STOPWORDS_PT
+import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.buildJwUrl
+import com.bettertalker.app.data.util.citationDetailLine
 import com.bettertalker.app.data.util.isPending
+import com.bettertalker.app.data.util.isTrainingSource
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.data.util.splitRawSentences
 import com.bettertalker.app.data.util.toSectionRefs
@@ -640,6 +643,74 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     suspend fun citedSources(refs: NoteRefs): CitedSources =
         citedSources(refs.publications, refs.bibles)
+
+    /**
+     * Caminho único do Copilot: a MESMA lista do checklist ([NoteSources])
+     * decide o que tem texto e o que está pendente/faltando. Assim o prompt
+     * nunca reduz uma edição baixando/falha de índice a MISSING_CORPUS.
+     */
+    suspend fun citedSources(noteSources: NoteSources): CitedSources {
+        if (!noteSources.hasRefs) return CitedSources(emptyList(), emptyList(), emptyList())
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val sources = mutableListOf<EvidenceSource>()
+        val unavailable = mutableListOf<String>()
+        val unavailableDetails = mutableListOf<String>()
+        for (source in noteSources.sources) {
+            // be/th são orientação de oratória (TRAINING), nunca conteúdo.
+            if (source.isTrainingSource()) continue
+            if (source.citation.blocksAnswer) {
+                // NUNCA silencioso e NUNCA "não existe": leva o motivo real
+                // (edição ausente, indexação falhou, ambígua, baixando…).
+                unavailable += source.ref
+                unavailableDetails += "${source.ref} — ${citationDetailLine(source)}"
+                continue
+            }
+            val resolved = when (source.kind) {
+                SourceKind.PUBLICATION ->
+                    source.refStatus?.ref?.let { resolver.resolvePublication(publicationRefOf(it)) }
+                SourceKind.BIBLE ->
+                    resolver.resolveBible(source.ref)
+            }
+            val body = resolved?.text?.trim().orEmpty()
+            if (resolved != null && isCitedSourceUsable(resolved.status) && body.isNotBlank()) {
+                val publication = when (source.kind) {
+                    SourceKind.BIBLE -> baseTitle("nwt")
+                    SourceKind.PUBLICATION ->
+                        source.publicationLabel
+                            ?: source.refStatus?.ref?.let { PubCatalog.titleOf(it.pubKey) }
+                            ?: source.publicationKey
+                }
+                sources += EvidenceSource(
+                    id = "cite-" + (resolved.passageId ?: source.ref.hashCode()) +
+                        "-" + (resolved.canonicalRef ?: source.ref).hashCode(),
+                    reference = resolved.canonicalRef ?: source.ref,
+                    text = body,
+                    sourceType = SourceType.CONTENT,
+                    publication = publication,
+                    section = source.refStatus?.ref?.article
+                        ?: source.refStatus?.ref?.chapter,
+                    paragraph = source.refStatus?.ref?.paragraph,
+                    page = source.refStatus?.ref?.page,
+                    score = 1.0,
+                    foundBy = listOf("cited"),
+                )
+            } else {
+                unavailable += source.ref
+                val reason = when (source.kind) {
+                    SourceKind.BIBLE ->
+                        "TNM presente; versículo não encontrado"
+                    SourceKind.PUBLICATION ->
+                        "edição no acervo; trecho não encontrado"
+                }
+                unavailableDetails += "${source.ref} — $reason — ação: reindexar"
+            }
+        }
+        return CitedSources(
+            sources = sources.distinctBy { it.reference },
+            unavailable = unavailable.distinct(),
+            unavailableDetails = unavailableDetails.distinct(),
+        )
+    }
 
     suspend fun citedSources(refs: List<RefDetector.DetectedRef>): CitedSources =
         citedSources(refs, emptyList())

@@ -201,4 +201,104 @@ class NoteSourcesResolverTest {
             sources.sources.first { it.ref == "Gên 3:7" }.status,
         )
     }
+
+    @Test
+    fun toNoteSources_expoeEditionStatusTextStatusEAction() {
+        val resolvedRef = RefDetector.detect("w25.07 22 § 8").single()
+        val missingRef = RefDetector.detect("w25.07 21 § 9").single()
+        val textMissingRef = RefDetector.detect("lmd lição 7 § 4").single()
+        val failedRef = RefDetector.detect("w24.01 § 3").single()
+        val ambiguousRef = RefDetector.detect("g 1/16").single()
+        val candidates = listOf(resolvedRef, missingRef, textMissingRef, failedRef, ambiguousRef)
+            .map { ref ->
+                SourceCandidate(
+                    key = NoteSourcesResolver.sourceKey(ref),
+                    ref = ref.raw,
+                    kind = SourceKind.PUBLICATION,
+                    publication = ref,
+                )
+            }
+        val statuses = mapOf(
+            NoteSourcesResolver.sourceKey(resolvedRef) to RefDetector.RefStatus(
+                ref = resolvedRef, resolved = true, contentResolved = true,
+            ),
+            NoteSourcesResolver.sourceKey(missingRef) to RefDetector.RefStatus(
+                ref = missingRef, resolved = false,
+            ),
+            NoteSourcesResolver.sourceKey(textMissingRef) to RefDetector.RefStatus(
+                ref = textMissingRef, resolved = true, contentResolved = false,
+            ),
+            NoteSourcesResolver.sourceKey(failedRef) to RefDetector.RefStatus(
+                ref = failedRef, resolved = false,
+            ),
+            NoteSourcesResolver.sourceKey(ambiguousRef) to RefDetector.RefStatus(
+                ref = ambiguousRef, resolved = false,
+            ),
+        )
+
+        val sources = NoteSourcesResolver.toNoteSources(
+            candidates = candidates,
+            publicationStatuses = statuses,
+            bibleStatuses = emptyMap(),
+            pendingStatuses = mapOf(
+                NoteSourcesResolver.sourceKey(failedRef) to SourceStatus.INDEX_FAILED,
+            ),
+        )
+
+        val resolved = sources.sources.first { it.ref == resolvedRef.raw }
+        assertEquals(EditionStatus.READY, resolved.citation.edition)
+        assertEquals(TextStatus.RESOLVED, resolved.citation.text)
+        assertEquals(SourceAction.NONE, resolved.citation.action)
+
+        val missing = sources.sources.first { it.ref == missingRef.raw }
+        assertEquals(EditionStatus.MISSING, missing.citation.edition)
+        assertEquals(SourceAction.DOWNLOAD, missing.citation.action)
+
+        val textMissing = sources.sources.first { it.ref == textMissingRef.raw }
+        assertEquals(EditionStatus.READY, textMissing.citation.edition)
+        assertEquals(TextStatus.NOT_FOUND, textMissing.citation.text)
+        assertEquals(SourceAction.REINDEX, textMissing.citation.action)
+
+        val failed = sources.sources.first { it.ref == failedRef.raw }
+        assertEquals(EditionStatus.INDEX_FAILED, failed.citation.edition)
+        assertEquals(SourceAction.REINDEX, failed.citation.action)
+
+        val ambiguous = sources.sources.first { it.ref == ambiguousRef.raw }
+        assertEquals(TextStatus.AMBIGUOUS, ambiguous.citation.text)
+        assertEquals(SourceAction.CONFIRM, ambiguous.citation.action)
+    }
+
+    @Test
+    fun toNoteSources_bibliaSemTnm_acaoBaixarEComVersiculoAusente_reindexar() {
+        val missingBible = SourceCandidate(
+            key = "bible|gen|3|6",
+            ref = "Gên 3:6",
+            kind = SourceKind.BIBLE,
+            bible = RefDetector.BibleRef("gen", "Gên", 3, 6),
+        )
+        val missingVerse = SourceCandidate(
+            key = "bible|gen|3|7",
+            ref = "Gên 3:7",
+            kind = SourceKind.BIBLE,
+            bible = RefDetector.BibleRef("gen", "Gên", 3, 7),
+        )
+        val sources = NoteSourcesResolver.toNoteSources(
+            candidates = listOf(missingBible, missingVerse),
+            publicationStatuses = emptyMap(),
+            bibleStatuses = mapOf(
+                missingBible.key to BibleSourceStatus(available = false, verseFound = false),
+                missingVerse.key to BibleSourceStatus(available = true, verseFound = false),
+            ),
+        )
+
+        val noTnm = sources.sources.first { it.ref == "Gên 3:6" }
+        assertEquals(EditionStatus.MISSING, noTnm.citation.edition)
+        assertEquals(SourceAction.DOWNLOAD, noTnm.citation.action)
+        assertEquals("TNM ausente", citationReason(noTnm))
+
+        val noVerse = sources.sources.first { it.ref == "Gên 3:7" }
+        assertEquals(EditionStatus.READY, noVerse.citation.edition)
+        assertEquals(SourceAction.REINDEX, noVerse.citation.action)
+        assertEquals("TNM presente; versículo não encontrado", citationReason(noVerse))
+    }
 }

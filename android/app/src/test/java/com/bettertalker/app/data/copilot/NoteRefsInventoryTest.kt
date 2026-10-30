@@ -1,11 +1,16 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.util.CitationStatus
+import com.bettertalker.app.data.util.EditionStatus
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.TextStatus
+import com.bettertalker.app.data.util.defaultTextStatus
+import com.bettertalker.app.data.util.editionStatusOf
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,7 +30,7 @@ class NoteRefsInventoryTest {
     ) = NoteSource(
         ref = ref,
         kind = SourceKind.PUBLICATION,
-        status = status,
+        citation = CitationStatus(editionStatusOf(status), defaultTextStatus(status)),
         editionKey = editionKey,
         publicationKey = pubKey,
     )
@@ -39,7 +44,7 @@ class NoteRefsInventoryTest {
     ) = NoteSource(
         ref = ref,
         kind = SourceKind.BIBLE,
-        status = status,
+        citation = CitationStatus(editionStatusOf(status), defaultTextStatus(status)),
         book = book,
         chapter = chapter,
         verse = verse,
@@ -81,9 +86,9 @@ class NoteRefsInventoryTest {
         )
         // Edição existe, trecho não: o modelo NÃO pode dizer que a publicação
         // inteira não está no acervo.
-        assertTrue(text.contains("w25.07 § 999 — edição no acervo; trecho não encontrado"))
+        assertTrue(text.contains("w25.07 § 999 — edição no acervo; trecho não encontrado — ação: reindexar"))
         assertFalse(text.contains("w25.07 § 999 — edição ausente do acervo"))
-        assertTrue(text.contains("w24.01 § 3 — edição ausente do acervo"))
+        assertTrue(text.contains("w24.01 § 3 — edição ausente do acervo — ação: baixar"))
     }
 
     @Test
@@ -94,8 +99,8 @@ class NoteRefsInventoryTest {
                 pub("w25.09 § 2", SourceStatus.INDEXING, pubKey = "w25.09", editionKey = "w|2025|9"),
             ),
         )
-        assertTrue(text.contains("w25.08 § 1 — baixando — acompanhe na Biblioteca"))
-        assertTrue(text.contains("w25.09 § 2 — indexando — o Copilot usa quando terminar"))
+        assertTrue(text.contains("w25.08 § 1 — edição baixando — acompanhe na Biblioteca — ação: aguardar"))
+        assertTrue(text.contains("w25.09 § 2 — edição indexando — o Copilot usa quando terminar — ação: aguardar"))
     }
 
     @Test
@@ -106,8 +111,8 @@ class NoteRefsInventoryTest {
                 pub("w24.01 § 3", SourceStatus.UNSUPPORTED, pubKey = "w24.01", editionKey = "w|2024|1"),
             ),
         )
-        assertTrue(text.contains("lmd lição 7 §4 — edição importada; indexação falhou"))
-        assertTrue(text.contains("w24.01 § 3 — edição em formato não suportado"))
+        assertTrue(text.contains("lmd lição 7 §4 — edição importada; indexação falhou — ação: reindexar"))
+        assertTrue(text.contains("w24.01 § 3 — edição em formato não suportado — ação: abrir edição"))
     }
 
     @Test
@@ -140,8 +145,8 @@ class NoteRefsInventoryTest {
             ),
         )
         assertTrue(text.contains("Je 29:11 — TNM resolvida"))
-        assertTrue(text.contains("Gên 3:6 — TNM ausente"))
-        assertTrue(text.contains("Sal 103:20 — TNM presente; versículo não encontrado"))
+        assertTrue(text.contains("Gên 3:6 — TNM ausente — ação: baixar"))
+        assertTrue(text.contains("Sal 103:20 — TNM presente; versículo não encontrado — ação: reindexar"))
     }
 
     @Test
@@ -152,13 +157,13 @@ class NoteRefsInventoryTest {
         val out = buildNoteRefsInventoryDetailed(
             sources(focus, unresolved, *manyResolved.toTypedArray()),
             focusKeys = setOf(focus.ref),
-            maxChars = 420,
+            maxChars = 700,
         )
         assertTrue(out.omitted > 0)
         assertTrue(out.text.contains(focus.ref))
         assertTrue(out.text.contains(unresolved.ref))
         assertTrue(out.text.contains("omitida(s)"))
-        assertTrue(out.text.length <= 420)
+        assertTrue(out.text.length <= 700)
     }
 
     @Test
@@ -177,7 +182,7 @@ class NoteRefsInventoryTest {
         val focus = NoteSource(
             ref = "w25.07 p. 22 §8-§9",
             kind = SourceKind.PUBLICATION,
-            status = SourceStatus.RESOLVED,
+            citation = CitationStatus(EditionStatus.READY, TextStatus.RESOLVED),
             editionKey = "w|2025|7",
             publicationKey = "w25.07",
             refStatus = RefDetector.RefStatus(ref = detected, resolved = true, contentResolved = true),
@@ -185,7 +190,7 @@ class NoteRefsInventoryTest {
         val out = buildNoteRefsInventoryDetailed(
             sources(*((1..30).map { pub("w25.07 § $it") } + focus).toTypedArray()),
             focusKeys = setOf(focusKey),
-            maxChars = 260,
+            maxChars = 700,
         )
         assertTrue(out.text.contains(focus.ref))
     }

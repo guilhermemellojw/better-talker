@@ -152,6 +152,9 @@ import com.bettertalker.app.data.llm.LocalPhase
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.OutlineSection
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.SourceAction
+import com.bettertalker.app.data.util.actionLabel
+import com.bettertalker.app.data.util.citationReason
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.MdBlock
 import com.bettertalker.app.ui.components.PasteDestination
@@ -231,6 +234,7 @@ fun ChatScreen(
     val evidence by vm.chatEvidence.collectAsState()
     val evidenceSummary by vm.evidenceSummary.collectAsState()
     val focusSources by vm.focusSources.collectAsState()
+    val sourcesNeeded by vm.sourcesNeeded.collectAsState()
     val contextText by vm.contextLabelText.collectAsState()
     // T4: nome do tópico em foco (confirmação da inserção).
     val topicName by vm.topicName.collectAsState()
@@ -717,6 +721,20 @@ fun ChatScreen(
                         }) { Text("Cancelar") }
                     }
                     Spacer(Modifier.height(2.dp))
+                }
+                sourcesNeeded?.let { needed ->
+                    SourcesNeededCard(
+                        needed = needed,
+                        context = ctx,
+                        scope = scope,
+                        downloadCtl = dl,
+                        onOpenLibrary = onOpenLibrary,
+                        onOpenEditor = onBack,
+                        onReindex = { vm.reindexSourcesNeeded() },
+                        onRefresh = { vm.refreshSourcesNeeded() },
+                        onContinue = { vm.continueWithoutSources() },
+                    )
+                    Spacer(Modifier.height(4.dp))
                 }
                 focusSources?.takeIf { it.pointEntries.isNotEmpty() }?.let { sources ->
                     FocusSourcesCard(
@@ -2929,6 +2947,128 @@ private fun RefFullRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error
             )
+        }
+    }
+}
+
+@Composable
+private fun SourcesNeededCard(
+    needed: CopilotViewModel.SourcesNeededUi,
+    context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    downloadCtl: DownloadCtl?,
+    onOpenLibrary: () -> Unit,
+    onOpenEditor: () -> Unit,
+    onReindex: () -> Unit,
+    onRefresh: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    val refs = needed.refs
+    val downloadSource = refs.firstOrNull { it.citation.action == SourceAction.DOWNLOAD }
+    val indexSource = refs.firstOrNull { it.citation.action == SourceAction.REINDEX }
+    val confirmSource = refs.firstOrNull { it.citation.action == SourceAction.CONFIRM }
+    val waitSource = refs.firstOrNull {
+        it.citation.action == SourceAction.WAIT || it.citation.action == SourceAction.OPEN
+    }
+    val downloadUrl = (downloadSource?.downloadUrl
+        ?: downloadSource?.refStatus?.downloadUrl)?.takeIf { it.isNotBlank() }
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Fontes necessárias",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    if (refs.size == 1) "1 ref bloqueada" else "${refs.size} refs bloqueadas",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            Text(
+                "Sua pergunta cita uma fonte que ainda não está pronta. " +
+                    "Baixe, reindexe ou confirme a edição — ou continue sem ela.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
+            refs.take(4).forEach { source ->
+                Text(
+                    "• ${source.ref}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    citationReason(source),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (source.citation.action != SourceAction.NONE) {
+                    Text(
+                        "Ação: ${actionLabel(source.citation.action)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+            if (refs.size > 4) {
+                Text(
+                    "+${refs.size - 4} outra(s)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (downloadSource != null) {
+                    TextButton(
+                        onClick = {
+                            if (downloadCtl != null && downloadUrl != null) {
+                                downloadCtl.openPage(context, downloadUrl, onDone = onRefresh)
+                            } else {
+                                onOpenLibrary()
+                            }
+                        },
+                    ) { Text(if (downloadUrl != null) "Baixar no jw.org" else "Abrir Biblioteca") }
+                    val st = downloadSource.refStatus
+                    if (downloadCtl != null && st != null &&
+                        (st.apiPub != null || st.probePub != null)
+                    ) {
+                        TextButton(
+                            onClick = {
+                                downloadCtl.downloadDirect(context, scope, st, onDone = onRefresh)
+                            },
+                        ) { Text("Baixar direto") }
+                    }
+                }
+                if (indexSource != null) {
+                    TextButton(onClick = onReindex) { Text("Reindexar") }
+                }
+                if (confirmSource != null) {
+                    TextButton(onClick = onOpenEditor) { Text("Corrigir referência") }
+                }
+                if (waitSource != null) {
+                    TextButton(onClick = onOpenLibrary) { Text("Acompanhar") }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                TextButton(onClick = onRefresh) { Text("Já baixei — atualizar") }
+                TextButton(onClick = onContinue) { Text("Continuar sem") }
+                TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
+            }
         }
     }
 }

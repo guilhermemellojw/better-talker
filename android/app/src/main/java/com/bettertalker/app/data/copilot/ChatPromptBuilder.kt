@@ -395,7 +395,11 @@ fun serializePack(
             lines.joinToString("\n\n") + "\n--- FIM DAS ORIENTAÇÕES ---\n"
     }
     if (pack.unavailableRefs.isNotEmpty()) {
-        section += "\n\n--- REFERÊNCIAS DO ESBOÇO SEM TEXTO NO ACERVO (não citar como texto) ---\n" +
+        section += "\n\n--- REFERÊNCIAS DO ESBOÇO SEM TEXTO NO ACERVO " +
+            "(não citar como texto) ---\n" +
+            "Regra: NÃO diga que a referência não existe; ela pode estar apenas " +
+            "ausente do acervo local. Use o motivo EXATO de cada linha e informe " +
+            "a ação; NUNCA invente o conteúdo nem use outra edição.\n" +
             pack.unavailableRefs.distinct().joinToString("\n") { "- $it" } +
             "\n--- FIM DAS REFERÊNCIAS ---\n"
     }

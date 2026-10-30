@@ -15,7 +15,7 @@ class GroupNoteSourcesTest {
     ) = NoteSource(
         ref = ref,
         kind = SourceKind.PUBLICATION,
-        status = status,
+        citation = CitationStatus(editionStatusOf(status), defaultTextStatus(status)),
         publicationKey = publicationKey,
         publicationLabel = publicationLabel,
     )
@@ -29,7 +29,7 @@ class GroupNoteSourcesTest {
     ) = NoteSource(
         ref = ref,
         kind = SourceKind.BIBLE,
-        status = status,
+        citation = CitationStatus(editionStatusOf(status), defaultTextStatus(status)),
         book = book,
         chapter = chapter,
         verse = verse,
