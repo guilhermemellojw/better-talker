@@ -23,6 +23,15 @@
 > streaming real pendentes** (tablet sem chave de IA). M2b (markdown/card shell,
 > morph enviar/parar, haptics, TalkBack) é o próximo. Sem bump/tag.
 
+> **2026-10-30 — M2b:** streaming com markdown (throttle 100 ms, terminal
+> imediato), card shell durante o streaming, cursor com fade, morph
+> Enviar/Parar, haptics, TalkBack e parcial cancelado com markdown/shell
+> mergeado em `22eb84a` (2.668 testes/0, lint/CI verdes). **A34 validado**:
+> streaming real, `Pensou por 11s`, stop com 1.876 chars, markdown sem `**`
+> cru, shell sem ações e “Geração parada”. Tablet perdeu o app/dados antes da
+> limpeza final; backup/DB limpa ficaram em `/tmp/opencode/`. O tablet não é
+> mais gate de dados. Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
