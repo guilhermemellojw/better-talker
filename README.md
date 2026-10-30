@@ -7,7 +7,7 @@ Better Talker é um app Android nativo. O código ativo está em `android/`. Os 
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
 
-## 📌 Estado atual (2026-10-26)
+## 📌 Estado atual (2026-10-29)
 
 - **Versão:** 2.9.0 (versionCode 28), main; **C2 + M1/M1.1 + card-first 1–4.1** concluídos e validados no A34/tablet. **2.617 testes JVM / 0 falhas**; `lintRelease` verde.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.

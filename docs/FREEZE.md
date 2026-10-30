@@ -1,23 +1,25 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-29 · **Build de referência:** v2.9.0 (versionCode 28) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.9.0/28:** aguardando keystore + smoke; **não tagueado** · **Release v2.8.2:** em **draft** e não deve ser publicado junto · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-10-29 · **Build de referência:** v2.9.0 (versionCode 28) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.9.0/28:** aguardando keystore + smoke em aparelho limpo; tablet validado; **não tagueado** · **Release v2.8.2:** em **draft** e não deve ser publicado junto · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
-> **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
-> v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
-> máquina; o v2.8.2 continua **draft** e não inclui o C2.
+> **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. O
+> tablet validou C2 + M1 + card-first 1–4; a v2.9.0/28 aguarda apenas a
+> keystore em outra máquina e o smoke em aparelho limpo. O v2.8.2 continua
+> **draft** e não inclui o C2.
 
 > **M1/M1.1:** mergeados na `main` em `ffeb1e3` (fast-forward), **sem tag**.
-> O turno único e o CANCELLED persistido estão validados no A34. A próxima
-> frente é o card-first; a v2.9.0 continua sem tag até tablet + keystore.
+> O turno único e o CANCELLED persistido estão validados no A34 e no tablet.
+> A v2.9.0 continua sem tag até keystore + smoke em aparelho limpo.
 
 > **Card-first fase 1:** mergeado na `main` em `03004b1` (fast-forward),
 > **sem tag**. Alvo capturado na geração, append/replace, undo, gate “Sim”,
 > stale, SUPERSEDED, verificação warn-only e “Transformar em card” validados
-> no A34; **2.601 testes / 0 falhas** e `lintRelease` verde. A validação no
-> tablet segue pendente; a v2.9.0 só sai depois de tablet + keystore.
+> no A34; **2.601 testes / 0 falhas** e `lintRelease` verde. O tablet fechou
+> a validação nas fases 4/4.1; a v2.9.0 só sai depois de keystore + smoke em
+> aparelho limpo.
 
 > **Card-first — estados A34-only:** mergeado na `main` em `cda89e6`
 > (merge commit), **sem tag**. `NO_TARGET`/`USER_PICK`, `TARGET_MISSING`,
@@ -74,8 +76,8 @@
 > `cards/(cards+proposals)` = 100% e **não** é cobertura de pedidos.
 
 > **Specs salvas:** `docs/specs/treino-mvp.md` e
-> `docs/specs/apresentar-live.md` (commit `bc4f96a`). Nenhum código de
-> Treino/Apresentar iniciado; dependem da `v2.9.0`.
+> `docs/specs/apresentar-live.md` (commit `bc4f96a`). Treino e Apresentar
+> estão em branches separadas (v2.10/v2.11); não entram na v2.9.0.
 >
 > **Fase 4.2 (opcional, não bloqueia a v2.9.0):** seletor de alvo antes de
 > gerar quando não há S-34 e motivos explícitos de dispensa para separar
