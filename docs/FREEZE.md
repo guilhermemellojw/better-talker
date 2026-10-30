@@ -64,7 +64,7 @@
 > § sem página, contexto PDF/EPUB), JWPUB confiável (schema do lmd, pageNum,
 > cache UUID, mensagens específicas) e “Fontes e apoio” unificado. **2.754
 > testes/0**, lint verde; A34 com JWPUBs reais (lmd/g/wp) ready e as três refs
-> com texto. Tag `v3.0.1`.
+> com texto. Tag `v3.0.1`; SHA-256 `e57bcb1d…5dd6f`.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
