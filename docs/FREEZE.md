@@ -16,6 +16,13 @@
 > `g 1/16` fica ambíguo e nunca resolve sozinho. Validado no tablet; **A34
 > pendente** (aparelho não conectado). Sem bump/tag.
 
+> **2026-10-30 — M2a:** motion do chat (handoff de fases 180 ms, raciocínio
+> estável, cards top-level/aninhados, erro único, avisos, escopo com
+> skeleton/crossfade, âncora de turno e pílula, reduced motion) mergeado em
+> `fd0c167` (2.657 testes/0, lint/CI verdes). Validado no tablet; **A34 e
+> streaming real pendentes** (tablet sem chave de IA). M2b (markdown/card shell,
+> morph enviar/parar, haptics, TalkBack) é o próximo. Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
