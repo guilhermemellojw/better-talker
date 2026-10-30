@@ -49,6 +49,24 @@ class ChatStreamingTest {
     }
 
     @Test
+    fun cancelledPartialComMarkdown_renderizaBlocosNaoTextoCru() {
+        // Amostra no formato do parcial real congelado: título, negrito e lista.
+        val partial = "## Introdução\n\n**Esperança** é o combustível.\n\n- um\n- dois"
+        val blocks = cancelledPartialBlocks(partial)
+        assertTrue(blocks.any { it is MdBlock.Title })
+        assertTrue(blocks.any { it is MdBlock.Bullet })
+        assertTrue(
+            blocks.filterIsInstance<MdBlock.Para>()
+                .any { it.text.contains("**Esperança**") },
+        )
+    }
+
+    @Test
+    fun cancelledPartialSoComMarcadores_naoRenderiza() {
+        assertTrue(cancelledPartialBlocks("〈sugestão〉  〈/sugestão〉").isEmpty())
+    }
+
+    @Test
     fun streamThrottleFor_terminalRenderizaImediato() {
         assertEquals(0L, streamThrottleFor(TurnPhase.DONE))
         assertEquals(0L, streamThrottleFor(TurnPhase.CANCELLED))

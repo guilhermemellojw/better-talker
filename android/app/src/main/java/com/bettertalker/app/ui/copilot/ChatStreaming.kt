@@ -44,6 +44,23 @@ internal fun streamingBlocks(text: String): List<MdBlock> =
     if (text.isBlank()) emptyList() else cleanBlocks(parseBlocks(text))
 
 /**
+ * M2b — o parcial congelado no CANCELLED usa o mesmo parser do streaming;
+ * devolve vazio quando só restaram marcadores internos.
+ */
+internal fun cancelledPartialBlocks(text: String): List<MdBlock> =
+    streamingBlocks(text).filterNot { block ->
+        when (block) {
+            is MdBlock.Title -> block.text.isBlank()
+            is MdBlock.Quote -> block.text.isBlank()
+            is MdBlock.Bullet -> block.text.isBlank()
+            is MdBlock.Check -> block.text.isBlank()
+            is MdBlock.Para -> block.text.isBlank()
+            is MdBlock.TextForCard -> block.text.isBlank()
+            MdBlock.Divider -> false
+        }
+    }
+
+/**
  * Throttle por fase: terminal (DONE/CANCELLED/ERROR) renderiza o parcial
  * imediatamente — o stop não pode congelar um texto 100 ms atrasado.
  */

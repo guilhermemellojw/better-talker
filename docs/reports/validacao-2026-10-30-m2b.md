@@ -26,6 +26,8 @@ continua como gate** de layout/performance antes do merge.
   final (títulos, listas, citações, negrito etc.).
 - **Parcial cancelado** também usa `ChatMessageText`: o markdown/shell que
   estava no streaming não volta a mostrar `**` cru depois do stop.
+  `cancelledPartialBlocks` filtra blocos vazios (só marcadores internos) e é o
+  predicado usado pelo `PersistedCancelledItem`.
 
 ### Cursor
 
@@ -59,13 +61,15 @@ continua como gate** de layout/performance antes do merge.
 
 ## Testes puros novos
 
-`ChatStreamingTest` (9):
+`ChatStreamingTest` (11):
 - markdown com título/lista/card;
 - card aberto sem fechar ainda vira shell (1 bloco `TextForCard`, sem a tag);
 - card aberto multilinha mantém o parcial dentro do shell;
 - card fechado + texto restante separa card e parágrafo;
 - texto vazio não renderiza;
 - throttle = 100 ms em fases vivas e **0** em DONE/CANCELLED/ERROR;
+- CANCELLED com markdown → blocos de título/negrito/lista (não texto cru);
+- CANCELLED só com marcadores internos → não renderiza;
 - mapeamento das fases para TalkBack;
 - singular/plural da pílula.
 
@@ -92,16 +96,20 @@ Tablet Xiaomi `25040RP0AL`, Android 16/API 36, build debug; chave DeepSeek
   durante a geração, “Geração parada” no stop; CANCELLED sem anúncio
   duplicado (`announce = false`).
 - Sem `FATAL EXCEPTION`; vídeos/frames em `/tmp/opencode/m2b-*.mp4`.
-- O tablet caiu do ADB durante a limpeza final; as mensagens de teste do chat
-  da #192 ainda precisam ser removidas quando reconectar.
+- O tablet caiu do ADB durante a limpeza final. DB limpa já preparada em
+  `/tmp/opencode/m2b-192-clean/better-talker.db`: 9 mensagens de teste da #192
+  removidas, histórico anterior intacto, `integrity_check=ok`. Falta só
+  push/restart quando o tablet reconectar.
 
 ## Limitações / gates
 
-- **A34 não apareceu no ADB**; repetir layout menor, streaming, stop/retry e
-  TalkBack nele antes do merge.
+- **Merge aceito com tablet + streaming real + confirmação visual** do parcial
+  cancelado com markdown. Falta apenas essa confirmação (tablet offline) e o
+  push da DB limpa.
+- **A34** fica como **gate da release final 3.0.0** (layout menor/performance);
+  não bloqueia o merge do M2b, desde que registrado.
 - Sem medição automatizada de fps; throttle reduz parse/recomposição, mas o
   “60 fps” ainda é inspeção visual.
 - O frame de STREAMING é curto (2–4 s); o vídeo pegou o card final e o
   parcial congelado, não todos os frames de markdown incremental.
-- Limpeza das mensagens de teste da #192 pendente (tablet offline).
-- **Não mergear** antes de A34 + limpeza + confirmação visual final.
+- **Não mergear** antes da confirmação visual + limpeza da #192.

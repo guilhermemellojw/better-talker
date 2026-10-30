@@ -1533,7 +1533,9 @@ private fun PersistedCancelledItem(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val text = remember(item.text) { stripInternalTags(item.text) }
+    // M2b: o CANCELLED usa o mesmo parser de blocos do streaming; assim o
+    // markdown/shell continua renderizado (e não vira um Text cru).
+    val blocks = remember(item.text) { cancelledPartialBlocks(item.text) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
@@ -1549,7 +1551,7 @@ private fun PersistedCancelledItem(
             if (item.reasoningSeconds > 0) {
                 PersistedReasoningHeader(item.reasoningSeconds)
             }
-            if (text.isNotBlank()) {
+            if (blocks.isNotEmpty()) {
                 // M2b: o parcial congelado mantém o markdown/shell que tinha
                 // no streaming (antes voltava a mostrar ** cru e um único
                 // TextView gigante para o TalkBack).
