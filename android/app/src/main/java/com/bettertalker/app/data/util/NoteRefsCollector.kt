@@ -153,6 +153,8 @@ object NoteRefsCollector {
         append('|').append(ref.page ?: -1)
         append('|').append(ref.paragraph ?: -1)
         append('|').append(ref.paragraphEnd ?: -1)
+        // C2.5: "g 1/16" (ambíguo) não colapsa com uma ref exata da mesma edição.
+        if (ref.ambiguous) append("|amb")
     }
 
     /**
@@ -206,41 +208,43 @@ object NoteRefsCollector {
     )
 
     private fun magazineSpec(symbol: String): MagazineSpec? {
-        fun year(yy: String): Int = yy.toInt().let { if (it < 100) 2000 + it else it }
-
-        Regex("""^w(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
-            return MagazineSpec("w", "w|$y|$n", "A Sentinela $n/$y")
-        }
-        Regex("""^wp(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
-            return MagazineSpec("wp", "wp|$y|$n", "A Sentinela $n/$y")
-        }
-        Regex("""^g\s+(\d{1,2})/(\d{2,4})$""").find(symbol)?.let { m ->
-            val n = m.groupValues[1].toInt(); val y = year(m.groupValues[2])
-            return MagazineSpec("g", "g|$y|$n", "Despertai! $n/$y")
-        }
-        Regex("""^gn\s+(\d{1,2})/(\d{2,4})$""").find(symbol)?.let { m ->
-            val n = m.groupValues[1].toInt(); val y = year(m.groupValues[2])
-            return MagazineSpec("gn", "gn|$y|$n", "Despertai! $n/$y")
-        }
+        // mwb não é Sentinela/Despertai; mantém o mapeamento próprio.
         Regex("""^mwb(\d{2})\.(\d{1,2})$""").find(symbol)?.let { m ->
-            val y = year(m.groupValues[1]); val n = m.groupValues[2].toInt()
+            val y = m.groupValues[1].toInt().let { if (it < 100) 2000 + it else it }
+            val n = m.groupValues[2].toInt()
             return MagazineSpec("mwb", "mwb|$y|$n", "Apostila Vida e Ministério $n/$y")
         }
-        // Formato antigo quinzenal: "w94 1/8" / "g93 8/1" (dia/mês).
-        Regex("""^(w|g)(\d{2})\s+(\d{1,2})/(\d{1,2})$""").find(symbol)?.let { m ->
-            val key = m.groupValues[1]
-            val y = year(m.groupValues[2])
-            val day = m.groupValues[3].toInt()
-            val month = m.groupValues[4].toInt()
-            return MagazineSpec(
-                key,
-                "$key|$y|$month|$day",
-                if (key == "w") "A Sentinela $day/$month/$y" else "Despertai! $day/$month/$y",
-            )
-        }
-        return null
+        // C2.5: uma única normalização para w/wp/g/gn, inclusive formatos
+        // antigos (w94 1/8), modernos (w25.07) e numerados (g16.1, gn 1/24).
+        val parsed = MagazineEditionParser.parse(symbol) ?: return null
+        return MagazineSpec(
+            pubKey = when {
+                parsed.family == MagazineFamily.AWAKE && parsed.isIssue -> "gn"
+                parsed.family == MagazineFamily.AWAKE -> "g"
+                // Edições antigas dia/mês continuam no trilho "w", mesmo no
+                // dia 1º; "wp" é só a pública numerada (N.º) moderna.
+                parsed.day != null -> "w"
+                parsed.kind == MagazineKind.PUBLIC -> "wp"
+                else -> "w"
+            },
+            editionKey = parsed.editionKey(),
+            label = magazineLabel(parsed),
+        )
+    }
+
+    private fun magazineLabel(e: MagazineEdition): String = when {
+        e.family == MagazineFamily.AWAKE && e.isIssue ->
+            "Despertai! N.º ${e.issue}/${e.year}"
+        e.family == MagazineFamily.AWAKE && e.day != null ->
+            "Despertai! ${e.day}/${e.month}/${e.year}"
+        e.family == MagazineFamily.AWAKE ->
+            "Despertai! ${e.month}/${e.year}"
+        e.day != null ->
+            "A Sentinela ${e.day}/${e.month}/${e.year}"
+        e.kind == MagazineKind.PUBLIC ->
+            "A Sentinela N.º ${e.month}/${e.year}"
+        else ->
+            "A Sentinela ${e.month}/${e.year}"
     }
 
     private fun publicationRaw(ref: PublicationRef): String = buildString {

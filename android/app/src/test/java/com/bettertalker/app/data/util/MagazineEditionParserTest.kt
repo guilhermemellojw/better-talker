@@ -280,6 +280,8 @@ class MagazineEditionParserTest {
             "g16.1" to "gn|2016|1",
             "g18.2" to "gn|2018|2",
             "g19.03" to "gn|2019|3",
+            "gn 1/24" to "gn|2024|1",
+            "gn1/24" to "gn|2024|1",
         ).forEach { (raw, key) ->
             val e = check(raw, key, MagazineKind.PUBLIC, MagazineFamily.AWAKE)
             assertTrue("issue ausente: $raw", e.isIssue)

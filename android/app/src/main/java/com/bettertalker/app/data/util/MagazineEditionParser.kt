@@ -287,6 +287,20 @@ object MagazineEditionParser {
         text: String,
         raw: String,
     ): MagazineEdition? {
+        // gn 1/24 / gn1/24 — símbolo canônico da edição numerada
+        // ("gn <issue>/<aa>"): o primeiro número é a edição, não o mês.
+        Regex("""\bgn\s*(\d{1,2})/(\d{2,4})\b""", RegexOption.IGNORE_CASE)
+            .find(text)?.let { m ->
+                val issue = m.groupValues[1].toInt()
+                if (issue !in 1..12) return null
+                val pageRange = pageAfter(text, m.range.last)
+                return edition(
+                    raw, MagazineFamily.AWAKE, MagazineKind.PUBLIC,
+                    fullYear(m.groupValues[2]), issue = issue,
+                    page = pageRange?.first, pageEnd = pageRange?.second,
+                )
+            }
+
         // "Despertai! N.º 3 de 2017" / "Despertai! N.º 1 2024".
         Regex(
             """despertai!?,?\s*$ISSUE_PREFIX?\s*(\d{1,2})\s+(?:de\s+)?(\d{4})\b""",
