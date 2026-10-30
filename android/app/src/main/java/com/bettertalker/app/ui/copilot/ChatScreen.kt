@@ -310,6 +310,7 @@ fun ChatScreen(
     var topMenuOpen by remember { mutableStateOf(false) }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
+    val voiceNotice by vm.voiceNotice.collectAsState()
     var voiceSeconds by remember { mutableIntStateOf(0) }
     val composerFocus = remember { FocusRequester() }
     val micPermission = rememberLauncherForActivityResult(
@@ -325,6 +326,11 @@ fun ChatScreen(
         } else {
             voiceSeconds = 0
         }
+    }
+    LaunchedEffect(voiceNotice) {
+        val notice = voiceNotice ?: return@LaunchedEffect
+        snack.showSnackbar(notice)
+        vm.consumeVoiceNotice()
     }
     LaunchedEffect(voiceState) {
         when (val v = voiceState) {

@@ -83,6 +83,10 @@ class MainActivity : FragmentActivity() {
                 onDispose { com.bettertalker.app.data.voice.TtsLifecycle.release() }
             }
             val premiumPref by settings.voicePremiumEnabled.collectAsState(initial = false)
+            val ttsVoicePref by settings.ttsVoiceName.collectAsState(initial = null)
+            androidx.compose.runtime.LaunchedEffect(ttsVoicePref) {
+                voiceRouter.setSystemVoice(ttsVoicePref)
+            }
             androidx.compose.runtime.LaunchedEffect(premiumPref) {
                 // v2.7.2: instalações antigas já têm o modelo, mas não o
                 // en_dict (fallback do espeak). Provisiona antes de carregar
@@ -270,6 +274,14 @@ private fun AppNav(
                 onOpenAccount = { nav.navigate(Routes.ACCOUNT) },
                 onOpenModel = { nav.navigate(Routes.MODEL) },
                 onOpenAppearance = { nav.navigate(Routes.APPEARANCE) },
+                onOpenVoice = { nav.navigate(Routes.VOICE) },
+            )
+        }
+        composable(Routes.VOICE) {
+            com.bettertalker.app.ui.settings.VoiceScreen(
+                settings = settings,
+                voiceRouter = voiceRouter,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.APPEARANCE) {

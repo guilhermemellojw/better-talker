@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,6 +45,8 @@ fun SettingsScreen(
     onOpenModel: () -> Unit,
     /** Tela cheia de Aparência (substitui o dialog). */
     onOpenAppearance: () -> Unit = {},
+    /** Tela de Voz (TTS + STT no aparelho). */
+    onOpenVoice: () -> Unit = {},
 ) {
     Scaffold(
         containerColor = Color.Transparent,
@@ -73,6 +76,12 @@ fun SettingsScreen(
                 title = "Aparência",
                 subtitle = "Tema e paleta",
                 onClick = onOpenAppearance,
+            )
+            SettingsTile(
+                icon = Icons.Default.RecordVoiceOver,
+                title = "Voz",
+                subtitle = "Leitura, sotaque e reconhecimento no aparelho",
+                onClick = onOpenVoice,
             )
             SettingsTile(
                 icon = Icons.Default.SmartToy,

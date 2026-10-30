@@ -2,6 +2,7 @@ package com.bettertalker.app.data.voice
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -67,6 +68,14 @@ class SpeechRecognizerManager(private val context: Context) {
     private val _state = MutableStateFlow<VoiceInputState>(VoiceInputState.Idle)
     val state: StateFlow<VoiceInputState> = _state.asStateFlow()
 
+    /** Aviso único de fallback (ex.: on-device indisponível). */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /** true quando a última escuta usou o reconhecedor no aparelho. */
+    var lastUsedOnDevice: Boolean = false
+        private set
+
     private val timeoutRunnable = Runnable {
         if (_state.value is VoiceInputState.Listening || _state.value is VoiceInputState.Processing) {
             stopInternal()
@@ -88,7 +97,10 @@ class SpeechRecognizerManager(private val context: Context) {
     }
 
     /** Inicia a escuta em pt-BR (reinicia se já houver uma sessão). */
-    fun start(timeoutMs: Long = DEFAULT_TIMEOUT_MS) {
+    fun start(
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        preferOnDevice: Boolean = false,
+    ) {
         handler.removeCallbacks(finishRunnable)
         stopInternal()
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -97,7 +109,25 @@ class SpeechRecognizerManager(private val context: Context) {
             )
             return
         }
-        val r = SpeechRecognizer.createSpeechRecognizer(context)
+        val onDevice = useOnDeviceRecognizer(
+            preferOnDevice = preferOnDevice,
+            onDeviceAvailable = isOnDeviceAvailable(context),
+            sdkInt = Build.VERSION.SDK_INT,
+        )
+        lastUsedOnDevice = onDevice
+        if (preferOnDevice && !onDevice) {
+            _notice.value = STT_ON_DEVICE_FALLBACK
+        }
+        val r = if (onDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(context) }
+                .getOrElse {
+                    lastUsedOnDevice = false
+                    _notice.value = STT_ON_DEVICE_FALLBACK
+                    SpeechRecognizer.createSpeechRecognizer(context)
+                }
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        }
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -151,6 +181,7 @@ class SpeechRecognizerManager(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOnDevice)
         }
         _state.value = VoiceInputState.Listening
         handler.removeCallbacks(timeoutRunnable)
@@ -206,6 +237,11 @@ class SpeechRecognizerManager(private val context: Context) {
         }
     }
 
+    /** Limpa o aviso de fallback depois de exibido na UI. */
+    fun consumeNotice() {
+        _notice.value = null
+    }
+
     /** Encerra o reconhecedor (onCleared do ViewModel). */
     fun destroy() {
         handler.removeCallbacks(timeoutRunnable)
@@ -228,8 +264,14 @@ class SpeechRecognizerManager(private val context: Context) {
 
         /** Teto de escuta (o serviço do aparelho também impõe limites próprios). */
         const val DEFAULT_TIMEOUT_MS = 60_000L
-
         /** P0 voz: teto do `finish()` — o serviço precisa responder. */
         const val FINISH_TIMEOUT_MS = 5_000L
+
+        /** O aparelho tem pacote de reconhecimento on-device (API 31+)? */
+        fun isOnDeviceAvailable(context: Context): Boolean =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                runCatching {
+                    SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+                }.getOrDefault(false)
     }
 }
