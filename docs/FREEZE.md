@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-28 · **Build de referência:** v2.8.2 (versionCode 27) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-10-30 · **Build de referência:** v3.0.0 (versionCode 31) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -53,6 +53,13 @@
 > on-device com fallback avisado. Merge `c948f62` (2.737 testes/0, lint/CI
 > verdes). **A34 validado**: lista de vozes, teste do Piper, persistência da
 > voz escolhida e microfone on-device em “Ouvindo…” sem crash. Sem bump/tag.
+
+> **2026-10-30 — v3.0.0/31 (release prep):** bump para 3.0.0 (versionCode 31)
+> e notas em `docs/releases/v3.0.0.md`. Reúne C2.5, M2a/M2b, 45 min,
+> fontes/gate, voz/STT, Treino e Apresentar. **2.737 testes/0**, lint verde.
+> APK release assinado e **smoke limpo arm64** no A34 (instalação do zero,
+> versionCode 31, Home, editor e Voz). Falta a tag; v2.8.2/v2.8.1 seguem em
+> draft.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
