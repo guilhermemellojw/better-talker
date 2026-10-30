@@ -49,6 +49,14 @@ object RefDetector {
         val paragraph: Int? = null,
         /** #24-fix: parágrafo FINAL do range ("§§ 8-9" → 9). */
         val paragraphEnd: Int? = null,
+        /**
+         * C2.5: referência de revista ambígua ("g 1/16" = janeiro/2016 ou
+         * edição 1/2016). Nunca é resolvida em silêncio: [matchEdition]
+         * devolve null e a UI explica o motivo.
+         */
+        val ambiguous: Boolean = false,
+        /** Explicação da ambiguidade (ex.: "g 1/16 pode ser ..."). */
+        val ambiguityNote: String? = null,
     )
 
     data class RefStatus(
@@ -155,6 +163,8 @@ object RefDetector {
     private val WP_CODE_RE = Regex("""\bwp\s*(\d{2})(?:[./](\d{1,2})|\s*(?:N\.?(?:º|o|°)?|n[úu]mero)\s*(\d{1,2}))?""")
     // g 1/24 | g1/24
     private val G_CODE_RE = Regex("""\bg\s*(\d{1,2})/(\d{2,4})\b""")
+    // C2.5: Despertai numerada (g16.1 | g19.03) — issue, não mês.
+    private val G_ISSUE_RE = Regex("""\bg\s*(\d{2})[.](\d{1,2})\b""", RegexOption.IGNORE_CASE)
     // citação por sigla do catálogo: lff cap. 5 | be pág. 52 | th lição 3
     // (sigla validada contra PubCatalog; "na" excluído por colidir com preposição)
     // T2: captura o número da unidade (cap./lição/estudo/pág./parág./n.°) e o
@@ -290,6 +300,42 @@ object RefDetector {
         ).joinToString(" • ")
     }
 
+    /**
+     * C2.5 — normaliza a edição de revista com [MagazineEditionParser].
+     *
+     * O detector continua achando o trecho e capturando página/§; o parser
+     * define a chave canônica e sinaliza ambiguidades conhecidas ("g 1/16").
+     * O fallback só é usado quando o parser não reconhece o formato — nunca
+     * inventa uma edição.
+     */
+    private fun magazineRef(
+        raw: String,
+        pubKey: String,
+        fallbackEditionKey: String,
+        label: String,
+        page: Int? = null,
+        pageEnd: Int? = null,
+        paragraph: Int? = null,
+        paragraphEnd: Int? = null,
+    ): DetectedRef {
+        val parsed = MagazineEditionParser.parse(raw)
+        val ambiguous = parsed?.isAmbiguous == true
+        val note = parsed?.note
+        return DetectedRef(
+            raw = raw,
+            kind = Kind.MAGAZINE,
+            pubKey = pubKey,
+            editionKey = parsed?.editionKey() ?: fallbackEditionKey,
+            label = if (ambiguous && note != null) "$label — ambíguo: $note" else label,
+            page = page,
+            pageEnd = pageEnd,
+            paragraph = paragraph,
+            paragraphEnd = paragraphEnd,
+            ambiguous = ambiguous,
+            ambiguityNote = note,
+        )
+    }
+
     fun detect(text: String): List<DetectedRef> {
         val out = mutableListOf<DetectedRef>()
         val seen = mutableSetOf<String>()
@@ -307,6 +353,8 @@ object RefDetector {
                 append('|').append(ref.pageEnd ?: -1)
                 append('|').append(ref.paragraph ?: -1)
                 append('|').append(ref.paragraphEnd ?: -1)
+                // C2.5: a versão ambígua não colapsa com a versão exata.
+                if (ref.ambiguous) append("|amb")
             }
             if (seen.add(key)) out += ref
         }
@@ -316,8 +364,8 @@ object RefDetector {
             var year = m.groupValues[2].toInt()
             if (year < 100) year = fullYear(year)
             add(
-                DetectedRef(
-                    m.value.trim(), Kind.MAGAZINE, "g",
+                magazineRef(
+                    m.value.trim(), "g",
                     "g|$year|$month", "Despertai! $month/$year"
                 )
             )
@@ -326,8 +374,8 @@ object RefDetector {
             val num = m.groupValues[1].toInt()
             val year = m.groupValues[2].toInt()
             add(
-                DetectedRef(
-                    m.value.trim(), Kind.MAGAZINE, "gn",
+                magazineRef(
+                    m.value.trim(), "gn",
                     "gn|$year|$num", "Despertai! N.º $num $year"
                 )
             )
@@ -336,8 +384,8 @@ object RefDetector {
             val num = m.groupValues[1].toInt()
             val year = m.groupValues[2].toInt()
             add(
-                DetectedRef(
-                    m.value.trim(), Kind.MAGAZINE, "wp",
+                magazineRef(
+                    m.value.trim(), "wp",
                     "wp|$year|$num", "A Sentinela N.º $num $year (pública)"
                 )
             )
@@ -348,8 +396,8 @@ object RefDetector {
             val year = m.groupValues[2].toInt()
             if (month > 0) {
                 add(
-                    DetectedRef(
-                        m.value.trim(), Kind.MAGAZINE, "w",
+                    magazineRef(
+                        m.value.trim(), "w",
                         "w|$year|$month", "A Sentinela (estudo), $monthName de $year"
                     )
                 )
@@ -366,8 +414,8 @@ object RefDetector {
                     val year = expandYear(b, 2)
                     val tail = sentinelaTail(text, m.range.last)
                     add(
-                        DetectedRef(
-                            m.value.trim(), Kind.MAGAZINE, "w",
+                        magazineRef(
+                            m.value.trim(), "w",
                             "w|$year|$a",
                             "A Sentinela (estudo), ${PT_MONTHS[a - 1]} de $year" +
                                 (if (tail.isNotEmpty()) " • $tail" else "")
@@ -383,8 +431,8 @@ object RefDetector {
                     val edition = if (day == 1) "pública" else "estudo"
                     val tail = sentinelaTail(text, m.range.last)
                     add(
-                        DetectedRef(
-                            m.value.trim(), Kind.MAGAZINE, "w",
+                        magazineRef(
+                            m.value.trim(), "w",
                             "w|$year|$month|$day",
                             "A Sentinela, ${day}º de ${PT_MONTHS[month - 1]} de $year ($edition)" +
                                 (if (tail.isNotEmpty()) " • $tail" else "")
@@ -414,8 +462,8 @@ object RefDetector {
                     },
                 ).joinToString(" ")
                 add(
-                    DetectedRef(
-                        m.value.trim(), Kind.MAGAZINE, "w",
+                    magazineRef(
+                        m.value.trim(), "w",
                         "w|$year|$month|$day",
                         "A Sentinela, ${day}º de $monthName de $year ($edition)" +
                             (if (extra.isNotEmpty()) " • $extra" else ""),
@@ -432,8 +480,8 @@ object RefDetector {
             val num = m.groupValues[2].ifEmpty { m.groupValues[3] }.toIntOrNull()
             if (num != null) {
                 add(
-                    DetectedRef(
-                        m.value.trim(), Kind.MAGAZINE, "wp",
+                    magazineRef(
+                        m.value.trim(), "wp",
                         "wp|$year|$num", "A Sentinela N.º $num $year (pública)"
                     )
                 )
@@ -458,8 +506,8 @@ object RefDetector {
                     },
                 ).joinToString(" ")
                 add(
-                    DetectedRef(
-                        m.value.trim(), Kind.MAGAZINE, "g",
+                    magazineRef(
+                        m.value.trim(), "g",
                         "g|$year|$month|$day",
                         "Despertai! $day/$month/$year" +
                             (if (extra.isNotEmpty()) " • $extra" else ""),
@@ -487,8 +535,8 @@ object RefDetector {
                 par?.let { if (parEnd != null) "§§ $it-$parEnd" else "§ $it" },
             ).joinToString(" ")
             add(
-                DetectedRef(
-                    m.value.trim(), Kind.MAGAZINE, "w",
+                magazineRef(
+                    m.value.trim(), "w",
                     "w|$year|$num", "A Sentinela $num/$year" +
                         (if (extra.isNotEmpty()) " • $extra" else ""),
                     page = page, pageEnd = pageEnd, paragraph = par, paragraphEnd = parEnd,
@@ -514,11 +562,23 @@ object RefDetector {
             var year = m.groupValues[2].toInt()
             if (year < 100) year = fullYear(year)
             add(
-                DetectedRef(
-                    m.value.trim(), Kind.MAGAZINE, "g",
+                magazineRef(
+                    m.value.trim(), "g",
                     "g|$year|$month", "Despertai! $month/$year"
                 )
             )
+        }
+        G_ISSUE_RE.findAll(text).forEach { m ->
+            val year = fullYear(m.groupValues[1].toInt())
+            val issue = m.groupValues[2].toInt()
+            if (issue in 1..12) {
+                add(
+                    magazineRef(
+                        m.value.trim(), "gn", "gn|$year|$issue",
+                        "Despertai! N.º $issue/$year",
+                    )
+                )
+            }
         }
         val norm = normalizeText(text)
         val bookKeys = mutableSetOf<String>()
@@ -869,6 +929,8 @@ object RefDetector {
         attachments: List<AttachmentEntity>,
         includePending: Boolean = false,
     ): AttachmentEntity? {
+        // C2.5: ambiguidade conhecida nunca escolhe uma edição sozinha.
+        if (ref.ambiguous) return null
         if (ref.kind == Kind.BOOK) {
             // T2: símbolo canônico (aliases: dx→rsg) + edição unificada
             // (it-1/it-2 → it; o site só oferece o arquivo unificado).
@@ -1233,6 +1295,16 @@ object RefDetector {
             val hit = matchEdition(ref, attachments)
             if (hit != null) {
                 RefStatus(ref, true, hit.fileName)
+            } else if (ref.ambiguous) {
+                // C2.5: sem link/probe — a edição não pode ser escolhida sozinha.
+                RefStatus(
+                    ref = ref,
+                    resolved = false,
+                    downloadUrl = "",
+                    hint = "Referência ambígua: " +
+                        (ref.ambiguityNote ?: "confirme a edição (mês/ano ou número)."),
+                    exact = false,
+                )
             } else {
                 val (url, hint, exact) = downloadUrl(ref)
                 val api = JwMediaApi.apiQuery(ref.editionKey)
@@ -1365,9 +1437,15 @@ object RefDetector {
             )
             re.findAll(json).map { m ->
                 fun un(s: String) = s.replace("\\\"", "\"").replace("\\\\", "\\")
+                val raw = un(m.groupValues[1])
+                val kind = Kind.valueOf(m.groupValues[2])
+                // C2.5: o JSON antigo não guarda ambiguous; recompõe do raw.
+                val parsed = if (kind == Kind.MAGAZINE) {
+                    MagazineEditionParser.parse(raw)
+                } else null
                 DetectedRef(
-                    un(m.groupValues[1]),
-                    Kind.valueOf(m.groupValues[2]),
+                    raw,
+                    kind,
                     un(m.groupValues[3]), un(m.groupValues[4]), un(m.groupValues[5]),
                     article = un(m.groupValues[6]).ifBlank { null },
                     chapter = un(m.groupValues[7]).ifBlank { null },
@@ -1375,6 +1453,8 @@ object RefDetector {
                     pageEnd = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
                     paragraph = m.groupValues[10].toIntOrNull()?.takeIf { it >= 0 },
                     paragraphEnd = m.groupValues[11].toIntOrNull()?.takeIf { it >= 0 },
+                    ambiguous = parsed?.isAmbiguous == true,
+                    ambiguityNote = parsed?.takeIf { it.isAmbiguous }?.note,
                 )
             }.toList()
         } catch (_: Exception) {

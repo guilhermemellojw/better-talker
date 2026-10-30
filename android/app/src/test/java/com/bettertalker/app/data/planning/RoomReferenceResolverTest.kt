@@ -427,4 +427,15 @@ class RoomReferenceResolverTest {
         assertEquals(ReferenceStatus.UNRESOLVED, out.status)
         assertNull(out.text)
     }
+
+    @Test
+    fun resolvePublication_g1_16_ambiguo_naoEscolheEdicao() = runBlocking {
+        // C2.5: mesmo com o arquivo da edição no acervo, "g 1/16" pode ser
+        // janeiro/2016 ou edição 1/2016 — não resolve sozinho.
+        val out = resolver(
+            attachments = listOf(attachment("g_T_201601", "g")),
+        ).resolvePublication(PublicationRef("g 1/16"))
+        assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
+        assertNull(out.text)
+    }
 }

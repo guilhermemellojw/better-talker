@@ -352,6 +352,20 @@ object NoteSourcesResolver {
             val publicationKey = publicationDisplayKey(candidate.publication)
             val publicationLabel = publicationEditionLabel(candidate.publication)
             val book = candidate.bible?.label
+            val ambiguousPub = candidate.publication?.takeIf { it.ambiguous }
+            if (candidate.kind == SourceKind.PUBLICATION && ambiguousPub != null) {
+                // C2.5: "g 1/16" não pode virar uma edição escolhida sozinha.
+                return@map NoteSource(
+                    ref = candidate.ref,
+                    kind = SourceKind.PUBLICATION,
+                    status = SourceStatus.EDITION_MISSING,
+                    hint = "Referência ambígua: " +
+                        (ambiguousPub.ambiguityNote ?: "confirme a edição (mês/ano ou número)."),
+                    editionKey = editionKey,
+                    publicationKey = publicationKey,
+                    publicationLabel = publicationLabel,
+                )
+            }
             when (candidate.kind) {
                 SourceKind.PUBLICATION -> {
                     val st = publicationStatuses[candidate.key]
