@@ -5,6 +5,12 @@
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
+> **2026-10-30 — produto primeiro:** Treino (`6f8f511`) e Apresentar
+> (`b0dbf83`) mergeados na `main`. A versão continua **2.8.2/27** durante o
+> desenvolvimento. A prep `release/v2.9.0-prep` fica **parada**; o release
+> final será uma versão maior (3.0.0) depois de C2.5/M2, com bump, keystore e
+> smoke em aparelho limpo. `v2.8.2` e `v2.8.1` continuam **draft**.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
