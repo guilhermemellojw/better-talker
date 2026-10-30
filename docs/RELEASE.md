@@ -1,6 +1,6 @@
 # Release — Better Talker Android
 
-**Versão de referência:** 2.8.1 (versionCode 26) · **ABI:** `arm64-v8a` ·
+**Versão de referência:** 3.0.0 (versionCode 31) · **ABI:** `arm64-v8a` ·
 **Distribuição:** GitHub Releases (APK + SHA-256) · **Play Store:** fora do escopo.
 
 ## Decisões A0
@@ -89,15 +89,14 @@ nunca `Android Debug`.
 
 ## Draft e publicação
 
-O release v2.8.1 é criado como **draft**. O APK e o checksum ficam ocultos até
-o teste de restauração da keystore. Depois do teste:
-
-```bash
-gh release edit v2.8.1 --repo guilhermemellojw/better-talker --draft=false
-```
-
-O asset e o SHA não mudam ao publicar.
+A tag `v3.0.0` dispara o workflow e publica o APK + SHA-256 diretamente. Os
+releases v2.8.2 e v2.8.1 continuam como **draft** de checkpoint; podem ser
+publicados depois com `gh release edit vX.Y.Z --draft=false`.
 
 ## O que este release não resolve
 
-C2 (contexto/refs, `lmd` literal, 45 min monolítico), card-first e sync.
+- 45 min **com subpontos** (o BODY monolítico está incluído);
+- vozes Piper múltiplas e controle de velocidade/tom;
+- STT depende do pacote/serviço do aparelho;
+- refs só por página continuam sem resolver (cite §/capítulo junto);
+- sync em nuvem permanece fora do release.
