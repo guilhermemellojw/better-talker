@@ -29,6 +29,8 @@ data class DraftPartSpec(
     val targetWords: Int,
     /** Final da parte anterior (texto puro) para continuar sem repetir. */
     val previousTail: String? = null,
+    /** Continuação manual (não é a última parte planejada): não concluir. */
+    val continuation: Boolean = false,
 ) {
     val isFirst: Boolean get() = index <= 1
     val isLast: Boolean get() = index >= count

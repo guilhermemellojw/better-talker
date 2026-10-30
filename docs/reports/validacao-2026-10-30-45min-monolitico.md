@@ -1,12 +1,12 @@
 # 45 min monolítico — implementação e validação (2026-10-30)
 
-**Status:** implementação na branch `feat/45min-monolitico`, **sem merge**.
-O fluxo de 2 partes, progresso, continuação, aceite e undo foi validado no
-A34. O alvo de ≥4.680 palavras já nas 2 partes **não** foi atingido na nota
-de teste vazia; o sheet ofereceu continuação e chegou a 6.024 palavras.
+**Status:** implementação na branch `feat/45min-monolitico`. O retry de
+extensão foi corrigido no gerador e o BODY rico de 45 min passou no A34 com
+**5.711 palavras (97,6%) nas 2 partes**, sem aviso de truncamento. O fluxo de
+progresso, continuação, aceite e undo está validado; falta só o merge.
 
 - Branch: `feat/45min-monolitico` (base `c228922`, main 2.8.2/27).
-- Testes: **2.703 JVM / 0 falhas** (+35).
+- Testes: **2.706 JVM / 0 falhas** (+38).
 - `lintRelease`: **verde**.
 - Sem bump/tag; release intocado.
 
@@ -34,6 +34,10 @@ a **seção** (45 min → 4.488 tokens por parte), não a fatia de minutos.
 - cada parte tem seu `LongTextRequest` (23/22 min, section 45, metas 2.990/
   2.860, partIndex/partCount);
 - retry de length até 8.192 (provider agora com 2 tentativas de qualidade);
+- **retry de extensão no gerador**: se a parte termina com `finish=stop` e
+  fica abaixo de 80% da meta, uma segunda chamada reescreve a parte completa
+  com `maxTokensOverride=8.192` (o provider só disparava isso para card de
+  chat, e o draft de seção é JSON — o retry estava morto);
 - timeout de 180 s para partes longas;
 - stitch puro: junta `<p>`, remove parágrafo repetido consecutivo e corta na
   última frase completa (fecha `<p>/<strong>/<em>`);
@@ -47,6 +51,8 @@ a **seção** (45 min → 4.488 tokens por parte), não a fatia de minutos.
 - Loading mostra “Parte 1 de 2 · ~2.990 palavras”, barra de progresso e
   “N escritas”;
 - continuação mostra “Continuação · ~1.455 palavras · 4.395 escritas”;
+- continuação manual usa “CONTINUAÇÃO DIRIGIDA”: continue do final, não
+  repita e **não escreva uma nova conclusão** (não é a última parte);
 - Ready mostra total/meta, aviso de encurtamento e:
   - **Continuar geração** quando curto/cortado;
   - **Aceitar** quando completo;
@@ -60,10 +66,11 @@ a **seção** (45 min → 4.488 tokens por parte), não a fatia de minutos.
 Não mudou: a fila por subponto (5 alvos + intro/conclusão) continua igual.
 O caminho monolítico é o BODY sem subpontos via “texto total”/seção.
 
-## Validação no A34 (1080x2340)
+## Validação no A34 — nota vazia (stress)
 
-Nota de teste: um BODY de 45 min sem subpontos, **sem outline/refs**
-(título “TEMA 45 MIN”), via “texto total”.
+Nota de teste: BODY 45 min sem subpontos, **sem outline/refs**
+(título “TEMA 45 MIN”), via “texto total” (execução anterior ao retry de
+extensão).
 
 - Loading: “Parte 1 de 2 · ~2.990 palavras”.
 - Parte 1: finish=stop, **1.636 palavras**.
@@ -81,15 +88,34 @@ Nota de teste: um BODY de 45 min sem subpontos, **sem outline/refs**
 - Nota de teste removida ao restaurar a DB limpa; #192 e o histórico anterior
   preservados.
 
+## Validação no A34 — BODY rico (gate de produto)
+
+Nota de teste: BODY 45 min sem subpontos, com título, objetivo,
+linha de raciocínio (5 pontos), textos bíblicos e `w25.07`.
+
+- Parte 1: 1.286 palavras → retry de extensão no gerador com budget 8.192 →
+  **4.463 palavras** (`draft-part-1-expand`).
+- Parte 2: 706 palavras → retry de extensão → **1.183 palavras**
+  (`draft-part-2-expand`).
+- Total: **5.711 de ~5.850 palavras (97,6%)**; sheet **sem** aviso de
+  truncamento, botão **Aceitar**.
+- Aceitar → “Rascunho aplicado”; conteúdo final de 33.812 chars termina em
+  uma conclusão única no fim (o texto tem “por fim” também como transição no
+  meio, não como nova conclusão).
+- A fidelidade marcou refs que o modelo citou com nomes não normalizados
+  (ex.: “gênesis 3:6”); é informativo e não bloqueia.
+- Nota de teste removida ao restaurar a DB limpa; #192 preservada.
+
 ## Limitações / decisão
 
-- O alvo de **≥4.680 palavras em 2 partes** não foi atingido na nota vazia:
-  o modelo escreveu 3.586. O comportamento é honesto (marca truncado e oferece
-  continuação), mas a meta de 2 partes só deve ser esperada com um BODY com
-  conteúdo/linha de raciocínio; a nota de teste não tinha material.
-- O frame de validação usa a build da branch; o rótulo de continuação foi
-  corrigido depois e coberto por teste puro.
+- Nota vazia: o retry de extensão agora também roda nela; a execução antiga
+  (3.586 + 2 continuações até 6.024) mostrou o fallback honesto. A continuação
+  manual foi corrigida para não escrever nova conclusão, coberta por teste
+  puro; a nota vazia com o prompt novo não foi reexecutada no A34.
+- O BODY rico passou o gate de produto: **5.711 palavras** nas 2 partes.
+- A fidelidade ainda sinaliza refs com nome por extenso vs abreviação; é
+  informativo, não é bloqueio do 45 min.
 - A34 cumpriu o fluxo; o smoke limpo arm64 da release 3.0.0 continua
   obrigatório.
-- **Sem merge** até decisão: aceitar o fallback de continuação como gate ou
-  repetir com um BODY real/rico para buscar 4.680+ nas 2 partes.
+- **Critério de merge atendido**: retry corrigido/testado, continuação sem
+  nova conclusão, A34 rico ≥4.680, suíte/lint verdes. Próximo passo: merge.

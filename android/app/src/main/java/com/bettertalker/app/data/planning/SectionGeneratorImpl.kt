@@ -228,6 +228,43 @@ class SectionGeneratorImpl(
                     )
                 }
             }
+            // Correção de extensão no GERADOR: o provider só a dispara para
+            // card de chat (`<texto-do-card>`); o draft de seção chega como
+            // JSON e ficava curto em silêncio com finish=stop.
+            if (!cut) {
+                val words = cardWordCount(text)
+                val minWords = (targetWords * 80 / 100).coerceAtLeast(1)
+                if (words < minWords && response.meta.finishReason != "length") {
+                    val expandedRequest = request.copy(
+                        maxTokensOverride = OutputBudget.DRAFT_MAX,
+                    )
+                    val expanded = callLlm(
+                        prompt = prompt + partExpansionInstruction(spec, words),
+                        maxOutputTokens = OutputBudget.DRAFT_MAX,
+                        profile = profile,
+                        longTextRequest = expandedRequest,
+                        timeoutMs = timeoutFor(partMinutes),
+                    )
+                    val expandedParsed = expanded?.let { parsePart(it) }
+                    if (expandedParsed != null) {
+                        val expandedText = expandedParsed.textHtml
+                        val expandedWords = cardWordCount(expandedText)
+                        val expandedCut = expandedParsed.possiblyTruncated ||
+                            looksTruncated(expandedText, expanded.meta.finishReason)
+                        if (expandedWords > words) {
+                            parsed = expandedParsed
+                            text = expandedText
+                            cut = expandedCut
+                        }
+                        logTelemetry(
+                            "draft-part-$index-expand",
+                            expanded,
+                            expandedText,
+                            truncated = expandedCut,
+                        )
+                    }
+                }
+            }
             if (cut) text = cutAtLastCompleteSentence(text)
             texts += text
             used += parsed.usedSources
@@ -263,6 +300,7 @@ class SectionGeneratorImpl(
             count = 2,
             targetWords = remaining,
             previousTail = currentText,
+            continuation = true,
         )
         val prompt = promptBuilder.buildPart(dossier, spec)
         val request = LongTextRequest(
@@ -333,6 +371,21 @@ class SectionGeneratorImpl(
 
     private fun timeoutFor(minutes: Int): Long =
         if (minutes >= 20) 180_000L else 30_000L
+
+    /** Instrução de expansão específica de PARTE (sem card de chat). */
+    private fun partExpansionInstruction(part: DraftPartSpec, currentWords: Int): String {
+        val minWords = (part.targetWords * 80 / 100).coerceAtLeast(1)
+        return "\n\n## CORREÇÃO DE EXTENSÃO (OBRIGATÓRIA)\n" +
+            "A parte ${part.index} de ${part.count} ficou com $currentWords palavras, " +
+            "abaixo do mínimo de $minWords. Reescreva a parte COMPLETA dentro do JSON, " +
+            "com pelo menos ${part.targetWords} palavras. Desenvolva cada ponto com " +
+            "explicação, exemplo e aplicação; não resuma e não finalize abaixo do mínimo." +
+            (if (part.isLast) {
+                " Conclua a seção no final."
+            } else {
+                " NÃO conclua a seção; termine com uma transição para a próxima parte."
+            })
+    }
 
     private fun logTelemetry(
         route: String,

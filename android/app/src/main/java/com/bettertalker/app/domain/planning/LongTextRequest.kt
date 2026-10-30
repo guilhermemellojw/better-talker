@@ -41,6 +41,8 @@ data class LongTextRequest(
     val partIndex: Int? = null,
     /** Total de partes internas; null/1 = pedido único. */
     val partCount: Int? = null,
+    /** Correção de extensão: sobe o teto desta chamada até 8.192. */
+    val maxTokensOverride: Int? = null,
 ) {
     val isDemo: Boolean get() = kind == LongTextKind.DEMO
 
@@ -155,8 +157,10 @@ fun budgetForRequest(request: LongTextRequest): LongTextBudget {
     val parts = partCount
         ?: ((raw + LONG_TEXT_MAX_OUTPUT_TOKENS - 1) / LONG_TEXT_MAX_OUTPUT_TOKENS)
             .coerceAtLeast(1)
-    val perPart = ((raw + parts - 1) / parts)
-        .coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
+    val perPart = request.maxTokensOverride
+        ?.coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
+        ?: ((raw + parts - 1) / parts)
+            .coerceIn(2048, LONG_TEXT_MAX_OUTPUT_TOKENS)
     return LongTextBudget(
         maxTokens = perPart,
         parts = parts,

@@ -62,6 +62,25 @@ class DossierPromptBuilderPartTest {
     }
 
     @Test
+    fun continuacao_naoConcluiNemEscreveNovaConclusao() {
+        val prompt = builder.buildPart(
+            dossier(),
+            DraftPartSpec(
+                index = 2,
+                count = 2,
+                targetWords = 1455,
+                previousTail = "<p>Fim do trecho atual.</p>",
+                continuation = true,
+            ),
+        )
+        assertTrue(prompt.contains("CONTINUAÇÃO DIRIGIDA"))
+        assertTrue(prompt.contains("NÃO escreva uma nova conclusão"))
+        assertTrue(prompt.contains("1.455"))
+        assertFalse(prompt.contains("Esta é a última parte"))
+        assertFalse(prompt.contains("Conclua a seção"))
+    }
+
+    @Test
     fun buildSemParte_naoTemInstrucaoDeParte() {
         val prompt = builder.build(dossier())
         assertFalse(prompt.contains("PARTE 1 DE 2"))

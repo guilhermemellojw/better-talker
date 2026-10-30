@@ -460,6 +460,22 @@ class DefaultDossierPromptBuilder(
      * conclui; a continuação recebe o final da anterior para não repetir.
      */
     private fun StringBuilder.appendPartInstructions(part: DraftPartSpec) {
+        if (part.continuation) {
+            appendLine("## CONTINUAÇÃO DIRIGIDA")
+            appendLine(
+                "Continue exatamente do trecho final da seção, NÃO repita o que " +
+                    "já foi escrito e desenvolva mais. NÃO escreva uma nova " +
+                    "conclusão; a conclusão só deve aparecer no fim real da seção."
+            )
+            appendLine("Meta desta continuação: ~${formatWords(part.targetWords)} palavras.")
+            part.previousTail?.takeIf { it.isNotBlank() }?.let { tail ->
+                appendLine()
+                appendLine("## FINAL DA SEÇÃO (continue exatamente daqui)")
+                appendLine(htmlToPlainText(tail).takeLast(500).trim())
+            }
+            appendLine()
+            return
+        }
         appendLine("## PARTE ${part.index} DE ${part.count}")
         when {
             part.isFirst && part.count > 1 -> {

@@ -124,6 +124,30 @@ class SectionGeneratorContinuationTest {
     }
 
     @Test
+    fun parteCurtaComStop_disparaExpansaoNoGerador() = runBlocking {
+        val fake = FakeLlm { req ->
+            when {
+                req.text.contains("PARTE 2 DE 2") ->
+                    response(json("<p>${words(2860)}</p>"))
+                req.text.contains("CORREÇÃO DE EXTENSÃO") ->
+                    response(json("<p>${words(3000)}</p>"))
+                else ->
+                    response(json("<p>${words(1000)}</p>"))
+            }
+        }
+        val draft = SectionGeneratorImpl(fake).generate(dossier45())
+
+        assertNotNull(draft)
+        assertEquals(3, fake.received.size)
+        val expansion = fake.received[1]
+        assertTrue(expansion.text.contains("CORREÇÃO DE EXTENSÃO"))
+        assertEquals(8192, expansion.maxOutputTokens)
+        assertEquals(8192, expansion.longTextRequest?.maxTokensOverride)
+        assertEquals(false, draft!!.possiblyTruncated)
+        assertTrue(fake.received[2].text.contains("PARTE 2 DE 2"))
+    }
+
+    @Test
     fun parte2Cortada_marcaTruncadoERetentaUmaVez() = runBlocking {
         var part2Calls = 0
         val fake = FakeLlm { req ->
@@ -202,8 +226,9 @@ class SectionGeneratorContinuationTest {
     fun continuarGeracao_estendeSemRepetir() = runBlocking {
         val current = "<p>${words(3000)}</p>"
         val fake = FakeLlm { req ->
-            assertTrue(req.text.contains("PARTE 2 DE 2"))
-            assertTrue(req.text.contains("FINAL DA PARTE ANTERIOR"))
+            assertTrue(req.text.contains("CONTINUAÇÃO DIRIGIDA"))
+            assertTrue(req.text.contains("FINAL DA SEÇÃO"))
+            assertTrue(req.text.contains("NÃO escreva uma nova conclusão"))
             response(json("<p>${words(2860)}</p>"))
         }
         val draft = SectionGeneratorImpl(fake).continueDraft(

@@ -129,6 +129,23 @@ class LongTextRequestTest {
     }
 
     @Test
+    fun correcaoDeExtensao_permiteOverride8192() {
+        val r = LongTextRequest(
+            kind = LongTextKind.SPEECH,
+            scope = LongTextScope.SECTION,
+            minutes = 23,
+            sectionMinutes = 45,
+            targetWords = 2990,
+            partIndex = 1,
+            partCount = 2,
+            maxTokensOverride = 8192,
+        )
+        val b = budgetForRequest(r)
+        assertEquals(8192, b.maxTokens)
+        assertEquals(2, b.parts)
+    }
+
+    @Test
     fun pedidoDe10minDentroDe45_naoUsaOrcamentoDaSecao() {
         val r = LongTextRequest(
             kind = LongTextKind.SPEECH,
