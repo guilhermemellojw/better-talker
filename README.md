@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v2.8.2/27 — main em desenvolvimento (C2.5 + M2a + M2b + 45 min + fontes/gate + C2 + M1 + card-first + Treino + Apresentar; release final depois de voz/STT).**
+> **Estágio: v2.8.2/27 — main em desenvolvimento (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar; release final 3.0.0/31).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,7 +9,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-10-30)
 
-- **Versão:** 2.8.2 (versionCode 27), main de desenvolvimento; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Apresentar live** mergeados. 45 min validado no A34 (BODY rico 5.711/5.850) e o gate de fontes foi validado no A34. O bump e a tag ficam para o release final.
+- **Versão:** 2.8.2 (versionCode 27), main de desenvolvimento; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + seletor de voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Apresentar live** mergeados. 45 min, gate de fontes e voz/STT validados no A34. O bump e a tag ficam para o release final 3.0.0/31.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -25,7 +25,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **A1/A2 — release seguro (2026-10-26):** chave DeepSeek cifrada com AES/GCM e chave não exportável no **Android Keystore** (migração automática do texto claro legado); `allowBackup=false`; APK de release assinado com keystore fora do repo (RSA 4096), `debuggable=false`; HTTPS only e WebView sem acesso a arquivos/conteúdo; ABI `arm64-v8a`; CI de release com `lintRelease`, `assembleRelease`, verificação por `apksigner` e SHA-256 — dry-run verde. Keystore e senhas ficam fora do repo (backup offline obrigatório). Ver [RELEASE.md](docs/RELEASE.md).
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** **2.734 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + C2 + M1 + card-first + Treino + Apresentar) · `lintRelease` verde.
+- **Testes:** **2.737 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar) · `lintRelease` verde.
 - **Distribuição:** **v2.8.2 preparada** — release em **draft** (`4f4efa1c…dbd5a5`) até as duas cópias offline da keystore e o teste de restauração em outra máquina. O v2.8.1 também permanece em draft como checkpoint. Publicar depois com `gh release edit v2.8.2 --draft=false`. Ver [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)

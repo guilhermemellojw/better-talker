@@ -48,6 +48,12 @@
 > reindexar; w24.01/mwb ausentes → baixar; g 1/16 ambíguo → confirmar; “Continuar
 > sem” registra a ausência sem inventar. Sem bump/tag.
 
+> **2026-10-30 — seletor de voz + STT no aparelho:** Configurações → Voz com
+> motor Piper/sistema, vozes pt-BR, “Testar voz” e switch de reconhecimento
+> on-device com fallback avisado. Merge `c948f62` (2.737 testes/0, lint/CI
+> verdes). **A34 validado**: lista de vozes, teste do Piper, persistência da
+> voz escolhida e microfone on-device em “Ouvindo…” sem crash. Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
