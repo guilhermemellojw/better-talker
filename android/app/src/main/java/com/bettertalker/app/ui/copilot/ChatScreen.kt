@@ -115,8 +115,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
@@ -676,7 +678,11 @@ fun ChatScreen(
                                     unseenCount = 0
                                     followEnd = true
                                     scope.launch { listState.animateScrollToItem(lastItemIndex) }
-                                }
+                                },
+                                modifier = Modifier.semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                    contentDescription = unseenAnnouncement(pillCount)
+                                },
                             ) {
                                 Text(
                                     if (pillCount == 1) {
@@ -1040,6 +1046,18 @@ fun ChatScreen(
                         item(key = "turn-${turn.turnId}") {
                             val finalId = turn.finalMessageId
                             val showFinal = turn.phase == TurnPhase.DONE && finalId != null
+                            // M2b — TalkBack dos estados, inclusive "Resultado
+                            // pronto" no handoff. ERROR fica só com o ChatErrorRow.
+                            turnStatusAnnouncement(turn.phase)?.let { announcement ->
+                                Box(
+                                    Modifier
+                                        .size(1.dp)
+                                        .semantics {
+                                            liveRegion = LiveRegionMode.Polite
+                                            contentDescription = announcement
+                                        },
+                                )
+                            }
                             // M2a: parcial → final no MESMO slot, com crossfade.
                             AnimatedContent(
                                 targetState = showFinal,
@@ -1515,7 +1533,9 @@ private fun PersistedCancelledItem(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val text = remember(item.text) { stripInternalTags(item.text) }
+    // M2b: o CANCELLED usa o mesmo parser de blocos do streaming; assim o
+    // markdown/shell continua renderizado (e não vira um Text cru).
+    val blocks = remember(item.text) { cancelledPartialBlocks(item.text) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(12.dp),
@@ -1531,8 +1551,11 @@ private fun PersistedCancelledItem(
             if (item.reasoningSeconds > 0) {
                 PersistedReasoningHeader(item.reasoningSeconds)
             }
-            if (text.isNotBlank()) {
-                Text(text, style = MaterialTheme.typography.bodyLarge)
+            if (blocks.isNotEmpty()) {
+                // M2b: o parcial congelado mantém o markdown/shell que tinha
+                // no streaming (antes voltava a mostrar ** cru e um único
+                // TextView gigante para o TalkBack).
+                ChatMessageText(item.text, Modifier.fillMaxWidth())
             }
             ChatErrorRow(
                 "Geração parada.",
@@ -1590,7 +1613,7 @@ private fun TurnLiveItem(
                 when (phase) {
                     TurnPhase.WAITING, TurnPhase.REASONING -> {
                         if (partial.isNotBlank()) {
-                            StreamingCursorText(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         } else {
                             when {
                                 localRetry != null -> Text(
@@ -1612,25 +1635,27 @@ private fun TurnLiveItem(
                             }
                         }
                     }
-                    TurnPhase.STREAMING -> StreamingCursorText(partial)
+                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase))
                     TurnPhase.DONE -> {
                         if (partial.isNotBlank()) {
-                            StreamingCursorText(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                     }
                     TurnPhase.CANCELLED -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingCursorText(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                         ChatErrorRow(
                             "Geração parada.",
                             onDismiss = onDismiss,
                             onRetry = onRetry,
+                            // “Interrompido” já é o anúncio live desta fase.
+                            announce = false,
                         )
                     }
                     TurnPhase.ERROR -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingCursorText(partial, showCursor = false)
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
                         }
                         ChatErrorRow(
                             turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
@@ -1641,42 +1666,6 @@ private fun TurnLiveItem(
                 }
             }
         }
-    }
-}
-
-/**
- * Cursor pulsante do parcial — texto puro, sem parser.
- * [showCursor] falso congela o texto sem o cursor (erro/cancelamento/final).
- */
-@Composable
-private fun StreamingCursorText(text: String, showCursor: Boolean = true) {
-    val scale = rememberMotionScale()
-    // Reduced motion: cursor estático, sem animação infinita.
-    val cursorAlpha = if (scale <= 0f) 1f else {
-        val a by rememberInfiniteTransition(label = "cursor").animateFloat(
-            initialValue = 0.2f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(400, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-            label = "cursorAlpha",
-        )
-        a
-    }
-    val cursorColor = MaterialTheme.colorScheme.onSurface
-    Row(Modifier.fillMaxWidth()) {
-        Text(
-            buildAnnotatedString {
-                append(text)
-                if (showCursor) {
-                    withStyle(SpanStyle(color = cursorColor.copy(alpha = cursorAlpha))) {
-                        append("▍")
-                    }
-                }
-            },
-            style = MaterialTheme.typography.bodyLarge,
-        )
     }
 }
 
@@ -1720,7 +1709,7 @@ private fun LegacyStreamingItem(
                     )
                 }
                 if (partial.isNotBlank()) {
-                    StreamingCursorText(partial)
+                    StreamingMarkdown(partial, showCursor = true)
                 }
             }
         }
@@ -1767,6 +1756,7 @@ private fun CardFirstActions(
     val notices by vm.cardVerificationNotices.collectAsState()
     val motion = motionMillis(CARD_MOTION_MS, rememberMotionScale())
     val copy = rememberCopyToClipboard()
+    val haptic = LocalHapticFeedback.current
     val cardText = remember(item.text) { extractCardText(item.text).orEmpty() }
     val verification = verifications[item.id]
     val status = card.status
@@ -1841,7 +1831,10 @@ private fun CardFirstActions(
                     TextButton(onClick = { showReplace = true }) { Text("Substituir") }
                 }
                 if (canInsert) {
-                    TextButton(onClick = { vm.appendCard(item.id) }) {
+                    TextButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        vm.appendCard(item.id)
+                    }) {
                         Text(if (item.cardTargetEmpty) "Usar este texto" else "Adicionar ao final")
                     }
                 }
@@ -1986,6 +1979,7 @@ private fun CardFirstActions(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     showReplace = false
                     vm.replaceCard(item.id)
                 }) { Text("Substituir") }
