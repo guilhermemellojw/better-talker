@@ -32,6 +32,13 @@
 > limpeza final; backup/DB limpa ficaram em `/tmp/opencode/`. O tablet não é
 > mais gate de dados. Sem bump/tag.
 
+> **2026-10-30 — 45 min monolítico:** BODY sem subpontos gera em 2 partes
+> (23+22 min), com stitch, progresso, “Continuar geração” e retry de extensão
+> no gerador (4.488 → 8.192) mergeado em `1e6ac13` (2.706 testes/0, lint/CI
+> verdes). **A34 BODY rico: 5.711/5.850 palavras (97,6%) nas 2 partes**, sem
+> aviso de truncamento; nota vazia mantém o fallback honesto. 45 min com
+> subpontos segue na fila por subponto. Sem bump/tag.
+
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
 > máquina; o v2.8.2 continua **draft** e não inclui o C2.
