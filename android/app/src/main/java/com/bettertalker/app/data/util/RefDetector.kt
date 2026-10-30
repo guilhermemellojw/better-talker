@@ -195,7 +195,7 @@ object RefDetector {
     // "Re 1". Com `\b`, "15" não recua para "1" (não há fronteira), então o
     // lookahead é avaliado corretamente e rejeita.
     private val STUDY_BOOK_RE = Regex(
-        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi|bt|kr)\s+(\d{1,4})""" +
+        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj|mrt|ifi|bt|kr|lvs)\s+(\d{1,4})""" +
             """(?:\s*[-–]\s*(\d{1,4}))?""" +
             """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?""" +
             """\b(?!\s*:)""",
@@ -335,7 +335,15 @@ object RefDetector {
         )
     }
 
-    fun detect(text: String): List<DetectedRef> {
+    fun detect(rawText: String): List<DetectedRef> {
+        // DOCX/PDF usam NBSP ("pág.\u00A0 6") e zero-width em ranges
+        // ("22-\u200B23"); normalizar a entrada evita perder a unidade.
+        val text = rawText
+            .replace('\u00A0', ' ')
+            .replace("\u200B", "")
+            .replace("\uFEFF", "")
+            .replace(Regex("""§\s*¶"""), "§")
+            .replace('¶', '§')
         val out = mutableListOf<DetectedRef>()
         val seen = mutableSetOf<String>()
 
@@ -483,7 +491,8 @@ object RefDetector {
                 add(
                     magazineRef(
                         m.value.trim(), "wp",
-                        "wp|$year|$num", "A Sentinela N.º $num $year (pública)"
+                        "wp|$year|$num", "A Sentinela N.º $num $year (pública)",
+                        tail = parseMagazineTail(text, m.range.last),
                     )
                 )
             }
@@ -565,7 +574,8 @@ object RefDetector {
             add(
                 magazineRef(
                     m.value.trim(), "g",
-                    "g|$year|$month", "Despertai! $month/$year"
+                    "g|$year|$month", "Despertai! $month/$year",
+                    tail = parseMagazineTail(text, m.range.last),
                 )
             )
         }
@@ -577,6 +587,7 @@ object RefDetector {
                     magazineRef(
                         m.value.trim(), "gn", "gn|$year|$issue",
                         "Despertai! N.º $issue/$year",
+                        tail = parseMagazineTail(text, m.range.last),
                     )
                 )
             }

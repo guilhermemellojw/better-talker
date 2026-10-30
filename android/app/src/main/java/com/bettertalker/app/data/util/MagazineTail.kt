@@ -53,6 +53,9 @@ fun parseMagazineTail(text: String, lastIndex: Int): MagazineTail {
     // 80 chars cobrem "pág. 8 parág. 1-2" com folga; o corte no primeiro
     // delimitador forte evita atravessar outra citação.
     val raw = text.substring(start, (start + 80).coerceAtMost(text.length))
+        .replace('\u00A0', ' ')   // DOCX usa NBSP entre "pág." e o número
+        .replace("\u200B", "")   // zero-width em ranges ("22-​23")
+        .replace("\uFEFF", "")
     val tail = raw.takeWhile { it != ';' && it != '|' && it != '\n' }
     val pageMatch = PAGE_TAIL.find(tail)
     val parMatch = PARAGRAPH_TAIL.find(tail)
