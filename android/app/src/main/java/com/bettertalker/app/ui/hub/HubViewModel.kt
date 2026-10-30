@@ -7,7 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.domain.speech.DiscourseType
+import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
+import com.bettertalker.app.ui.present.PresentReadiness
+import com.bettertalker.app.ui.present.decodePresentSession
+import com.bettertalker.app.ui.present.presentReadiness
+import com.bettertalker.app.ui.stage.formatClock
+import com.bettertalker.app.ui.stage.parseStageTurns
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -25,6 +33,10 @@ data class HubNoteCard(
     val preview: String = "",
     val pinned: Boolean = false,
     val colorArgb: Long = 0L,
+    /** Apresentar: prontidão da Tribuna; null nos demais hubs. */
+    val presentReadiness: PresentReadiness? = null,
+    /** Apresentar: sessão salva ("Continuar da seção 2 · 01:23"). */
+    val presentResumeLabel: String? = null,
 )
 
 /** Rótulo do tipo da nota no card ("Demonstração" × "Discurso"). Puro/testável. */
@@ -65,24 +77,48 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
         settings.setHomeViewMode(m.name)
     }
 
-    val cards: StateFlow<List<HubNoteCard>> = repo.observeNotes(folderId = null, q = "")
-        .map { notes ->
-            notes.map { note ->
-                val sectionSum = db.speechSectionDao().forNote(note.id).sumOf { it.minutes }
-                val outlineMinutes = db.outlineDao().getForNote(note.id)?.totalMinutes
-                HubNoteCard(
-                    id = note.id,
-                    title = note.title.ifBlank { "Sem título" },
-                    isDemonstration = note.discourseType == DiscourseType.MINISTRY_PART.name ||
-                        note.discourseType == DiscourseType.FREE_DEMO.name,
-                    minutes = hubMinutesOf(sectionSum, outlineMinutes),
-                    updatedAt = note.updatedAt,
-                    preview = note.mdText,
-                    pinned = note.pinned,
-                    colorArgb = note.colorArgb,
-                )
+    private val refreshTick = MutableStateFlow(0)
+
+    /** Recalcula prontidão/duração (ex.: ao voltar do editor/Tribuna). */
+    fun refresh() { refreshTick.value += 1 }
+
+    val cards: StateFlow<List<HubNoteCard>> = combine(
+        repo.observeNotes(folderId = null, q = ""),
+        refreshTick,
+    ) { notes, _ ->
+        notes.map { note ->
+            val sections = db.speechSectionDao().forNote(note.id)
+            val sectionSum = sections.sumOf { it.minutes }
+            val outlineMinutes = db.outlineDao().getForNote(note.id)?.totalMinutes
+            val demo = note.discourseType == DiscourseType.MINISTRY_PART.name ||
+                note.discourseType == DiscourseType.FREE_DEMO.name
+            val readySections = if (demo) {
+                sections.count { entity -> parseStageTurns(entity.contentHtml).isNotEmpty() }
+            } else {
+                sections.count { entity ->
+                    entity.tribunaJson?.let { tribunaCapsuleFromJson(it) } != null
+                }
             }
+            val saved = decodePresentSession(
+                raw = settings.presentSession(note.id),
+                totalSections = sections.size,
+            )
+            HubNoteCard(
+                id = note.id,
+                title = note.title.ifBlank { "Sem título" },
+                isDemonstration = demo,
+                minutes = hubMinutesOf(sectionSum, outlineMinutes),
+                updatedAt = note.updatedAt,
+                preview = note.mdText,
+                pinned = note.pinned,
+                colorArgb = note.colorArgb,
+                presentReadiness = presentReadiness(sections.size, readySections),
+                presentResumeLabel = saved?.let {
+                    "Continuar da seção ${it.index + 1} · ${formatClock(it.elapsedSec)}"
+                },
+            )
         }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     class Factory(private val ctx: Context, private val db: AppDatabase) :

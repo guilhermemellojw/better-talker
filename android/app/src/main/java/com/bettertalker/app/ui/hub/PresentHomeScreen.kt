@@ -6,24 +6,35 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.bettertalker.app.ui.components.ViewModeMenu
+import com.bettertalker.app.ui.present.PresentReadiness
+import com.bettertalker.app.ui.present.presentReadinessLabel
 
 /**
- * Hub "Apresentar": escolha visual da nota antes da Tribuna (mapa de memória).
- * Substitui o atalho silencioso de última nota / sheet de escolha.
+ * Hub "Apresentar": escolhe a nota e mostra a prontidão da Tribuna. Nota sem
+ * Tribuna não abre palco vazio: oferece o editor para gerar/editar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,9 +42,19 @@ fun PresentHomeScreen(
     vm: HubViewModel,
     onBack: () -> Unit,
     onOpenNote: (String) -> Unit,
+    onOpenEditor: (String) -> Unit = {},
 ) {
     val cards by vm.cards.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
+    var blockedNoteId by remember { mutableStateOf<String?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) vm.refresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         // O Scaffold global (MainActivity) + a barra cuidam dos insets do
@@ -62,8 +83,45 @@ fun PresentHomeScreen(
                 cards = cards,
                 mode = viewMode,
                 emptyText = "Nenhuma nota ainda. Crie uma na Home para apresentar.",
-                onOpen = onOpenNote,
+                onOpen = { id ->
+                    val readiness = cards.firstOrNull { it.id == id }?.presentReadiness
+                    if (readiness == PresentReadiness.MISSING) {
+                        blockedNoteId = id
+                    } else {
+                        onOpenNote(id)
+                    }
+                },
+                statusText = { card ->
+                    listOfNotNull(
+                        card.presentReadiness?.let { presentReadinessLabel(it) },
+                        card.presentResumeLabel,
+                    ).joinToString(" · ").ifBlank { null }
+                },
             )
         }
+    }
+
+    val blocked = blockedNoteId?.let { id -> cards.firstOrNull { it.id == id } }
+    if (blocked != null) {
+        AlertDialog(
+            onDismissRequest = { blockedNoteId = null },
+            title = { Text("Falta gerar a Tribuna") },
+            text = {
+                Text(
+                    "Esta nota ainda não tem uma Tribuna para o palco. " +
+                        "Abra o editor e toque em ⋮ → Gerar Tribuna; " +
+                        "no modo demonstração, escreva o diálogo no editor."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    blockedNoteId = null
+                    onOpenEditor(blocked.id)
+                }) { Text("Abrir editor") }
+            },
+            dismissButton = {
+                TextButton(onClick = { blockedNoteId = null }) { Text("Cancelar") }
+            },
+        )
     }
 }

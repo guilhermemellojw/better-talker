@@ -254,7 +254,8 @@ private fun AppNav(
             com.bettertalker.app.ui.hub.PresentHomeScreen(
                 hubVm,
                 onBack = { nav.popBackStack() },
-                onOpenNote = { nav.navigate(Routes.tribuna(it)) },
+                onOpenNote = { nav.navigate(Routes.present(it)) },
+                onOpenEditor = { nav.navigate(Routes.editor(it)) },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -347,10 +348,16 @@ private fun AppNav(
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
                 onGenerateTribuna = {
-                    // #20-fix-c: gera em background e abre a tela — os cards
-                    // reagem ao tribunaJson (observe live) quando chega.
-                    copilotVm.generateTribuna()
-                    nav.navigate(Routes.tribuna(noteId))
+                    // Só abre a Tribuna se a geração salvou ao menos uma
+                    // cápsula; falha permanece no editor com erro/retry.
+                    copilotVm.generateTribuna { ok ->
+                        if (ok) {
+                            nav.navigate(Routes.tribuna(noteId))
+                        } else {
+                            editorNotice = noteId to
+                                "Não consegui gerar a Tribuna. Tente novamente pelo menu ⋮ → Gerar Tribuna."
+                        }
+                    }
                 },
                 // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
                 onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
@@ -379,6 +386,22 @@ private fun AppNav(
                 factory = StageViewModel.Factory(ctx, db, settings, noteId, voiceRouter)
             )
             StageScreen(stageVm, onBack = { nav.popBackStack() })
+        }
+        composable(
+            Routes.PRESENT,
+            arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+        ) { back ->
+            val noteId = back.arguments?.getString("noteId") ?: return@composable
+            val presentVm: com.bettertalker.app.ui.present.PresentViewModel = viewModel(
+                key = "present-$noteId",
+                factory = com.bettertalker.app.ui.present.PresentViewModel.Factory(db, settings, noteId),
+            )
+            com.bettertalker.app.ui.present.PresentSessionScreen(
+                presentVm,
+                onBack = { nav.popBackStack() },
+                onOpenEditor = { nav.navigate(Routes.editor(noteId)) },
+                onOpenTribuna = { nav.navigate(Routes.tribuna(noteId)) },
+            )
         }
         // #20-fix-b: Tribuna — leitura do mapa de memória.
         composable(

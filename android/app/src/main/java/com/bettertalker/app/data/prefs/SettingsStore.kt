@@ -218,6 +218,20 @@ class SettingsStore(
         ctx.store.edit { it[trainPrepKey(noteId)] = value }
     }
 
+    /**
+     * Apresentar: última sessão do palco por nota (“índice|segundos|epoch”).
+     * String opaca aqui; o ViewModel valida o índice contra as seções.
+     */
+    private fun presentSessionKey(noteId: String) =
+        stringPreferencesKey("present_session_$noteId")
+
+    suspend fun presentSession(noteId: String): String? =
+        ctx.store.data.map { it[presentSessionKey(noteId)] }.first()
+
+    suspend fun setPresentSession(noteId: String, value: String) {
+        ctx.store.edit { it[presentSessionKey(noteId)] = value }
+    }
+
     /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */
     private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
     val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }
