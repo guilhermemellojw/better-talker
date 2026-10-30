@@ -69,7 +69,7 @@
 > **2026-10-30 — v3.0.2/33 publicada:** matriz C2.6 com **49 esboços /
 > 393 refs**, 0 §/parág. perdido, 0 página de revista perdida; normalização
 > de NBSP/zero-width/pilcrow e caudas `g`/`wp`/`gn`/`lvs`. **2.757 testes/0**,
-> lint verde. Tag `v3.0.2`. Texto/ação dos 49 ainda depende do acervo completo;
+> lint verde. Tag `v3.0.2`; SHA-256 `9cd32c85…33481`. Texto/ação dos 49 ainda depende do acervo completo;
 > 16 citações por título de livro seguem sem página.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
