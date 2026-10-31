@@ -3,7 +3,7 @@
 **Branches:** spike `spike/matriz-c26-tablet` @ `6347097` (matcher
 `2683887`, C2.8 `2e7acd7`); release **3.0.4/35** tag `v3.0.4` @ `40ceb95`
 (matcher-only); **3.0.5/36** na `main` com C2.8 (`fix/c28-book-prompt`
-@ `73f3bd6` + bump de versão).
+@ `73f3bd6` + bump; tag `v3.0.5` @ `dc5137c`).
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
 1600×2560 · 172 GB livres · Wi-Fi `Guilherme_5G`
 **APK debug:** `com.bettertalker.app.debug` (3.0.3-debug, versionCode 34),
@@ -12,7 +12,11 @@ SHA-256 `0d6ed62668b0127441228a81de0cc48acc9b49a2ac3f36c8595ff121628a65e2`.
 `8457822fac8e6d567d5e4373ca6978bbdb6d09618fd64e6d6831c0b9e117e228`,
 certificado release SHA-256
 `ad1b0a302256a66aa083d76b767291eb2e3c8c4b07f07ae741dd99716233bba4`.
-**A34:** conectado; 3.0.4/35 instalado por cima de 3.0.3/34, app abriu,
+**APK release 3.0.5/36:** SHA-256
+`d795ea116c422d302f5f089f0fdeb211f7d16586fb0a7cfcee66700263d348b5`,
+release `v3.0.5` publicado; mesmo certificado release.
+**A34:** conectado; 3.0.4/35 e depois 3.0.5/36 instalados por cima de
+3.0.3/34, app abriu,
 nota existente preservada e matcher confirmado (`W11 15/12` →
 `w_T_20111215.jwpub`). A nota **#192 não existe** no A34 (Home, Discursos,
 Lixeira e busca “192” vazios), então não havia #192 para verificar.
@@ -295,9 +299,9 @@ adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-acervo.csv >
    (`8457822f…`; certificado release `ad1b0a30…`). Smoke no A34 OK
    (versão, matcher e dados preservados); a #192 não existia no aparelho.
    O 3.0.3 publicado ainda escolhia edição errada.
-2. **3.0.5/36 na main:** C2.8 mergeado (`73f3bd6`) com
-   `prompt_coverage` de conteúdo **92,5%** (meta ≥90%), 2.776 testes
-   verdes e `lintDebug` verde. Release em preparação; runner/evidências
+2. **3.0.5/36 publicado:** tag `v3.0.5` em `dc5137c`, APK `d795ea11…`;
+   C2.8 com `prompt_coverage` de conteúdo **92,5%** (meta ≥90%), 2.776
+   testes verdes, `lintDebug` verde e smoke no A34. Runner/evidências
    não entram no APK.
 3. **Runner/evidências:** `spike/matriz-c26-tablet` @ `6347097`; o
    relatório, CSVs e assets foram copiados para a main do 3.0.5.
