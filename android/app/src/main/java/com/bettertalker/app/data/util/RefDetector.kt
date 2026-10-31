@@ -987,7 +987,9 @@ object RefDetector {
                     val titleHit = titleNorm.length >= 4 &&
                         (if (' ' in titleNorm) nf.contains(titleNorm) else tokens.contains(titleNorm))
                     tokens.contains(key) || // lff_T.pdf, bhs_T.epub…
-                        nf.contains(normKey) ||
+                        // C2.6: símbolo de 2 letras não pode casar por substring
+                        // ("lv" dentro de "lvs_T.jwpub"). Título cobre nomes longos.
+                        (normKey.length >= 3 && nf.contains(normKey)) ||
                         titleHit ||
                         (key == "be" && matchBaseSlot(a.fileName) == "be") ||
                         (key == "th" && matchBaseSlot(a.fileName) == "th")
@@ -1006,6 +1008,17 @@ object RefDetector {
             if (!includePending && !a.indexed) return@filter false
             val n = normalizeText(a.fileName)
             val tokens = n.split(" ").toSet()
+            // C2.6: quando o arquivo traz um ano de 4 dígitos, ele precisa ser
+            // o ano da edição. Sem isto, "w_T_20121115" casava com w|2011|12|15
+            // só porque "12/11" aparecia no meio do ano (76 falsos positivos
+            // na matriz). Nomes legados de 2 dígitos seguem no fallback.
+            val fullYearInName = Regex("""(?:19|20)\d{2}""").find(n)?.value
+            if (fullYearInName != null && fullYearInName != year) return@filter false
+            // Nome oficial da API (`w_T_20150115`, `g_T_201207`): exige o
+            // ano+mês (e o dia, quando houver) exatos. Os fallbacks de 2
+            // dígitos só valem para nomes legados/título.
+            val officialApiName = Regex("""_T_(?:19|20)\d{6,8}""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(a.fileName)
             // título da revista no nome ("A Sentinela N.º 3 2019.pdf")
             val titleHit = when (parts[0]) {
                 "w", "wp" -> n.contains("sentinela")
@@ -1023,11 +1036,17 @@ object RefDetector {
             val wpMonths = if (parts[0] == "wp") {
                 wpIssueMonths(year.toIntOrNull() ?: 0, num.toIntOrNull() ?: 0)
             } else emptyList()
-            var hasYear = tokens.any { it == year || it == yy } ||
-                n.contains(year + mm) || n.contains(mm + yy) ||
-                ns.contains(yy + num) || ns.contains(yy + mm) ||
-                wpMonths.any { m -> n.contains(year + m) || ns.contains(yy + m) } ||
-                (code == "g" && n.contains(year + mm))
+            var hasYear = if (officialApiName) {
+                n.contains(year + mm) ||
+                    wpMonths.any { m -> n.contains(year + m) } ||
+                    (titleHit && n.contains(year))
+            } else {
+                tokens.any { it == year || it == yy } ||
+                    n.contains(year + mm) || n.contains(mm + yy) ||
+                    ns.contains(yy + num) || ns.contains(yy + mm) ||
+                    wpMonths.any { m -> n.contains(year + m) || ns.contains(yy + m) } ||
+                    (code == "g" && n.contains(year + mm))
+            }
             if (day != null) {
                 // edição datada antiga: exige o dia no nome (w19990501, w99 15-5…)
                 val dd = day.toIntOrNull()?.toString()?.padStart(2, '0') ?: day
