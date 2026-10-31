@@ -48,8 +48,8 @@ private val PARAGRAPH_TAIL = Regex(
  * janela para não capturar página/§ de outra referência da mesma linha.
  */
 fun parseMagazineTail(text: String, lastIndex: Int): MagazineTail {
-    if (lastIndex < 0 || lastIndex >= text.length) return MagazineTail()
-    val start = lastIndex + 1
+    if (lastIndex >= text.length) return MagazineTail()
+    val start = (lastIndex + 1).coerceAtLeast(0)
     // 80 chars cobrem "pág. 8 parág. 1-2" com folga; o corte no primeiro
     // delimitador forte evita atravessar outra citação.
     val raw = text.substring(start, (start + 80).coerceAtMost(text.length))

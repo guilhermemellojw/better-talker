@@ -859,7 +859,7 @@ object RefDetector {
                     """(livro|brochura|publicacao|obra|revista|apostila|ver|veja|ler|leia|estud\w*|consult\w*)\s*$"""
                 ).containsMatchIn(before) ||
                     Regex(
-                        """^\s*\(?(cap|licao|pag|parag|[0-9]+(?!\s*min))"""
+                        """^[,;:]?\s*\(?(cap|licao|pags?|paginas?|parag|paragrafos?|[0-9]+(?!\s*min))"""
                     ).containsMatchIn(after)
             } ?: continue
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
@@ -870,15 +870,25 @@ object RefDetector {
                 (titleMatch.range.last + 61).coerceAtMost(norm.length)
             )
             val chap = Regex("""\b(cap|capitulo|licao|estudo)\s*\.?\s*(\d{1,3})""").find(tail)
-            val pag = Regex("""\b(pag|pagina)\s*\.?\s*(\d{1,3})""").find(tail)
-            val par = Regex("""\b(parag|paragrafo)\s*\.?\s*(\d{1,3})""").find(tail)
+            // C2.7: páginas/§ após o título ("Beneficie-se, páginas 52-55",
+            // "Criador, páginas 8-9"). O tail normalizado perde o hífen da
+            // faixa; usa o título ORIGINAL para preservar "52-55".
+            val rawTitle = PubCatalog.titleOf(canonical) ?: canonical
+            val rawIdx = rawText.indexOf(rawTitle, ignoreCase = true)
+            val unit = if (rawIdx >= 0) {
+                parseMagazineTail(rawText, rawIdx + rawTitle.length - 1)
+            } else {
+                parseMagazineTail(tail, -1)
+            }
             add(
                 DetectedRef(
                     PubCatalog.titleOf(canonical) ?: canonical, Kind.BOOK, canonical,
                     "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical,
                     chapter = chap?.let { "${it.groupValues[1]} ${it.groupValues[2]}" },
-                    page = pag?.groupValues?.get(2)?.toIntOrNull(),
-                    paragraph = par?.groupValues?.get(2)?.toIntOrNull(),
+                    page = unit.page,
+                    pageEnd = unit.pageEnd,
+                    paragraph = unit.paragraph,
+                    paragraphEnd = unit.paragraphEnd,
                 )
             )
         }
@@ -905,10 +915,22 @@ object RefDetector {
      * continuam vivas (lmd apêndice A × lmd lição 9 ponto 5).
      */
     private fun dedupUnitRefs(refs: List<DetectedRef>): List<DetectedRef> {
+        val pageStudies = refs.filter { it.page != null }.map {
+            Triple(it.editionKey, it.page, it.paragraph)
+        }.toSet()
         val editionsWithSpecific = refs.filter { it.hasUnit() }
             .map { it.editionKey }
             .toSet()
-        return refs.filter { it.hasUnit() || it.editionKey !in editionsWithSpecific }
+        return refs.filter { ref ->
+            // "lvs 194 §18" também casava o fallback "estudo 194 §18":
+            // quando existe a ref por página, a variante de estudo é ruído.
+            val studyNoise = ref.chapter?.startsWith("estudo ") == true &&
+                ref.page == null &&
+                ref.chapter.substringAfter("estudo ").toIntOrNull()?.let { n ->
+                    pageStudies.contains(Triple(ref.editionKey, n, ref.paragraph))
+                } == true
+            !studyNoise && (ref.hasUnit() || ref.editionKey !in editionsWithSpecific)
+        }
     }
 
     /**
