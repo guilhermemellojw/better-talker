@@ -167,11 +167,6 @@ fun SectionCardEditor(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .weight(1f)
-                        .semantics {
-                            contentDescription = state.section.title.ifBlank {
-                                "Título do tópico"
-                            }
-                        }
                         .clickable(enabled = !readOnly) { showTitleDialog = true },
                 )
                 if (isBody && state.section.minutes > 0) {
@@ -182,14 +177,14 @@ fun SectionCardEditor(
                         shape = MaterialTheme.shapes.extraSmall,
                         color = Color.Transparent,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier.semantics {
+                            contentDescription = "${state.section.minutes} minutos"
+                        },
                     ) {
                         Box(
                             Modifier
                                 .heightIn(min = 48.dp)
-                                .padding(horizontal = 8.dp)
-                                .semantics {
-                                    contentDescription = "${state.section.minutes} minutos"
-                                },
+                                .padding(horizontal = 8.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
