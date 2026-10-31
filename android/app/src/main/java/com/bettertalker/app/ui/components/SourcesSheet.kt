@@ -478,3 +478,14 @@ private fun StatusPillIcon(
         )
     }
 }
+
+/** Rótulo curto do status, usado na linha e nos labels de acessibilidade. */
+fun sourceStatusLabel(status: SourceStatus): String = when (status) {
+    SourceStatus.RESOLVED -> "No acervo"
+    SourceStatus.EDITION_MISSING -> "Edição não importada"
+    SourceStatus.TEXT_NOT_FOUND -> "Texto não encontrado"
+    SourceStatus.DOWNLOADING -> "Baixando…"
+    SourceStatus.INDEXING -> "Indexando…"
+    SourceStatus.INDEX_FAILED -> "Indexação falhou"
+    SourceStatus.UNSUPPORTED -> "Formato não suportado"
+}
