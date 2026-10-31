@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -47,6 +48,8 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     /** Tela de Voz (TTS + STT no aparelho). */
     onOpenVoice: () -> Unit = {},
+    /** Backup local (ZIP/JSON) e restauração. */
+    onOpenBackup: () -> Unit = {},
 ) {
     Scaffold(
         containerColor = Color.Transparent,
@@ -82,6 +85,12 @@ fun SettingsScreen(
                 title = "Voz",
                 subtitle = "Leitura, sotaque e reconhecimento no aparelho",
                 onClick = onOpenVoice,
+            )
+            SettingsTile(
+                icon = Icons.Default.Save,
+                title = "Dados",
+                subtitle = "Backup, exportar e importar",
+                onClick = onOpenBackup,
             )
             SettingsTile(
                 icon = Icons.Default.SmartToy,

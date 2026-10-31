@@ -45,6 +45,13 @@ android {
         }
     }
     buildTypes {
+        // Debug NUNCA usa o applicationId do release: instalar um APK debug
+        // por cima do release apagaria os dados do usuário (assinaturas
+        // diferentes). O pacote separado também casa com o app de matriz.
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
         release {
             minifyEnabled false
             debuggable false
@@ -125,6 +132,9 @@ dependencies {
     testImplementation "junit:junit:${rootProject.ext.junitVersion}"
     // Fase 10: SQLite real na JVM para validar o SQL das migrations (sem Android).
     testImplementation 'org.xerial:sqlite-jdbc:3.41.2.2'
+    // Backup/export: o Android já traz org.json; na JVM o artefato equivalente
+    // permite testar o codec sem Robolectric.
+    testImplementation 'org.json:json:20240303'
     // #23-bench: teste instrumentado (RTF do Kokoro no A34).
     androidTestImplementation "androidx.test.ext:junit:1.2.1"
     androidTestImplementation "androidx.test:runner:1.6.2"

@@ -29,6 +29,7 @@ import com.bettertalker.app.ui.editor.EditorViewModel
 import com.bettertalker.app.ui.account.AccountScreen
 import com.bettertalker.app.ui.account.AccountViewModel
 import com.bettertalker.app.ui.home.HomeScreen
+import com.bettertalker.app.ui.settings.BackupScreen
 import com.bettertalker.app.ui.settings.SettingsScreen
 import com.bettertalker.app.ui.home.HomeViewModel
 import com.bettertalker.app.ui.home.TrashScreen
@@ -275,6 +276,13 @@ private fun AppNav(
                 onOpenModel = { nav.navigate(Routes.MODEL) },
                 onOpenAppearance = { nav.navigate(Routes.APPEARANCE) },
                 onOpenVoice = { nav.navigate(Routes.VOICE) },
+                onOpenBackup = { nav.navigate(Routes.BACKUP) },
+            )
+        }
+        composable(Routes.BACKUP) {
+            BackupScreen(
+                onBack = { nav.popBackStack() },
+                db = db,
             )
         }
         composable(Routes.VOICE) {
