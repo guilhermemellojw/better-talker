@@ -8,14 +8,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Download
@@ -28,6 +27,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,12 +60,12 @@ import com.bettertalker.app.ui.copilot.DownloadCtl
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * A2 (confiança) — checklist preventivo de fontes da nota.
+ * A2 (confiança) — sheet de fontes da nota.
  *
- * Agrupado por publicação (TNM única, com subgrupos por livro) para não virar
- * uma lista única em notas S-34. Grupos >3 nascem fechados; ≤3 abertos; TNM
- * fechada. O checklist usa a mesma lista de refs do Copilot e reage aos
- * estados Baixando → Indexando → No acervo.
+ * Design limpo: uma linha por publicação/edição, não por referência.
+ * Status em pílula curta (Disponível, Baixar, Indexando, Atenção).
+ * Tudo colapsado por padrão; detalhes (refs, arquivo, motivo) só ao expandir.
+ * Rodapé fixo: Procurar em Downloads (primário), Atualizar, Fechar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,19 +82,18 @@ fun SourcesSheet(
     val ctx = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val groups = remember(sources) { groupNoteSources(sources.sources) }
-    // Mantém a expansão do usuário enquanto o status muda (download/indexação).
+    // Tudo colapsado por padrão (incluindo TNM).
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
     val expandedBooks = remember { mutableStateMapOf<String, Boolean>() }
     LaunchedEffect(groups) {
-        groups.forEach {
-            if (!expanded.containsKey(it.key)) {
-                // TNM é a base e costuma ser grande: nasce fechada.
-                expanded[it.key] = it.key != "pub:nwt" && it.total <= 3
+        groups.forEach { group ->
+            if (!expanded.containsKey(group.key)) {
+                expanded[group.key] = false
             }
         }
         groups.flatMap { it.bookGroups }.forEach { book ->
             if (!expandedBooks.containsKey(book.book)) {
-                expandedBooks[book.book] = book.total <= 3
+                expandedBooks[book.book] = false
             }
         }
     }
@@ -103,7 +103,6 @@ fun SourcesSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (sources.total > 0) Modifier.fillMaxHeight(0.9f) else Modifier)
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
         ) {
@@ -121,16 +120,10 @@ fun SourcesSheet(
                 )
             } else {
                 Text(
-                    "${sources.resolved} de ${sources.total} no acervo.",
+                    "${groups.size} publicações · ${sources.resolved} de ${sources.total} prontas",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    groups.joinToString(" · ") { "${it.label} ${it.resolved}/${it.total}" },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
                 )
                 if (sources.pending > 0) {
                     Text(
@@ -148,78 +141,39 @@ fun SourcesSheet(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
                         .padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    groups.forEach { group ->
+                    groups.forEachIndexed { index, group ->
                         item(key = group.key) {
-                            GroupHeader(
+                            PublicationRow(
                                 group = group,
                                 expanded = expanded[group.key] == true,
                                 onToggle = {
                                     expanded[group.key] = !(expanded[group.key] ?: false)
                                 },
+                                expandedBooks = expandedBooks,
+                                onToggleBook = { book ->
+                                    expandedBooks[book] = !(expandedBooks[book] ?: false)
+                                },
                                 ctx = ctx,
                                 downloadCtl = downloadCtl,
                                 onDownloaded = onDownloaded,
                                 onOpenLibrary = onOpenLibrary,
+                                onFindDownloads = onFindDownloads,
+                                onRefresh = onRefresh,
                             )
                         }
-                        if (expanded[group.key] == true) {
-                            if (group.kind == SourceKind.BIBLE && group.bookGroups.isNotEmpty()) {
-                                group.bookGroups.forEach { book ->
-                                    item(key = "${group.key}|${book.book}") {
-                                        BookHeader(
-                                            book = book,
-                                            expanded = expandedBooks[book.book] == true,
-                                            onToggle = {
-                                                expandedBooks[book.book] =
-                                                    !(expandedBooks[book.book] ?: false)
-                                            },
-                                        )
-                                    }
-                                    if (expandedBooks[book.book] == true) {
-                                        itemsIndexed(
-                                            book.sources,
-                                            key = { index, source ->
-                                                "${group.key}|${book.book}|$index|${source.ref}"
-                                            },
-                                        ) { _, source ->
-                                            SourceRow(
-                                                source = source,
-                                                ctx = ctx,
-                                                downloadCtl = downloadCtl,
-                                                scope = scope,
-                                                onDownloaded = onDownloaded,
-                                                onOpenLibrary = onOpenLibrary,
-                                                onFindDownloads = onFindDownloads,
-                                                onRefresh = onRefresh,
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                itemsIndexed(
-                                    group.sources,
-                                    key = { index, source ->
-                                        "${group.key}|$index|${source.ref}|${source.status}"
-                                    },
-                                ) { _, source ->
-                                    SourceRow(
-                                        source = source,
-                                        ctx = ctx,
-                                        downloadCtl = downloadCtl,
-                                        scope = scope,
-                                        onDownloaded = onDownloaded,
-                                        onOpenLibrary = onOpenLibrary,
-                                        onFindDownloads = onFindDownloads,
-                                        onRefresh = onRefresh,
-                                    )
-                                }
+                        if (index < groups.lastIndex) {
+                            item(key = "divider-$index") {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                )
                             }
                         }
                     }
@@ -229,106 +183,203 @@ fun SourcesSheet(
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onRefresh) { Text("Atualizar") }
-                TextButton(onClick = onDismiss) { Text("Fechar") }
+                TextButton(onClick = onFindDownloads) {
+                    Text("Procurar em Downloads", fontWeight = FontWeight.SemiBold)
+                }
+                Row {
+                    TextButton(onClick = onRefresh) { Text("Atualizar") }
+                    TextButton(onClick = onDismiss) { Text("Fechar") }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun GroupHeader(
+private fun PublicationRow(
     group: SourceGroup,
     expanded: Boolean,
     onToggle: () -> Unit,
+    expandedBooks: MutableMap<String, Boolean>,
+    onToggleBook: (String) -> Unit,
     ctx: Context,
     downloadCtl: DownloadCtl?,
     onDownloaded: () -> Unit,
     onOpenLibrary: () -> Unit,
+    onFindDownloads: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val pending = group.pendingCount > 0
     val indexing = group.allPending && group.sources
         .filter { it.status.isPending() }
         .all { it.status == SourceStatus.INDEXING }
-    val statusText = when {
-        group.status == GroupStatus.OK -> "todas no acervo"
-        group.allPending && indexing -> "indexando"
-        group.allPending -> "baixando"
-        group.status == GroupStatus.PARTIAL -> "algumas no acervo"
-        else -> "nenhuma no acervo"
+    // 5 níveis: Disponível, Baixar, Indexando, Conferir, Falhou
+    val hasFailed = group.sources.any {
+        it.status == SourceStatus.INDEX_FAILED || it.status == SourceStatus.UNSUPPORTED
     }
-    val statusTint = when {
-        pending -> MaterialTheme.colorScheme.tertiary
-        group.status == GroupStatus.OK -> MaterialTheme.colorScheme.secondary
-        group.status == GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
+    val hasConferir = group.sources.any {
+        it.status == SourceStatus.TEXT_NOT_FOUND ||
+            it.citation.action.name.contains("AMBIGUOUS", ignoreCase = true) ||
+            it.hint?.contains("ambígu", ignoreCase = true) == true
+    }
+    val statusText = when {
+        group.status == GroupStatus.OK && !pending -> "Disponível"
+        pending -> "Indexando"
+        hasFailed -> "Falhou"
+        hasConferir && group.status != GroupStatus.MISSING -> "Conferir"
+        group.status == GroupStatus.MISSING -> "Baixar"
+        else -> "Baixar"
+    }
+    val statusColor = when (statusText) {
+        "Disponível" -> MaterialTheme.colorScheme.secondary
+        "Indexando" -> MaterialTheme.colorScheme.tertiary
+        "Conferir" -> MaterialTheme.colorScheme.tertiary
+        "Falhou" -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.error
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    val isAttention = group.status != GroupStatus.OK && !pending
+
+    Column(Modifier.fillMaxWidth()) {
+        // Linha principal: publicação + status pill + ação
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .clickable { onToggle() }
                 .semantics {
-                    val noun = if (group.total == 1) "referência" else "referências"
-                    contentDescription = "${group.label}, ${group.total} $noun, $statusText"
+                    contentDescription = "${group.label}, ${group.total} referências, $statusText"
                     stateDescription = if (expanded) "Expandido" else "Recolhido"
                 },
         ) {
-            StatusIcon(
-                pending = pending,
-                status = group.status,
-                tint = statusTint,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "${group.label} (${group.total})",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            // Status icon (compact)
+            StatusPillIcon(pending = pending, status = group.status, tint = statusColor)
+            Spacer(Modifier.width(8.dp))
+            // Label + count
+            Column(Modifier.weight(1f)) {
+                Text(
+                    group.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${group.total} ${if (group.total == 1) "referência" else "referências"}" +
+                        if (group.kind == SourceKind.BIBLE) " · versículos" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            // Status pill
+            Surface(
+                color = statusColor.copy(alpha = 0.12f),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(
+                    statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            // Action button (only one per state)
+            when (statusText) {
+                "Disponível" -> Unit
+                "Indexando" -> TextButton(
+                    onClick = onOpenLibrary,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Acompanhar") }
+                "Conferir" -> {
+                    val actionSource = group.sources.firstOrNull {
+                        it.status == SourceStatus.TEXT_NOT_FOUND ||
+                            it.status == SourceStatus.EDITION_MISSING
+                    }
+                    val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
+                        ?.takeIf { it.isNotBlank() }
+                    TextButton(
+                        onClick = {
+                            if (url != null && downloadCtl != null) {
+                                downloadCtl.openPage(ctx, url, onDownloaded)
+                            } else {
+                                onOpenLibrary()
+                            }
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Resolver") }
+                }
+                "Falhou" -> TextButton(
+                    onClick = onOpenLibrary,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Reindexar") }
+                else -> {
+                    val actionSource = group.sources.firstOrNull {
+                        it.status == SourceStatus.EDITION_MISSING
+                    }
+                    val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
+                        ?.takeIf { it.isNotBlank() }
+                    TextButton(
+                        onClick = {
+                            if (url != null && downloadCtl != null) {
+                                downloadCtl.openPage(ctx, url, onDownloaded)
+                            } else {
+                                onOpenLibrary()
+                            }
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    ) { Text("Baixar") }
+                }
+            }
             Icon(
                 if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
-        when {
-            group.kind == SourceKind.BIBLE -> TextButton(
-                onClick = onOpenLibrary,
-                modifier = Modifier.heightIn(min = 48.dp),
-            ) { Text("Abrir Biblioteca") }
-            pending && group.sources.none { it.status == SourceStatus.EDITION_MISSING } ->
-                TextButton(
-                    onClick = onOpenLibrary,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Abrir Biblioteca") }
-            group.status != GroupStatus.OK -> {
-                val actionSource = group.sources.firstOrNull {
-                    it.status == SourceStatus.EDITION_MISSING
-                }
-                val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
-                    ?.takeIf { it.isNotBlank() }
-                TextButton(
-                    onClick = {
-                        openEdition(
-                            ctx = ctx,
-                            downloadCtl = downloadCtl,
-                            url = url,
-                            onDone = onDownloaded,
-                            fallback = onOpenLibrary,
+
+        // Expanded details
+        if (expanded) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 32.dp, top = 4.dp, bottom = 4.dp),
+            ) {
+                if (group.kind == SourceKind.BIBLE && group.bookGroups.isNotEmpty()) {
+                    group.bookGroups.forEach { book ->
+                        BookDetailRow(
+                            book = book,
+                            expanded = expandedBooks[book.book] == true,
+                            onToggle = { onToggleBook(book.book) },
                         )
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(if (url != null) "Baixar no jw.org" else "Abrir Biblioteca")
+                        if (expandedBooks[book.book] == true) {
+                            book.sources.forEach { source ->
+                                SourceDetailLine(source = source)
+                            }
+                        }
+                    }
+                } else {
+                    group.sources.forEach { source ->
+                        SourceDetailLine(source = source)
+                    }
+                }
+                // Secondary actions
+                if (group.status != GroupStatus.OK) {
+                    Row(Modifier.padding(top = 4.dp)) {
+                        TextButton(
+                            onClick = onOpenLibrary,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Abrir Biblioteca") }
+                        TextButton(
+                            onClick = onFindDownloads,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("Já baixei — procurar") }
+                    }
                 }
             }
         }
@@ -336,68 +387,76 @@ private fun GroupHeader(
 }
 
 @Composable
-private fun BookHeader(
+private fun BookDetailRow(
     book: BookGroup,
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
-    val pending = book.pendingCount > 0
-    val indexing = book.allPending && book.sources
-        .filter { it.status.isPending() }
-        .all { it.status == SourceStatus.INDEXING }
-    val statusText = when {
-        book.status == GroupStatus.OK -> "todas no acervo"
-        book.allPending && indexing -> "indexando"
-        book.allPending -> "baixando"
-        book.status == GroupStatus.PARTIAL -> "algumas no acervo"
-        else -> "nenhuma no acervo"
-    }
-    val statusTint = when {
-        pending -> MaterialTheme.colorScheme.tertiary
-        book.status == GroupStatus.OK -> MaterialTheme.colorScheme.secondary
-        book.status == GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
-        else -> MaterialTheme.colorScheme.error
-    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .clickable { onToggle() }
-            .semantics {
-                val noun = if (book.total == 1) "referência" else "referências"
-                contentDescription = "${book.label}, ${book.total} $noun, $statusText"
-                stateDescription = if (expanded) "Expandido" else "Recolhido"
-            },
+            .heightIn(min = 40.dp)
+            .clickable { onToggle() },
     ) {
-        Spacer(Modifier.width(28.dp))
-        StatusIcon(
-            pending = pending,
-            status = book.status,
-            tint = statusTint,
-            size = 18.dp,
-        )
-        Spacer(Modifier.width(6.dp))
         Text(
             "${book.label} (${book.total})",
             style = MaterialTheme.typography.bodySmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
+        )
+        Text(
+            when (book.status) {
+                GroupStatus.OK -> "Disponível"
+                GroupStatus.PARTIAL -> "Parcial"
+                GroupStatus.MISSING -> "Baixar"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = when (book.status) {
+                GroupStatus.OK -> MaterialTheme.colorScheme.secondary
+                GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
+                GroupStatus.MISSING -> MaterialTheme.colorScheme.error
+            },
         )
         Icon(
             if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(16.dp),
         )
     }
 }
 
 @Composable
-private fun StatusIcon(
+private fun SourceDetailLine(source: NoteSource) {
+    Column(Modifier.padding(vertical = 2.dp)) {
+        Text(
+            source.ref,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        source.hint?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        source.fileName?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                "Arquivo: $it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusPillIcon(
     pending: Boolean,
     status: GroupStatus,
-    tint: androidx.compose.ui.graphics.Color,
+    tint: Color,
     size: androidx.compose.ui.unit.Dp = 20.dp,
 ) {
     if (pending) {
@@ -417,158 +476,5 @@ private fun StatusIcon(
             tint = tint,
             modifier = Modifier.size(size),
         )
-    }
-}
-
-@Composable
-private fun SourceRow(
-    source: NoteSource,
-    ctx: Context,
-    downloadCtl: DownloadCtl?,
-    scope: CoroutineScope?,
-    onDownloaded: () -> Unit,
-    onOpenLibrary: () -> Unit,
-    onFindDownloads: () -> Unit,
-    onRefresh: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                source.ref,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                sourceStatusLabel(source),
-                style = MaterialTheme.typography.labelSmall,
-                color = when {
-                    source.citation.isReady -> MaterialTheme.colorScheme.secondary
-                    source.citation.isPending -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.error
-                },
-            )
-        }
-        source.hint?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        source.fileName?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                "Arquivo: $it",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-        }
-        when (source.status) {
-            SourceStatus.EDITION_MISSING -> {
-                val url = (source.downloadUrl ?: source.refStatus?.downloadUrl)
-                    ?.takeIf { it.isNotBlank() }
-                val canDirect = source.refStatus?.let {
-                    it.apiPub != null || it.probePub != null
-                } == true
-                Row {
-                    TextButton(
-                        onClick = {
-                            openEdition(
-                                ctx = ctx,
-                                downloadCtl = downloadCtl,
-                                url = url,
-                                onDone = onDownloaded,
-                                fallback = onOpenLibrary,
-                            )
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { Text(if (url != null) "Baixar no jw.org" else "Abrir Biblioteca") }
-                    if (downloadCtl != null && scope != null &&
-                        source.refStatus != null && canDirect
-                    ) {
-                        TextButton(
-                            onClick = {
-                                downloadCtl.downloadDirect(
-                                    ctx, scope, source.refStatus, onDownloaded,
-                                )
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text("Baixar direto") }
-                    }
-                }
-                TextButton(
-                    onClick = onFindDownloads,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Já baixei — procurar em Downloads") }
-            }
-            SourceStatus.DOWNLOADING, SourceStatus.INDEXING -> {
-                TextButton(
-                    onClick = onOpenLibrary,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Acompanhar na Biblioteca") }
-            }
-            SourceStatus.INDEX_FAILED, SourceStatus.UNSUPPORTED -> {
-                TextButton(
-                    onClick = onOpenLibrary,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Abrir Biblioteca") }
-            }
-            SourceStatus.TEXT_NOT_FOUND -> {
-                val url = (source.downloadUrl ?: source.refStatus?.downloadUrl)
-                    ?.takeIf { it.isNotBlank() }
-                Row {
-                    TextButton(
-                        onClick = {
-                            openEdition(
-                                ctx = ctx,
-                                downloadCtl = downloadCtl,
-                                url = url,
-                                onDone = onDownloaded,
-                                fallback = onOpenLibrary,
-                            )
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { Text("Abrir edição") }
-                    TextButton(
-                        onClick = onRefresh,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { Text("Verificar novamente") }
-                }
-            }
-            SourceStatus.RESOLVED -> Unit
-        }
-    }
-}
-
-/** Rótulo curto do status, usado na linha e nos labels de acessibilidade. */
-internal fun sourceStatusLabel(status: SourceStatus): String = when (status) {
-    SourceStatus.RESOLVED -> "No acervo"
-    SourceStatus.EDITION_MISSING -> "Edição não importada"
-    SourceStatus.TEXT_NOT_FOUND -> "Texto não encontrado"
-    SourceStatus.DOWNLOADING -> "Baixando…"
-    SourceStatus.INDEXING -> "Indexando…"
-    SourceStatus.INDEX_FAILED -> "Indexação falhou"
-    SourceStatus.UNSUPPORTED -> "Formato não suportado"
-}
-
-/** Rótulo do MESMO modelo de status usado pelo prompt (edição/texto/ação). */
-internal fun sourceStatusLabel(source: com.bettertalker.app.data.util.NoteSource): String =
-    citationStatusLabel(source)
-
-/**
- * Abre a página da edição no WebView (DownloadCtl). Sem URL/controle, cai na
- * Biblioteca; nunca dispara download direto por API como ação primária.
- */
-private fun openEdition(
-    ctx: Context,
-    downloadCtl: DownloadCtl?,
-    url: String?,
-    onDone: () -> Unit,
-    fallback: () -> Unit,
-) {
-    when {
-        downloadCtl != null && url != null -> downloadCtl.openPage(ctx, url, onDone)
-        url != null -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        else -> fallback()
     }
 }
