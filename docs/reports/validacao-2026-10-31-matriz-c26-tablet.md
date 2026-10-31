@@ -17,11 +17,15 @@ release `v3.0.6` publicado; certificado release
 `8457822fac8e6d567d5e4373ca6978bbdb6d09618fd64e6d6831c0b9e117e228`.
 **A34:** 3.0.4/35, 3.0.5/36 e 3.0.6/37 instalados por cima; app abriu,
 notas existentes preservadas e matcher confirmado (`W11 15/12` →
-`w_T_20111215.jwpub`). A nota **#192 não existe** no A34 (Home, Discursos,
-Lixeira e busca “192” vazios), então não havia #192 para verificar.
+`w_T_20111215.jwpub`). A nota **#192 não aparece na UI atual do A34** (Home, Discursos,
+Lixeira e busca “192” vazios), mas está **preservada em backups locais**
+(`/tmp/opencode/a34-backup`, `a34-live`, `m2b-192-clean`, etc.; nota
+`note-f21f19a7-…`, “# 192. Você está no caminho para a vida eterna?”).
+O update não apagou os dados; a ausência na UI atual merece confirmação
+(folder/filtro/trash).
 **Testes JVM:** **2.786 / 0** no 3.0.6; **2.776 / 0** no C2.8; **2.771 / 0**
 no matcher-only.
-**Lint:** `:app:lintDebug` verde (49 warnings, 6 hints, 0 erros).
+**Lint:** `:app:lintRelease` verde no gate do CI (49 warnings, 6 hints, 0 erros); `:app:lintDebug` também verde.
 
 ## 1. Resultado final (3.0.6)
 
@@ -278,6 +282,10 @@ adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-acervo.csv >
 - **CI fixture:** o `S34CorpusFixtureTest` cobre o parser; falta testar o
   `S34ImportHook`/save dos 40 S34Parser.
 - **STT embarcado:** decisão futura.
+- **#192:** não aparece na UI atual do A34, mas está preservada em múltiplos
+  backups locais (`/tmp/opencode/a34-backup`, `a34-live`, `m2b-192-clean`,
+  etc.; `note-f21f19a7-…`). O update não apagou o dado; confirmar
+  folder/filtro/trash na UI atual.
 - **Tablet:** o release não instala por `INSTALL_FAILED_USER_RESTRICTED`;
   o `.debug` e o acervo de 2,4 GB seguem intactos. Instalar o 3.0.6/37
   manualmente quando a restrição for liberada.
