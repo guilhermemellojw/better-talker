@@ -41,8 +41,11 @@ o mesmo parágrafo. `lvs 194 §18` agora rende **uma** entrada.
   - Beneficie-se páginas 52-55;
   - Criador páginas 8-9;
   - `lvs 194 §18` sem duplicata.
-- **2.760 testes JVM / 0 falhas** na branch.
+- **2.763 testes JVM / 0 falhas** na main após a matriz.
 - `lintRelease` verde.
+- `S34CorpusMatrixTest` (local, skipped no CI sem os DOCX): 49 arquivos,
+  391 refs, 0 página/§ perdido; 9 reconhecidos pelo `OutlineParser` e 40
+  pelo `S34Parser`.
 
 ## Limites
 
