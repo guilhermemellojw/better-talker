@@ -26,7 +26,7 @@ class RefDetectorStudyBooksTest {
     fun detect_it1_withRange_detectsPageRange() {
         val ref = single("(it-1 813-4)")
         assertEquals("it-1", ref.pubKey)
-        assertTrue(ref.label.contains("pág. 813-4"))
+        assertTrue(ref.label.contains("pág. 813-814"))
     }
 
     @Test
@@ -99,7 +99,7 @@ class RefDetectorStudyBooksTest {
     fun detect_dg_detectsDeveras() {
         val ref = single("(dg 27-8)")
         assertEquals("dg", ref.pubKey)
-        assertTrue(ref.label.contains("pág. 27-8"))
+        assertTrue(ref.label.contains("pág. 27-28"))
     }
 
     @Test
@@ -116,7 +116,7 @@ class RefDetectorStudyBooksTest {
     fun detect_kj_withRange_detectsPageRange() {
         val ref = single("(kj 264-5)")
         assertEquals("kj", ref.pubKey)
-        assertTrue(ref.label.contains("pág. 264-5"))
+        assertTrue(ref.label.contains("pág. 264-265"))
     }
 
     @Test
