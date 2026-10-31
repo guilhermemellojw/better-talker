@@ -163,6 +163,13 @@ class MatrixRunner(
     }
 
     private fun detectedFor(row: MatrixRow): RefDetector.DetectedRef {
+        // C2.8: usa o detector REAL (article/chapter incluídos). O runner
+        // antigo montava a ref à mão e perdia `article`/`chapter`, fazendo
+        // livros por § caírem no fallback global e pegarem outro artigo.
+        val parsed = RefDetector.detect(row.raw)
+        parsed.firstOrNull { it.editionKey == row.edition }?.let { return it }
+        parsed.firstOrNull()?.let { return it }
+
         val book = row.edition.startsWith("book|")
         val pubKey = if (book) {
             val p = row.edition.split("|")

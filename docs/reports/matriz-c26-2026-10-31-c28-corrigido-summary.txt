@@ -1,0 +1,48 @@
+MATRIZ C2.6 — RESUMO
+Gerado: Sat Oct 31 11:50:45 GMT-03:00 2026
+
+ACERVO
+  edições: 238
+  prontas: 216
+  falhas: 0
+  indisponíveis: 22
+  bytes: 2402866080
+  duração_ms: 47540
+  formato EPUB: w|2015|4|15 → READY (w_T_20150415.epub) · pipeline; edição também oferece outros formatos
+  formato PDF: w|2025|7 → READY (w_T_202507.pdf) · pipeline; edição também oferece outros formatos
+
+MATRIZ
+  refs: 391
+  RESOLVED: 156
+  PARTIAL: 193
+  TEXT_NOT_FOUND: 6
+  EDITION_MISSING: 20
+  outros: 16
+  utilizáveis (RESOLVED+PARTIAL): 349 (89,3%)
+
+PROMPT (conteúdo; be/th excluídos)
+  cited_ok: 349/375
+  prompt_coverage: 93,1%
+  prompt_chars: 716968
+  meta: >= 90%
+
+TRAINING (be/th; não é conteúdo)
+  refs: 16 (excluídos do denominador)
+  todos_os_refs: 349/391 = 89,3%
+
+STATUS
+  EDITION_MISSING: 20
+  PARTIAL: 193
+  RESOLVED: 156
+  TEXT_NOT_FOUND: 6
+  TRAINING: 16
+
+AÇÕES
+  DOWNLOAD: 20
+  NONE: 172
+  OPEN: 193
+  REINDEX: 6
+
+FORMATOS
+  ?: 20
+  JWPUB: 371
