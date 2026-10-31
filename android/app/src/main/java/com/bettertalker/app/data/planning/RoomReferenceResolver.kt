@@ -7,6 +7,7 @@ import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.bestContextMatch
+import com.bettertalker.app.data.util.bestContextWindow
 import com.bettertalker.app.data.util.contextTerms
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.planning.PublicationRef
@@ -107,7 +108,23 @@ class RoomReferenceResolver(
             }
         } else emptyList()
         val chosen = exact.ifEmpty { slice }
-        val text = chosen.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        // C2.8: se o § exato não está indexado e a unidade é maior que o
+        // teto, foca no trecho citado (contexto do esboço ou § inicial) em
+        // vez de mandar só o começo do artigo/lição.
+        val focused = if (exact.isEmpty() && paragraph != null &&
+            chosen.joinToString(" ").length > MAX_UNIT_CHARS
+        ) {
+            ref.context?.takeIf { it.isNotBlank() }?.let { focusByContext(chosen, it) }
+                ?: focusByParagraph(chosen, paragraph, ref.paragraphEnd ?: paragraph)
+        } else {
+            null
+        }
+        val finalRows = focused ?: chosen
+        val text = if (focused == null && chosen.joinToString(" ").length > MAX_UNIT_CHARS) {
+            headTailText(chosen)
+        } else {
+            finalRows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        }
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
@@ -121,7 +138,7 @@ class RoomReferenceResolver(
             original = ref.symbol,
             canonicalRef = label,
             text = text,
-            passageId = chosen.first().id,
+            passageId = finalRows.first().id,
             status = if (paragraph != null && exact.isNotEmpty()) {
                 ReferenceStatus.RESOLVED
             } else {
@@ -143,7 +160,10 @@ class RoomReferenceResolver(
         hit: AttachmentEntity,
     ): ResolvedReference {
         val page = ref.page
-        val pageEnd = ref.pageEnd?.takeIf { p -> page != null && p > page }
+        // C2.8: "142-4" é 142..144, não 142..4 (o parser já expande, mas
+        // refs vindas de JSON/chat também passam por aqui).
+        val pageEnd = RefDetector.fullPageEnd(page, ref.pageEnd)
+            ?.takeIf { p -> page != null && p > page }
         val start = ref.paragraph
         val end = ref.paragraphEnd?.takeIf { p -> start != null && p > start } ?: start
         val base = baseSymbolOf(ref.symbol)
@@ -162,29 +182,43 @@ class RoomReferenceResolver(
             }
         }
 
+        val pageRows = if (page != null) {
+            passageDao.byPage(hit.id, page, pageEnd ?: page, MAX_CONTEXT_PASSAGES)
+        } else {
+            emptyList()
+        }
+        // A edição tem índice de página? Só nesse caso o § global é
+        // perigoso: ele pode pegar o mesmo § de outro artigo. Se a edição
+        // não tem página nenhuma (índice antigo), o § é o melhor localizador.
+        val hasPageIndex = pageRows.isNotEmpty() ||
+            (page != null &&
+                passageDao.byPage(hit.id, 0, Int.MAX_VALUE, 1).isNotEmpty())
+
         // Página sem § → PARTIAL. Página com § só cai aqui quando o índice
         // antigo NÃO tem números de parágrafo (todas as linhas com
         // paragraph=null): aí o texto da página é a melhor leitura real.
         // Se há §§ indexados e nenhum casa, não devolve a página errada.
-        if (page != null) {
-            val rows = passageDao.byPage(
-                hit.id,
-                page,
-                pageEnd ?: page,
-                MAX_CONTEXT_PASSAGES,
-            )
-            val pageUsable = start == null || rows.all { it.paragraph == null }
-            if (rows.isNotEmpty() && pageUsable) {
+        if (page != null && pageRows.isNotEmpty()) {
+            val pageUsable = start == null || pageRows.all { it.paragraph == null }
+            if (pageUsable) {
+                val focused = focusPageRows(pageRows, start, end, ref.context)
                 return resolved(
                     ref = ref,
                     label = pageLabel(base, page, pageEnd),
-                    rows = rows,
+                    rows = focused,
                     status = ReferenceStatus.PARTIAL,
+                    // Faixa de várias páginas sem foco por §/contexto:
+                    // começo + fim, para não perder o trecho citado no fim.
+                    headTail = pageEnd != null && pageEnd > page &&
+                        focused.size == pageRows.size,
                 )
             }
         }
 
-        if (start != null) {
+        // § sem página (ou índice antigo sem página): único caso em que o
+        // fallback global de § é seguro. Com página indexada, devolver o §
+        // de outro artigo é pior do que não devolver nada.
+        if (start != null && (page == null || !hasPageIndex)) {
             val rows = passageDao.byParagraphRange(
                 hit.id,
                 start,
@@ -201,10 +235,11 @@ class RoomReferenceResolver(
             }
         }
 
-        // PDF/EPUB sem página/§ indexados: usa a frase do esboço. O piso de
-        // termos evita devolver um trecho aleatório.
+        // PDF/EPUB sem página/§ indexados: usa a frase do esboço. Com página
+        // indexada, o contexto não substitui a página citada (evita trocar
+        // um artigo errado por outro).
         val context = ref.context?.takeIf { it.isNotBlank() }
-        if (context != null) {
+        if (context != null && (page == null || !hasPageIndex)) {
             val candidates = contextPassages(
                 passageDao,
                 hit.id,
@@ -232,13 +267,74 @@ class RoomReferenceResolver(
         return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
     }
 
+    /**
+     * C2.8 — foca a página no trecho citado:
+     * 1. se a página tem §§ como número inicial, recorta §start–§end;
+     * 2. senão, se a frase do esboço casa uma janela de 3 trechos, usa-a;
+     * 3. senão, devolve a página inteira (comportamento antigo).
+     */
+    private fun focusPageRows(
+        rows: List<PassageEntity>,
+        start: Int?,
+        end: Int?,
+        context: String?,
+    ): List<PassageEntity> {
+        if (start != null) {
+            focusByParagraph(rows, start, end ?: start)?.let { return it }
+        }
+        val ctx = context?.takeIf { it.isNotBlank() }
+        if (ctx != null) {
+            focusByContext(rows, ctx)?.let { return it }
+        }
+        return rows
+    }
+
+    private fun focusByParagraph(
+        rows: List<PassageEntity>,
+        start: Int,
+        end: Int,
+    ): List<PassageEntity>? {
+        if (rows.isEmpty()) return null
+        val numbered = rows.mapIndexedNotNull { index, passage ->
+            val n = passage.paragraph ?: RefDetector.leadingParagraphNumber(passage.text)
+            if (n == null) null else index to n
+        }
+        if (numbered.isEmpty()) return null
+        val first = numbered.firstOrNull { (_, n) -> n >= start }?.first ?: return null
+        val last = numbered.lastOrNull { (_, n) -> n <= end }?.first ?: return null
+        if (last < first) return null
+        // Vai até o próximo § fora do range (exclusivo): inclui todo o
+        // conteúdo do último § citado, não só o título dele.
+        val next = numbered.firstOrNull { (index, n) -> index > last && n > end }?.first
+        val from = (first - 1).coerceAtLeast(0)
+        val to = ((next ?: rows.size) - 1).coerceAtMost(rows.lastIndex)
+        return rows.subList(from, to + 1)
+    }
+
+    private fun focusByContext(
+        rows: List<PassageEntity>,
+        context: String,
+    ): List<PassageEntity>? {
+        if (rows.size < 3) return null
+        val match = bestContextWindow(rows.map { it.text }, context, window = 3)
+            ?: return null
+        val from = (match.index - 2).coerceAtLeast(0)
+        val to = (match.index + 4).coerceAtMost(rows.lastIndex)
+        return rows.subList(from, to + 1)
+    }
+
     private fun resolved(
         ref: PublicationRef,
         label: String,
         rows: List<PassageEntity>,
         status: ReferenceStatus,
+        headTail: Boolean = false,
     ): ResolvedReference {
-        val text = rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        val text = if (headTail) {
+            headTailText(rows)
+        } else {
+            rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+        }
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
         }
@@ -249,6 +345,19 @@ class RoomReferenceResolver(
             passageId = rows.first().id,
             status = status,
         )
+    }
+
+    /**
+     * C2.8 — faixas de página maiores que o teto: em vez de mandar só o
+     * começo (e perder o fim do artigo), manda começo + fim. O trecho
+     * citado pode estar em qualquer ponto da faixa; o modelo recebe as
+     * duas bordas e o meio fica no contexto.
+     */
+    private fun headTailText(rows: List<PassageEntity>): String {
+        val full = rows.joinToString(" ") { it.text }.trim()
+        if (full.length <= MAX_UNIT_CHARS) return full
+        val half = (MAX_UNIT_CHARS - 3) / 2
+        return full.take(half).trimEnd() + " … " + full.takeLast(half).trimStart()
     }
 
     private fun baseSymbolOf(symbol: String): String = symbol

@@ -57,3 +57,34 @@ fun bestContextMatch(
     }
     return best
 }
+
+/**
+ * C2.8 — como [bestContextMatch], mas em janelas de [window] trechos
+ * consecutivos. Uma ideia pode estar dividida em várias passagens (título,
+ * frase, referência); a janela captura o conjunto sem exigir que todos os
+ * termos caiam numa única linha.
+ */
+fun bestContextWindow(
+    passages: List<String>,
+    context: String,
+    window: Int = 3,
+    minMatches: Int = 3,
+    minRatio: Double = 0.25,
+): ContextMatch? {
+    if (window <= 0 || passages.isEmpty()) return null
+    val terms = contextTerms(context)
+    if (terms.size < minMatches) return null
+    var best: ContextMatch? = null
+    for (start in passages.indices) {
+        val end = (start + window).coerceAtMost(passages.size)
+        val text = passages.subList(start, end).joinToString(" ")
+        val matched = contextOverlap(terms, text)
+        if (matched < minMatches) continue
+        val candidate = ContextMatch(start, matched, terms.size)
+        if (candidate.ratio < minRatio) continue
+        if (best == null || candidate.matchedTerms > best!!.matchedTerms) {
+            best = candidate
+        }
+    }
+    return best
+}

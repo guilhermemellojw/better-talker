@@ -51,4 +51,20 @@ class ContextMatcherTest {
         assertTrue(terms.contains("vida"))
         assertTrue(terms.none { it == "muito" || it == "para" || it == "como" })
     }
+
+    @Test
+    fun janelaJuntaTrechosConsecutivos() {
+        val match = bestContextWindow(
+            listOf(
+                "Texto irrelevante.",
+                "O tempo passa muito rápido.",
+                "A vida parece muito curta.",
+            ),
+            "O tempo passa muito rápido e a vida parece muito curta.",
+            window = 2,
+        )
+        assertTrue(match != null)
+        assertEquals(1, match!!.index)
+        assertTrue(match.matchedTerms >= 3)
+    }
 }

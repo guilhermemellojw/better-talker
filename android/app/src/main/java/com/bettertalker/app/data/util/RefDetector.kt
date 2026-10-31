@@ -326,14 +326,15 @@ object RefDetector {
         val note = parsed?.note
         val tailLabel = tail.label()
         val fullLabel = if (tailLabel.isBlank()) label else "$label • $tailLabel"
+        val finalPage = page ?: tail.page
         return DetectedRef(
             raw = raw,
             kind = Kind.MAGAZINE,
             pubKey = pubKey,
             editionKey = parsed?.editionKey() ?: fallbackEditionKey,
             label = if (ambiguous && note != null) "$fullLabel — ambíguo: $note" else fullLabel,
-            page = page ?: tail.page,
-            pageEnd = pageEnd ?: tail.pageEnd,
+            page = finalPage,
+            pageEnd = fullPageEnd(finalPage, pageEnd ?: tail.pageEnd),
             paragraph = paragraph ?: tail.paragraph,
             paragraphEnd = paragraphEnd ?: tail.paragraphEnd,
             ambiguous = ambiguous,
@@ -615,7 +616,13 @@ object RefDetector {
             val end = m.groupValues[3]
             val par = m.groupValues[4].toIntOrNull()
             val parEnd = m.groupValues[5].toIntOrNull()
-            val pageLabel = if (end.isEmpty()) page else "$page-$end"
+            val pageInt = page.toIntOrNull()
+            val pageEndInt = fullPageEnd(pageInt, end.toIntOrNull())
+            val pageLabel = if (pageEndInt == null || pageEndInt == pageInt) {
+                page
+            } else {
+                "$page-$pageEndInt"
+            }
             val unitLabel = listOfNotNull(
                 "pág. $pageLabel",
                 par?.let { if (parEnd != null && parEnd != it) "§§ $it-$parEnd" else "§ $it" },
@@ -628,8 +635,8 @@ object RefDetector {
                     "${PubCatalog.titleOf(canonical) ?: canonical} ($unitLabel)",
                     // T1 (refs por página): o número nu é página — expõe no
                     // campo para o aviso específico (UNRESOLVED continua).
-                    page = page.toIntOrNull(),
-                    pageEnd = end.toIntOrNull(),
+                    page = pageInt,
+                    pageEnd = pageEndInt,
                     paragraph = par,
                     paragraphEnd = parEnd,
                 )
@@ -786,34 +793,57 @@ object RefDetector {
                 val par = m.groupValues[4].toIntOrNull() ?: m.groupValues[5].toIntOrNull()
                 // T2: separa a unidade citada (capítulo/lição/estudo × página
                 // × parágrafo) para o resolvedor achar o trecho exato.
-                val chapter = if (num != null && (k.startsWith("cap") || k.startsWith("li") ||
-                        k.startsWith("est"))) "$keyword $num" else null
-                val page = if (num != null && k.startsWith("pag")) num else null
+                // `cl` (Achegue-se a Jeová) cita página + §, não "estudo N":
+                // "cl 225 §15" é a página 225, não o estudo 225.
+                val pageBook = canonical == "cl"
+                val chapter = if (!pageBook && num != null &&
+                    (k.startsWith("cap") || k.startsWith("li") || k.startsWith("est"))
+                ) {
+                    "$keyword $num"
+                } else {
+                    null
+                }
+                val page = if (num != null && (k.startsWith("pag") || pageBook)) num else null
                 val paragraph = par ?: if (num != null && (k.startsWith("par") ||
                         k.startsWith("n"))) num else null
                 bookKeys += canonical
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
-                        "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical,
+                        "book|$canonical",
+                        if (pageBook && num != null) {
+                            "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $num)"
+                        } else {
+                            PubCatalog.titleOf(canonical) ?: canonical
+                        },
                         chapter = chapter, page = page, paragraph = paragraph,
                     )
                 )
             }
         }
-        // livro + estudo + parágrafo: "jr 27 § 22" (validado no catálogo)
+        // livro + estudo + parágrafo: "jr 27 § 22" (validado no catálogo).
+        // `cl` é a exceção: "cl 225 §15" é página + §, não "estudo 225".
         Regex("""\b([a-z]{2,4})\s+(\d{1,3})\s*§\s*(\d{1,3})\b""").findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             if (PubCatalog.isSymbol(sym)) {
                 val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+                val num = m.groupValues[2].toIntOrNull()
+                val par = m.groupValues[3].toIntOrNull()
+                val pageBook = canonical == "cl"
                 bookKeys += canonical
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
                         "book|$canonical",
-                        "${PubCatalog.titleOf(canonical) ?: canonical} (estudo ${m.groupValues[2]})",
-                        chapter = "estudo ${m.groupValues[2]}",
-                        paragraph = m.groupValues[3].toInt(),
+                        if (pageBook && num != null) {
+                            "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $num)"
+                        } else {
+                            "${PubCatalog.titleOf(canonical) ?: canonical} " +
+                                "(estudo ${m.groupValues[2]})"
+                        },
+                        chapter = if (pageBook) null else "estudo ${m.groupValues[2]}",
+                        page = if (pageBook) num else null,
+                        paragraph = par,
                     )
                 )
             }
@@ -892,7 +922,7 @@ object RefDetector {
                     "book|$canonical", PubCatalog.titleOf(canonical) ?: canonical,
                     chapter = chap?.let { "${it.groupValues[1]} ${it.groupValues[2]}" },
                     page = unit.page,
-                    pageEnd = unit.pageEnd,
+                    pageEnd = fullPageEnd(unit.page, unit.pageEnd),
                     paragraph = unit.paragraph,
                     paragraphEnd = unit.paragraphEnd,
                 )
@@ -1392,7 +1422,10 @@ object RefDetector {
      */
     fun leadingParagraphNumber(text: String): Int? {
         val trimmed = text.trim()
-        if (trimmed.length < 20) return null
+        // Títulos de § podem ser curtos ("15 Nossas ações"); o regex abaixo
+        // já exige número + palavra maiúscula. O piso antigo de 20 chars
+        // escondia justamente os títulos usados para recortar faixas.
+        if (trimmed.length < 4) return null
         // Linha de citação bíblica ("1 João 4:8", "1 Coríntios 14:33") não é
         // parágrafo numerado — o "1" é o número do livro.
         if (Regex("""^\d{1,3}\s+\S+\s+\d{1,3}:\d{1,3}""").containsMatchIn(trimmed)) {
@@ -1400,6 +1433,23 @@ object RefDetector {
         }
         return Regex("""^(\d{1,3})[.)]?\s+[A-ZÀ-Ú]""")
             .find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
+    /**
+     * Expande faixas abreviadas de página: "142-4" → 142..144,
+     * "749-51" → 749..751, "140-1" → 140..141. Faixas normais
+     * ("8-11", "52-55") ficam intactas. Devolve [end] quando não é
+     * possível expandir com segurança (evita inventar faixas absurdas).
+     */
+    fun fullPageEnd(page: Int?, end: Int?): Int? {
+        if (page == null || end == null) return end
+        if (end >= page) return end
+        val pageText = page.toString()
+        val endText = end.toString()
+        if (endText.length >= pageText.length) return end
+        val expanded = (pageText.dropLast(endText.length) + endText)
+            .toIntOrNull() ?: return end
+        return if (expanded > page && expanded - page <= 99) expanded else end
     }
 
     fun resolveContent(
@@ -1538,14 +1588,19 @@ object RefDetector {
                 val parsed = if (kind == Kind.MAGAZINE) {
                     MagazineEditionParser.parse(raw)
                 } else null
+                val jsonPage = m.groupValues[8].toIntOrNull()?.takeIf { it >= 0 }
+                val jsonPageEnd = fullPageEnd(
+                    jsonPage,
+                    m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
+                )
                 DetectedRef(
                     raw,
                     kind,
                     un(m.groupValues[3]), un(m.groupValues[4]), un(m.groupValues[5]),
                     article = un(m.groupValues[6]).ifBlank { null },
                     chapter = un(m.groupValues[7]).ifBlank { null },
-                    page = m.groupValues[8].toIntOrNull()?.takeIf { it >= 0 },
-                    pageEnd = m.groupValues[9].toIntOrNull()?.takeIf { it >= 0 },
+                    page = jsonPage,
+                    pageEnd = jsonPageEnd,
                     paragraph = m.groupValues[10].toIntOrNull()?.takeIf { it >= 0 },
                     paragraphEnd = m.groupValues[11].toIntOrNull()?.takeIf { it >= 0 },
                     ambiguous = parsed?.isAmbiguous == true,
