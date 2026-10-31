@@ -1,6 +1,6 @@
 # Matriz C2.6/C2.8 no tablet — 391 refs / 238 edições (2026-10-31)
 
-**Branches:** spike `spike/matriz-c26-tablet` @ `aa4e4bd` (matcher
+**Branches:** spike `spike/matriz-c26-tablet` @ `3a57416` (matcher
 `2683887`, C2.8 `2e7acd7`); release `main` @ `40ceb95` (3.0.4/35, matcher);
 C2.8 `fix/c28-book-prompt` @ `73f3bd6`.
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
