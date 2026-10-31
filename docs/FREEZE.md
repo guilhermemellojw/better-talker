@@ -75,7 +75,7 @@
 > **2026-10-31 — v3.0.3/34 publicada:** C2.7 fecha as 16 perdas por título
 > de livro (`Beneficie-se`/`Criador`) e deduplica `lvs`. Matriz final: 49
 > esboços, **391 refs**, 0 página/§ perdido, 0 duplicata. **2.760 testes/0**,
-> lint verde. Tag `v3.0.3`. Texto/ação das 391 refs continua dependente do
+> lint verde. Tag `v3.0.3`; SHA-256 `46651aa0…9d831`. Texto/ação das 391 refs continua dependente do
 > acervo completo.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
