@@ -45,6 +45,12 @@ android {
         }
     }
     buildTypes {
+        // Spike C2.6: app separado para a matriz no tablet. O release
+        // (com.bettertalker.app) e o A34/#192 ficam intocados.
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
         release {
             minifyEnabled false
             debuggable false

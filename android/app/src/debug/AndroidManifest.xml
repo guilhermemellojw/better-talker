@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Spike C2.6: só no .debug; o release não recebe estes componentes. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application>
+        <activity
+            android:name=".matrix.MatrixRunnerActivity"
+            android:exported="true"
+            android:label="Matriz C2.6 (debug)"
+            android:theme="@style/AppTheme" />
+
+        <service
+            android:name=".matrix.MatrixRunnerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>
