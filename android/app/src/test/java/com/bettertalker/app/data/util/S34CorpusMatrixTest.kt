@@ -80,8 +80,10 @@ class S34CorpusMatrixTest {
             val text = DocExtractors.readDocx(file)
             val parsed = OutlineParser.parse(text, file.name)
             if (parsed.sections.isEmpty()) {
-                if (com.bettertalker.app.data.s34.S34Parser.parseS34(text).sections.isNotEmpty()) {
+                val doc = com.bettertalker.app.data.s34.S34Parser.parseS34(text)
+                if (doc.sections.isNotEmpty()) {
                     parsedByS34++
+                    validateS34Document(file.name, text, doc)
                 }
                 continue
             }
@@ -112,5 +114,35 @@ class S34CorpusMatrixTest {
             1,
             lvs194.count { it.paragraph == 18 },
         )
+    }
+
+    private fun validateS34Document(
+        fileName: String,
+        text: String,
+        doc: com.bettertalker.app.data.s34.S34Document,
+    ) {
+        assertTrue("$fileName: sem seções", doc.sections.isNotEmpty())
+        doc.sections.forEachIndexed { index, section ->
+            assertEquals("$fileName: ordem da seção", index + 1, section.order)
+            assertTrue("$fileName: seção vazia ${section.title}", section.content.isNotBlank())
+            section.subsections.forEachIndexed { subIndex, sub ->
+                assertEquals("$fileName: ordem do subponto", subIndex + 1, sub.order)
+                assertTrue("$fileName: subponto vazio ${section.title}", sub.content.isNotBlank())
+            }
+            (section.references + section.subsections.flatMap { it.references }).forEach { ref ->
+                assertTrue("$fileName: ref vazia", ref.rawText.isNotBlank())
+                ref.publication?.let {
+                    assertTrue("$fileName: ref sem edição", it.editionKey.isNotBlank())
+                }
+            }
+        }
+        val refs = doc.references
+        assertEquals("$fileName: refs fora de ordem", refs.sortedBy { it.order }, refs)
+        val declared = Regex("""A\s+SER\s+ABRANGIDO\s+EM\s*(\d+)\s*MINUTOS?""", RegexOption.IGNORE_CASE)
+            .find(text)?.groupValues?.get(1)?.toIntOrNull()
+        val minutes = doc.sections.mapNotNull { it.minutes }
+        if (declared != null && minutes.size == doc.sections.size) {
+            assertEquals("$fileName: soma dos minutos", declared, minutes.sum())
+        }
     }
 }

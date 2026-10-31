@@ -41,11 +41,17 @@ o mesmo parágrafo. `lvs 194 §18` agora rende **uma** entrada.
   - Beneficie-se páginas 52-55;
   - Criador páginas 8-9;
   - `lvs 194 §18` sem duplicata.
-- **2.763 testes JVM / 0 falhas** na main após a matriz.
+- **2.764 testes JVM / 0 falhas** na main com os DOCX; no CI são **2.761**
+  executados + 3 `S34CorpusMatrixTest` ignorados por falta dos arquivos.
 - `lintRelease` verde.
-- `S34CorpusMatrixTest` (local, skipped no CI sem os DOCX): 49 arquivos,
-  391 refs, 0 página/§ perdido; 9 reconhecidos pelo `OutlineParser` e 40
-  pelo `S34Parser`.
+- `S34CorpusMatrixTest` (local): 49 arquivos, 391 refs, 0 página/§ perdido;
+  9 reconhecidos pelo `OutlineParser` e 40 pelo `S34Parser`.
+- **`S34CorpusFixtureTest` (CI-safe):** 391 linhas de contexto/ref/edição/
+  unidade em `android/app/src/test/resources/s34-c26-fixture.tsv`; roda em
+  todo CI sem os DOCX.
+- **Invariantes dos 40 `S34Parser`:** ordem de seções/subpontos, conteúdo
+  não vazio, refs com `rawText`/edição e soma de minutos quando o total
+  declarado está presente e todas as seções têm minutos.
 
 ## Limites
 
