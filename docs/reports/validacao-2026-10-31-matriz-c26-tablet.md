@@ -1,10 +1,12 @@
 # Matriz C2.6 no tablet — 391 refs / 238 edições (2026-10-31)
 
-**Branch:** `spike/matriz-c26-tablet` (base `main` @ `1dd5c97`, v3.0.3)
+**Branch:** `spike/matriz-c26-tablet` (base `main` @ `1dd5c97`, v3.0.3;
+commit do spike `2683887`)
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
 1600×2560 · 172 GB livres · Wi-Fi `Guilherme_5G`
 **APK:** `com.bettertalker.app.debug` (3.0.3-debug, versionCode 34), separado do
-release `com.bettertalker.app`.
+release `com.bettertalker.app`. SHA-256 do APK:
+`f4498898dd43234ab6f1fcf93601bbf157b656877b075593cb2b34b962783962`.
 **A34/#192:** não conectado, não tocado.
 **Testes JVM (release-main):** **2.771 / 0 falhas** (inclui
 `RefDetectorEditionMatchTest`).
