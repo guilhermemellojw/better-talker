@@ -1,7 +1,7 @@
 # Matriz C2.6/C2.8 no tablet — 391 refs / 238 edições (2026-10-31)
 
 **Branches:** spike `spike/matriz-c26-tablet` @ `8fecbef`; release **3.0.6/37**
-tag `v3.0.6` @ `032ac41`; **3.0.5/36** tag `v3.0.5` @ `dc5137c`; **3.0.4/35**
+tag `v3.0.6` @ `77d7142`; **3.0.5/36** tag `v3.0.5` @ `dc5137c`; **3.0.4/35**
 tag `v3.0.4` @ `40ceb95`.
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
 1600×2560 · 172 GB livres · Wi-Fi `Guilherme_5G`
@@ -139,14 +139,14 @@ limite de 4.000 chars; os outros **146** couberam inteiros.
 
 | Edição | Ref |
 |---|---|
-| `book|it-1` | `it-1 544 § 4` |
-| `book|it-2` | `it-2 890 §§ 5-6` |
-| `book|it-1` | `it-1 587 § 6` |
-| `w|2006|5|15` | `Sentinela 15/05/06` |
-| `w|2006|3|15` | `Sentinela 15/03/06` |
-| `w|2006|4|1` | `Sentinela 01/04/06` |
-| `wp|2016|3` | `A Sentinela N.º 3 de 2016` |
-| `book|jy` | `jy 144 § 7` |
+| `book\|it-1` | `it-1 544 § 4` |
+| `book\|it-2` | `it-2 890 §§ 5-6` |
+| `book\|it-1` | `it-1 587 § 6` |
+| `w\|2006\|5\|15` | `Sentinela 15/05/06` |
+| `w\|2006\|3\|15` | `Sentinela 15/03/06` |
+| `w\|2006\|4\|1` | `Sentinela 01/04/06` |
+| `wp\|2016\|3` | `A Sentinela N.º 3 de 2016` |
+| `book\|jy` | `jy 144 § 7` |
 
 Os 3 `it-1`/`it-2` são § sem página em edição com índice de página: o
 resolvedor **não** usa o § global (evita outro artigo) e devolve
