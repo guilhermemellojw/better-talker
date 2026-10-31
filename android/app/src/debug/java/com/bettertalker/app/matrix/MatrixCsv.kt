@@ -70,7 +70,7 @@ object MatrixCsv {
                 "file,raw,edition,page,pageEnd,paragraph,paragraphEnd,ambiguous," +
                     "status,motivo,acao,formato,arquivo,arquivo_esperado,wrong_edition," +
                     "resolver_status,resolver_canonical,resolver_chars," +
-                    "cited_ok,cited_detail,note_source"
+                    "cited_ok,cited_detail,note_source,prompt_chars"
             )
             results.forEach { r ->
                 w.appendLine(
@@ -83,6 +83,7 @@ object MatrixCsv {
                         r.expectedFileName.orEmpty(), r.wrongEdition.toString(),
                         r.resolverStatus, r.resolverCanonical.orEmpty(), r.resolverChars.toString(),
                         r.citedOk.toString(), r.citedDetail.orEmpty(), r.noteSourceFound.toString(),
+                        r.promptChars.toString(),
                     ).joinToString(",") { csv(it) }
                 )
             }
@@ -145,6 +146,16 @@ object MatrixCsv {
                 appendLine("  EDITION_MISSING: ${matrix.editionMissing}")
                 appendLine("  outros: ${matrix.other}")
                 appendLine("  utilizáveis (RESOLVED+PARTIAL): ${matrix.usable} (${"%.1f".format(pct)}%)")
+                appendLine()
+                appendLine("PROMPT (conteúdo; be/th excluídos)")
+                appendLine("  cited_ok: ${matrix.promptOk}/${matrix.contentTotal}")
+                appendLine("  prompt_coverage: ${"%.1f".format(matrix.contentPromptCoverage)}%")
+                appendLine("  prompt_chars: ${matrix.promptChars}")
+                appendLine("  meta: >= 90%")
+                appendLine()
+                appendLine("TRAINING (be/th; não é conteúdo)")
+                appendLine("  refs: ${matrix.trainingCount} (excluídos do denominador)")
+                appendLine("  todos_os_refs: ${matrix.promptOk}/${matrix.total} = ${"%.1f".format(matrix.allPromptCoverage)}%")
                 appendLine()
                 appendLine("STATUS")
                 matrix.results.groupingBy { it.status }.eachCount()

@@ -87,6 +87,12 @@ object RefDetector {
         val contentNote: String? = null,
         /** Trecho do corpus que sustenta a citação (quando [contentResolved]). */
         val snippet: String? = null,
+        /**
+         * C2.8: texto completo que o prompt deve receber. Pode ser maior que
+         * [snippet] (a UI mostra um recorte; o Copilot recebe a unidade).
+         * Preenchido pelo MESMO resolvedor que define o status da UI.
+         */
+        val promptText: String? = null,
         /** Aviso quando a citação não tem fonte no acervo pesquisado. */
         val contentWarning: String? = null
     )

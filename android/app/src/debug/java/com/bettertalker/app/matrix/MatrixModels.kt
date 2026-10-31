@@ -81,6 +81,8 @@ data class MatrixResult(
     val expectedFileName: String?,
     val wrongEdition: Boolean,
     val noteSourceFound: Boolean,
+    /** C2.8: chars que o prompt realmente recebeu para esta ref (0 = fora). */
+    val promptChars: Int,
 )
 
 data class MatrixReport(
@@ -95,4 +97,13 @@ data class MatrixReport(
     val editionMissing: Int get() = results.count { it.status == "EDITION_MISSING" }
     val other: Int get() = total - resolved - partial - textNotFound - editionMissing
     val usable: Int get() = resolved + partial
+    /** C2.8: refs de conteúdo que realmente entram no prompt. */
+    val promptOk: Int get() = results.count { it.promptChars > 0 }
+    val trainingCount: Int get() = results.count { it.status == "TRAINING" }
+    val contentTotal: Int get() = total - trainingCount
+    val contentPromptCoverage: Double
+        get() = if (contentTotal == 0) 0.0 else promptOk * 100.0 / contentTotal
+    /** Transparência: inclui be/th (não são conteúdo). */
+    val allPromptCoverage: Double get() = if (total == 0) 0.0 else promptOk * 100.0 / total
+    val promptChars: Int get() = results.sumOf { it.promptChars }
 }

@@ -12,6 +12,8 @@ import com.bettertalker.app.data.util.SourceAction
 import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.util.citationReason
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.isTrainingSource
+import com.bettertalker.app.data.repo.citedPromptText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -40,6 +42,14 @@ class MatrixRunner(
         )
         log("MATRIZ NoteSources=${noteSources.total} resolvidas=${noteSources.resolved}")
         val sources = noteSources.sources
+        // C2.8: o prompt real é o caminho citedSources(noteSources), não a
+        // resolução isolada por ref. Ele usa o mesmo promptText da UI.
+        val citedAll = withContext(Dispatchers.IO) { copilot.citedSources(noteSources) }
+        val citedByRef = citedAll.sources.associateBy { it.reference }
+        log(
+            "MATRIZ citedSources=${citedAll.sources.size} " +
+                "unavailable=${citedAll.unavailable.size}"
+        )
 
         val results = mutableListOf<MatrixResult>()
         rows.forEachIndexed { i, row ->
@@ -47,36 +57,54 @@ class MatrixRunner(
             val resolved = withContext(Dispatchers.IO) {
                 resolver.resolvePublication(publicationRefOf(ref))
             }
-            val cited = withContext(Dispatchers.IO) {
-                copilot.citedSources(listOf(ref))
-            }
             val source = findSource(sources, row, ref)
+            val training = source?.isTrainingSource() == true
+            val promptText = if (training) "" else source?.let { citedPromptText(it) }.orEmpty()
+            val citedSource = citedByRef[source?.ref] ?: citedByRef[row.raw]
+            // Métrica oficial: a ref de conteúdo está no `citedSources` que
+            // alimenta o prompt E o texto não é vazio. be/th são orientação
+            // e ficam fora do denominador de conteúdo.
+            val citedOk = !training && citedSource != null && promptText.isNotBlank()
             val acervoResult = acervo.byEdition[row.edition]
             val expected = acervoResult?.expectedFileName
             val actual = source?.fileName ?: acervoResult?.fileName
-            val wrongEdition = expected != null && actual != null && actual != expected
+            val wrongEdition = !training && expected != null && actual != null && actual != expected
             val format = actual?.substringAfterLast('.', "")?.uppercase()?.takeIf { it.isNotBlank() }
                 ?: acervoResult?.format
-            val status = if (wrongEdition) "WRONG_EDITION" else statusOf(source, resolved.status)
+            val status = when {
+                training -> "TRAINING"
+                wrongEdition -> "WRONG_EDITION"
+                else -> statusOf(source, resolved.status)
+            }
             val reason = when {
+                training -> "orientação de oratória (be/th); não entra como conteúdo"
                 wrongEdition -> "matcher usou $actual; esperado $expected"
                 source != null -> citationReason(source)
                 resolved.text != null -> "resolver ${resolved.status.name.lowercase()} (${resolved.text.length} chars)"
                 else -> "resolver ${resolved.status.name.lowercase()}"
             }
-            val action = if (wrongEdition) "FIX_MATCHER" else source?.citation?.action?.name
-                ?: when (resolved.status.name) {
-                    "RESOLVED", "PARTIAL" -> SourceAction.NONE.name
-                    "MISSING_CORPUS" -> SourceAction.DOWNLOAD.name
-                    else -> SourceAction.REINDEX.name
-                }
+            val action = when {
+                training -> "NONE"
+                wrongEdition -> "FIX_MATCHER"
+                else -> source?.citation?.action?.name
+                    ?: when (resolved.status.name) {
+                        "RESOLVED", "PARTIAL" -> SourceAction.NONE.name
+                        "MISSING_CORPUS" -> SourceAction.DOWNLOAD.name
+                        else -> SourceAction.REINDEX.name
+                    }
+            }
             results += MatrixResult(
                 row = row,
                 resolverStatus = resolved.status.name,
                 resolverCanonical = resolved.canonicalRef,
                 resolverChars = resolved.text?.length ?: 0,
-                citedOk = cited.sources.isNotEmpty(),
-                citedDetail = cited.unavailableDetails.firstOrNull(),
+                citedOk = citedOk,
+                citedDetail = if (training) {
+                    "orientação de oratória (be/th)"
+                } else {
+                    citedAll.unavailableDetails.firstOrNull { it.contains(row.raw) }
+                        ?: if (citedSource == null && promptText.isBlank()) "sem texto no prompt" else null
+                },
                 status = status,
                 reason = reason,
                 action = action,
@@ -86,6 +114,7 @@ class MatrixRunner(
                 expectedFileName = expected,
                 wrongEdition = wrongEdition,
                 noteSourceFound = source != null,
+                promptChars = if (training) 0 else promptText.length,
             )
             if ((i + 1) % 25 == 0 || i == rows.lastIndex) {
                 log("MATRIZ ${i + 1}/${rows.size} último=${row.raw} → $status")

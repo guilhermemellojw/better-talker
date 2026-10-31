@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.repo
 
+import com.bettertalker.app.data.util.NoteSource
+import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.domain.planning.ReferenceStatus
 
 /**
@@ -14,6 +16,20 @@ import com.bettertalker.app.domain.planning.ReferenceStatus
 /** RESOLVED e PARTIAL são fontes utilizáveis; o resto vira referência sem texto. */
 internal fun isCitedSourceUsable(status: ReferenceStatus): Boolean =
     status == ReferenceStatus.RESOLVED || status == ReferenceStatus.PARTIAL
+
+/**
+ * C2.8 — texto que o prompt recebe para uma fonte. Prioriza o `promptText`
+ * do MESMO `RefStatus` que definiu o status da UI; o `snippet` (recorte de
+ * 600 chars) é o fallback. Vazio = fonte sem texto (não entra no prompt).
+ *
+ * Puro/testável.
+ */
+internal fun citedPromptText(source: NoteSource): String {
+    if (source.kind != SourceKind.PUBLICATION) return ""
+    val st = source.refStatus ?: return ""
+    return st.promptText?.trim().orEmpty()
+        .ifBlank { st.snippet?.trim().orEmpty() }
+}
 
 /**
  * Linha de motivo para o bloco "REFERÊNCIAS ... SEM TEXTO".
