@@ -500,16 +500,54 @@ class CopilotRepository(private val db: AppDatabase) {
         statuses: List<RefDetector.RefStatus>
     ): List<RefDetector.RefStatus> {
         if (statuses.isEmpty()) return statuses
+        // C2.8: o status da UI e o texto do prompt precisam sair do MESMO
+        // resolvedor. Antes o checklist usava `resolveContent` (fallback por
+        // página/contexto) e o prompt re-resolvia por `RoomReferenceResolver`,
+        // que podia não achar o livro e descartar o texto.
+        val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
+            db.passageDao(), db.attachmentDao()
+        )
         return statuses.map { st ->
-            val candidates = contentCandidatesFor(st.ref)
-            val check = RefDetector.resolveContent(st.ref, candidates.passages, candidates.corpusAvailable)
-            st.copy(
-                contentResolved = check.resolved,
-                contentPartial = check.partial,
-                contentNote = check.note,
-                snippet = check.snippet,
-                contentWarning = check.warning
-            )
+            val resolved = resolver.resolvePublication(publicationRefOf(st.ref))
+            val resolvedText = resolved.text?.trim().orEmpty()
+            if (isCitedSourceUsable(resolved.status) && resolvedText.isNotBlank()) {
+                st.copy(
+                    contentResolved = true,
+                    contentPartial = resolved.status ==
+                        com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
+                    contentNote = if (resolved.status ==
+                        com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL
+                    ) {
+                        "trecho localizado pela unidade/contexto"
+                    } else {
+                        null
+                    },
+                    snippet = resolvedText.take(600),
+                    promptText = resolvedText.take(
+                        com.bettertalker.app.data.planning.MAX_UNIT_CHARS
+                    ),
+                    contentWarning = null,
+                )
+            } else {
+                // Fallback do checklist: página/§, página, contexto ou o
+                // anexo inteiro. Se achar texto, a UI é PARTIAL e o prompt
+                // recebe o mesmo texto.
+                val candidates = contentCandidatesFor(st.ref)
+                val check = RefDetector.resolveContent(
+                    st.ref, candidates.passages, candidates.corpusAvailable
+                )
+                val fallbackText = check.snippet?.trim().orEmpty()
+                st.copy(
+                    contentResolved = check.resolved && fallbackText.isNotBlank(),
+                    contentPartial = check.partial,
+                    contentNote = check.note,
+                    snippet = check.snippet,
+                    promptText = fallbackText.takeIf { it.isNotBlank() }?.take(
+                        com.bettertalker.app.data.planning.MAX_UNIT_CHARS
+                    ),
+                    contentWarning = check.warning,
+                )
+            }
         }
     }
 
@@ -685,6 +723,28 @@ class CopilotRepository(private val db: AppDatabase) {
         for (source in noteSources.sources) {
             // be/th são orientação de oratória (TRAINING), nunca conteúdo.
             if (source.isTrainingSource()) continue
+            // C2.8: se a UI tem texto (promptText/snippet), o prompt usa o
+            // MESMO texto. Não re-resolve e não descarta uma fonte que o
+            // checklist mostra como "No acervo".
+            val promptText = citedPromptText(source)
+            if (source.kind == SourceKind.PUBLICATION &&
+                source.citation.edition == com.bettertalker.app.data.util.EditionStatus.READY &&
+                promptText.isNotBlank()
+            ) {
+                sources += EvidenceSource(
+                    id = "cite-" + source.ref.hashCode() + "-" + promptText.hashCode(),
+                    reference = source.ref,
+                    text = promptText,
+                    sourceType = SourceType.CONTENT,
+                    publication = source.publicationLabel ?: source.publicationKey,
+                    section = source.refStatus?.ref?.article ?: source.refStatus?.ref?.chapter,
+                    paragraph = source.refStatus?.ref?.paragraph,
+                    page = source.refStatus?.ref?.page,
+                    score = 1.0,
+                    foundBy = listOf("cited", "noteSources"),
+                )
+                continue
+            }
             if (source.citation.blocksAnswer) {
                 // NUNCA silencioso e NUNCA "não existe": leva o motivo real
                 // (edição ausente, indexação falhou, ambígua, baixando…).
