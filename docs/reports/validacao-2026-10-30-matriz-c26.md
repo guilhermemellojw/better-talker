@@ -96,7 +96,8 @@ As linhas com 1 perda são o `Beneficie-se, páginas 52-55` (título de livro).
 
 ## Limite desta medição
 
-O CSV completo está em `/tmp/opencode/c26-matrix.csv` (não versionado). A
+O CSV sanitizado (apenas refs/edição/unidade, sem texto dos DOCX) está em
+`docs/reports/matriz-c26-2026-10-30.csv`. A
 medição de **texto/ação** por ref não foi feita para os 49 esboços porque o
 acervo do A34 tinha apenas `g 2013`, `wp 2019` e `lmd`; as quatro refs reais
 dessas edições foram validadas no A34 (relatório C2.6). Para fechar a matriz
