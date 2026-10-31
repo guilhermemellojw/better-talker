@@ -13,6 +13,8 @@ import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.matchBaseSlot
+import com.bettertalker.app.data.util.PublicationScanner
+import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.work.IndexPublicationWorker
 import com.bettertalker.app.data.work.RegisterDownloadWorker
@@ -85,6 +87,42 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Phase 2 — Escaneia Downloads e auto-importa publicações citadas que
+     * estão faltando no acervo. Dedupe por edição: não reimporta se já existe.
+     *
+     * @param citedRefs publicações citadas na nota
+     * @param existingAttachments anexos já no acervo (para dedupe)
+     * @return ScanResult com contagens e detalhes
+     */
+    suspend fun scanAndImportMissing(
+        citedRefs: List<com.bettertalker.app.data.util.RefDetector.DetectedRef>,
+        existingAttachments: List<AttachmentEntity>,
+    ): PublicationScanner.ScanResult = withContext(Dispatchers.IO) {
+        val candidates = scanDownloads()
+        val matches = PublicationScanner.match(candidates, citedRefs, existingAttachments)
+        val toImport = matches.filter { !it.alreadyInAcervo }
+        var imported = 0
+        for (match in toImport) {
+            try {
+                importUri(android.net.Uri.parse(match.candidate.uriString))
+                imported++
+            } catch (_: Exception) {
+                // registra falha, não aborta
+            }
+        }
+        val alreadyCount = matches.count { it.alreadyInAcervo }
+        val notFound = PublicationScanner.notFoundRefs(citedRefs, matches)
+        val unrecognized = PublicationScanner.unrecognizedCandidates(candidates, matches)
+        PublicationScanner.ScanResult(
+            matches = matches,
+            imported = imported,
+            alreadyInAcervo = alreadyCount,
+            notFound = notFound,
+            unrecognized = unrecognized,
+        )
     }
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)
