@@ -1,47 +1,110 @@
-# Matriz C2.6 no tablet — 391 refs / 238 edições (2026-10-31)
+# Matriz C2.6/C2.8 no tablet — 391 refs / 238 edições (2026-10-31)
 
 **Branch:** `spike/matriz-c26-tablet` (base `main` @ `1dd5c97`, v3.0.3;
-commit do spike `2683887`)
+matcher `2683887`, C2.8 `2e7acd7`)
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
 1600×2560 · 172 GB livres · Wi-Fi `Guilherme_5G`
 **APK:** `com.bettertalker.app.debug` (3.0.3-debug, versionCode 34), separado do
-release `com.bettertalker.app`. SHA-256 do APK:
-`f4498898dd43234ab6f1fcf93601bbf157b656877b075593cb2b34b962783962`.
+release `com.bettertalker.app`. SHA-256:
+`0d6ed62668b0127441228a81de0cc48acc9b49a2ac3f36c8595ff121628a65e2`.
 **A34/#192:** não conectado, não tocado.
-**Testes JVM (release-main):** **2.771 / 0 falhas** (inclui
-`RefDetectorEditionMatchTest`).
+**Testes JVM (release-main):** **2.776 / 0 falhas**.
 
-## 1. Resultado executivo
+## 1. Resultado final (C2.8 — prompt)
 
 | Métrica | Resultado |
 |---|---|
 | Refs da matriz | **391** |
-| Edições únicas | **238** |
-| Edições prontas/indexadas | **216** |
-| Edições indisponíveis na API | **22** |
+| Refs de CONTEÚDO (sem be/th) | **375** |
+| **`prompt_coverage` (conteúdo)** | **347/375 = 92,5%** (meta ≥90%) |
+| `cited_ok` (todos os refs) | 347/391 = 88,7% |
+| `RESOLVED` | **56** |
+| `PARTIAL` | **291** |
+| `TEXT_NOT_FOUND` | **8** |
+| `EDITION_MISSING` | **20** |
+| `TRAINING` (`be`/`th`) | **16** |
+| `WRONG_EDITION` | **0** |
+| Edições prontas/indexadas | **216/238** |
+| Indisponíveis na API | **22** |
 | Falhas de download/indexação | **0** |
 | Acervo baixado | **2,40 GB** |
-| `RESOLVED` | **279** |
-| `PARTIAL` | **78** |
-| `TEXT_NOT_FOUND` | **14** |
-| `EDITION_MISSING` | **20** |
-| `WRONG_EDITION` | **0** |
-| **Utilizáveis (RESOLVED + PARTIAL)** | **357 / 391 = 91,3%** |
+| `prompt_chars` (conteúdo) | **986.253** |
 
-O alvo de **90% RESOLVED/PARTIAL** foi atingido. O CSV completo está em
-[`matriz-c26-2026-10-31-tablet.csv`](matriz-c26-2026-10-31-tablet.csv); o
-acervo em [`matriz-c26-2026-10-31-acervo.csv`](matriz-c26-2026-10-31-acervo.csv);
+O CSV final está em
+[`matriz-c26-2026-10-31-c28-tablet.csv`](matriz-c26-2026-10-31-c28-tablet.csv);
+o acervo em
+[`matriz-c26-2026-10-31-c28-acervo.csv`](matriz-c26-2026-10-31-c28-acervo.csv);
 o resumo bruto em
-[`matriz-c26-2026-10-31-summary.txt`](matriz-c26-2026-10-31-summary.txt).
+[`matriz-c26-2026-10-31-c28-summary.txt`](matriz-c26-2026-10-31-c28-summary.txt).
+O CSV C2.6/C2.7 anterior (`matriz-c26-2026-10-31-tablet.csv`) fica como
+histórico da métrica de UI (91,3%).
 
-## 2. Achado principal: matcher escolhia a edição errada
+**Por que “todos os refs” é 88,7% e não 92,5%:** os 16 refs `book|be`
+(“Beneficie-se”) são **orientação de oratória** (`TRAINING`), não conteúdo.
+O `citedSources` os exclui de propósito do bloco de conteúdo; o prompt
+recebe o bloco de orientação BE/TH separado. Eles ficam fora do denominador
+de conteúdo (375). A métrica oficial para “o Copilot vê o conteúdo” é
+**347/375 = 92,5%**.
 
-A primeira execução (antes da correção) deu **202 RESOLVED + 81 PARTIAL =
-72,4%**, mas **76 refs** foram marcadas `WRONG_EDITION`: o
+## 2. C2.8 — unificação livro (UI × prompt)
+
+### Antes
+
+| Status da UI (`NoteSources`) | `cited_ok=true` | `cited_ok=false` |
+|---|---:|---:|
+| `RESOLVED` | 245 | **34** |
+| `PARTIAL` | 63 | **15** |
+| `TEXT_NOT_FOUND` | **6** | 8 |
+| `EDITION_MISSING` | 0 | 20 |
+
+A UI dizia **357/391 = 91,3%**, mas o prompt só recebia **314/391 =
+80,3%**. Os dois caminhos discordavam:
+
+- 34 `RESOLVED` + 15 `PARTIAL` apareciam “No acervo”, mas o
+  `citedSources` re-resolvia por `RoomReferenceResolver` e descartava o
+  texto;
+- 6 `TEXT_NOT_FOUND` tinham texto no prompt (`it` com 4.000/936/133 chars),
+  porque o `RoomReferenceResolver` achava a unidade e o `NoteSources` não.
+
+### Correção
+
+- `RefStatus.promptText`: texto completo que o prompt recebe; o `snippet`
+  continua sendo o recorte de 600 chars da UI.
+- `CopilotRepository.enrichContents` usa o **mesmo** `RoomReferenceResolver`
+  (página/§, página, §, contexto) e, se ele não achar, o fallback antigo
+  (página/contexto/anexo). O texto encontrado define
+  `contentResolved`/`contentPartial` — logo, o status da UI e o texto do
+  prompt saem do mesmo lugar.
+- `citedSources(noteSources)` usa `promptText`/`snippet` **antes** de
+  re-resolver; não descarta mais uma fonte que a UI mostra no acervo.
+- `be`/`th` são `TRAINING`: não entram no bloco de conteúdo nem no
+  denominador; o prompt recebe o bloco de orientação separado.
+- `citedPromptText` puro/testável; casos novos em `CitedSourceRulesTest`.
+
+### Depois
+
+| Métrica | Antes C2.8 | Depois C2.8 |
+|---|---:|---:|
+| `prompt_coverage` (conteúdo) | 80,3% (314/391) | **92,5% (347/375)** |
+| `RESOLVED` | 245 | 56 |
+| `PARTIAL` | 63 | 291 |
+| `TEXT_NOT_FOUND` com texto | 6 | **0** |
+| `TEXT_NOT_FOUND` genuíno | 8 | **8** |
+| `EDITION_MISSING` | 20 | **20** |
+| `WRONG_EDITION` | 76 (C2.6) | **0** |
+| `TRAINING` | — | **16** |
+
+O `RESOLVED` caiu e o `PARTIAL` subiu porque o resolvedor classifica como
+`PARTIAL` muitos trechos que o `resolveContent` antigo marcava como
+`RESOLVED`. Ambos são utilizáveis; a métrica que importa é o texto no
+prompt. `citedSources` único = 289; `prompt_chars` = 986.253.
+
+## 3. C2.6/C2.7 — matcher escolhia a edição errada
+
+A primeira execução (antes do matcher corrigido) deu **202 RESOLVED + 81
+PARTIAL = 72,4%**, com **76 `WRONG_EDITION`**. O
 `RefDetector.matchEdition` aceitava um arquivo de outra edição quando
 mês/dia apareciam no meio do ano de outro arquivo.
-
-Exemplos reais:
 
 | Ref | Arquivo usado (errado) | Arquivo esperado |
 |---|---|---|
@@ -61,53 +124,54 @@ Em `RefDetector.matchEdition`:
    casar `lvs_T.jwpub`; o match por título continua valendo para nomes
    longos (“Seja Feliz para Sempre.pdf”).
 
-Testes travando os casos: `RefDetectorEditionMatchTest`
+Testes: `RefDetectorEditionMatchTest`
 (`dated_w_naoCasaMesmoMesDiaDeOutroAno`, `dated_w_mesmoAno_mesErradoNaoCasa`,
 `monthly_w_naoCasaMesmoMesDeOutroAno`, `monthly_w_naoCasaDiaDeOutroAno`,
 `livroLv_naoCasaLvs`, `formatoLegadoDeDuasLetrasContinuaCasando`).
 
-**Depois da correção:** 76 `WRONG_EDITION` → **0**; utilizáveis 72,4% →
-**91,3%**.
+**Depois do matcher:** 76 `WRONG_EDITION` → **0**; a métrica de UI subiu
+72,4% → **91,3%**. O C2.8 depois levou o prompt a **92,5% de conteúdo**.
 
-## 3. O que sobrou
+## 4. O que sobrou
 
-### 14 `TEXT_NOT_FOUND` (edição no acervo, trecho não encontrado)
+### 8 `TEXT_NOT_FOUND` genuínos (0 chars no prompt)
 
-Todas são **livros** cujo índice não tem página/§ suficiente para a unidade
-citada:
-
-| Edição | Refs |
+| Edição | Ref |
 |---|---|
-| `book|it-1` / `it-2` / `it “Nações”` / `it “Espírito”` | `it-1 544 § 4`, `it-2 890 §§ 5-6`, `it “Nações” §§ 10`, `it “Espírito” § 27`, `it-1 587 § 6`, `it-1 749-51` |
-| `book|bhs` | `bhs 177 § 10`, `bhs 176 § 8` |
-| `book|sh` | `sh 28` |
-| `book|lff` | `lff lição 14 ponto 1`, `lff lição 22`, `lff lição 46` |
-| `book|jy` | `jy 144 § 7` |
+| `book\|bhs` | `bhs 177 § 10` |
+| `book\|bhs` | `bhs 176 § 8` |
+| `book\|sh` | `(sh 28)` |
+| `book\|lff` | `lff lição 14 ponto 1` |
+| `book\|lff` | `lff lição 22` |
+| `book\|lff` | `lff lição 46` |
+| `book\|jy` | `jy 144 § 7` |
+| `book\|it-1` | `it-1 749-51` |
 
-Ação sugerida pelo app: **REINDEX** (o índice pode estar incompleto para
-página/§ de livros). Não é “edição ausente”.
+Ação: **REINDEX/contexto**. São livros cujo índice não tem página/§
+suficiente para a unidade citada. Não é “edição ausente”.
 
 ### 20 `EDITION_MISSING` (API não entrega o arquivo exato)
-
-São edições datadas antigas ou numeradas em que a API oficial retorna 404
-para o dia exato e só existe a edição mensal (que não casa a ref datada):
 
 `w|2011|7|1`, `w|2008|5|1`, `w|2008|6|1`, `w|2008|9|1`, `w|2014|6|1`,
 `w|2014|10|1`, `w|2013|1|1`, `w|2009|6|1`, `w|2012|1|1`, `w|2014|12|1`,
 `w|2010|10|1`, `w|2011|11|1`, `w|2009|8|1`, `gn|2016|1` (2 refs), `gn|2018|2`.
 
-Ação sugerida: **DOWNLOAD**/página (`PAGE_ONLY`). É a limitação
-`PDF_ONLY`/`UNAVAILABLE` prevista no plano; não há arquivo derivável na API
-para estas edições nesta região.
+Ação: **DOWNLOAD**/página (`PAGE_ONLY`). Edições datadas antigas ou
+numeradas em que a API oficial retorna 404 para o dia exato e só existe a
+edição mensal (que não casa a ref datada). É a limitação
+`PDF_ONLY`/`UNAVAILABLE` prevista.
 
-### 78 `PARTIAL`
+### 291 `PARTIAL` de conteúdo + 16 `TRAINING`
 
-São unidades resolvidas por contexto/recorte aproximado (principalmente
-PDF/EPUB sem página/§ indexados ou livro sem unidade exata). Ação: **OPEN**
-(conferir a unidade). É o caso “aceitar PARTIAL/contexto” — decisão de
-produto.
+- **291 PARTIAL**: unidades resolvidas por página/contexto/recorte
+  aproximado (PDF/EPUB sem página/§ indexados ou livro sem unidade exata).
+  Ação: **OPEN** (conferir a unidade). É o caso “aceitar PARTIAL/contexto”
+  — decisão de produto.
+- **16 TRAINING**: todos `book|be` (“Beneficie-se”). São orientação de
+  oratória, não conteúdo; o prompt recebe o bloco BE/TH separado. Ficam
+  fora do denominador de conteúdo.
 
-## 4. Validação EPUB/PDF reais
+## 5. Validação EPUB/PDF reais
 
 A API/região **não ofereceu edição exclusivamente EPUB ou exclusivamente
 PDF** entre as 238 edições da matriz + 12 candidatas extras. A checagem
@@ -122,9 +186,10 @@ específico de uma edição que oferece os dois:
 | PDF | `w\|2025\|7` | `w_T_202507.pdf` | **READY** (indexado) |
 
 Observação: a edição também tem JWPUB; o matcher prefere JWPUB na matriz.
-A validação prova que o pipeline EPUB/PDF real importa e indexa.
+A validação prova que o pipeline EPUB/PDF real importa e indexa. É um
+**proxy** documentado, não uma edição exclusiva.
 
-## 5. UI e acessibilidade
+## 6. UI e acessibilidade
 
 Nota de fixture: `note-c991f7c5-5690-4428-8b17-882c8535915b`
 (“MATRIZ C2.6 UI”, 2 BODYs com 5 subtópicos cada).
@@ -140,18 +205,20 @@ A árvore mostra `Copilot deste ponto`, `Menu da seção`, `Menu do subtópico`,
 `Linha de raciocínio, 5 subtópicos` e os textos dos subtópicos. **TalkBack
 auditivo** não foi ouvido; a inspeção foi pela árvore (pendência humana).
 
-## 6. Keystore
+## 7. Keystore
 
 - Keystore de release: `~/.better-talker-keystore/better-talker-release.jks`.
-- Duas cópias offline em `~/btwork/keystore-backup/` com permissão `600`:
+- Duas cópias em `~/btwork/keystore-backup/` com permissão `600`:
   - `better-talker-release.jks`
   - `better-talker-release-copy2.jks`
 - **SHA-256 (idêntico nas duas):**
-  `52f974bd4cc20ffece16aef045972b6e596f274f98299379075a11a276582fa3`
+  `52f974bd4cc20ffece16aef045972b6e596f274f98299379075a11a276582fa3`.
 - O `.debug` usa a debug keystore; a release não foi usada no spike.
 - Senhas não foram impressas nem copiadas para o repositório.
+- **Pendência:** as duas cópias estão na mesma máquina; levar uma para
+  fora e testar restauração em outra máquina é custódia humana.
 
-## 7. Como reproduzir
+## 8. Como reproduzir
 
 ```bash
 cd android
@@ -161,7 +228,7 @@ adb shell pm grant com.bettertalker.app.debug android.permission.POST_NOTIFICATI
 adb shell am start -n com.bettertalker.app.debug/com.bettertalker.app.matrix.MatrixRunnerActivity --ez start true
 # acompanhar
 adb logcat -s MatrixC26
-# puxar resultados
+# puxar resultados C2.8
 adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-result.csv > result.csv
 adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-summary.txt
 adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-acervo.csv > acervo.csv
@@ -171,18 +238,38 @@ adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-acervo.csv >
   `android/app/src/debug/assets/matriz-c26.csv`; SHA-256
   `256c66e676a17efa0e11d575e25d51bde8e328059d0ad5d75b30c6819347b37d`).
 - O runner é idempotente: edições exatas já prontas são puladas; o segundo
-  run levou ~38 s (vs. ~6,3 min do primeiro, incluindo 2,4 GB).
+  run leva ~38 s (o primeiro, com 2,4 GB, levou ~6,3 min).
 - O serviço é foreground (`dataSync`) com wake lock; tela stay-on via ADB.
+- O runner agora mede `prompt_chars` e `prompt_coverage`; o status de UI e
+  o texto do prompt saem do mesmo `RefStatus`.
 
-## 8. Limitações e pendências
+## 9. Limitações e pendências
 
 - **49 DOCX não foram commitados**; o CSV contém apenas refs/edição/unidade.
 - **22 edições indisponíveis** na API (datadas antigas/regionais) — não é
   falha do app; o status é `EDITION_MISSING`/`PAGE_ONLY`.
-- **14 TEXT_NOT_FOUND** em livros: índice de página/§ incompleto; decisão
-  futura entre reindexar, usar contexto (PARTIAL) ou aceitar.
+- **8 TEXT_NOT_FOUND genuínos** em livros: índice de página/§ incompleto;
+  decisão futura entre reindexar, usar contexto (PARTIAL) ou aceitar.
+- **291 PARTIAL** de conteúdo: decisão de produto sobre aceitar
+  contexto/recorte.
+- **16 `be` TRAINING**: o prompt recebe o bloco de orientação BE/TH, não o
+  texto como conteúdo; se o produto quiser o texto específico do `be` no
+  prompt, é uma decisão separada.
 - **TalkBack real** e revisão de 20 refs amostradas continuam humanas.
+- **Keystore:** cópia off-machine/restauração em outra máquina pendente.
+- **CI fixture:** o `S34CorpusFixtureTest` cobre o parser; falta testar o
+  `S34ImportHook`/save dos 40 S34Parser.
+- **STT embarcado:** decisão futura.
 - **A34/#192** intocado; o release `com.bettertalker.app` não foi instalado
   no tablet.
-- O matcher corrigido é uma mudança real no app (não só no runner); os
-  testes JVM do release-main estão verdes (2.771).
+
+## 10. Recomendação de release
+
+1. **Cherry-pick do matcher** (`2683887`) para a `main` agora, release
+   **3.0.4/35**. O 3.0.3 publicado ainda escolhe edição errada.
+2. **C2.8** em branch separada (`2e7acd7`), com `prompt_coverage` como
+   gate (meta ≥90% de conteúdo; hoje 92,5%).
+3. **Runner/evidências** ficam no spike (`spike/matriz-c26-tablet`), não
+   vão para o APK de release.
+4. Antes de fechar C2.6/C2.7/C2.8, revisar humanamente as 20 refs
+   amostradas, ouvir o TalkBack e decidir o aceite de PARTIAL/contexto.
