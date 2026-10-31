@@ -125,6 +125,7 @@ class RefDetectorC2FormatsTest {
         )
 
         assertEquals(10, RefDetector.leadingParagraphNumber(text))
+        assertEquals(15, RefDetector.leadingParagraphNumber("15 Nossas ações"))
         assertNull(RefDetector.leadingParagraphNumber("1 João 4:8"))
         assertNull(RefDetector.leadingParagraphNumber("1 Coríntios 14:33"))
         assertNull(
@@ -135,6 +136,47 @@ class RefDetectorC2FormatsTest {
         val check = RefDetector.resolveContent(ref, listOf(passage), corpusAvailable = true)
         assertTrue(check.resolved)
         assertTrue(check.snippet!!.contains("O que Jeová fez"))
+    }
+
+    // ---------- C2.8: faixas abreviadas e cl como página ----------
+
+    @Test
+    fun faixaAbreviadaDePaginaExpande() {
+        val ref = RefDetector.detect("kj 142-4").single { it.pubKey == "kj" }
+        assertEquals(142, ref.page)
+        assertEquals(144, ref.pageEnd)
+    }
+
+    @Test
+    fun faixaAbreviadaDeRevistaAntigaExpande() {
+        val ref = RefDetector.detect("w73 1/3 140-1")
+            .single { it.editionKey == "w|1973|3|1" }
+        assertEquals(140, ref.page)
+        assertEquals(141, ref.pageEnd)
+    }
+
+    @Test
+    fun faixaAbreviadaDeItExpande() {
+        val ref = RefDetector.detect("it-1 749-51").single { it.pubKey == "it-1" }
+        assertEquals(749, ref.page)
+        assertEquals(751, ref.pageEnd)
+    }
+
+    @Test
+    fun clNumeroGrandeEhPaginaNaoEstudo() {
+        val ref = RefDetector.detect("cl 225 § 15").single { it.pubKey == "cl" }
+        assertEquals(225, ref.page)
+        assertEquals(15, ref.paragraph)
+        assertNull(ref.chapter)
+    }
+
+    @Test
+    fun fullPageEndNaoMexeFaixaNormal() {
+        assertEquals(11, RefDetector.fullPageEnd(8, 11))
+        assertEquals(55, RefDetector.fullPageEnd(52, 55))
+        assertEquals(144, RefDetector.fullPageEnd(142, 4))
+        assertEquals(751, RefDetector.fullPageEnd(749, 51))
+        assertEquals(141, RefDetector.fullPageEnd(140, 1))
     }
 
     @Test

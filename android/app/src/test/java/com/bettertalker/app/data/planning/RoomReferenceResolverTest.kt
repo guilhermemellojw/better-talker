@@ -475,6 +475,114 @@ class RoomReferenceResolverTest {
     }
 
     @Test
+    fun resolvePublication_paginaComIndiceSemParagrafo_naoUsaParagrafoGlobal() = runBlocking {
+        // it-1 544 §4: a página 544 não tem §4; o fallback global pegaria
+        // o §4 de outro artigo (página 12). Com página indexada, não pode.
+        val rows = listOf(
+            passage(
+                "a8", "w25.07", "w25.07 p22 §8", "Parágrafo oito da página 22.",
+                "paragrafo oito da pagina 22", ord = 0, paragraph = 8, page = 22,
+            ),
+            passage(
+                "b8", "w25.07", "w25.07 p30 §8", "Parágrafo oito da página 30.",
+                "paragrafo oito da pagina 30", ord = 1, paragraph = 8, page = 30,
+            ),
+        )
+        val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 99))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_paginaComParagrafosNoTexto_focaNoRangeCitado() = runBlocking {
+        // Índice antigo: os §§ estão no início do texto, mas a coluna
+        // paragraph é NULL. O prompt deve começar perto do §8, não no §6.
+        val rows = listOf(
+            passage("p6", "w25.07", "w25.07 p22 §6", "6 Fora antes do range.",
+                "fora antes", ord = 0, page = 22),
+            passage("p7", "w25.07", "w25.07 p22 §7", "7 Contexto anterior.",
+                "contexto anterior", ord = 1, page = 22),
+            passage("p8", "w25.07", "w25.07 p22 §8", "8 Oitavo parágrafo citado.",
+                "oitavo paragrafo citado", ord = 2, page = 22),
+            passage("p9", "w25.07", "w25.07 p22 §9", "9 Nono parágrafo citado.",
+                "nono paragrafo citado", ord = 3, page = 22),
+            passage("p10", "w25.07", "w25.07 p22 §10", "10 Contexto posterior.",
+                "contexto posterior", ord = 4, page = 22),
+            passage("p11", "w25.07", "w25.07 p22 §11", "11 Fora depois do range.",
+                "fora depois", ord = 5, page = 22),
+        )
+        val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(
+                PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 9),
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("Oitavo parágrafo"))
+        assertTrue(out.text.orEmpty().contains("Nono parágrafo"))
+        assertFalse(out.text.orEmpty().contains("Fora antes"))
+        assertFalse(out.text.orEmpty().contains("Fora depois"))
+    }
+
+    @Test
+    fun resolvePublication_paginaFaixaComContexto_focaNaJanela() = runBlocking {
+        val rows = mutableListOf<PassageEntity>()
+        for (i in 0 until 10) {
+            rows += passage(
+                "u$i", "kj", "kj p142", "Texto irrelevante número $i.",
+                "texto irrelevante $i", ord = i, page = 142,
+            )
+        }
+        rows += passage(
+            "j1", "kj", "kj p144",
+            "Jeová observou Jerusalém e levou a cidade à destruição.",
+            "jeova observou jerusalem levou cidade destruicao",
+            ord = 20, page = 144,
+        )
+        val out = resolver(rows, listOf(attachment("kj", "kj")))
+            .resolvePublication(
+                PublicationRef(
+                    "kj",
+                    page = 142,
+                    pageEnd = 4,
+                    context = "Jeová observou Jerusalém e levou a cidade à destruição.",
+                ),
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("Jeová observou"))
+        assertFalse(out.text.orEmpty().contains("irrelevante número 0"))
+    }
+
+    @Test
+    fun resolvePublication_artigoLongoComContexto_focaNoTrecho() = runBlocking {
+        val rows = mutableListOf<PassageEntity>()
+        for (i in 0 until 10) {
+            rows += passage(
+                "a$i", "it", "it §x",
+                "Texto irrelevante do artigo número $i. ".repeat(20),
+                "texto irrelevante $i", section = "TERMO", ord = i,
+            )
+        }
+        rows += passage(
+            "law", "it", "it §15",
+            "Por meio do pacto da Lei, Deus separava os judeus dos não judeus; " +
+                "com a morte de Cristo, a Lei foi eliminada.",
+            "lei separava judeus eliminada", section = "TERMO", ord = 20,
+        )
+        val out = resolver(rows, listOf(itAtt()))
+            .resolvePublication(
+                PublicationRef(
+                    "it",
+                    article = "Termo",
+                    paragraph = 15,
+                    context = "A Lei separava os judeus dos não judeus e foi eliminada.",
+                ),
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("pacto da Lei"))
+        assertFalse(out.text.orEmpty().contains("irrelevante do artigo número 0"))
+    }
+
+    @Test
     fun resolvePublication_contextoDoEsboco_parcial() = runBlocking {
         val rows = listOf(
             passage(
