@@ -167,6 +167,11 @@ fun SectionCardEditor(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .weight(1f)
+                        .semantics {
+                            contentDescription = state.section.title.ifBlank {
+                                "Título do tópico"
+                            }
+                        }
                         .clickable(enabled = !readOnly) { showTitleDialog = true },
                 )
                 if (isBody && state.section.minutes > 0) {
@@ -181,7 +186,10 @@ fun SectionCardEditor(
                         Box(
                             Modifier
                                 .heightIn(min = 48.dp)
-                                .padding(horizontal = 8.dp),
+                                .padding(horizontal = 8.dp)
+                                .semantics {
+                                    contentDescription = "${state.section.minutes} minutos"
+                                },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -501,7 +509,9 @@ private fun ReasoningLine(
                 TextButton(
                     onClick = { expanded = true },
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                    modifier = Modifier.heightIn(min = 48.dp),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .semantics { contentDescription = "+ Estrutura" },
                 ) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
@@ -569,7 +579,9 @@ private fun ReasoningLine(
                     TextButton(
                         onClick = onAddSubPoint,
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                        modifier = Modifier.heightIn(min = 48.dp),
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .semantics { contentDescription = "Adicionar subtópico" },
                     ) {
                         Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
