@@ -1,14 +1,18 @@
 # Matriz C2.6/C2.8 no tablet — 391 refs / 238 edições (2026-10-31)
 
-**Branch:** `spike/matriz-c26-tablet` (base `main` @ `1dd5c97`, v3.0.3;
-matcher `2683887`, C2.8 `2e7acd7`)
+**Branches:** spike `spike/matriz-c26-tablet` @ `aa4e4bd` (matcher
+`2683887`, C2.8 `2e7acd7`); release `main` @ `40ceb95` (3.0.4/35, matcher);
+C2.8 `fix/c28-book-prompt` @ `73f3bd6`.
 **Tablet:** Samsung Galaxy Tab 25040RP0AL · Android 16 (SDK 36) · arm64 ·
 1600×2560 · 172 GB livres · Wi-Fi `Guilherme_5G`
-**APK:** `com.bettertalker.app.debug` (3.0.3-debug, versionCode 34), separado do
-release `com.bettertalker.app`. SHA-256:
-`0d6ed62668b0127441228a81de0cc48acc9b49a2ac3f36c8595ff121628a65e2`.
+**APK debug:** `com.bettertalker.app.debug` (3.0.3-debug, versionCode 34),
+SHA-256 `0d6ed62668b0127441228a81de0cc48acc9b49a2ac3f36c8595ff121628a65e2`.
+**APK release 3.0.4/35:** SHA-256
+`8457822fac8e6d567d5e4373ca6978bbdb6d09618fd64e6d6831c0b9e117e228`,
+certificado release SHA-256
+`ad1b0a302256a66aa083d76b767291eb2e3c8c4b07f07ae741dd99716233bba4`.
 **A34/#192:** não conectado, não tocado.
-**Testes JVM (release-main):** **2.776 / 0 falhas**.
+**Testes JVM:** **2.776 / 0** no C2.8; **2.771 / 0** no main (matcher-only).
 
 ## 1. Resultado final (C2.8 — prompt)
 
@@ -265,11 +269,17 @@ adb exec-out run-as com.bettertalker.app.debug cat files/matriz-c26-acervo.csv >
 
 ## 10. Recomendação de release
 
-1. **Cherry-pick do matcher** (`2683887`) para a `main` agora, release
-   **3.0.4/35**. O 3.0.3 publicado ainda escolhe edição errada.
-2. **C2.8** em branch separada (`2e7acd7`), com `prompt_coverage` como
-   gate (meta ≥90% de conteúdo; hoje 92,5%).
-3. **Runner/evidências** ficam no spike (`spike/matriz-c26-tablet`), não
-   vão para o APK de release.
-4. Antes de fechar C2.6/C2.7/C2.8, revisar humanamente as 20 refs
+1. **Matcher na main:** `40ceb95`, release **3.0.4/35** gerado e assinado
+   (APK `8457822f…`; certificado release `ad1b0a30…`). O 3.0.3 publicado
+   ainda escolhe edição errada.
+2. **C2.8 em branch separada:** `fix/c28-book-prompt` @ `73f3bd6`, com
+   `prompt_coverage` de conteúdo **92,5%** (meta ≥90%). Não mergeado na
+   main; o próximo release deve ser 3.0.5/36.
+3. **Runner/evidências:** `spike/matriz-c26-tablet` @ `aa4e4bd`; não vão
+   para o APK de release.
+4. **Instalação do release no tablet:** o tablet recusou com
+   `INSTALL_FAILED_USER_RESTRICTED` (“Install canceled by user”); o
+   `.debug` segue instalado. Instalar o 3.0.4/35 manualmente no A34/tablet
+   quando a restrição for liberada.
+5. Antes de fechar C2.6/C2.7/C2.8, revisar humanamente as 20 refs
    amostradas, ouvir o TalkBack e decidir o aceite de PARTIAL/contexto.
