@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-10-30 · **Build de referência:** v3.0.2 (versionCode 33) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-10-31 · **Build de referência:** v3.0.3 (versionCode 34) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
@@ -71,6 +71,12 @@
 > de NBSP/zero-width/pilcrow e caudas `g`/`wp`/`gn`/`lvs`. **2.757 testes/0**,
 > lint verde. Tag `v3.0.2`; SHA-256 `9cd32c85…33481`. Texto/ação dos 49 ainda depende do acervo completo;
 > 16 citações por título de livro seguem sem página.
+
+> **2026-10-31 — v3.0.3/34 publicada:** C2.7 fecha as 16 perdas por título
+> de livro (`Beneficie-se`/`Criador`) e deduplica `lvs`. Matriz final: 49
+> esboços, **391 refs**, 0 página/§ perdido, 0 duplicata. **2.760 testes/0**,
+> lint verde. Tag `v3.0.3`. Texto/ação das 391 refs continua dependente do
+> acervo completo.
 
 > **C2:** mergeado na `main` em `fb47f52` (fast-forward), **sem tag**. A
 > v2.9.0/28 só depois da validação no tablet e do teste da keystore em outra
