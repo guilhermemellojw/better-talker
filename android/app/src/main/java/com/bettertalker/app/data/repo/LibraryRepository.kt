@@ -14,11 +14,14 @@ import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.PublicationScanner
+import com.bettertalker.app.data.util.DownloadsTreeScanner
+import com.bettertalker.app.data.prefs.DownloadsTreeStore
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.work.IndexPublicationWorker
 import com.bettertalker.app.data.work.RegisterDownloadWorker
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -101,7 +104,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         citedRefs: List<com.bettertalker.app.data.util.RefDetector.DetectedRef>,
         existingAttachments: List<AttachmentEntity>,
     ): PublicationScanner.ScanResult = withContext(Dispatchers.IO) {
-        val candidates = scanDownloads()
+        val candidates = scanAllDownloads(ctx)
         val matches = PublicationScanner.match(candidates, citedRefs, existingAttachments)
         val toImport = matches.filter { !it.alreadyInAcervo }
         var imported = 0
@@ -123,6 +126,26 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             notFound = notFound,
             unrecognized = unrecognized,
         )
+    }
+
+    /**
+     * Phase 3 — Escaneia Downloads usando SAF tree se disponível,
+     * MediaStore como fallback. Retorna lista de candidatos.
+     */
+    suspend fun scanAllDownloads(ctx: Context): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+        val treeUri = DownloadsTreeStore.getUri(ctx).first()
+        if (treeUri != null) {
+            try {
+                DownloadsTreeScanner(ctx, treeUri).scan()
+            } catch (_: SecurityException) {
+                DownloadsTreeStore.clearUri(ctx)
+                scanDownloads()
+            } catch (_: Exception) {
+                scanDownloads()
+            }
+        } else {
+            scanDownloads()
+        }
     }
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)

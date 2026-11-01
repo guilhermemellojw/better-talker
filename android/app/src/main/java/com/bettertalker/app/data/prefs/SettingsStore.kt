@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
-private val Context.store by preferencesDataStore("settings")
+val Context.store by preferencesDataStore("settings")
 
 class SettingsStore(
     private val ctx: Context,
@@ -244,6 +244,20 @@ class SettingsStore(
 
     suspend fun setPresentSession(noteId: String, value: String) {
         ctx.store.edit { it[presentSessionKey(noteId)] = value }
+    }
+
+    /** Sources: varrer automaticamente Downloads ao abrir o sheet. */
+    private val AUTO_SCAN_DOWNLOADS = booleanPreferencesKey("auto_scan_downloads")
+    val autoScanDownloads: Flow<Boolean> = ctx.store.data.map { it[AUTO_SCAN_DOWNLOADS] ?: false }
+    suspend fun setAutoScanDownloads(v: Boolean) { ctx.store.edit { it[AUTO_SCAN_DOWNLOADS] = v } }
+
+    /** Sources: URI persistida da pasta Downloads (SAF tree). */
+    private val DOWNLOADS_TREE_URI = stringPreferencesKey("downloads_tree_uri")
+    val downloadsTreeUri: Flow<String?> = ctx.store.data.map { it[DOWNLOADS_TREE_URI] }
+    suspend fun setDownloadsTreeUri(v: String?) {
+        ctx.store.edit {
+            if (v.isNullOrBlank()) it.remove(DOWNLOADS_TREE_URI) else it[DOWNLOADS_TREE_URI] = v
+        }
     }
 
     /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */
