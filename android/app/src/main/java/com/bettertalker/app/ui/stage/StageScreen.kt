@@ -300,12 +300,14 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
         }
 
         // T3-A: barra de controle da análise (iniciar → pausar → retomar → parar).
+        val localStt by vm.localSttActive.collectAsState()
         StageAnalysisBanner(
             state = analysisState,
             elapsedSec = analysisElapsed,
             onPause = vm::pauseAnalysis,
             onResume = vm::resumeAnalysis,
             onStop = vm::stopAnalysis,
+            localStt = localStt,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 84.dp, start = 12.dp, end = 12.dp),
@@ -565,6 +567,7 @@ private fun StageAnalysisBanner(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onStop: () -> Unit,
+    localStt: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
@@ -602,7 +605,11 @@ private fun StageAnalysisBanner(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        "Áudio não é gravado · o serviço do sistema pode usar a rede.",
+                        if (localStt) {
+                            "Áudio não é gravado · transcrição 100% local (Sherpa)."
+                        } else {
+                            "Áudio não é gravado · o serviço do sistema pode usar a rede."
+                        },
                         color = StageDim,
                         fontSize = 11.sp,
                     )

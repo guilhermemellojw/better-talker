@@ -103,6 +103,9 @@ class StageViewModel(
     private val _analysisState = MutableStateFlow<AnalysisState>(AnalysisState.Idle)
     val analysisState: StateFlow<AnalysisState> = _analysisState.asStateFlow()
 
+    /** true quando o motor local (sherpa) está ativo nesta sessão. */
+    val localSttActive: StateFlow<Boolean> = sessionStt.localEngineActive
+
     private val _analysisElapsed = MutableStateFlow(0L)
     val analysisElapsed: StateFlow<Long> = _analysisElapsed.asStateFlow()
 
@@ -690,7 +693,11 @@ class StageViewModel(
     }
 
     companion object {
-        private const val ANALYSIS_STOP_TIMEOUT_MS = 4_500L
+        // O engine local (sherpa) drena a fila de decode (até 4 segmentos
+        // × ~1,5 s) antes de finalizar; o stop(onDone) do engine tem teto de
+        // 15 s. O Stage precisa esperar o mesmo teto, senão perde a última
+        // frase (métricas sem os segmentos finais).
+        private const val ANALYSIS_STOP_TIMEOUT_MS = 15_000L
         /** Sem onReadyForSpeech nesse prazo, libera a leitura com aviso. */
         private const val MIC_READY_TIMEOUT_MS = 2_500L
     }

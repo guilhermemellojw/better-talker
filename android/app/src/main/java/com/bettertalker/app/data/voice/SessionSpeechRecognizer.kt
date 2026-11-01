@@ -101,12 +101,17 @@ class SessionSpeechRecognizer(
     private val _speechStarted = MutableStateFlow(false)
     val speechStarted: StateFlow<Boolean> = _speechStarted.asStateFlow()
 
+    /** true quando a sessão atual usa o motor local (sherpa), sem rede. */
+    private val _localEngineActive = MutableStateFlow(false)
+    val localEngineActive: StateFlow<Boolean> = _localEngineActive.asStateFlow()
+
     fun startSession() {
         cancelSession()
         // Motor local (sherpa) se disponível e configurado.
         val engine = runCatching { engineProvider() }.getOrNull()
         if (engine != null && engine.isAvailable()) {
             activeEngine = engine
+            _localEngineActive.value = true
             active = true
             paused = false
             stopRequested = false
@@ -133,6 +138,7 @@ class SessionSpeechRecognizer(
             )
             return
         }
+        _localEngineActive.value = false
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _state.value = SessionSpeechState.Interrupted(
                 "Reconhecimento de voz indisponível neste aparelho."
@@ -228,6 +234,7 @@ class SessionSpeechRecognizer(
         activeEngine?.cancel()
         activeEngine?.release()
         activeEngine = null
+        _localEngineActive.value = false
         removeRestart()
         finalizeRunnable?.let(main::removeCallbacks)
         finalizeRunnable = null
@@ -424,6 +431,7 @@ class SessionSpeechRecognizer(
     private fun finalizeStopped() {
         activeEngine?.release()
         activeEngine = null
+        _localEngineActive.value = false
         finalizeRunnable?.let(main::removeCallbacks)
         finalizeRunnable = null
         removeRestart()
