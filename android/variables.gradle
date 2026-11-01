@@ -19,6 +19,7 @@ ext {
     lifecycleVersion = '2.9.2'
     roomVersion = '2.8.5'
     datastoreVersion = '1.1.7'
+    documentFileVersion = '1.0.1'
     workVersion = '2.10.0'
     pdfBoxVersion = '2.0.27.0'
     // Firebase (opcional: só ativa com google-services.json presente)
