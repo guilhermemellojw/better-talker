@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -50,6 +51,8 @@ fun SettingsScreen(
     onOpenVoice: () -> Unit = {},
     /** Backup local (ZIP/JSON) e restauração. */
     onOpenBackup: () -> Unit = {},
+    /** Configurações de Downloads (SAF tree, auto-scan). */
+    onOpenDownloads: () -> Unit = {},
 ) {
     Scaffold(
         containerColor = Color.Transparent,
@@ -91,6 +94,12 @@ fun SettingsScreen(
                 title = "Dados",
                 subtitle = "Backup, exportar e importar",
                 onClick = onOpenBackup,
+            )
+            SettingsTile(
+                icon = Icons.Default.FolderOpen,
+                title = "Downloads",
+                subtitle = "Pasta de Downloads e busca automática",
+                onClick = onOpenDownloads,
             )
             SettingsTile(
                 icon = Icons.Default.SmartToy,
