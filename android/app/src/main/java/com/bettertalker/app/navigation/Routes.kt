@@ -15,6 +15,8 @@ object Routes {
     const val APPEARANCE = "appearance"
     /** Backup local (ZIP/JSON) e restauração. */
     const val BACKUP = "backup"
+    /** Dados e armazenamento (Backup, Downloads, Biblioteca). */
+    const val DATA_STORAGE = "data_storage"
     /** Configurações de Downloads (SAF tree, auto-scan). */
     const val DOWNLOADS = "downloads"
     /** #20-fix-b: a Tribuna — mapa de memória do discurso. */

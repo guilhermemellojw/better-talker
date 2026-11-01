@@ -277,14 +277,21 @@ private fun AppNav(
                 onOpenModel = { nav.navigate(Routes.MODEL) },
                 onOpenAppearance = { nav.navigate(Routes.APPEARANCE) },
                 onOpenVoice = { nav.navigate(Routes.VOICE) },
-                onOpenBackup = { nav.navigate(Routes.BACKUP) },
-                onOpenDownloads = { nav.navigate(Routes.DOWNLOADS) },
+                onOpenDataStorage = { nav.navigate(Routes.DATA_STORAGE) },
             )
         }
         composable(Routes.BACKUP) {
             BackupScreen(
                 onBack = { nav.popBackStack() },
                 db = db,
+            )
+        }
+        composable(Routes.DATA_STORAGE) {
+            com.bettertalker.app.ui.settings.DataStorageSettingsScreen(
+                onBack = { nav.popBackStack() },
+                onOpenBackup = { nav.navigate(Routes.BACKUP) },
+                onOpenDownloads = { nav.navigate(Routes.DOWNLOADS) },
+                onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
             )
         }
         composable(Routes.DOWNLOADS) {

@@ -49,10 +49,8 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     /** Tela de Voz (TTS + STT no aparelho). */
     onOpenVoice: () -> Unit = {},
-    /** Backup local (ZIP/JSON) e restauração. */
-    onOpenBackup: () -> Unit = {},
-    /** Configurações de Downloads (SAF tree, auto-scan). */
-    onOpenDownloads: () -> Unit = {},
+    /** Dados e armazenamento (Backup, Downloads, Biblioteca). */
+    onOpenDataStorage: () -> Unit = {},
 ) {
     Scaffold(
         containerColor = Color.Transparent,
@@ -91,15 +89,9 @@ fun SettingsScreen(
             )
             SettingsTile(
                 icon = Icons.Default.Save,
-                title = "Backup",
-                subtitle = "Exportar e importar dados",
-                onClick = onOpenBackup,
-            )
-            SettingsTile(
-                icon = Icons.Default.FolderOpen,
-                title = "Downloads",
-                subtitle = "Pasta e busca automática",
-                onClick = onOpenDownloads,
+                title = "Dados e armazenamento",
+                subtitle = "Backup, Downloads, Biblioteca",
+                onClick = onOpenDataStorage,
             )
             SettingsTile(
                 icon = Icons.Default.SmartToy,
