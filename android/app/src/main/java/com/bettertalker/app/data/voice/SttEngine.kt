@@ -35,8 +35,8 @@ interface SttEngine {
     /** Retoma a captura. */
     fun resume()
 
-    /** Para a captura e finaliza. */
-    fun stop()
+    /** Para a captura e finaliza. [onDone] é chamado quando a fila esvaziar. */
+    fun stop(onDone: (() -> Unit)? = null)
 
     /** Cancela sem aproveitar o texto. */
     fun cancel()

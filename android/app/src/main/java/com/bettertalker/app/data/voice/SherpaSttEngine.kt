@@ -45,6 +45,10 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
 
     private val capturing = AtomicBoolean(false)
     private var stopped = false
+    private val generation = AtomicInteger(0)
+
+    /** Chamado quando o modelo termina de carregar (na main). */
+    var onReady: (() -> Unit)? = null
 
     private var onPartialCb: (String) -> Unit = {}
     private var onFinalCb: (String) -> Unit = {}
@@ -76,25 +80,30 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
             postError("Modelo STT não baixado. Baixe em Configurações → Voz.")
             return
         }
-        try {
-            if (recognizer == null) loadModel()
-            vad = VadSegmenter()
-            transcript.clear()
-            stopped = false
-            capturing.set(true)
-
-            capture.onAudioChunk = { shorts, count ->
-                if (capturing.get()) {
-                    val floats = capture.shortsToFloats(shorts, count)
-                    val segment = vad.feed(floats)
-                    if (segment != null) enqueueDecode(segment)
+        val gen = generation.incrementAndGet()
+        stopped = false
+        vad = VadSegmenter()
+        synchronized(transcript) { transcript.clear() }
+        // Carrega o modelo fora da main (2s) e só então abre o microfone.
+        decodeExecutor.execute {
+            try {
+                if (recognizer == null) loadModel()
+                if (gen != generation.get()) return@execute
+                capturing.set(true)
+                capture.onAudioChunk = { shorts, count ->
+                    if (capturing.get() && gen == generation.get()) {
+                        val floats = capture.shortsToFloats(shorts, count)
+                        val segment = vad.feed(floats)
+                        if (segment != null) enqueueDecode(segment, gen)
+                    }
                 }
+                capture.start()
+                main.post { onReady?.invoke() }
+                Log.i(tag, "Started: model=${modelFile.name}")
+            } catch (e: Exception) {
+                Log.e(tag, "Start failed: ${e.message}")
+                postError("Falha ao iniciar STT: ${e.message}")
             }
-            capture.start()
-            Log.i(tag, "Started: model=${modelFile.name}")
-        } catch (e: Exception) {
-            Log.e(tag, "Start failed: ${e.message}")
-            postError("Falha ao iniciar STT: ${e.message}")
         }
     }
 
@@ -114,7 +123,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
         Log.i(tag, "Model loaded: ${modelFile.name}")
     }
 
-    private fun enqueueDecode(segment: FloatArray) {
+    private fun enqueueDecode(segment: FloatArray, gen: Int) {
         if (queueDepth.get() >= maxQueueDepth) {
             Log.w(tag, "Decode queue full — dropping segment (${segment.size} samples)")
             return
@@ -122,7 +131,8 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
         queueDepth.incrementAndGet()
         decodeExecutor.execute {
             try {
-                decodeSegment(segment)
+                if (gen != generation.get()) return@execute
+                decodeSegment(segment, gen)
             } catch (e: Exception) {
                 Log.e(tag, "Decode failed: ${e.message}")
                 postError("Falha ao transcrever um trecho.")
@@ -132,20 +142,27 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
         }
     }
 
-    private fun decodeSegment(samples: FloatArray) {
+    private fun decodeSegment(samples: FloatArray, gen: Int) {
         val rec = recognizer ?: return
         val stream = rec.createStream()
         try {
             stream.acceptWaveform(samples, AudioCapture.SAMPLE_RATE)
             rec.decode(stream)
             val text = rec.getResult(stream).text.trim()
-            if (text.isNotBlank()) {
+            if (text.isNotBlank() && gen == generation.get()) {
                 synchronized(transcript) {
                     if (transcript.isNotEmpty()) transcript.append(' ')
                     transcript.append(text)
                 }
                 val full = transcript.toString()
-                main.post { onFinalCb(full) }
+                // onFinal = segmento (o accumulator do Session concatena);
+                // onPartial = acumulado (só para indicador).
+                main.post {
+                    if (gen == generation.get()) {
+                        onFinalCb(text)
+                        onPartialCb(full)
+                    }
+                }
                 Log.i(tag, "Segment decoded: ${text.length} chars")
             }
         } finally {
@@ -156,7 +173,9 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
     override fun pause() {
         capturing.set(false)
         capture.stop()
-        drainVad()
+        val gen = generation.get()
+        val pending = vad.flush()
+        if (pending != null) enqueueDecode(pending, gen)
     }
 
     override fun resume() {
@@ -164,42 +183,66 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
             postError("Modelo STT não baixado.")
             return
         }
-        if (recognizer == null) {
-            try {
-                loadModel()
-            } catch (e: Exception) {
-                postError("Falha ao carregar o modelo: ${e.message}")
-                return
-            }
-        }
+        val gen = generation.get()
         vad = VadSegmenter()
         stopped = false
-        capturing.set(true)
-        capture.onAudioChunk = { shorts, count ->
-            if (capturing.get()) {
-                val floats = capture.shortsToFloats(shorts, count)
-                val segment = vad.feed(floats)
-                if (segment != null) enqueueDecode(segment)
+        if (recognizer == null) {
+            decodeExecutor.execute {
+                try {
+                    loadModel()
+                    if (gen != generation.get()) return@execute
+                    capturing.set(true)
+                    capture.onAudioChunk = { shorts, count ->
+                        if (capturing.get() && gen == generation.get()) {
+                            val floats = capture.shortsToFloats(shorts, count)
+                            val segment = vad.feed(floats)
+                            if (segment != null) enqueueDecode(segment, gen)
+                        }
+                    }
+                    capture.start()
+                    main.post { onReady?.invoke() }
+                } catch (e: Exception) {
+                    postError("Falha ao carregar o modelo: ${e.message}")
+                }
             }
+        } else {
+            capturing.set(true)
+            capture.onAudioChunk = { shorts, count ->
+                if (capturing.get() && gen == generation.get()) {
+                    val floats = capture.shortsToFloats(shorts, count)
+                    val segment = vad.feed(floats)
+                    if (segment != null) enqueueDecode(segment, gen)
+                }
+            }
+            capture.start()
+            main.post { onReady?.invoke() }
         }
-        capture.start()
     }
 
-    override fun stop() {
-        if (stopped) return
+    override fun stop(onDone: (() -> Unit)?) {
+        if (stopped) {
+            main.post { onDone?.invoke() }
+            return
+        }
         stopped = true
         capturing.set(false)
         capture.stop()
-        drainVad()
-        Log.i(tag, "Stopped: transcript=${transcript.length} chars")
-    }
-
-    private fun drainVad() {
+        val gen = generation.get()
         val pending = vad.flush()
-        if (pending != null) enqueueDecode(pending)
+        if (pending != null) enqueueDecode(pending, gen)
+        // Espera a fila esvaziar (última frase) em thread separada, com timeout.
+        Thread {
+            val deadline = System.currentTimeMillis() + 15_000
+            while (queueDepth.get() > 0 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50)
+            }
+            Log.i(tag, "Stopped: transcript=${transcript.length} chars")
+            main.post { onDone?.invoke() }
+        }.start()
     }
 
     override fun cancel() {
+        generation.incrementAndGet()
         stopped = true
         capturing.set(false)
         capture.stop()
