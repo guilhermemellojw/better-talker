@@ -104,7 +104,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         citedRefs: List<com.bettertalker.app.data.util.RefDetector.DetectedRef>,
         existingAttachments: List<AttachmentEntity>,
     ): PublicationScanner.ScanResult = withContext(Dispatchers.IO) {
-        val candidates = scanAllDownloads(ctx)
+        val candidates = scanAllDownloads()
         val matches = PublicationScanner.match(candidates, citedRefs, existingAttachments)
         val toImport = matches.filter { !it.alreadyInAcervo }
         var imported = 0
@@ -132,13 +132,13 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
      * Phase 3 — Escaneia Downloads usando SAF tree se disponível,
      * MediaStore como fallback. Retorna lista de candidatos.
      */
-    suspend fun scanAllDownloads(ctx: Context): List<DownloadCandidate> = withContext(Dispatchers.IO) {
-        val treeUri = DownloadsTreeStore.getUri(ctx).first()
+    suspend fun scanAllDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+        val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
         if (treeUri != null) {
             try {
-                DownloadsTreeScanner(ctx, treeUri).scan()
+                DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
             } catch (_: SecurityException) {
-                DownloadsTreeStore.clearUri(ctx)
+                DownloadsTreeStore.clearUri(this@LibraryRepository.ctx)
                 scanDownloads()
             } catch (_: Exception) {
                 scanDownloads()

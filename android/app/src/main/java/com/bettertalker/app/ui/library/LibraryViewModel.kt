@@ -19,7 +19,7 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
     val scan = _scan.asStateFlow()
 
     fun scanDownloads() = viewModelScope.launch {
-        _scan.value = repo.scanDownloads()
+        _scan.value = repo.scanAllDownloads()
         if (_scan.value.isNullOrEmpty()) {
             _toast.value = "Nada novo em Downloads. Use Importar e escolha o arquivo."
         }
