@@ -56,33 +56,48 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
      * o vazio orienta para o botão Importar. Nunca quebra (try/catch).
      */
     suspend fun scanDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+        val out = mutableListOf<DownloadCandidate>()
         try {
-            if (android.os.Build.VERSION.SDK_INT < 29) return@withContext emptyList()
-            val col = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
-            val out = mutableListOf<DownloadCandidate>()
-            ctx.contentResolver.query(
-                col,
-                arrayOf(
-                    android.provider.MediaStore.Downloads._ID,
-                    android.provider.MediaStore.Downloads.DISPLAY_NAME,
-                    android.provider.MediaStore.Downloads.SIZE
-                ),
-                null, null,
-                "${android.provider.MediaStore.Downloads.DATE_MODIFIED} DESC"
-            )?.use { c ->
-                val idIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID)
-                val nameIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.DISPLAY_NAME)
-                val sizeIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.SIZE)
-                var n = 0
-                while (c.moveToNext() && n < 50) {
-                    val name = c.getString(nameIdx).orEmpty()
-                    if (detectKind(name) == DocKind.UNSUPPORTED) continue
-                    val id = c.getLong(idIdx)
-                    out += DownloadCandidate(
-                        android.content.ContentUris.withAppendedId(col, id).toString(),
-                        name, c.getLong(sizeIdx)
-                    )
-                    n++
+            // 1. Pasta privada do app (downloads via DownloadManager)
+            val privDir = ctx.getExternalFilesDir("publicacoes")
+            if (privDir != null && privDir.exists()) {
+                privDir.listFiles()?.forEach { f ->
+                    if (f.isFile && detectKind(f.name) != DocKind.UNSUPPORTED) {
+                        out += DownloadCandidate(
+                            uriString = android.net.Uri.fromFile(f).toString(),
+                            name = f.name,
+                            sizeBytes = f.length(),
+                        )
+                    }
+                }
+            }
+            // 2. MediaStore (downloads manuais do navegador)
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                val col = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                ctx.contentResolver.query(
+                    col,
+                    arrayOf(
+                        android.provider.MediaStore.Downloads._ID,
+                        android.provider.MediaStore.Downloads.DISPLAY_NAME,
+                        android.provider.MediaStore.Downloads.SIZE
+                    ),
+                    null, null,
+                    "${android.provider.MediaStore.Downloads.DATE_MODIFIED} DESC"
+                )?.use { c ->
+                    val idIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID)
+                    val nameIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.DISPLAY_NAME)
+                    val sizeIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.SIZE)
+                    var n = 0
+                    while (c.moveToNext() && n < 50) {
+                        val name = c.getString(nameIdx).orEmpty()
+                        if (detectKind(name) == DocKind.UNSUPPORTED) continue
+                        val id = c.getLong(idIdx)
+                        out += DownloadCandidate(
+                            android.content.ContentUris.withAppendedId(col, id).toString(),
+                            name, c.getLong(sizeIdx)
+                        )
+                        n++
+                    }
                 }
             }
             val registered = db.attachmentDao().all().map { it.fileName }.toSet()
@@ -91,14 +106,25 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             emptyList()
         }
     }
+    suspend fun scanAllDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+        val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
+        if (treeUri != null) {
+            try {
+                DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
+            } catch (_: SecurityException) {
+                DownloadsTreeStore.clearUri(this@LibraryRepository.ctx)
+                scanDownloads()
+            } catch (_: Exception) {
+                scanDownloads()
+            }
+        } else {
+            scanDownloads()
+        }
+    }
 
     /**
      * Phase 2 — Escaneia Downloads e auto-importa publicações citadas que
      * estão faltando no acervo. Dedupe por edição: não reimporta se já existe.
-     *
-     * @param citedRefs publicações citadas na nota
-     * @param existingAttachments anexos já no acervo (para dedupe)
-     * @return ScanResult com contagens e detalhes
      */
     suspend fun scanAndImportMissing(
         citedRefs: List<com.bettertalker.app.data.util.RefDetector.DetectedRef>,
@@ -126,26 +152,6 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             notFound = notFound,
             unrecognized = unrecognized,
         )
-    }
-
-    /**
-     * Phase 3 — Escaneia Downloads usando SAF tree se disponível,
-     * MediaStore como fallback. Retorna lista de candidatos.
-     */
-    suspend fun scanAllDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
-        val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
-        if (treeUri != null) {
-            try {
-                DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
-            } catch (_: SecurityException) {
-                DownloadsTreeStore.clearUri(this@LibraryRepository.ctx)
-                scanDownloads()
-            } catch (_: Exception) {
-                scanDownloads()
-            }
-        } else {
-            scanDownloads()
-        }
     }
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)

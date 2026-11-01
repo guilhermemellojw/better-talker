@@ -57,9 +57,9 @@ object DownloadHelper {
                         DownloadManager.Request.NETWORK_MOBILE
                 )
                 .setAllowedOverRoaming(false)
-                .setTitle("Better Talker")
-                .setDescription("Baixando $name")
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+                .setTitle(name)
+                .setDescription("Baixando publicação…")
+                .setDestinationInExternalFilesDir(context, "publicacoes", name)
                 .setNotificationVisibility(
                     if (hasNotifPermission(context)) DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                     else DownloadManager.Request.VISIBILITY_VISIBLE
