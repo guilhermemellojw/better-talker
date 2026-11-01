@@ -44,9 +44,10 @@ Requisitos: A34/tablet conectado por ADB, app **debug** com o modelo baixado
 scripts/stt-wer.sh /caminho/da/pasta
 ```
 
-O script envia os WAVs para
-`/sdcard/Android/data/com.bettertalker.app.debug/files/stt-wer/`, roda o teste
-instrumentado `SttWerTest` e imprime:
+O script envia os WAVs para o armazenamento interno do app
+(`files/stt-wer/`, via staging em `/sdcard/Download/stt-wer-upload/` +
+`run-as`), instala **só o APK de teste** (não desinstala o app nem apaga o
+modelo) e roda via `am instrument`. Saída:
 
 ```
 LOAD|load_ms=…

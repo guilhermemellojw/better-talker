@@ -83,9 +83,11 @@ class SttWerTest {
     @Test
     fun medeWerDasAmostrasHumanas() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        // Modelo: files/stt/ (baixado em Configurações → Voz).
+        // Amostras: files/stt-wer/ (interno do app; o script copia via run-as).
         val model = File(ctx.filesDir, "stt/model.int8.onnx")
         val tokens = File(ctx.filesDir, "stt/tokens.txt")
-        val root = File(ctx.getExternalFilesDir(null), "stt-wer")
+        val root = File(ctx.filesDir, "stt-wer")
         val truthFile = File(root, "ground_truth.txt")
 
         assertTrue("modelo ausente: ${model.absolutePath}", model.exists())
