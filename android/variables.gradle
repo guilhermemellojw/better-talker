@@ -27,4 +27,6 @@ ext {
     credentialsVersion = '1.3.0'
     playAuthVersion = '21.0.0'
     gmsVersion = '4.5.0'
+    commonsCompressVersion = '1.27.1'
+    xzVersion = '1.10'
 }

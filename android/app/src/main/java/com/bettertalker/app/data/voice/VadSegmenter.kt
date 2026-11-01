@@ -5,6 +5,9 @@ package com.bettertalker.app.data.voice
  *
  * Segmenta o áudio em blocos de fala separados por silêncio.
  * Cada bloco é um segmento independente para decodificação.
+ *
+ * Memória: não acumula segmentos; [feed] devolve o segmento finalizado
+ * (ou null). O chamador é responsável por consumir/descartar.
  */
 class VadSegmenter(
     /** Limiar de RMS para considerar "fala" (0..1). */
@@ -23,14 +26,13 @@ class VadSegmenter(
     private var silenceCount = 0
     private var hadSpeech = false
     private var speechSampleCount = 0
-    private var segmentCount = 0
 
-    /** Lista de segmentos completos (cada um é um FloatArray de áudio). */
-    val segments = mutableListOf<FloatArray>()
-
-    /** Alimenta um chunk de áudio. Retorna true se um segmento foi finalizado. */
-    fun feed(chunk: FloatArray): Boolean {
-        var finalized = false
+    /**
+     * Alimenta um chunk de áudio. Retorna o segmento finalizado (se houver).
+     * O segmento é removido da memória interna.
+     */
+    fun feed(chunk: FloatArray): FloatArray? {
+        var finalized: FloatArray? = null
         for (sample in chunk) {
             currentSegment.add(sample)
             val rms = kotlin.math.abs(sample)
@@ -45,42 +47,39 @@ class VadSegmenter(
             if (currentSegment.size >= maxSegmentSamples ||
                 (silenceCount >= silenceSamples && currentSegment.size > sampleRate / 2)
             ) {
-                if (hadSpeech && speechSampleCount > sampleRate / 4) { // pelo menos 250ms de áudio
-                    segments.add(currentSegment.toFloatArray())
-                    segmentCount++
-                    finalized = true
+                if (hadSpeech && speechSampleCount > sampleRate / 4) {
+                    finalized = currentSegment.toFloatArray()
                 }
                 currentSegment.clear()
                 silenceCount = 0
                 hadSpeech = false
                 speechSampleCount = 0
+                if (finalized != null) break
             }
         }
         return finalized
     }
 
-    /** Finaliza o segmento atual (chamado ao parar). */
-    fun flush() {
-        if (hadSpeech && speechSampleCount > sampleRate / 4) {
-            segments.add(currentSegment.toFloatArray())
-            segmentCount++
-        }
+    /**
+     * Finaliza o segmento atual (chamado ao parar/pausar).
+     * Retorna o segmento pendente (se houver fala suficiente).
+     */
+    fun flush(): FloatArray? {
+        val out = if (hadSpeech && speechSampleCount > sampleRate / 4) {
+            currentSegment.toFloatArray()
+        } else null
         currentSegment.clear()
         silenceCount = 0
         hadSpeech = false
         speechSampleCount = 0
+        return out
     }
 
-    /** Limpa todos os segmentos. */
+    /** Limpa o estado sem produzir segmento. */
     fun reset() {
         currentSegment.clear()
         silenceCount = 0
         hadSpeech = false
         speechSampleCount = 0
-        segments.clear()
-        segmentCount = 0
     }
-
-    /** Número de segmentos finalizados. */
-    val segmentSize: Int get() = segments.size
 }

@@ -102,19 +102,20 @@ class SttModelDownloader(private val context: Context) {
     }
 
     private fun extractTarBz2(archive: File, destDir: File) {
-        // Use Apache Commons Compress if available, or Java's built-in
-        // For now, use a simple approach with tar command
         try {
-            val process = Runtime.getRuntime().exec(
-                arrayOf("tar", "-xjf", archive.absolutePath, "-C", destDir.absolutePath)
-            )
-            process.waitFor()
-            // The archive may extract to a subdirectory; move files up
-            destDir.walkTopDown().forEach { f ->
-                if (f.isFile && (f.name == "model.int8.onnx" || f.name == "tokens.txt")) {
-                    if (f.parentFile != destDir) {
-                        f.copyTo(File(destDir, f.name), overwrite = true)
-                        f.delete()
+            org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream(
+                java.io.BufferedInputStream(archive.inputStream())
+            ).use { bzIn ->
+                org.apache.commons.compress.archivers.tar.TarArchiveInputStream(bzIn).use { tarIn ->
+                    var entry = tarIn.nextEntry
+                    while (entry != null) {
+                        val name = entry.name.substringAfterLast('/')
+                        if (entry.isFile && (name == "model.int8.onnx" || name == "tokens.txt")) {
+                            val out = File(destDir, name)
+                            out.outputStream().use { os -> tarIn.copyTo(os) }
+                            Log.i(tag, "Extracted: $name (${out.length()} bytes)")
+                        }
+                        entry = tarIn.nextEntry
                     }
                 }
             }

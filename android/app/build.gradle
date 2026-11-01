@@ -129,6 +129,8 @@ dependencies {
     implementation "androidx.credentials:credentials-play-services-auth:${rootProject.ext.credentialsVersion}"
     implementation "com.google.android.gms:play-services-auth:${rootProject.ext.playAuthVersion}"
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
+    implementation "org.apache.commons:commons-compress:${rootProject.ext.commonsCompressVersion}"
+    implementation "org.tukaani:xz:${rootProject.ext.xzVersion}"
 
     testImplementation "junit:junit:${rootProject.ext.junitVersion}"
     // Fase 10: SQLite real na JVM para validar o SQL das migrations (sem Android).

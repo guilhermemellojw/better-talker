@@ -1,6 +1,8 @@
 package com.bettertalker.app.data.voice
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,12 +13,12 @@ class VadSegmenterTest {
         val vad = VadSegmenter(speechThreshold = 0.01f, silenceDurationMs = 100)
         // 1 segundo de fala (amostras altas)
         val speech = FloatArray(16000) { 0.5f }
-        vad.feed(speech)
+        val s1 = vad.feed(speech)
         // 1 segundo de silêncio (amostras baixas)
         val silence = FloatArray(16000) { 0.001f }
-        vad.feed(silence)
-        vad.flush()
-        assertTrue(vad.segmentSize >= 1)
+        val s2 = vad.feed(silence)
+        val pending = vad.flush()
+        assertNotNull(s1 ?: s2 ?: pending)
     }
 
     @Test
@@ -24,20 +26,22 @@ class VadSegmenterTest {
         val vad = VadSegmenter(speechThreshold = 0.01f, silenceDurationMs = 100)
         // 100ms de fala (muito curto)
         val short = FloatArray(1600) { 0.5f }
-        vad.feed(short)
+        val s1 = vad.feed(short)
         val silence = FloatArray(16000) { 0.001f }
-        vad.feed(silence)
-        vad.flush()
-        assertEquals(0, vad.segmentSize)
+        val s2 = vad.feed(silence)
+        val pending = vad.flush()
+        assertNull(s1)
+        assertNull(s2)
+        assertNull(pending)
     }
 
     @Test
-    fun resetLimpaSegmentos() {
+    fun resetLimpaEstado() {
         val vad = VadSegmenter()
         val speech = FloatArray(16000) { 0.5f }
         vad.feed(speech)
         vad.reset()
-        assertEquals(0, vad.segmentSize)
+        assertNull(vad.flush())
     }
 
     @Test
@@ -45,8 +49,20 @@ class VadSegmenterTest {
         val vad = VadSegmenter(maxSegmentMs = 1000, silenceDurationMs = 5000)
         // 2 segundos de fala contínua (sem silêncio suficiente)
         val speech = FloatArray(32000) { 0.5f }
-        vad.feed(speech)
-        vad.flush()
-        assertTrue(vad.segmentSize >= 1)
+        val s1 = vad.feed(speech)
+        val pending = vad.flush()
+        assertTrue(s1 != null || pending != null)
+    }
+
+    @Test
+    fun feedDevolveSegmentoEDrenagem() {
+        val vad = VadSegmenter(speechThreshold = 0.01f, silenceDurationMs = 100)
+        val speech = FloatArray(16000) { 0.5f }
+        val silence = FloatArray(16000) { 0.001f }
+        val s1 = vad.feed(speech)
+        val s2 = vad.feed(silence)
+        val segment = s1 ?: s2 ?: vad.flush()
+        assertNotNull(segment)
+        assertEquals(0, vad.flush()?.size ?: 0)
     }
 }
