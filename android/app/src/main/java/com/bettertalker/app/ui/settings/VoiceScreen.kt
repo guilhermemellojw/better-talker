@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.voice.SpeechRecognizerManager
+import com.bettertalker.app.data.voice.SttModelDownloader
 import com.bettertalker.app.data.voice.SystemVoice
 import com.bettertalker.app.data.voice.VoiceRouter
 import kotlinx.coroutines.launch
@@ -64,6 +65,11 @@ fun VoiceScreen(
     val premium by settings.voicePremiumEnabled.collectAsState(initial = true)
     val selectedVoice by settings.ttsVoiceName.collectAsState(initial = null)
     val sttOnDevice by settings.sttOnDevice.collectAsState(initial = true)
+    val sttEngine by settings.sttEngine.collectAsState(initial = "system")
+    val downloader = remember { SttModelDownloader(context) }
+    var modelReady by remember { mutableStateOf(downloader.isModelReady()) }
+    var downloadProgress by remember { mutableStateOf(-1) }
+    var downloadError by remember { mutableStateOf<String?>(null) }
     var voices by remember { mutableStateOf(voiceRouter.systemVoices()) }
     val onDeviceAvailable = remember {
         SpeechRecognizerManager.isOnDeviceAvailable(context)
@@ -193,6 +199,91 @@ fun VoiceScreen(
                         scope.launch { settings.setSttOnDevice(checked) }
                     },
                 )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            SectionTitle("Motor de reconhecimento")
+            ChoiceRow(
+                title = "Sistema",
+                subtitle = "Usa o reconhecedor do aparelho.",
+                selected = sttEngine != "sherpa",
+                onClick = { scope.launch { settings.setSttEngine("system") } },
+            )
+            ChoiceRow(
+                title = "Sherpa (offline)",
+                subtitle = if (modelReady) {
+                    "Modelo PT-BR baixado (~125 MB)."
+                } else {
+                    "Baixe o modelo PT-BR (~125 MB) para usar offline."
+                },
+                selected = sttEngine == "sherpa",
+                onClick = {
+                    if (modelReady) {
+                        scope.launch { settings.setSttEngine("sherpa") }
+                    } else {
+                        downloadError = "Baixe o modelo primeiro."
+                    }
+                },
+            )
+            if (sttEngine == "sherpa") {
+                Text(
+                    "Modelo NVIDIA NeMo CTC pt-BR (CC-BY-NC-4.0, não comercial). " +
+                        "125 MB em disco; usa mais memória durante o treino.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (modelReady) "Modelo PT-BR: baixado" else "Modelo PT-BR: faltando",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    if (downloadProgress in 0..100) {
+                        Text(
+                            "Baixando… $downloadProgress%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    downloadError?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                if (modelReady) {
+                    TextButton(onClick = {
+                        downloader.removeModel()
+                        modelReady = false
+                        scope.launch { settings.setSttEngine("system") }
+                    }) { Text("Remover") }
+                } else {
+                    TextButton(
+                        enabled = downloadProgress < 0,
+                        onClick = {
+                            downloadError = null
+                            downloadProgress = 0
+                            scope.launch {
+                                downloader.download(
+                                    onProgress = { downloadProgress = it },
+                                    onComplete = { ok, err ->
+                                        downloadProgress = -1
+                                        modelReady = ok
+                                        if (!ok) downloadError = err ?: "Falha no download."
+                                    },
+                                )
+                            }
+                        },
+                    ) { Text(if (downloadProgress >= 0) "Baixando…" else "Baixar") }
+                }
             }
 
             TextButton(

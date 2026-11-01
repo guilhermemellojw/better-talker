@@ -48,7 +48,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
     private val generation = AtomicInteger(0)
 
     /** Chamado quando o modelo termina de carregar (na main). */
-    var onReady: (() -> Unit)? = null
+    private var readyCb: (() -> Unit)? = null
 
     private var onPartialCb: (String) -> Unit = {}
     private var onFinalCb: (String) -> Unit = {}
@@ -68,6 +68,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
     override fun isAvailable(): Boolean = modelFile.exists() && tokensFile.exists()
 
     override fun start(
+        onReady: () -> Unit,
         onPartial: (String) -> Unit,
         onFinal: (String) -> Unit,
         onError: (String) -> Unit,
@@ -75,6 +76,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
         onPartialCb = onPartial
         onFinalCb = onFinal
         onErrorCb = onError
+        this.readyCb = onReady
 
         if (!isAvailable()) {
             postError("Modelo STT não baixado. Baixe em Configurações → Voz.")
@@ -98,7 +100,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
                     }
                 }
                 capture.start()
-                main.post { onReady?.invoke() }
+                main.post { readyCb?.invoke() }
                 Log.i(tag, "Started: model=${modelFile.name}")
             } catch (e: Exception) {
                 Log.e(tag, "Start failed: ${e.message}")
@@ -200,7 +202,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
                         }
                     }
                     capture.start()
-                    main.post { onReady?.invoke() }
+                    main.post { readyCb?.invoke() }
                 } catch (e: Exception) {
                     postError("Falha ao carregar o modelo: ${e.message}")
                 }
@@ -215,7 +217,7 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
                 }
             }
             capture.start()
-            main.post { onReady?.invoke() }
+            main.post { readyCb?.invoke() }
         }
     }
 

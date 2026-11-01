@@ -10,6 +10,7 @@ import com.bettertalker.app.data.prefs.STAGE_FONT_MAX_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MIN_SP
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.voice.SessionSpeechRecognizer
+import com.bettertalker.app.data.voice.SherpaSttEngine
 import com.bettertalker.app.data.voice.SessionSpeechState
 import com.bettertalker.app.data.voice.prepareForSpeech
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -89,7 +91,15 @@ class StageViewModel(
     val ttsSpeaking: StateFlow<Boolean> = tts.speaking
 
     // T3-A — STT de sessão + análise local (sem áudio persistido).
-    private val sessionStt = SessionSpeechRecognizer(appCtx)
+    /** Preferência de motor STT observada (sem bloquear a main). */
+    private val sttEnginePref: kotlinx.coroutines.flow.StateFlow<String> =
+        settings.sttEngine.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, "system")
+    private val sessionStt = SessionSpeechRecognizer(appCtx) {
+        // Motor por sessão: Sherpa (offline) se selecionado e modelo pronto.
+        if (sttEnginePref.value == "sherpa") {
+            SherpaSttEngine(appCtx).takeIf { it.isAvailable() }
+        } else null
+    }
     private val _analysisState = MutableStateFlow<AnalysisState>(AnalysisState.Idle)
     val analysisState: StateFlow<AnalysisState> = _analysisState.asStateFlow()
 

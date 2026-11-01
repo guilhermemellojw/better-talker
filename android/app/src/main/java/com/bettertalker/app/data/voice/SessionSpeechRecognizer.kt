@@ -71,11 +71,15 @@ class SpeechTranscriptAccumulator {
  * - `Result` só é calculado quando o chamador pede [stopSession].
  * - Nada é gravado em disco.
  */
-class SessionSpeechRecognizer(private val context: Context) {
+class SessionSpeechRecognizer(
+    private val context: Context,
+    private val engineProvider: () -> SttEngine? = { null },
+) {
 
     private val main = Handler(Looper.getMainLooper())
     private val accumulator = SpeechTranscriptAccumulator()
     private var recognizer: SpeechRecognizer? = null
+    private var activeEngine: SttEngine? = null
     private var active = false
     private var paused = false
     private var stopRequested = false
@@ -99,6 +103,36 @@ class SessionSpeechRecognizer(private val context: Context) {
 
     fun startSession() {
         cancelSession()
+        // Motor local (sherpa) se disponível e configurado.
+        val engine = runCatching { engineProvider() }.getOrNull()
+        if (engine != null && engine.isAvailable()) {
+            activeEngine = engine
+            active = true
+            paused = false
+            stopRequested = false
+            _speechStarted.value = false
+            _state.value = SessionSpeechState.Preparing
+            engine.start(
+                onReady = {
+                    if (active && !paused && !stopRequested) {
+                        _state.value = SessionSpeechState.Listening
+                    }
+                },
+                onPartial = { text ->
+                    _partial.value = text
+                    if (text.any(Char::isLetterOrDigit)) _speechStarted.value = true
+                },
+                onFinal = { text ->
+                    if (text.isNotBlank()) {
+                        accumulator.addFinal(text)
+                        _transcript.value = accumulator.transcript()
+                        _speechStarted.value = true
+                    }
+                },
+                onError = { msg -> interruptWith(msg) },
+            )
+            return
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             _state.value = SessionSpeechState.Interrupted(
                 "Reconhecimento de voz indisponível neste aparelho."
@@ -119,6 +153,15 @@ class SessionSpeechRecognizer(private val context: Context) {
 
     /** Pausa sem perder a transcrição; o serviço é liberado. */
     fun pauseSession() {
+        val engine = activeEngine
+        if (engine != null) {
+            paused = true
+            active = false
+            engine.pause()
+            _partial.value = ""
+            _state.value = SessionSpeechState.Paused
+            return
+        }
         if (!active && !paused) return
         paused = true
         active = false
@@ -134,6 +177,16 @@ class SessionSpeechRecognizer(private val context: Context) {
 
     /** Retoma a escuta do ponto anterior, mantendo o texto acumulado. */
     fun resumeSession() {
+        val engine = activeEngine
+        if (engine != null) {
+            paused = false
+            active = true
+            stopRequested = false
+            _state.value = SessionSpeechState.Preparing
+            engine.resume()
+            _state.value = SessionSpeechState.Listening
+            return
+        }
         if (!paused && _state.value !is SessionSpeechState.Interrupted) return
         paused = false
         active = true
@@ -145,6 +198,13 @@ class SessionSpeechRecognizer(private val context: Context) {
 
     /** Parar explícito: pede o último segmento e finaliza em Idle. */
     fun stopSession() {
+        val engine = activeEngine
+        if (engine != null) {
+            stopRequested = true
+            _state.value = SessionSpeechState.Processing
+            engine.stop { finalizeStopped() }
+            return
+        }
         if (paused || _state.value is SessionSpeechState.Interrupted) {
             finalizeStopped()
             return
@@ -165,6 +225,9 @@ class SessionSpeechRecognizer(private val context: Context) {
 
     /** Cancela sem aproveitar o texto (fechar/descartar resultado). */
     fun cancelSession() {
+        activeEngine?.cancel()
+        activeEngine?.release()
+        activeEngine = null
         removeRestart()
         finalizeRunnable?.let(main::removeCallbacks)
         finalizeRunnable = null
@@ -317,6 +380,20 @@ class SessionSpeechRecognizer(private val context: Context) {
         }
     }
 
+    private fun interruptWith(message: String) {
+        active = false
+        paused = false
+        removeRestart()
+        finalizeRunnable?.let(main::removeCallbacks)
+        finalizeRunnable = null
+        runCatching { activeEngine?.cancel() }
+        runCatching { activeEngine?.release() }
+        activeEngine = null
+        destroyRecognizer()
+        _partial.value = ""
+        _state.value = SessionSpeechState.Interrupted(message)
+    }
+
     private fun interrupt(error: Int) {
         android.util.Log.w("SessionSTT", "interrupted error=$error retries=$retryCount")
         active = false
@@ -345,6 +422,8 @@ class SessionSpeechRecognizer(private val context: Context) {
     }
 
     private fun finalizeStopped() {
+        activeEngine?.release()
+        activeEngine = null
         finalizeRunnable?.let(main::removeCallbacks)
         finalizeRunnable = null
         removeRestart()

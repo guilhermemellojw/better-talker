@@ -27,6 +27,9 @@ class SttModelDownloader(private val context: Context) {
     val modelUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" +
         "sherpa-onnx-nemo-stt_pt_fastconformer_hybrid_large_pc-int8.tar.bz2"
 
+    /** SHA-256 do arquivo .tar.bz2 (publicado nos assets do release). */
+    val modelSha256 = "bf340af23de6e49550ee8eb83d6fc205d288aca18083a9bcec53e31b4a4f101b"
+
     /** Verifica se o modelo está disponível. */
     fun isModelReady(): Boolean = modelFile.exists() && tokensFile.exists() && modelFile.length() > 0
 
@@ -73,6 +76,15 @@ class SttModelDownloader(private val context: Context) {
                 }
                 conn.disconnect()
 
+                // 1b. Verifica SHA-256 (arquivo corrompido/parcial)
+                val actual = sha256(tmpFile)
+                if (!actual.equals(modelSha256, ignoreCase = true)) {
+                    tmpFile.delete()
+                    Log.e(tag, "SHA-256 mismatch: expected=$modelSha256 actual=$actual")
+                    onComplete(false, "Arquivo corrompido (checksum não confere). Tente de novo.")
+                    return@withContext
+                }
+
                 // 2. Extract (tar.bz2 → model.int8.onnx + tokens.txt)
                 extractTarBz2(tmpFile, modelDir)
 
@@ -99,6 +111,19 @@ class SttModelDownloader(private val context: Context) {
     fun removeModel() {
         modelDir.deleteRecursively()
         Log.i(tag, "Model removed")
+    }
+
+    private fun sha256(file: File): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            var n = input.read(buf)
+            while (n >= 0) {
+                digest.update(buf, 0, n)
+                n = input.read(buf)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun extractTarBz2(archive: File, destDir: File) {

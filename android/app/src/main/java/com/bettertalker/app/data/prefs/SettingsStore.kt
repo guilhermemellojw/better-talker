@@ -217,6 +217,13 @@ class SettingsStore(
     val sttOnDevice: Flow<Boolean> = ctx.store.data.map { it[STT_ON_DEVICE] ?: true }
     suspend fun setSttOnDevice(v: Boolean) { ctx.store.edit { it[STT_ON_DEVICE] = v } }
 
+    /** STT: motor de reconhecimento ("system" | "sherpa"). */
+    private val STT_ENGINE = stringPreferencesKey("stt_engine")
+    val sttEngine: Flow<String> = ctx.store.data.map { it[STT_ENGINE] ?: "system" }
+    suspend fun setSttEngine(v: String) {
+        ctx.store.edit { it[STT_ENGINE] = if (v == "sherpa") "sherpa" else "system" }
+    }
+
     /**
      * Treino MVP: última preparação escolhida, por nota (escopo|modo|timer).
      * A string é opaca aqui; o StageViewModel codifica/decodifica e valida

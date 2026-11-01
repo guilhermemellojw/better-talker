@@ -24,6 +24,7 @@ interface SttEngine {
      * @param onError callback para erros
      */
     fun start(
+        onReady: () -> Unit = {},
         onPartial: (String) -> Unit = {},
         onFinal: (String) -> Unit = {},
         onError: (String) -> Unit = {},
