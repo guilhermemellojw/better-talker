@@ -390,27 +390,13 @@ fun EditorScreen(
                         // UX refactor: o Editor é focado em escrita/exportação —
                         // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
                         // atalhos de Ensaio/Tribuna (agora na barra global) saíram.
-                        if (noteSources != null) {
-                            DropdownMenuItem(
-                                text = { Text("Fontes da nota") },
-                                leadingIcon = { Icon(Icons.Default.MenuBook, null) },
-                                onClick = { showMenu = false; showSources = true },
-                            )
-                        }
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
                         )
                         DropdownMenuItem(
-                            text = { Text("Exportar / Compartilhar") },
+                            text = { Text("Exportar nota") },
                             onClick = { showMenu = false; showExport = true },
-                        )
-                        // #E2E-fix: a GERAÇÃO da Tribuna ficou sem gatilho na UI
-                        // quando o editor foi enxugado (o hub só abre a tela).
-                        // O wiring já existe: gera em background + abre a Tribuna.
-                        DropdownMenuItem(
-                            text = { Text("Gerar Tribuna") },
-                            onClick = { showMenu = false; onGenerateTribuna() },
                         )
                     }
                 }

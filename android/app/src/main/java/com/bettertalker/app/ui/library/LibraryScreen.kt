@@ -140,10 +140,6 @@ fun LibraryScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            OutlinedButton(onClick = onOpenModel, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.SmartToy, null); Text(" Modelo IA (local, opcional)")
-            }
-            Spacer(Modifier.height(4.dp))
             Text(
                 "PDF, EPUB, DOCX, RTF, ZIP de RTFs, TXT e JWPUB.",
                 style = MaterialTheme.typography.labelSmall,

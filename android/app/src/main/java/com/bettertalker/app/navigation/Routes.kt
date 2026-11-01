@@ -2,7 +2,7 @@ package com.bettertalker.app.navigation
 
 object Routes {
     const val HOME = "home"
-    const val EDITOR = "editor/{noteId}"
+    const val EDITOR = "editor/{noteId}?generate={generate}"
     const val LIBRARY = "library?linkNote={linkNote}&scan={scan}"
     const val TRASH = "trash"
     const val ACCOUNT = "account"
@@ -27,7 +27,7 @@ object Routes {
     const val PRESENT_HOME = "present"
     /** Apresentar live — pré-voo + palco read-only (imersivo). */
     const val PRESENT = "present/{noteId}"
-    fun editor(noteId: String) = "editor/$noteId"
+    fun editor(noteId: String, generate: Boolean = false) = "editor/$noteId?generate=$generate"
     fun chat(noteId: String) = "chat/$noteId"
     fun tribuna(noteId: String) = "tribuna/$noteId"
     fun stage(noteId: String) = "stage/$noteId"

@@ -91,14 +91,14 @@ fun SettingsScreen(
             )
             SettingsTile(
                 icon = Icons.Default.Save,
-                title = "Dados",
-                subtitle = "Backup, exportar e importar",
+                title = "Backup",
+                subtitle = "Exportar e importar dados",
                 onClick = onOpenBackup,
             )
             SettingsTile(
                 icon = Icons.Default.FolderOpen,
                 title = "Downloads",
-                subtitle = "Pasta de Downloads e busca automática",
+                subtitle = "Pasta e busca automática",
                 onClick = onOpenDownloads,
             )
             SettingsTile(

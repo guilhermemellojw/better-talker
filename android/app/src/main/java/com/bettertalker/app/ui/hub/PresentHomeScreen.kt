@@ -43,6 +43,7 @@ fun PresentHomeScreen(
     onBack: () -> Unit,
     onOpenNote: (String) -> Unit,
     onOpenEditor: (String) -> Unit = {},
+    onGenerateTribuna: (String) -> Unit = {},
 ) {
     val cards by vm.cards.collectAsState()
     val viewMode by vm.viewMode.collectAsState()
@@ -109,15 +110,14 @@ fun PresentHomeScreen(
             text = {
                 Text(
                     "Esta nota ainda não tem uma Tribuna para o palco. " +
-                        "Abra o editor e toque em ⋮ → Gerar Tribuna; " +
-                        "no modo demonstração, escreva o diálogo no editor."
+                        "Gere a Tribuna agora ou abra o editor para editar."
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     blockedNoteId = null
-                    onOpenEditor(blocked.id)
-                }) { Text("Abrir editor") }
+                    onGenerateTribuna(blocked.id)
+                }) { Text("Gerar Tribuna") }
             },
             dismissButton = {
                 TextButton(onClick = { blockedNoteId = null }) { Text("Cancelar") }

@@ -122,7 +122,7 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "Nenhuma Tribuna gerada. Volte ao editor e toque em ⋮ → Gerar Tribuna.",
+                    "Nenhuma Tribuna gerada. Volte ao Apresentar e toque em Gerar Tribuna.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp),

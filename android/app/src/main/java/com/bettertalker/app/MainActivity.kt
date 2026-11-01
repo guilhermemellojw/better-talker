@@ -261,6 +261,7 @@ private fun AppNav(
                 onBack = { nav.popBackStack() },
                 onOpenNote = { nav.navigate(Routes.present(it)) },
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
+                onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },
             )
         }
         composable(Routes.TRASH) { back ->
@@ -311,13 +312,27 @@ private fun AppNav(
         }
         composable(
             Routes.EDITOR,
-            arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("noteId") { type = NavType.StringType },
+                navArgument("generate") { type = NavType.BoolType; defaultValue = false },
+            )
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            val autoGenerate = back.arguments?.getBoolean("generate") ?: false
             // Navegação global: memoriza a última nota aberta (Treinar/Apresentar).
             androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
             val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
             val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter))
+            // Auto-gerar Tribuna se vindo do PresentHome
+            if (autoGenerate) {
+                androidx.compose.runtime.LaunchedEffect(noteId) {
+                    copilotVm.generateTribuna { ok ->
+                        if (ok) nav.navigate(Routes.tribuna(noteId)) {
+                            popUpTo(Routes.EDITOR) { inclusive = true }
+                        }
+                    }
+                }
+            }
             // "Escolher arquivo" da Home: importa o esboço na nota recém-criada.
             val pending = pendingImport
             androidx.compose.runtime.LaunchedEffect(noteId, pending) {

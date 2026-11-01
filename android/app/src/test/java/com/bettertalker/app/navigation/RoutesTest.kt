@@ -38,6 +38,6 @@ class RoutesTest {
     fun rotasParametrizadas() {
         assertEquals("stage/note-1", Routes.stage("note-1"))
         assertEquals("tribuna/note-1", Routes.tribuna("note-1"))
-        assertEquals("editor/note-1", Routes.editor("note-1"))
+        assertEquals("editor/note-1?generate=false", Routes.editor("note-1"))
     }
 }
