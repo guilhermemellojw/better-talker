@@ -15,7 +15,7 @@
 | 5 | Stop no meio da frase; última entra | ✅ | Log: `Segment decoded: 86 chars` → `Stopped: transcript=86 chars` (ordem correta; fix do timeout 15 s) |
 | 6 | Cancel; nada vaza | ✅ | Sessão com decode (43 chars) → sair do treino: `Capture stopped` → `Cancelled` → `Released`; nenhum decode após o cancelamento; nenhum resultado/métrica exibido |
 | 7 | Offline (Wi-Fi desligado; modo avião já ativo) | ✅ | Wi-Fi desligado às 15:30:56; `Segment decoded: 186 chars` às 15:32:06 com Wi-Fi ainda desligado (verificado às 15:32:13). Transcrição sem rede |
-| 8 | 45 min; memória/bateria/tela | 🔄 em andamento | Sessão de 45 min iniciada 15:34 com USB (carregando), análise ativa e áudio em loop; métricas a cada 5 min em `/tmp/opencode/stt45.log` |
+| 8 | 45 min; memória/bateria/tela | ✅ | 45 min (15:34→16:20) com análise ativa e áudio em loop, USB (carregando). Processo vivo o tempo todo (pid 21443), sem kill/ANR. Native heap 566→590 MB (platô), PSS total 839–874 MB (estável). Temperatura 30,7–31,0 °C (sem throttling). Bateria 22%→25% (ganho líquido com USB) |
 | 9 | Remover modelo com Sherpa ativo → fallback | ✅ | `rm -rf files/stt` com `stt_engine=sherpa`: treino iniciou sem logs `SherpaStt` (STT do sistema), `● Ouvindo…` |
 | 10 | Sistema × Sherpa no mesmo áudio | ⏳ pendente | Falta gravar o mesmo áudio humano e rodar nos dois motores (WER relativo) |
 
@@ -28,6 +28,10 @@
 | Memória nativa após `release()` | ~124 MB (delta ~132 MB) |
 | ANR | nenhum (modelo carrega em thread `sherpa-decode`) |
 | Buffer AudioRecord | 1280 B @ 16 kHz mono |
+| 45 min — Native heap | 566 → 590 MB (platô) |
+| 45 min — PSS total | 839–874 MB (estável) |
+| 45 min — temperatura | 30,7–31,0 °C |
+| 45 min — processo | vivo (pid 21443), sem kill/ANR |
 
 ## Observações
 
