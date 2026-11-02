@@ -1,4 +1,4 @@
-# Spec — Apresentar live
+# Spec — Palco (apresentar ao vivo)
 
 Status: aprovado para documentação. Nenhum código de palco implementado.
 Base: main; Tribuna atual serve como preparação/edição.
@@ -23,7 +23,7 @@ ESBOÇOS → card ⋮ → Apresentar (define o esboço atual) → PALCO
 
 Palco → Trocar esboço → picker → escolhe → volta.
 
-## 4. Hub Apresentar
+## 4. Aba Palco
 
 - Cartão do esboço atual com tipo, duração, nº de seções e prontidão:
   - "Tribuna pronta";
@@ -103,7 +103,7 @@ Modo Roteiro:
 
 | Situação | Comportamento |
 |----------|---------------|
-| Tribuna ausente | hub bloqueia e oferece gerar |
+| Tribuna ausente | aba bloqueia e oferece gerar |
 | Tribuna incompleta | aviso por seção; permite começar |
 | Bateria baixa | aviso no pré-voo |
 | Tela bloqueou | volta na mesma seção/timer |
@@ -126,7 +126,7 @@ Modo Roteiro:
 
 MVP:
 
-- hub com prontidão;
+- aba com prontidão;
 - pré-voo (cues/roteiro, seção inicial, timer, fonte, orientação);
 - palco com uma seção por vez;
 - timer total/seção;
@@ -152,12 +152,12 @@ Futuro:
 - Reutilizar TribunaCapsule e parseStageTurns.
 - Timer próprio de apresentação, com pausa por ciclo de vida.
 - keepScreenOn, imersivo, orientação responsiva com trava opcional.
-- Corrigir prontidão/estado vazio no hub.
+- Corrigir prontidão/estado vazio na aba.
 - Nada de edição/TTS/export no palco.
 
 ## 14. Critérios de aceite
 
-- Hub mostra pronta/falta gerar e não abre palco vazio.
+- A aba mostra pronta/falta gerar e não abre palco vazio.
 - Pré-voo permite cues/roteiro, seção inicial, timer e orientação.
 - Palco mostra uma seção por vez, âncora em destaque e timer.
 - Avanço manual; edição bloqueada; sair com confirmação.

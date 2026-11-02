@@ -17,7 +17,7 @@ O usuário deve sair sabendo o que funcionou, o que ajustar e qual o próximo ex
 - Sessão: "Treino" + título da nota.
 - Resultado: "Resultado do treino".
 - "Ensaio" fica apenas em nomes internos/código.
-- "Apresentar" é uma frente separada (palco ao vivo).
+- "Palco" é uma frente separada (apresentação ao vivo).
 
 ## 3. Jornada
 
@@ -26,7 +26,7 @@ ESBOÇOS → card ⋮ → Treinar (define o esboço atual) → Treino (aba)
 
 Treino → Trocar esboço → picker → escolhe → volta.
 
-## 4. Hub Treino
+## 4. Aba Treino
 
 - Cartão do esboço atual com tipo, duração e nº de seções.
 - A lista completa fica em Esboços; a troca é explícita ("Trocar esboço" → picker).
