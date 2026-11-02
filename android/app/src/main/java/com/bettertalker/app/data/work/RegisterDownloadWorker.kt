@@ -82,6 +82,9 @@ class RegisterDownloadWorker(ctx: Context, params: WorkerParameters) : Coroutine
             }
             repo.completePlaceholder(placeholderId, tmp, name, noteId)
             tmp.delete()
+            // P1: a cópia oficial fica em filesDir/publicacoes; o arquivo
+            // temporário do DownloadManager não precisa permanecer.
+            runCatching { dm.remove(dmId) }
             Result.success()
         } catch (e: Exception) {
             repo.failPlaceholder(placeholderId, e.message?.take(160) ?: "Falha ao importar.")

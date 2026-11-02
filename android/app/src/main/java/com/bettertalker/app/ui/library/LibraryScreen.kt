@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,19 +54,16 @@ import com.bettertalker.app.data.catalog.RecommendedPub
 import com.bettertalker.app.data.catalog.RecommendedPublications
 import com.bettertalker.app.data.catalog.findInLibrary
 import com.bettertalker.app.data.db.AttachmentEntity
+import com.bettertalker.app.data.prefs.DownloadsTreeStore
+import com.bettertalker.app.data.repo.DownloadGroup
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.JW_FINDER_HOME
 import com.bettertalker.app.ui.components.ByodNotice
 import com.bettertalker.app.ui.jw.JwDownloadDialog
+import kotlinx.coroutines.launch
 
-private val PICKER_MIMES = arrayOf(
-    "application/pdf",
-    "application/epub+zip",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/rtf", "text/rtf",
-    "application/zip", "application/x-zip-compressed",
-    "text/plain", "application/octet-stream"
-)
+// P0: escolher qualquer arquivo; a validação é pela extensão em importUri.
+private val PICKER_MIMES = arrayOf("*/*")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,10 +78,26 @@ fun LibraryScreen(
     val items by vm.items.collectAsState(initial = emptyList())
     val toast by vm.toast.collectAsState()
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val treeUri by DownloadsTreeStore.getUri(ctx).collectAsState(initial = null)
     var showJw by remember { mutableStateOf(false) }
     var jwUrl by remember { mutableStateOf(JW_FINDER_HOME) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importUri(uri)
+    }
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                ctx.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            scope.launch {
+                DownloadsTreeStore.setUri(ctx, uri)
+                vm.scanDownloads()
+            }
+        }
     }
     // Android 13+: notificação de conclusão do DownloadManager precisa de permissão
     val notifPermission = rememberLauncherForActivityResult(
@@ -104,7 +118,11 @@ fun LibraryScreen(
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
-    LaunchedEffect(scanOnOpen) { if (scanOnOpen) vm.scanDownloads() }
+    LaunchedEffect(scanOnOpen) {
+        if (scanOnOpen) {
+            if (treeUri == null) treePicker.launch(null) else vm.scanDownloads()
+        }
+    }
 
     if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 
@@ -133,10 +151,11 @@ fun LibraryScreen(
             ByodNotice()
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = openJw, modifier = Modifier.weight(1f)) {                    Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
+                Button(onClick = openJw, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
                 }
                 OutlinedButton(onClick = { picker.launch(PICKER_MIMES) }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.UploadFile, null); Text(" Importar")
+                    Icon(Icons.Default.UploadFile, null); Text(" Escolher arquivo")
                 }
             }
             Spacer(Modifier.height(4.dp))
@@ -146,41 +165,101 @@ fun LibraryScreen(
                 color = MaterialTheme.colorScheme.secondary
             )
             Spacer(Modifier.height(8.dp))
-            // Achados em Downloads (ex: baixados no navegador, fora do app)
+
+            // P0 — pasta SAF explícita. Sem URI, o botão abre o seletor de
+            // pasta; nunca cai em MediaStore silencioso.
             val scan by vm.scan.collectAsState()
-            OutlinedButton(
-                onClick = { vm.scanDownloads() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Download, null); Text(" Procurar em Downloads")
-            }
-            scan?.let { found ->
-                if (found.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+            if (treeUri != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Na pasta Downloads, ainda fora do app:",
-                        style = MaterialTheme.typography.titleSmall
+                        "Pasta: ${treeUri?.lastPathSegment?.substringAfterLast(':') ?: "Downloads"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.height(4.dp))
-                    found.forEach { c ->
+                    TextButton(onClick = { treePicker.launch(null) }) { Text("Alterar") }
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    if (treeUri == null || scan?.permissionLost == true) treePicker.launch(null)
+                    else vm.scanDownloads()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Download, null)
+                Text(" Ler pasta Downloads")
+            }
+            if (scan?.permissionLost == true) {
+                Text(
+                    "A permissão da pasta expirou. Escolha de novo.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            scan?.takeIf { it.folderChosen }?.let { found ->
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Encontradas em Downloads (${found.groups.size} publicações · ${found.fileCount} arquivos)",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (found.groups.isEmpty()) {
+                    Text(
+                        "Nada novo na pasta escolhida.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                } else {
+                    found.groups.take(30).forEach { group ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                "• ${c.name}",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextButton(onClick = { vm.importScanned(c, linkNoteId) }) {
-                                Text("Importar")
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "${group.symbol} · ${group.formats}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Text(
+                                    when {
+                                        group.alreadyInLibrary -> "Já no acervo"
+                                        group.duplicateCount > 0 ->
+                                            "Novo · ${group.duplicateCount + 1} arquivos; importar ${group.best.name.substringAfterLast('.')}"
+                                        else -> "Novo"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (group.alreadyInLibrary) {
+                                        MaterialTheme.colorScheme.secondary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                )
                             }
+                            TextButton(
+                                onClick = { vm.importGroup(group, linkNoteId) },
+                                enabled = !group.alreadyInLibrary,
+                            ) { Text(if (group.alreadyInLibrary) "Já no acervo" else "Importar") }
                         }
                     }
-                    Spacer(Modifier.height(4.dp))
+                    if (found.groups.size > 30) {
+                        Text(
+                            "Mais ${found.groups.size - 30} publicações — use “Importar todas”.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (found.newGroups.isNotEmpty()) {
+                            TextButton(onClick = { vm.importAllNew(linkNoteId) }) {
+                                Text("Importar todas (${found.newGroups.size})")
+                            }
+                        }
+                        TextButton(onClick = { vm.dismissScan() }) { Text("Ignorar") }
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
+            val groupsBySymbol = scan?.groups?.associateBy { it.symbol }.orEmpty()
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                 // T2 — catálogo curado (BYOD): metadados + links oficiais.
                 item(key = "rec-title") {
@@ -199,7 +278,11 @@ fun LibraryScreen(
                         RecommendedPubCard(
                             pub = pub,
                             match = match,
+                            downloadGroup = groupsBySymbol[pub.symbol],
                             linkNoteId = linkNoteId,
+                            onImportFromDownloads = { group ->
+                                vm.importGroup(group, linkNoteId)
+                            },
                             onDownload = {
                                 // T1: Baixar aponta para o jw.org (a WOL não baixa).
                                 jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
@@ -323,11 +406,14 @@ fun LibraryScreen(
 private fun RecommendedPubCard(
     pub: RecommendedPub,
     match: AttachmentEntity?,
+    downloadGroup: DownloadGroup?,
     linkNoteId: String?,
+    onImportFromDownloads: (DownloadGroup) -> Unit,
     onDownload: () -> Unit,
     onFormats: () -> Unit,
     onLink: (String) -> Unit,
 ) {
+    val alreadyInLibrary = match != null || downloadGroup?.alreadyInLibrary == true
     Card(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
@@ -336,13 +422,25 @@ private fun RecommendedPubCard(
             Column(Modifier.weight(1f)) {
                 Text("${pub.title} (${pub.symbol})", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    if (match != null) "Disponível" else "Faltando",
+                    when {
+                        match != null -> "Disponível"
+                        downloadGroup?.alreadyInLibrary == true -> "Já no acervo"
+                        else -> "Faltando"
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (match != null) MaterialTheme.colorScheme.primary
+                    color = if (alreadyInLibrary) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.secondary
                 )
             }
-            TextButton(onClick = onDownload) { Text("Baixar") }
+            when {
+                alreadyInLibrary -> Unit
+                downloadGroup != null -> {
+                    TextButton(onClick = { onImportFromDownloads(downloadGroup) }) {
+                        Text("Importar do Downloads")
+                    }
+                }
+                else -> TextButton(onClick = onDownload) { Text("Baixar") }
+            }
             if (pub.formatsUrl != null) {
                 TextButton(onClick = onFormats) { Text("Formatos") }
             }

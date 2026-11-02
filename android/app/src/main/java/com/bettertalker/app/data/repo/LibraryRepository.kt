@@ -34,6 +34,18 @@ class ImportException(val reason: Reason, msg: String) : Exception(msg) {
 data class DownloadCandidate(val uriString: String, val name: String, val sizeBytes: Long)
 
 /**
+ * Resultado da leitura da pasta Downloads. `folderChosen=false` = o usuário
+ * ainda não escolheu a pasta (a UI deve abrir o seletor); `permissionLost`
+ * = a URI existia mas o Android revogou o acesso (não cair no MediaStore).
+ */
+data class DownloadsScanResult(
+    val candidates: List<DownloadCandidate> = emptyList(),
+    val folderChosen: Boolean = false,
+    val permissionLost: Boolean = false,
+    val error: String? = null,
+)
+
+/**
  * Tira os já registrados (por nome). Puro/testável.
  * Nome igual = mesmo arquivo baixado de novo (o registro mostra o estado).
  */
@@ -49,6 +61,39 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
 
     fun observe(): Flow<List<AttachmentEntity>> = db.attachmentDao().observe()
     suspend fun all() = db.attachmentDao().all()
+
+    private fun sha256Of(file: File): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun findByHash(hash: String): AttachmentEntity? =
+        db.attachmentDao().all().firstOrNull { it.sha256 == hash }
+
+    /**
+     * Dedupe não pode perder o vínculo pedido agora: se o anexo existente
+     * ainda não pertence a nenhuma nota, adota a nota do import atual.
+     */
+    private suspend fun linkIfUnlinked(existing: AttachmentEntity, noteId: String?) {
+        if (noteId != null && existing.noteId == null) {
+            db.attachmentDao().setNote(existing.id, noteId)
+            SyncScheduler.requestSync(ctx)
+        }
+    }
+
+    /** P1: publicação já importada com este nome (evita baixar de novo). */
+    suspend fun findExistingByName(fileName: String): AttachmentEntity? =
+        db.attachmentDao().all().firstOrNull {
+            it.fileName == fileName && it.appPath.isNotBlank() && File(it.appPath).isFile
+        }
 
     /**
      * Documentos em Downloads (MediaStore) ainda não importados.
@@ -106,19 +151,30 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             emptyList()
         }
     }
-    suspend fun scanAllDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
+    suspend fun scanAllDownloads(): List<DownloadCandidate> =
+        scanAllDownloadsDetailed().candidates
+
+    /**
+     * Caminho SAF explícito: sem pasta escolhida não cai em MediaStore; com
+     * permissão revogada devolve `permissionLost` para a UI pedir de novo.
+     */
+    suspend fun scanAllDownloadsDetailed(): DownloadsScanResult = withContext(Dispatchers.IO) {
         val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
-        if (treeUri != null) {
-            try {
-                DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
-            } catch (_: SecurityException) {
-                DownloadsTreeStore.clearUri(this@LibraryRepository.ctx)
-                scanDownloads()
-            } catch (_: Exception) {
-                scanDownloads()
-            }
-        } else {
-            scanDownloads()
+            ?: return@withContext DownloadsScanResult(folderChosen = false)
+        try {
+            val all = DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
+            val registered = db.attachmentDao().all().map { it.fileName }.toSet()
+            DownloadsScanResult(
+                candidates = filterUnregistered(all, registered),
+                folderChosen = true,
+            )
+        } catch (_: SecurityException) {
+            DownloadsScanResult(folderChosen = true, permissionLost = true)
+        } catch (e: Exception) {
+            DownloadsScanResult(
+                folderChosen = true,
+                error = e.message?.take(120),
+            )
         }
     }
 
@@ -171,7 +227,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         if (kind == DocKind.UNSUPPORTED) {
             throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
         }
-        val tmp = File(ctx.cacheDir, "imp-${System.currentTimeMillis()}-$name")
+        val tmp = File(ctx.cacheDir, "imp-${java.util.UUID.randomUUID()}-$name")
         try {
             // Fase 0: a cópia pode chegar a 400 MB — nunca na Main.
             withContext(Dispatchers.IO) {
@@ -223,6 +279,36 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             }
             var dst: File? = null
             try {
+                val hash = sha256Of(src)
+                // P1: mesmo arquivo não vira segundo anexo. Se o registro
+                // antigo perdeu o binário, reusa o caminho e reindexa.
+                val existing = findByHash(hash)
+                if (existing != null) {
+                    val existingFile = File(existing.appPath)
+                    if (existingFile.isFile) {
+                        linkIfUnlinked(existing, noteId)
+                        return@withContext existing.id
+                    }
+                    val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
+                    val safe = existing.fileName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
+                    val target = File(dir, "${existing.id}-$safe")
+                    dst = target
+                    src.copyTo(target, overwrite = true)
+                    db.attachmentDao().upsert(
+                        existing.copy(
+                            appPath = target.absolutePath,
+                            sizeBytes = target.length(),
+                            indexed = false,
+                            status = "indexing",
+                            error = null,
+                            sha256 = hash,
+                            noteId = existing.noteId ?: noteId,
+                        )
+                    )
+                    enqueueIndex(existing.id)
+                    SyncScheduler.requestSync(ctx)
+                    return@withContext existing.id
+                }
                 val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
                 val id = newId("att")
                 val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
@@ -233,7 +319,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                 db.attachmentDao().upsert(
                     AttachmentEntity(
                         id, noteId, displayName, kind.ext, target.length(), target.absolutePath,
-                        false, System.currentTimeMillis(), slot, "indexing", null
+                        false, System.currentTimeMillis(), slot, "indexing", null,
+                        sha256 = hash,
                     )
                 )
                 enqueueIndex(id)
@@ -300,6 +387,14 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             return
         }
         try {
+            val hash = sha256Of(src)
+            // P1: download repetido da mesma edição reusa o anexo existente.
+            val existing = findByHash(hash)?.takeIf { it.id != id }
+            if (existing != null && File(existing.appPath).isFile) {
+                linkIfUnlinked(existing, cur.noteId ?: noteId)
+                db.attachmentDao().delete(id)
+                return
+            }
             val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
             val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
             val dst = File(dir, "$id-$safe")
@@ -309,7 +404,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     fileName = displayName, kind = kind.ext, sizeBytes = dst.length(),
                     appPath = dst.absolutePath, indexed = false, status = "indexing",
                     error = null, baseSlot = cur.baseSlot ?: matchBaseSlot(displayName),
-                    noteId = noteId ?: cur.noteId
+                    noteId = noteId ?: cur.noteId, sha256 = hash,
                 )
             )
             enqueueIndex(id)

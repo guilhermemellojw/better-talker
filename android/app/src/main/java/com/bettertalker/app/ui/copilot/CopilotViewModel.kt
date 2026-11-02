@@ -6697,6 +6697,17 @@ class CopilotViewModel(
                     com.bettertalker.app.data.util.JwMediaApi.probeIssueFile(st.probePub!!, st.probeYear!!)
                 } ?: return@withContext false.also { _busy.value = false }
                 val lib = com.bettertalker.app.data.repo.LibraryRepository(app, db)
+                val existing = lib.findExistingByName(direct.fileName)
+                if (existing != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(
+                            app,
+                            "Já no acervo: ${direct.fileName}",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    return@withContext true.also { _busy.value = false }
+                }
                 val ph = lib.insertPlaceholder(direct.fileName)
                     ?: return@withContext false.also { _busy.value = false }
                 val dmId = com.bettertalker.app.ui.jw.DownloadHelper.enqueue(app, direct.url, direct.fileName)

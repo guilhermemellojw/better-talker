@@ -50,9 +50,13 @@ import com.bettertalker.app.data.util.BookGroup
 import com.bettertalker.app.data.util.GroupStatus
 import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.NoteSources
+import com.bettertalker.app.data.util.SourceAction
 import com.bettertalker.app.data.util.SourceGroup
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
+import com.bettertalker.app.data.util.TextStatus
+import com.bettertalker.app.data.copilot.SourceRowAction
+import com.bettertalker.app.data.copilot.sourceRowState
 import com.bettertalker.app.data.util.citationStatusLabel
 import com.bettertalker.app.data.util.groupNoteSources
 import com.bettertalker.app.data.util.isPending
@@ -214,34 +218,18 @@ private fun PublicationRow(
     onRefresh: () -> Unit,
 ) {
     val pending = group.pendingCount > 0
-    val indexing = group.allPending && group.sources
-        .filter { it.status.isPending() }
-        .all { it.status == SourceStatus.INDEXING }
-    // 5 níveis: Disponível, Baixar, Indexando, Conferir, Falhou
-    val hasFailed = group.sources.any {
-        it.status == SourceStatus.INDEX_FAILED || it.status == SourceStatus.UNSUPPORTED
+    // Badge = estado; botão = ação. Nunca usar o mesmo texto nos dois.
+    val rowState = sourceRowState(group)
+    val statusText = rowState.label
+    val statusColor = when (rowState.action) {
+        SourceRowAction.NONE -> MaterialTheme.colorScheme.secondary
+        SourceRowAction.FOLLOW -> MaterialTheme.colorScheme.tertiary
+        SourceRowAction.RESOLVE -> MaterialTheme.colorScheme.tertiary
+        SourceRowAction.RETRY -> MaterialTheme.colorScheme.error
+        // Falta/Parcial pedem download, mas não são falha: tertiary, não error.
+        SourceRowAction.DOWNLOAD -> MaterialTheme.colorScheme.tertiary
     }
-    val hasConferir = group.sources.any {
-        it.status == SourceStatus.TEXT_NOT_FOUND ||
-            it.citation.action.name.contains("AMBIGUOUS", ignoreCase = true) ||
-            it.hint?.contains("ambígu", ignoreCase = true) == true
-    }
-    val statusText = when {
-        group.status == GroupStatus.OK && !pending -> "Disponível"
-        pending -> "Indexando"
-        hasFailed -> "Falhou"
-        hasConferir && group.status != GroupStatus.MISSING -> "Conferir"
-        group.status == GroupStatus.MISSING -> "Baixar"
-        else -> "Baixar"
-    }
-    val statusColor = when (statusText) {
-        "Disponível" -> MaterialTheme.colorScheme.secondary
-        "Indexando" -> MaterialTheme.colorScheme.tertiary
-        "Conferir" -> MaterialTheme.colorScheme.tertiary
-        "Falhou" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.error
-    }
-    val isAttention = group.status != GroupStatus.OK && !pending
+    val isAttention = rowState.attention
 
     Column(Modifier.fillMaxWidth()) {
         // Linha principal: publicação + status pill + ação
@@ -291,16 +279,18 @@ private fun PublicationRow(
             }
             Spacer(Modifier.width(4.dp))
             // Action button (only one per state)
-            when (statusText) {
-                "Disponível" -> Unit
-                "Indexando" -> TextButton(
+            when (rowState.action) {
+                SourceRowAction.NONE -> Unit
+                SourceRowAction.FOLLOW -> TextButton(
                     onClick = onOpenLibrary,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Acompanhar") }
-                "Conferir" -> {
+                SourceRowAction.RESOLVE -> {
                     val actionSource = group.sources.firstOrNull {
                         it.status == SourceStatus.TEXT_NOT_FOUND ||
-                            it.status == SourceStatus.EDITION_MISSING
+                            it.status == SourceStatus.EDITION_MISSING ||
+                            it.citation.text == TextStatus.AMBIGUOUS ||
+                            it.citation.action == SourceAction.CONFIRM
                     }
                     val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
                         ?.takeIf { it.isNotBlank() }
@@ -315,11 +305,11 @@ private fun PublicationRow(
                         modifier = Modifier.heightIn(min = 48.dp),
                     ) { Text("Resolver") }
                 }
-                "Falhou" -> TextButton(
+                SourceRowAction.RETRY -> TextButton(
                     onClick = onOpenLibrary,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Reindexar") }
-                else -> {
+                SourceRowAction.DOWNLOAD -> {
                     val actionSource = group.sources.firstOrNull {
                         it.status == SourceStatus.EDITION_MISSING
                     }
@@ -411,13 +401,14 @@ private fun BookDetailRow(
             when (book.status) {
                 GroupStatus.OK -> "Disponível"
                 GroupStatus.PARTIAL -> "Parcial"
-                GroupStatus.MISSING -> "Baixar"
+                GroupStatus.MISSING -> "Falta"
             },
             style = MaterialTheme.typography.labelSmall,
             color = when (book.status) {
                 GroupStatus.OK -> MaterialTheme.colorScheme.secondary
                 GroupStatus.PARTIAL -> MaterialTheme.colorScheme.tertiary
-                GroupStatus.MISSING -> MaterialTheme.colorScheme.error
+                // Falta pede download, não é falha.
+                GroupStatus.MISSING -> MaterialTheme.colorScheme.tertiary
             },
         )
         Icon(
@@ -472,7 +463,7 @@ private fun StatusPillIcon(
             when (status) {
                 GroupStatus.OK -> Icons.Default.CheckCircle
                 GroupStatus.PARTIAL -> Icons.Default.Warning
-                GroupStatus.MISSING -> Icons.Default.Download
+                GroupStatus.MISSING -> Icons.Default.Warning
             },
             contentDescription = null,
             tint = tint,

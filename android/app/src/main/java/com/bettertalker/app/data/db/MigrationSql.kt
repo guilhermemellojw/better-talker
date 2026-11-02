@@ -176,4 +176,12 @@ object MigrationSql {
     val MIGRATION_20_21: List<String> = listOf(
         "ALTER TABLE `notes` ADD COLUMN `lastSyncedAt` INTEGER NOT NULL DEFAULT 0",
     )
+
+    /**
+     * P1 (v21 -> v22): hash SHA-256 para deduplicar importações/downloads.
+     * Nulo em anexos antigos; o próximo import calcula e preenche.
+     */
+    val MIGRATION_21_22: List<String> = listOf(
+        "ALTER TABLE `attachments` ADD COLUMN `sha256` TEXT",
+    )
 }
