@@ -94,14 +94,19 @@ fun NoteCard(
                 )
             }
             Column(Modifier.padding(14.dp)) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    if (pinned) Text("📌 Fixada  ", style = MaterialTheme.typography.labelSmall)
-                    Text(
-                        title.ifBlank { "Sem título" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f)
-                    )
+                Row(verticalAlignment = androidx.compose.ui.Alignment.Top) {
+                    // Grid de 2 colunas: o pin não pode roubar a largura do
+                    // título (no Redmi o título virava "A / ord…").
+                    Column(Modifier.weight(1f)) {
+                        if (pinned) {
+                            Text("📌 Fixada", style = MaterialTheme.typography.labelSmall)
+                        }
+                        Text(
+                            title.ifBlank { "Sem título" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 3,
+                        )
+                    }
                     NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete, onTrain, onPresent)
                 }
                 if (badgeText != null || durationText != null) {

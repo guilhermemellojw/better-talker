@@ -1,9 +1,11 @@
 package com.bettertalker.app.ui.hub
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,7 +65,7 @@ fun HubPickerScreen(
     val isTrain = mode == "train"
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0),
+        contentWindowInsets = WindowInsets.navigationBars,
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -104,7 +106,10 @@ fun HubPickerScreen(
                     modifier = Modifier.padding(24.dp),
                 )
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                ) {
                     items(filtered, key = { it.id }) { card ->
                         NoteRowDetailed(
                             title = card.title,
