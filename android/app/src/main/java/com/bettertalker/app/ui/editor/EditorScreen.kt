@@ -529,7 +529,11 @@ fun EditorScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        val hasNoteContent = title.isNotBlank() || attachments.isNotEmpty()
+                        // "Nova nota"/"Sem título" é placeholder, não conteúdo.
+                        val placeholderTitle = title.isBlank() ||
+                            title == "Nova nota" || title == "Sem título"
+                        val hasNoteContent = !placeholderTitle ||
+                            mdText.isNotBlank() || attachments.isNotEmpty()
                         Text(
                             if (hasNoteContent) "Sua nota tem conteúdo, mas ainda não tem seções"
                             else "Comece a montar seu discurso",
