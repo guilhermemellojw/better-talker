@@ -29,7 +29,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **2.831 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Palco + lote visual) · `lintDebug` 0 errors.
-- **Distribuição:** **v3.2.0/42** (APK assinado + SHA-256, arm64; hash `681151e4…7d4170`). O v3.1.0/41 e anteriores continuam disponíveis. Ver [v3.2.0](docs/releases/v3.2.0.md) e [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v3.2.0/42** (APK assinado + SHA-256, arm64; hash no `app-release.apk.sha256` do release). O v3.1.0/41 e anteriores continuam disponíveis. Ver [v3.2.0](docs/releases/v3.2.0.md) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
