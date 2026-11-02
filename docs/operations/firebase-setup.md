@@ -20,10 +20,10 @@ SHAs-256 (opcional, recomendado):
 | release | `AD:1B:0A:30:22:56:A6:6A:A0:83:D7:6B:76:72:91:EB:2E:3C:8C:4B:07:F0:7A:E7:41:DD:99:71:62:33:BB:A4` |
 | debug | `13:89:B7:56:E1:37:D5:9D:E0:09:37:5B:A3:66:E0:BC:41:31:8F:BC:A5:CF:1D:42:7A:DC:39:24:6D:FD:62:A8` |
 
-> **Estado atual do json enviado:** ele tem só o app `com.bettertalker.app` e
-> com o SHA-1 do **debug** (`ef02bc…`). Isso não autentica nem o release
-> (assinado com `90f0bb…`) nem o debug (pacote `.debug` não existe).
-> É preciso corrigir no Console.
+> **Estado em 2026-11-02:** o app `com.bettertalker.app.debug` foi criado com o
+> SHA-1 do debug (`ef02bc…`) e o login **funciona**. O app de release ainda está
+> com o SHA-1 do debug; **falta adicionar `90:F0:BB:…:C9:7E`** para o login do
+> release funcionar.
 
 ### Passos no Console
 
