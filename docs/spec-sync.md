@@ -168,7 +168,7 @@ service cloud.firestore {
 |---|---|---|
 | M0 | Este spec + auditoria | ✅ |
 | M1 | Firebase + Auth + rules v2 + Emulator | login debug, rules verdes |
-| M2 | Notas/pastas + first-sync + conflito + F1 | duas instâncias, sem perda, ordem propaga |
+| M2 | Notas/pastas + first-sync + conflito + F1 | ✅ parcial: first-sync validado no A34 (dialog Mesclar → 120+ notas, local preservada); conflito/F1 cobertos por testes JVM; falta E2E de 2 aparelhos |
 | M3 | Seções/subpontos/outlines | estrutura consistente |
 | M4 | Anexos metadados/missing + CTA | 2º aparelho rebaixa |
 | M5 | UI conta/status/conflito/wipe/export | fluxo completo |
@@ -182,3 +182,20 @@ service cloud.firestore {
 - Sync do chat do Copilot.
 - Sync de configurações/voz/API key.
 - Multi-conta no mesmo aparelho (continua 1 conta/aparelho).
+
+## 10. Status M2 (2026-11-02)
+
+Implementado e testado (JVM + A34):
+
+- **F1**: reorder de seção/subponto bumpa `updatedAt` (`SectionsController`); 2 testes.
+- **Conflito**: `NoteEntity.lastSyncedAt` (migração 20→21); quando local e remoto
+  mudaram desde o último sync, cria nota `"<título> (conflito)"` com cópia
+  profunda (seções/subpontos) e aplica o remoto no original. 6 testes.
+- **First sync**: `syncFirstPending` + `firstSyncMode` (upload/download/merge).
+  No A34: app limpo com 1 nota → login → diálogo "Primeiro sync" →
+  **Mesclar** → 120+ notas da conta puxadas, nota local preservada.
+- **Baixar**: `pushEnabled=false` em todas as coleções; 3 testes.
+- **Export antes do wipe**: botão "Exportar backup" no diálogo de troca de conta.
+
+Pendente do M2: E2E com dois aparelhos (edição concorrente real → cópia de
+conflito), e teste de reorder propagando entre dois devices.
