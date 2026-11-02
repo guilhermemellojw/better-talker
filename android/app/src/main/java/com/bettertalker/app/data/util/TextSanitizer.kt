@@ -20,7 +20,7 @@ private val HTML_ENTITIES = mapOf(
     "iacute" to "í", "icirc" to "î",
     "oacute" to "ó", "ocirc" to "ô", "otilde" to "õ",
     "uacute" to "ú", "ucirc" to "û", "uuml" to "ü",
-    "Aacute" to "Á", "Acirc" to "Â", "Atilde" to "Ã",
+    "Aacute" to "Á", "Acirc" to "Â", "Agrave" to "À", "Atilde" to "Ã",
     "Ccedil" to "Ç",
     "Eacute" to "É", "Ecirc" to "Ê",
     "Iacute" to "Í",
@@ -29,11 +29,20 @@ private val HTML_ENTITIES = mapOf(
     "quest" to "?", "period" to ".", "comma" to ",", "colon" to ":",
     "semi" to ";", "excl" to "!", "hellip" to "…", "mldr" to "…", "mdash" to "—",
     "ndash" to "–", "laquo" to "«", "raquo" to "»",
+    // Aspas retas/curvas e variantes ISO que o editor/importadores geram.
     "ldquo" to "“", "rdquo" to "”", "lsquo" to "‘", "rsquo" to "’",
-    "lpar" to "(", "rpar" to ")", "sol" to "/", "percnt" to "%", "num" to "#",
-    "dollar" to "$", "plus" to "+", "equals" to "=", "ast" to "*",
+    "ldquor" to "“", "rdquor" to "”", "lsquor" to "‘", "rsquor" to "’",
+    "bdquo" to "„", "sbquo" to "‚",
+    "lpar" to "(", "rpar" to ")", "lsqb" to "[", "rsqb" to "]",
+    "lbrack" to "[", "rbrack" to "]",
+    "sol" to "/", "percnt" to "%", "num" to "#",
+    "dollar" to "$", "plus" to "+", "equals" to "=", "ast" to "*", "midast" to "*",
     "commat" to "@", "vert" to "|", "bsol" to "\\", "tilde" to "~",
     "lowbar" to "_", "grave" to "`",
+    "sect" to "§", "para" to "¶", "bull" to "•", "dagger" to "†", "Dagger" to "‡",
+    "copy" to "©", "reg" to "®", "trade" to "™", "deg" to "°", "plusmn" to "±",
+    "times" to "×", "divide" to "÷", "micro" to "µ", "permil" to "‰",
+    "euro" to "€", "pound" to "£", "cent" to "¢", "yen" to "¥",
 )
 
 private val HTML_ENTITY_RE = Regex("&(#?[a-zA-Z0-9]+);")

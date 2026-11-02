@@ -35,6 +35,10 @@ class TextSanitizerTest {
         assertEquals("“caminho” ‘vida’", "&ldquo;caminho&rdquo; &lsquo;vida&rsquo;".toCleanPreview())
         // Duplo escape do editor: &amp;ldquo; → &ldquo; → “.
         assertEquals("“caminho”", "&amp;ldquo;caminho&amp;rdquo;".toCleanPreview())
+        // Variantes ISO vistas em importações da JW Library.
+        assertEquals("“caminho” ‘vida’", "&ldquor;caminho&rdquor; &lsquor;vida&rsquor;".toCleanPreview())
+        assertEquals("[a] § À", "&lsqb;a&rsqb; &sect; &midast; &Agrave;".toCleanPreview())
+        assertEquals("*", decodeHtmlEntities("&midast;"))
     }
 
     @Test
