@@ -10,14 +10,14 @@
 |---|---------|-----------|-----------|
 | 1 | Baixar modelo 125 MB; conferir SHA-256 | ✅ | Download 100% → extração `model.int8.onnx` 131 MB + `tokens.txt`; SHA `bf340af2…` confere (sem erro). Repetido 2× |
 | 2 | Selecionar Sherpa; reiniciar; persistência | ✅ | DataStore `stt_engine=sherpa`; após force-stop a UI voltou com Sherpa marcado e licença CC-BY-NC visível |
-| 3 | Fala humana real (30–60 s) | ✅ qualitativo | Fala humana de ~60 s (usuário): 2 segmentos (186 + 167 chars), transcript 431 chars; resultado 73 palavras/29 s (151 wpm). WER não medido (sem ground truth) |
+| 3 | Fala humana real (30–60 s) | ✅ quantitativo | 2 gravações de 43 s lendo texto fixo (ritmo ~119 wpm). WER MODEL 0,0% / PIPELINE 0,5% (A2 0,0%; A3 1,1%). RTF pipeline 0,073 |
 | 4 | Pause/resume no meio | ✅ | `⏸ Pausado` → `AudioCapture: Capture stopped`; `Retomar` → `● Ouvindo… 00:05` + `Capture started`; transcrição preservada |
 | 5 | Stop no meio da frase; última entra | ✅ | Log: `Segment decoded: 86 chars` → `Stopped: transcript=86 chars` (ordem correta; fix do timeout 15 s) |
 | 6 | Cancel; nada vaza | ✅ | Sessão com decode (43 chars) → sair do treino: `Capture stopped` → `Cancelled` → `Released`; nenhum decode após o cancelamento; nenhum resultado/métrica exibido |
 | 7 | Offline (Wi-Fi desligado; modo avião já ativo) | ✅ | Wi-Fi desligado às 15:30:56; `Segment decoded: 186 chars` às 15:32:06 com Wi-Fi ainda desligado (verificado às 15:32:13). Transcrição sem rede |
 | 8 | 45 min; memória/bateria/tela | ✅ | 45 min (15:34→16:20) com análise ativa e áudio em loop, USB (carregando). Processo vivo o tempo todo (pid 21443), sem kill/ANR. Native heap 566→590 MB (platô), PSS total 839–874 MB (estável). Temperatura 30,7–31,0 °C (sem throttling). Bateria 22%→25% (ganho líquido com USB) |
 | 9 | Remover modelo com Sherpa ativo → fallback | ✅ | `rm -rf files/stt` com `stt_engine=sherpa`: treino iniciou sem logs `SherpaStt` (STT do sistema), `● Ouvindo…` |
-| 10 | Sistema × Sherpa no mesmo áudio | ⏳ pendente | Falta gravar o mesmo áudio humano e rodar nos dois motores (WER relativo) |
+| 10 | Sistema × Sherpa no mesmo áudio | ⏳ pendente | Sherpa medido (0,5% pipeline); falta o mesmo áudio no motor do sistema |
 
 ## Medições
 
@@ -49,3 +49,21 @@
 3. Modo avião (offline real).
 4. 45 min contínuos: memória, bateria, temperatura, tela.
 5. Comparação WER sistema × Sherpa no mesmo áudio.
+
+## WER humano (harness `SttWerTest`, 2026-11-02)
+
+| Amostra | Duração | Ritmo | MODEL_WER | PIPELINE_WER | RTF (pipeline) |
+|---|---|---|---|---|---|
+| A2 (lida, natural) | 42,9 s | ~119 wpm | 0,0% | 0,0% | 0,077 |
+| A3 (voz baixa) | 43,2 s | ~118 wpm | 0,0% | 1,1% | 0,069 |
+| **Média** | — | — | **0,0%** | **0,5%** | **0,073** |
+
+- Texto fixo de ~85 palavras lido pelo usuário (ground truth conhecido).
+- `PIPELINE` = caminho do app (chunks → VadSegmenter → decode por segmento).
+- Memória no run: PSS 597 MB no pico, 188 MB após release.
+- Amostra A1 "clara" não foi gravada; as duas amostras saíram a ~119 wpm
+  (ritmo normal). A condição "fala rápida" (>180 wpm) ainda não foi exercitada.
+
+**Decisão sugerida:** `pipeline_avg_wer` 0,5% ≤ 20% → promover o Sherpa de
+"experimental" para "validado (opt-in)" no 3.1.0/41, mantendo o sistema como
+default.
