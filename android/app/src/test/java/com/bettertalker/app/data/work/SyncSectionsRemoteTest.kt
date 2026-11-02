@@ -261,8 +261,8 @@ class SyncSectionsRemoteTest {
 
         // Estado pós-pull idêntico ao original (todos os campos).
         assertEquals(
-            originalNote.copy(updatedAt = 0L),
-            ndB.rows.single().copy(updatedAt = 0L),
+            originalNote.copy(updatedAt = 0L, lastSyncedAt = 0L),
+            ndB.rows.single().copy(updatedAt = 0L, lastSyncedAt = 0L),
         )
         assertEquals(
             originalSections.sortedBy { it.id }.map { it.copy(updatedAt = 0L) },

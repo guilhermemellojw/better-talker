@@ -93,6 +93,7 @@ class AuthRepository(private val ctx: Context) {
             val signed = authOrNull()?.currentUser
             val uid = signed?.uid
             val lastUid = settings.lastUidValue() ?: lastUidHint
+            val freshBinding = lastUid == null
             if (accountSwitchBlocked(lastUid, uid)) {
                 // Guard mínimo de multi-conta: não deixa as notas locais
                 // subirem para a conta nova. O usuário pode apagar os dados
@@ -106,6 +107,8 @@ class AuthRepository(private val ctx: Context) {
             if (uid != null) {
                 lastUidHint = uid
                 settings.setLastUid(uid)
+                // M2: no primeiro vínculo deste aparelho, não decidir sozinho.
+                if (freshBinding) settings.setSyncFirstPending(true)
             }
             _user.value = signed
             SyncScheduler.requestSync(ctx)

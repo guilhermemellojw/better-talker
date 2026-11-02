@@ -173,6 +173,60 @@ class SectionsControllerTest {
     // ---------- testes ----------
 
     @Test
+    fun moverSecao_bumpaUpdatedAtParaSync() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(
+                section("s1", 0, "INTRO"),
+                section("s2", 1),
+                section("s3", 2),
+            )
+        }
+        var now = 1_000L
+        val controller = SectionsController(
+            nid, secs, FakeSubPoints(), FakeTransactionRunner(), this,
+            debounceMs = 0, clock = { now },
+        )
+        try {
+            controller.sections.first { it.size == 3 }
+            now = 2_000L
+            controller.moveSection("s2", MoveDirection.UP)
+            controller.awaitSaves()
+            // s2 e s1 trocaram de posição → ambas bumpam (senão o sync não vê a ordem).
+            assertEquals(0, secs.rows.value.first { it.id == "s2" }.order)
+            assertEquals(2_000L, secs.rows.value.first { it.id == "s2" }.updatedAt)
+            assertEquals(2_000L, secs.rows.value.first { it.id == "s1" }.updatedAt)
+            // s3 não mudou de posição → updatedAt preservado.
+            assertEquals(1L, secs.rows.value.first { it.id == "s3" }.updatedAt)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun moverSubPonto_bumpaUpdatedAtParaSync() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
+        val subs = FakeSubPoints().apply {
+            rows.value = listOf(subPoint("sp1", "s1", 0), subPoint("sp2", "s1", 1))
+        }
+        var now = 1_000L
+        val controller = SectionsController(
+            nid, secs, subs, FakeTransactionRunner(), this,
+            debounceMs = 0, clock = { now },
+        )
+        try {
+            controller.sections.first { it.firstOrNull()?.subPoints?.size == 2 }
+            now = 3_000L
+            controller.moveSubPoint("sp2", MoveDirection.UP)
+            controller.awaitSaves()
+            val moved = subs.rows.value.first { it.id == "sp2" }
+            assertEquals(0, moved.order)
+            assertEquals(3_000L, moved.updatedAt)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun observe_emptyDb_emitsEmptyList() = runBlocking {
         val controller = SectionsController(nid, FakeSections(), FakeSubPoints(), FakeTransactionRunner(), this, debounceMs = 0)
         try {

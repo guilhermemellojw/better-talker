@@ -404,13 +404,15 @@ class SectionsController(
     private fun renormalizeSections(list: List<SectionUiState>): List<SectionUiState> =
         list.mapIndexed { idx, state ->
             if (state.section.order == idx) state
-            else state.copy(section = state.section.copy(order = idx))
+            else state.copy(
+                section = state.section.copy(order = idx, updatedAt = clock()),
+            )
         }
 
     /** Renormaliza `order` dos sub-pontos para 0..N contíguo. */
     private fun renormalizeSubPoints(list: List<SubPoint>): List<SubPoint> =
         list.mapIndexed { idx, sp ->
-            if (sp.order == idx) sp else sp.copy(order = idx)
+            if (sp.order == idx) sp else sp.copy(order = idx, updatedAt = clock())
         }
 
     private fun defaultTitleFor(role: SectionRole): String = when (role) {

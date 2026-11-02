@@ -14,8 +14,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.DateFormat
 import java.util.Date
@@ -31,6 +33,16 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val accountConflict = auth.accountConflict
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
+    // M2: primeiro sync deste aparelho pede escolha (Enviar/Baixar/Mesclar).
+    private val db = com.bettertalker.app.data.db.DbProvider.get(app)
+    private val _localNoteCount = MutableStateFlow(0)
+    val showFirstSync: StateFlow<Boolean> = combine(
+        user,
+        settings.syncFirstPending,
+        _localNoteCount,
+    ) { u, pending, count -> u != null && pending && count > 0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     /** F5g: estado volátil do sync (Idle/Running/Success/Error) — observável na tela. */
     val syncState: StateFlow<SyncStatus.State> = SyncStatus.state
     val configured = auth.isConfigured()
@@ -45,6 +57,17 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     init {
         auth.start()
         SyncScheduler.ensurePeriodic(app)
+        viewModelScope.launch {
+            val count = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { db.noteDao().allIncludingTrashed().size }.getOrDefault(0)
+            }
+            _localNoteCount.value = count
+            // Sem notas locais não há o que decidir: segue o merge normal.
+            if (settings.syncFirstPendingValue() && count == 0) {
+                settings.setSyncFirstPending(false)
+                SyncScheduler.requestSync(app)
+            }
+        }
     }
 
     override fun onCleared() { auth.stop() }
@@ -59,6 +82,12 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     }
 
     fun signOut() = auth.signOut()
+
+    /** M2: aplica a escolha do primeiro sync. */
+    fun firstSync(mode: String) = viewModelScope.launch {
+        settings.setSyncFirstPending(false)
+        SyncScheduler.requestFirstSync(app, mode)
+    }
     fun syncNow() = SyncScheduler.requestSync(app)
     fun consumeError() { _error.value = "" }
 

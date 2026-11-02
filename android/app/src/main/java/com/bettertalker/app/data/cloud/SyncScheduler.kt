@@ -38,6 +38,27 @@ object SyncScheduler {
         }
     }
 
+    /** M2: primeiro sync com a escolha do usuário (upload/download/merge). */
+    fun requestFirstSync(ctx: Context, mode: String) {
+        if (!enabled(ctx)) return
+        runCatching {
+            WorkManager.getInstance(ctx.applicationContext).enqueueUniqueWork(
+                NOW,
+                ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<SyncWorker>()
+                    .setInputData(
+                        androidx.work.workDataOf(SyncWorker.KEY_FIRST_SYNC_MODE to mode)
+                    )
+                    .setConstraints(
+                        Constraints.Builder()
+                            .setRequiredNetworkType(NetworkType.CONNECTED)
+                            .build()
+                    )
+                    .build()
+            )
+        }
+    }
+
     /**
      * Sync só existe com Firebase configurado. Sem google-services.json o
      * release não agenda worker nenhum (sync desligado/experimental).

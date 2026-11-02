@@ -41,7 +41,13 @@ data class NoteEntity(
     /** Verdade visual (cores, highlight, S/T...); mdText é derivado p/ Copilot. */
     val richHtml: String = "",
     /** Tipo de discurso ([DiscourseType.name]); desconhecido lê como S34_DISCOURSE. */
-    val discourseType: String = DiscourseType.S34_DISCOURSE.name
+    val discourseType: String = DiscourseType.S34_DISCOURSE.name,
+    /**
+     * Sync (M2): `updatedAt` remoto da última sincronização desta nota.
+     * 0 = nunca sincronizada. Usado para detectar edição local + remota
+     * desde o último sync (cópia de conflito).
+     */
+    val lastSyncedAt: Long = 0L
 )
 
 @Entity(tableName = "attachments", indices = [Index("baseSlot")])
@@ -280,7 +286,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

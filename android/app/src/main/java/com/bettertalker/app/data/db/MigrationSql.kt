@@ -168,4 +168,12 @@ object MigrationSql {
             "WHERE discourseType = 'MINISTRY_PART' " +
             "AND LOWER(TRIM(title)) LIKE 'discurso%'",
     )
+
+    /**
+     * M2 (v20 -> v21): `lastSyncedAt` por nota (updatedAt remoto do último
+     * sync). 0 = nunca sincronizada; notas existentes começam em 0.
+     */
+    val MIGRATION_20_21: List<String> = listOf(
+        "ALTER TABLE `notes` ADD COLUMN `lastSyncedAt` INTEGER NOT NULL DEFAULT 0",
+    )
 }

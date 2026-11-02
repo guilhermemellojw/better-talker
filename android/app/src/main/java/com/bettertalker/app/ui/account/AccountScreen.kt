@@ -42,7 +42,11 @@ import com.bettertalker.app.data.cloud.syncIndicatorText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
+fun AccountScreen(
+    vm: AccountViewModel,
+    onBack: () -> Unit,
+    onOpenBackup: () -> Unit = {},
+) {
     val user by vm.user.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
     val syncState by vm.syncState.collectAsState()
@@ -50,9 +54,38 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
     val error by vm.error.collectAsState()
     val confirmWipe by vm.confirmWipe.collectAsState()
     val accountConflict by vm.accountConflict.collectAsState()
+    val showFirstSync by vm.showFirstSync.collectAsState()
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(error) { if (error.isNotEmpty()) { snack.showSnackbar(error); vm.consumeError() } }
+
+    if (showFirstSync) {
+        AlertDialog(
+            onDismissRequest = { /* escolha obrigatória */ },
+            title = { Text("Primeiro sync") },
+            text = {
+                Text(
+                    "Este aparelho já tem notas. Como você quer sincronizar " +
+                        "com a conta?\n\n" +
+                        "• Mesclar: une os dois lados e cria uma cópia (conflito) " +
+                        "quando a mesma nota mudou nos dois.\n" +
+                        "• Enviar: o que está neste aparelho vence.\n" +
+                        "• Baixar: traz a conta; nada daqui é enviado."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.firstSync("merge") }) {
+                    Text("Mesclar (recomendado)")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { vm.firstSync("upload") }) { Text("Enviar") }
+                    TextButton(onClick = { vm.firstSync("download") }) { Text("Baixar") }
+                }
+            }
+        )
+    }
 
     if (accountConflict != null) {
         AlertDialog(
@@ -72,7 +105,10 @@ fun AccountScreen(vm: AccountViewModel, onBack: () -> Unit) {
                 }
             },
             dismissButton = {
-                TextButton(onClick = vm::cancelAccountConflict) { Text("Cancelar") }
+                Row {
+                    TextButton(onClick = onOpenBackup) { Text("Exportar backup") }
+                    TextButton(onClick = vm::cancelAccountConflict) { Text("Cancelar") }
+                }
             }
         )
     }

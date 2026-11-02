@@ -26,6 +26,7 @@ import com.bettertalker.app.data.db.decodePublicationRefList
 import com.bettertalker.app.data.db.encodePublicationRefList
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.repo.decodeStringList
+import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.repo.encodeStringList
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.google.firebase.firestore.FirebaseFirestore
@@ -69,7 +70,28 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             return Result.failure()
         }
 
+        // M2: primeiro sync não decide sozinho (Enviar/Baixar/Mesclar).
+        val firstPending = settings.syncFirstPendingValue()
+        val firstMode = inputData.getString(KEY_FIRST_SYNC_MODE)
+        if (firstPending) {
+            if (firstMode == null) {
+                SyncStatus.set(
+                    SyncStatus.State.Error(
+                        "Escolha como sincronizar este aparelho: Enviar, Baixar ou Mesclar.",
+                        System.currentTimeMillis(),
+                    )
+                )
+                return Result.success()
+            }
+            settings.setSyncFirstPending(false)
+        }
+        val pushEnabled = firstMode != MODE_DOWNLOAD
+
         val db: AppDatabase = DbProvider.get(applicationContext)
+        if (firstMode == MODE_UPLOAD) {
+            // "Enviar": o estado local vence o LWW — carimba tudo com now.
+            bumpLocalForUpload(db, System.currentTimeMillis())
+        }
         return try {
             // F5g: o estado permanece Running durante TODAS as etapas abaixo.
             SyncStatus.set(SyncStatus.State.Running)
@@ -106,26 +128,34 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             // Tombstones remotos (delete forever/estrutural de outro device)
             // são lidos uma vez e aplicados em cada coleção antes do pull.
             val remoteTombs = remote.getAll("tombstones")
-            syncNotes(remote, db.noteDao(), db.tombstoneDao(), remoteTombs)
+            syncNotes(
+                remote, db.noteDao(), db.tombstoneDao(), remoteTombs,
+                sectionDao = db.speechSectionDao(),
+                subPointDao = db.subPointDao(),
+                pushEnabled = pushEnabled,
+            )
             // F7b: seções e sub-pontos (flat). Ordem: notes -> sections ->
             // subPoints (a cascata de nota já limpou os docs remotos antes).
             syncSections(
                 remote, db.speechSectionDao(), db.noteDao(),
-                db.tombstoneDao(), remoteTombs,
+                db.tombstoneDao(), remoteTombs, pushEnabled = pushEnabled,
             )
             syncSubPoints(
                 remote, db.subPointDao(), db.speechSectionDao(), db.noteDao(),
-                db.tombstoneDao(), remoteTombs,
+                db.tombstoneDao(), remoteTombs, pushEnabled = pushEnabled,
             )
             syncFolders(
                 remote, db.folderDao(), db.tombstoneDao(),
-                db.noteDao(), remoteTombs,
+                db.noteDao(), remoteTombs, pushEnabled = pushEnabled,
             )
             syncAttachments(
                 remote, db.attachmentDao(), db.tombstoneDao(),
-                remoteTombs, db.passageDao(), db.s34Dao(),
+                remoteTombs, db.passageDao(), db.s34Dao(), pushEnabled = pushEnabled,
             )
-            syncOutlines(remote, db.outlineDao(), db.tombstoneDao(), remoteTombs)
+            syncOutlines(
+                remote, db.outlineDao(), db.tombstoneDao(), remoteTombs,
+                pushEnabled = pushEnabled,
+            )
             val now = System.currentTimeMillis()
             settings.setLastSync(now)
             SyncStatus.set(SyncStatus.State.Success(now))
@@ -138,6 +168,32 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             )
             Result.retry()
         }
+    }
+
+    companion object {
+        const val KEY_FIRST_SYNC_MODE = "firstSyncMode"
+        const val MODE_UPLOAD = "upload"
+        const val MODE_DOWNLOAD = "download"
+        const val MODE_MERGE = "merge"
+    }
+}
+
+/**
+ * M2 "Enviar": carimba o estado local com `now` para ele vencer o LWW
+ * (notas, seções, subpontos e outlines; pastas/anexos não têm updatedAt).
+ */
+private suspend fun bumpLocalForUpload(db: AppDatabase, now: Long) {
+    for (n in db.noteDao().allIncludingTrashed()) {
+        db.noteDao().upsert(n.copy(updatedAt = now))
+        for (sec in db.speechSectionDao().forNote(n.id)) {
+            db.speechSectionDao().upsert(sec.copy(updatedAt = now))
+            for (sp in db.subPointDao().forSection(sec.id)) {
+                db.subPointDao().upsert(sp.copy(updatedAt = now))
+            }
+        }
+    }
+    for (o in db.outlineDao().all()) {
+        db.outlineDao().upsert(o.copy(updatedAt = now))
     }
 }
 
@@ -177,6 +233,10 @@ internal suspend fun syncNotes(
     noteDao: NoteDao,
     tombstoneDao: TombstoneDao,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    sectionDao: SpeechSectionDao? = null,
+    subPointDao: SubPointDao? = null,
+    pushEnabled: Boolean = true,
+    clock: () -> Long = { System.currentTimeMillis() },
 ) {
     // 1. Tombstones remotos: exclusão definitiva de outro device vence.
     //    Apaga local (CASCADE em seções/sub-pontos) e garante que o doc
@@ -196,10 +256,12 @@ internal suspend fun syncNotes(
 
     // 2. Tombstones locais: publica o tombstone e executa a cascata remota
     //    FLAT (sub-pontos -> seções -> nota).
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("note", t.deletedAt))
-        deleteNoteDeep(remote, t.id)
-        if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("note", t.deletedAt))
+            deleteNoteDeep(remote, t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+        }
     }
     // pull
     for ((id, data) in cloud) {
@@ -209,13 +271,31 @@ internal suspend fun syncNotes(
         if (cur == null) {
             // Nova nota na nuvem: aceita como veio (inclusive trashed,
             // pois não há local vivo para proteger).
-            noteDao.upsert(cloudNote(id, data))
+            noteDao.upsert(cloudNote(id, data).copy(lastSyncedAt = cup))
         } else if (cup > cur.updatedAt) {
             // Remoto mais novo: nunca lixa local vivo (filtro abaixo).
             val remoteTrashed = (data["trashed"] as? Boolean) ?: false
             if (remoteCanTrashLocal(cur.trashed, remoteTrashed)) {
-                noteDao.upsert(cloudNote(id, data))
+                // M2: conflito real = local E remoto mudaram desde o último sync.
+                // Preserva o estado local numa nota "(conflito)" antes de aplicar
+                // o remoto (o texto local nunca some).
+                if (cur.lastSyncedAt > 0 &&
+                    cur.updatedAt > cur.lastSyncedAt &&
+                    cup > cur.lastSyncedAt
+                ) {
+                    copyNoteAsConflict(
+                        src = cur,
+                        noteDao = noteDao,
+                        sectionDao = sectionDao,
+                        subPointDao = subPointDao,
+                        now = clock(),
+                    )
+                }
+                noteDao.upsert(cloudNote(id, data).copy(lastSyncedAt = cup))
             }
+        } else if (cup == cur.updatedAt && cur.lastSyncedAt != cup) {
+            // Já iguais (ex.: push anterior): marca como sincronizada.
+            noteDao.upsert(cur.copy(lastSyncedAt = cup))
         }
     }
     // push
@@ -227,8 +307,53 @@ internal suspend fun syncNotes(
             // `updatedAt` = horário da edição (guard de skew já validou o
             // relógio). Usar serverTimestamp aqui faria o LWW virar
             // "último sync vence" e deixaria edição velha vencer.
+            if (!pushEnabled) continue
             remote.set("notes", n.id, noteMap(n))
+            // M2: marca o remoto como sincronizado (base do próximo conflito).
+            noteDao.upsert(n.copy(lastSyncedAt = n.updatedAt))
         }
+    }
+}
+
+/**
+ * M2 — cópia de conflito: duplica a nota local (com seções/subpontos, quando
+ * os DAOs são fornecidos) numa nota nova "<título> (conflito)". O original
+ * recebe o estado remoto; o texto local fica preservado na cópia.
+ */
+private suspend fun copyNoteAsConflict(
+    src: NoteEntity,
+    noteDao: NoteDao,
+    sectionDao: SpeechSectionDao?,
+    subPointDao: SubPointDao?,
+    now: Long,
+) {
+    val copyId = newId("note")
+    noteDao.upsert(
+        src.copy(
+            id = copyId,
+            title = "${src.title} (conflito)",
+            pinned = false,
+            updatedAt = now,
+            lastSyncedAt = 0L,
+        )
+    )
+    if (sectionDao == null) return
+    val sections = sectionDao.forNote(src.id)
+    val subs = subPointDao?.forSections(sections.map { it.id }).orEmpty()
+    val remap = mutableMapOf<String, String>()
+    for (sec in sections) {
+        val newSecId = newId("sec")
+        remap[sec.id] = newSecId
+        sectionDao.upsert(
+            sec.copy(id = newSecId, noteId = copyId, updatedAt = now)
+        )
+    }
+    val subDao = subPointDao ?: return
+    for (sp in subs) {
+        val newSecId = remap[sp.sectionId] ?: continue
+        subDao.upsert(
+            sp.copy(id = newId("sp"), sectionId = newSecId, updatedAt = now)
+        )
     }
 }
 
@@ -265,6 +390,7 @@ internal suspend fun syncFolders(
     tombstoneDao: TombstoneDao,
     noteDao: NoteDao? = null,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
 ) {
     // Tombstones remotos: apaga a pasta local e limpa referências.
     val remoteFolderTombs = remoteTombs
@@ -280,11 +406,13 @@ internal suspend fun syncFolders(
     val localTombs = tombstoneDao.all().filter { it.type == "folder" }
     val tombIds = (localTombs.map { it.id } + remoteFolderTombs).toSet()
     val local = folderDao.all()
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("folder", t.deletedAt))
-        noteDao?.clearFolder(t.id)
-        remote.delete("folders", t.id)
-        if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("folder", t.deletedAt))
+            noteDao?.clearFolder(t.id)
+            remote.delete("folders", t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+        }
     }
     for ((id, data) in cloud) {
         if (tombIds.contains(id)) continue
@@ -300,6 +428,7 @@ internal suspend fun syncFolders(
     }
     val cloudIds = cloud.keys
     for (f in local) {
+        if (!pushEnabled) continue
         if (tombIds.contains(f.id)) continue
         if (!cloudIds.contains(f.id)) {
             remote.set(
@@ -322,6 +451,7 @@ internal suspend fun syncAttachments(
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
     passageDao: PassageDao? = null,
     s34Dao: S34Dao? = null,
+    pushEnabled: Boolean = true,
 ) {
     // Tombstones remotos: remove metadados + derivados locais. O binário
     // nunca esteve na nuvem.
@@ -344,10 +474,12 @@ internal suspend fun syncAttachments(
     val localTombs = tombstoneDao.all().filter { it.type == "attachment" }
     val tombIds = (localTombs.map { it.id } + remoteAttachmentTombs).toSet()
     val local = attachmentDao.all()
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("attachment", t.deletedAt))
-        remote.delete("attachments", t.id)
-        if (!cloudIds.contains(t.id)) tombstoneDao.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("attachment", t.deletedAt))
+            remote.delete("attachments", t.id)
+            if (!cloudIds.contains(t.id)) tombstoneDao.remove(t.id)
+        }
     }
     // pull: metadados de anexos de outro aparelho (arquivo continua local-only)
     for ((id, data) in cloud) {
@@ -381,6 +513,7 @@ internal suspend fun syncAttachments(
         }
     }
     for (a in local) {
+        if (!pushEnabled) continue
         if (tombIds.contains(a.id)) continue
         val remoteData = cloud[a.id]
         if (remoteData == null) {
@@ -417,6 +550,7 @@ internal suspend fun syncOutlines(
     outlineDao: OutlineDao,
     tombstoneDao: TombstoneDao,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
 ) {
     val remoteOutlineTombs = remoteTombs
         .filterValues { it["type"] == "outline" }
@@ -430,10 +564,12 @@ internal suspend fun syncOutlines(
     val localTombs = tombstoneDao.all().filter { it.type == "outline" }
     val tombIds = (localTombs.map { it.id } + remoteOutlineTombs).toSet()
     val local = outlineDao.all()
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("outline", t.deletedAt))
-        remote.delete("outlines", t.id)
-        if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("outline", t.deletedAt))
+            remote.delete("outlines", t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+        }
     }
     for ((id, data) in cloud) {
         if (tombIds.contains(id)) continue
@@ -456,6 +592,7 @@ internal suspend fun syncOutlines(
         }
     }
     for (o in local) {
+        if (!pushEnabled) continue
         if (tombIds.contains(o.id)) continue
         val data = cloud[o.id]
         val cup = cloudUpdatedAtOrMinus1(data)
@@ -491,6 +628,7 @@ internal suspend fun syncSections(
     noteDao: NoteDao,
     tombstoneDao: TombstoneDao? = null,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
 ) {
     val remoteSectionTombs = remoteTombs
         .filterValues { it["type"] == "section" }
@@ -506,10 +644,12 @@ internal suspend fun syncSections(
     val noteIds = noteDao.allIncludingTrashed().map { it.id }.toSet()
     val local = noteIds.flatMap { sectionDao.forNote(it) }
 
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("section", t.deletedAt))
-        deleteSectionDeep(remote, t.id)
-        if (!cloud.containsKey(t.id)) tombstoneDao?.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("section", t.deletedAt))
+            deleteSectionDeep(remote, t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao?.remove(t.id)
+        }
     }
     // pull (LWW) — só de notas que ainda existem localmente
     for ((id, data) in cloud) {
@@ -524,6 +664,7 @@ internal suspend fun syncSections(
     }
     // push
     for (sec in local) {
+        if (!pushEnabled) continue
         if (tombIds.contains(sec.id)) continue
         val data = cloud[sec.id]
         val cup = cloudUpdatedAtOrMinus1(data)
@@ -548,6 +689,7 @@ internal suspend fun syncSubPoints(
     noteDao: NoteDao,
     tombstoneDao: TombstoneDao? = null,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
 ) {
     val remoteSubTombs = remoteTombs
         .filterValues { it["type"] == "subPoint" }
@@ -565,10 +707,12 @@ internal suspend fun syncSubPoints(
     val sectionIds = sections.map { it.id }.toSet()
     val local = sections.flatMap { subPointDao.forSection(it.id) }
 
-    for (t in localTombs) {
-        remote.set("tombstones", t.id, tombstoneMap("subPoint", t.deletedAt))
-        remote.delete("subPoints", t.id)
-        if (!cloud.containsKey(t.id)) tombstoneDao?.remove(t.id)
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("subPoint", t.deletedAt))
+            remote.delete("subPoints", t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao?.remove(t.id)
+        }
     }
     // pull (LWW) — só de seções que ainda existem localmente
     for ((id, data) in cloud) {
@@ -583,6 +727,7 @@ internal suspend fun syncSubPoints(
     }
     // push
     for (sp in local) {
+        if (!pushEnabled) continue
         if (tombIds.contains(sp.id)) continue
         val data = cloud[sp.id]
         val cup = cloudUpdatedAtOrMinus1(data)

@@ -217,6 +217,12 @@ class SettingsStore(
     val sttOnDevice: Flow<Boolean> = ctx.store.data.map { it[STT_ON_DEVICE] ?: true }
     suspend fun setSttOnDevice(v: Boolean) { ctx.store.edit { it[STT_ON_DEVICE] = v } }
 
+    /** Sync (M2): primeiro sync aguardando escolha (Enviar/Baixar/Mesclar). */
+    private val SYNC_FIRST_PENDING = booleanPreferencesKey("sync_first_pending")
+    val syncFirstPending: Flow<Boolean> = ctx.store.data.map { it[SYNC_FIRST_PENDING] ?: false }
+    suspend fun syncFirstPendingValue(): Boolean = syncFirstPending.first()
+    suspend fun setSyncFirstPending(v: Boolean) { ctx.store.edit { it[SYNC_FIRST_PENDING] = v } }
+
     /** STT: motor de reconhecimento ("system" | "sherpa"). */
     private val STT_ENGINE = stringPreferencesKey("stt_engine")
     val sttEngine: Flow<String> = ctx.store.data.map { it[STT_ENGINE] ?: "system" }

@@ -1,6 +1,8 @@
 package com.bettertalker.app.data.work
 
 import com.bettertalker.app.data.db.NoteEntity
+import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.data.db.SubPointEntity
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.util.plainFromMarkdown
 import kotlinx.coroutines.runBlocking
@@ -24,11 +26,13 @@ private fun note(
     trashed: Boolean = false,
     updatedAt: Long = 1000L,
     createdAt: Long = 500L,
+    lastSyncedAt: Long = 0L,
 ) = NoteEntity(
     id = id, title = title, mdText = md, plainText = plainFromMarkdown(md),
     folderId = null, colorArgb = 0L, pinned = false, trashed = trashed,
     createdAt = createdAt, updatedAt = updatedAt,
     richHtml = "<p>$md</p>",
+    lastSyncedAt = lastSyncedAt,
 )
 
 /**
@@ -159,7 +163,10 @@ class SyncNotesRemoteTest {
         val restored = localDepois.rows.single()
         // O updatedAt volta do push como Long (horário de edição validado
         // pelo guard); compara o conteúdo com o campo normalizado.
-        assertEquals(original.copy(updatedAt = 0L), restored.copy(updatedAt = 0L))
+        assertEquals(
+            original.copy(updatedAt = 0L, lastSyncedAt = 0L),
+            restored.copy(updatedAt = 0L, lastSyncedAt = 0L),
+        )
         assertNotNull(remote.doc("notes", "rt"))
     }
 
@@ -222,5 +229,160 @@ class SyncNotesRemoteTest {
         assertNull(remote.doc("sections", "s1"))
         assertNull(remote.doc("subPoints", "p1"))
         assertNotNull(remote.doc("tombstones", "n1"))
+    }
+
+    // ---------- M2: cópia de conflito ----------
+
+    @Test
+    fun conflito_localERemotoMudaram_criaCopiaECompoe() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Remota nova", "mdText" to "texto remoto",
+            "richHtml" to "<p>texto remoto</p>", "trashed" to false,
+            "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", title = "Local editada", md = "texto local",
+                updatedAt = 200L, lastSyncedAt = 100L),
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao(), clock = { 9_000L })
+
+        // Original recebe o remoto e marca o sync.
+        val original = dao.rows.first { it.id == "n1" }
+        assertEquals("Remota nova", original.title)
+        assertEquals(300L, original.updatedAt)
+        assertEquals(300L, original.lastSyncedAt)
+        // Cópia preserva o texto local.
+        val copy = dao.rows.first { it.id != "n1" }
+        assertEquals("Local editada (conflito)", copy.title)
+        assertEquals("texto local", copy.mdText)
+        assertEquals(9_000L, copy.updatedAt)
+        assertEquals(0L, copy.lastSyncedAt)
+        // E a cópia será empurrada no próximo sync (não está na nuvem).
+        assertNull(remote.doc("notes", copy.id))
+    }
+
+    @Test
+    fun conflito_copiaTambemSecoesESubPontos() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Remota", "mdText" to "r", "richHtml" to "<p>r</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val noteDao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 200L, lastSyncedAt = 100L),
+        ))
+        val sectionDao = FakeSectionDao(listOf(
+            SpeechSectionEntity(
+                id = "s1", noteId = "n1", order = 0, role = "BODY",
+                title = "Ponto", minutes = 5, contentHtml = "<p>x</p>",
+                bibleRefsJson = "[]", publicationRefsJson = "[]",
+                methodPrinciple = null, createdAt = 1L, updatedAt = 1L,
+            ),
+        ))
+        val subDao = FakeSubPointDao(listOf(
+            SubPointEntity(
+                id = "sp1", sectionId = "s1", order = 0,
+                outlineText = "a) ideia", bibleRefsJson = "[]",
+                publicationRefsJson = "[]", instruction = null,
+                developedHtml = "<p>d</p>", createdAt = 1L, updatedAt = 1L,
+            ),
+        ))
+        syncNotes(
+            remote, noteDao, FakeTombstoneDao(), clock = { 9_000L },
+            sectionDao = sectionDao, subPointDao = subDao,
+        )
+
+        val copy = noteDao.rows.first { it.id != "n1" }
+        val copiedSections = sectionDao.rows.filter { it.noteId == copy.id }
+        assertEquals(1, copiedSections.size)
+        val copiedSubs = subDao.rows.filter { it.sectionId == copiedSections.single().id }
+        assertEquals(1, copiedSubs.size)
+        assertEquals("a) ideia", copiedSubs.single().outlineText)
+        // IDs novos (não colidem com os originais).
+        assertTrue(copiedSections.single().id != "s1")
+        assertTrue(copiedSubs.single().id != "sp1")
+    }
+
+    @Test
+    fun semConflito_soLocalMudou_empurraSemCopia() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Antiga", "mdText" to "a", "richHtml" to "<p>a</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 100L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", title = "Local editada", updatedAt = 200L, lastSyncedAt = 100L),
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertEquals(1, dao.rows.size)
+        assertEquals("Local editada", remote.doc("notes", "n1")!!["title"])
+        assertEquals(200L, dao.rows.single().lastSyncedAt)
+    }
+
+    @Test
+    fun semConflito_soRemotoMudou_puxaSemCopia() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Remota", "mdText" to "r", "richHtml" to "<p>r</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 100L, lastSyncedAt = 100L),
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertEquals(1, dao.rows.size)
+        assertEquals("Remota", dao.rows.single().title)
+        assertEquals(300L, dao.rows.single().lastSyncedAt)
+    }
+
+    @Test
+    fun primeiroSync_naoCriaCopia() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Remota", "mdText" to "r", "richHtml" to "<p>r</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 200L, lastSyncedAt = 0L),
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertEquals(1, dao.rows.size)
+        assertEquals("Remota", dao.rows.single().title)
+    }
+
+    @Test
+    fun pushMarcaLastSyncedAt() = runBlocking {
+        val dao = FakeNoteDao(listOf(note(updatedAt = 1000L, lastSyncedAt = 0L)))
+        syncNotes(remote, dao, FakeTombstoneDao())
+        assertEquals(1000L, dao.rows.single().lastSyncedAt)
+    }
+
+    // ---------- M2: modo "Baixar" (push desabilitado) ----------
+
+    @Test
+    fun pushDesabilitado_naoEmpurraNotaLocal() = runBlocking {
+        val dao = FakeNoteDao(listOf(note(id = "local", updatedAt = 5000L)))
+        syncNotes(remote, dao, FakeTombstoneDao(), pushEnabled = false)
+        assertTrue(remote.ids("notes").isEmpty())
+        assertEquals(1, dao.rows.size)
+    }
+
+    @Test
+    fun pushDesabilitado_aindaPuxaRemoto() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Da nuvem", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val dao = FakeNoteDao()
+        syncNotes(remote, dao, FakeTombstoneDao(), pushEnabled = false)
+        assertEquals("Da nuvem", dao.rows.single().title)
+        assertEquals(300L, dao.rows.single().lastSyncedAt)
+    }
+
+    @Test
+    fun pushDesabilitado_naoPublicaTombstoneLocal() = runBlocking {
+        val tombs = FakeTombstoneDao(listOf(TombstoneEntity("n1", "note", 9_000L)))
+        val dao = FakeNoteDao()
+        syncNotes(remote, dao, tombs, pushEnabled = false)
+        assertTrue(remote.ids("tombstones").isEmpty())
     }
 }

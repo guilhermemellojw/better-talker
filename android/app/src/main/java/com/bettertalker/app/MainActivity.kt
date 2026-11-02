@@ -315,7 +315,11 @@ private fun AppNav(
         }
         composable(Routes.ACCOUNT) {
             val vm: AccountViewModel = viewModel(factory = AccountViewModel.Factory(ctx))
-            AccountScreen(vm, onBack = { nav.popBackStack() })
+            AccountScreen(
+                vm,
+                onBack = { nav.popBackStack() },
+                onOpenBackup = { nav.navigate(Routes.BACKUP) },
+            )
         }
         composable(
             Routes.EDITOR,
