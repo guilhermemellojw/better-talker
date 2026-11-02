@@ -51,11 +51,16 @@ modelo) e roda via `am instrument`. Saída:
 
 ```
 LOAD|load_ms=…
-RESULT|A1|wer=0.082|rtf=0.052|elapsed_ms=2010|dur=38.70|text=…
-SUMMARY|samples=3|avg_wer=0.091|max_wer=0.150|avg_rtf=0.053
+MODEL|A1|wer=0.082|rtf=0.052|elapsed_ms=2010|dur=38.70|text=…      ← WAV inteiro
+PIPELINE|A1|wer=0.105|rtf=0.061|elapsed_ms=2360|dur=38.70|text=…   ← VAD + segmentos (app)
+SUMMARY|samples=3|model_avg_wer=…|pipeline_avg_wer=…|…
 ```
 
 ## 5. Interpretar
+
+**A decisão usa o PIPELINE_WER** (VAD + decode por segmento), que é o caminho
+real do app. O MODEL_WER (WAV inteiro) serve de referência da qualidade do
+modelo isolado; a diferença entre os dois mostra o custo da segmentação.
 
 | WER (fala clara) | Decisão |
 |---|---|

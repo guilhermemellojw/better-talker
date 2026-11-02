@@ -32,8 +32,9 @@ import java.util.Locale
  *
  * Saída (logcat, tag SttWer):
  *   LOAD|load_ms=…
- *   RESULT|nome|wer=0.xxx|rtf=0.xxx|elapsed_ms=…|dur=…|text=…
- *   SUMMARY|avg_wer=…|max_wer=…|avg_rtf=…
+ *   MODEL|nome|wer=…|rtf=…|text=…      (WAV inteiro — qualidade do modelo)
+ *   PIPELINE|nome|wer=…|rtf=…|text=…   (VAD + decode por segmento — caminho do app)
+ *   SUMMARY|model_avg_wer=…|pipeline_avg_wer=…|…
  *
  * NÃO faz parte do app final: é teste instrumentado.
  */
@@ -118,9 +119,12 @@ class SttWerTest {
         Log.i(tag, "LOAD|load_ms=$loadMs")
         mem("after_load")
 
-        var sumWer = 0.0
-        var maxWer = 0.0
-        var sumRtf = 0.0
+        var sumModel = 0.0
+        var maxModel = 0.0
+        var sumPipe = 0.0
+        var maxPipe = 0.0
+        var sumRtfModel = 0.0
+        var sumRtfPipe = 0.0
         var n = 0
         try {
             for ((name, ref) in truth) {
@@ -131,31 +135,40 @@ class SttWerTest {
                 }
                 val wave = WaveReader.readWave(wav.absolutePath)
                 val dur = wave.samples.size.toDouble() / wave.sampleRate
-                val stream = recognizer.createStream()
-                try {
-                    stream.acceptWaveform(wave.samples, wave.sampleRate)
-                    val t0 = System.currentTimeMillis()
-                    recognizer.decode(stream)
-                    val elapsed = System.currentTimeMillis() - t0
-                    val text = recognizer.getResult(stream).text
-                    val rtf = elapsed / (dur * 1000.0)
-                    val w = wer(ref, text)
-                    sumWer += w
-                    maxWer = maxOf(maxWer, w)
-                    sumRtf += rtf
-                    n++
-                    Log.i(
-                        tag,
-                        String.format(
-                            Locale.US,
-                            "RESULT|%s|wer=%.3f|rtf=%.3f|elapsed_ms=%d|dur=%.2f|text=%s",
-                            name, w, rtf, elapsed, dur, text.replace('\n', ' '),
-                        ),
-                    )
-                    mem("after_$name")
-                } finally {
-                    stream.release()
-                }
+
+                // MODEL: WAV inteiro (qualidade do modelo isolado).
+                val (textModel, msModel) = decodeAll(recognizer, wave.samples, wave.sampleRate)
+                // PIPELINE: chunks → VadSegmenter → decode por segmento (caminho do app).
+                val (textPipe, msPipe) = decodePipeline(recognizer, wave.samples, wave.sampleRate)
+
+                val rtfModel = msModel / (dur * 1000.0)
+                val rtfPipe = msPipe / (dur * 1000.0)
+                val wModel = wer(ref, textModel)
+                val wPipe = wer(ref, textPipe)
+                sumModel += wModel
+                maxModel = maxOf(maxModel, wModel)
+                sumPipe += wPipe
+                maxPipe = maxOf(maxPipe, wPipe)
+                sumRtfModel += rtfModel
+                sumRtfPipe += rtfPipe
+                n++
+                Log.i(
+                    tag,
+                    String.format(
+                        Locale.US,
+                        "MODEL|%s|wer=%.3f|rtf=%.3f|elapsed_ms=%d|dur=%.2f|text=%s",
+                        name, wModel, rtfModel, msModel, dur, textModel.replace('\n', ' '),
+                    ),
+                )
+                Log.i(
+                    tag,
+                    String.format(
+                        Locale.US,
+                        "PIPELINE|%s|wer=%.3f|rtf=%.3f|elapsed_ms=%d|dur=%.2f|text=%s",
+                        name, wPipe, rtfPipe, msPipe, dur, textPipe.replace('\n', ' '),
+                    ),
+                )
+                mem("after_$name")
             }
         } finally {
             recognizer.release()
@@ -167,9 +180,64 @@ class SttWerTest {
             tag,
             String.format(
                 Locale.US,
-                "SUMMARY|samples=%d|avg_wer=%.3f|max_wer=%.3f|avg_rtf=%.3f",
-                n, sumWer / n, maxWer, sumRtf / n,
+                "SUMMARY|samples=%d|model_avg_wer=%.3f|model_max_wer=%.3f|" +
+                    "pipeline_avg_wer=%.3f|pipeline_max_wer=%.3f|" +
+                    "model_avg_rtf=%.3f|pipeline_avg_rtf=%.3f",
+                n, sumModel / n, maxModel, sumPipe / n, maxPipe,
+                sumRtfModel / n, sumRtfPipe / n,
             ),
         )
+    }
+
+    /** Decodifica o WAV inteiro de uma vez. Retorna (texto, ms). */
+    private fun decodeAll(
+        rec: OfflineRecognizer,
+        samples: FloatArray,
+        sampleRate: Int,
+    ): Pair<String, Long> {
+        val stream = rec.createStream()
+        return try {
+            stream.acceptWaveform(samples, sampleRate)
+            val t0 = System.currentTimeMillis()
+            rec.decode(stream)
+            val elapsed = System.currentTimeMillis() - t0
+            rec.getResult(stream).text to elapsed
+        } finally {
+            stream.release()
+        }
+    }
+
+    /**
+     * Mesmo caminho do app: chunks de 1024 samples → VadSegmenter →
+     * decode por segmento finalizado → concatenação. Retorna (texto, ms).
+     */
+    private fun decodePipeline(
+        rec: OfflineRecognizer,
+        samples: FloatArray,
+        sampleRate: Int,
+    ): Pair<String, Long> {
+        val vad = com.bettertalker.app.data.voice.VadSegmenter(sampleRate = sampleRate)
+        val sb = StringBuilder()
+        var elapsed = 0L
+
+        fun consume(segment: FloatArray?) {
+            if (segment == null) return
+            val (text, ms) = decodeAll(rec, segment, sampleRate)
+            elapsed += ms
+            if (text.isNotBlank()) {
+                if (sb.isNotEmpty()) sb.append(' ')
+                sb.append(text.trim())
+            }
+        }
+
+        val chunk = 1024
+        var i = 0
+        while (i < samples.size) {
+            val end = minOf(i + chunk, samples.size)
+            consume(vad.feed(samples.copyOfRange(i, end)))
+            i = end
+        }
+        consume(vad.flush())
+        return sb.toString() to elapsed
     }
 }
