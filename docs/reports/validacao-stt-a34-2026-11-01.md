@@ -54,16 +54,18 @@
 
 | Amostra | Duração | Ritmo | MODEL_WER | PIPELINE_WER | RTF (pipeline) |
 |---|---|---|---|---|---|
-| A2 (lida, natural) | 42,9 s | ~119 wpm | 0,0% | 0,0% | 0,077 |
+| A2 (lida, natural) | 42,9 s | ~119 wpm | 0,0% | 0,0% | 0,078 |
 | A3 (voz baixa) | 43,2 s | ~118 wpm | 0,0% | 1,1% | 0,069 |
-| **Média** | — | — | **0,0%** | **0,5%** | **0,073** |
+| A4 (rápida) | 27,9 s | ~183 wpm | 7,7% | 7,7% | 0,079 |
+| **Média** | — | — | **2,6%** | **2,9%** | **0,075** |
 
 - Texto fixo de ~85 palavras lido pelo usuário (ground truth conhecido).
 - `PIPELINE` = caminho do app (chunks → VadSegmenter → decode por segmento).
 - Memória no run: PSS 597 MB no pico, 188 MB após release.
-- Amostra A1 "clara" não foi gravada; as duas amostras saíram a ~119 wpm
-  (ritmo normal). A condição "fala rápida" (>180 wpm) ainda não foi exercitada.
+- Amostra A1 "clara" não foi gravada, mas A2 cobre fala natural/clara a ~119 wpm.
+- A4 (183 wpm) mostra o custo da fala rápida: 7,7% (ainda dentro do aceitável),
+  muito abaixo dos 67% do spike sintético a 1,25×.
 
-**Decisão sugerida:** `pipeline_avg_wer` 0,5% ≤ 20% → promover o Sherpa de
+**Decisão:** `pipeline_avg_wer` 2,9% ≤ 10% → **excelente**. Sherpa promovido de
 "experimental" para "validado (opt-in)" no 3.1.0/41, mantendo o sistema como
 default.
