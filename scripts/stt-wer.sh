@@ -65,4 +65,4 @@ echo "→ rodando SttWerTest (modelo em files/stt/)"
   "$TEST_PKG/androidx.test.runner.AndroidJUnitRunner" | tail -20
 
 echo "→ resultados (tag SttWer)"
-"${ADB[@]}" logcat -d -s SttWer | grep -E "LOAD\||RESULT\||SUMMARY\||SKIP\||MEM\|" || true
+"${ADB[@]}" logcat -d -s SttWer | grep -E "LOAD\||MODEL\||PIPELINE\||SUMMARY\||SKIP\||MEM\|" || true
