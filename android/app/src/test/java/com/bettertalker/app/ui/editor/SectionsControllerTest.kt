@@ -995,4 +995,34 @@ class SectionsControllerTest {
         assertEquals(9, out.publicationRefs[0].paragraphEnd)
         assertEquals(2L, out.updatedAt)
     }
+
+    @Test
+    fun desfazerExclusaoDeSecao_restauraERemoveTombstone() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("s1", 0, "INTRO"), section("s2", 1))
+        }
+        val subs = FakeSubPoints().apply {
+            rows.value = listOf(subPoint("sp1", "s2", 0))
+        }
+        val tombs = FakeTombstoneDao()
+        val controller = SectionsController(
+            nid, secs, subs, FakeTransactionRunner(), this,
+            debounceMs = 0, tombstoneDao = tombs,
+        )
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.removeSection("s2")
+            controller.awaitSaves()
+            assertTrue(tombs.rows.any { it.id == "s2" })
+            assertTrue(controller.undoRemoveSection())
+            controller.awaitSaves()
+            val restored = controller.sections.value.firstOrNull { it.section.id == "s2" }
+            assertTrue("seção deve voltar", restored != null)
+            assertEquals(listOf("sp1"), restored!!.subPoints.map { it.id })
+            assertFalse("tombstone deve sair", tombs.rows.any { it.id == "s2" })
+            assertFalse("tombstone do subponto deve sair", tombs.rows.any { it.id == "sp1" })
+        } finally {
+            controller.close()
+        }
+    }
 }

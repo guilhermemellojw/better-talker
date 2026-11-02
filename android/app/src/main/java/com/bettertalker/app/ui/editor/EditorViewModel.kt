@@ -375,6 +375,9 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun removeSection(sectionId: String) =
         sectionsController.removeSection(sectionId)
 
+    /** Desfaz a última exclusão de seção (snackbar). */
+    suspend fun undoRemoveSection(): Boolean = sectionsController.undoRemoveSection()
+
     fun moveSection(sectionId: String, direction: MoveDirection) =
         sectionsController.moveSection(sectionId, direction)
 

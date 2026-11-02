@@ -53,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -515,14 +516,26 @@ fun HomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(horizontal = 32.dp),
                     ) {
+                        val searching = query.isNotBlank()
+                        val inFolder = folderId != null
                         Text(
-                            if (query.isNotBlank()) "Nada encontrado para “$query”."
-                            else "Nenhum esboço ainda.",
+                            when {
+                                searching -> "Nada encontrado para “$query”."
+                                inFolder -> "Esta pasta está vazia."
+                                else -> "Nenhum esboço ainda."
+                            },
                             color = MaterialTheme.colorScheme.secondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
-                        if (query.isBlank()) {
-                            Spacer(Modifier.height(16.dp))
-                            Button(onClick = { showCreateSheet = true }) {
+                        Spacer(Modifier.height(16.dp))
+                        when {
+                            searching -> OutlinedButton(onClick = { vm.setQuery("") }) {
+                                Text("Limpar busca")
+                            }
+                            inFolder -> OutlinedButton(onClick = { vm.setFolder(null) }) {
+                                Text("Ver todas")
+                            }
+                            else -> Button(onClick = { showCreateSheet = true }) {
                                 Text("Criar esboço")
                             }
                         }

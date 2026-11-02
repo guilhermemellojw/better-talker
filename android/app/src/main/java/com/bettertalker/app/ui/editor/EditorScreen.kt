@@ -64,8 +64,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -527,13 +529,20 @@ fun EditorScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        val hasNoteContent = title.isNotBlank() || attachments.isNotEmpty()
                         Text(
-                            "Comece a montar seu discurso",
+                            if (hasNoteContent) "Sua nota tem conteúdo, mas ainda não tem seções"
+                            else "Comece a montar seu discurso",
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center,
                         )
                         Text(
-                            "Importe um esboço ou monte o seu do zero.",
+                            if (hasNoteContent) {
+                                "Adicione uma introdução, tópicos e conclusão — ou importe um esboço."
+                            } else {
+                                "Importe um esboço ou monte o seu do zero."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -650,7 +659,19 @@ fun EditorScreen(
                                     onMoveSectionDown = {
                                         vm.moveSection(sectionState.section.id, MoveDirection.DOWN)
                                     },
-                                    onRemoveSection = { vm.removeSection(sectionState.section.id) },
+                                    onRemoveSection = {
+                                        vm.removeSection(sectionState.section.id)
+                                        scope.launch {
+                                            val res = snackbarHostState.showSnackbar(
+                                                message = "Seção excluída.",
+                                                actionLabel = "Desfazer",
+                                                duration = SnackbarDuration.Short,
+                                            )
+                                            if (res == SnackbarResult.ActionPerformed) {
+                                                vm.undoRemoveSection()
+                                            }
+                                        }
+                                    },
                                     onApproveSection = { vm.approveSection(sectionState.section.id) },
                                     onUnapproveSection = { vm.unapproveSection(sectionState.section.id) },
                                     // #7d4: D&D — estado na tela; o handle só emite.

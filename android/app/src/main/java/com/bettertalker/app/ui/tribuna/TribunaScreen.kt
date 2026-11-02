@@ -3,6 +3,8 @@ package com.bettertalker.app.ui.tribuna
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -121,13 +123,21 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
                 Modifier.fillMaxSize().padding(pad),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "Nenhuma Tribuna gerada. Volte ao Palco e toque em Gerar Tribuna.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(24.dp),
-                    textAlign = TextAlign.Center,
-                )
+                ) {
+                    Text(
+                        "Nenhuma Tribuna gerada ainda.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.Button(onClick = onBack) {
+                        Text("Voltar ao Palco")
+                    }
+                }
             }
         } else {
             LazyColumn(

@@ -255,13 +255,39 @@ class SectionsController(
      * TUDO atomicamente (antes só deletava a linha → gap de order +
      * colisão UNIQUE no próximo add).
      */
+    private var lastRemovedSection: Pair<Int, SectionUiState>? = null
+
     fun removeSection(sectionId: String) {
-        if (_sections.value.none { it.section.id == sectionId }) return
+        val current = _sections.value
+        val index = current.indexOfFirst { it.section.id == sectionId }
+        if (index < 0) return
+        lastRemovedSection = index to current[index]
         val renormalized = renormalizeSections(
-            _sections.value.filterNot { it.section.id == sectionId }
+            current.filterNot { it.section.id == sectionId }
         )
         _sections.value = renormalized
         launchAtomicPersist(renormalized)
+    }
+
+    /**
+     * Desfaz a última exclusão de seção (snackbar "Desfazer"): restaura a
+     * seção + subpontos na posição original e remove os tombstones para o
+     * sync não apagá-los de novo. Retorna false se não havia o que desfazer.
+     */
+    suspend fun undoRemoveSection(): Boolean {
+        val (index, state) = lastRemovedSection ?: return false
+        lastRemovedSection = null
+        val list = _sections.value.toMutableList()
+        list.add(index.coerceIn(0, list.size), state)
+        val renormalized = renormalizeSections(list)
+        _sections.value = renormalized
+        tombstoneDao?.let { dao ->
+            dao.remove(state.section.id)
+            state.subPoints.forEach { dao.remove(it.id) }
+        }
+        persistSectionsAtomically(renormalized)
+        onSaved()
+        return true
     }
 
     /** Move uma seção UP/DOWN. Sem efeito nos extremos (no-op). */
