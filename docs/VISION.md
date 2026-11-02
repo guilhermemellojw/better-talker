@@ -18,7 +18,7 @@ Princípios:
 - **IA opcional (BYOD):** DeepSeek com a chave pessoal do usuário; sem chave/offline,
   o motor determinístico continua funcionando. Não há LLM on-device nem chave central.
 
-## Portas de entrada (Home → FAB `+`)
+## Portas de entrada (Esboços → FAB `+`)
 
 1. **Importar esboço S-34** — arquivo DOCX/PDF/JWPUB/EPUB/RTF/TXT → parser
    estrutural → seções, subpontos e referências persistidos. O Copilot recebe a
@@ -37,7 +37,7 @@ Princípios:
 2. Escrever/desenvolver no editor multi-seção WYSIWYG (autosave).
 3. Consultar o acervo local (publicações indexadas, JWPUB com página/§).
 4. Pedir ajuda ao Copilot (DeepSeek BYOD ou motor offline).
-5. Ensaiar no Ensaio (teleprompter, TTS Piper offline, STT) e usar a Tribuna.
+5. Treinar na aba Treino (teleprompter, TTS Piper offline, STT) e usar a Tribuna no Palco.
 6. Exportar ou apresentar.
 
 ## O que NÃO É

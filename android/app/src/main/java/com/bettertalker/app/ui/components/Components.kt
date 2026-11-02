@@ -65,6 +65,9 @@ fun NoteCard(
     onTogglePin: (() -> Unit)? = null,
     /** UX refactor: mover para pasta (menu do card na Home). */
     onMove: (() -> Unit)? = null,
+    /** Atalhos do menu: definir o esboço atual e abrir Treino/Palco. */
+    onTrain: (() -> Unit)? = null,
+    onPresent: (() -> Unit)? = null,
     /** Hubs: tipo da nota ("Demonstração"/"Discurso") — null = não mostra. */
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
@@ -99,7 +102,7 @@ fun NoteCard(
                         maxLines = 2,
                         modifier = Modifier.weight(1f)
                     )
-                    NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
+                    NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete, onTrain, onPresent)
                 }
                 if (badgeText != null || durationText != null) {
                     Spacer(Modifier.height(6.dp))

@@ -273,6 +273,20 @@ class SettingsStore(
         }
     }
 
+    /** Aba Treino: esboço atual (independente do Palco). */
+    private val TRAIN_NOTE_ID = stringPreferencesKey("train_note_id")
+    val trainNoteId: Flow<String?> = ctx.store.data.map { it[TRAIN_NOTE_ID] }
+    suspend fun setTrainNoteId(id: String?) {
+        ctx.store.edit { if (id.isNullOrBlank()) it.remove(TRAIN_NOTE_ID) else it[TRAIN_NOTE_ID] = id }
+    }
+
+    /** Aba Palco: esboço atual (independente do Treino). */
+    private val PRESENT_NOTE_ID = stringPreferencesKey("present_note_id")
+    val presentNoteId: Flow<String?> = ctx.store.data.map { it[PRESENT_NOTE_ID] }
+    suspend fun setPresentNoteId(id: String?) {
+        ctx.store.edit { if (id.isNullOrBlank()) it.remove(PRESENT_NOTE_ID) else it[PRESENT_NOTE_ID] = id }
+    }
+
     /** Navegação global: última nota aberta (Treinar/Apresentar direto da barra). */
     private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
     val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }

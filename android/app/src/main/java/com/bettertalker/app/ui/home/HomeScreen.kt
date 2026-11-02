@@ -110,6 +110,10 @@ fun HomeScreen(
     onImportMaterial: (android.net.Uri) -> Unit = {},
     /** "Colar texto": nota criada + aviso opcional (estrutura aplicada). */
     onPasteCreated: (String, String?) -> Unit = { id, _ -> onOpenNote(id) },
+    /** Menu do card: define o esboço atual do Treino e abre a aba. */
+    onTrainNote: (String) -> Unit = {},
+    /** Menu do card: define o esboço atual do Palco e abre a aba. */
+    onPresentNote: (String) -> Unit = {},
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -550,6 +554,8 @@ fun HomeScreen(
                                     n, HomeViewMode.GRID, counts[n.id] ?: 0,
                                     { onOpenNote(n.id) }, { vm.togglePin(n.id) },
                                     { moveTarget = n }, { confirmDelete = n },
+                                    onTrain = { onTrainNote(n.id) },
+                                    onPresent = { onPresentNote(n.id) },
                                 )
                             }
                         }
@@ -563,6 +569,8 @@ fun HomeScreen(
                                     n, HomeViewMode.LIST_COMPACT, counts[n.id] ?: 0,
                                     { onOpenNote(n.id) }, { vm.togglePin(n.id) },
                                     { moveTarget = n }, { confirmDelete = n },
+                                    onTrain = { onTrainNote(n.id) },
+                                    onPresent = { onPresentNote(n.id) },
                                 )
                             }
                         }
@@ -576,6 +584,8 @@ fun HomeScreen(
                                     n, HomeViewMode.LIST_DETAILED, counts[n.id] ?: 0,
                                     { onOpenNote(n.id) }, { vm.togglePin(n.id) },
                                     { moveTarget = n }, { confirmDelete = n },
+                                    onTrain = { onTrainNote(n.id) },
+                                    onPresent = { onPresentNote(n.id) },
                                 )
                             }
                         }

@@ -243,3 +243,26 @@ fun decodeTrainPrep(
     }
     return sanitizeTrainPrep(decoded, sections, subPointsBySection, analysisAvailable)
 }
+
+/**
+ * Resumo legível da preparação persistida ("WHOLE|A|1" →
+ * "inteiro · análise · cronômetro"). Puro/testável; usado no cartão da aba
+ * Treino. null = nunca preparado.
+ */
+fun trainPrepSummary(raw: String?): String? {
+    if (raw.isNullOrBlank()) return null
+    val p = raw.split('|')
+    val scope = when (p.firstOrNull()) {
+        "SECTION" -> "trecho"
+        "SUBPOINT" -> "subtópico"
+        "WHOLE" -> "inteiro"
+        else -> return null
+    }
+    val mode = when {
+        p.getOrNull(1) == "A" || p.getOrNull(2) == "A" ||
+            p.getOrNull(3) == "A" -> "análise"
+        else -> "só leitura"
+    }
+    val timer = if (p.lastOrNull() == "1") "cronômetro" else "sem cronômetro"
+    return "$scope · $mode · $timer"
+}

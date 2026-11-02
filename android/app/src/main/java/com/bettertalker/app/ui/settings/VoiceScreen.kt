@@ -143,7 +143,7 @@ fun VoiceScreen(
             if (voices.isEmpty()) {
                 Text(
                     "Nenhuma voz pt-BR encontrada ainda. Abra o Copilot ou o " +
-                        "Ensaio para inicializar a voz e toque em Atualizar.",
+                        "Treino para inicializar a voz e toque em Atualizar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),

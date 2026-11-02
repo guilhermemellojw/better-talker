@@ -19,25 +19,27 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import com.bettertalker.app.ui.components.ViewModeMenu
 
 /**
- * Hub "Treino": escolha visual da nota antes da preparação (escopo/modo/timer).
- * O Treino só começa depois do "Começar treino" na tela de preparação.
+ * Aba "Treino": esboço atual + prontidão + última preparação.
+ *
+ * A lista completa vive em Esboços; aqui a troca é explícita ("Trocar esboço"),
+ * que abre o picker compartilhado. Sem esboço atual → empty state + picker.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrainHomeScreen(
     vm: HubViewModel,
+    onOpenStage: (String) -> Unit,
+    onOpenEditor: (String) -> Unit,
+    onPickNote: () -> Unit,
+    onGoToLibrary: () -> Unit,
     onBack: () -> Unit,
-    onOpenNote: (String) -> Unit,
 ) {
-    val cards by vm.cards.collectAsState()
-    val viewMode by vm.viewMode.collectAsState()
+    val card by vm.trainCard.collectAsState()
+    val all by vm.cards.collectAsState()
     Scaffold(
         containerColor = Color.Transparent,
-        // O Scaffold global (MainActivity) + a barra cuidam dos insets do
-        // sistema — sem inset extra aqui (some o "buraco" no fim da lista).
         contentWindowInsets = WindowInsets(0),
         topBar = {
             TopAppBar(
@@ -50,20 +52,43 @@ fun TrainHomeScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
                     }
                 },
-                actions = {
-                    // Modos de visualização (global, compartilhado com a Home).
-                    ViewModeMenu(viewMode = viewMode, onSelect = vm::setViewMode)
-                },
             )
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            HubNoteList(
-                cards = cards,
-                mode = viewMode,
-                emptyText = "Nenhuma nota ainda. Crie uma na Home para treinar.",
-                onOpen = onOpenNote,
-            )
+            val current = card
+            when {
+                all.isEmpty() -> HubEmptyState(
+                    text = "Crie seu primeiro esboço para treinar.",
+                    actionLabel = "Ir para Esboços",
+                    onAction = onGoToLibrary,
+                )
+                current == null -> HubEmptyState(
+                    text = "Escolha um esboço para treinar.",
+                    actionLabel = "Escolher esboço",
+                    onAction = onPickNote,
+                )
+                else -> HubCurrentNoteCard(
+                    title = current.title,
+                    badge = if (current.isDemonstration) "Demonstração" else "Discurso",
+                    minutes = current.minutes,
+                    sectionsCount = current.sectionsCount,
+                    status = if (current.hasText) {
+                        "Pronto para treinar"
+                    } else {
+                        "Sem texto para treinar"
+                    },
+                    statusOk = current.hasText,
+                    detail = current.lastPrepLabel?.let { "Última preparação: $it" },
+                    primaryLabel = if (current.hasText) "Começar treino" else "Abrir editor",
+                    onPrimary = {
+                        if (current.hasText) onOpenStage(current.id)
+                        else onOpenEditor(current.id)
+                    },
+                    secondaryLabel = "Trocar esboço",
+                    onSecondary = onPickNote,
+                )
+            }
         }
     }
 }

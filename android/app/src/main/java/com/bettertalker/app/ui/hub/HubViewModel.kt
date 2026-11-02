@@ -13,6 +13,7 @@ import com.bettertalker.app.ui.present.decodePresentSession
 import com.bettertalker.app.ui.present.presentReadiness
 import com.bettertalker.app.ui.stage.formatClock
 import com.bettertalker.app.ui.stage.parseStageTurns
+import com.bettertalker.app.ui.stage.trainPrepSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -37,6 +38,12 @@ data class HubNoteCard(
     val presentReadiness: PresentReadiness? = null,
     /** Apresentar: sessão salva ("Continuar da seção 2 · 01:23"). */
     val presentResumeLabel: String? = null,
+    /** Número de seções (cartão de Treino/Palco). */
+    val sectionsCount: Int = 0,
+    /** Treino: a nota tem texto para treinar (seções ou markdown). */
+    val hasText: Boolean = false,
+    /** Treino: resumo da última preparação ("inteiro · análise · cronômetro"). */
+    val lastPrepLabel: String? = null,
 )
 
 /** Rótulo do tipo da nota no card ("Demonstração" × "Discurso"). Puro/testável. */
@@ -116,10 +123,31 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                 presentResumeLabel = saved?.let {
                     "Continuar da seção ${it.index + 1} · ${formatClock(it.elapsedSec)}"
                 },
+                sectionsCount = sections.size,
+                hasText = sections.any { it.contentHtml.isNotBlank() } ||
+                    note.mdText.isNotBlank(),
+                lastPrepLabel = trainPrepSummary(settings.trainPrep(note.id)),
             )
         }
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Aba Treino: esboço atual (independente do Palco). */
+    val trainNoteId: StateFlow<String?> = settings.trainNoteId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val trainCard: StateFlow<HubNoteCard?> = combine(cards, trainNoteId) { list, id ->
+        list.firstOrNull { it.id == id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Aba Palco: esboço atual (independente do Treino). */
+    val presentNoteId: StateFlow<String?> = settings.presentNoteId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val presentCard: StateFlow<HubNoteCard?> = combine(cards, presentNoteId) { list, id ->
+        list.firstOrNull { it.id == id }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setTrainNote(id: String?) = viewModelScope.launch { settings.setTrainNoteId(id) }
+    fun setPresentNote(id: String?) = viewModelScope.launch { settings.setPresentNoteId(id) }
 
     class Factory(private val ctx: Context, private val db: AppDatabase) :
         ViewModelProvider.Factory {

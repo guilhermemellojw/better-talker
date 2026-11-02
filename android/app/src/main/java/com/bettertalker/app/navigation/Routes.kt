@@ -29,11 +29,14 @@ object Routes {
     const val PRESENT_HOME = "present"
     /** Apresentar live — pré-voo + palco read-only (imersivo). */
     const val PRESENT = "present/{noteId}"
+    /** Picker compartilhado de esboço (Treino/Palco). */
+    const val PICKER = "picker/{mode}"
     fun editor(noteId: String, generate: Boolean = false) = "editor/$noteId?generate=$generate"
     fun chat(noteId: String) = "chat/$noteId"
     fun tribuna(noteId: String) = "tribuna/$noteId"
     fun stage(noteId: String) = "stage/$noteId"
     fun present(noteId: String) = "present/$noteId"
+    fun picker(mode: String) = "picker/$mode"
     fun library(linkNote: String? = null, scan: Boolean = false) =
         "library?linkNote=${linkNote.orEmpty()}&scan=$scan"
 }

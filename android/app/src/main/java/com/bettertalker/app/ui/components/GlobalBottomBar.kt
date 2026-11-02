@@ -5,9 +5,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.TheaterComedy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -19,9 +19,9 @@ import com.bettertalker.app.navigation.BottomTab
 import com.bettertalker.app.navigation.activeTab
 
 /**
- * Navegação global (HOME · TREINAR · APRESENTAR). Visível na Home, nos hubs
- * e na Tribuna (o Ensaio é imersivo — a barra some). Treinar/Apresentar abrem
- * os hubs de escolha visual da nota (nada de "última nota" silenciosa).
+ * Navegação global (Esboços · Treino · Palco). Visível em Esboços, nos hubs
+ * e na Tribuna (o Treino é imersivo — a barra some). Treino/Palco abrem o
+ * esboço atual do modo (com "Trocar esboço" quando necessário).
  */
 @Composable
 fun GlobalBottomBar(
@@ -42,20 +42,20 @@ fun GlobalBottomBar(
         NavigationBarItem(
             selected = tab == BottomTab.HOME,
             onClick = onHome,
-            icon = { Icon(Icons.Default.Home, "Home") },
-            label = { Text("Home") },
+            icon = { Icon(Icons.Default.LibraryBooks, "Esboços") },
+            label = { Text("Esboços") },
         )
         NavigationBarItem(
             selected = tab == BottomTab.TRAIN,
             onClick = onTrain,
-            icon = { Icon(Icons.Default.RecordVoiceOver, "Treinar") },
-            label = { Text("Treinar") },
+            icon = { Icon(Icons.Default.RecordVoiceOver, "Treino") },
+            label = { Text("Treino") },
         )
         NavigationBarItem(
             selected = tab == BottomTab.PRESENT,
             onClick = onPresent,
-            icon = { Icon(Icons.Default.MenuBook, "Apresentar") },
-            label = { Text("Apresentar") },
+            icon = { Icon(Icons.Default.TheaterComedy, "Palco") },
+            label = { Text("Palco") },
         )
     }
 }

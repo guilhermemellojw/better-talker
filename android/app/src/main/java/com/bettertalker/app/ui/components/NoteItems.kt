@@ -52,13 +52,29 @@ fun NoteOverflowMenu(
     onTogglePin: (() -> Unit)? = null,
     onMove: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onTrain: (() -> Unit)? = null,
+    onPresent: (() -> Unit)? = null,
 ) {
-    if (onDelete == null && onTogglePin == null && onMove == null) return
+    if (onDelete == null && onTogglePin == null && onMove == null &&
+        onTrain == null && onPresent == null
+    ) return
     val showMenu = remember { mutableStateOf(false) }
     IconButton(onClick = { showMenu.value = true }, modifier = Modifier.size(48.dp)) {
         Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(20.dp))
     }
     DropdownMenu(expanded = showMenu.value, onDismissRequest = { showMenu.value = false }) {
+        if (onTrain != null) {
+            DropdownMenuItem(
+                text = { Text("Treinar este esboço") },
+                onClick = { showMenu.value = false; onTrain() },
+            )
+        }
+        if (onPresent != null) {
+            DropdownMenuItem(
+                text = { Text("Apresentar este esboço") },
+                onClick = { showMenu.value = false; onPresent() },
+            )
+        }
         if (onTogglePin != null) {
             DropdownMenuItem(
                 text = { Text(if (pinned) "Desafixar" else "Fixar") },
@@ -156,6 +172,8 @@ fun NoteRowCompact(
     onDelete: (() -> Unit)? = null,
     onTogglePin: (() -> Unit)? = null,
     onMove: (() -> Unit)? = null,
+    onTrain: (() -> Unit)? = null,
+    onPresent: (() -> Unit)? = null,
     /** Hubs: tipo da nota ("Demonstração"/"Discurso") — null = não mostra. */
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
@@ -221,7 +239,7 @@ fun NoteRowCompact(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
+        NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete, onTrain, onPresent)
     }
 }
 
@@ -237,6 +255,8 @@ fun NoteRowDetailed(
     onDelete: (() -> Unit)? = null,
     onTogglePin: (() -> Unit)? = null,
     onMove: (() -> Unit)? = null,
+    onTrain: (() -> Unit)? = null,
+    onPresent: (() -> Unit)? = null,
     /** Hubs: tipo da nota ("Demonstração"/"Discurso") — null = não mostra. */
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
@@ -273,7 +293,7 @@ fun NoteRowDetailed(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete)
+                NoteOverflowMenu(pinned, onTogglePin, onMove, onDelete, onTrain, onPresent)
             }
             if (badgeText != null || durationText != null) {
                 Spacer(Modifier.height(2.dp))
@@ -326,6 +346,8 @@ fun NoteItem(
     onTogglePin: (() -> Unit)? = null,
     onMove: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onTrain: (() -> Unit)? = null,
+    onPresent: (() -> Unit)? = null,
     /** Hubs: tipo da nota ("Demonstração"/"Discurso") — null = não mostra. */
     badgeText: String? = null,
     /** Hubs: duração ("12 min") — null = não mostra. */
@@ -336,18 +358,21 @@ fun NoteItem(
             title = note.title, md = note.mdText, updatedAt = note.updatedAt,
             pinned = note.pinned, attachCount = attachCount, colorArgb = note.colorArgb,
             onClick = onClick, onDelete = onDelete, onTogglePin = onTogglePin, onMove = onMove,
+            onTrain = onTrain, onPresent = onPresent,
             badgeText = badgeText, durationText = durationText,
         )
         HomeViewMode.LIST_COMPACT -> NoteRowCompact(
             title = note.title, updatedAt = note.updatedAt, pinned = note.pinned,
             colorArgb = note.colorArgb, onClick = onClick,
             onDelete = onDelete, onTogglePin = onTogglePin, onMove = onMove,
+            onTrain = onTrain, onPresent = onPresent,
             badgeText = badgeText, durationText = durationText,
         )
         HomeViewMode.LIST_DETAILED -> NoteRowDetailed(
             title = note.title, md = note.mdText, updatedAt = note.updatedAt,
             pinned = note.pinned, colorArgb = note.colorArgb, onClick = onClick,
             onDelete = onDelete, onTogglePin = onTogglePin, onMove = onMove,
+            onTrain = onTrain, onPresent = onPresent,
             badgeText = badgeText, durationText = durationText,
         )
     }

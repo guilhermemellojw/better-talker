@@ -239,6 +239,14 @@ private fun AppNav(
                     if (notice != null) editorNotice = id to notice
                     nav.navigate(Routes.editor(id))
                 },
+                onTrainNote = { id ->
+                    scope.launch { settings.setTrainNoteId(id) }
+                    goTrain()
+                },
+                onPresentNote = { id ->
+                    scope.launch { settings.setPresentNoteId(id) }
+                    goPresent()
+                },
             )
         }
         // Hubs de escolha (Treinar/Apresentar): lista visual das notas.
@@ -249,7 +257,10 @@ private fun AppNav(
             com.bettertalker.app.ui.hub.TrainHomeScreen(
                 hubVm,
                 onBack = { nav.popBackStack() },
-                onOpenNote = { nav.navigate(Routes.stage(it)) },
+                onOpenStage = { nav.navigate(Routes.stage(it)) },
+                onOpenEditor = { nav.navigate(Routes.editor(it)) },
+                onPickNote = { nav.navigate(Routes.picker("train")) },
+                onGoToLibrary = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
             )
         }
         composable(Routes.PRESENT_HOME) {
@@ -259,9 +270,25 @@ private fun AppNav(
             com.bettertalker.app.ui.hub.PresentHomeScreen(
                 hubVm,
                 onBack = { nav.popBackStack() },
-                onOpenNote = { nav.navigate(Routes.present(it)) },
-                onOpenEditor = { nav.navigate(Routes.editor(it)) },
+                onPresent = { nav.navigate(Routes.present(it)) },
+                onOpenTribuna = { nav.navigate(Routes.tribuna(it)) },
                 onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },
+                onPickNote = { nav.navigate(Routes.picker("present")) },
+                onGoToLibrary = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
+            )
+        }
+        composable(
+            Routes.PICKER,
+            arguments = listOf(navArgument("mode") { type = NavType.StringType }),
+        ) { entry ->
+            val mode = entry.arguments?.getString("mode") ?: "train"
+            val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
+                factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
+            )
+            com.bettertalker.app.ui.hub.HubPickerScreen(
+                vm = hubVm,
+                mode = mode,
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.TRASH) { back ->
