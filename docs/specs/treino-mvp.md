@@ -12,8 +12,8 @@ O usuário deve sair sabendo o que funcionou, o que ajustar e qual o próximo ex
 
 ## 2. Nomenclatura
 
-- Barra inferior: "Treinar".
-- Hub: "Treino".
+- Barra inferior: "Treino".
+- Aba: "Treino" (ex-"Ensaio").
 - Sessão: "Treino" + título da nota.
 - Resultado: "Resultado do treino".
 - "Ensaio" fica apenas em nomes internos/código.
@@ -21,12 +21,15 @@ O usuário deve sair sabendo o que funcionou, o que ajustar e qual o próximo ex
 
 ## 3. Jornada
 
-TREINAR (hub) → escolher nota → preparar treino → Treino → Resultado
-→ Treinar de novo / outro trecho / voltar.
+ESBOÇOS → card ⋮ → Treinar (define o esboço atual) → Treino (aba)
+→ preparar treino → Treino → Resultado → Treinar de novo / outro trecho / voltar.
+
+Treino → Trocar esboço → picker → escolhe → volta.
 
 ## 4. Hub Treino
 
-- Lista notas ativas com tipo e duração.
+- Cartão do esboço atual com tipo, duração e nº de seções.
+- A lista completa fica em Esboços; a troca é explícita ("Trocar esboço" → picker).
 - Última vez treinada e último resultado, quando houver.
 - Ação principal: "Treinar".
 - "Continuar último treino" — **v2.10.1** (histórico de sessão; fora do MVP).
@@ -34,8 +37,10 @@ TREINAR (hub) → escolher nota → preparar treino → Treino → Resultado
 > Histórico de sessões, "última vez treinada" e "último resultado" ficam
 > para a **v2.10.1**. O MVP é stateless entre sessões: só a preparação
 > (escopo/modo/timer) é lembrada por nota.
-- Estado vazio: "Nenhuma nota ainda. Crie uma na Home para treinar."
-- Não é dashboard; é lista simples com ação clara.
+- Estado vazio sem seleção: "Escolha um esboço para treinar." + picker.
+- Sem esboços: "Crie seu primeiro esboço para treinar." + CTA para Esboços.
+- Sem texto: "Sem texto para treinar" + "Abrir editor".
+- Não é dashboard; é esboço atual + prontidão + última preparação + Trocar esboço.
 
 ## 5. Preparação
 
@@ -153,7 +158,8 @@ Progresso/desafios:
 
 ## 13. Critérios de aceite do MVP
 
-- Hub lista notas e permite Treinar.
+- A aba Treino abre no esboço atual; sem seleção mostra empty state + picker.
+- "Treinar este esboço" no menu do card define o esboço atual.
 - Preparação permite inteiro/trecho, análise/leitura e timer on/off.
 - Timer só começa no "Começar treino".
 - Trecho usa a duração da seção como meta.

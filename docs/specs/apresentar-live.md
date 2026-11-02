@@ -11,21 +11,27 @@ pouca interação, funcionar offline e não distrair.
 
 ## 2. Nomenclatura
 
-- Hub: "Apresentar".
+- Aba: "Palco" (ex-"Apresentar").
 - Tela ao vivo: "Palco".
+- "Apresentar" é a ação.
 - "Tribuna" é a preparação/edição; o palco é read-only.
 
 ## 3. Jornada
 
-APRESENTAR (hub) → preparação/pré-voo → PALCO → encerrar.
+ESBOÇOS → card ⋮ → Apresentar (define o esboço atual) → PALCO
+(esboço atual + prontidão + retomada) → preparação/pré-voo → PALCO → encerrar.
+
+Palco → Trocar esboço → picker → escolhe → volta.
 
 ## 4. Hub Apresentar
 
-- Lista notas com tipo, duração e prontidão:
+- Cartão do esboço atual com tipo, duração, nº de seções e prontidão:
   - "Tribuna pronta";
-  - "Falta gerar Tribuna";
-  - "Tribuna incompleta".
-- Ação principal: Apresentar.
+  - "Falta gerar a Tribuna";
+  - "Tribuna incompleta";
+  - em demonstrações, "Roteiro".
+- Ação principal: Apresentar (ou Gerar Tribuna quando falta).
+- A lista completa fica em Esboços; "Trocar esboço" abre o picker.
 - "Continuar de onde parei" quando houver sessão anterior.
 - Tribuna ausente: não abre palco vazio; oferece Gerar Tribuna ou editor.
 - Corrigir o bug atual de erro no chat enquanto a Tribuna abre vazia.

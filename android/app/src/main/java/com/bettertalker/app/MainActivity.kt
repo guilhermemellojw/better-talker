@@ -260,7 +260,6 @@ private fun AppNav(
             )
             com.bettertalker.app.ui.hub.TrainHomeScreen(
                 hubVm,
-                onBack = { nav.popBackStack() },
                 onOpenStage = { nav.navigate(Routes.stage(it)) },
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("train")) },
@@ -273,7 +272,6 @@ private fun AppNav(
             )
             com.bettertalker.app.ui.hub.PresentHomeScreen(
                 hubVm,
-                onBack = { nav.popBackStack() },
                 onPresent = { nav.navigate(Routes.present(it)) },
                 onOpenTribuna = { nav.navigate(Routes.tribuna(it)) },
                 onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },

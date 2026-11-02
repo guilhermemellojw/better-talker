@@ -47,6 +47,8 @@ fun HubPickerScreen(
     onBack: () -> Unit,
 ) {
     val cards by vm.cards.collectAsState()
+    val trainId by vm.trainNoteId.collectAsState()
+    val presentId by vm.presentNoteId.collectAsState()
     var query by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -119,14 +121,20 @@ fun HubPickerScreen(
                             },
                             badgeText = if (card.isDemonstration) "Demonstração" else "Discurso",
                             durationText = card.minutes?.let { "$it min" },
-                            statusText = if (isTrain) {
-                                if (card.hasText) "Tem texto" else "Sem texto"
-                            } else {
-                                val word = if (card.isDemonstration) "Roteiro" else "Tribuna"
-                                when (card.presentReadiness) {
-                                    PresentReadiness.READY -> "$word pronta"
-                                    PresentReadiness.PARTIAL -> "Incompleta"
-                                    else -> "Falta gerar"
+                            statusText = buildString {
+                                val current = if (isTrain) trainId == card.id else presentId == card.id
+                                if (current) append("Atual · ")
+                                if (isTrain) {
+                                    append(if (card.hasText) "Tem texto" else "Sem texto")
+                                } else {
+                                    val word = if (card.isDemonstration) "Roteiro" else "Tribuna"
+                                    append(
+                                        when (card.presentReadiness) {
+                                            PresentReadiness.READY -> "$word pronta"
+                                            PresentReadiness.PARTIAL -> "Incompleta"
+                                            else -> "Falta gerar"
+                                        }
+                                    )
                                 }
                             },
                         )
