@@ -1,0 +1,184 @@
+# Spec — Sync (M0: auditoria + escopo MVP)
+
+**Status:** auditoria concluída em 2026-11-02 · **Código:** esqueleto funcional, release desligado
+**Decisão:** sync fica **opt-in/experimental** até o E2E de dois aparelhos passar.
+
+## 1. Inventário do que existe hoje
+
+| Componente | Onde | Estado |
+|---|---|---|
+| `SyncWorker` | `data/work/SyncWorker.kt` (731 linhas) | Notas, seções, subpontos, pastas, anexos (metadados), outlines, tombstones |
+| `SyncRemote` / `FirestoreSyncRemote` | `data/work/` | getAll/get/set(merge)/delete + `serverNow()` |
+| Conflito | Worker | **LWW por `updatedAt`** (sem merge por campo) |
+| Exclusão | Worker + `TombstoneEntity` | tombstones por id e tipo |
+| Relógio | Worker | aborta se skew > **5 min** |
+| Conta | `AuthRepository` + `SettingsStore.lastUid` | bloqueia troca de conta no aparelho |
+| Agendamento | `SyncScheduler` | debounce 2 s + periódico 6 h |
+| Anexos | Worker | metadados + `sourceUrl`; **binário nunca sobe** |
+| UI | `AccountScreen`, `SyncTopBanner` | login, status, sync now, wipe local/nuvem |
+| Rules | `firestore.rules` | baseline uid-scoped (existe; sem validação de schema/testes) |
+| Release | `build.gradle` | sem `google-services.json` → sync desligado |
+
+Coleções flat em `users/{uid}/`: `notes`, `folders`, `sections`, `subPoints`,
+`attachments`, `outlines`, `tombstones`, `_sync/clock`.
+
+## 2. Auditoria — achados
+
+### F1 (P1) — Reordenar seção/subponto não sincroniza
+`moveSection`/`moveSubPoint` renormalizam `order` **sem atualizar `updatedAt`**
+(`SectionsController.renormalizeSections`). No push, `sec.updatedAt > cup` é
+falso quando o remoto tem o mesmo horário → a nova ordem nunca sobe; no pull,
+a ordem antiga pode voltar. Edições de texto não sofrem disso (bumpam updatedAt).
+
+**Correção proposta:** bump de `updatedAt` nos itens cujo `order` mudou
+(seções e subpontos) no `renormalize`; teste unitário de reorder + sync.
+
+### F2 (P1) — LWW perde edição concorrente
+Dois aparelhos editando a mesma nota (campos diferentes) → o `updatedAt` maior
+vence inteiro; o outro perde. Sem merge por campo e sem cópia.
+
+**Decisão recomendada:** LWW + **cópia de conflito por nota**. No pull, se o
+local mudou desde o último sync e o remoto também, cria nota
+`"<título> (conflito)"` com o estado local antes de aplicar o remoto.
+Rastreio: `lastSyncedAt` por nota (novo campo) ou um mapa local
+`noteId → updatedAt` do último sync.
+
+### F3 (P1) — Primeiro sync sem escolha
+`lastUid == null` → vincula e faz pull+push LWW na mesma execução. Com notas
+locais e conta já populada, o resultado é união (ok) + LWW em IDs iguais (F2),
+sem aviso. Backup restaurado em outro aparelho pode colidir IDs.
+
+**Decisão recomendada:** no primeiro sync, diálogo **Enviar / Baixar / Mesclar**
+(nunca decidir em silêncio). "Mesclar" = união + cópia de conflito.
+
+### F4 (P2) — Troca de conta sem export
+O guard bloqueia a troca e a UI oferece "Apagar dados locais", mas **não
+oferece exportar backup** na mesma tela (o export existe em Settings → Backup).
+
+**Decisão recomendada:** no diálogo, "Exportar backup" antes do wipe.
+
+### F5 (P2) — Rules baseline, sem schema/testes
+Existe `firestore.rules` uid-scoped (bom), mas sem validação de campos/tamanho
+e sem testes no Emulator. Risco: doc malformado de um cliente antigo quebra o
+pull dos outros.
+
+**Decisão recomendada:** rules v2 com campos obrigatórios por coleção + limite
+de tamanho + `schemaVersion`; suíte de testes no Emulator no CI.
+
+### F6 (P2) — Release sem Firebase
+Intencional: sem `google-services.json`, `AuthRepository.isConfigured()=false`
+e o worker sai com sucesso. Para ligar: projeto Firebase, **dois apps Android**
+(`com.bettertalker.app` e `com.bettertalker.app.debug`), SHA-1/256 dos dois,
+Google Auth, json no build (CI secret ou arquivo local).
+
+### F7 (P3) — Tombstones sem TTL
+Tombstones sobem e ficam para sempre (a remoção local só acontece quando o doc
+não existe na nuvem). Crescem com o uso; não há GC.
+
+**Decisão recomendada:** apagar tombstones remotos com `deletedAt` > 90 dias
+num job periódico.
+
+### F8 (P3) — Anexos "missing" no 2º aparelho
+Intencional (binário não sobe). O pull cria `status="missing"`, `appPath=""` e
+`error` orientando reimportar. A UI da Biblioteca precisa deixar isso explícito
+(hoje mostra o status, mas não há CTA "baixar da fonte" no card).
+
+### F9 (P3) — `order` colidindo na criação concorrente
+Dois aparelhos adicionam seção ao mesmo tempo → ambas podem nascer com o mesmo
+`order`. LWW resolve o conteúdo, mas a ordem fica ambígua. Tie-break por
+`(order, id)` na leitura resolve sem merge.
+
+### F10 (P3) — Anexo missing com `appPath=""`
+No tombstone remoto, `File(cur.appPath).delete()` com path vazio aponta para o
+diretório atual; inofensivo, mas convém guardar `appPath.isNotBlank()`.
+
+## 3. Escopo do MVP
+
+| Entidade | Sincroniza? |
+|---|---|
+| Notas, pastas | ✅ |
+| Seções, subpontos (inclui ordem) | ✅ (após F1) |
+| Outlines / S-34 | ✅ |
+| Metadados de anexos + `sourceUrl` | ✅ |
+| Favoritos/pin/lixeira (campos) | ✅ |
+| Arquivos de publicações/passages | ❌ (rebaixar no aparelho) |
+| Chat do Copilot | ❌ (decisão separada) |
+| Configurações/voz/API key | ❌ (segurança) |
+
+## 4. Decisões (defaults recomendados)
+
+1. **Conflito:** LWW + cópia de conflito por nota. (recomendado)
+2. **Primeiro sync:** prompt Enviar/Baixar/Mesclar. (recomendado)
+3. **Troca de conta:** exportar backup antes do wipe. (recomendado)
+4. **Anexos:** só metadados + `sourceUrl`; sem Storage. (recomendado)
+5. **Release:** sync opt-in/experimental até E2E. (recomendado)
+6. **Firebase:** projeto criado pelo humano; build agent prepara rules/testes.
+
+## 5. Schema v1 (proposta)
+
+- `users/{uid}/_sync/meta`: `{ schemaVersion: 1, updatedAt }`.
+- Cada doc carrega `schemaVersion: 1` (inteiro) além dos campos atuais.
+- Worker: se `remote.schemaVersion > local` → aborta com mensagem
+  "Atualize o app para sincronizar"; se `< local` → migra no pull.
+- Campos obrigatórios por coleção validados nas rules (ver §6).
+
+## 6. Rules v2 (rascunho)
+
+```js
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    // validação por coleção (notas)
+    match /users/{uid}/notes/{noteId} {
+      allow write: if request.auth.uid == uid
+        && request.resource.data.title is string
+        && request.resource.data.mdText is string
+        && request.resource.data.mdText.size() < 1_000_000
+        && request.resource.data.updatedAt is int
+        && request.resource.data.schemaVersion == 1;
+    }
+    // análogo para folders/sections/subPoints/attachments/outlines/tombstones
+  }
+}
+```
+
+> A validação fina por coleção deve ser escrita junto com os testes do
+> Emulator (M1) para não bloquear pushes legítimos do cliente atual.
+
+## 7. E2E (Emulator, dois aparelhos)
+
+1. Criar nota no A → aparece no B.
+2. Editar a mesma nota nos dois offline → reconectar → cópia de conflito no
+   lado perdedor; nenhum texto some.
+3. Apagar nota no A → some no B; não ressuscita.
+4. Reordenar seções no A → ordem chega no B (F1).
+5. Anexo no A → B vê "missing" com CTA de reimportar; sem binário na nuvem.
+6. Primeiro sync com notas locais + conta populada → prompt e resultado
+   conforme a escolha.
+7. Troca de conta → export oferecido antes do wipe.
+8. Skew de relógio > 5 min → aborta com mensagem.
+9. Offline → reconecta → sem duplicatas.
+
+## 8. Marcos
+
+| Marco | Entrega | Critério |
+|---|---|---|
+| M0 | Este spec + auditoria | ✅ |
+| M1 | Firebase + Auth + rules v2 + Emulator | login debug, rules verdes |
+| M2 | Notas/pastas + first-sync + conflito + F1 | duas instâncias, sem perda, ordem propaga |
+| M3 | Seções/subpontos/outlines | estrutura consistente |
+| M4 | Anexos metadados/missing + CTA | 2º aparelho rebaixa |
+| M5 | UI conta/status/conflito/wipe/export | fluxo completo |
+| M6 | E2E dois aparelhos | 9 casos verdes |
+| M7 | Beta opt-in + release | sync não perde dados |
+
+## 9. O que NÃO entra no MVP
+
+- Merge por campo / CRDT.
+- Firebase Storage para binários.
+- Sync do chat do Copilot.
+- Sync de configurações/voz/API key.
+- Multi-conta no mesmo aparelho (continua 1 conta/aparelho).
