@@ -150,22 +150,41 @@ dependencies {
 def gsFile = file('google-services.json')
 if (gsFile.exists() && gsFile.text.contains('project_id')) {
     def gs = new groovy.json.JsonSlurper().parse(gsFile)
-    def client = gs.client.find {
-        it.client_info.android_client_info.package_name == 'com.bettertalker.app'
-    } ?: gs.client[0]
-    android.defaultConfig.resValue 'string', 'google_app_id', client.client_info.mobilesdk_app_id
-    android.defaultConfig.resValue 'string', 'gcm_defaultSenderId', gs.project_info.project_number
-    android.defaultConfig.resValue 'string', 'google_api_key', client.api_key[0].current_key
-    android.defaultConfig.resValue 'string', 'project_id', gs.project_info.project_id
-    if (gs.project_info.firebase_url) {
-        android.defaultConfig.resValue 'string', 'firebase_database_url', gs.project_info.firebase_url
+    def clients = gs.client
+    def pickClient = { String pkg ->
+        clients.find { it.client_info.android_client_info.package_name == pkg }
     }
-    if (gs.project_info.storage_bucket) {
-        android.defaultConfig.resValue 'string', 'google_storage_bucket', gs.project_info.storage_bucket
+    // Aplica os string resources equivalentes ao plugin google-services.
+    def applyClient = { variant, client, fallbackWebClient ->
+        variant.resValue 'string', 'google_app_id', client.client_info.mobilesdk_app_id
+        variant.resValue 'string', 'gcm_defaultSenderId', gs.project_info.project_number
+        variant.resValue 'string', 'google_api_key', client.api_key[0].current_key
+        variant.resValue 'string', 'project_id', gs.project_info.project_id
+        if (gs.project_info.firebase_url) {
+            variant.resValue 'string', 'firebase_database_url', gs.project_info.firebase_url
+        }
+        if (gs.project_info.storage_bucket) {
+            variant.resValue 'string', 'google_storage_bucket', gs.project_info.storage_bucket
+        }
+        def webClient = client.oauth_client?.find { it.client_type == 3 } ?: fallbackWebClient
+        if (webClient?.client_id) {
+            variant.resValue 'string', 'default_web_client_id', webClient.client_id
+        }
     }
-    def webClient = client.oauth_client?.find { it.client_type == 3 }
-    if (webClient?.client_id) {
-        android.defaultConfig.resValue 'string', 'default_web_client_id', webClient.client_id
+
+    // Release: app com.bettertalker.app. Debug: com.bettertalker.app.debug.
+    def releaseClient = pickClient('com.bettertalker.app') ?: clients[0]
+    def releaseWeb = releaseClient.oauth_client?.find { it.client_type == 3 }
+    applyClient(android.defaultConfig, releaseClient, releaseWeb)
+
+    def debugClient = pickClient('com.bettertalker.app.debug')
+    if (debugClient != null) {
+        android.buildTypes.debug { b ->
+            applyClient(b, debugClient, releaseWeb)
+        }
+        logger.lifecycle('[BetterTalker] Firebase: clientes release + debug encontrados.')
+    } else {
+        logger.lifecycle('[BetterTalker] Firebase: cliente debug ausente — o build .debug usará o client release.')
     }
     logger.lifecycle('[BetterTalker] Firebase resources gerados do google-services.json (login + Firestore ativos).')
 } else {

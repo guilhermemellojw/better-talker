@@ -40,3 +40,7 @@ android/captures/
 
 # Kotlin compiler session artifacts
 android/.kotlin/
+
+# Node (firestore rules tests)
+node_modules/
+firestore-tests/node_modules/

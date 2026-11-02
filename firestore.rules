@@ -1,18 +1,173 @@
 rules_version = '2';
-// Better Talker — regras do Firestore (baseline do repositório).
+// Better Talker — regras do Firestore (v2, escopo do MVP de sync).
 //
-// Estrutura: cada usuário só acessa a própria árvore:
-//   users/{uid}/notes/*  users/{uid}/folders/*  users/{uid}/attachments/*
-//   users/{uid}/outlines/*  users/{uid}/tombstones/*
+// Estrutura por usuário (tudo em users/{uid}/):
+//   notes, folders, sections, subPoints, attachments, outlines, tombstones
+//   _sync/clock (heartbeat de relógio)
 //
-// IMPORTANTE: confira contra as regras PUBLICADAS no Console
-// (Firestore → Regras). Este arquivo é a versão canônica do repo para
-// evitar perda acidental no Console; `firebase deploy --only firestore:rules`
-// sobrescreve o que estiver publicado.
+// Regras:
+// - cada usuário só acessa a própria árvore;
+// - writes validam campos/tipos essenciais e limites de tamanho;
+// - `schemaVersion` é opcional nesta versão (o cliente atual ainda não envia);
+//   quando presente, precisa ser 1;
+// - coleções desconhecidas são negadas (fail-closed).
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function onlyKnownTombstoneTypes() {
+      return request.resource.data.type in [
+        'note', 'folder', 'attachment', 'outline', 'section', 'subPoint'
+      ];
+    }
+
+    match /users/{uid} {
+      allow read, write: if false;
+
+      // ----- notas -----
+      match /notes/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.title is string
+          && request.resource.data.mdText is string
+          && request.resource.data.mdText.size() < 900000
+          && request.resource.data.richHtml is string
+          && request.resource.data.richHtml.size() < 900000
+          && request.resource.data.pinned is bool
+          && request.resource.data.trashed is bool
+          && request.resource.data.colorArgb is int
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && (
+            !('folderId' in request.resource.data) ||
+            request.resource.data.folderId is string
+          )
+          && (
+            !('schemaVersion' in request.resource.data) ||
+            request.resource.data.schemaVersion == 1
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- pastas -----
+      match /folders/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.name is string
+          && request.resource.data.colorArgb is int
+          && request.resource.data.createdAt is int;
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- seções -----
+      match /sections/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.noteId is string
+          && request.resource.data.order is int
+          && request.resource.data.role is string
+          && request.resource.data.title is string
+          && request.resource.data.minutes is int
+          && request.resource.data.contentHtml is string
+          && request.resource.data.contentHtml.size() < 900000
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && (
+            !('schemaVersion' in request.resource.data) ||
+            request.resource.data.schemaVersion == 1
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- subpontos -----
+      match /subPoints/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.sectionId is string
+          && request.resource.data.order is int
+          && request.resource.data.outlineText is string
+          && request.resource.data.developedHtml is string
+          && request.resource.data.developedHtml.size() < 900000
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && (
+            !('schemaVersion' in request.resource.data) ||
+            request.resource.data.schemaVersion == 1
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- anexos (só metadados; binário nunca sobe) -----
+      match /attachments/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.fileName is string
+          && request.resource.data.kind is string
+          && request.resource.data.sizeBytes is int
+          && request.resource.data.addedAt is int
+          && (
+            !('noteId' in request.resource.data) ||
+            request.resource.data.noteId is string
+          )
+          && (
+            !('baseSlot' in request.resource.data) ||
+            request.resource.data.baseSlot is string
+          )
+          && (
+            !('sourceUrl' in request.resource.data) ||
+            request.resource.data.sourceUrl is string
+          )
+          && (
+            !('indexed' in request.resource.data) ||
+            request.resource.data.indexed is bool
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- outlines / S-34 -----
+      match /outlines/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.noteId is string
+          && request.resource.data.fileName is string
+          && request.resource.data.title is string
+          && request.resource.data.sectionsJson is string
+          && request.resource.data.sectionsJson.size() < 900000
+          && request.resource.data.refsJson is string
+          && request.resource.data.refsJson.size() < 900000
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && (
+            !('schemaVersion' in request.resource.data) ||
+            request.resource.data.schemaVersion == 1
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- tombstones -----
+      match /tombstones/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && onlyKnownTombstoneTypes()
+          && request.resource.data.deletedAt is int;
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- heartbeat de relógio -----
+      match /_sync/{doc} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['at']);
+        allow delete: if isOwner(uid);
+      }
+
+      // Qualquer outra coleção/subcoleção: negada.
+      match /{document=**} {
+        allow read, write: if false;
+      }
     }
   }
 }
