@@ -60,7 +60,7 @@ fun TrashScreen(vm: HomeViewModel, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Excluir para sempre?") },
-            text = { Text("A nota e seus anexos vinculados serão apagados. Não há como desfazer.") },
+            text = { Text("O esboço e seus anexos vinculados serão apagados. Não há como desfazer.") },
             confirmButton = {
                 TextButton(onClick = { vm.deleteForever(id); confirmDelete = null }) {
                     Text("Excluir", color = MaterialTheme.colorScheme.error)
@@ -79,8 +79,8 @@ fun TrashScreen(vm: HomeViewModel, onBack: () -> Unit) {
                     "${trashed.size} " +
                         com.bettertalker.app.data.util.plural(
                             trashed.size,
-                            "nota será excluída",
-                            "notas serão excluídas",
+                            "esboço será excluído",
+                            "esboços serão excluídos",
                         ) + " permanentemente. " +
                         "Esta ação não pode ser desfeita."
                 )
@@ -95,9 +95,9 @@ fun TrashScreen(vm: HomeViewModel, onBack: () -> Unit) {
                                 val count = vm.emptyTrash()
                                 showEmptyDialog = false
                                 val msg = if (count == 1) {
-                                    "1 nota excluída permanentemente"
+                                    "1 esboço excluído permanentemente"
                                 } else {
-                                    "$count notas excluídas permanentemente"
+                                    "$count esboços excluídos permanentemente"
                                 }
                                 snack.showSnackbar(msg)
                             } catch (_: Exception) {
@@ -156,7 +156,7 @@ fun TrashScreen(vm: HomeViewModel, onBack: () -> Unit) {
     ) { pad ->
         if (trashed.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(pad), contentAlignment = Alignment.Center) {
-                Text("Nenhuma nota na lixeira.", color = MaterialTheme.colorScheme.secondary)
+                Text("Nenhum esboço na lixeira.", color = MaterialTheme.colorScheme.secondary)
             }
         } else {
             LazyVerticalStaggeredGrid(

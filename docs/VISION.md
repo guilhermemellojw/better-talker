@@ -14,7 +14,7 @@ Princípios:
 
 - **Editor primeiro:** o texto vive em seções com tempo (INTRO / BODY / CONCLUSÃO).
 - **Humano no controle:** sugestões do Copilot são propostas; nada é aplicado sem aceite.
-- **Local-first:** notas, acervo e histórico ficam no aparelho. A nuvem (Firebase) é opcional.
+- **Local-first:** esboços, Biblioteca e histórico ficam no aparelho. A nuvem (Firebase) é opcional.
 - **IA opcional (BYOD):** DeepSeek com a chave pessoal do usuário; sem chave/offline,
   o motor determinístico continua funcionando. Não há LLM on-device nem chave central.
 
@@ -35,7 +35,7 @@ Princípios:
 
 1. Abrir/importar um esboço (S-34) ou colar uma parte V&M, ou começar do zero.
 2. Escrever/desenvolver no editor multi-seção WYSIWYG (autosave).
-3. Consultar o acervo local (publicações indexadas, JWPUB com página/§).
+3. Consultar a Biblioteca local (publicações indexadas, JWPUB com página/§).
 4. Pedir ajuda ao Copilot (DeepSeek BYOD ou motor offline).
 5. Treinar na aba Treino (teleprompter, TTS Piper offline, STT) e usar a Tribuna no Palco.
 6. Exportar ou apresentar.
@@ -50,7 +50,7 @@ Princípios:
   (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são legado
   congelado, sem build.
 - **Não é rede social.** Sem feed, comentários ou compartilhamento público.
-- **Não baixa publicações sozinho.** O acervo é importado manualmente; downloads
+- **Não baixa publicações sozinho.** A Biblioteca é importada manualmente; downloads
   do jw.org são auxiliados, não automáticos.
 - **Não é multi-dispositivo em tempo real.** O sync (Firestore) é opcional e
   não é colaborativo.
@@ -69,7 +69,7 @@ Princípios:
 | Consideração V&M (“O que você diria?”) | Rejeitada com aviso; não gera nota |
 | Estrutura S-34 | Persistida (seções/subpontos/refs); intro/conclusão são camada do editor |
 | Folders/tags/cores/pin | **Decisão pendente** (schema dormente; não remover sem decisão) |
-| Ensaio + TTS/STT | Mantido (Piper “Jeff” offline; fallback nativo) |
+| Treino + TTS/STT | Mantido (Piper “Jeff” offline; fallback nativo) |
 | Firebase sync | Mantido como opcional (metadados; sem google-services.json = 100% local) |
 | Export PDF/HTML | Mantido |
 | Verifier | Warn-only no chat; Nível 2 cobre refs do S-34 |
@@ -79,8 +79,8 @@ Princípios:
 1. Um amigo consegue instalar o APK, importar um S-34 real e preparar um discurso
    sem instruções externas.
 2. Colar uma parte V&M real produz a estrutura esperada (N+3) com texto e refs.
-3. O Copilot responde no ponto ativo, com citações apoiadas no acervo.
-4. Ensaio/TTS e Tribuna funcionam no aparelho de teste (Redmi 9 / A34 / tablet).
+3. O Copilot responde no ponto ativo, com citações apoiadas na Biblioteca.
+4. Treino/TTS e Tribuna funcionam no aparelho de teste (Redmi 9 / A34 / tablet).
 5. Nenhuma perda de dados em uso normal; backup e chave de API protegidos antes
    da distribuição.
 

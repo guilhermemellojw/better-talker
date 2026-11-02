@@ -1,37 +1,39 @@
 # Better Talker 🎙️
 
-> **Editor de discursos em blocos de tempo, com Copilot de oratória, acervo local de publicações, Ensaio e métricas de fala.**
-> **Estágio: v3.0.3/34 — publicado (C2.7 + matriz C2.6 + C2.6 + C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar).**
+> **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
+> **Estágio: v3.0.3/34 — publicado (C2.7 + matriz C2.6 + C2.6 + C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Palco).**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
-O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar o acervo local → pedir sugestões ao Copilot → ensaiar no Ensaio → exportar.
+O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar a Biblioteca local → pedir sugestões ao Copilot → treinar no Treino → exportar.
+
+> **Nomenclatura:** **Esboços** é a biblioteca; **Treino** é a aba de ensaio; **Palco** é a apresentação ao vivo. “Ensaio” e “Apresentar” são nomes históricos.
 
 ## 📌 Estado atual (2026-10-30)
 
-- **Versão:** 3.0.3 (versionCode 34), publicada; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + seletor de voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Apresentar live** mergeados. 45 min, gate de fontes e voz/STT validados no A34.
+- **Versão:** 3.0.3 (versionCode 34), publicada; **C2.5 + M2a + M2b + 45 min monolítico + status único das fontes/gate + seletor de voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Palco (apresentação ao vivo)** mergeados. 45 min, gate de fontes e voz/STT validados no A34.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
 - **Fase 3 (Criar do zero):** sheet com título, tipo, duração, pontos e prévia; **Discurso público** (`S34_DISCOURSE`, Intro + N pontos + Conclusão) e **Demonstração livre** (`FREE_DEMO`, 1 BODY, sem S-38). Criação atômica via `createPastedNote`.
 - **UX (card minimalista + acessibilidade):** minutos, ✨ e ⋮ no cabeçalho; linha de raciocínio colapsável (`+ Estrutura`, fechada acima de 5 subpontos); rodapé com handle e chips de demo; alvos de 48dp, labels, headings e swatches selecionáveis.
-- **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`No acervo`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Já baixei” abre a Biblioteca já procurando em Downloads.
+- **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`Disponível`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Já baixei” abre a Biblioteca já procurando em Downloads.
 - **Refs unificadas:** `NoteRefsCollector` é a fonte única (título, mdText/plainText, esboço, seções e subpontos); checklist e Copilot usam a mesma lista, e a Bíblia da TNM entra como evidência no prompt.
 - **C2a — prefixo de página (v2.8.2, branch `feat/v2.8.2-c2a`):** o detector aceita `w25.07 p. 22 §8`, `p.22`, `pág.`, `página` e `pg.`, mantendo `§`/`§§` e ranges. A pergunta injeta 1 trecho e a resposta usa o §8; o caminho sem prefixo continua funcionando. **2.533 testes JVM / 0 falhas**; `lintRelease` verde. Ver [relatório do C2a](docs/reports/validacao-2026-10-27-a34-c2a.md).
 - **P0 voz — coexistência TTS/STT (v2.8.2, branch `fix/v2.8.2-voice-coexistence`):** Stage para o TTS ao abrir o microfone e bloqueia “Ouvir” durante a análise; chat desabilita microfone durante TTS e “Ouvir” durante a escuta; `VoiceRouter` para os dois motores ao falar/trocar; `TextToSpeechManager` checa retorno de `speak` e limpa `_speaking` em `onStop`/`onError`; `SpeechRecognizerManager.finish()` tem timeout de 5 s. **2.538 testes / 0 falhas**; `lintRelease` verde. STT do sistema no A34 segue `error=10` com fallback Interrupted. Ver [relatório do P0 voz](docs/reports/validacao-2026-10-27-a34-voice-p0.md).
 - **Voz/STT (3.0.0):** Configurações → Voz com motor Piper offline ou voz do sistema, lista de vozes pt-BR (offline/rede), voz padrão e teste; STT prefere o reconhecedor no aparelho (`EXTRA_PREFER_OFFLINE`/API 31+) e avisa o fallback para o serviço do sistema. **2.737 testes / 0 falhas**; A34 validou lista, Piper e microfone on-device. Ver [relatório de voz](docs/reports/validacao-2026-10-30-voz-seletor-stt.md).
-- **Ensaio com análise (T3-A):** STT nativo no Stage (serviço padrão do sistema, sem forçar offline) com controle explícito **iniciar → pausar → retomar → parar**; pausa/interrupção preservam a transcrição e nunca geram resultado automático. Rate limit vira **Interrupted** com “aguarde e retome”, sem martelar o serviço. Métricas locais (tempo de fala e tempo de sessão, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. O relógio de fala começa na primeira fala; captura curta (<70 wpm) vira “Pouca fala capturada”, e ensaio parcial não cobra cobertura do texto completo. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
+- **Treino com análise (T3-A):** STT nativo no Stage (serviço padrão do sistema, sem forçar offline) com controle explícito **iniciar → pausar → retomar → parar**; pausa/interrupção preservam a transcrição e nunca geram resultado automático. Rate limit vira **Interrupted** com “aguarde e retome”, sem martelar o serviço. Métricas locais (tempo de fala e tempo de sessão, palavras, wpm, cobertura e muletas) e feedback em 4 blocos com um exercício. O relógio de fala começa na primeira fala; captura curta (<70 wpm) vira “Pouca fala capturada”, e treino parcial não cobra cobertura do texto completo. Áudio não é gravado; a transcrição é descartada ao fechar. Sem chave de IA e com fallback parcial se o STT falhar.
 - **Geração longa com tempos corretos (2026-10-26):** `LongTextRequest`/`budgetForRequest` (discurso `palavras×1,5+200`; demo `réplicas×80+200`; coerce 2.048..8.192; divisão acima de 8.192). O DeepSeek usa `max_tokens` até 8.192, retry por `length`, fallback 8.192→4.096 e thinking desligado. A geração de seção usa `section.minutes` (nunca o total); se o card fica abaixo de 80% da meta, o provider faz até 2 correções de extensão (a 2ª reenvia o texto anterior e sobe o orçamento para 4.300). “Texto total” divide por seção/subponto e abre o **DraftSheet em fila** (“Próximo (N)”). S-34/colagem garantem Intro 1 + Conclusão 1 e soma = total; demo = 1 BODY. Telemetria: `generation|route|budget|finish_reason|chars|words|truncated|hasCard|thinking|retries`.
 - **C1 — orçamentos por caminho (2026-10-26):** `OutputBudget` central elimina o default silencioso de 1.000 tokens. Cada caminho tem piso/teto e retry por `finish_reason=length` até o cap: `continueGeneration` 1.024–8.192 (pelo que falta da meta), `createProposal` 1.500–4.096 (foco + operações), `requestApplyStructure` 4.096–8.192 (divide acima de 30 min em partes com títulos explícitos), `answerMinimal` 2.048–4.096 (texto total vai para o DraftSheet), `OutlineGeneratorImpl` 1.500 fixo (TPM), `generateOratory` 1.280–4.096 (duração/foco) e `SectionGeneratorImpl` pela duração da seção/sub-ponto. `finish=length` nunca é sucesso silencioso: retry ou `truncated`/aviso visível.
 - **A1/A2 — release seguro (2026-10-26):** chave DeepSeek cifrada com AES/GCM e chave não exportável no **Android Keystore** (migração automática do texto claro legado); `allowBackup=false`; APK de release assinado com keystore fora do repo (RSA 4096), `debuggable=false`; HTTPS only e WebView sem acesso a arquivos/conteúdo; ABI `arm64-v8a`; CI de release com `lintRelease`, `assembleRelease`, verificação por `apksigner` e SHA-256 — dry-run verde. Keystore e senhas ficam fora do repo (backup offline obrigatório). Ver [RELEASE.md](docs/RELEASE.md).
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** **2.760 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Apresentar) · `lintRelease` verde.
+- **Testes:** **2.827 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Palco) · `lintRelease` verde.
 - **Distribuição:** **v3.0.3/34 publicada** (APK assinado + SHA-256, arm64; hash `46651aa0…9d831`). O v2.8.2 e o v2.8.1 continuam em draft como checkpoints. Ver [v3.0.3](docs/releases/v3.0.3.md) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
-- **TTS com ownership de processo:** o `VoiceRouter`/Piper agora é um singleton (`TtsLifecycle`). Sair do Ensaio, do Chat ou da Tribuna **não derruba mais** o TTS; a tela só chama `stop()`, e o engine continua vivo para a próxima tela. O contador de usuários tolera release extra (rotação/onDispose duplicado).
+- **TTS com ownership de processo:** o `VoiceRouter`/Piper agora é um singleton (`TtsLifecycle`). Sair do Treino, do Chat ou da Tribuna **não derruba mais** o TTS; a tela só chama `stop()`, e o engine continua vivo para a próxima tela. O contador de usuários tolera release extra (rotação/onDispose duplicado).
 - **Verifier Nível 2:** as referências bíblicas do ponto atual do S-34 são resolvidas no índice TNM local e injetadas no corpus do `GroundednessVerifier` como `[ref] texto`. Citações reais deixam de ser sinalizadas; refs não resolvidas são omitidas (sem fallback fantasma).
 - **Language Guide:** guia de linguagem simples injetado nas personas de chat, geração, discurso, demonstração e modo colar. Frases curtas, voz ativa e termos TJ preservados (`Jeová`, `as Escrituras`, `publicador` etc.); academicismos como `outrossim` entram na lista de termos a evitar.
 - **Colar V&M — 5 formatos:** a detecção da parte de Tesouros passou a usar estrutura + posição + minutos + refs (sem depender do título), e cada frase do corpo vira um subtópico na **LINHA DE RACIOCÍNIO**. O **MINI DISCURSO** nasce vazio para geração; o texto colado permanece no `plainText` da nota para busca/prévia.
@@ -48,7 +50,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📱 App Android nativo (`android/`)
 
-Projeto Gradle/Kotlin com Jetpack Compose. Telas: Home (notas, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta, Ensaio e TTS.
+Projeto Gradle/Kotlin com Jetpack Compose. Telas: Esboços (biblioteca, lixeira), Editor WYSIWYG em Markdown, **Copilot em chat** com RAG 100% offline sobre as bases `be`/`th` + anexos vinculados à nota (cards de ideia inseríveis, detecção de intenção e de referências, links jw.org), Biblioteca, conta, Treino, Palco e TTS.
 
 - **Banco local:** Room (`AppDatabase`), com workers em background para indexação de publicações, registro de downloads e sync.
 - **Publicações:** extrator próprio de **JWPUB** com **página por § indexada** (`FirstPageNumber`/`LastPageNumber` + `DocumentParagraph`) — o RAG resolve referências como `w25.07 22 §§ 8-9` no texto literal; extratores de documentos, catálogo de publicações e auxiliar de download do jw.org.
@@ -77,7 +79,7 @@ envolve o trecho em `〈sugestão〉…〈/sugestão〉`; o app mostra o badge *
 
 - **O gate isenta a prosa criativa** — a criação não é tratada como fato inventado.
 - **Versículo e número nunca são isentos:** se a criação citar uma referência bíblica ou um número
-  sem apoio no acervo, o gate avisa/bloqueia como faria com um fato.
+  sem apoio na Biblioteca, o gate avisa/bloqueia como faria com um fato.
 - Criação **sem** o marcador continua tratada como possível alucinação (gate normal).
 - No chat a sugestão aparece no balão; em propostas/inserts, ANTES/DEPOIS com aceite humano.
 
@@ -107,7 +109,7 @@ e ao final diga *"insira tudo na nota"*:
 ### Partes da reunião (V&M) — "Colar e Pronto"
 
 Cole uma parte da reunião (ex.: `5. Cultivando o interesse (4 min) DE CASA EM CASA. Fale sobre…`)
-na Home (**FAB → Colar parte da reunião V&M**). O app detecta a parte e cria uma **Demonstração**.
+em Esboços (**FAB → Colar parte da reunião V&M**). O app detecta a parte e cria uma **Demonstração**.
 Formatos aceitos em [parser-formatos-colagem.md](docs/parser-formatos-colagem.md):
 
 - **Título da nota:** parte + duração (`Cultivando o interesse (4 min)`) — vale também para
@@ -129,7 +131,7 @@ Quando a nota é uma **Demonstração**, o prompt do Copilot ganha o bloco `## D
   "lmd lição 7 ponto 4") — se o texto da publicação estiver nas FONTES, o Copilot usa-o.
 - A resposta formatada para o card vem em `<p><b>Publicador:</b> …</p>` com o botão **"Usar no card"**.
 
-### Ensaio com turnos (teleprompter)
+### Treino com turnos (teleprompter)
 
 No hub **Treinar**, demonstrações com diálogo abrem o teleprompter com papéis coloridos:
 
@@ -141,7 +143,7 @@ No hub **Treinar**, demonstrações com diálogo abrem o teleprompter com papéi
 
 ### Tribuna (mapa de memória)
 
-No hub **Apresentar**, a Tribuna mostra cápsulas por seção (IDEIA CENTRAL, TEXTO-CHAVE,
+Na aba **Palco**, a Tribuna mostra cápsulas por seção (IDEIA CENTRAL, TEXTO-CHAVE,
 FRASE-ÂNCORA, TRANSIÇÃO). Para gerar/atualizar: no editor, **⋮ → Gerar Tribuna**
 (usa a IA configurada; abre a tela e as cápsulas aparecem quando ficam prontas).
 

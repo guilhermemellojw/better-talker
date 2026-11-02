@@ -178,7 +178,7 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { confirmDelFolder = false },
             title = { Text("Excluir pasta?") },
-            text = { Text("“${selectedFolder.name}” será excluída; as notas voltam para Todas.") },
+            text = { Text("“${selectedFolder.name}” será excluída; os esboços voltam para Todas.") },
             confirmButton = {
                 TextButton(onClick = { vm.deleteFolder(selectedFolder.id); confirmDelFolder = false }) {
                     Text("Excluir", color = MaterialTheme.colorScheme.error)
@@ -329,7 +329,7 @@ fun HomeScreen(
     confirmDelete?.let { note ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Excluir nota?") },
+            title = { Text("Excluir esboço?") },
             text = { Text("\u201C${note.title.ifBlank { "Sem título" }}\u201D vai para a Lixeira.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -442,7 +442,7 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateSheet = true }) {
-                Icon(Icons.Default.Add, "Nova nota")
+                Icon(Icons.Default.Add, "Novo esboço")
             }
         },
         snackbarHost = { SnackbarHost(snack) }
@@ -450,7 +450,7 @@ fun HomeScreen(
         Column(Modifier.fillMaxSize().padding(pad)) {
             OutlinedTextField(
                 value = query, onValueChange = vm::setQuery,
-                placeholder = { Text("Buscar notas…") },
+                placeholder = { Text("Buscar esboços…") },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -639,7 +639,7 @@ private fun CreateNoteSheet(
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Text(
-                "Criar nota",
+                "Criar esboço",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
             )

@@ -207,7 +207,7 @@ fun StartFromScratchSheet(
                 },
                 enabled = canCreate,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Criar nota") }
+            ) { Text("Criar esboço") }
 
             TextButton(
                 onClick = onDismiss,
