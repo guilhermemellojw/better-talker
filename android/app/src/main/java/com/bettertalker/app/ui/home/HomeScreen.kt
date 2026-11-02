@@ -568,7 +568,10 @@ fun HomeScreen(
                     when (mode) {
                         HomeViewMode.GRID -> LazyVerticalStaggeredGrid(
                             columns = StaggeredGridCells.Adaptive(160.dp),
-                            contentPadding = PaddingValues(16.dp),
+                            // 88dp = FAB (56) + margem (16) + respiro (16).
+                            contentPadding = PaddingValues(
+                                start = 16.dp, top = 16.dp, end = 16.dp, bottom = 88.dp,
+                            ),
                             verticalItemSpacing = 12.dp,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             state = gridScroll,
@@ -586,7 +589,7 @@ fun HomeScreen(
                         }
                         HomeViewMode.LIST_COMPACT -> androidx.compose.foundation.lazy.LazyColumn(
                             state = compactScroll,
-                            contentPadding = PaddingValues(vertical = 8.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(notes, key = { it.id }) { n ->
@@ -601,7 +604,7 @@ fun HomeScreen(
                         }
                         HomeViewMode.LIST_DETAILED -> androidx.compose.foundation.lazy.LazyColumn(
                             state = detailedScroll,
-                            contentPadding = PaddingValues(vertical = 8.dp),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(notes, key = { it.id }) { n ->
