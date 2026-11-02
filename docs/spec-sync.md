@@ -197,5 +197,23 @@ Implementado e testado (JVM + A34):
 - **Baixar**: `pushEnabled=false` em todas as coleções; 3 testes.
 - **Export antes do wipe**: botão "Exportar backup" no diálogo de troca de conta.
 
-Pendente do M2: E2E com dois aparelhos (edição concorrente real → cópia de
-conflito), e teste de reorder propagando entre dois devices.
+E2E com dois aparelhos (A34 + Redmi 9) em 2026-11-02:
+
+| Caso | Resultado |
+|---|---|
+| Pull inicial (120+ notas) | ✅ |
+| Criar nota no A34 → nuvem → Redmi | ✅ |
+| Conflito: mesmo note ID editado nos dois | ✅ cópia "(conflito)" criada dos dois lados (symmetric) |
+| Exclusão definitiva (tombstone) | ✅ sumiu no Redmi após sync |
+| First-sync prompt | ✅ validado no A34 (Mesclar) |
+| Reorder entre devices | ⏳ coberto por teste JVM do F1; não exercitado na UI (sem nota multi-seção prática) |
+
+Bug encontrado e corrigido no E2E: **Credential Manager exige Activity context**
+no Android 12; o app passava o application context e o seletor não abria
+("failed to launch the selector ui"). `AuthRepository.signIn(uiContext)` agora
+recebe o contexto da Activity.
+
+Também corrigido: o conflito era assimétrico (só preservava o lado local quando
+o remoto era mais novo). Agora, quando o local vence o LWW, o estado remoto é
+preservado numa cópia "(conflito)" antes do push.
+

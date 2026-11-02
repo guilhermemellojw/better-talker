@@ -304,10 +304,29 @@ internal suspend fun syncNotes(
         val data = cloud[n.id]
         val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || n.updatedAt > cup) {
+            if (!pushEnabled) continue
+            // M2: se o remoto também mudou desde o último sync e o local vai
+            // vencer (LWW), preserva o estado remoto numa nota "(conflito)"
+            // antes de sobrescrever — nenhum dos dois lados some.
+            if (data != null &&
+                n.lastSyncedAt > 0 &&
+                n.updatedAt > n.lastSyncedAt &&
+                cup > n.lastSyncedAt
+            ) {
+                val remoteState = cloudNote(n.id, data)
+                noteDao.upsert(
+                    remoteState.copy(
+                        id = newId("note"),
+                        title = "${remoteState.title} (conflito)",
+                        pinned = false,
+                        updatedAt = clock(),
+                        lastSyncedAt = 0L,
+                    )
+                )
+            }
             // `updatedAt` = horário da edição (guard de skew já validou o
             // relógio). Usar serverTimestamp aqui faria o LWW virar
             // "último sync vence" e deixaria edição velha vencer.
-            if (!pushEnabled) continue
             remote.set("notes", n.id, noteMap(n))
             // M2: marca o remoto como sincronizado (base do próximo conflito).
             noteDao.upsert(n.copy(lastSyncedAt = n.updatedAt))

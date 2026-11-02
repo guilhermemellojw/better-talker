@@ -385,4 +385,27 @@ class SyncNotesRemoteTest {
         syncNotes(remote, dao, tombs, pushEnabled = false)
         assertTrue(remote.ids("tombstones").isEmpty())
     }
+
+    @Test
+    fun conflito_localMaisNovo_preservaRemotoEmCopia() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Remota", "mdText" to "texto remoto",
+            "richHtml" to "<p>texto remoto</p>", "trashed" to false,
+            "createdAt" to 10L, "updatedAt" to 300L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", title = "Local editada", md = "texto local",
+                updatedAt = 400L, lastSyncedAt = 100L),
+        ))
+        syncNotes(remote, dao, FakeTombstoneDao(), clock = { 9_000L })
+
+        // Local vence o original…
+        assertEquals("Local editada", dao.rows.first { it.id == "n1" }.title)
+        assertEquals("Local editada", remote.doc("notes", "n1")!!["title"])
+        // …e o estado remoto é preservado na cópia.
+        val copy = dao.rows.first { it.id != "n1" }
+        assertEquals("Remota (conflito)", copy.title)
+        assertEquals("texto remoto", copy.mdText)
+        assertEquals(0L, copy.lastSyncedAt)
+    }
 }

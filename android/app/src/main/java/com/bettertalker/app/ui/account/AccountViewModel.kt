@@ -72,9 +72,9 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     override fun onCleared() { auth.stop() }
 
-    fun signIn() = viewModelScope.launch {
+    fun signIn(uiContext: android.content.Context? = null) = viewModelScope.launch {
         _busy.value = true
-        val err = auth.signIn()
+        val err = auth.signIn(uiContext ?: app)
         // Com conflito de conta, o diálogo dedicado explica e oferece a
         // limpeza; evita snackbar duplicado.
         _error.value = if (auth.accountConflict.value != null) "" else err ?: ""
@@ -97,7 +97,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
      * Guard mínimo de multi-conta: apaga o banco local + arquivos de
      * publicação e tenta entrar de novo. A conta anterior continua na nuvem.
      */
-    fun wipeLocalAndRetry() = viewModelScope.launch {
+    fun wipeLocalAndRetry(uiContext: android.content.Context? = null) = viewModelScope.launch {
         _busy.value = true
         try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -109,7 +109,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             }
             auth.clearLastUidBinding()
             auth.clearAccountConflict()
-            _error.value = auth.signIn() ?: ""
+            _error.value = auth.signIn(uiContext ?: app) ?: ""
         } catch (e: Exception) {
             _error.value = e.message?.take(160) ?: "Falha ao apagar os dados locais."
         }

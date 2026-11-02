@@ -74,8 +74,14 @@ class AuthRepository(private val ctx: Context) {
         return runCatching { ctx.getString(id) }.getOrNull()
     }
 
-    /** Entra com Google. Retorna null em sucesso ou mensagem de erro. */
-    suspend fun signIn(): String? {
+    /**
+     * Entra com Google. Retorna null em sucesso ou mensagem de erro.
+     *
+     * [uiContext] precisa ser uma Activity (Credential Manager lança o seletor
+     * de contas como UI; contexto de aplicação falha no Android 12 com
+     * "failed to launch the selector ui").
+     */
+    suspend fun signIn(uiContext: android.content.Context = ctx): String? {
         if (!isConfigured()) return "Firebase não configurado neste build."
         val serverId = webClientId() ?: return "Client ID OAuth ausente (google-services.json)."
         _accountConflict.value = null
@@ -85,7 +91,7 @@ class AuthRepository(private val ctx: Context) {
                 .setServerClientId(serverId)
                 .build()
             val req = GetCredentialRequest.Builder().addCredentialOption(option).build()
-            val res = CredentialManager.create(ctx).getCredential(ctx, req)
+            val res = CredentialManager.create(uiContext).getCredential(uiContext, req)
             val google = GoogleIdTokenCredential.createFrom(res.credential.data)
             val fbCred = GoogleAuthProvider.getCredential(google.idToken, null)
             awaitTask { cb -> authOrNull()!!.signInWithCredential(fbCred).addOnCompleteListener(cb) }

@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.syncIndicatorText
@@ -56,6 +57,7 @@ fun AccountScreen(
     val accountConflict by vm.accountConflict.collectAsState()
     val showFirstSync by vm.showFirstSync.collectAsState()
     val snack = remember { SnackbarHostState() }
+    val uiContext = LocalContext.current
 
     LaunchedEffect(error) { if (error.isNotEmpty()) { snack.showSnackbar(error); vm.consumeError() } }
 
@@ -100,7 +102,7 @@ fun AccountScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = vm::wipeLocalAndRetry, enabled = !busy) {
+                TextButton(onClick = { vm.wipeLocalAndRetry(uiContext) }, enabled = !busy) {
                     Text("Apagar dados locais e entrar", color = MaterialTheme.colorScheme.error)
                 }
             },
@@ -171,7 +173,7 @@ fun AccountScreen(
                             color = MaterialTheme.colorScheme.secondary
                         )
                         Spacer(Modifier.height(8.dp))
-                        Button(onClick = vm::signIn, enabled = !busy) {
+                        Button(onClick = { vm.signIn(uiContext) }, enabled = !busy) {
                             Text(if (busy) "Entrando…" else "Entrar com Google")
                         }
                         Spacer(Modifier.height(12.dp))
