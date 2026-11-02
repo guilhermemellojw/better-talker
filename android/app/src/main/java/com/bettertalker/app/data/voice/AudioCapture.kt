@@ -27,7 +27,11 @@ class AudioCapture {
     /** Callback para cada chunk de áudio capturado. */
     var onAudioChunk: ((ShortArray, Int) -> Unit)? = null
 
-    /** Inicia a captura. */
+    /**
+     * Inicia a captura. O chamador deve ter RECORD_AUDIO concedido
+     * (SherpaSttEngine checa antes de abrir o microfone).
+     */
+    @android.annotation.SuppressLint("MissingPermission")
     fun start() {
         if (isCapturing) return
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)

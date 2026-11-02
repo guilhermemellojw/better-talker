@@ -1,7 +1,10 @@
 package com.bettertalker.app.data.voice
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
+import androidx.core.content.ContextCompat
 import android.os.Looper
 import android.util.Log
 import com.k2fsa.sherpa.onnx.FeatureConfig
@@ -67,6 +70,10 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
 
     override fun isAvailable(): Boolean = modelFile.exists() && tokensFile.exists()
 
+    private fun hasMicPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+
     override fun start(
         onReady: () -> Unit,
         onPartial: (String) -> Unit,
@@ -80,6 +87,10 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
 
         if (!isAvailable()) {
             postError("Modelo STT não baixado. Baixe em Configurações → Voz.")
+            return
+        }
+        if (!hasMicPermission()) {
+            postError("Permita o microfone para usar o reconhecimento de voz.")
             return
         }
         val gen = generation.incrementAndGet()
@@ -183,6 +194,10 @@ class SherpaSttEngine(private val context: Context) : SttEngine {
     override fun resume() {
         if (!isAvailable()) {
             postError("Modelo STT não baixado.")
+            return
+        }
+        if (!hasMicPermission()) {
+            postError("Permita o microfone para usar o reconhecimento de voz.")
             return
         }
         val gen = generation.get()
