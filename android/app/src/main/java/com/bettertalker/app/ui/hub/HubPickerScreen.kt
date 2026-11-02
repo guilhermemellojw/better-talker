@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.ui.components.NoteRowDetailed
 import com.bettertalker.app.ui.present.PresentReadiness
+import com.bettertalker.app.ui.present.presentReadinessLabel
 
 /** Picker compartilhado de esboço (Treino/Palco). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,7 +113,7 @@ fun HubPickerScreen(
                 ) {
                     items(filtered, key = { it.id }) { card ->
                         NoteRowDetailed(
-                            title = card.title,
+                            title = hubCardTitle(card.title, card.minutes),
                             md = card.preview,
                             updatedAt = card.updatedAt,
                             pinned = card.pinned,
@@ -132,13 +133,12 @@ fun HubPickerScreen(
                                 if (isTrain) {
                                     append(if (card.hasText) "Tem texto" else "Sem texto")
                                 } else {
-                                    val word = if (card.isDemonstration) "Roteiro" else "Tribuna"
+                                    val readiness = card.presentReadiness ?: PresentReadiness.MISSING
                                     append(
-                                        when (card.presentReadiness) {
-                                            PresentReadiness.READY -> "$word pronta"
-                                            PresentReadiness.PARTIAL -> "Incompleta"
-                                            else -> "Falta gerar"
-                                        }
+                                        presentReadinessLabel(
+                                            readiness,
+                                            demo = card.isDemonstration,
+                                        )
                                     )
                                 }
                             },

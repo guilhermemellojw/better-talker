@@ -15,13 +15,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.bettertalker.app.ui.present.PresentAction
 import com.bettertalker.app.ui.present.PresentReadiness
+import com.bettertalker.app.ui.present.presentActionLabel
+import com.bettertalker.app.ui.present.presentCardActions
+import com.bettertalker.app.ui.present.presentReadinessLabel
 
 /**
- * Aba "Palco": esboço atual + prontidão da Tribuna + retomada.
+ * Aba "Palco": esboço atual + prontidão + retomada.
  *
- * A preparação (Tribuna) continua sendo o artefato; o Palco é o ao vivo.
- * Sem Tribuna → "Gerar Tribuna"; sem esboço atual → empty state + picker.
+ * Discurso usa a Tribuna (cápsulas); demonstração usa o roteiro (turnos).
+ * Sem artefato, a ação leva ao lugar certo: gerar Tribuna ou abrir o editor.
+ * Sem esboço atual → empty state + picker.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +35,7 @@ fun PresentHomeScreen(
     onPresent: (String) -> Unit,
     onOpenTribuna: (String) -> Unit,
     onGenerateTribuna: (String) -> Unit,
+    onOpenEditor: (String) -> Unit,
     onPickNote: () -> Unit,
     onGoToLibrary: () -> Unit,
 ) {
@@ -61,45 +67,32 @@ fun PresentHomeScreen(
                     onAction = onPickNote,
                 )
                 else -> {
-                    val wording = if (current.isDemonstration) "Roteiro" else "Tribuna"
+                    val demo = current.isDemonstration
                     val readiness = current.presentReadiness ?: PresentReadiness.MISSING
-                    val status = when (readiness) {
-                        PresentReadiness.READY -> "$wording pronta"
-                        PresentReadiness.PARTIAL -> "$wording incompleta"
-                        PresentReadiness.MISSING -> "Falta gerar a $wording"
-                    }
-                    val primaryLabel = when (readiness) {
-                        PresentReadiness.READY -> "Apresentar"
-                        PresentReadiness.PARTIAL -> "Abrir $wording"
-                        PresentReadiness.MISSING -> "Gerar $wording"
-                    }
-                    val onPrimary = when (readiness) {
-                        PresentReadiness.READY -> ({ onPresent(current.id) })
-                        PresentReadiness.PARTIAL -> ({ onOpenTribuna(current.id) })
-                        PresentReadiness.MISSING -> ({ onGenerateTribuna(current.id) })
+                    val actions = presentCardActions(readiness, demo)
+                    val onAction: (PresentAction) -> (() -> Unit) = { action ->
+                        when (action) {
+                            PresentAction.PRESENT,
+                            PresentAction.OPEN_SCRIPT -> ({ onPresent(current.id) })
+                            PresentAction.OPEN_TRIBUNA -> ({ onOpenTribuna(current.id) })
+                            PresentAction.GENERATE_TRIBUNA -> ({ onGenerateTribuna(current.id) })
+                            PresentAction.OPEN_EDITOR -> ({ onOpenEditor(current.id) })
+                        }
                     }
                     HubCurrentNoteCard(
-                        title = current.title,
-                        badge = if (current.isDemonstration) "Demonstração" else "Discurso",
+                        title = hubCardTitle(current.title, current.minutes),
+                        badge = if (demo) "Demonstração" else "Discurso",
                         minutes = current.minutes,
                         sectionsCount = current.sectionsCount,
-                        status = status,
+                        status = presentReadinessLabel(readiness, demo),
                         statusOk = readiness == PresentReadiness.READY,
                         detail = current.presentResumeLabel,
-                        primaryLabel = primaryLabel,
-                        onPrimary = onPrimary,
+                        primaryLabel = presentActionLabel(actions.primary),
+                        onPrimary = onAction(actions.primary),
                         secondaryLabel = "Trocar esboço",
                         onSecondary = onPickNote,
-                        tertiaryLabel = if (readiness == PresentReadiness.READY) {
-                            "Abrir $wording"
-                        } else {
-                            null
-                        },
-                        onTertiary = if (readiness == PresentReadiness.READY) {
-                            { onOpenTribuna(current.id) }
-                        } else {
-                            null
-                        },
+                        tertiaryLabel = actions.tertiary?.let(::presentActionLabel),
+                        onTertiary = actions.tertiary?.let(onAction),
                     )
                 }
             }

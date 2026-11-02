@@ -59,7 +59,7 @@ fun TrainHomeScreen(
                     onAction = onPickNote,
                 )
                 else -> HubCurrentNoteCard(
-                    title = current.title,
+                    title = hubCardTitle(current.title, current.minutes),
                     badge = if (current.isDemonstration) "Demonstração" else "Discurso",
                     minutes = current.minutes,
                     sectionsCount = current.sectionsCount,

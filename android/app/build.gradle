@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 41
-        versionName "3.1.0"
+        versionCode 42
+        versionName "3.2.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).

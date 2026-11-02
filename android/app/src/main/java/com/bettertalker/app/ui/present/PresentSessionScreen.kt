@@ -135,14 +135,18 @@ private fun PresentPrepScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Apresentar") },
+                title = { Text("Preparar palco") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
                     }
                 },
                 actions = {
-                    TextButton(onClick = onOpenTribuna) { Text("Tribuna") }
+                    TextButton(
+                        onClick = if (demo) onOpenEditor else onOpenTribuna,
+                    ) {
+                        Text(if (demo) "Editor" else "Tribuna")
+                    }
                 },
             )
         },
@@ -163,7 +167,7 @@ private fun PresentPrepScreen(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                presentReadinessLabel(readiness),
+                presentReadinessLabel(readiness, demo),
                 style = MaterialTheme.typography.labelLarge,
                 color = when (readiness) {
                     PresentReadiness.READY -> MaterialTheme.colorScheme.primary
@@ -173,8 +177,13 @@ private fun PresentPrepScreen(
             )
             if (readiness == PresentReadiness.PARTIAL) {
                 Text(
-                    "$readySections de ${cues.size} seções com Tribuna. " +
-                        "O palco avisa onde faltar; você pode avançar.",
+                    if (demo) {
+                        "$readySections de ${cues.size} seções com roteiro. " +
+                            "O palco avisa onde faltar; você pode avançar."
+                    } else {
+                        "$readySections de ${cues.size} seções com Tribuna. " +
+                            "O palco avisa onde faltar; você pode avançar."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 4.dp),
@@ -182,7 +191,13 @@ private fun PresentPrepScreen(
             }
             if (readiness == PresentReadiness.MISSING) {
                 Text(
-                    "Esta nota ainda não tem Tribuna. Abra o editor e gere a Tribuna antes de apresentar.",
+                    if (demo) {
+                        "Esta demonstração ainda não tem roteiro. " +
+                            "Abra o editor e escreva o diálogo antes de apresentar."
+                    } else {
+                        "Esta nota ainda não tem Tribuna. " +
+                            "Abra o editor e gere a Tribuna antes de apresentar."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),
@@ -355,15 +370,25 @@ private fun PresentPrepScreen(
             }
             if (readiness == PresentReadiness.PARTIAL) {
                 TextButton(
-                    onClick = onOpenTribuna,
+                    onClick = if (demo) onOpenEditor else onOpenTribuna,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Abrir Tribuna para completar") }
+                ) {
+                    Text(
+                        if (demo) "Abrir editor para completar o roteiro"
+                        else "Abrir Tribuna para completar",
+                    )
+                }
             }
             if (readiness == PresentReadiness.MISSING) {
                 TextButton(
                     onClick = onOpenEditor,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Abrir editor para gerar Tribuna") }
+                ) {
+                    Text(
+                        if (demo) "Abrir editor para escrever o roteiro"
+                        else "Abrir editor para gerar Tribuna",
+                    )
+                }
             }
             Spacer(Modifier.height(24.dp))
         }

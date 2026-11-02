@@ -275,6 +275,7 @@ private fun AppNav(
                 onPresent = { nav.navigate(Routes.present(it)) },
                 onOpenTribuna = { nav.navigate(Routes.tribuna(it)) },
                 onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },
+                onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("present")) },
                 onGoToLibrary = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
             )

@@ -5,17 +5,58 @@ import com.bettertalker.app.ui.stage.StageTurn
 
 /**
  * Apresentar live — modelos puros do pré-voo e do palco (spec
- * `docs/specs/apresentar-live.md`). A Tribuna continua sendo a preparação;
- * aqui só se lê o que já foi gerado.
+ * `docs/specs/apresentar-live.md`). Discurso lê a Tribuna; demonstração lê
+ * os turnos do roteiro. Aqui só se lê o que já foi gerado.
  */
 
-/** Prontidão da Tribuna para o palco. */
+/** Prontidão da Tribuna (discurso) ou do roteiro (demonstração). */
 enum class PresentReadiness { READY, PARTIAL, MISSING }
 
-fun presentReadinessLabel(readiness: PresentReadiness): String = when (readiness) {
-    PresentReadiness.READY -> "Tribuna pronta"
-    PresentReadiness.PARTIAL -> "Tribuna incompleta"
-    PresentReadiness.MISSING -> "Falta gerar Tribuna"
+fun presentReadinessLabel(readiness: PresentReadiness, demo: Boolean = false): String =
+    if (demo) when (readiness) {
+        PresentReadiness.READY -> "Roteiro pronto"
+        PresentReadiness.PARTIAL -> "Roteiro incompleto"
+        PresentReadiness.MISSING -> "Falta o roteiro"
+    } else when (readiness) {
+        PresentReadiness.READY -> "Tribuna pronta"
+        PresentReadiness.PARTIAL -> "Tribuna incompleta"
+        PresentReadiness.MISSING -> "Falta gerar a Tribuna"
+    }
+
+/** Ação/ações do cartão do Palco (primária + terciária). */
+enum class PresentAction { PRESENT, OPEN_TRIBUNA, OPEN_SCRIPT, GENERATE_TRIBUNA, OPEN_EDITOR }
+
+data class PresentCardActions(
+    val primary: PresentAction,
+    val tertiary: PresentAction? = null,
+)
+
+/**
+ * Uma ação por estado, sem beco sem saída na demonstração: o roteiro nasce
+ * dos turnos do editor, então MISSING/PARTIAL nunca mandam gerar Tribuna.
+ */
+fun presentCardActions(readiness: PresentReadiness, demo: Boolean): PresentCardActions = when {
+    readiness == PresentReadiness.READY -> PresentCardActions(
+        primary = PresentAction.PRESENT,
+        tertiary = if (demo) null else PresentAction.OPEN_TRIBUNA,
+    )
+    demo && readiness == PresentReadiness.PARTIAL -> PresentCardActions(
+        primary = PresentAction.OPEN_SCRIPT,
+        tertiary = PresentAction.OPEN_EDITOR,
+    )
+    demo -> PresentCardActions(primary = PresentAction.OPEN_EDITOR)
+    readiness == PresentReadiness.PARTIAL -> PresentCardActions(
+        primary = PresentAction.OPEN_TRIBUNA,
+    )
+    else -> PresentCardActions(primary = PresentAction.GENERATE_TRIBUNA)
+}
+
+fun presentActionLabel(action: PresentAction): String = when (action) {
+    PresentAction.PRESENT -> "Apresentar"
+    PresentAction.OPEN_TRIBUNA -> "Abrir Tribuna"
+    PresentAction.OPEN_SCRIPT -> "Abrir Roteiro"
+    PresentAction.GENERATE_TRIBUNA -> "Gerar Tribuna"
+    PresentAction.OPEN_EDITOR -> "Abrir editor"
 }
 
 /** `readySections` conta seções com cápsula (ou roteiro, em demos). Puro. */

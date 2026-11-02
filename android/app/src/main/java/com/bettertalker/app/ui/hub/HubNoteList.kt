@@ -106,12 +106,13 @@ private fun HubNoteItem(
     statusText: (HubNoteCard) -> String?,
 ) {
     val badge = if (card.isDemonstration) "Demonstração" else "Discurso"
+    val displayTitle = hubCardTitle(card.title, card.minutes)
     val duration = card.minutes?.let { "$it min" }
     val status = statusText(card)
     val onClick = { onOpen(card.id) }
     when (mode) {
         HomeViewMode.GRID -> NoteCard(
-            title = card.title, md = card.preview, updatedAt = card.updatedAt,
+            title = displayTitle, md = card.preview, updatedAt = card.updatedAt,
             pinned = card.pinned, attachCount = 0, colorArgb = card.colorArgb,
             onClick = onClick, badgeText = badge, durationText = duration,
             statusText = status,
@@ -123,7 +124,7 @@ private fun HubNoteItem(
             statusText = status,
         )
         HomeViewMode.LIST_DETAILED -> NoteRowDetailed(
-            title = card.title, md = card.preview, updatedAt = card.updatedAt,
+            title = displayTitle, md = card.preview, updatedAt = card.updatedAt,
             pinned = card.pinned, colorArgb = card.colorArgb, onClick = onClick,
             badgeText = badge, durationText = duration,
             statusText = status,

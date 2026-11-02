@@ -65,6 +65,17 @@ fun hubMinutesOf(sectionMinutesSum: Int, outlineMinutes: Int?): Int? = when {
 }
 
 /**
+ * Evita repetir a duração no título e na linha de metadados:
+ * "Fazendo discípulos (5 min)" + "5 min" → "Fazendo discípulos".
+ * Só remove quando o sufixo casa exatamente com a duração exibida. Puro.
+ */
+fun hubCardTitle(title: String, minutes: Int?): String {
+    val m = minutes ?: return title
+    val suffix = Regex("""\s*\(\s*$m\s*min\s*\)\s*$""", RegexOption.IGNORE_CASE)
+    return title.replace(suffix, "").ifBlank { title }
+}
+
+/**
  * Hubs Treinar/Apresentar: lista de notas ativas com tipo e duração para a
  * escolha visual (substitui o atalho silencioso de "última nota").
  */

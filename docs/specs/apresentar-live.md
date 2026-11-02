@@ -26,15 +26,21 @@ Palco → Trocar esboço → picker → escolhe → volta.
 ## 4. Aba Palco
 
 - Cartão do esboço atual com tipo, duração, nº de seções e prontidão:
-  - "Tribuna pronta";
-  - "Falta gerar a Tribuna";
-  - "Tribuna incompleta";
-  - em demonstrações, "Roteiro".
-- Ação principal: Apresentar (ou Gerar Tribuna quando falta).
+  - Discurso: "Tribuna pronta", "Tribuna incompleta", "Falta gerar a Tribuna";
+  - Demonstração: "Roteiro pronto", "Roteiro incompleto", "Falta o roteiro".
+- Ação por estado:
+
+| Estado | Discurso | Demonstração |
+|---|---|---|
+| READY | Apresentar | Apresentar |
+| PARTIAL | Abrir Tribuna | Abrir Roteiro (+ Abrir editor) |
+| MISSING | Gerar Tribuna | Abrir editor |
+
+- Em demonstração, o roteiro nasce dos turnos do editor. Nunca oferecer
+  "Gerar Tribuna" em demo — é um beco sem saída.
 - A lista completa fica em Esboços; "Trocar esboço" abre o picker.
 - "Continuar de onde parei" quando houver sessão anterior.
-- Tribuna ausente: não abre palco vazio; oferece Gerar Tribuna ou editor.
-- Corrigir o bug atual de erro no chat enquanto a Tribuna abre vazia.
+- Tribuna/roteiro ausente: não abre palco vazio; leva ao gerador ou ao editor.
 
 ## 5. Pré-voo
 
@@ -45,7 +51,7 @@ Palco → Trocar esboço → picker → escolhe → volta.
 - Orientação: Retrato (padrão) | Automática | Travar.
 - Entrar no palco.
 - Checagem: tela acesa, bateria, notificações, orientação, fonte.
-- Editar Tribuna fica no pré-voo ou editor; nunca no palco.
+- Editar Tribuna/roteiro fica no pré-voo ou editor; nunca no palco.
 
 ## 6. Palco
 

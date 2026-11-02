@@ -39,4 +39,25 @@ class HubNoteCardTest {
         assertNull(hubMinutesOf(sectionMinutesSum = 0, outlineMinutes = null))
         assertNull(hubMinutesOf(sectionMinutesSum = 0, outlineMinutes = 0))
     }
+
+    @Test
+    fun tituloSemDuracaoRepetida() {
+        assertEquals(
+            "Fazendo discípulos",
+            hubCardTitle("Fazendo discípulos (5 min)", 5),
+        )
+        assertEquals(
+            "Fazendo discípulos",
+            hubCardTitle("Fazendo discípulos  ( 5 min ) ", 5),
+        )
+        assertEquals(
+            "Fazendo discípulos (10 min)",
+            hubCardTitle("Fazendo discípulos (10 min)", 5),
+        )
+        assertEquals(
+            "Fazendo discípulos (5 min)",
+            hubCardTitle("Fazendo discípulos (5 min)", null),
+        )
+        assertEquals("(5 min)", hubCardTitle("(5 min)", 5))
+    }
 }

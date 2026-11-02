@@ -339,7 +339,7 @@ fun PresentStageScreen(
 @Composable
 private fun CueContent(cue: PresentCue?, fontSp: Int) {
     if (cue == null) {
-        MissingCue("Nenhuma seção disponível.")
+        MissingCue("Nenhuma seção disponível.", title = "Sem seção")
         return
     }
     val capsule = cue.capsule
@@ -410,7 +410,10 @@ private fun ScriptContent(
     fontSp: Int,
 ) {
     if (current == null) {
-        MissingCue("Roteiro ainda não escrito. Edite o diálogo no editor.")
+        MissingCue(
+            "Roteiro ainda não escrito. Edite o diálogo no editor.",
+            title = "Sem roteiro nesta seção",
+        )
         return
     }
     val isRole = role != null && current.turn.speaker.equals(role, ignoreCase = true)
@@ -476,7 +479,7 @@ private fun ScriptContent(
 }
 
 @Composable
-private fun MissingCue(message: String) {
+private fun MissingCue(message: String, title: String = "Sem Tribuna nesta seção") {
     Surface(
         color = Color(0xFF111827),
         shape = RoundedCornerShape(14.dp),
@@ -484,7 +487,7 @@ private fun MissingCue(message: String) {
     ) {
         Column(Modifier.padding(18.dp)) {
             Text(
-                "Sem Tribuna nesta seção",
+                title,
                 color = PresentRed,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,

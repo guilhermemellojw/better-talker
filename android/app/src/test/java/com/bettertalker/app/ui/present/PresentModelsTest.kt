@@ -39,9 +39,63 @@ class PresentModelsTest {
         assertEquals(PresentReadiness.PARTIAL, presentReadiness(3, 1))
         assertEquals(PresentReadiness.PARTIAL, presentReadiness(3, 2))
         assertEquals(PresentReadiness.READY, presentReadiness(3, 3))
+    }
+
+    @Test
+    fun rotulosDeProntidaoFlexionamPorTipo() {
         assertEquals("Tribuna pronta", presentReadinessLabel(PresentReadiness.READY))
         assertEquals("Tribuna incompleta", presentReadinessLabel(PresentReadiness.PARTIAL))
-        assertEquals("Falta gerar Tribuna", presentReadinessLabel(PresentReadiness.MISSING))
+        assertEquals("Falta gerar a Tribuna", presentReadinessLabel(PresentReadiness.MISSING))
+
+        assertEquals(
+            "Roteiro pronto",
+            presentReadinessLabel(PresentReadiness.READY, demo = true),
+        )
+        assertEquals(
+            "Roteiro incompleto",
+            presentReadinessLabel(PresentReadiness.PARTIAL, demo = true),
+        )
+        assertEquals(
+            "Falta o roteiro",
+            presentReadinessLabel(PresentReadiness.MISSING, demo = true),
+        )
+    }
+
+    @Test
+    fun acoesDoCartaoNuncaMandamGerarTribunaNaDemo() {
+        assertEquals(
+            PresentCardActions(PresentAction.PRESENT, PresentAction.OPEN_TRIBUNA),
+            presentCardActions(PresentReadiness.READY, demo = false),
+        )
+        assertEquals(
+            PresentCardActions(PresentAction.PRESENT),
+            presentCardActions(PresentReadiness.READY, demo = true),
+        )
+        assertEquals(
+            PresentCardActions(PresentAction.OPEN_TRIBUNA),
+            presentCardActions(PresentReadiness.PARTIAL, demo = false),
+        )
+        assertEquals(
+            PresentCardActions(PresentAction.OPEN_SCRIPT, PresentAction.OPEN_EDITOR),
+            presentCardActions(PresentReadiness.PARTIAL, demo = true),
+        )
+        assertEquals(
+            PresentCardActions(PresentAction.GENERATE_TRIBUNA),
+            presentCardActions(PresentReadiness.MISSING, demo = false),
+        )
+        assertEquals(
+            PresentCardActions(PresentAction.OPEN_EDITOR),
+            presentCardActions(PresentReadiness.MISSING, demo = true),
+        )
+    }
+
+    @Test
+    fun rotulosDasAcoes() {
+        assertEquals("Apresentar", presentActionLabel(PresentAction.PRESENT))
+        assertEquals("Abrir Tribuna", presentActionLabel(PresentAction.OPEN_TRIBUNA))
+        assertEquals("Abrir Roteiro", presentActionLabel(PresentAction.OPEN_SCRIPT))
+        assertEquals("Gerar Tribuna", presentActionLabel(PresentAction.GENERATE_TRIBUNA))
+        assertEquals("Abrir editor", presentActionLabel(PresentAction.OPEN_EDITOR))
     }
 
     @Test
