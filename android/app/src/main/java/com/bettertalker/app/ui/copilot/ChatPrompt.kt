@@ -529,7 +529,7 @@ fun AttachSheet(
             )
             AttachOption(
                 icon = Icons.Default.LibraryBooks,
-                title = "Anexar do acervo",
+                title = "Anexar da Biblioteca",
                 desc = "Vincule uma publicação já importada",
                 onClick = onAttachFromLibrary
             )

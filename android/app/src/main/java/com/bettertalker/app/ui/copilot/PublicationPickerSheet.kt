@@ -68,7 +68,7 @@ fun PublicationPickerSheet(vm: CopilotViewModel, onDismiss: () -> Unit) {
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Anexar do acervo", style = MaterialTheme.typography.titleMedium)
+            Text("Anexar da Biblioteca", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Vincule uma publicação importada para eu poder citá-la nesta conversa.",
                 style = MaterialTheme.typography.bodySmall,

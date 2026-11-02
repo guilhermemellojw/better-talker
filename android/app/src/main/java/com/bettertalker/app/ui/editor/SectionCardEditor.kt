@@ -506,11 +506,11 @@ private fun ReasoningLine(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                     modifier = Modifier
                         .heightIn(min = 48.dp)
-                        .semantics { contentDescription = "+ Estrutura" },
+                        .semantics { contentDescription = "Adicionar estrutura" },
                 ) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("+ Estrutura")
+                    Text("Estrutura")
                 }
             }
         } else {

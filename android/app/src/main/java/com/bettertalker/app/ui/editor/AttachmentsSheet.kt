@@ -89,7 +89,7 @@ fun AttachmentsSheet(
             OutlinedButton(onClick = onAttach, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.AttachFile, null)
                 Spacer(Modifier.width(4.dp))
-                Text("+ Anexar da Biblioteca")
+                Text("Anexar da Biblioteca")
             }
             Spacer(Modifier.height(8.dp))
         }

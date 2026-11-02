@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -510,11 +511,22 @@ fun HomeScreen(
             }
             if (notes.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (query.isNotBlank()) "Nada encontrado para “$query”."
-                        else "Nenhuma nota. Toque + para criar.",
-                        color = MaterialTheme.colorScheme.secondary
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    ) {
+                        Text(
+                            if (query.isNotBlank()) "Nada encontrado para “$query”."
+                            else "Nenhum esboço ainda.",
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                        if (query.isBlank()) {
+                            Spacer(Modifier.height(16.dp))
+                            Button(onClick = { showCreateSheet = true }) {
+                                Text("Criar esboço")
+                            }
+                        }
+                    }
                 }
             } else {
                 androidx.compose.material3.pulltorefresh.PullToRefreshBox(

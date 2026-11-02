@@ -76,7 +76,12 @@ fun TrashScreen(vm: HomeViewModel, onBack: () -> Unit) {
             title = { Text("Esvaziar lixeira?") },
             text = {
                 Text(
-                    "${trashed.size} nota(s) serão excluídas permanentemente. " +
+                    "${trashed.size} " +
+                        com.bettertalker.app.data.util.plural(
+                            trashed.size,
+                            "nota será excluída",
+                            "notas serão excluídas",
+                        ) + " permanentemente. " +
                         "Esta ação não pode ser desfeita."
                 )
             },

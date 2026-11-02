@@ -127,7 +127,7 @@ class PendingSourceStatusTest {
 
     @Test
     fun rotulosDeStatusSaoEstaveis() {
-        assertEquals("No acervo", com.bettertalker.app.ui.components.sourceStatusLabel(SourceStatus.RESOLVED))
+        assertEquals("Disponível", com.bettertalker.app.ui.components.sourceStatusLabel(SourceStatus.RESOLVED))
         assertEquals(
             "Edição não importada",
             com.bettertalker.app.ui.components.sourceStatusLabel(SourceStatus.EDITION_MISSING),

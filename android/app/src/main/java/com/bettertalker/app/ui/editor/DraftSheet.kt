@@ -66,7 +66,9 @@ fun DraftSheet(
                     )
                     if (state.queueRemaining > 0) {
                         Text(
-                            "Texto total: mais ${state.queueRemaining} parte(s) na fila.",
+                            "Texto total: mais ${state.queueRemaining} " +
+                            com.bettertalker.app.data.util.plural(state.queueRemaining, "parte", "partes") +
+                            " na fila.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )

@@ -3296,7 +3296,9 @@ class CopilotViewModel(
             return
         }
         postText(
-            "Vou gerar o texto em ${targets.size} parte(s), uma por seção, para respeitar " +
+            "Vou gerar o texto em ${targets.size} " +
+                com.bettertalker.app.data.util.plural(targets.size, "parte", "partes") +
+                ", uma por seção, para respeitar " +
                 "o tempo. O painel abre na primeira; revise, aceite e toque em “Próximo” " +
                 "para seguir. Seções de 20+ min são divididas por sub-ponto."
         )

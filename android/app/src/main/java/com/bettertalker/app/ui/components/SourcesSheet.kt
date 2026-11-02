@@ -127,7 +127,9 @@ fun SourcesSheet(
                 )
                 if (sources.pending > 0) {
                     Text(
-                        "${sources.pending} fonte(s) baixando/indexando — o checklist atualiza sozinho.",
+                        "${sources.pending} " +
+                            com.bettertalker.app.data.util.plural(sources.pending, "fonte", "fontes") +
+                            " baixando/indexando — o checklist atualiza sozinho.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.padding(top = 4.dp),
@@ -481,7 +483,7 @@ private fun StatusPillIcon(
 
 /** Rótulo curto do status, usado na linha e nos labels de acessibilidade. */
 fun sourceStatusLabel(status: SourceStatus): String = when (status) {
-    SourceStatus.RESOLVED -> "No acervo"
+    SourceStatus.RESOLVED -> "Disponível"
     SourceStatus.EDITION_MISSING -> "Edição não importada"
     SourceStatus.TEXT_NOT_FOUND -> "Texto não encontrado"
     SourceStatus.DOWNLOADING -> "Baixando…"

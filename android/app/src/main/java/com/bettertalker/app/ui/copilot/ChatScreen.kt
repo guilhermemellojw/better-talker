@@ -2936,7 +2936,7 @@ private fun RefFullRow(
         // T3 — verificação de conteúdo (independente de "edição baixada").
         st.snippet?.let { sn ->
             Text(
-                "📖 No acervo: $sn",
+                "📖 Disponível: $sn",
                 style = MaterialTheme.typography.labelSmall,
                 // P2 (contraste): o amarelo primário dá 1.55:1 no tema claro;
                 // secondary passa AA nos dois temas (5.38 / 6.97).

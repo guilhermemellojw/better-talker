@@ -133,7 +133,8 @@ fun NoteCard(
                 Text(previewOf(md), style = MaterialTheme.typography.bodySmall, maxLines = 4)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "${DateFormat.getDateInstance(DateFormat.SHORT).format(Date(updatedAt))} • $attachCount anexo(s)",
+                    "${DateFormat.getDateInstance(DateFormat.SHORT).format(Date(updatedAt))} • $attachCount " +
+                        com.bettertalker.app.data.util.plural(attachCount, "anexo", "anexos"),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )

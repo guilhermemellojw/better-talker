@@ -36,13 +36,17 @@ object PublicationScanner {
         /** Resumo curto para a UI. */
         val summary: String get() = buildString {
             val found = matches.size
-            val importedCount = imported
-            val alreadyCount = alreadyInAcervo
-            val missingCount = notFound.size
-            append("$found encontrada(s)")
-            if (importedCount > 0) append(": $importedCount importada(s)")
-            if (alreadyCount > 0) append(", $alreadyCount já disponível(is)")
-            if (missingCount > 0) append("; $missingCount ainda falta(m)")
+            append("$found ${plural(found, "encontrada", "encontradas")}")
+            if (imported > 0) {
+                append(": $imported ${plural(imported, "importada", "importadas")}")
+            }
+            if (alreadyInAcervo > 0) {
+                append(", $alreadyInAcervo já ${plural(alreadyInAcervo, "disponível", "disponíveis")}")
+            }
+            if (notFound.isNotEmpty()) {
+                val missing = notFound.size
+                append("; $missing ainda ${plural(missing, "falta", "faltam")}")
+            }
         }
     }
 

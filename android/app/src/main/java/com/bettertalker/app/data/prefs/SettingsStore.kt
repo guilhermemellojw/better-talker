@@ -241,6 +241,10 @@ class SettingsStore(
     suspend fun trainPrep(noteId: String): String? =
         ctx.store.data.map { it[trainPrepKey(noteId)] }.first()
 
+    /** Observa a preparação da nota (cartão da aba Treino). */
+    fun trainPrepFlow(noteId: String): Flow<String?> =
+        ctx.store.data.map { it[trainPrepKey(noteId)] }
+
     suspend fun setTrainPrep(noteId: String, value: String) {
         ctx.store.edit { it[trainPrepKey(noteId)] = value }
     }

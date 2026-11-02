@@ -27,7 +27,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -47,6 +49,7 @@ fun HubPickerScreen(
     val cards by vm.cards.collectAsState()
     var query by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
     val filtered = remember(cards, query) {
         val q = query.trim()
         if (q.isBlank()) cards
@@ -108,9 +111,11 @@ fun HubPickerScreen(
                             pinned = card.pinned,
                             colorArgb = card.colorArgb,
                             onClick = {
-                                if (isTrain) vm.setTrainNote(card.id)
-                                else vm.setPresentNote(card.id)
-                                onBack()
+                                scope.launch {
+                                    if (isTrain) vm.setTrainNoteNow(card.id)
+                                    else vm.setPresentNoteNow(card.id)
+                                    onBack()
+                                }
                             },
                             badgeText = if (card.isDemonstration) "Demonstração" else "Discurso",
                             durationText = card.minutes?.let { "$it min" },

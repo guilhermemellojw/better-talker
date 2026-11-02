@@ -182,7 +182,7 @@ fun citationDetailLine(source: NoteSource): String {
 
 /** Rótulo curto para a linha do checklist. */
 fun citationStatusLabel(source: NoteSource): String = when (source.citation.action) {
-    SourceAction.NONE -> "No acervo"
+    SourceAction.NONE -> "Disponível"
     SourceAction.DOWNLOAD -> "Edição não importada"
     SourceAction.REINDEX ->
         if (source.citation.text == TextStatus.NOT_FOUND) "Texto não encontrado"

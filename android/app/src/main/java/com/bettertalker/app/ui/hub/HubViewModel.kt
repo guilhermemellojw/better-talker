@@ -12,11 +12,13 @@ import com.bettertalker.app.ui.present.PresentReadiness
 import com.bettertalker.app.ui.present.decodePresentSession
 import com.bettertalker.app.ui.present.presentReadiness
 import com.bettertalker.app.ui.stage.formatClock
+import com.bettertalker.app.ui.stage.cleanStageText
 import com.bettertalker.app.ui.stage.parseStageTurns
 import com.bettertalker.app.ui.stage.trainPrepSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -95,6 +97,7 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
     ) { notes, _ ->
         notes.map { note ->
             val sections = db.speechSectionDao().forNote(note.id)
+            val subPoints = db.subPointDao().forSections(sections.map { it.id })
             val sectionSum = sections.sumOf { it.minutes }
             val outlineMinutes = db.outlineDao().getForNote(note.id)?.totalMinutes
             val demo = note.discourseType == DiscourseType.MINISTRY_PART.name ||
@@ -124,9 +127,14 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
                     "Continuar da seção ${it.index + 1} · ${formatClock(it.elapsedSec)}"
                 },
                 sectionsCount = sections.size,
-                hasText = sections.any { it.contentHtml.isNotBlank() } ||
-                    note.mdText.isNotBlank(),
-                lastPrepLabel = trainPrepSummary(settings.trainPrep(note.id)),
+                // S-34 costuma ter o texto nos subpontos (developedHtml/âncora);
+                // olhar só contentHtml daria falso "Sem texto".
+                hasText = note.mdText.isNotBlank() ||
+                    sections.any { cleanStageText(it.contentHtml).isNotBlank() } ||
+                    subPoints.any {
+                        cleanStageText(it.developedHtml).isNotBlank() ||
+                            it.outlineText.isNotBlank()
+                    },
             )
         }
     }
@@ -135,8 +143,16 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
     /** Aba Treino: esboço atual (independente do Palco). */
     val trainNoteId: StateFlow<String?> = settings.trainNoteId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    val trainCard: StateFlow<HubNoteCard?> = combine(cards, trainNoteId) { list, id ->
-        list.firstOrNull { it.id == id }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val trainCard: StateFlow<HubNoteCard?> = trainNoteId.flatMapLatest { id ->
+        if (id == null) {
+            kotlinx.coroutines.flow.flowOf(null)
+        } else {
+            combine(
+                cards.map { list -> list.firstOrNull { it.id == id } },
+                settings.trainPrepFlow(id),
+            ) { card, prep -> card?.copy(lastPrepLabel = trainPrepSummary(prep)) }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** Aba Palco: esboço atual (independente do Treino). */
@@ -148,6 +164,10 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
 
     fun setTrainNote(id: String?) = viewModelScope.launch { settings.setTrainNoteId(id) }
     fun setPresentNote(id: String?) = viewModelScope.launch { settings.setPresentNoteId(id) }
+
+    /** Grava e espera (picker navega depois; evita piscar o empty state). */
+    suspend fun setTrainNoteNow(id: String?) = settings.setTrainNoteId(id)
+    suspend fun setPresentNoteNow(id: String?) = settings.setPresentNoteId(id)
 
     class Factory(private val ctx: Context, private val db: AppDatabase) :
         ViewModelProvider.Factory {

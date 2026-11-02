@@ -240,12 +240,16 @@ private fun AppNav(
                     nav.navigate(Routes.editor(id))
                 },
                 onTrainNote = { id ->
-                    scope.launch { settings.setTrainNoteId(id) }
-                    goTrain()
+                    scope.launch {
+                        settings.setTrainNoteId(id)
+                        goTrain()
+                    }
                 },
                 onPresentNote = { id ->
-                    scope.launch { settings.setPresentNoteId(id) }
-                    goPresent()
+                    scope.launch {
+                        settings.setPresentNoteId(id)
+                        goPresent()
+                    }
                 },
             )
         }

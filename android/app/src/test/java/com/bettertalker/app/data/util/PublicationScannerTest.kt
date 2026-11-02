@@ -111,14 +111,24 @@ class PublicationScannerTest {
     }
 
     @Test
-    fun scanResultSummary() {
-        val result = PublicationScanner.ScanResult(
+    fun scanResultSummaryFlexiona() {
+        val plural = PublicationScanner.ScanResult(
             matches = emptyList(),
             imported = 2,
             alreadyInAcervo = 1,
             notFound = listOf(ref()),
         )
-        assertTrue(result.summary.contains("0 encontrada"))
+        assertEquals(
+            "0 encontradas: 2 importadas, 1 já disponível; 1 ainda falta",
+            plural.summary,
+        )
+        val singular = PublicationScanner.ScanResult(
+            matches = emptyList(),
+            imported = 1,
+            alreadyInAcervo = 0,
+            notFound = emptyList(),
+        )
+        assertEquals("0 encontradas: 1 importada", singular.summary)
     }
 
     @Test

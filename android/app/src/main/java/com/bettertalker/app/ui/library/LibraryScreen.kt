@@ -223,7 +223,7 @@ fun LibraryScreen(
                     }
                 }
                 item(key = "lib-title") {
-                    Text("No acervo", style = MaterialTheme.typography.titleMedium)
+                    Text("Disponível", style = MaterialTheme.typography.titleMedium)
                 }
                 if (items.isEmpty()) {
                     item(key = "lib-empty") {
@@ -336,7 +336,7 @@ private fun RecommendedPubCard(
             Column(Modifier.weight(1f)) {
                 Text("${pub.title} (${pub.symbol})", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    if (match != null) "No acervo" else "Faltando",
+                    if (match != null) "Disponível" else "Faltando",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (match != null) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.secondary
