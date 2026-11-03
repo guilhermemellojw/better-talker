@@ -243,3 +243,22 @@ O gap real era de **mapeamento**, não de estrutura:
   backfill dos dois campos. Sem mudança de dependências Firebase; a
   validação usa o seam `SyncRemote` fake.
 
+## 12. Status M4 (2026-11-03)
+
+Anexos continuam **sem binário na nuvem**; o 2º aparelho recebe só metadados
+e o status `missing`.
+
+- `sourceType` e `symbol` agora sobem no doc de anexo novo e descem para o
+  aparelho que não tem o arquivo, para a Biblioteca organizar o acervo.
+- Docs antigos são completados nos dois sentidos: o pull adota metadados
+  remotos quando o local está no default (`content`/`symbol = null`) e o push
+  reenvia a classificação local não-default quando o remoto está ausente ou
+  default.
+- Regra sem `updatedAt` em anexos: classificação local não-default vence o
+  default remoto; símbolo local não-nulo vence `null`. Divergência entre dois
+  valores não-default mantém o local (caso raro).
+- CTA de `missing`: `Importar da fonte` continua na Biblioteca quando o doc
+  tem `sourceUrl`; o arquivo local nunca é apagado por causa do sync.
+- Cobertura JVM: 4 testes novos no `SyncAttachmentsRemoteTest` (round-trip,
+  adoção no aparelho B, backfill de doc antigo e atualização sobre default).
+

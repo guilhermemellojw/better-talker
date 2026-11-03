@@ -37,7 +37,12 @@ class SyncAttachmentsRemoteTest {
         override suspend fun setSourceMeta(id: String, sourceType: String, symbol: String?) {}
     }
 
-    private fun attachment(id: String, sourceUrl: String?) = AttachmentEntity(
+    private fun attachment(
+        id: String,
+        sourceUrl: String?,
+        sourceType: String = "content",
+        symbol: String? = null,
+    ) = AttachmentEntity(
         id = id,
         noteId = null,
         fileName = "w25.01.pdf",
@@ -48,6 +53,8 @@ class SyncAttachmentsRemoteTest {
         addedAt = 10L,
         status = "ready",
         sourceUrl = sourceUrl,
+        sourceType = sourceType,
+        symbol = symbol,
     )
 
     @Test
@@ -94,6 +101,80 @@ class SyncAttachmentsRemoteTest {
         )
 
         assertEquals(source, remote.doc("attachments", "a1")!!["sourceUrl"])
+    }
+
+    @Test
+    fun sourceTypeSymbol_sobemEmAEchegamEmB() = runBlocking {
+        val remote = FakeSyncRemote()
+        syncAttachments(
+            remote,
+            FakeAttachmentDao(listOf(
+                attachment("a1", "https://example.test/a.pdf", sourceType = "training", symbol = "be"),
+            )),
+            FakeTombstoneDao(),
+        )
+
+        val doc = remote.doc("attachments", "a1")!!
+        assertEquals("training", doc["sourceType"])
+        assertEquals("be", doc["symbol"])
+
+        val deviceB = FakeAttachmentDao()
+        syncAttachments(remote, deviceB, FakeTombstoneDao())
+
+        val pulled = deviceB.get("a1")!!
+        assertEquals("missing", pulled.status)
+        assertEquals("training", pulled.sourceType)
+        assertEquals("be", pulled.symbol)
+    }
+
+    @Test
+    fun metadadosCompletamLocalAntigoPuxadoSemCampos() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf", "updatedAt" to 10L,
+            "sourceType" to "training", "symbol" to "be",
+        ))
+        val oldLocal = FakeAttachmentDao(listOf(attachment("a1", null)))
+
+        syncAttachments(remote, oldLocal, FakeTombstoneDao())
+
+        val local = oldLocal.get("a1")!!
+        assertEquals("training", local.sourceType)
+        assertEquals("be", local.symbol)
+    }
+
+    @Test
+    fun metadadosBackfillDocAntigoSemCampos() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf",
+        ))
+        val local = FakeAttachmentDao(listOf(
+            attachment("a1", "https://example.test/a.pdf", sourceType = "bible", symbol = "nwt"),
+        ))
+
+        syncAttachments(remote, local, FakeTombstoneDao())
+
+        val doc = remote.doc("attachments", "a1")!!
+        assertEquals("bible", doc["sourceType"])
+        assertEquals("nwt", doc["symbol"])
+    }
+
+    @Test
+    fun metadadosClassificadosVencemDefaultRemoto() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf", "sourceType" to "content",
+        ))
+        val local = FakeAttachmentDao(listOf(
+            attachment("a1", "https://example.test/a.pdf", sourceType = "training", symbol = "be"),
+        ))
+
+        syncAttachments(remote, local, FakeTombstoneDao())
+
+        val doc = remote.doc("attachments", "a1")!!
+        assertEquals("training", doc["sourceType"])
+        assertEquals("be", doc["symbol"])
     }
 
     @Test
