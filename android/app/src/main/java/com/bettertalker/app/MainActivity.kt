@@ -349,6 +349,7 @@ private fun AppNav(
                 vm,
                 onBack = { nav.popBackStack() },
                 onOpenBackup = { nav.navigate(Routes.BACKUP) },
+                onOpenNote = { noteId -> nav.navigate(Routes.editor(noteId)) },
             )
         }
         composable(

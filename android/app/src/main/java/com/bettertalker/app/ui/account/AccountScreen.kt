@@ -47,6 +47,7 @@ fun AccountScreen(
     vm: AccountViewModel,
     onBack: () -> Unit,
     onOpenBackup: () -> Unit = {},
+    onOpenNote: (String) -> Unit = {},
 ) {
     val user by vm.user.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
@@ -54,8 +55,10 @@ fun AccountScreen(
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
     val confirmWipe by vm.confirmWipe.collectAsState()
+    val confirmLocalWipe by vm.confirmLocalWipe.collectAsState()
     val accountConflict by vm.accountConflict.collectAsState()
     val showFirstSync by vm.showFirstSync.collectAsState()
+    val conflicts by vm.conflicts.collectAsState()
     val snack = remember { SnackbarHostState() }
     val uiContext = LocalContext.current
 
@@ -136,6 +139,31 @@ fun AccountScreen(
         )
     }
 
+    if (confirmLocalWipe) {
+        AlertDialog(
+            onDismissRequest = vm::cancelLocalWipe,
+            title = { Text("Apagar dados deste aparelho?") },
+            text = {
+                Text(
+                    "Notas, pastas, anexos e conversas locais serão apagados. " +
+                        "A conta continua conectada, então o próximo sync pode " +
+                        "baixar os dados da nuvem de volta. Exporte um backup antes."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::wipeLocal, enabled = !busy) {
+                    Text("Apagar dados locais", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = onOpenBackup) { Text("Exportar backup") }
+                    TextButton(onClick = vm::cancelLocalWipe) { Text("Cancelar") }
+                }
+            }
+        )
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -160,8 +188,8 @@ fun AccountScreen(
                         Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                return@Column
             }
+            if (vm.configured) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     if (user == null) {
@@ -193,13 +221,72 @@ fun AccountScreen(
                     }
                 }
             }
+            }
+            if (conflicts.isNotEmpty()) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Text(
+                            "Conflitos de sincronização (${conflicts.size})",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Edições simultâneas foram preservadas em cópias. " +
+                                "Revise e exclua a versão que não precisar.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        conflicts.take(5).forEach { note ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    note.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                )
+                                TextButton(onClick = { onOpenNote(note.id) }) { Text("Abrir") }
+                            }
+                        }
+                        if (conflicts.size > 5) {
+                            Text(
+                                "+${conflicts.size - 5} conflito(s) na lista de notas.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                            )
+                        }
+                    }
+                }
+            }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Dados deste aparelho", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Anexos e trechos indexados nunca sobem — ficam no aparelho.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onOpenBackup, modifier = Modifier.fillMaxWidth()) {
+                        Text("Exportar backup")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = vm::askLocalWipe, modifier = Modifier.fillMaxWidth()) {
+                        Text("Apagar dados locais", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             if (user != null) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
-                        Text("Zona de perigo", style = MaterialTheme.typography.titleSmall)
+                        Text("Zona de perigo da conta", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Anexos e trechos indexados nunca sobem — ficam no aparelho.",
+                            "A nuvem é separada deste aparelho. Apagar aqui não remove seus arquivos locais.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary
                         )

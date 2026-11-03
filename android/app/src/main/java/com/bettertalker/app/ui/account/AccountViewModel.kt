@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.cloud.AuthRepository
 import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.cloud.SyncStatus
+import com.bettertalker.app.data.cloud.isConflictNoteTitle
+import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.FirebaseFirestore
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +46,11 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     ) { u, pending, count -> u != null && pending && count > 0 }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    /** M5: cópias "(conflito)" criadas pelo worker, para revisão na conta. */
+    val conflicts: StateFlow<List<NoteEntity>> = db.noteDao().observe(null, "")
+        .map { notes -> notes.filter { isConflictNoteTitle(it.title) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** F5g: estado volátil do sync (Idle/Running/Success/Error) — observável na tela. */
     val syncState: StateFlow<SyncStatus.State> = SyncStatus.state
     val configured = auth.isConfigured()
@@ -53,6 +61,8 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val error = _error.asStateFlow()
     private val _confirmWipe = MutableStateFlow(false)
     val confirmWipe = _confirmWipe.asStateFlow()
+    private val _confirmLocalWipe = MutableStateFlow(false)
+    val confirmLocalWipe = _confirmLocalWipe.asStateFlow()
 
     init {
         auth.start()
@@ -100,13 +110,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun wipeLocalAndRetry(uiContext: android.content.Context? = null) = viewModelScope.launch {
         _busy.value = true
         try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.bettertalker.app.data.db.DbProvider.get(app).clearAllTables()
-                java.io.File(app.filesDir, "publicacoes").deleteRecursively()
-                settings.setLastUid(null)
-                settings.setLastSync(0L)
-                settings.clearLastNoteId()
-            }
+            clearLocalData(resetUid = true)
             auth.clearLastUidBinding()
             auth.clearAccountConflict()
             _error.value = auth.signIn(uiContext ?: app) ?: ""
@@ -115,6 +119,33 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         }
         _busy.value = false
     }
+
+    fun askLocalWipe() { _confirmLocalWipe.value = true }
+    fun cancelLocalWipe() { _confirmLocalWipe.value = false }
+
+    /** M5: apaga só o aparelho; a conta/sessão continua vinculada. */
+    fun wipeLocal() = viewModelScope.launch {
+        _confirmLocalWipe.value = false
+        _busy.value = true
+        try {
+            clearLocalData(resetUid = false)
+            _localNoteCount.value = 0
+            SyncStatus.set(SyncStatus.State.Idle)
+            _error.value = "Dados locais apagados."
+        } catch (e: Exception) {
+            _error.value = e.message?.take(160) ?: "Falha ao apagar os dados locais."
+        }
+        _busy.value = false
+    }
+
+    private suspend fun clearLocalData(resetUid: Boolean) =
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.bettertalker.app.data.db.DbProvider.get(app).clearAllTables()
+            java.io.File(app.filesDir, "publicacoes").deleteRecursively()
+            if (resetUid) settings.setLastUid(null)
+            settings.setLastSync(0L)
+            settings.clearLastNoteId()
+        }
 
     fun askWipe() { _confirmWipe.value = true }
     fun cancelWipe() { _confirmWipe.value = false }
