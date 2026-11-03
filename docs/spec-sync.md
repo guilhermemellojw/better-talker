@@ -265,3 +265,19 @@ e o status `missing`.
 - Cobertura JVM: 4 testes novos no `SyncAttachmentsRemoteTest` (round-trip,
   adoção no aparelho B, backfill de doc antigo e atualização sobre default).
 
+## 13. Status M5 (2026-11-03)
+
+A tela `Conta e nuvem` cobre o fluxo completo:
+
+- login Google, status do sync, último sync, sincronizar agora e sair;
+- primeiro sync com escolha Enviar/Baixar/Mesclar;
+- conflitos: lista das cópias `(conflito)` com abertura direta no editor;
+- dados do aparelho: exportar backup e **apagar dados locais** com
+  confirmação (a conta continua conectada; o próximo sync pode repopular);
+- zona de perigo da conta: apagar dados da nuvem, separada do wipe local;
+- troca de conta bloqueada, com exportação antes do wipe e re-login.
+
+Cobertura JVM: `SyncConflictsTest` valida o reconhecimento do sufixo de
+conflito (case-insensitive). O restante é UI/fluxo de conta, sem Firebase no
+build de release.
+
