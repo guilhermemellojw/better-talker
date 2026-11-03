@@ -217,3 +217,29 @@ Também corrigido: o conflito era assimétrico (só preservava o lado local quan
 o remoto era mais novo). Agora, quando o local vence o LWW, o estado remoto é
 preservado numa cópia "(conflito)" antes do push.
 
+## 11. Status M3 (2026-11-03)
+
+O gap real era de **mapeamento**, não de estrutura:
+
+- `notes.discourseType` agora sobe (`noteMap`) e desce (`cloudNote`), com
+  fallback para `S34_DISCOURSE` em valores remotos desconhecidos.
+- `sections.tribunaJson` agora sobe (`sectionMap`) e desce (`cloudSection`).
+- **Backfill push**: docs já sincronizados antes do campo existir têm
+  `updatedAt` empatado, então o LWW não os reenviaria. O sync reenvia o doc
+  uma vez quando a revisão empata e o campo remoto está ausente/inválido;
+  remoto mais novo nunca é sobrescrito.
+- **Merge no pull**: com a revisão empatada, o segundo aparelho completa o
+  que falta — nota em `S34_DISCOURSE` adota `discourseType` remoto válido e
+  seção com `tribunaJson = null` adota a cápsula remota. Nada bumpa
+  `updatedAt`.
+- **Divergência na mesma revisão**: se os dois lados têm valores diferentes,
+  o **local vence** (caso raro; documentado em teste). Valor remoto inválido
+  é tratado como ausente para permitir o backfill corretivo.
+- `S34_DISCOURSE` (default) **não** é backfillado no push: ausência já
+  significa S34. Escrever o default antes bloquearia o valor real de outro
+  aparelho, porque o campo passaria a existir e o pull no empate não o
+  trocaria.
+- Cobertura JVM: push, pull, adoção no empate, fallback, divergência e
+  backfill dos dois campos. Sem mudança de dependências Firebase; a
+  validação usa o seam `SyncRemote` fake.
+
