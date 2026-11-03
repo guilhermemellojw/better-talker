@@ -40,7 +40,8 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
             error = result.error,
         )
         _toast.value = when {
-            result.permissionLost -> "A permissão da pasta expirou. Escolha de novo."
+            // O aviso fica inline na Biblioteca (persistente); sem snackbar duplicado.
+            result.permissionLost -> ""
             result.error != null -> "Não consegui ler a pasta: ${result.error}"
             !result.folderChosen -> "Escolha a pasta Downloads para ler os arquivos."
             _scan.value?.groups.isNullOrEmpty() -> "Nada novo em Downloads."

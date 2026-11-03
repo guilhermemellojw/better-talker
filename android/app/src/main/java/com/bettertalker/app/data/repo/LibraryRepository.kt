@@ -161,6 +161,14 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     suspend fun scanAllDownloadsDetailed(): DownloadsScanResult = withContext(Dispatchers.IO) {
         val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
             ?: return@withContext DownloadsScanResult(folderChosen = false)
+        // DocumentFile.listFiles() devolve vazio (sem exceção) quando o Android
+        // revogou o grant; sem esta checagem uma pasta revogada parecia vazia.
+        val hasGrant = ctx.contentResolver.persistedUriPermissions.any {
+            it.isReadPermission && it.uri.toString() == treeUri.toString()
+        }
+        if (!hasGrant) {
+            return@withContext DownloadsScanResult(folderChosen = true, permissionLost = true)
+        }
         try {
             val all = DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
             val registered = db.attachmentDao().all().map { it.fileName }.toSet()

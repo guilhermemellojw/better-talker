@@ -197,7 +197,7 @@ fun LibraryScreen(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-            scan?.takeIf { it.folderChosen }?.let { found ->
+            scan?.takeIf { it.folderChosen && !it.permissionLost }?.let { found ->
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Encontradas em Downloads (${found.groups.size} publicações · ${found.fileCount} arquivos)",
