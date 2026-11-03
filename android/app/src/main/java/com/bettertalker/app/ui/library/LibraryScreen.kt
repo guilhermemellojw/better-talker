@@ -82,8 +82,15 @@ fun LibraryScreen(
     val treeUri by DownloadsTreeStore.getUri(ctx).collectAsState(initial = null)
     var showJw by remember { mutableStateOf(false) }
     var jwUrl by remember { mutableStateOf(JW_FINDER_HOME) }
+    // M4: alvo do "Escolher arquivo" quando o anexo veio de outro aparelho
+    // e não tem sourceUrl para reimportar.
+    var repairTarget by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.importUri(uri)
+        val target = repairTarget
+        repairTarget = null
+        if (uri != null) {
+            if (target != null) vm.repairMissing(target, uri) else vm.importUri(uri)
+        }
     }
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -154,7 +161,10 @@ fun LibraryScreen(
                 Button(onClick = openJw, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Language, null); Text(" Abrir jw.org")
                 }
-                OutlinedButton(onClick = { picker.launch(PICKER_MIMES) }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = {
+                    repairTarget = null
+                    picker.launch(PICKER_MIMES)
+                }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.UploadFile, null); Text(" Escolher arquivo")
                 }
             }
@@ -342,20 +352,29 @@ fun LibraryScreen(
                                         )
                                     }
                                 }
-                                if (a.status == "missing" && !a.sourceUrl.isNullOrBlank()) {
-                                    // Metadados vieram de outro aparelho; o
-                                    // binário nunca sobe. Reimporta da fonte.
-                                    TextButton(onClick = {
-                                        val src = a.sourceUrl.orEmpty()
-                                        if (src.startsWith("http") &&
-                                            !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
-                                        ) {
-                                            vm.redownloadDirect(a.id)
-                                        } else {
-                                            jwUrl = src.ifBlank { JW_FINDER_HOME }
-                                            showJw = true
-                                        }
-                                    }) { Text("Importar da fonte") }
+                                if (a.status == "missing") {
+                                    if (!a.sourceUrl.isNullOrBlank()) {
+                                        // Metadados vieram de outro aparelho; o
+                                        // binário nunca sobe. Reimporta da fonte.
+                                        TextButton(onClick = {
+                                            val src = a.sourceUrl.orEmpty()
+                                            if (src.startsWith("http") &&
+                                                !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
+                                            ) {
+                                                vm.redownloadDirect(a.id)
+                                            } else {
+                                                jwUrl = src.ifBlank { JW_FINDER_HOME }
+                                                showJw = true
+                                            }
+                                        }) { Text("Importar da fonte") }
+                                    } else {
+                                        // Anexo local sem URL: restaura pelo
+                                        // próprio id para não duplicar o acervo.
+                                        TextButton(onClick = {
+                                            repairTarget = a.id
+                                            picker.launch(PICKER_MIMES)
+                                        }) { Text("Escolher arquivo") }
+                                    }
                                 }
                                 if (a.status == "failed" && a.appPath.isBlank()) {
                                     // nunca importado: retenta o registro ou baixa de novo

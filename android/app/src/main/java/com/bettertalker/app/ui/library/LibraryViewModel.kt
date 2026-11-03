@@ -97,6 +97,16 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
     fun redownloadDirect(id: String) = viewModelScope.launch {
         if (!repo.redownloadDirect(id)) _toast.value = "Reabra a página e baixe de novo."
     }
+    fun repairMissing(id: String, uri: Uri) = viewModelScope.launch {
+        try {
+            repo.repairMissing(id, uri)
+            _toast.value = "Arquivo restaurado; indexando."
+        } catch (e: com.bettertalker.app.data.repo.ImportException) {
+            _toast.value = e.message ?: "Falha ao restaurar o arquivo."
+        } catch (_: Exception) {
+            _toast.value = "Falha ao restaurar o arquivo."
+        }
+    }
     fun markBase(id: String, slot: String?) = viewModelScope.launch { repo.markBaseSlot(id, slot) }
     fun linkToNote(id: String, noteId: String) = viewModelScope.launch {
         repo.linkToNote(id, noteId)
