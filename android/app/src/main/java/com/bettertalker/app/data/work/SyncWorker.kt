@@ -229,6 +229,13 @@ internal fun cloudUpdatedAtOrMinus1(data: Map<String, Any?>?): Long {
     return cloudUpdatedAt(data).takeIf { it > 0 } ?: -1L
 }
 
+/**
+ * Nome de DiscourseType válido vindo do doc remoto; null = ausente/inválido.
+ * Inválido é tratado como ausente para permitir o backfill corretivo.
+ */
+internal fun validDiscourseType(raw: Any?): String? =
+    (raw as? String)?.takeIf { name -> DiscourseType.values().any { it.name == name } }
+
 internal suspend fun syncNotes(
     remote: SyncRemote,
     noteDao: NoteDao,
@@ -294,9 +301,20 @@ internal suspend fun syncNotes(
                 }
                 noteDao.upsert(cloudNote(id, data).copy(lastSyncedAt = cup))
             }
-        } else if (cup == cur.updatedAt && cur.lastSyncedAt != cup) {
+        } else if (cup == cur.updatedAt) {
+            // Mesma revisão: completa metadados que o outro lado ainda não
+            // tinha (M3). Local com valor próprio vence; nada bumpa updatedAt.
+            var merged = cur
+            val remoteType = validDiscourseType(data["discourseType"])
+            if (cur.discourseType == DiscourseType.S34_DISCOURSE.name &&
+                remoteType != null &&
+                remoteType != DiscourseType.S34_DISCOURSE.name
+            ) {
+                merged = merged.copy(discourseType = remoteType)
+            }
             // Já iguais (ex.: push anterior): marca como sincronizada.
-            noteDao.upsert(cur.copy(lastSyncedAt = cup))
+            if (merged.lastSyncedAt != cup) merged = merged.copy(lastSyncedAt = cup)
+            if (merged != cur) noteDao.upsert(merged)
         }
     }
     // push
@@ -342,8 +360,12 @@ internal suspend fun syncNotes(
         val localAfterPull = noteDao.allIncludingTrashed()
         for (n in localAfterPull) {
             if (tombIds.contains(n.id) || pushedNoteIds.contains(n.id)) continue
+            // Default não precisa ser escrito: ausência já significa S34.
+            // Escrever S34 aqui bloquearia o valor real de outro aparelho
+            // (o campo passaria a existir e o pull não o trocaria).
+            if (n.discourseType == DiscourseType.S34_DISCOURSE.name) continue
             val data = cloud[n.id] ?: continue
-            if (data["discourseType"] != null) continue
+            if (validDiscourseType(data["discourseType"]) != null) continue
             if (cloudUpdatedAt(data) != n.updatedAt) continue
             remote.set("notes", n.id, noteMap(n))
             noteDao.upsert(n.copy(lastSyncedAt = n.updatedAt))
@@ -700,6 +722,13 @@ internal suspend fun syncSections(
         val cup = cloudUpdatedAt(data)
         if (cur == null || cup > cur.updatedAt) {
             sectionDao.upsert(cloudSection(id, data))
+        } else if (cup == cur.updatedAt && cur.tribunaJson == null) {
+            // M3: mesma revisão, mas o remoto já tem a cápsula. Local null
+            // adota; se ambos tiverem valores diferentes, o local vence.
+            val remoteTribuna = data["tribunaJson"] as? String
+            if (remoteTribuna != null) {
+                sectionDao.upsert(cur.copy(tribunaJson = remoteTribuna))
+            }
         }
     }
     // push
@@ -722,7 +751,7 @@ internal suspend fun syncSections(
             if (tombIds.contains(sec.id) || pushedSectionIds.contains(sec.id)) continue
             if (sec.tribunaJson == null) continue
             val data = cloud[sec.id] ?: continue
-            if (data["tribunaJson"] != null) continue
+            if (data["tribunaJson"] is String) continue
             if (cloudUpdatedAt(data) != sec.updatedAt) continue
             remote.set("sections", sec.id, sectionMap(sec))
         }

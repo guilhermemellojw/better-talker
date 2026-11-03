@@ -396,7 +396,24 @@ class SyncSectionsRemoteTest {
         assertEquals(99L, remote.doc("tombstones", "s1")!!["deletedAt"])
     }
 
-    // 11. M3: backfill de doc antigo sem o campo, com revisão empatada.
+    // 11. M3: pull no empate — remoto tem a cápsula, local null, adota sem bump.
+    @Test
+    fun tribunaJsonRemotoIgual_localNull_adotaSemBump() = runBlocking {
+        val capsule = """{"idea":"remota","anchor":"a","transition":"t"}"""
+        remote.set("sections", "s1", mapOf(
+            "noteId" to "n1", "updatedAt" to 100L, "tribunaJson" to capsule,
+        ))
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(section("s1", updatedAt = 100L)))
+
+        syncSections(remote, secDao, noteDao)
+
+        val local = secDao.rows.single()
+        assertEquals(capsule, local.tribunaJson)
+        assertEquals(100L, local.updatedAt)
+    }
+
+    // 12. M3: backfill de doc antigo sem o campo, com revisão empatada.
     @Test
     fun backfill_tribunaJsonEmDocAntigoSemCampo() = runBlocking {
         val capsule = """{"idea":"antiga","anchor":"a","transition":"t"}"""

@@ -432,6 +432,89 @@ class SyncNotesRemoteTest {
     }
 
     @Test
+    fun discourseTypeRemotoIgual_localDefault_adotaSemBump() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Nota", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 1000L,
+            "discourseType" to DiscourseType.MINISTRY_TALK.name,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 1000L, discourseType = DiscourseType.S34_DISCOURSE.name),
+        ))
+
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        val local = dao.rows.single()
+        assertEquals(DiscourseType.MINISTRY_TALK.name, local.discourseType)
+        assertEquals(1000L, local.updatedAt)
+    }
+
+    @Test
+    fun discourseTypeDivergenteMesmaRevisao_localVence() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Nota", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 1000L,
+            "discourseType" to DiscourseType.MINISTRY_PART.name,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 1000L, discourseType = DiscourseType.MINISTRY_TALK.name),
+        ))
+
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        // Regra documentada: com a mesma revisão e ambos com valor, local vence.
+        assertEquals(DiscourseType.MINISTRY_TALK.name, dao.rows.single().discourseType)
+        assertEquals(
+            DiscourseType.MINISTRY_PART.name,
+            remote.doc("notes", "n1")!!["discourseType"],
+        )
+    }
+
+    @Test
+    fun defaultNaoEhBackfillado_paraNaoBloquearOutroAparelho() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Nota", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 1000L,
+        ))
+        // B (default) sincroniza primeiro: não deve gravar S34 no remoto.
+        syncNotes(remote, FakeNoteDao(listOf(note(id = "n1", updatedAt = 1000L))), FakeTombstoneDao())
+        assertNull(remote.doc("notes", "n1")!!["discourseType"])
+
+        // A (MINISTRY_TALK) sincroniza depois e consegue publicar o valor real.
+        syncNotes(
+            remote,
+            FakeNoteDao(listOf(
+                note(id = "n1", updatedAt = 1000L, discourseType = DiscourseType.MINISTRY_TALK.name),
+            )),
+            FakeTombstoneDao(),
+        )
+        assertEquals(
+            DiscourseType.MINISTRY_TALK.name,
+            remote.doc("notes", "n1")!!["discourseType"],
+        )
+    }
+
+    @Test
+    fun discourseTypeInvalidoRemoto_localValido_corrigeRemoto() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Nota", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 1000L,
+            "discourseType" to "TIPO_QUE_NAO_EXISTE",
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 1000L, discourseType = DiscourseType.MINISTRY_TALK.name),
+        ))
+
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertEquals(DiscourseType.MINISTRY_TALK.name, dao.rows.single().discourseType)
+        assertEquals(
+            DiscourseType.MINISTRY_TALK.name,
+            remote.doc("notes", "n1")!!["discourseType"],
+        )
+    }
+
+    @Test
     fun backfill_discursoEmDocAntigoSemCampo() = runBlocking {
         remote.set("notes", "n1", mapOf(
             "title" to "Nota antiga", "mdText" to "x", "richHtml" to "<p>x</p>",
