@@ -217,3 +217,18 @@ Também corrigido: o conflito era assimétrico (só preservava o lado local quan
 o remoto era mais novo). Agora, quando o local vence o LWW, o estado remoto é
 preservado numa cópia "(conflito)" antes do push.
 
+## 11. Status M3 (2026-11-03)
+
+O gap real era de **mapeamento**, não de estrutura:
+
+- `notes.discourseType` agora sobe (`noteMap`) e desce (`cloudNote`), com
+  fallback para `S34_DISCOURSE` em valores remotos desconhecidos.
+- `sections.tribunaJson` agora sobe (`sectionMap`) e desce (`cloudSection`).
+- **Backfill**: docs já sincronizados antes do campo existir têm `updatedAt`
+  empatado, então o LWW não os reenviaria. O sync agora reenvia o doc uma vez
+  quando a revisão empata e o campo remoto está ausente; remoto mais novo
+  nunca é sobrescrito.
+- Cobertura JVM: 5 testes novos (push, pull, fallback e backfill dos dois
+  campos). Sem mudança de dependências Firebase; a validação usa o seam
+  `SyncRemote` fake.
+

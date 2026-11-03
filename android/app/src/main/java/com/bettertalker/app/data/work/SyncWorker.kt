@@ -29,6 +29,7 @@ import com.bettertalker.app.data.repo.decodeStringList
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.repo.encodeStringList
 import com.bettertalker.app.domain.planning.PublicationRef
+import com.bettertalker.app.domain.speech.DiscourseType
 import com.google.firebase.firestore.FirebaseFirestore
 
 /**
@@ -299,6 +300,7 @@ internal suspend fun syncNotes(
         }
     }
     // push
+    val pushedNoteIds = mutableSetOf<String>()
     for (n in local) {
         if (tombIds.contains(n.id)) continue
         val data = cloud[n.id]
@@ -329,6 +331,21 @@ internal suspend fun syncNotes(
             // "último sync vence" e deixaria edição velha vencer.
             remote.set("notes", n.id, noteMap(n))
             // M2: marca o remoto como sincronizado (base do próximo conflito).
+            noteDao.upsert(n.copy(lastSyncedAt = n.updatedAt))
+            pushedNoteIds += n.id
+        }
+    }
+    // M3: docs já sincronizados antes do campo existir não têm updatedAt
+    // maior, então o LWW não os reenviaria. Backfill só em empate de
+    // revisão (nunca sobrescreve um remoto mais novo).
+    if (pushEnabled) {
+        val localAfterPull = noteDao.allIncludingTrashed()
+        for (n in localAfterPull) {
+            if (tombIds.contains(n.id) || pushedNoteIds.contains(n.id)) continue
+            val data = cloud[n.id] ?: continue
+            if (data["discourseType"] != null) continue
+            if (cloudUpdatedAt(data) != n.updatedAt) continue
+            remote.set("notes", n.id, noteMap(n))
             noteDao.upsert(n.copy(lastSyncedAt = n.updatedAt))
         }
     }
@@ -389,7 +406,9 @@ private fun cloudNote(id: String, d: Map<String, Any?>): NoteEntity {
         pinned = (d["pinned"] as? Boolean) ?: false,
         trashed = (d["trashed"] as? Boolean) ?: false,
         createdAt = (d["createdAt"] as? Long) ?: System.currentTimeMillis(),
-        updatedAt = cloudUpdatedAt(d).takeIf { it > 0 } ?: System.currentTimeMillis()
+        updatedAt = cloudUpdatedAt(d).takeIf { it > 0 } ?: System.currentTimeMillis(),
+        // M3: campo obrigatório no round-trip; valor desconhecido cai no default.
+        discourseType = DiscourseType.fromNameOrDefault(d["discourseType"] as? String).name,
     )
 }
 
@@ -398,7 +417,9 @@ private fun noteMap(n: NoteEntity) = mapOf(
     "richHtml" to n.richHtml,
     "folderId" to n.folderId, "colorArgb" to n.colorArgb,
     "pinned" to n.pinned, "trashed" to n.trashed,
-    "createdAt" to n.createdAt, "updatedAt" to n.updatedAt
+    "createdAt" to n.createdAt, "updatedAt" to n.updatedAt,
+    // M3: sem este campo o 2º aparelho rebaixava toda nota para S34_DISCOURSE.
+    "discourseType" to n.discourseType,
 ).filterValues { it != null }
 
 // ---------- folders (união por id; tombstones propagam exclusão) ----------
@@ -682,12 +703,27 @@ internal suspend fun syncSections(
         }
     }
     // push
+    val pushedSectionIds = mutableSetOf<String>()
     for (sec in local) {
         if (!pushEnabled) continue
         if (tombIds.contains(sec.id)) continue
         val data = cloud[sec.id]
         val cup = cloudUpdatedAtOrMinus1(data)
         if (data == null || sec.updatedAt > cup) {
+            remote.set("sections", sec.id, sectionMap(sec))
+            pushedSectionIds += sec.id
+        }
+    }
+    // M3: backfill de cápsula da Tribuna em docs antigos, só quando a
+    // revisão empatou (o remoto mais novo nunca é sobrescrito).
+    if (pushEnabled) {
+        val localAfterPull = noteIds.flatMap { sectionDao.forNote(it) }
+        for (sec in localAfterPull) {
+            if (tombIds.contains(sec.id) || pushedSectionIds.contains(sec.id)) continue
+            if (sec.tribunaJson == null) continue
+            val data = cloud[sec.id] ?: continue
+            if (data["tribunaJson"] != null) continue
+            if (cloudUpdatedAt(data) != sec.updatedAt) continue
             remote.set("sections", sec.id, sectionMap(sec))
         }
     }
@@ -793,6 +829,9 @@ internal fun sectionMap(e: SpeechSectionEntity): Map<String, Any?> = mapOf(
     "objective" to e.objective,
     "agreedApproach" to e.agreedApproach,
     "approvedAt" to e.approvedAt,
+    // M3: cápsula da Tribuna gerada no aparelho; sem isto o 2º aparelho
+    // recebia a seção sem a memória da Tribuna.
+    "tribunaJson" to e.tribunaJson,
     "createdAt" to e.createdAt,
     "updatedAt" to e.updatedAt,
 ).filterValues { it != null }
@@ -813,6 +852,7 @@ internal fun cloudSection(id: String, data: Map<String, Any?>): SpeechSectionEnt
         objective = data["objective"] as? String,
         agreedApproach = data["agreedApproach"] as? String,
         approvedAt = data["approvedAt"] as? Long,
+        tribunaJson = data["tribunaJson"] as? String,
         createdAt = (data["createdAt"] as? Long) ?: System.currentTimeMillis(),
         updatedAt = cloudUpdatedAt(data).takeIf { it > 0 } ?: System.currentTimeMillis(),
     )

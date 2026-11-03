@@ -37,13 +37,14 @@ private fun section(
     title: String = "Seção $id",
     minutes: Int = 5,
     updatedAt: Long = 100L,
+    tribunaJson: String? = null,
 ) = SpeechSectionEntity(
     id = id, noteId = noteId, order = order, role = "BODY", title = title,
     minutes = minutes, contentHtml = "<p>Texto</p>",
     bibleRefsJson = encodeStringList(listOf("Jo 3:16")),
     publicationRefsJson = encodePublicationRefList(listOf(PublicationRef("w13 15/5", page = 12))),
     methodPrinciple = "be 21", objective = "Objetivo $id", agreedApproach = "Abordagem $id",
-    approvedAt = 123L, createdAt = 50L, updatedAt = updatedAt,
+    approvedAt = 123L, tribunaJson = tribunaJson, createdAt = 50L, updatedAt = updatedAt,
 )
 
 /** Sub-ponto com TODOS os campos não-nulos: prova que o mapeamento cobre tudo. */
@@ -393,5 +394,39 @@ class SyncSectionsRemoteTest {
         assertNull(remote.doc("sections", "s1"))
         assertEquals("section", remote.doc("tombstones", "s1")!!["type"])
         assertEquals(99L, remote.doc("tombstones", "s1")!!["deletedAt"])
+    }
+
+    // 11. M3: backfill de doc antigo sem o campo, com revisão empatada.
+    @Test
+    fun backfill_tribunaJsonEmDocAntigoSemCampo() = runBlocking {
+        val capsule = """{"idea":"antiga","anchor":"a","transition":"t"}"""
+        remote.set("sections", "s1", mapOf(
+            "noteId" to "n1", "title" to "Seção antiga", "updatedAt" to 100L,
+        ))
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(
+            section("s1", updatedAt = 100L, tribunaJson = capsule),
+        ))
+
+        syncSections(remote, secDao, noteDao)
+
+        val doc = remote.doc("sections", "s1")!!
+        assertEquals(capsule, doc["tribunaJson"])
+        assertEquals(100L, doc["updatedAt"])
+    }
+
+    // 12. M3: cápsula da Tribuna sobe e volta no round-trip.
+    @Test
+    fun tribunaJson_sobeEPuxaNaSecao() = runBlocking {
+        val capsule = """{"idea":"x","anchor":"y","transition":"z"}"""
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(section("s1", tribunaJson = capsule)))
+
+        syncSections(remote, secDao, noteDao)
+        assertEquals(capsule, remote.doc("sections", "s1")!!["tribunaJson"])
+
+        val pulled = FakeSectionDao()
+        syncSections(remote, pulled, FakeNoteDao(listOf(note())))
+        assertEquals(capsule, pulled.rows.single().tribunaJson)
     }
 }

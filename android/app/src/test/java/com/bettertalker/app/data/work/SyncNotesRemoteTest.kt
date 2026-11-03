@@ -5,6 +5,7 @@ import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointEntity
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.util.plainFromMarkdown
+import com.bettertalker.app.domain.speech.DiscourseType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,11 +28,13 @@ private fun note(
     updatedAt: Long = 1000L,
     createdAt: Long = 500L,
     lastSyncedAt: Long = 0L,
+    discourseType: String = DiscourseType.S34_DISCOURSE.name,
 ) = NoteEntity(
     id = id, title = title, mdText = md, plainText = plainFromMarkdown(md),
     folderId = null, colorArgb = 0L, pinned = false, trashed = trashed,
     createdAt = createdAt, updatedAt = updatedAt,
     richHtml = "<p>$md</p>",
+    discourseType = discourseType,
     lastSyncedAt = lastSyncedAt,
 )
 
@@ -407,5 +410,54 @@ class SyncNotesRemoteTest {
         assertEquals("Remota (conflito)", copy.title)
         assertEquals("texto remoto", copy.mdText)
         assertEquals(0L, copy.lastSyncedAt)
+    }
+
+    // ---------- M3: metadados de discurso no round-trip ----------
+
+    @Test
+    fun discourseType_sobeEPuxaSemVirarS34() = runBlocking {
+        val original = note(
+            id = "dt",
+            updatedAt = 800L,
+            discourseType = DiscourseType.MINISTRY_TALK.name,
+        )
+        syncNotes(remote, FakeNoteDao(listOf(original)), FakeTombstoneDao())
+
+        assertEquals("MINISTRY_TALK", remote.doc("notes", "dt")!!["discourseType"])
+
+        val pulled = FakeNoteDao()
+        syncNotes(remote, pulled, FakeTombstoneDao())
+
+        assertEquals("MINISTRY_TALK", pulled.rows.single().discourseType)
+    }
+
+    @Test
+    fun backfill_discursoEmDocAntigoSemCampo() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Nota antiga", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 1000L,
+        ))
+        val dao = FakeNoteDao(listOf(
+            note(id = "n1", updatedAt = 1000L, discourseType = DiscourseType.MINISTRY_TALK.name),
+        ))
+
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        val doc = remote.doc("notes", "n1")!!
+        assertEquals("MINISTRY_TALK", doc["discourseType"])
+        assertEquals(1000L, doc["updatedAt"])
+    }
+
+    @Test
+    fun discourseTypeInvalidoNoRemoto_caiNoDefault() = runBlocking {
+        remote.set("notes", "n1", mapOf(
+            "title" to "Da nuvem", "mdText" to "x", "richHtml" to "<p>x</p>",
+            "trashed" to false, "createdAt" to 10L, "updatedAt" to 20L,
+            "discourseType" to "TIPO_QUE_NAO_EXISTE",
+        ))
+        val dao = FakeNoteDao()
+        syncNotes(remote, dao, FakeTombstoneDao())
+
+        assertEquals(DiscourseType.S34_DISCOURSE.name, dao.rows.single().discourseType)
     }
 }
