@@ -59,6 +59,8 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val busy = _busy.asStateFlow()
     private val _error = MutableStateFlow("")
     val error = _error.asStateFlow()
+    private val _message = MutableStateFlow("")
+    val message = _message.asStateFlow()
     private val _confirmWipe = MutableStateFlow(false)
     val confirmWipe = _confirmWipe.asStateFlow()
     private val _confirmLocalWipe = MutableStateFlow(false)
@@ -100,6 +102,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     }
     fun syncNow() = SyncScheduler.requestSync(app)
     fun consumeError() { _error.value = "" }
+    fun consumeMessage() { _message.value = "" }
 
     fun cancelAccountConflict() = auth.clearAccountConflict()
 
@@ -131,7 +134,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             clearLocalData(resetUid = false)
             _localNoteCount.value = 0
             SyncStatus.set(SyncStatus.State.Idle)
-            _error.value = "Dados locais apagados."
+            _message.value = "Dados locais apagados."
         } catch (e: Exception) {
             _error.value = e.message?.take(160) ?: "Falha ao apagar os dados locais."
         }
