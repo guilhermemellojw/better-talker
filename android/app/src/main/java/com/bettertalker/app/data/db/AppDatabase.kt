@@ -70,7 +70,9 @@ data class AttachmentEntity(
     /** Fase 8: trilho (content|training|bible). Backfill via baseSlot na v10. */
     val sourceType: String = "content",
     /** Fase 8: símbolo da publicação (ex: be, th, w); null = desconhecido. */
-    val symbol: String? = null
+    val symbol: String? = null,
+    /** P1: SHA-256 do arquivo; dedupe exato entre Downloads/importações. */
+    val sha256: String? = null
 )
 
 @Entity(tableName = "passages", indices = [Index("attachmentId")])
@@ -286,7 +288,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 21,
+    version = 22,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
