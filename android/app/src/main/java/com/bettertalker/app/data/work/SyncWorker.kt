@@ -562,16 +562,32 @@ internal suspend fun syncAttachments(
                     // A URL de origem permite reimportar da fonte no 2º
                     // aparelho; o binário nunca sobe para o Storage.
                     sourceUrl = data["sourceUrl"] as? String,
+                    // M4: metadados que organizam o acervo no 2º aparelho.
+                    sourceType = data["sourceType"] as? String ?: "content",
+                    symbol = data["symbol"] as? String,
                     error = "Arquivo neste aparelho: use Importar da fonte."
                 )
             )
-        } else if (cur.sourceUrl == null) {
-            // Migração: o doc remoto já tem sourceUrl, mas o metadado local
-            // antigo foi puxado sem ele. Completa sem tocar no arquivo.
+        } else {
+            // Metadados antigos podem ter sido puxados antes do M4/M3.
+            // Completa só o que falta; o arquivo local nunca é tocado.
+            var merged = cur
             val remoteSource = data["sourceUrl"] as? String
-            if (remoteSource != null) {
-                attachmentDao.update(cur.copy(sourceUrl = remoteSource))
+            if (merged.sourceUrl == null && remoteSource != null) {
+                merged = merged.copy(sourceUrl = remoteSource)
             }
+            val remoteSourceType = data["sourceType"] as? String
+            if (merged.sourceType == "content" &&
+                remoteSourceType != null &&
+                remoteSourceType != "content"
+            ) {
+                merged = merged.copy(sourceType = remoteSourceType)
+            }
+            val remoteSymbol = data["symbol"] as? String
+            if (merged.symbol == null && remoteSymbol != null) {
+                merged = merged.copy(symbol = remoteSymbol)
+            }
+            if (merged != cur) attachmentDao.update(merged)
         }
     }
     for (a in local) {
@@ -587,20 +603,30 @@ internal suspend fun syncAttachments(
                         "fileName" to a.fileName, "kind" to a.kind,
                         "sizeBytes" to a.sizeBytes, "baseSlot" to a.baseSlot,
                         "noteId" to a.noteId, "indexed" to a.indexed,
-                        "addedAt" to a.addedAt, "sourceUrl" to a.sourceUrl
+                        "addedAt" to a.addedAt, "sourceUrl" to a.sourceUrl,
+                        // M4: trilho/símbolo para o 2º aparelho organizar
+                        // o acervo mesmo sem o binário.
+                        "sourceType" to a.sourceType, "symbol" to a.symbol,
                     ).filterValues { it != null }
                 )
             }
         } else {
             // Não sobrescreve indexed/sizeBytes de um aparelho que tem o
-            // arquivo: completa apenas o sourceUrl que faltava ou mudou.
+            // arquivo; corrige só metadados default/ausentes no doc.
+            val patch = mutableMapOf<String, Any?>()
             val remoteSource = remoteData["sourceUrl"] as? String
             if (a.sourceUrl != null && a.sourceUrl != remoteSource) {
-                remote.set(
-                    "attachments", a.id,
-                    mapOf("sourceUrl" to a.sourceUrl),
-                )
+                patch["sourceUrl"] = a.sourceUrl
             }
+            // Metadados classificados localmente vencem o default/ausência
+            // remota; anexos não têm updatedAt, então a regra é explícita.
+            if (a.sourceType != "content" && remoteData["sourceType"] != a.sourceType) {
+                patch["sourceType"] = a.sourceType
+            }
+            if (a.symbol != null && remoteData["symbol"] != a.symbol) {
+                patch["symbol"] = a.symbol
+            }
+            if (patch.isNotEmpty()) remote.set("attachments", a.id, patch)
         }
     }
 }
