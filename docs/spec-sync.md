@@ -298,9 +298,13 @@ Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
 | Anexo sem `sourceUrl` no tablet | ✅ `Escolher arquivo` |
 | `sourceType`/`symbol` de anexos no tablet | ✅ (bible/nwt, training/be…) |
 | Wipe local: diálogo + Exportar + Cancelar | ✅ (sem confirmar) |
+| Conflito real (tablet perde o LWW) | ✅ cópia `(conflito)` com FREE_DEMO + `tribunaJson` |
+| Conta → Conflitos → “Abrir” | ✅ abriu o editor da cópia |
+| Instalação do APK de teste no tablet | ✅ (autorizada; “Instalar via USB” ligado) |
 
-Pendentes para fechar o M6: conflito real entre dois aparelhos (cópia
-preservando tipo/Tribuna + lista “Abrir”), wipe local confirmado em aparelho
-descartável com repopulação, wipe de nuvem, troca de conta bloqueada,
-skew/offline e tombstone/reorder entre A34 + tablet.
+Pendentes para fechar o M6: conflito no sentido inverso (A34 perde o LWW),
+wipe local confirmado em aparelho descartável com repopulação, wipe de nuvem,
+troca de conta bloqueada, skew/offline e tombstone/reorder entre A34 + Redmi.
+O A34 caiu do ADB durante o teste inverso; as fixtures foram removidas no
+tablet com tombstones e o A34 deve aplicá-las no próximo sync.
 
