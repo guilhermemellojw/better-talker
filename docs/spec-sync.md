@@ -283,3 +283,24 @@ Cobertura JVM: `SyncConflictsTest` valida o reconhecimento do sufixo de
 conflito (case-insensitive). O restante é UI/fluxo de conta, sem Firebase no
 build de release.
 
+## 14. Status M6 (2026-11-03, parcial)
+
+Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
+
+| Caso | Resultado |
+|---|---|
+| Tablet com tela reduzida: conta rola até o fim | ✅ |
+| Login + first-sync “Baixar” no tablet | ✅ 47 notas locais após pull |
+| Pull de `discourseType` (TREASURES_TALK/FREE_DEMO) | ✅ |
+| Pull de `tribunaJson` + Palco “Roteiro pronto”/“Apresentar” | ✅ |
+| Palco live com turnos Publicador/Morador | ✅ |
+| Anexo com `sourceUrl` no tablet | ✅ `Importar da fonte` |
+| Anexo sem `sourceUrl` no tablet | ✅ `Escolher arquivo` |
+| `sourceType`/`symbol` de anexos no tablet | ✅ (bible/nwt, training/be…) |
+| Wipe local: diálogo + Exportar + Cancelar | ✅ (sem confirmar) |
+
+Pendentes para fechar o M6: conflito real entre dois aparelhos (cópia
+preservando tipo/Tribuna + lista “Abrir”), wipe local confirmado em aparelho
+descartável com repopulação, wipe de nuvem, troca de conta bloqueada,
+skew/offline e tombstone/reorder entre A34 + tablet.
+
