@@ -257,8 +257,11 @@ e o status `missing`.
 - Regra sem `updatedAt` em anexos: classificação local não-default vence o
   default remoto; símbolo local não-nulo vence `null`. Divergência entre dois
   valores não-default mantém o local (caso raro).
-- CTA de `missing`: `Importar da fonte` continua na Biblioteca quando o doc
-  tem `sourceUrl`; o arquivo local nunca é apagado por causa do sync.
+- CTA de `missing`: com `sourceUrl`, `Importar da fonte`; sem URL, o novo
+  `Escolher arquivo` restaura o **mesmo id** sincronizado (preserva vínculo
+  com a nota) e reindexa. O binário anterior não é apagado pelo sync.
+- Validado no A34: linha `missing` → `Escolher arquivo` → `Indexado`, mesmo
+  id, hash preenchido e arquivo em `files/publicacoes`.
 - Cobertura JVM: 4 testes novos no `SyncAttachmentsRemoteTest` (round-trip,
   adoção no aparelho B, backfill de doc antigo e atualização sobre default).
 

@@ -220,21 +220,17 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)
 
-    /** Importa via SAF preservando nome/extensão reais. Uso pessoal BYOD. */
-    @Throws(ImportException::class)
-    suspend fun importUri(uri: Uri, noteId: String? = null): String {
-        val name = try {
-            ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
-                val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (c.moveToFirst() && idx >= 0) c.getString(idx) else null
-            } ?: "arquivo-${System.currentTimeMillis()}.pdf"
-        } catch (e: Exception) {
-            throw ImportException(ImportException.Reason.IO, "Não foi possível ler o arquivo.")
-        }
-        val kind = detectKind(name)
-        if (kind == DocKind.UNSUPPORTED) {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
-        }
+    private fun displayNameOf(uri: Uri): String = try {
+        ctx.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (c.moveToFirst() && idx >= 0) c.getString(idx) else null
+        } ?: "arquivo-${System.currentTimeMillis()}.pdf"
+    } catch (e: Exception) {
+        throw ImportException(ImportException.Reason.IO, "Não foi possível ler o arquivo.")
+    }
+
+    /** Copia a URI para o cache respeitando o limite; apaga o tmp em falha. */
+    private suspend fun copyUriToTemp(uri: Uri, name: String): File {
         val tmp = File(ctx.cacheDir, "imp-${java.util.UUID.randomUUID()}-$name")
         try {
             // Fase 0: a cópia pode chegar a 400 MB — nunca na Main.
@@ -257,16 +253,88 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     }
                 }
             }
-            return importFile(tmp, name, noteId)
-                ?: throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado.")
+            return tmp
         } catch (e: kotlinx.coroutines.CancellationException) {
+            tmp.delete()
             throw e
         } catch (e: ImportException) {
+            tmp.delete()
             throw e
         } catch (e: Exception) {
+            tmp.delete()
             throw ImportException(ImportException.Reason.IO, "Falha ao copiar o arquivo.")
+        }
+    }
+
+    /** Importa via SAF preservando nome/extensão reais. Uso pessoal BYOD. */
+    @Throws(ImportException::class)
+    suspend fun importUri(uri: Uri, noteId: String? = null): String {
+        val name = displayNameOf(uri)
+        val kind = detectKind(name)
+        if (kind == DocKind.UNSUPPORTED) {
+            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
+        }
+        val tmp = copyUriToTemp(uri, name)
+        try {
+            return importFile(tmp, name, noteId)
+                ?: throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado.")
         } finally {
             // Fase 0: o tmp de cache não pode sobreviver ao import (sucesso ou falha).
+            tmp.delete()
+        }
+    }
+
+    /**
+     * M4: restaura um anexo `missing` (metadados vieram de outro aparelho,
+     * binário não) com um arquivo escolhido no próprio aparelho. Mantém o id
+     * sincronizado e o vínculo com a nota; a indexação roda de novo.
+     */
+    @Throws(ImportException::class)
+    suspend fun repairMissing(id: String, uri: Uri): String = withContext(Dispatchers.IO) {
+        val cur = db.attachmentDao().get(id)
+            ?: throw ImportException(ImportException.Reason.IO, "Anexo não encontrado.")
+        val name = displayNameOf(uri)
+        val kind = detectKind(name)
+        if (kind == DocKind.UNSUPPORTED) {
+            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
+        }
+        val tmp = copyUriToTemp(uri, name)
+        var dst: File? = null
+        try {
+            com.bettertalker.app.data.util.ImportValidation.invalidReason(tmp, kind)?.let {
+                throw ImportException(ImportException.Reason.UNSUPPORTED, it)
+            }
+            val hash = sha256Of(tmp)
+            val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
+            val safe = name.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
+            val target = File(dir, "$id-$safe")
+            dst = target
+            tmp.copyTo(target, overwrite = true)
+            db.attachmentDao().update(
+                cur.copy(
+                    fileName = name,
+                    kind = kind.ext,
+                    sizeBytes = target.length(),
+                    appPath = target.absolutePath,
+                    indexed = false,
+                    status = "indexing",
+                    error = null,
+                    sha256 = hash,
+                )
+            )
+            enqueueIndex(id)
+            SyncScheduler.requestSync(ctx)
+            id
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            dst?.delete()
+            throw e
+        } catch (e: ImportException) {
+            dst?.delete()
+            throw e
+        } catch (e: Exception) {
+            dst?.delete()
+            throw ImportException(ImportException.Reason.IO, "Falha ao restaurar o arquivo.")
+        } finally {
             tmp.delete()
         }
     }
