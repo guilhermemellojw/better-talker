@@ -17,6 +17,7 @@ enum class TrainingCategory(val serial: String) {
     CLARITY("clarity"),
     NATURALNESS("naturalness"),
     DELIVERY("delivery"),
+    MEETING("meeting"),
     UNKNOWN("unknown");
 
     companion object {

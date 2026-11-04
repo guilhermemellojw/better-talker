@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.EvidenceSource
+import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSource
@@ -76,9 +77,10 @@ data class FocusSource(
     /** C2.1: fonte do pack/pergunta que não é ref da nota. */
     val extra: Boolean = false,
 ) {
-    /** `be`/`th` são orientação de oratória, nunca conteúdo factual. */
+    /** `be`/`th`/`s38` são orientação, nunca conteúdo factual. */
     val isOrientation: Boolean
-        get() = kind == SourceKind.PUBLICATION && publicationKey in setOf("be", "th")
+        get() = kind == SourceKind.PUBLICATION &&
+            SourceType.fromBaseSlot(publicationKey) == SourceType.TRAINING
 
     /** Texto que o prompt realmente recebe neste bloco. */
     val usedText: String
@@ -404,7 +406,7 @@ object FocusSourceResolver {
         normalized: NormalizedInput,
     ): FocusSource {
         if (source.kind == SourceKind.PUBLICATION &&
-            source.publicationKey in setOf("be", "th")
+            SourceType.fromBaseSlot(source.publicationKey) == SourceType.TRAINING
         ) {
             return source.copy(
                 destination = FocusDestination.INVENTORY,

@@ -11,9 +11,9 @@ enum class SourceType(val serial: String) {
     BIBLE("bible");
 
     companion object {
-        /** Deriva do slot base legado (be|th -> training, nwt -> bible). */
+        /** Deriva do slot base (be|th|s38 -> training, nwt -> bible). */
         fun fromBaseSlot(baseSlot: String?): SourceType = when (baseSlot) {
-            "be", "th" -> TRAINING
+            "be", "th", "s38" -> TRAINING
             "nwt" -> BIBLE
             else -> CONTENT
         }

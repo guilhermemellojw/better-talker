@@ -111,6 +111,15 @@ val BASE_PUBS = listOf(
         landingUrl = "https://www.jw.org/pt/biblioteca/biblia/nwt/",
         downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=nwt&fileformat=EPUB%2CPDF&alllangs=0&langwritten=T&txtCMSLang=T",
         synonyms = listOf("traducao do novo mundo", "biblia sagrada")
+    ),
+    // 3.3: S-38 é orientação de reunião, não técnica de oratória nem prova factual.
+    BasePub(
+        slot = "s38",
+        title = "Instruções para a Reunião Nossa Vida e Ministério Cristão",
+        code = "s38_",
+        landingUrl = "https://www.jw.org/pt/biblioteca/orientacoes/Instru%C3%A7%C3%B5es-para-a-Reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o/Instru%C3%A7%C3%B5es-para-a-reuni%C3%A3o-Nossa-Vida-e-Minist%C3%A9rio-Crist%C3%A3o",
+        downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=s38&fileformat=PDF%2CEPUB%2CJWPUB%2CRTF%2CTXT&alllangs=0&langwritten=T&txtCMSLang=T",
+        synonyms = listOf("instrucoes", "s-38", "s38", "reuniao")
     )
 )
 
@@ -118,10 +127,13 @@ val BASE_PUBS = listOf(
 fun matchBaseSlot(fileName: String): String? {
     val norm = normalizeText(fileName)
     val tokens = norm.split(" ").toSet()
+    val compact = norm.replace(" ", "")
     for (pub in BASE_PUBS) {
-        val code = pub.code.trimEnd('_') // be | th
+        val code = pub.code.trimEnd('_') // be | th | nwt | s38
         // prefixo oficial (be_T.pdf -> be t pdf) exige marcador de idioma "t"
         if (tokens.contains(code) && tokens.contains("t")) return pub.slot
+        // S-38_T_194 e s38t194 não formam token único no normalizeText.
+        if (pub.slot == "s38" && compact.startsWith("s38")) return pub.slot
         if (pub.synonyms.any { norm.contains(it) }) return pub.slot
     }
     return null

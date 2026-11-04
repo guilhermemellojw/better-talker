@@ -39,7 +39,7 @@ fun EvidenceTrack.glyph(): String = if (this == EvidenceTrack.CONTENT) "📖" el
  */
 fun EvidenceTrack.caveat(): String = if (this == EvidenceTrack.CONTENT)
     "Relevância de recuperação — não é certeza factual"
-else "Técnica de apresentação (BE/TH) — não é prova factual"
+else "Técnica de apresentação ou orientação de reunião (BE/TH/S-38) — não é prova factual"
 
 /** Proveniência legível de um trecho recuperado, sem inventar metadado. */
 fun provenanceReference(hit: ScopedHit): String {
