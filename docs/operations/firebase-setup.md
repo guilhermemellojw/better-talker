@@ -2,7 +2,8 @@
 
 Projeto existente: **better-talker** (`project_number 338115469610`).
 O `google-services.json` **nunca é commitado** (`.gitignore`); ele fica em
-`android/app/google-services.json` na máquina de build.
+`android/app/src/syncBeta/google-services.json` na máquina de build/CI. O
+flavor público não lê esse arquivo.
 
 ## 1. Apps Android no Firebase
 
@@ -20,10 +21,9 @@ SHAs-256 (opcional, recomendado):
 | release | `AD:1B:0A:30:22:56:A6:6A:A0:83:D7:6B:76:72:91:EB:2E:3C:8C:4B:07:F0:7A:E7:41:DD:99:71:62:33:BB:A4` |
 | debug | `13:89:B7:56:E1:37:D5:9D:E0:09:37:5B:A3:66:E0:BC:41:31:8F:BC:A5:CF:1D:42:7A:DC:39:24:6D:FD:62:A8` |
 
-> **Estado em 2026-11-02:** o app `com.bettertalker.app.debug` foi criado com o
-> SHA-1 do debug (`ef02bc…`) e o login **funciona**. O app de release ainda está
-> com o SHA-1 do debug; **falta adicionar `90:F0:BB:…:C9:7E`** para o login do
-> release funcionar.
+> **Estado em 2026-11-04:** os dois apps têm SHA-1/SHA-256 de debug e de
+> release registrados. O login do APK `syncBetaRelease` foi validado no tablet
+> com a conta de teste.
 
 ### Passos no Console
 
@@ -36,23 +36,29 @@ SHAs-256 (opcional, recomendado):
 3. **Authentication → Sign-in method → Google**: ativar.
 4. **Firestore Database**: criar (modo produção) se ainda não existir.
 5. Baixar o **novo** `google-services.json` (com os dois clients) e salvar em
-   `android/app/google-services.json`.
+   `android/app/src/syncBeta/google-services.json`. No CI, o secret
+   `GOOGLE_SERVICES_JSON` é gravado nesse caminho.
 
 ## 2. Build
 
-O build lê o json e gera os string resources manualmente (sem o plugin
-`google-services`, incompatível com AGP 8.13):
+O flavor `syncBeta` lê o json e gera os string resources manualmente (sem o
+plugin `google-services`, incompatível com AGP 8.13):
 
-- `defaultConfig` usa o client `com.bettertalker.app`;
-- `buildTypes.debug` sobrescreve com o client `com.bettertalker.app.debug`
-  (quando presente);
-- sem o json, o build segue 100% local e o Firebase fica inativo.
+- `syncBetaRelease` usa o client `com.bettertalker.app`;
+- `syncBetaDebug` usa o client `com.bettertalker.app.debug`;
+- `publicApp` não recebe Firebase, Credential Manager nem o json.
 
 Confira no log do Gradle:
 
 ```
-[BetterTalker] Firebase: clientes release + debug encontrados.
-[BetterTalker] Firebase resources gerados do google-services.json (login + Firestore ativos).
+[BetterTalker] Firebase do syncBeta (com.bettertalker.app) carregado.
+```
+
+Builds:
+
+```bash
+./gradlew :app:assemblePublicAppDebug      # público, 100% local
+./gradlew :app:assembleSyncBetaRelease     # beta assinado (mesmo applicationId)
 ```
 
 ## 3. Rules
@@ -73,8 +79,10 @@ cd firestore-tests && npm ci && npm test
 
 ## 4. Verificação
 
-- `./gradlew :app:assembleDebug` deve logar os dois clients.
-- Instalar o `.debug` no A34 e fazer login Google em Configurações → Conta.
+- `./gradlew :app:assembleSyncBetaRelease` deve logar o client do beta.
+- Instalar o `syncBetaRelease` e ativar Configurações → Conta →
+  Sincronização em nuvem (Experimental). O sync começa **desligado**.
+- Fazer login Google com a conta de teste e escolher o primeiro sync.
 - `adb logcat -s SyncWorker` deve mostrar o sync rodando (sem erro de
   permissão/rules).
 - No Console → Firestore, conferir `users/{uid}/notes`.

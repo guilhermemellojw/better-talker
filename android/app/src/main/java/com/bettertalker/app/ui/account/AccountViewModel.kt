@@ -3,15 +3,13 @@ package com.bettertalker.app.ui.account
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.BuildConfig
 import com.bettertalker.app.data.cloud.AuthRepository
 import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.isConflictNoteTitle
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.prefs.SettingsStore
-import com.google.android.gms.tasks.Task
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,11 +19,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
 import java.text.DateFormat
 import java.util.Date
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     private val app = ctx.applicationContext
@@ -35,6 +30,10 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val user = auth.user
     val accountConflict = auth.accountConflict
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+    /** M7: flavor com sync beta + opt-in explícito (default desligado). */
+    val syncBeta = BuildConfig.SYNC_BETA
+    val syncBetaEnabled = settings.syncBetaEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // M2: primeiro sync deste aparelho pede escolha (Enviar/Baixar/Mesclar).
     private val db = com.bettertalker.app.data.db.DbProvider.get(app)
@@ -68,28 +67,46 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     init {
         auth.start()
-        SyncScheduler.ensurePeriodic(app)
         viewModelScope.launch {
-            val count = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { db.noteDao().allIncludingTrashed().size }.getOrDefault(0)
+            if (BuildConfig.SYNC_BETA && settings.syncBetaEnabledValue()) {
+                SyncScheduler.ensurePeriodic(app)
             }
-            _localNoteCount.value = count
-            // Sem notas locais não há o que decidir: segue o merge normal.
-            if (settings.syncFirstPendingValue() && count == 0) {
-                settings.setSyncFirstPending(false)
-                SyncScheduler.requestSync(app)
-            }
+        }
+        viewModelScope.launch { refreshLocalNoteCountAndSkipFirstSyncIfEmpty() }
+    }
+
+    /**
+     * M2/M7: sem notas locais não há o que decidir no primeiro sync. Também
+     * cobre o login feito depois do init da tela (quando a contagem inicial
+     * era 0 e o pendente ainda não existia).
+     */
+    private suspend fun refreshLocalNoteCountAndSkipFirstSyncIfEmpty() {
+        val count = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { db.noteDao().allIncludingTrashed().size }.getOrDefault(0)
+        }
+        _localNoteCount.value = count
+        if (settings.syncFirstPendingValue() && count == 0) {
+            settings.setSyncFirstPending(false)
+            SyncScheduler.requestSync(app)
+            SyncScheduler.ensurePeriodic(app)
         }
     }
 
     override fun onCleared() { auth.stop() }
 
     fun signIn(uiContext: android.content.Context? = null) = viewModelScope.launch {
+        if (!settings.syncBetaEnabledValue()) {
+            _error.value = "Ative a sincronização beta antes de entrar."
+            return@launch
+        }
         _busy.value = true
         val err = auth.signIn(uiContext ?: app)
         // Com conflito de conta, o diálogo dedicado explica e oferece a
         // limpeza; evita snackbar duplicado.
         _error.value = if (auth.accountConflict.value != null) "" else err ?: ""
+        if (err == null && auth.accountConflict.value == null) {
+            refreshLocalNoteCountAndSkipFirstSyncIfEmpty()
+        }
         _busy.value = false
     }
 
@@ -97,10 +114,34 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     /** M2: aplica a escolha do primeiro sync. */
     fun firstSync(mode: String) = viewModelScope.launch {
+        if (!settings.syncBetaEnabledValue()) return@launch
         settings.setSyncFirstPending(false)
         SyncScheduler.requestFirstSync(app, mode)
+        SyncScheduler.ensurePeriodic(app)
     }
-    fun syncNow() = SyncScheduler.requestSync(app)
+
+    /** M7: ativar liga o opt-in; desativar sai da conta e cancela workers. */
+    fun setSyncBetaEnabled(enabled: Boolean) = viewModelScope.launch {
+        settings.setSyncBetaEnabled(enabled)
+        if (enabled) {
+            _message.value = "Sincronização beta ativada."
+            SyncScheduler.ensurePeriodic(app)
+            if (!settings.syncFirstPendingValue()) SyncScheduler.requestSync(app)
+        } else {
+            auth.signOut()
+            SyncScheduler.cancelAll(app)
+            SyncStatus.set(SyncStatus.State.Idle)
+            _message.value = "Sincronização beta desativada. As notas continuam neste aparelho."
+        }
+    }
+
+    fun syncNow() = viewModelScope.launch {
+        if (!settings.syncBetaEnabledValue()) {
+            _message.value = "Ative a sincronização beta para sincronizar."
+            return@launch
+        }
+        SyncScheduler.requestSync(app)
+    }
     fun consumeError() { _error.value = "" }
     fun consumeMessage() { _message.value = "" }
 
@@ -116,7 +157,9 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             clearLocalData(resetUid = true)
             auth.clearLastUidBinding()
             auth.clearAccountConflict()
-            _error.value = auth.signIn(uiContext ?: app) ?: ""
+            val err = auth.signIn(uiContext ?: app)
+            _error.value = err ?: ""
+            if (err == null) refreshLocalNoteCountAndSkipFirstSyncIfEmpty()
         } catch (e: Exception) {
             _error.value = e.message?.take(160) ?: "Falha ao apagar os dados locais."
         }
@@ -157,23 +200,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun wipeCloud() = viewModelScope.launch {
         _confirmWipe.value = false
         _busy.value = true
-        try {
-            val uid = auth.currentUser()?.uid ?: throw Exception("Sem login")
-            val root = FirebaseFirestore.getInstance().collection("users").document(uid)
-            for (col in listOf(
-                "notes", "folders", "attachments", "outlines",
-                "sections", "subPoints", "tombstones",
-            )) {
-                val snap: QuerySnapshot = suspendTask { cb -> root.collection(col).get().addOnCompleteListener(cb) }
-                if (snap.documents.isNotEmpty()) {
-                    val batch = FirebaseFirestore.getInstance().batch()
-                    snap.documents.forEach { batch.delete(it.reference) }
-                    suspendTask<Void> { cb -> batch.commit().addOnCompleteListener(cb) }
-                }
-            }
-        } catch (e: Exception) {
-            _error.value = e.message?.take(160) ?: "Falha ao apagar nuvem."
-        }
+        _error.value = auth.wipeCloud() ?: ""
         _busy.value = false
     }
 
@@ -185,16 +212,4 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = AccountViewModel(ctx) as T
     }
-}
-
-private suspend fun <T> suspendTask(
-    block: (com.google.android.gms.tasks.OnCompleteListener<T>) -> Unit
-): T = suspendCancellableCoroutine { cont ->
-    block(com.google.android.gms.tasks.OnCompleteListener { task: Task<T> ->
-        if (task.isCanceled) cont.cancel()
-        else if (task.isSuccessful) {
-            @Suppress("UNCHECKED_CAST")
-            cont.resume(task.result as T) {}
-        } else cont.resumeWithException(task.exception ?: Exception("Firebase falhou"))
-    })
 }

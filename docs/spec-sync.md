@@ -337,10 +337,16 @@ M7 não é apenas ligar o Firebase; a ordem é:
    nota de teste sincronizada → wipe → local preservado → sync reenviou →
    wipe local + pull recuperou a nota. A conta ficou limpa depois do teste.
 3. **Firebase de produção**: apps `com.bettertalker.app` e `.debug`, SHA-1/
-   SHA-256 dos dois, Google Auth, rules v2 e `google-services.json` via
-   secret/arquivo local — nunca no repo.
-4. **Opt-in**: sync desligado por padrão, rótulo “Experimental”, first-sync
-   Enviar/Baixar/Mesclar e status/conflitos visíveis.
+   SHA-256 dos dois, Google Auth, rules v2. O JSON fica em
+   `android/app/src/syncBeta/google-services.json` (secret
+   `GOOGLE_SERVICES_JSON` no CI; ignorado pelo git). O flavor `publicApp` não
+   recebe Firebase, credenciais nem o JSON.
+4. **Opt-in**: os flavors são `publicApp` (100% local) e `syncBeta`
+   (`versionCode 43`, `versionNameSuffix "-syncbeta"`, mesmo applicationId no
+   release). No beta, sync desligado por padrão, rótulo “Experimental”,
+   first-sync Enviar/Baixar/Mesclar e status/conflitos visíveis. O workflow
+   manual `.github/workflows/android-syncbeta.yml` gera o APK beta assinado,
+   sem tag/release.
 5. **Beta pequeno**: monitorar cópias de conflito, wipe acidental, anexos
    `missing` e custo; critério de saída: nenhuma perda de texto.
 6. **Release**: decidir versão (3.3/4.0), notas e se Firebase entra no APK

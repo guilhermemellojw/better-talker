@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -26,6 +27,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -55,6 +58,7 @@ fun AccountScreen(
 ) {
     val user by vm.user.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
+    val syncBetaEnabled by vm.syncBetaEnabled.collectAsState()
     val syncState by vm.syncState.collectAsState()
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
@@ -197,48 +201,103 @@ fun AccountScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (!vm.configured) {
+            if (!vm.syncBeta) {
                 Card(Modifier.fillMaxWidth()) {
-                    Text(
-                        "Firebase não configurado neste build — o app funciona 100% local.",
-                        Modifier.padding(14.dp), style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-            if (vm.configured) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp)) {
-                    if (user == null) {
-                        Text("Não conectado", style = MaterialTheme.typography.titleMedium)
+                    Column(Modifier.padding(14.dp)) {
+                        Text("Neste aparelho", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Entre com sua conta Google para sincronizar notas entre aparelhos.",
+                            "Este build é 100% local. A sincronização em nuvem " +
+                                "fica no build beta separado.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.secondary,
                         )
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { vm.signIn(uiContext) }, enabled = !busy) {
-                            Text(if (busy) "Entrando…" else "Entrar com Google")
+                    }
+                }
+            } else {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Sincronização em nuvem",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    shape = RoundedCornerShape(50),
+                                ) {
+                                    Text(
+                                        "Experimental",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = syncBetaEnabled,
+                                onCheckedChange = vm::setSyncBetaEnabled,
+                                enabled = !busy && vm.configured,
+                            )
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Sha1Row()
-                    } else {
-                        Text(user?.email ?: user?.uid ?: "Conectado", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        SyncIndicator(state = syncState, lastSync = lastSync, vm = vm)
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = vm::syncNow, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                            Text("Sincronizar agora")
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = vm::signOut, modifier = Modifier.fillMaxWidth()) {
-                            Text("Sair")
+                        Text(
+                            when {
+                                !vm.configured ->
+                                    "Este build beta não tem google-services.json. " +
+                                        "A sincronização fica inativa."
+                                syncBetaEnabled ->
+                                    "Ligada. Entre com sua conta Google; notas e " +
+                                        "metadados sobem, arquivos e trechos nunca."
+                                else ->
+                                    "Desligada por padrão. Suas notas ficam só neste " +
+                                        "aparelho até você ativar explicitamente."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                }
+                if (syncBetaEnabled && vm.configured) {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp)) {
+                            if (user == null) {
+                                Text("Não conectado", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Entre com sua conta Google para sincronizar notas entre aparelhos.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Button(onClick = { vm.signIn(uiContext) }, enabled = !busy) {
+                                    Text(if (busy) "Entrando…" else "Entrar com Google")
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Sha1Row()
+                            } else {
+                                Text(user?.email ?: user?.uid ?: "Conectado", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(4.dp))
+                                SyncIndicator(state = syncState, lastSync = lastSync, vm = vm)
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = vm::syncNow, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Sincronizar agora")
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = vm::signOut, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Sair")
+                                }
+                            }
                         }
                     }
                 }
             }
-            }
-            if (conflicts.isNotEmpty()) {
+            if (vm.syncBeta && syncBetaEnabled && conflicts.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text(
@@ -298,7 +357,7 @@ fun AccountScreen(
                     }
                 }
             }
-            if (user != null) {
+            if (vm.syncBeta && syncBetaEnabled && user != null) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Zona de perigo da conta", style = MaterialTheme.typography.titleSmall)
