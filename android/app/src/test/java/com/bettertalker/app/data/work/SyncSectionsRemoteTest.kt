@@ -423,6 +423,58 @@ class SyncSectionsRemoteTest {
         )
     }
 
+    // 10b2. Falha no meio do pull: a transação reverte as ordens temporárias.
+    @Test
+    fun falhaNoMeioDoPull_transacaoReverteENaoDeixaNegativas() = runBlocking {
+        remote.set("sections", "s1", mapOf(
+            "noteId" to "n1", "order" to 2L, "updatedAt" to 200L,
+        ))
+        remote.set("sections", "s2", mapOf(
+            "noteId" to "n1", "order" to 0L, "updatedAt" to 200L,
+        ))
+        remote.set("sections", "s3", mapOf(
+            "noteId" to "n1", "order" to 1L, "updatedAt" to 200L,
+        ))
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(
+            section("s1", order = 0, updatedAt = 100L),
+            section("s2", order = 1, updatedAt = 100L),
+            section("s3", order = 2, updatedAt = 100L),
+        )).apply { failAfterUpserts = 1 } // 1ª local move; 2ª falha
+        val snapshot = secDao.rows.toList()
+
+        var failed = false
+        try {
+            syncSections(
+                remote, secDao, noteDao,
+                applyTransaction = { block ->
+                    val before = secDao.rows.toList()
+                    try {
+                        block()
+                    } catch (e: Exception) {
+                        secDao.rows = before.toMutableList()
+                        throw e
+                    }
+                },
+            )
+        } catch (_: IllegalStateException) {
+            failed = true
+        }
+
+        assertTrue(failed)
+        assertEquals(snapshot, secDao.rows)
+        assertTrue(secDao.rows.none { it.order < 0 })
+
+        // Próximo sync (sem falha) reaplica o reorder e fecha em 0/1/2.
+        secDao.failAfterUpserts = null
+        syncSections(remote, secDao, noteDao)
+        assertEquals(
+            listOf("s2", "s3", "s1"),
+            secDao.forNote("n1").sortedBy { it.order }.map { it.id },
+        )
+        assertTrue(secDao.forNote("n1").none { it.order < 0 })
+    }
+
     // 10c. Firestore sem constraint: orders remotos duplicados + local.
     @Test
     fun ordemRemotaDuplicada_normalizaPorOrderEId_semColidir() = runBlocking {
