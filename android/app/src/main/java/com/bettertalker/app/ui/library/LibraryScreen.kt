@@ -168,7 +168,6 @@ fun LibraryScreen(
                     a.status !in setOf("downloading", "indexing", "missing", "failed")
             }
             val availablePubs = otherPubs.filter { findInLibrary(it.symbol, items) != null }
-            val missingPubs = otherPubs.filter { findInLibrary(it.symbol, items) == null }
             val openPub: (RecommendedPub) -> Unit = { pub ->
                 jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
                 showJw = true
@@ -204,12 +203,10 @@ fun LibraryScreen(
                     )
                 }
 
-                item(key = "active-title") {
-                    LibrarySectionHeader("Em andamento", active.size.toString())
-                }
-                if (active.isEmpty()) {
-                    item(key = "active-empty") { LibrarySectionEmpty("Nada baixando ou indexando.") }
-                } else {
+                if (active.isNotEmpty()) {
+                    item(key = "active-title") {
+                        LibrarySectionHeader("Em andamento", active.size.toString())
+                    }
                     items(active, key = { "active-${it.id}" }) { a ->
                         AttachmentRow(a, vm, linkNoteId, onBack,
                             onOpenPage = { src -> jwUrl = src; showJw = true },
@@ -218,14 +215,10 @@ fun LibraryScreen(
                     }
                 }
 
-                item(key = "available-title") {
-                    LibrarySectionHeader("Disponíveis", availablePubs.size.toString())
-                }
-                if (availablePubs.isEmpty()) {
-                    item(key = "available-empty") {
-                        LibrarySectionEmpty("Nenhuma publicação disponível no acervo.")
+                if (availablePubs.isNotEmpty()) {
+                    item(key = "available-title") {
+                        LibrarySectionHeader("Disponíveis", availablePubs.size.toString())
                     }
-                } else {
                     items(availablePubs, key = { "available-${it.symbol}" }) { pub ->
                         RecommendedPubCard(
                             pub = pub,
@@ -250,26 +243,6 @@ fun LibraryScreen(
                             cited = c,
                             onDownload = { url -> jwUrl = url; showJw = true },
                             onImport = { picker.launch(PICKER_MIMES) },
-                        )
-                    }
-                }
-
-                item(key = "missing-title") {
-                    LibrarySectionHeader("Não disponíveis", missingPubs.size.toString())
-                }
-                if (missingPubs.isEmpty()) {
-                    item(key = "missing-empty") {
-                        LibrarySectionEmpty("Todas as publicações recomendadas estão disponíveis.")
-                    }
-                } else {
-                    items(missingPubs, key = { "missing-${it.symbol}" }) { pub ->
-                        RecommendedPubCard(
-                            pub = pub,
-                            match = null,
-                            linkNoteId = linkNoteId,
-                            onDownload = { openPub(pub) },
-                            onFormats = { openFormats(pub) },
-                            onLink = {},
                         )
                     }
                 }
@@ -354,16 +327,6 @@ private fun LibrarySectionHeader(title: String, detail: String? = null) {
             )
         }
     }
-}
-
-@Composable
-private fun LibrarySectionEmpty(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.secondary,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
 }
 
 @Composable
