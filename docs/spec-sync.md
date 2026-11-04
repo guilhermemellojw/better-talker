@@ -304,6 +304,7 @@ Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
 | Instalação do APK de teste no tablet | ✅ (autorizada; “Instalar via USB” ligado) |
 | Tombstone entre A34/tablet | ✅ notas removidas nos dois após tombstones |
 | Reorder de 3 seções A34 → tablet | ✅ ordem 2/0/1 propagou |
+| Offline: nota criada em cada aparelho sem sync | ✅ união A+B, sem duplicatas |
 
 Bug real encontrado no reorder: o pull aplicava as seções uma a uma e
 violava o índice único `(noteId, order)` no segundo aparelho. O sync agora
