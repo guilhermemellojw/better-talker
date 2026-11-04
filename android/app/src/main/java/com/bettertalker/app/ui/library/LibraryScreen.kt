@@ -106,6 +106,7 @@ fun LibraryScreen(
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
+    LaunchedEffect(Unit) { vm.refreshCited() }
     if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 
     Scaffold(
