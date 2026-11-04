@@ -71,7 +71,7 @@ data class AttachmentEntity(
     val sourceType: String = "content",
     /** Fase 8: símbolo da publicação (ex: be, th, w); null = desconhecido. */
     val symbol: String? = null,
-    /** P1: SHA-256 do arquivo; dedupe exato entre Downloads/importações. */
+    /** P1: SHA-256 do arquivo; dedupe exato entre downloads/importações. */
     val sha256: String? = null
 )
 

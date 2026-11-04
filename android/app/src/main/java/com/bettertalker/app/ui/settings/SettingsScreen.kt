@@ -49,7 +49,7 @@ fun SettingsScreen(
     onOpenAppearance: () -> Unit = {},
     /** Tela de Voz (TTS + STT no aparelho). */
     onOpenVoice: () -> Unit = {},
-    /** Dados e armazenamento (Backup, Downloads, Biblioteca). */
+    /** Dados e armazenamento (Backup, Biblioteca e uso). */
     onOpenDataStorage: () -> Unit = {},
 ) {
     Scaffold(
@@ -94,7 +94,7 @@ fun SettingsScreen(
             SettingsTile(
                 icon = Icons.Default.Save,
                 title = "Dados e armazenamento",
-                subtitle = "Backup, Downloads, Biblioteca",
+                subtitle = "Backup, Biblioteca e uso do espaço",
                 onClick = onOpenDataStorage,
             )
             SettingsTile(
