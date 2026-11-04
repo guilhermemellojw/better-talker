@@ -135,8 +135,6 @@ fun EditorScreen(
     onBack: () -> Unit,
     onAttach: () -> Unit,
     onOpenChat: () -> Unit,
-    /** A2: "Já baixei" — abre a Biblioteca já procurando em Downloads. */
-    onFindDownloads: () -> Unit = onAttach,
     /** A2: usado apenas para o download de fontes no sheet. */
     copilotVm: com.bettertalker.app.ui.copilot.CopilotViewModel? = null,
     // #7e2: empty state — o pipeline de esboço/paste vive no chat
@@ -773,10 +771,6 @@ fun EditorScreen(
                 onOpenLibrary = {
                     showSources = false
                     onAttach()
-                },
-                onFindDownloads = {
-                    showSources = false
-                    onFindDownloads()
                 },
                 downloadCtl = downloadCtl,
                 scope = scope,

@@ -43,7 +43,7 @@ object DownloadHelper {
     }
 
     /**
-     * Enfileira o download em Downloads e retorna a referência do
+     * Enfileira o download em `downloads_tmp` e retorna a referência do
      * DownloadManager (null se falhar). Não mostra Toast (chamador decide).
      */
     fun enqueue(context: Context, url: String, fileName: String): Long? {

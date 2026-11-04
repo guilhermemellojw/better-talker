@@ -12,7 +12,9 @@ import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.storage.PublicationStorage
 import com.bettertalker.app.data.util.DocKind
+import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.detectKind
+import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.matchBaseSlot
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
@@ -24,7 +26,50 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class ImportException(val reason: Reason, msg: String) : Exception(msg) {
-    enum class Reason { UNSUPPORTED, TOO_BIG, IO }
+    enum class Reason { UNSUPPORTED, TOO_BIG, MISMATCH, IO }
+}
+
+/** Símbolo canônico para comparar publicação de um arquivo/anexo. */
+internal fun canonicalPublicationSymbol(raw: String?): String? {
+    val s = raw?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+    if (s == "s38" || s == "s-38") return "s38"
+    PubCatalog.unifiedOf(s)?.let { return it }
+    PubCatalog.resolveSymbol(s)?.let { return it }
+    // Revista com edição no nome (w19.03, wp19.03, g 6/07, gn 1/24).
+    if (Regex("""^(wp?|gn?)(?=[\d\s._-])""").containsMatchIn(s)) return s
+    return null
+}
+
+/** Publicação inferida de um anexo (baseSlot → symbol → nome do arquivo). */
+internal fun AttachmentEntity.publicationKeyOrNull(): String? {
+    baseSlot?.takeIf { it.isNotBlank() }?.let {
+        canonicalPublicationSymbol(it)?.let { key -> return key }
+    }
+    symbol?.takeIf { it.isNotBlank() }?.let {
+        canonicalPublicationSymbol(it)?.let { key -> return key }
+    }
+    matchBaseSlot(fileName)?.let { return it }
+    val detected = detectSymbol(fileName)
+    return canonicalPublicationSymbol(detected)
+}
+
+/** Publicação inferida do arquivo escolhido para reparar o anexo. */
+internal fun filePublicationKeyOrNull(fileName: String): String? {
+    matchBaseSlot(fileName)?.let { return it }
+    return canonicalPublicationSymbol(detectSymbol(fileName))
+}
+
+/**
+ * A9: null = mesma publicação (ou impossível provar que é outra).
+ * Pair(esperado, recebido) = arquivo claramente de outra publicação.
+ */
+internal fun repairPublicationMismatch(
+    current: AttachmentEntity,
+    candidateFileName: String,
+): Pair<String, String>? {
+    val expected = current.publicationKeyOrNull() ?: return null
+    val actual = filePublicationKeyOrNull(candidateFileName) ?: return null
+    return if (expected == actual) null else expected to actual
 }
 
 class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
@@ -148,6 +193,13 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         if (kind == DocKind.UNSUPPORTED) {
             throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
         }
+        repairPublicationMismatch(cur, name)?.let { (expected, actual) ->
+            throw ImportException(
+                ImportException.Reason.MISMATCH,
+                "Este arquivo é de outra publicação (esperado: $expected; recebido: $actual). " +
+                    "Escolha o arquivo correspondente ao anexo.",
+            )
+        }
         val tmp = copyUriToTemp(uri, name)
         var dst: File? = null
         try {
@@ -167,6 +219,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     indexed = false,
                     status = "indexing",
                     error = null,
+                    baseSlot = cur.baseSlot ?: matchBaseSlot(name),
+                    symbol = cur.symbol ?: matchBaseSlot(name),
                     sha256 = hash,
                 )
             )
@@ -187,7 +241,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         }
     }
 
-    /** Importa arquivo já baixado (Downloads/SAF) para pasta privada do app. */
+    /** Importa arquivo já baixado (download/SAF) para pasta privada do app. */
     @Throws(ImportException::class)
     suspend fun importFile(src: File, displayName: String = src.name, noteId: String? = null): String =
         withContext(Dispatchers.IO) {

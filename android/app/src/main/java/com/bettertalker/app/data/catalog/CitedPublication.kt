@@ -18,6 +18,10 @@ data class CitedPublication(
     val ambiguous: Boolean,
 )
 
+/** Placeholder baixando/indexando não deve aparecer como "citada faltando". */
+internal fun AttachmentEntity.isPendingCitation(): Boolean =
+    !indexed && (status == "downloading" || status == "indexing")
+
 /**
  * Deduplica por edição e resolve contra o acervo. Puro/testável.
  * Só devolve o que NÃO está disponível; se o mesmo editionKey aparece em
@@ -30,8 +34,15 @@ internal fun citedPublicationsFrom(
     val unique = refs
         .groupBy { it.editionKey }
         .mapNotNull { (_, group) -> group.firstOrNull { !it.ambiguous } ?: group.firstOrNull() }
+    // A7: o resolve padrão só enxerga anexos indexados. Se a edição está
+    // baixando/indexando, ela pertence a "Em andamento", não a "Citadas".
+    val pendingKeys = unique.mapNotNull { ref ->
+        if (RefDetector.matchEdition(ref, attachments) != null) return@mapNotNull null
+        val pending = RefDetector.matchEdition(ref, attachments, includePending = true)
+        ref.editionKey.takeIf { pending?.isPendingCitation() == true }
+    }.toSet()
     return RefDetector.resolve(unique, attachments)
-        .filter { !it.resolved }
+        .filter { !it.resolved && it.ref.editionKey !in pendingKeys }
         .map { status ->
             CitedPublication(
                 editionKey = status.ref.editionKey,

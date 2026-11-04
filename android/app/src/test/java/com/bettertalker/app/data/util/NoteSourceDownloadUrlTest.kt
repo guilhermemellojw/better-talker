@@ -67,4 +67,25 @@ class NoteSourceDownloadUrlTest {
         assertTrue(url.contains("/biblioteca/biblia/nwt/"))
         assertTrue(exact)
     }
+
+    @Test
+    fun estudoPerspicazVolumeUnificaNoIt() {
+        listOf("it-1 813", "it-2 600").forEach { raw ->
+            val ref = RefDetector.detect(raw).single()
+            val (url, _, exact) = RefDetector.downloadUrl(ref)
+            assertEquals(
+                "https://www.jw.org/finder?wtlocale=T&pub=it&srcid=share",
+                url,
+            )
+            assertTrue(exact)
+        }
+    }
+
+    @Test
+    fun sentinelaAntigaDia15_de2008_usaArquivoDoDia() {
+        val ref = RefDetector.detect("w08 15/6").single()
+        val (url, _, exact) = RefDetector.downloadUrl(ref)
+        assertEquals("https://www.jw.org/pt/biblioteca/revistas/w20080615/", url)
+        assertTrue(exact)
+    }
 }

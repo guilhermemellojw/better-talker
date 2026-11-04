@@ -70,4 +70,25 @@ class CitedPublicationTest {
         assertEquals(1, cited.size)
         assertFalse(cited.single().ambiguous)
     }
+
+    @Test
+    fun edicaoBaixandoNaoEntraEmCitadas() {
+        val pending = att("w_T_202507.jwpub").copy(indexed = false, status = "downloading")
+        val cited = citedPublicationsFrom(listOf(ref("w25.07 §8")), listOf(pending))
+        assertTrue(cited.isEmpty())
+    }
+
+    @Test
+    fun edicaoIndexandoNaoEntraEmCitadas() {
+        val pending = att("w_T_202507.jwpub").copy(indexed = false, status = "indexing")
+        val cited = citedPublicationsFrom(listOf(ref("w25.07 §8")), listOf(pending))
+        assertTrue(cited.isEmpty())
+    }
+
+    @Test
+    fun edicaoComFalhaContinuaEmCitadas() {
+        val failed = att("w_T_202507.jwpub").copy(indexed = false, status = "failed")
+        val cited = citedPublicationsFrom(listOf(ref("w25.07 §8")), listOf(failed))
+        assertEquals(1, cited.size)
+    }
 }

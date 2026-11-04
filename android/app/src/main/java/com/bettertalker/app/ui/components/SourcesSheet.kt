@@ -50,11 +50,9 @@ import com.bettertalker.app.data.util.BookGroup
 import com.bettertalker.app.data.util.GroupStatus
 import com.bettertalker.app.data.util.NoteSource
 import com.bettertalker.app.data.util.NoteSources
-import com.bettertalker.app.data.util.SourceAction
 import com.bettertalker.app.data.util.SourceGroup
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
-import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.SourceRowAction
 import com.bettertalker.app.data.copilot.downloadUrlFor
 import com.bettertalker.app.data.copilot.sourceRowState
@@ -79,7 +77,6 @@ fun SourcesSheet(
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
     onOpenLibrary: () -> Unit,
-    onFindDownloads: () -> Unit = {},
     downloadCtl: DownloadCtl? = null,
     scope: CoroutineScope? = null,
     onDownloaded: () -> Unit = {},
@@ -171,7 +168,6 @@ fun SourcesSheet(
                                 downloadCtl = downloadCtl,
                                 onDownloaded = onDownloaded,
                                 onOpenLibrary = onOpenLibrary,
-                                onFindDownloads = onFindDownloads,
                                 onRefresh = onRefresh,
                             )
                         }
@@ -192,7 +188,7 @@ fun SourcesSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onFindDownloads) {
+                TextButton(onClick = onOpenLibrary) {
                     Text("Abrir Biblioteca", fontWeight = FontWeight.SemiBold)
                 }
                 Row {
@@ -215,7 +211,6 @@ private fun PublicationRow(
     downloadCtl: DownloadCtl?,
     onDownloaded: () -> Unit,
     onOpenLibrary: () -> Unit,
-    onFindDownloads: () -> Unit,
     onRefresh: () -> Unit,
 ) {
     val pending = group.pendingCount > 0
@@ -287,14 +282,9 @@ private fun PublicationRow(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Acompanhar") }
                 SourceRowAction.RESOLVE -> {
-                    val actionSource = group.sources.firstOrNull {
-                        it.status == SourceStatus.TEXT_NOT_FOUND ||
-                            it.status == SourceStatus.EDITION_MISSING ||
-                            it.citation.text == TextStatus.AMBIGUOUS ||
-                            it.citation.action == SourceAction.CONFIRM
-                    }
-                    val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
-                        ?.takeIf { it.isNotBlank() }
+                    // Usa a mesma busca do Baixar: qualquer fonte do grupo pode
+                    // ter a URL canônica (ex.: it-1 → it; w08 15/8 → w20080615).
+                    val url = downloadUrlFor(group)
                     TextButton(
                         onClick = {
                             if (url != null && downloadCtl != null) {
@@ -371,7 +361,7 @@ private fun PublicationRow(
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) { Text("Abrir Biblioteca") }
                         TextButton(
-                            onClick = onFindDownloads,
+                            onClick = onOpenLibrary,
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) { Text("Importar publicação") }
                     }

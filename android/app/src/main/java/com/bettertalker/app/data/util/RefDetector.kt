@@ -1113,13 +1113,23 @@ object RefDetector {
      */
     fun downloadUrl(ref: DetectedRef): Triple<String, String, Boolean> {
         if (ref.kind == Kind.BOOK) {
-            BASE_PUBS.firstOrNull { it.slot == ref.pubKey }?.let {
-                return Triple(it.landingUrl, "Baixe o livro na página oficial.", true)
+            // it-1/it-2 são volumes rótulo do mesmo arquivo `it`; o finder
+            // não tem página própria para os volumes. Aliases (dx→rsg) também
+            // precisam ir para o símbolo canônico, nunca para o antigo.
+            val unified = PubCatalog.unifiedOf(ref.pubKey)
+            val base = BASE_PUBS.firstOrNull {
+                it.slot == ref.pubKey || (unified != null && it.slot == unified)
             }
-            if (PubCatalog.entryOf(ref.pubKey) != null) {
+            if (base != null) {
+                return Triple(base.landingUrl, "Baixe o livro na página oficial.", true)
+            }
+            val symbol = unified
+                ?: PubCatalog.resolveSymbol(ref.pubKey)
+                ?: ref.pubKey
+            if (PubCatalog.entryOf(symbol) != null) {
                 // finder resolve a sigla (verificado); página tem todos os formatos
                 return Triple(
-                    "https://www.jw.org/finder?wtlocale=T&pub=${ref.pubKey}&srcid=share",
+                    "https://www.jw.org/finder?wtlocale=T&pub=$symbol&srcid=share",
                     "Abre a página da publicação no site oficial.", true
                 )
             }

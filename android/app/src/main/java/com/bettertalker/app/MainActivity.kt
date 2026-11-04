@@ -421,7 +421,6 @@ private fun AppNav(
                 vm,
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
-                onFindDownloads = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
                 onGenerateTribuna = {

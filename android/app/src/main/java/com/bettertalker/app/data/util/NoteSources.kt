@@ -357,6 +357,21 @@ object NoteSourcesResolver {
     fun publicationRefToDetected(ref: PublicationRef): RefDetector.DetectedRef? =
         NoteRefsCollector.publicationRefToDetected(ref)
 
+    /**
+     * Toda fonte de publicação ausente/falha precisa de uma URL oficial ou de
+     * um motivo explícito. Status transitórios podem existir sem RefStatus
+     * (ex.: placeholder do DownloadManager), então derivamos a URL da própria
+     * referência.
+     */
+    private fun publicationDownloadUrl(
+        candidate: SourceCandidate,
+        status: RefDetector.RefStatus?,
+    ): String? {
+        status?.downloadUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        val ref = candidate.publication ?: return null
+        return RefDetector.downloadUrl(ref).first.takeIf { it.isNotBlank() }
+    }
+
     /** Mapeia status brutos para o checklist final. Puro/testável. */
     fun toNoteSources(
         candidates: List<SourceCandidate>,
@@ -395,6 +410,7 @@ object NoteSourcesResolver {
                             citation = CitationStatus(EditionStatus.READY, TextStatus.NOT_FOUND),
                             hint = st.contentWarning
                                 ?: "Edição importada, mas o trecho não foi encontrado no índice.",
+                            downloadUrl = publicationDownloadUrl(candidate, st),
                             fileName = st.fileName,
                             refStatus = st,
                             editionKey = editionKey,
@@ -424,7 +440,7 @@ object NoteSourcesResolver {
                                 text = TextStatus.NOT_FOUND,
                             ),
                             hint = pendingHint(pending),
-                            downloadUrl = st?.downloadUrl?.takeIf { it.isNotBlank() },
+                            downloadUrl = publicationDownloadUrl(candidate, st),
                             refStatus = st,
                             editionKey = editionKey,
                             publicationKey = publicationKey,
@@ -435,6 +451,7 @@ object NoteSourcesResolver {
                             kind = SourceKind.PUBLICATION,
                             citation = CitationStatus(EditionStatus.MISSING, TextStatus.NOT_FOUND),
                             hint = "Não foi possível verificar a edição.",
+                            downloadUrl = publicationDownloadUrl(candidate, null),
                             editionKey = editionKey,
                             publicationKey = publicationKey,
                             publicationLabel = publicationLabel,
@@ -444,7 +461,7 @@ object NoteSourcesResolver {
                             kind = SourceKind.PUBLICATION,
                             citation = CitationStatus(EditionStatus.MISSING, TextStatus.NOT_FOUND),
                             hint = st.hint.ifBlank { "Edição não importada." },
-                            downloadUrl = st.downloadUrl.takeIf { it.isNotBlank() },
+                            downloadUrl = publicationDownloadUrl(candidate, st),
                             refStatus = st,
                             editionKey = editionKey,
                             publicationKey = publicationKey,
