@@ -331,7 +331,11 @@ M7 não é apenas ligar o Firebase; a ordem é:
 
 1. **CI verde** no commit corrente; crash local de lint é infraestrutura.
 2. **Conta de teste** para wipe de nuvem e troca de conta bloqueada, com
-   export antes e re-login. Sem conta de teste, não fechar o M7.
+   export antes e re-login. Troca bloqueada validada no A34 (Danielle →
+   bloqueio → Exportar backup → Cancelar → re-login na conta original).
+   Wipe de nuvem validado no tablet com a conta Danielle (0 notas iniciais):
+   nota de teste sincronizada → wipe → local preservado → sync reenviou →
+   wipe local + pull recuperou a nota. A conta ficou limpa depois do teste.
 3. **Firebase de produção**: apps `com.bettertalker.app` e `.debug`, SHA-1/
    SHA-256 dos dois, Google Auth, rules v2 e `google-services.json` via
    secret/arquivo local — nunca no repo.
