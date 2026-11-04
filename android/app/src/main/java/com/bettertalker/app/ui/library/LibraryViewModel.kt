@@ -4,17 +4,31 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.data.catalog.CitedPublication
+import com.bettertalker.app.data.catalog.collectCitedPublications
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.repo.LibraryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : ViewModel() {
+class LibraryViewModel(private val db: AppDatabase, private val repo: LibraryRepository) : ViewModel() {
     val items = repo.observe()
+    private val _cited = MutableStateFlow<List<CitedPublication>>(emptyList())
+    val cited = _cited.asStateFlow()
+
+    init { refreshCited() }
     private val _toast = MutableStateFlow("")
     val toast = _toast.asStateFlow()
-    fun delete(id: String) = viewModelScope.launch { repo.delete(id) }
+    fun refreshCited() = viewModelScope.launch {
+        runCatching { collectCitedPublications(db, repo.all()) }
+            .onSuccess { _cited.value = it }
+    }
+
+    fun delete(id: String) = viewModelScope.launch {
+        repo.delete(id)
+        refreshCited()
+    }
     fun reindex(id: String) = viewModelScope.launch { repo.reindex(id) }
     fun retryRegister(id: String) = viewModelScope.launch {
         if (!repo.retryRegister(id)) _toast.value = "Sem download para retentar. Baixe de novo."
@@ -26,6 +40,7 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
         try {
             repo.repairMissing(id, uri)
             _toast.value = "Arquivo restaurado; indexando."
+            refreshCited()
         } catch (e: com.bettertalker.app.data.repo.ImportException) {
             _toast.value = e.message ?: "Falha ao restaurar o arquivo."
         } catch (_: Exception) {
@@ -43,6 +58,7 @@ class LibraryViewModel(db: AppDatabase, private val repo: LibraryRepository) : V
         viewModelScope.launch {
             try {
                 repo.importUri(uri, noteId)
+                refreshCited()
             } catch (e: com.bettertalker.app.data.repo.ImportException) {
                 _toast.value = e.message ?: "Falha ao importar."
             } catch (_: Exception) {
