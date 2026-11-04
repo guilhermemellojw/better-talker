@@ -53,6 +53,7 @@ import com.bettertalker.app.data.catalog.RecommendedPub
 import com.bettertalker.app.data.catalog.RecommendedPublications
 import com.bettertalker.app.data.catalog.findInLibrary
 import com.bettertalker.app.data.db.AttachmentEntity
+import com.bettertalker.app.data.catalog.CitedPublication
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.JW_FINDER_HOME
@@ -71,6 +72,7 @@ fun LibraryScreen(
     onOpenModel: () -> Unit = {},
 ) {
     val items by vm.items.collectAsState(initial = emptyList())
+    val cited by vm.cited.collectAsState()
     val toast by vm.toast.collectAsState()
     val ctx = LocalContext.current
     var showJw by remember { mutableStateOf(false) }
@@ -150,7 +152,7 @@ fun LibraryScreen(
             Spacer(Modifier.height(8.dp))
 
             Spacer(Modifier.height(12.dp))
-            val requiredSymbols = listOf("nwt", "be", "th")
+            val requiredSymbols = RecommendedPublications.REQUIRED
             val requiredPubs = requiredSymbols.mapNotNull { sym ->
                 RecommendedPublications.ALL.firstOrNull { it.symbol == sym }
             }
@@ -238,6 +240,19 @@ fun LibraryScreen(
                     }
                 }
 
+                if (cited.isNotEmpty()) {
+                    item(key = "cited-title") {
+                        LibrarySectionHeader("Citadas nas notas", cited.size.toString())
+                    }
+                    items(cited, key = { "cited-${it.editionKey}" }) { c ->
+                        CitedPublicationCard(
+                            cited = c,
+                            onDownload = { url -> jwUrl = url; showJw = true },
+                            onImport = { picker.launch(PICKER_MIMES) },
+                        )
+                    }
+                }
+
                 item(key = "missing-title") {
                     LibrarySectionHeader("Não disponíveis", missingPubs.size.toString())
                 }
@@ -281,6 +296,42 @@ fun LibraryScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CitedPublicationCard(
+    cited: CitedPublication,
+    onDownload: (String) -> Unit,
+    onImport: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(cited.label, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (cited.ambiguous) "Conferir edição"
+                    else "Citada na nota · falta no acervo",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                cited.hint?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (cited.downloadUrl != null) {
+                TextButton(onClick = { onDownload(cited.downloadUrl) }) { Text("Baixar") }
+            } else if (!cited.ambiguous) {
+                TextButton(onClick = onImport) { Text("Importar publicação") }
             }
         }
     }

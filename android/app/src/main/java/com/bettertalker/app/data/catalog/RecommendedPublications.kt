@@ -47,6 +47,9 @@ object RecommendedPublications {
     private const val RR = "https://www.jw.org/pt/biblioteca/livros/adoracao-pura/"
     private const val IA = "https://www.jw.org/pt/biblioteca/livros/"
 
+    /** Publicações obrigatórias, sempre no topo da Biblioteca. */
+    val REQUIRED: List<String> = listOf("nwt", "be", "th", "s38")
+
     /** Top do discovery (curadoria fixa por release). */
     val ALL: List<RecommendedPub> = listOf(
         RecommendedPub("nwt", BIBLE, NWT),
@@ -56,8 +59,6 @@ object RecommendedPublications {
         RecommendedPub("s38", INSTRUCTIONS, S38),
         RecommendedPub("it", RESEARCH, IT),
         RecommendedPub("rsg", RESEARCH, RSG),
-        RecommendedPub("w", MAGAZINES, MAG),
-        RecommendedPub("g", MAGAZINES, MAG),
         RecommendedPub("mwb", MAGAZINES, MWB),
         RecommendedPub("rr", BOOKS, RR),
         RecommendedPub("ia", BOOKS, IA),

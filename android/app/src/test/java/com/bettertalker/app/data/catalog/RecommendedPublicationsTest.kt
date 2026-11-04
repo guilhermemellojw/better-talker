@@ -20,8 +20,11 @@ class RecommendedPublicationsTest {
     @Test
     fun curadoriaCobreTopEDerivaDoPubCatalog() {
         val symbols = RecommendedPublications.ALL.map { it.symbol }
-        listOf("nwt", "it", "rsg", "th", "be", "lmd", "s38", "w", "g", "mwb", "rr", "ia")
+        listOf("nwt", "it", "rsg", "th", "be", "lmd", "s38", "mwb", "rr", "ia")
             .forEach { assertTrue("faltou $it", symbols.contains(it)) }
+        // 3.3: revistas genéricas saem do catálogo; edições citadas vão para "Citadas".
+        assertFalse(symbols.contains("w"))
+        assertFalse(symbols.contains("g"))
         // nwtsty/it-1/it-2/it-3/dx não têm card próprio (não baixáveis ou unificados).
         listOf("nwtsty", "it-1", "it-2", "it-3", "dx").forEach {
             assertFalse("não deveria ter card: $it", symbols.contains(it))
@@ -32,6 +35,12 @@ class RecommendedPublicationsTest {
             assertTrue("sem título: ${p.symbol}", p.title.isNotBlank())
             assertTrue("sem página: ${p.symbol}", p.pageUrl.isNotBlank())
         }
+    }
+
+    @Test
+    fun obrigatoriasIncluemS38() {
+        assertEquals(listOf("nwt", "be", "th", "s38"), RecommendedPublications.REQUIRED)
+        assertNotNull(RecommendedPublications.ALL.firstOrNull { it.symbol == "s38" })
     }
 
     @Test
