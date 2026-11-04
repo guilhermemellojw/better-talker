@@ -306,6 +306,7 @@ Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
 | Reorder de 3 seções A34 → tablet | ✅ ordem 2/0/1 propagou |
 | Offline: nota criada em cada aparelho sem sync | ✅ união A+B, sem duplicatas |
 | Wipe local confirmado no tablet | ✅ 0 notas → sync → 47 notas |
+| Skew de 6 min no tablet | ✅ abortou com “~5min” e voltou ao normal |
 
 Bug real encontrado no reorder: o pull aplicava as seções uma a uma e
 violava o índice único `(noteId, order)` no segundo aparelho. O sync agora
@@ -316,7 +317,9 @@ normalizados com tie-break `(order, id)`. Testes JVM cobrem os três casos.
 Política documentada: quando a ordem remota vence, seções locais que não
 existem no remoto vão para o fim, preservando o conteúdo.
 
-Pendentes: wipe de nuvem e troca de conta (gates do M7, sem conta de teste),
-skew no Redmi e reexecução do M6 no par A34 + Redmi quando ele voltar ao ADB.
+**M6 funcional fechado** com A34 + tablet (e Redmi nos casos já cobertos do
+M2). Gates para o M7: wipe de nuvem e troca de conta bloqueada só com conta
+de teste; o restante dos 9 casos + 5 novos está verde, incluindo skew, wipe
+local/repopulação, conflito simétrico, tombstone, reorder e offline.
 As fixtures foram removidas nos dois aparelhos e os tombstones sincronizados.
 
