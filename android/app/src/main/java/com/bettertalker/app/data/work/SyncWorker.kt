@@ -30,6 +30,7 @@ import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.repo.encodeStringList
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.DiscourseType
+import androidx.room.withTransaction
 import com.google.firebase.firestore.FirebaseFirestore
 
 /**
@@ -140,6 +141,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             syncSections(
                 remote, db.speechSectionDao(), db.noteDao(),
                 db.tombstoneDao(), remoteTombs, pushEnabled = pushEnabled,
+                applyTransaction = { block -> db.withTransaction { block() } },
             )
             syncSubPoints(
                 remote, db.subPointDao(), db.speechSectionDao(), db.noteDao(),
@@ -717,6 +719,8 @@ internal suspend fun syncSections(
     tombstoneDao: TombstoneDao? = null,
     remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
     pushEnabled: Boolean = true,
+    /** Seam de transação; o worker passa `db.withTransaction`. */
+    applyTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
 ) {
     val remoteSectionTombs = remoteTombs
         .filterValues { it["type"] == "section" }
@@ -730,6 +734,8 @@ internal suspend fun syncSections(
     val localTombs = tombstoneDao?.all()?.filter { it.type == "section" }.orEmpty()
     val tombIds = (localTombs.map { it.id } + remoteSectionTombs).toSet()
     val noteIds = noteDao.allIncludingTrashed().map { it.id }.toSet()
+    // Repara ordens temporárias/negativas de uma execução interrompida.
+    applyTransaction { normalizeSectionOrders(sectionDao, noteIds) }
     val local = noteIds.flatMap { sectionDao.forNote(it) }
 
     if (pushEnabled) {
@@ -760,7 +766,9 @@ internal suspend fun syncSections(
             }
         }
     }
-    applySectionPulls(sectionDao, toApply.values)
+    if (toApply.isNotEmpty()) {
+        applyTransaction { applySectionPulls(sectionDao, toApply.values) }
+    }
     // push
     val pushedSectionIds = mutableSetOf<String>()
     for (sec in local) {
@@ -788,6 +796,24 @@ internal suspend fun syncSections(
     }
 }
 
+/** Repara ordens negativas deixadas por um pull interrompido. */
+private suspend fun normalizeSectionOrders(
+    sectionDao: SpeechSectionDao,
+    noteIds: Set<String>,
+) {
+    for (noteId in noteIds) {
+        val rows = sectionDao.forNote(noteId)
+        if (rows.none { it.order < 0 }) continue
+        val ordered = rows.sortedWith(compareBy({ it.order }, { it.id }))
+        ordered.forEachIndexed { index, sec ->
+            sectionDao.upsert(sec.copy(order = -2_000_000 - index))
+        }
+        ordered.forEachIndexed { index, sec ->
+            sectionDao.upsert(sec.copy(order = index))
+        }
+    }
+}
+
 /**
  * Aplica pulls de seção por nota. Se a ordem remota colide com a local
  * (reorder entre aparelhos), move as seções locais para uma faixa temporária,
@@ -798,7 +824,17 @@ private suspend fun applySectionPulls(
     sectionDao: SpeechSectionDao,
     pulls: Collection<SpeechSectionEntity>,
 ) {
-    for ((noteId, remote) in pulls.groupBy { it.noteId }) {
+    for ((noteId, rawRemote) in pulls.groupBy { it.noteId }) {
+        // Firestore não tem a constraint (noteId, order): normaliza duplicatas
+        // e ordens negativas com tie-break determinístico (order, id).
+        val remoteOrdered = rawRemote.sortedWith(compareBy({ it.order }, { it.id }))
+        val remote = if (rawRemote.size != rawRemote.map { it.order }.distinct().size ||
+            rawRemote.any { it.order < 0 }
+        ) {
+            remoteOrdered.mapIndexed { index, sec -> sec.copy(order = index) }
+        } else {
+            rawRemote
+        }
         val local = sectionDao.forNote(noteId)
         val localById = local.associateBy { it.id }
         val remoteIds = remote.map { it.id }.toSet()

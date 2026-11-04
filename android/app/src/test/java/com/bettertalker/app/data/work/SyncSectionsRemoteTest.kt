@@ -423,6 +423,45 @@ class SyncSectionsRemoteTest {
         )
     }
 
+    // 10c. Firestore sem constraint: orders remotos duplicados + local.
+    @Test
+    fun ordemRemotaDuplicada_normalizaPorOrderEId_semColidir() = runBlocking {
+        remote.set("sections", "s1", mapOf(
+            "noteId" to "n1", "order" to 1L, "updatedAt" to 200L,
+        ))
+        remote.set("sections", "s2", mapOf(
+            "noteId" to "n1", "order" to 1L, "updatedAt" to 200L,
+        ))
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(
+            section("s3", order = 0, updatedAt = 100L),
+        ))
+
+        syncSections(remote, secDao, noteDao)
+
+        assertEquals(
+            listOf("s1", "s2", "s3"),
+            secDao.forNote("n1").sortedBy { it.order }.map { it.id },
+        )
+        assertEquals(listOf(0, 1, 2), secDao.forNote("n1").sortedBy { it.order }.map { it.order })
+    }
+
+    // 10d. Pull interrompido deixou ordens negativas → próximo sync repara.
+    @Test
+    fun ordensNegativasDePullInterrompido_saoNormalizadas() = runBlocking {
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(
+            section("s1", order = -1_000_000, updatedAt = 100L),
+            section("s2", order = -1_000_001, updatedAt = 100L),
+        ))
+
+        syncSections(remote, secDao, noteDao, pushEnabled = false)
+
+        val orders = secDao.forNote("n1").sortedBy { it.order }.map { it.order }
+        assertEquals(listOf(0, 1), orders)
+        assertTrue(orders.none { it < 0 })
+    }
+
     // 11. M3: pull no empate — remoto tem a cápsula, local null, adota sem bump.
     @Test
     fun tribunaJsonRemotoIgual_localNull_adotaSemBump() = runBlocking {
