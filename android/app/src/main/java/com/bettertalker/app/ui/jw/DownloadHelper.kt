@@ -59,7 +59,12 @@ object DownloadHelper {
                 .setAllowedOverRoaming(false)
                 .setTitle(name)
                 .setDescription("Baixando publicação…")
-                .setDestinationInExternalFilesDir(context, "publicacoes", name)
+                // 3.3: staging externo único; o worker move para filesDir.
+                .setDestinationInExternalFilesDir(
+                    context,
+                    com.bettertalker.app.data.storage.PublicationStorage.STAGING_DIR,
+                    com.bettertalker.app.data.storage.PublicationStorage.stagingName(name),
+                )
                 .setNotificationVisibility(
                     if (hasNotifPermission(context)) DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                     else DownloadManager.Request.VISIBILITY_VISIBLE

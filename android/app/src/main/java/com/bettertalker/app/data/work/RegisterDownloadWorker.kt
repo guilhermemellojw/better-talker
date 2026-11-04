@@ -6,8 +6,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
+import com.bettertalker.app.data.storage.PublicationStorage
 import kotlinx.coroutines.delay
-import java.io.File
 
 /**
  * Reconhece downloads do DownloadManager (sobrevive a rotação/morte do app):
@@ -29,6 +29,7 @@ class RegisterDownloadWorker(ctx: Context, params: WorkerParameters) : Coroutine
         val db = DbProvider.get(applicationContext)
         val repo = LibraryRepository(applicationContext, db)
         val dm = applicationContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        PublicationStorage.cleanupStaging(applicationContext)
 
         // aguarda conclusão (até ~10 min)
         var tries = 0
@@ -58,8 +59,7 @@ class RegisterDownloadWorker(ctx: Context, params: WorkerParameters) : Coroutine
                     repo.failPlaceholder(placeholderId, "Arquivo indisponível. Baixe de novo.")
                     return Result.success()
                 }
-            val dir = File(applicationContext.filesDir, "publicacoes").apply { mkdirs() }
-            val tmp = File(dir, "dl-$placeholderId.tmp")
+            val tmp = PublicationStorage.workerTemp(applicationContext, placeholderId)
             applicationContext.contentResolver.openInputStream(uri)?.use { ins ->
                 tmp.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)

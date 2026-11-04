@@ -17,11 +17,13 @@ class SourceRowStateTest {
         edition: EditionStatus = EditionStatus.READY,
         text: TextStatus = TextStatus.RESOLVED,
         hint: String? = null,
+        downloadUrl: String? = null,
     ) = NoteSource(
         ref = "w25.07 §8",
         kind = SourceKind.PUBLICATION,
         citation = CitationStatus(edition, text),
         hint = hint,
+        downloadUrl = downloadUrl,
         editionKey = "w|2025|7",
         publicationKey = "w25.07",
     )
@@ -45,6 +47,28 @@ class SourceRowStateTest {
         assertEquals("Falta", state.label)
         assertEquals(SourceRowAction.DOWNLOAD, state.action)
         assertTrue(state.attention)
+    }
+
+    @Test
+    fun soTextoFaltando_semEdicaoAusente_viraConferir() {
+        val state = sourceRowState(
+            group(GroupStatus.MISSING, listOf(source(text = TextStatus.NOT_FOUND)))
+        )
+        assertEquals("Conferir", state.label)
+        assertEquals(SourceRowAction.RESOLVE, state.action)
+        assertTrue(state.attention)
+    }
+
+    @Test
+    fun downloadUrlFor_buscaEmQualquerFonteDoGrupo() {
+        val group = group(
+            GroupStatus.PARTIAL,
+            listOf(
+                source(edition = EditionStatus.MISSING),
+                source(edition = EditionStatus.MISSING, downloadUrl = "https://example.test/a.pdf"),
+            ),
+        )
+        assertEquals("https://example.test/a.pdf", downloadUrlFor(group))
     }
 
     @Test

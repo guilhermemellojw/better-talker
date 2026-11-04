@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 fun DataStorageSettingsScreen(
     onBack: () -> Unit,
     onOpenBackup: () -> Unit,
-    onOpenDownloads: () -> Unit,
     onOpenLibrary: () -> Unit,
 ) {
     Scaffold(
@@ -51,12 +50,6 @@ fun DataStorageSettingsScreen(
                 title = "Backup",
                 subtitle = "Exportar e importar dados (ZIP)",
                 onClick = onOpenBackup,
-            )
-            Spacer(Modifier.height(8.dp))
-            SubSectionTile(
-                title = "Downloads",
-                subtitle = "Pasta e busca automática",
-                onClick = onOpenDownloads,
             )
             Spacer(Modifier.height(8.dp))
             SubSectionTile(

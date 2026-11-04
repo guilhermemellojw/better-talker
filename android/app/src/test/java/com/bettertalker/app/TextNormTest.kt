@@ -133,17 +133,6 @@ class TextNormTest {
         assertEquals("video.mp4", dl.ensureExtension("video.mp4", "video/mp4"))
     }
 
-    @Test
-    fun filterUnregisteredByName() {
-        val mk = { n: String ->
-            com.bettertalker.app.data.repo.DownloadCandidate("content://x/$n", n, 10L)
-        }
-        val cands = listOf(mk("wp19.pdf"), mk("lff.pdf"))
-        val out = com.bettertalker.app.data.repo.filterUnregistered(cands, setOf("wp19.pdf"))
-        assertEquals(listOf("lff.pdf"), out.map { it.name })
-        assertTrue(com.bettertalker.app.data.repo.filterUnregistered(cands, setOf("wp19.pdf", "lff.pdf")).isEmpty())
-    }
-
     // ---------- T4 (refs): seções por título de JWPUB e capítulos ----------
 
     @Test

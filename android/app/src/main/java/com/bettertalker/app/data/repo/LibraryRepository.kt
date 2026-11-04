@@ -10,18 +10,15 @@ import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.TombstoneEntity
+import com.bettertalker.app.data.storage.PublicationStorage
 import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.matchBaseSlot
-import com.bettertalker.app.data.util.PublicationScanner
-import com.bettertalker.app.data.util.DownloadsTreeScanner
-import com.bettertalker.app.data.prefs.DownloadsTreeStore
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.work.IndexPublicationWorker
 import com.bettertalker.app.data.work.RegisterDownloadWorker
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,30 +26,6 @@ import java.io.File
 class ImportException(val reason: Reason, msg: String) : Exception(msg) {
     enum class Reason { UNSUPPORTED, TOO_BIG, IO }
 }
-
-/** Arquivo de documento achado em Downloads, ainda fora do app. */
-data class DownloadCandidate(val uriString: String, val name: String, val sizeBytes: Long)
-
-/**
- * Resultado da leitura da pasta Downloads. `folderChosen=false` = o usuário
- * ainda não escolheu a pasta (a UI deve abrir o seletor); `permissionLost`
- * = a URI existia mas o Android revogou o acesso (não cair no MediaStore).
- */
-data class DownloadsScanResult(
-    val candidates: List<DownloadCandidate> = emptyList(),
-    val folderChosen: Boolean = false,
-    val permissionLost: Boolean = false,
-    val error: String? = null,
-)
-
-/**
- * Tira os já registrados (por nome). Puro/testável.
- * Nome igual = mesmo arquivo baixado de novo (o registro mostra o estado).
- */
-fun filterUnregistered(
-    cands: List<DownloadCandidate>,
-    registeredNames: Set<String>
-): List<DownloadCandidate> = cands.filter { it.name !in registeredNames }
 
 class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     companion object {
@@ -94,129 +67,6 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         db.attachmentDao().all().firstOrNull {
             it.fileName == fileName && it.appPath.isNotBlank() && File(it.appPath).isFile
         }
-
-    /**
-     * Documentos em Downloads (MediaStore) ainda não importados.
-     * Best-effort: no Android 13+ só enxerga arquivos próprios/via SAF —
-     * o vazio orienta para o botão Importar. Nunca quebra (try/catch).
-     */
-    suspend fun scanDownloads(): List<DownloadCandidate> = withContext(Dispatchers.IO) {
-        val out = mutableListOf<DownloadCandidate>()
-        try {
-            // 1. Pasta privada do app (downloads via DownloadManager)
-            val privDir = ctx.getExternalFilesDir("publicacoes")
-            if (privDir != null && privDir.exists()) {
-                privDir.listFiles()?.forEach { f ->
-                    if (f.isFile && detectKind(f.name) != DocKind.UNSUPPORTED) {
-                        out += DownloadCandidate(
-                            uriString = android.net.Uri.fromFile(f).toString(),
-                            name = f.name,
-                            sizeBytes = f.length(),
-                        )
-                    }
-                }
-            }
-            // 2. MediaStore (downloads manuais do navegador)
-            if (android.os.Build.VERSION.SDK_INT >= 29) {
-                val col = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                ctx.contentResolver.query(
-                    col,
-                    arrayOf(
-                        android.provider.MediaStore.Downloads._ID,
-                        android.provider.MediaStore.Downloads.DISPLAY_NAME,
-                        android.provider.MediaStore.Downloads.SIZE
-                    ),
-                    null, null,
-                    "${android.provider.MediaStore.Downloads.DATE_MODIFIED} DESC"
-                )?.use { c ->
-                    val idIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID)
-                    val nameIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.DISPLAY_NAME)
-                    val sizeIdx = c.getColumnIndexOrThrow(android.provider.MediaStore.Downloads.SIZE)
-                    var n = 0
-                    while (c.moveToNext() && n < 50) {
-                        val name = c.getString(nameIdx).orEmpty()
-                        if (detectKind(name) == DocKind.UNSUPPORTED) continue
-                        val id = c.getLong(idIdx)
-                        out += DownloadCandidate(
-                            android.content.ContentUris.withAppendedId(col, id).toString(),
-                            name, c.getLong(sizeIdx)
-                        )
-                        n++
-                    }
-                }
-            }
-            val registered = db.attachmentDao().all().map { it.fileName }.toSet()
-            filterUnregistered(out, registered)
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-    suspend fun scanAllDownloads(): List<DownloadCandidate> =
-        scanAllDownloadsDetailed().candidates
-
-    /**
-     * Caminho SAF explícito: sem pasta escolhida não cai em MediaStore; com
-     * permissão revogada devolve `permissionLost` para a UI pedir de novo.
-     */
-    suspend fun scanAllDownloadsDetailed(): DownloadsScanResult = withContext(Dispatchers.IO) {
-        val treeUri = DownloadsTreeStore.getUri(this@LibraryRepository.ctx).first()
-            ?: return@withContext DownloadsScanResult(folderChosen = false)
-        // DocumentFile.listFiles() devolve vazio (sem exceção) quando o Android
-        // revogou o grant; sem esta checagem uma pasta revogada parecia vazia.
-        val hasGrant = ctx.contentResolver.persistedUriPermissions.any {
-            it.isReadPermission && it.uri.toString() == treeUri.toString()
-        }
-        if (!hasGrant) {
-            return@withContext DownloadsScanResult(folderChosen = true, permissionLost = true)
-        }
-        try {
-            val all = DownloadsTreeScanner(this@LibraryRepository.ctx, treeUri).scan()
-            val registered = db.attachmentDao().all().map { it.fileName }.toSet()
-            DownloadsScanResult(
-                candidates = filterUnregistered(all, registered),
-                folderChosen = true,
-            )
-        } catch (_: SecurityException) {
-            DownloadsScanResult(folderChosen = true, permissionLost = true)
-        } catch (e: Exception) {
-            DownloadsScanResult(
-                folderChosen = true,
-                error = e.message?.take(120),
-            )
-        }
-    }
-
-    /**
-     * Phase 2 — Escaneia Downloads e auto-importa publicações citadas que
-     * estão faltando no acervo. Dedupe por edição: não reimporta se já existe.
-     */
-    suspend fun scanAndImportMissing(
-        citedRefs: List<com.bettertalker.app.data.util.RefDetector.DetectedRef>,
-        existingAttachments: List<AttachmentEntity>,
-    ): PublicationScanner.ScanResult = withContext(Dispatchers.IO) {
-        val candidates = scanAllDownloads()
-        val matches = PublicationScanner.match(candidates, citedRefs, existingAttachments)
-        val toImport = matches.filter { !it.alreadyInAcervo }
-        var imported = 0
-        for (match in toImport) {
-            try {
-                importUri(android.net.Uri.parse(match.candidate.uriString))
-                imported++
-            } catch (_: Exception) {
-                // registra falha, não aborta
-            }
-        }
-        val alreadyCount = matches.count { it.alreadyInAcervo }
-        val notFound = PublicationScanner.notFoundRefs(citedRefs, matches)
-        val unrecognized = PublicationScanner.unrecognizedCandidates(candidates, matches)
-        PublicationScanner.ScanResult(
-            matches = matches,
-            imported = imported,
-            alreadyInAcervo = alreadyCount,
-            notFound = notFound,
-            unrecognized = unrecognized,
-        )
-    }
 
     suspend fun baseReady(slot: String) = db.attachmentDao().baseReady(slot)
 
@@ -305,9 +155,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                 throw ImportException(ImportException.Reason.UNSUPPORTED, it)
             }
             val hash = sha256Of(tmp)
-            val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
-            val safe = name.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
-            val target = File(dir, "$id-$safe")
+            val target = PublicationStorage.internalFile(ctx, id, name)
             dst = target
             tmp.copyTo(target, overwrite = true)
             db.attachmentDao().update(
@@ -365,9 +213,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                         linkIfUnlinked(existing, noteId)
                         return@withContext existing.id
                     }
-                    val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
-                    val safe = existing.fileName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
-                    val target = File(dir, "${existing.id}-$safe")
+                    val target = PublicationStorage.internalFile(ctx, existing.id, existing.fileName)
                     dst = target
                     src.copyTo(target, overwrite = true)
                     db.attachmentDao().upsert(
@@ -385,10 +231,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     SyncScheduler.requestSync(ctx)
                     return@withContext existing.id
                 }
-                val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
                 val id = newId("att")
-                val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
-                val target = File(dir, "$id-$safe")
+                val target = PublicationStorage.internalFile(ctx, id, displayName)
                 dst = target
                 src.copyTo(target, overwrite = true)
                 val slot = matchBaseSlot(displayName)
@@ -471,9 +315,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                 db.attachmentDao().delete(id)
                 return
             }
-            val dir = File(ctx.filesDir, "publicacoes").apply { mkdirs() }
-            val safe = displayName.replace(Regex("[^a-zA-Z0-9._\\- ]"), "_").takeLast(80)
-            val dst = File(dir, "$id-$safe")
+            val dst = PublicationStorage.internalFile(ctx, id, displayName)
             src.copyTo(dst, overwrite = true)
             db.attachmentDao().update(
                 cur.copy(

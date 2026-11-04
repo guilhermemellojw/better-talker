@@ -56,6 +56,7 @@ import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.SourceRowAction
+import com.bettertalker.app.data.copilot.downloadUrlFor
 import com.bettertalker.app.data.copilot.sourceRowState
 import com.bettertalker.app.data.util.citationStatusLabel
 import com.bettertalker.app.data.util.groupNoteSources
@@ -69,7 +70,7 @@ import kotlinx.coroutines.CoroutineScope
  * Design limpo: uma linha por publicação/edição, não por referência.
  * Status em pílula curta (Disponível, Baixar, Indexando, Atenção).
  * Tudo colapsado por padrão; detalhes (refs, arquivo, motivo) só ao expandir.
- * Rodapé fixo: Procurar em Downloads (primário), Atualizar, Fechar.
+ * Rodapé fixo: Abrir Biblioteca (primário), Atualizar, Fechar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,7 +193,7 @@ fun SourcesSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onFindDownloads) {
-                    Text("Procurar em Downloads", fontWeight = FontWeight.SemiBold)
+                    Text("Abrir Biblioteca", fontWeight = FontWeight.SemiBold)
                 }
                 Row {
                     TextButton(onClick = onRefresh) { Text("Atualizar") }
@@ -310,17 +311,19 @@ private fun PublicationRow(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Reindexar") }
                 SourceRowAction.DOWNLOAD -> {
-                    val actionSource = group.sources.firstOrNull {
-                        it.status == SourceStatus.EDITION_MISSING
-                    }
-                    val url = (actionSource?.downloadUrl ?: actionSource?.refStatus?.downloadUrl)
-                        ?.takeIf { it.isNotBlank() }
+                    val url = downloadUrlFor(group)
                     TextButton(
                         onClick = {
                             if (url != null && downloadCtl != null) {
                                 downloadCtl.openPage(ctx, url, onDownloaded)
                             } else {
-                                onOpenLibrary()
+                                // Nunca abrir a Biblioteca em silêncio por falta
+                                // de URL: a Biblioteca é para gerenciar, não baixar.
+                                android.widget.Toast.makeText(
+                                    ctx,
+                                    "Não consegui abrir a página desta edição.",
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
                             }
                         },
                         modifier = Modifier.heightIn(min = 48.dp),
@@ -370,7 +373,7 @@ private fun PublicationRow(
                         TextButton(
                             onClick = onFindDownloads,
                             modifier = Modifier.heightIn(min = 48.dp),
-                        ) { Text("Já baixei — procurar") }
+                        ) { Text("Importar publicação") }
                     }
                 }
             }
