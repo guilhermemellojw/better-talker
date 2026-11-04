@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v3.2.0/42 — lote visual (Esboços · Treino · Palco + demo no Palco + micro-polish).**
+> **Estágio: v3.3.0/44 — Biblioteca local, fontes/Citadas e reparo seguro; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,15 +9,15 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 > **Nomenclatura:** **Esboços** é a biblioteca; **Treino** é a aba de ensaio; **Palco** é a apresentação ao vivo. “Ensaio” e “Apresentar” são nomes históricos.
 
-## 📌 Estado atual (2026-11-02)
+## 📌 Estado atual (2026-11-04)
 
-- **Versão:** 3.2.0 (versionCode 42), pronta para publicar; **lote visual** (IA Esboços · Treino · Palco, cartão atual + picker compartilhado, demo no Palco, micro-polish) sobre **C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1/M1.1 + card-first 1–4.1 + Treino MVP + Palco**. Validado em A34, Redmi 9 e tablet.
+- **Versão:** 3.3.0 (versionCode 44), pronta para publicar; **Biblioteca local** (armazenamento interno, Importar publicação/Restaurar arquivo, S-38 obrigatória, Citadas e status único) e **fontes/reparo** (it-1/it-2 → it, URL em todos os estados, reparo validado) sobre o lote visual 3.2. Validado no A34.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
 - **Fase 3 (Criar do zero):** sheet com título, tipo, duração, pontos e prévia; **Discurso público** (`S34_DISCOURSE`, Intro + N pontos + Conclusão) e **Demonstração livre** (`FREE_DEMO`, 1 BODY, sem S-38). Criação atômica via `createPastedNote`.
 - **UX (card minimalista + acessibilidade):** minutos, ✨ e ⋮ no cabeçalho; linha de raciocínio colapsável (`+ Estrutura`, fechada acima de 5 subpontos); rodapé com handle e chips de demo; alvos de 48dp, labels, headings e swatches selecionáveis.
-- **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`Disponível`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Já baixei” abre a Biblioteca já procurando em Downloads.
+- **Confiança do Copilot:** chip **Fontes X/Y** no editor + sheet com Bíblia/publicações, status (`Disponível`, `Edição não importada`, `Texto não encontrado`, `Baixando`, `Indexando`) e ações; `lmd apêndice A ponto N` detectado; sem fonte fica visível antes da resposta. O sheet agrupa por publicação (TNM única), subagrupa a TNM por livro e adquire pelo **WebView do jw.org** (“Baixar no jw.org”); “Importar publicação” abre a Biblioteca local.
 - **Refs unificadas:** `NoteRefsCollector` é a fonte única (título, mdText/plainText, esboço, seções e subpontos); checklist e Copilot usam a mesma lista, e a Bíblia da TNM entra como evidência no prompt.
 - **C2a — prefixo de página (v2.8.2, branch `feat/v2.8.2-c2a`):** o detector aceita `w25.07 p. 22 §8`, `p.22`, `pág.`, `página` e `pg.`, mantendo `§`/`§§` e ranges. A pergunta injeta 1 trecho e a resposta usa o §8; o caminho sem prefixo continua funcionando. **2.533 testes JVM / 0 falhas**; `lintRelease` verde. Ver [relatório do C2a](docs/reports/validacao-2026-10-27-a34-c2a.md).
 - **P0 voz — coexistência TTS/STT (v2.8.2, branch `fix/v2.8.2-voice-coexistence`):** Stage para o TTS ao abrir o microfone e bloqueia “Ouvir” durante a análise; chat desabilita microfone durante TTS e “Ouvir” durante a escuta; `VoiceRouter` para os dois motores ao falar/trocar; `TextToSpeechManager` checa retorno de `speak` e limpa `_speaking` em `onStop`/`onError`; `SpeechRecognizerManager.finish()` tem timeout de 5 s. **2.538 testes / 0 falhas**; `lintRelease` verde. STT do sistema no A34 segue `error=10` com fallback Interrupted. Ver [relatório do P0 voz](docs/reports/validacao-2026-10-27-a34-voice-p0.md).
@@ -29,7 +29,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **2.831 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Palco + lote visual) · `lintDebug` 0 errors.
-- **Distribuição:** **v3.2.0/42** (APK assinado + SHA-256, arm64; hash no `app-release.apk.sha256` do release). O v3.1.0/41 e anteriores continuam disponíveis. Ver [v3.2.0](docs/releases/v3.2.0.md) e [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v3.3.0/44** (APK assinado + SHA-256, arm64; hash no `app-release.apk.sha256` do release). O v3.2.0/42 e anteriores continuam disponíveis. O sync beta é um APK separado (`3.3.0-syncbeta`, 43) e não entra no release público. Ver [v3.3.0](docs/releases/v3.3.0.md) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 

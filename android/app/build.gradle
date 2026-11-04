@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 42
-        versionName "3.2.0"
+        versionCode 44
+        versionName "3.3.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
@@ -36,8 +36,8 @@ android {
     }
     // M7: o APK público não embute Firebase. O beta de sync é um flavor
     // separado, com Google Services/opt-in próprio. `syncBetaRelease` usa o
-    // MESMO applicationId do público (atualiza por cima), mas versionCode
-    // acima dele; `publicApp` continua 100% local.
+    // MESMO applicationId do público; a ordem dos versionCodes é documentada
+    // no flavor. `publicApp` continua 100% local.
     flavorDimensions "channel"
     productFlavors {
         publicApp {
@@ -47,8 +47,8 @@ android {
         syncBeta {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
-            // 42 é o público 3.2.0. O beta sobe 43 para instalar por cima;
-            // antes de publicar o 3.3 estável, o público precisa ir para 44.
+            // Beta 43 (3.3.0-syncbeta). O público 3.3.0/44 instala por cima
+            // e desliga o sync; se o beta for rebuildado depois, usar 45.
             versionCode 43
             versionName "3.3.0"
             versionNameSuffix "-syncbeta"
