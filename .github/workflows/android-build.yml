@@ -90,6 +90,34 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
 
+      - name: Lint release
+        id: lint_release
+        working-directory: android
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./gradlew :app:lintRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-lint.log
+
+      - name: Show lint failure log
+        if: steps.lint_release.outcome == 'failure'
+        working-directory: android
+        run: |
+          echo "::group::Gradle lint log (last 100 lines)"
+          tail -100 gradle-lint.log || true
+          echo "::endgroup::"
+          echo "::group::Errors only"
+          grep -iE "error|FAILURE|what went wrong|Caused by|Lint found" gradle-lint.log | tail -40 || true
+          echo "::endgroup::"
+          exit 1
+
+      - name: Upload lint reports (failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: better-talker-lint-reports
+          path: android/app/build/reports/lint-results-release.html
+          if-no-files-found: ignore
+
       - name: Build debug APK
         id: build_apk
         working-directory: android
