@@ -146,7 +146,11 @@ internal class FakeSectionDao(rows: List<SpeechSectionEntity> = emptyList()) : S
         flowOf(rows.filter { it.noteId == noteId })
     override suspend fun get(id: String): SpeechSectionEntity? = rows.firstOrNull { it.id == id }
     override suspend fun upsert(section: SpeechSectionEntity) {
-        rows = rows.filter { it.id != section.id }.toMutableList().also { it.add(section) }
+        val others = rows.filter { it.id != section.id }
+        check(others.none { it.noteId == section.noteId && it.order == section.order }) {
+            "UNIQUE constraint failed: speech_sections.noteId, speech_sections.order"
+        }
+        rows = others.toMutableList().also { it.add(section) }
     }
     override suspend fun upsertAll(sections: List<SpeechSectionEntity>) { sections.forEach { upsert(it) } }
     override suspend fun updateObjective(id: String, objective: String?, updatedAt: Long) {

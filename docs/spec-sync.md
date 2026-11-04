@@ -299,12 +299,18 @@ Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
 | `sourceType`/`symbol` de anexos no tablet | ✅ (bible/nwt, training/be…) |
 | Wipe local: diálogo + Exportar + Cancelar | ✅ (sem confirmar) |
 | Conflito real (tablet perde o LWW) | ✅ cópia `(conflito)` com FREE_DEMO + `tribunaJson` |
+| Conflito inverso (A34 perde o LWW) | ✅ cópia `(conflito)` com FREE_DEMO + `tribunaJson` |
 | Conta → Conflitos → “Abrir” | ✅ abriu o editor da cópia |
 | Instalação do APK de teste no tablet | ✅ (autorizada; “Instalar via USB” ligado) |
+| Tombstone entre A34/tablet | ✅ notas removidas nos dois após tombstones |
+| Reorder de 3 seções A34 → tablet | ✅ ordem 2/0/1 propagou |
 
-Pendentes para fechar o M6: conflito no sentido inverso (A34 perde o LWW),
-wipe local confirmado em aparelho descartável com repopulação, wipe de nuvem,
-troca de conta bloqueada, skew/offline e tombstone/reorder entre A34 + Redmi.
-O A34 caiu do ADB durante o teste inverso; as fixtures foram removidas no
-tablet com tombstones e o A34 deve aplicá-las no próximo sync.
+Bug real encontrado no reorder: o pull aplicava as seções uma a uma e
+violava o índice único `(noteId, order)` no segundo aparelho. O sync agora
+coleta o pull e aplica em duas fases (ordens temporárias → ordem remota),
+com fake de teste que impõe a constraint.
+
+Pendentes para fechar o M6: wipe local confirmado em aparelho descartável com
+repopulação, wipe de nuvem, troca de conta bloqueada, skew e offline real.
+As fixtures foram removidas nos dois aparelhos e os tombstones sincronizados.
 
