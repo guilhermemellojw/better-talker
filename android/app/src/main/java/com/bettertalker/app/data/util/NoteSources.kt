@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.util
 
+import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
@@ -7,9 +8,10 @@ import com.bettertalker.app.domain.speech.SubPoint
 /** Tipo de fonte citada na nota. */
 enum class SourceKind { BIBLE, PUBLICATION }
 
-/** be/th orientam a oratória; nunca são fonte de conteúdo. */
+/** be/th orientam a oratória; s38 orienta a reunião; nunca são prova factual. */
 fun NoteSource.isTrainingSource(): Boolean =
-    kind == SourceKind.PUBLICATION && publicationKey in setOf("be", "th")
+    kind == SourceKind.PUBLICATION &&
+        SourceType.fromBaseSlot(publicationKey) == SourceType.TRAINING
 
 /** Estado de uma fonte no acervo local. */
 enum class SourceStatus {

@@ -10,6 +10,8 @@ import com.bettertalker.app.data.util.normalizeText
 object TrainingClassifier {
 
     private val rules: List<Pair<TrainingCategory, Regex>> = listOf(
+        // S-38: orientação de reunião, não técnica de oratória.
+        TrainingCategory.MEETING to Regex("(instrucoes|reuniao|s-38|s38)"),
         TrainingCategory.INTRODUCTION to Regex("(introducao|introduzir|abertura|comeco|comecar|iniciar|inicio|primeira impressao)"),
         TrainingCategory.QUESTIONS to Regex("(pergunta|questionar|perguntas de)"),
         TrainingCategory.DEVELOPMENT to Regex("(desenvolvimento|desenvolver|pontos principais|estrutura|esboco|corpo do discurso)"),

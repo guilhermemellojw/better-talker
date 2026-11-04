@@ -180,8 +180,11 @@ fun rememberDownloadCtl(vm: CopilotViewModel, snack: SnackbarHostState): Downloa
 @Composable
 fun ProvenanceLine(source: String, trainingCategory: String?) {
     if (trainingCategory != null) {
+        val track = if (trainingCategory ==
+            com.bettertalker.app.data.domain.TrainingCategory.MEETING.serial
+        ) "Orientação de reunião" else "Técnica de apresentação"
         Text(
-            "🎤 Técnica de apresentação ($trainingCategory): $source",
+            "🎤 $track ($trainingCategory): $source",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.secondary
         )

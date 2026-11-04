@@ -172,16 +172,6 @@ fun LibraryScreen(
                 jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
                 showJw = true
             }
-            val openFormats: (RecommendedPub) -> Unit = { pub ->
-                pub.formatsUrl?.let { u ->
-                    ctx.startActivity(
-                        android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(u),
-                        )
-                    )
-                }
-            }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                 item(key = "required-title") {
                     LibrarySectionHeader(
@@ -195,7 +185,6 @@ fun LibraryScreen(
                         match = findInLibrary(pub.symbol, items),
                         linkNoteId = linkNoteId,
                         onDownload = { openPub(pub) },
-                        onFormats = { openFormats(pub) },
                         onLink = { attId ->
                             vm.linkToNote(attId, linkNoteId.orEmpty())
                             onBack()
@@ -225,7 +214,6 @@ fun LibraryScreen(
                             match = findInLibrary(pub.symbol, items),
                             linkNoteId = linkNoteId,
                             onDownload = { openPub(pub) },
-                            onFormats = { openFormats(pub) },
                             onLink = { attId ->
                                 vm.linkToNote(attId, linkNoteId.orEmpty())
                                 onBack()
@@ -288,9 +276,11 @@ private fun CitedPublicationCard(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(cited.label, style = MaterialTheme.typography.titleSmall)
+                LibraryStatusPill(
+                    if (cited.ambiguous) LibraryStatus.AMBIGUOUS else LibraryStatus.MISSING,
+                )
                 Text(
-                    if (cited.ambiguous) "Conferir edição"
-                    else "Citada na nota · falta no acervo",
+                    "Citada na nota",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -345,16 +335,11 @@ private fun AttachmentRow(
             Column(Modifier.weight(1f)) {
                 Text(a.fileName, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                 Text(
-                    if (a.status == "downloading") "Baixando… ${a.fileName}"
-                    else "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
-                        "ready" -> "Indexado"
-                        "missing" -> "Falta o arquivo neste aparelho"
-                        "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
-                        else -> "Indexando…"
-                    },
+                    "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.secondary,
                 )
+                LibraryStatusPill(LibraryStatus.fromAttachment(a))
                 if (slotTitle != null) {
                     Text(
                         "Base: $slotTitle",
@@ -438,7 +423,6 @@ private fun RecommendedPubCard(
     match: AttachmentEntity?,
     linkNoteId: String?,
     onDownload: () -> Unit,
-    onFormats: () -> Unit,
     onLink: (String) -> Unit,
 ) {
     val alreadyInLibrary = match != null
@@ -449,18 +433,12 @@ private fun RecommendedPubCard(
         ) {
             Column(Modifier.weight(1f)) {
                 Text("${pub.title} (${pub.symbol})", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    if (match != null) "Disponível" else "Faltando",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (alreadyInLibrary) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.secondary
+                LibraryStatusPill(
+                    if (match != null) LibraryStatus.READY else LibraryStatus.MISSING,
                 )
             }
             if (!alreadyInLibrary) {
                 TextButton(onClick = onDownload) { Text("Baixar") }
-            }
-            if (pub.formatsUrl != null) {
-                TextButton(onClick = onFormats) { Text("Formatos") }
             }
             if (match != null && linkNoteId != null && match.noteId != linkNoteId) {
                 TextButton(onClick = { onLink(match.id) }) { Text("Vincular") }
