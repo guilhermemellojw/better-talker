@@ -313,7 +313,9 @@ violava o índice único `(noteId, order)` no segundo aparelho. O sync agora
 coleta o pull e aplica em duas fases (ordens temporárias → ordem remota),
 dentro de `db.withTransaction`; ordens negativas de pull interrompido são
 normalizadas no início do próximo sync. Orders remotos duplicados são
-normalizados com tie-break `(order, id)`. Testes JVM cobrem os três casos.
+normalizados com tie-break `(order, id)`. Testes JVM cobrem os três casos,
+incluindo falha injetada no meio do pull: a transação reverte o snapshot e o
+próximo sync reaplica a ordem sem deixar valores negativos.
 Política documentada: quando a ordem remota vence, seções locais que não
 existem no remoto vão para o fim, preservando o conteúdo.
 
@@ -322,4 +324,21 @@ M2). Gates para o M7: wipe de nuvem e troca de conta bloqueada só com conta
 de teste; o restante dos 9 casos + 5 novos está verde, incluindo skew, wipe
 local/repopulação, conflito simétrico, tombstone, reorder e offline.
 As fixtures foram removidas nos dois aparelhos e os tombstones sincronizados.
+
+## 15. M7 — gate de produto/release
+
+M7 não é apenas ligar o Firebase; a ordem é:
+
+1. **CI verde** no commit corrente; crash local de lint é infraestrutura.
+2. **Conta de teste** para wipe de nuvem e troca de conta bloqueada, com
+   export antes e re-login. Sem conta de teste, não fechar o M7.
+3. **Firebase de produção**: apps `com.bettertalker.app` e `.debug`, SHA-1/
+   SHA-256 dos dois, Google Auth, rules v2 e `google-services.json` via
+   secret/arquivo local — nunca no repo.
+4. **Opt-in**: sync desligado por padrão, rótulo “Experimental”, first-sync
+   Enviar/Baixar/Mesclar e status/conflitos visíveis.
+5. **Beta pequeno**: monitorar cópias de conflito, wipe acidental, anexos
+   `missing` e custo; critério de saída: nenhuma perda de texto.
+6. **Release**: decidir versão (3.3/4.0), notas e se Firebase entra no APK
+   público. Até lá, `v3.2.0` continua pública e o sync fica fora da release.
 

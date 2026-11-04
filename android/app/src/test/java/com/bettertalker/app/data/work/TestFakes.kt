@@ -140,12 +140,20 @@ internal class FakeTombstoneDao(rows: List<TombstoneEntity> = emptyList()) : Tom
 
 internal class FakeSectionDao(rows: List<SpeechSectionEntity> = emptyList()) : SpeechSectionDao {
     var rows: MutableList<SpeechSectionEntity> = rows.toMutableList()
+    /** Teste de falha: deixa passar N upserts e derruba o seguinte. */
+    var failAfterUpserts: Int? = null
+    private var upsertCount = 0
+
     override suspend fun forNote(noteId: String): List<SpeechSectionEntity> =
         rows.filter { it.noteId == noteId }.sortedBy { it.order }
     override fun observeForNote(noteId: String): Flow<List<SpeechSectionEntity>> =
         flowOf(rows.filter { it.noteId == noteId })
     override suspend fun get(id: String): SpeechSectionEntity? = rows.firstOrNull { it.id == id }
     override suspend fun upsert(section: SpeechSectionEntity) {
+        failAfterUpserts?.let { limit ->
+            upsertCount++
+            check(upsertCount <= limit) { "falha injetada no pull de seções" }
+        }
         val others = rows.filter { it.id != section.id }
         check(others.none { it.noteId == section.noteId && it.order == section.order }) {
             "UNIQUE constraint failed: speech_sections.noteId, speech_sections.order"
