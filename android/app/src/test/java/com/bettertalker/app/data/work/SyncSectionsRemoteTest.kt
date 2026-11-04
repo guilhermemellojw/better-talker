@@ -137,8 +137,8 @@ class SyncSectionsRemoteTest {
         remote.set("sections", "s2", mapOf("noteId" to "n1", "title" to "Nova", "updatedAt" to 500L))
         val noteDao = FakeNoteDao(listOf(note()))
         val secDao = FakeSectionDao(listOf(
-            section("s1", title = "Local nova", updatedAt = 300L),
-            section("s2", title = "Local antiga", updatedAt = 200L),
+            section("s1", order = 0, title = "Local nova", updatedAt = 300L),
+            section("s2", order = 1, title = "Local antiga", updatedAt = 200L),
         ))
 
         syncSections(remote, secDao, noteDao)
@@ -394,6 +394,33 @@ class SyncSectionsRemoteTest {
         assertNull(remote.doc("sections", "s1"))
         assertEquals("section", remote.doc("tombstones", "s1")!!["type"])
         assertEquals(99L, remote.doc("tombstones", "s1")!!["deletedAt"])
+    }
+
+    // 10b. Reorder remoto com a mesma nota: não pode violar (noteId, order).
+    @Test
+    fun reorderRemoto_colideComOrdemLocal_aplicaEmDuasFases() = runBlocking {
+        remote.set("sections", "s1", mapOf(
+            "noteId" to "n1", "order" to 2L, "updatedAt" to 200L,
+        ))
+        remote.set("sections", "s2", mapOf(
+            "noteId" to "n1", "order" to 0L, "updatedAt" to 200L,
+        ))
+        remote.set("sections", "s3", mapOf(
+            "noteId" to "n1", "order" to 1L, "updatedAt" to 200L,
+        ))
+        val noteDao = FakeNoteDao(listOf(note()))
+        val secDao = FakeSectionDao(listOf(
+            section("s1", order = 0, updatedAt = 100L),
+            section("s2", order = 1, updatedAt = 100L),
+            section("s3", order = 2, updatedAt = 100L),
+        ))
+
+        syncSections(remote, secDao, noteDao)
+
+        assertEquals(
+            listOf("s2", "s3", "s1"),
+            secDao.forNote("n1").sortedBy { it.order }.map { it.id },
+        )
     }
 
     // 11. M3: pull no empate — remoto tem a cápsula, local null, adota sem bump.

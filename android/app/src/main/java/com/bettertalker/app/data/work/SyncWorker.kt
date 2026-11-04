@@ -739,7 +739,10 @@ internal suspend fun syncSections(
             if (!cloud.containsKey(t.id)) tombstoneDao?.remove(t.id)
         }
     }
-    // pull (LWW) — só de notas que ainda existem localmente
+    // pull (LWW) — só de notas que ainda existem localmente. Coleta antes de
+    // aplicar: reorder remoto precisa de duas fases para não violar o índice
+    // único (noteId, order).
+    val toApply = LinkedHashMap<String, SpeechSectionEntity>()
     for ((id, data) in cloud) {
         if (tombIds.contains(id)) continue
         val noteId = data["noteId"] as? String ?: continue
@@ -747,16 +750,17 @@ internal suspend fun syncSections(
         val cur = local.firstOrNull { it.id == id }
         val cup = cloudUpdatedAt(data)
         if (cur == null || cup > cur.updatedAt) {
-            sectionDao.upsert(cloudSection(id, data))
+            toApply[id] = cloudSection(id, data)
         } else if (cup == cur.updatedAt && cur.tribunaJson == null) {
             // M3: mesma revisão, mas o remoto já tem a cápsula. Local null
             // adota; se ambos tiverem valores diferentes, o local vence.
             val remoteTribuna = data["tribunaJson"] as? String
             if (remoteTribuna != null) {
-                sectionDao.upsert(cur.copy(tribunaJson = remoteTribuna))
+                toApply[id] = cur.copy(tribunaJson = remoteTribuna)
             }
         }
     }
+    applySectionPulls(sectionDao, toApply.values)
     // push
     val pushedSectionIds = mutableSetOf<String>()
     for (sec in local) {
@@ -780,6 +784,44 @@ internal suspend fun syncSections(
             if (data["tribunaJson"] is String) continue
             if (cloudUpdatedAt(data) != sec.updatedAt) continue
             remote.set("sections", sec.id, sectionMap(sec))
+        }
+    }
+}
+
+/**
+ * Aplica pulls de seção por nota. Se a ordem remota colide com a local
+ * (reorder entre aparelhos), move as seções locais para uma faixa temporária,
+ * grava as remotas e devolve as locais não presentes no remoto para o fim.
+ * Sem isso, o índice único `(noteId, order)` derruba o sync no meio.
+ */
+private suspend fun applySectionPulls(
+    sectionDao: SpeechSectionDao,
+    pulls: Collection<SpeechSectionEntity>,
+) {
+    for ((noteId, remote) in pulls.groupBy { it.noteId }) {
+        val local = sectionDao.forNote(noteId)
+        val localById = local.associateBy { it.id }
+        val remoteIds = remote.map { it.id }.toSet()
+        val collision = remote.any { r ->
+            val l = localById[r.id]
+            (l != null && l.order != r.order) ||
+                (l == null && local.any { it.id !in remoteIds && it.order == r.order })
+        }
+        if (!collision) {
+            for (sec in remote) sectionDao.upsert(sec)
+            continue
+        }
+        // Fase 1: tira todas as locais da faixa de ordem remota.
+        local.forEachIndexed { index, sec ->
+            sectionDao.upsert(sec.copy(order = -1_000_000 - index))
+        }
+        // Fase 2: grava as remotas com a ordem vencedora.
+        for (sec in remote) sectionDao.upsert(sec)
+        // Locais que o remoto não tem (raro) vão para o fim, sem colidir.
+        var next = (remote.map { it.order }.maxOrNull() ?: -1) + 1
+        for (sec in local) {
+            if (sec.id in remoteIds) continue
+            sectionDao.upsert(sec.copy(order = next++))
         }
     }
 }
