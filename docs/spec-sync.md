@@ -305,13 +305,18 @@ Validação A34 (conta existente) + tablet (25040RP0AL, login novo):
 | Tombstone entre A34/tablet | ✅ notas removidas nos dois após tombstones |
 | Reorder de 3 seções A34 → tablet | ✅ ordem 2/0/1 propagou |
 | Offline: nota criada em cada aparelho sem sync | ✅ união A+B, sem duplicatas |
+| Wipe local confirmado no tablet | ✅ 0 notas → sync → 47 notas |
 
 Bug real encontrado no reorder: o pull aplicava as seções uma a uma e
 violava o índice único `(noteId, order)` no segundo aparelho. O sync agora
 coleta o pull e aplica em duas fases (ordens temporárias → ordem remota),
-com fake de teste que impõe a constraint.
+dentro de `db.withTransaction`; ordens negativas de pull interrompido são
+normalizadas no início do próximo sync. Orders remotos duplicados são
+normalizados com tie-break `(order, id)`. Testes JVM cobrem os três casos.
+Política documentada: quando a ordem remota vence, seções locais que não
+existem no remoto vão para o fim, preservando o conteúdo.
 
-Pendentes para fechar o M6: wipe local confirmado em aparelho descartável com
-repopulação, wipe de nuvem, troca de conta bloqueada, skew e offline real.
+Pendentes: wipe de nuvem e troca de conta (gates do M7, sem conta de teste),
+skew no Redmi e reexecução do M6 no par A34 + Redmi quando ele voltar ao ADB.
 As fixtures foram removidas nos dois aparelhos e os tombstones sincronizados.
 
