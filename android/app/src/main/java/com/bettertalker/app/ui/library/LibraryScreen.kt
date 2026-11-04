@@ -54,6 +54,7 @@ import com.bettertalker.app.data.catalog.RecommendedPublications
 import com.bettertalker.app.data.catalog.findInLibrary
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.util.BASE_PUBS
+import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.JW_FINDER_HOME
 import com.bettertalker.app.ui.components.ByodNotice
 import com.bettertalker.app.ui.jw.JwDownloadDialog
@@ -149,147 +150,267 @@ fun LibraryScreen(
             Spacer(Modifier.height(8.dp))
 
             Spacer(Modifier.height(12.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
-                // T2 — catálogo curado (BYOD): metadados + links oficiais.
-                item(key = "rec-title") {
-                    Text("Publicações recomendadas", style = MaterialTheme.typography.titleMedium)
+            val requiredSymbols = listOf("nwt", "be", "th")
+            val requiredPubs = requiredSymbols.mapNotNull { sym ->
+                RecommendedPublications.ALL.firstOrNull { it.symbol == sym }
+            }
+            val otherPubs = RecommendedPublications.ALL.filter { it.symbol !in requiredSymbols }
+            val requiredReady = requiredPubs.count { findInLibrary(it.symbol, items) != null }
+            val active = items.filter { it.status == "downloading" || it.status == "indexing" }
+            val attention = items.filter { it.status == "missing" || it.status == "failed" }
+            val catalogSymbols = RecommendedPublications.ALL.map { it.symbol }.toSet()
+            val myFiles = items.filter { a ->
+                val symbol = a.symbol ?: detectSymbol(a.fileName)
+                symbol !in catalogSymbols &&
+                    a.status !in setOf("downloading", "indexing", "missing", "failed")
+            }
+            val availablePubs = otherPubs.filter { findInLibrary(it.symbol, items) != null }
+            val missingPubs = otherPubs.filter { findInLibrary(it.symbol, items) == null }
+            val openPub: (RecommendedPub) -> Unit = { pub ->
+                jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
+                showJw = true
+            }
+            val openFormats: (RecommendedPub) -> Unit = { pub ->
+                pub.formatsUrl?.let { u ->
+                    ctx.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(u),
+                        )
+                    )
                 }
-                RecommendedPublications.byCategory().forEach { (category, pubs) ->
-                    item(key = "rec-cat-$category") {
-                        Text(
-                            category,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.secondary
+            }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
+                item(key = "required-title") {
+                    LibrarySectionHeader(
+                        "Obrigatórias",
+                        "$requiredReady de ${requiredPubs.size}",
+                    )
+                }
+                items(requiredPubs, key = { "required-${it.symbol}" }) { pub ->
+                    RecommendedPubCard(
+                        pub = pub,
+                        match = findInLibrary(pub.symbol, items),
+                        linkNoteId = linkNoteId,
+                        onDownload = { openPub(pub) },
+                        onFormats = { openFormats(pub) },
+                        onLink = { attId ->
+                            vm.linkToNote(attId, linkNoteId.orEmpty())
+                            onBack()
+                        },
+                    )
+                }
+
+                item(key = "active-title") {
+                    LibrarySectionHeader("Em andamento", active.size.toString())
+                }
+                if (active.isEmpty()) {
+                    item(key = "active-empty") { LibrarySectionEmpty("Nada baixando ou indexando.") }
+                } else {
+                    items(active, key = { "active-${it.id}" }) { a ->
+                        AttachmentRow(a, vm, linkNoteId, onBack,
+                            onOpenPage = { src -> jwUrl = src; showJw = true },
+                            onRestoreFile = { id -> repairTarget = id; picker.launch(PICKER_MIMES) },
                         )
                     }
-                    items(pubs, key = { "rec-${it.symbol}" }) { pub ->
-                        val match = findInLibrary(pub.symbol, items)
+                }
+
+                item(key = "available-title") {
+                    LibrarySectionHeader("Disponíveis", availablePubs.size.toString())
+                }
+                if (availablePubs.isEmpty()) {
+                    item(key = "available-empty") {
+                        LibrarySectionEmpty("Nenhuma publicação disponível no acervo.")
+                    }
+                } else {
+                    items(availablePubs, key = { "available-${it.symbol}" }) { pub ->
                         RecommendedPubCard(
                             pub = pub,
-                            match = match,
+                            match = findInLibrary(pub.symbol, items),
                             linkNoteId = linkNoteId,
-                            onDownload = {
-                                // T1: Baixar aponta para o jw.org (a WOL não baixa).
-                                jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
-                                showJw = true
-                            },
-                            onFormats = {
-                                pub.formatsUrl?.let { u ->
-                                    ctx.startActivity(
-                                        android.content.Intent(
-                                            android.content.Intent.ACTION_VIEW,
-                                            android.net.Uri.parse(u)
-                                        )
-                                    )
-                                }
-                            },
+                            onDownload = { openPub(pub) },
+                            onFormats = { openFormats(pub) },
                             onLink = { attId ->
                                 vm.linkToNote(attId, linkNoteId.orEmpty())
                                 onBack()
-                            }
+                            },
                         )
                     }
                 }
-                item(key = "lib-title") {
-                    Text("Disponível", style = MaterialTheme.typography.titleMedium)
+
+                item(key = "missing-title") {
+                    LibrarySectionHeader("Não disponíveis", missingPubs.size.toString())
                 }
-                if (items.isEmpty()) {
-                    item(key = "lib-empty") {
-                        Text(
-                            "Nenhuma publicação. Baixe você mesmo do site oficial e importe.",
-                            color = MaterialTheme.colorScheme.secondary
-                        )
+                if (missingPubs.isEmpty()) {
+                    item(key = "missing-empty") {
+                        LibrarySectionEmpty("Todas as publicações recomendadas estão disponíveis.")
                     }
                 } else {
-                    items(items, key = { it.id }) { a ->
-                        var menu by remember { mutableStateOf(false) }
-                        val slotTitle = BASE_PUBS.firstOrNull { it.slot == a.baseSlot }?.title
-                        Card(Modifier.fillMaxWidth()) {
-                            Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(a.fileName, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                                    Text(
-                                        if (a.status == "downloading") "Baixando… ${a.fileName}"
-                                        else "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
-                                            "ready" -> "Indexado"
-                                            "missing" -> "Falta o arquivo neste aparelho"
-                                            "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
-                                            else -> "Indexando…"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.secondary
-                                    )
-                                    if (slotTitle != null) {
-                                        Text(
-                                            "Base: $slotTitle",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                if (a.status == "missing") {
-                                    if (!a.sourceUrl.isNullOrBlank()) {
-                                        // Metadados vieram de outro aparelho; o
-                                        // binário nunca sobe. Reimporta da fonte.
-                                        TextButton(onClick = {
-                                            val src = a.sourceUrl.orEmpty()
-                                            if (src.startsWith("http") &&
-                                                !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
-                                            ) {
-                                                vm.redownloadDirect(a.id)
-                                            } else {
-                                                jwUrl = src.ifBlank { JW_FINDER_HOME }
-                                                showJw = true
-                                            }
-                                        }) { Text("Importar da fonte") }
-                                    } else {
-                                        // Anexo local sem URL: restaura pelo
-                                        // próprio id para não duplicar o acervo.
-                                        TextButton(onClick = {
-                                            repairTarget = a.id
-                                            picker.launch(PICKER_MIMES)
-                                        }) { Text("Restaurar arquivo") }
-                                    }
-                                }
-                                if (a.status == "failed" && a.appPath.isBlank()) {
-                                    // nunca importado: retenta o registro ou baixa de novo
-                                    TextButton(onClick = { vm.retryRegister(a.id) }) { Text("Tentar de novo") }
-                                    TextButton(onClick = {
-                                        val src = a.sourceUrl.orEmpty()
-                                        if (src.startsWith("http") && !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)) {
-                                            vm.redownloadDirect(a.id)
-                                        } else {
-                                            jwUrl = src.ifBlank { JW_FINDER_HOME }
-                                            showJw = true
-                                        }
-                                    }) { Text("Baixar de novo") }
-                                } else if (a.status == "failed") {
-                                    IconButton(onClick = { vm.reindex(a.id) }) { Icon(Icons.Default.Refresh, "Tentar de novo") }
-                                }
-                                if (linkNoteId != null && a.noteId != linkNoteId) {
-                                    TextButton(onClick = {
-                                        vm.linkToNote(a.id, linkNoteId)
-                                        onBack()
-                                    }) { Text("Vincular") }
-                                }
-                                IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
-                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                    DropdownMenuItem(text = { Text("Reindexar") }, onClick = { menu = false; vm.reindex(a.id) })
-                                    BASE_PUBS.forEach { pub ->
-                                        DropdownMenuItem(
-                                            text = { Text("Marcar como: ${pub.title.take(28)}…") },
-                                            onClick = { menu = false; vm.markBase(a.id, pub.slot) }
-                                        )
-                                    }
-                                    if (a.baseSlot != null) {
-                                        DropdownMenuItem(text = { Text("Remover marca base") }, onClick = { menu = false; vm.markBase(a.id, null) })
-                                    }
-                                    DropdownMenuItem(text = { Text("Excluir") }, onClick = { menu = false; vm.delete(a.id) })
-                                }
-                            }
-                        }
+                    items(missingPubs, key = { "missing-${it.symbol}" }) { pub ->
+                        RecommendedPubCard(
+                            pub = pub,
+                            match = null,
+                            linkNoteId = linkNoteId,
+                            onDownload = { openPub(pub) },
+                            onFormats = { openFormats(pub) },
+                            onLink = {},
+                        )
                     }
                 }
+
+                if (attention.isNotEmpty()) {
+                    item(key = "attention-title") {
+                        LibrarySectionHeader("Precisa de atenção", attention.size.toString())
+                    }
+                    items(attention, key = { "attention-${it.id}" }) { a ->
+                        AttachmentRow(a, vm, linkNoteId, onBack,
+                            onOpenPage = { src -> jwUrl = src; showJw = true },
+                            onRestoreFile = { id -> repairTarget = id; picker.launch(PICKER_MIMES) },
+                        )
+                    }
+                }
+
+                if (myFiles.isNotEmpty()) {
+                    item(key = "myfiles-title") {
+                        LibrarySectionHeader("Meus arquivos", myFiles.size.toString())
+                    }
+                    items(myFiles, key = { "my-${it.id}" }) { a ->
+                        AttachmentRow(a, vm, linkNoteId, onBack,
+                            onOpenPage = { src -> jwUrl = src; showJw = true },
+                            onRestoreFile = { id -> repairTarget = id; picker.launch(PICKER_MIMES) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibrarySectionHeader(title: String, detail: String? = null) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        if (detail != null) {
+            Text(
+                detail,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySectionEmpty(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.secondary,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun AttachmentRow(
+    a: AttachmentEntity,
+    vm: LibraryViewModel,
+    linkNoteId: String?,
+    onBack: () -> Unit,
+    onOpenPage: (String) -> Unit,
+    onRestoreFile: (String) -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    val slotTitle = BASE_PUBS.firstOrNull { it.slot == a.baseSlot }?.title
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(12.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text(a.fileName, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                Text(
+                    if (a.status == "downloading") "Baixando… ${a.fileName}"
+                    else "${a.kind.uppercase()} • ${a.sizeBytes / 1024} KB • " + when (a.status) {
+                        "ready" -> "Indexado"
+                        "missing" -> "Falta o arquivo neste aparelho"
+                        "failed" -> "Falha: ${a.error ?: "verifique o arquivo"}"
+                        else -> "Indexando…"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                if (slotTitle != null) {
+                    Text(
+                        "Base: $slotTitle",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (a.status == "missing") {
+                if (!a.sourceUrl.isNullOrBlank()) {
+                    TextButton(onClick = {
+                        val src = a.sourceUrl.orEmpty()
+                        if (src.startsWith("http") &&
+                            !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
+                        ) {
+                            vm.redownloadDirect(a.id)
+                        } else {
+                            onOpenPage(src.ifBlank { JW_FINDER_HOME })
+                        }
+                    }) { Text("Importar da fonte") }
+                } else {
+                    TextButton(onClick = { onRestoreFile(a.id) }) {
+                        Text("Restaurar arquivo")
+                    }
+                }
+            }
+            if (a.status == "failed" && a.appPath.isBlank()) {
+                TextButton(onClick = { vm.retryRegister(a.id) }) { Text("Tentar de novo") }
+                TextButton(onClick = {
+                    val src = a.sourceUrl.orEmpty()
+                    if (src.startsWith("http") &&
+                        !com.bettertalker.app.ui.jw.DownloadHelper.isPageUrl(src)
+                    ) {
+                        vm.redownloadDirect(a.id)
+                    } else {
+                        onOpenPage(src.ifBlank { JW_FINDER_HOME })
+                    }
+                }) { Text("Baixar de novo") }
+            } else if (a.status == "failed") {
+                IconButton(onClick = { vm.reindex(a.id) }) {
+                    Icon(Icons.Default.Refresh, "Tentar de novo")
+                }
+            }
+            if (linkNoteId != null && a.noteId != linkNoteId) {
+                TextButton(onClick = {
+                    vm.linkToNote(a.id, linkNoteId)
+                    onBack()
+                }) { Text("Vincular") }
+            }
+            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Reindexar") },
+                    onClick = { menu = false; vm.reindex(a.id) },
+                )
+                BASE_PUBS.forEach { pub ->
+                    DropdownMenuItem(
+                        text = { Text("Marcar como: ${pub.title.take(28)}…") },
+                        onClick = { menu = false; vm.markBase(a.id, pub.slot) },
+                    )
+                }
+                if (a.baseSlot != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remover marca base") },
+                        onClick = { menu = false; vm.markBase(a.id, null) },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Excluir") },
+                    onClick = { menu = false; vm.delete(a.id) },
+                )
             }
         }
     }
