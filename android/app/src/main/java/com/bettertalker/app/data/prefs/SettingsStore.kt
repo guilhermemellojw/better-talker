@@ -263,20 +263,6 @@ class SettingsStore(
         ctx.store.edit { it[presentSessionKey(noteId)] = value }
     }
 
-    /** Sources: varrer automaticamente Downloads ao abrir o sheet. */
-    private val AUTO_SCAN_DOWNLOADS = booleanPreferencesKey("auto_scan_downloads")
-    val autoScanDownloads: Flow<Boolean> = ctx.store.data.map { it[AUTO_SCAN_DOWNLOADS] ?: false }
-    suspend fun setAutoScanDownloads(v: Boolean) { ctx.store.edit { it[AUTO_SCAN_DOWNLOADS] = v } }
-
-    /** Sources: URI persistida da pasta Downloads (SAF tree). */
-    private val DOWNLOADS_TREE_URI = stringPreferencesKey("downloads_tree_uri")
-    val downloadsTreeUri: Flow<String?> = ctx.store.data.map { it[DOWNLOADS_TREE_URI] }
-    suspend fun setDownloadsTreeUri(v: String?) {
-        ctx.store.edit {
-            if (v.isNullOrBlank()) it.remove(DOWNLOADS_TREE_URI) else it[DOWNLOADS_TREE_URI] = v
-        }
-    }
-
     /** Aba Treino: esboço atual (independente do Palco). */
     private val TRAIN_NOTE_ID = stringPreferencesKey("train_note_id")
     val trainNoteId: Flow<String?> = ctx.store.data.map { it[TRAIN_NOTE_ID] }

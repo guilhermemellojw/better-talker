@@ -8,7 +8,6 @@ import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.planning.RoomMethodIndex
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.prefs.SettingsStore
-import com.bettertalker.app.data.prefs.DownloadsTreeStore
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.repo.RoomTrainingRepository
 import com.bettertalker.app.domain.planning.DefaultDossierBuilder
@@ -174,8 +173,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                     applyExternal(note.title, note.richHtml, note.mdText,
                         note.folderId, note.colorArgb, note.pinned)
                     loadedOnce = true
-                    // Phase 3.1: auto-scan de Downloads se toggle ligado.
-                    autoScanDownloads()
                     return@collect
                 }
                 // eco do próprio save: ignora
@@ -851,27 +848,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     /** A2: recarrega o checklist de fontes (botão "Atualizar" do sheet). */
     fun refreshNoteSources() {
         viewModelScope.launch { loadNoteSources() }
-    }
-
-    /** Phase 3.1: auto-scan de Downloads se o toggle estiver ligado. */
-    fun autoScanDownloads() {
-        viewModelScope.launch {
-            try {
-                val autoScan = this@EditorViewModel.settings.autoScanDownloads.first()
-                if (!autoScan) return@launch
-                val citedRefs = copilotRepo.noteSources(
-                    noteId = noteId,
-                    outlineRefsJson = outlines.get(noteId)?.refsJson.orEmpty(),
-                    noteText = _mdText.value,
-                    noteTitle = _title.value,
-                ).sources.mapNotNull { it.refStatus?.ref }
-                val existing = libraryRepo.all()
-                libraryRepo.scanAndImportMissing(citedRefs, existing)
-                loadNoteSources()
-            } catch (_: Exception) {
-                // silencioso — não bloqueia a UI
-            }
-        }
     }
 
     private suspend fun loadNoteSources() {

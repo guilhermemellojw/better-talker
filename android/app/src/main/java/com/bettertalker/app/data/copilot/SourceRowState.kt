@@ -25,8 +25,11 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
     val hasFailed = group.sources.any {
         it.status == SourceStatus.INDEX_FAILED || it.status == SourceStatus.UNSUPPORTED
     }
-    val hasConferir = group.sources.any {
-        it.status == SourceStatus.TEXT_NOT_FOUND || it.status == SourceStatus.EDITION_MISSING
+    val hasMissingEdition = group.sources.any {
+        it.status == SourceStatus.EDITION_MISSING
+    }
+    val hasTextIssue = group.sources.any {
+        it.status == SourceStatus.TEXT_NOT_FOUND
     }
     // Ambiguidade nunca vira "Falta/Baixar": a ação certa é confirmar a edição.
     val hasAmbiguous = group.sources.any {
@@ -43,7 +46,11 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
             SourceRowState("Falhou", SourceRowAction.RETRY, attention = true)
         hasAmbiguous ->
             SourceRowState("Conferir", SourceRowAction.RESOLVE, attention = true)
-        hasConferir && group.status != GroupStatus.MISSING ->
+        // Edição ausente continua sendo download, mesmo com texto faltando.
+        hasMissingEdition ->
+            SourceRowState("Falta", SourceRowAction.DOWNLOAD, attention = true)
+        // Só texto faltando (sem edição ausente) é Conferir, inclusive MISSING.
+        hasTextIssue ->
             SourceRowState("Conferir", SourceRowAction.RESOLVE, attention = true)
         group.status == GroupStatus.MISSING ->
             SourceRowState("Falta", SourceRowAction.DOWNLOAD, attention = true)
@@ -51,3 +58,13 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
             SourceRowState("Parcial", SourceRowAction.DOWNLOAD, attention = true)
     }
 }
+
+/**
+ * Primeira URL de download disponível em QUALQUER fonte do grupo. Evita o
+ * fallback silencioso para a Biblioteca quando a primeira fonte não tem URL.
+ */
+fun downloadUrlFor(group: SourceGroup): String? =
+    group.sources.firstNotNullOfOrNull { source ->
+        source.downloadUrl?.takeIf { it.isNotBlank() }
+            ?: source.refStatus?.downloadUrl?.takeIf { it.isNotBlank() }
+    }

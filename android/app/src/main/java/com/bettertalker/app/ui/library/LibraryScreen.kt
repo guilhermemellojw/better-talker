@@ -43,7 +43,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,13 +53,10 @@ import com.bettertalker.app.data.catalog.RecommendedPub
 import com.bettertalker.app.data.catalog.RecommendedPublications
 import com.bettertalker.app.data.catalog.findInLibrary
 import com.bettertalker.app.data.db.AttachmentEntity
-import com.bettertalker.app.data.prefs.DownloadsTreeStore
-import com.bettertalker.app.data.repo.DownloadGroup
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.JW_FINDER_HOME
 import com.bettertalker.app.ui.components.ByodNotice
 import com.bettertalker.app.ui.jw.JwDownloadDialog
-import kotlinx.coroutines.launch
 
 // P0: escolher qualquer arquivo; a validação é pela extensão em importUri.
 private val PICKER_MIMES = arrayOf("*/*")
@@ -71,18 +67,14 @@ fun LibraryScreen(
     vm: LibraryViewModel,
     onBack: () -> Unit,
     linkNoteId: String? = null,
-    /** A2: "Já baixei — procurar em Downloads" já abre a varredura. */
-    scanOnOpen: Boolean = false,
     onOpenModel: () -> Unit = {},
 ) {
     val items by vm.items.collectAsState(initial = emptyList())
     val toast by vm.toast.collectAsState()
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val treeUri by DownloadsTreeStore.getUri(ctx).collectAsState(initial = null)
     var showJw by remember { mutableStateOf(false) }
     var jwUrl by remember { mutableStateOf(JW_FINDER_HOME) }
-    // M4: alvo do "Escolher arquivo" quando o anexo veio de outro aparelho
+    // M4: alvo do "Restaurar arquivo" quando o anexo veio de outro aparelho
     // e não tem sourceUrl para reimportar.
     var repairTarget by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -90,20 +82,6 @@ fun LibraryScreen(
         repairTarget = null
         if (uri != null) {
             if (target != null) vm.repairMissing(target, uri) else vm.importUri(uri)
-        }
-    }
-    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            runCatching {
-                ctx.contentResolver.takePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            }
-            scope.launch {
-                DownloadsTreeStore.setUri(ctx, uri)
-                vm.scanDownloads()
-            }
         }
     }
     // Android 13+: notificação de conclusão do DownloadManager precisa de permissão
@@ -125,12 +103,6 @@ fun LibraryScreen(
     val snack = remember { SnackbarHostState() }
 
     LaunchedEffect(toast) { if (toast.isNotEmpty()) { snack.showSnackbar(toast); vm.consumeToast() } }
-    LaunchedEffect(scanOnOpen) {
-        if (scanOnOpen) {
-            if (treeUri == null) treePicker.launch(null) else vm.scanDownloads()
-        }
-    }
-
     if (showJw) JwDownloadDialog(url = jwUrl, onDismiss = { showJw = false })
 
     Scaffold(
@@ -165,7 +137,7 @@ fun LibraryScreen(
                     repairTarget = null
                     picker.launch(PICKER_MIMES)
                 }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.UploadFile, null); Text(" Escolher arquivo")
+                    Icon(Icons.Default.UploadFile, null); Text(" Importar publicação")
                 }
             }
             Spacer(Modifier.height(4.dp))
@@ -176,100 +148,7 @@ fun LibraryScreen(
             )
             Spacer(Modifier.height(8.dp))
 
-            // P0 — pasta SAF explícita. Sem URI, o botão abre o seletor de
-            // pasta; nunca cai em MediaStore silencioso.
-            val scan by vm.scan.collectAsState()
-            if (treeUri != null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Pasta: ${treeUri?.lastPathSegment?.substringAfterLast(':') ?: "Downloads"}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = { treePicker.launch(null) }) { Text("Alterar") }
-                }
-            }
-            OutlinedButton(
-                onClick = {
-                    if (treeUri == null || scan?.permissionLost == true) treePicker.launch(null)
-                    else vm.scanDownloads()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Download, null)
-                Text(" Ler pasta Downloads")
-            }
-            if (scan?.permissionLost == true) {
-                Text(
-                    "A permissão da pasta expirou. Escolha de novo.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            scan?.takeIf { it.folderChosen && !it.permissionLost }?.let { found ->
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Encontradas em Downloads (${found.groups.size} publicações · ${found.fileCount} arquivos)",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                if (found.groups.isEmpty()) {
-                    Text(
-                        "Nada novo na pasta escolhida.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                } else {
-                    found.groups.take(30).forEach { group ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "${group.symbol} · ${group.formats}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                                Text(
-                                    when {
-                                        group.alreadyInLibrary -> "Já no acervo"
-                                        group.duplicateCount > 0 ->
-                                            "Novo · ${group.duplicateCount + 1} arquivos; importar ${group.best.name.substringAfterLast('.')}"
-                                        else -> "Novo"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (group.alreadyInLibrary) {
-                                        MaterialTheme.colorScheme.secondary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                            }
-                            TextButton(
-                                onClick = { vm.importGroup(group, linkNoteId) },
-                                enabled = !group.alreadyInLibrary,
-                            ) { Text(if (group.alreadyInLibrary) "Já no acervo" else "Importar") }
-                        }
-                    }
-                    if (found.groups.size > 30) {
-                        Text(
-                            "Mais ${found.groups.size - 30} publicações — use “Importar todas”.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (found.newGroups.isNotEmpty()) {
-                            TextButton(onClick = { vm.importAllNew(linkNoteId) }) {
-                                Text("Importar todas (${found.newGroups.size})")
-                            }
-                        }
-                        TextButton(onClick = { vm.dismissScan() }) { Text("Ignorar") }
-                    }
-                }
-            }
             Spacer(Modifier.height(12.dp))
-            val groupsBySymbol = scan?.groups?.associateBy { it.symbol }.orEmpty()
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                 // T2 — catálogo curado (BYOD): metadados + links oficiais.
                 item(key = "rec-title") {
@@ -288,11 +167,7 @@ fun LibraryScreen(
                         RecommendedPubCard(
                             pub = pub,
                             match = match,
-                            downloadGroup = groupsBySymbol[pub.symbol],
                             linkNoteId = linkNoteId,
-                            onImportFromDownloads = { group ->
-                                vm.importGroup(group, linkNoteId)
-                            },
                             onDownload = {
                                 // T1: Baixar aponta para o jw.org (a WOL não baixa).
                                 jwUrl = pub.downloadUrl.ifBlank { JW_FINDER_HOME }
@@ -373,7 +248,7 @@ fun LibraryScreen(
                                         TextButton(onClick = {
                                             repairTarget = a.id
                                             picker.launch(PICKER_MIMES)
-                                        }) { Text("Escolher arquivo") }
+                                        }) { Text("Restaurar arquivo") }
                                     }
                                 }
                                 if (a.status == "failed" && a.appPath.isBlank()) {
@@ -425,14 +300,12 @@ fun LibraryScreen(
 private fun RecommendedPubCard(
     pub: RecommendedPub,
     match: AttachmentEntity?,
-    downloadGroup: DownloadGroup?,
     linkNoteId: String?,
-    onImportFromDownloads: (DownloadGroup) -> Unit,
     onDownload: () -> Unit,
     onFormats: () -> Unit,
     onLink: (String) -> Unit,
 ) {
-    val alreadyInLibrary = match != null || downloadGroup?.alreadyInLibrary == true
+    val alreadyInLibrary = match != null
     Card(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
@@ -441,24 +314,14 @@ private fun RecommendedPubCard(
             Column(Modifier.weight(1f)) {
                 Text("${pub.title} (${pub.symbol})", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    when {
-                        match != null -> "Disponível"
-                        downloadGroup?.alreadyInLibrary == true -> "Já no acervo"
-                        else -> "Faltando"
-                    },
+                    if (match != null) "Disponível" else "Faltando",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (alreadyInLibrary) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.secondary
                 )
             }
-            when {
-                alreadyInLibrary -> Unit
-                downloadGroup != null -> {
-                    TextButton(onClick = { onImportFromDownloads(downloadGroup) }) {
-                        Text("Importar do Downloads")
-                    }
-                }
-                else -> TextButton(onClick = onDownload) { Text("Baixar") }
+            if (!alreadyInLibrary) {
+                TextButton(onClick = onDownload) { Text("Baixar") }
             }
             if (pub.formatsUrl != null) {
                 TextButton(onClick = onFormats) { Text("Formatos") }

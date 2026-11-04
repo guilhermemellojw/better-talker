@@ -3,7 +3,7 @@ package com.bettertalker.app.navigation
 object Routes {
     const val HOME = "home"
     const val EDITOR = "editor/{noteId}?generate={generate}"
-    const val LIBRARY = "library?linkNote={linkNote}&scan={scan}"
+    const val LIBRARY = "library?linkNote={linkNote}"
     const val TRASH = "trash"
     const val ACCOUNT = "account"
     const val CHAT = "chat/{noteId}"
@@ -17,8 +17,6 @@ object Routes {
     const val BACKUP = "backup"
     /** Dados e armazenamento (Backup, Downloads, Biblioteca). */
     const val DATA_STORAGE = "data_storage"
-    /** Configurações de Downloads (SAF tree, auto-scan). */
-    const val DOWNLOADS = "downloads"
     /** #20-fix-b: a Tribuna — mapa de memória do discurso. */
     const val TRIBUNA = "tribuna/{noteId}"
     /** Treino — preparação + leitor em tela cheia (imersivo). */
@@ -37,8 +35,8 @@ object Routes {
     fun stage(noteId: String) = "stage/$noteId"
     fun present(noteId: String) = "present/$noteId"
     fun picker(mode: String) = "picker/$mode"
-    fun library(linkNote: String? = null, scan: Boolean = false) =
-        "library?linkNote=${linkNote.orEmpty()}&scan=$scan"
+    fun library(linkNote: String? = null) =
+        "library?linkNote=${linkNote.orEmpty()}"
 }
 
 /** Aba da barra global. Puro/testável. */

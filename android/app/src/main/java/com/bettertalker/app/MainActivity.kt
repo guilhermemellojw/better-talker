@@ -320,14 +320,7 @@ private fun AppNav(
             com.bettertalker.app.ui.settings.DataStorageSettingsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenBackup = { nav.navigate(Routes.BACKUP) },
-                onOpenDownloads = { nav.navigate(Routes.DOWNLOADS) },
                 onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
-            )
-        }
-        composable(Routes.DOWNLOADS) {
-            com.bettertalker.app.ui.settings.DownloadsSettingsScreen(
-                settings = settings,
-                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.VOICE) {
@@ -428,7 +421,7 @@ private fun AppNav(
                 vm,
                 onBack = { nav.popBackStack() },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
-                onFindDownloads = { nav.navigate(Routes.library(noteId, scan = true)) },
+                onFindDownloads = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
                 onGenerateTribuna = {
@@ -596,19 +589,14 @@ private fun AppNav(
                 navArgument("linkNote") {
                     type = NavType.StringType; nullable = true; defaultValue = null
                 },
-                navArgument("scan") {
-                    type = NavType.BoolType; defaultValue = false
-                },
             )
         ) { back ->
             val linkNote = back.arguments?.getString("linkNote")?.ifBlank { null }
-            val scanOnOpen = back.arguments?.getBoolean("scan") == true
             val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.Factory(db, libRepo))
             LibraryScreen(
                 vm,
                 onBack = { nav.popBackStack() },
                 linkNoteId = linkNote,
-                scanOnOpen = scanOnOpen,
                 onOpenModel = { nav.navigate(Routes.MODEL) },
             )
         }
