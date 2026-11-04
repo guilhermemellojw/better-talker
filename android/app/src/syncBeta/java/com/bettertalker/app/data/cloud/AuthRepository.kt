@@ -8,10 +8,11 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseApp
-import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -19,14 +20,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Puro/testável: troca de conta bloqueada pelo guard de 1 conta/aparelho. */
-internal fun accountSwitchBlocked(lastUid: String?, newUid: String?): Boolean =
-    lastUid != null && newUid != null && lastUid != newUid
-
-/** Login Google -> Firebase Auth. Inativo sem google-services.json (100% local). */
+/** Login Google -> Firebase Auth. Só compila no flavor `syncBeta`. */
 class AuthRepository(private val ctx: Context) {
 
-    private val _user = MutableStateFlow<FirebaseUser?>(null)
+    private val _user = MutableStateFlow<CloudUser?>(null)
     val user = _user.asStateFlow()
 
     /**
@@ -52,11 +49,11 @@ class AuthRepository(private val ctx: Context) {
     fun start() {
         val auth = authOrNull() ?: return
         val current = auth.currentUser
-        _user.value = current
+        _user.value = current?.toCloudUser()
         // Upgrade de versão anterior: mantém o vínculo em memória para
         // bloquear troca silenciosa; o SyncWorker persiste no 1º sync.
         lastUidHint = current?.uid
-        listener = FirebaseAuth.AuthStateListener { _user.value = it.currentUser }
+        listener = FirebaseAuth.AuthStateListener { _user.value = it.currentUser?.toCloudUser() }
         auth.addAuthStateListener(listener!!)
     }
 
@@ -66,7 +63,7 @@ class AuthRepository(private val ctx: Context) {
         listener = null
     }
 
-    fun currentUser(): FirebaseUser? = authOrNull()?.currentUser
+    fun currentUser(): CloudUser? = authOrNull()?.currentUser?.toCloudUser()
 
     private fun webClientId(): String? {
         val id = ctx.resources.getIdentifier("default_web_client_id", "string", ctx.packageName)
@@ -116,8 +113,13 @@ class AuthRepository(private val ctx: Context) {
                 // M2: no primeiro vínculo deste aparelho, não decidir sozinho.
                 if (freshBinding) settings.setSyncFirstPending(true)
             }
-            _user.value = signed
-            SyncScheduler.requestSync(ctx)
+            _user.value = signed?.toCloudUser()
+            // Primeiro vínculo com notas locais: espera a escolha
+            // Enviar/Baixar/Mesclar antes de agendar qualquer sync.
+            if (!freshBinding) {
+                SyncScheduler.requestSync(ctx)
+                SyncScheduler.ensurePeriodic(ctx)
+            }
             null
         } catch (e: GetCredentialCancellationException) {
             null // usuário cancelou: sem erro
@@ -157,8 +159,36 @@ class AuthRepository(private val ctx: Context) {
         lastUidHint = null
     }
 
+    /** Apaga TODOS os dados do usuário na nuvem (local preservado). */
+    suspend fun wipeCloud(): String? {
+        val uid = currentUser()?.uid ?: return "Sem login"
+        return try {
+            val root = FirebaseFirestore.getInstance().collection("users").document(uid)
+            for (col in listOf(
+                "notes", "folders", "attachments", "outlines",
+                "sections", "subPoints", "tombstones",
+            )) {
+                val snap: QuerySnapshot = suspendTask { cb ->
+                    root.collection(col).get().addOnCompleteListener(cb)
+                }
+                if (snap.documents.isNotEmpty()) {
+                    val batch = FirebaseFirestore.getInstance().batch()
+                    snap.documents.forEach { batch.delete(it.reference) }
+                    suspendTask<Void> { cb -> batch.commit().addOnCompleteListener(cb) }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            e.message?.take(160) ?: "Falha ao apagar nuvem."
+        }
+    }
+
     companion object {
         suspend fun <T> awaitTask(
+            block: (com.google.android.gms.tasks.OnCompleteListener<T>) -> Unit
+        ): T = suspendTask(block)
+
+        private suspend fun <T> suspendTask(
             block: (com.google.android.gms.tasks.OnCompleteListener<T>) -> Unit
         ): T = suspendCancellableCoroutine { cont ->
             block(com.google.android.gms.tasks.OnCompleteListener { task ->
@@ -171,3 +201,5 @@ class AuthRepository(private val ctx: Context) {
         }
     }
 }
+
+private fun FirebaseUser.toCloudUser(): CloudUser = CloudUser(uid = uid, email = email)

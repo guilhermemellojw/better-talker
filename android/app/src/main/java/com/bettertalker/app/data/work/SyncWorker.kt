@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.bettertalker.app.BuildConfig
 import com.bettertalker.app.data.cloud.AuthRepository
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.db.AppDatabase
@@ -31,7 +32,6 @@ import com.bettertalker.app.data.repo.encodeStringList
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.speech.DiscourseType
 import androidx.room.withTransaction
-import com.google.firebase.firestore.FirebaseFirestore
 
 /**
  * Sync Firestore <-> Room. Room é a verdade local; Firestore espelha
@@ -44,6 +44,17 @@ import com.google.firebase.firestore.FirebaseFirestore
 class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        // Defesa em profundidade: work periódico antigo/reenfileirado não
+        // pode sincronizar se o build é público ou o opt-in está desligado.
+        if (!BuildConfig.SYNC_BETA) {
+            Log.d("SyncWorker", "Sync ignorado: build público (sem beta de sync).")
+            return Result.success()
+        }
+        val settings = SettingsStore(applicationContext)
+        if (!settings.syncBetaEnabledValue()) {
+            Log.d("SyncWorker", "Sync ignorado: opt-in beta desligado.")
+            return Result.success()
+        }
         val auth = AuthRepository(applicationContext)
         if (!auth.isConfigured()) {
             Log.d("SyncWorker", "Sync ignorado: Firebase não configurado neste build.")
@@ -58,7 +69,6 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         // Guard mínimo de multi-conta: o banco local é único. Se o uid atual
         // não é o vinculado ao aparelho, não sincroniza nada (defesa extra
         // além do bloqueio no AuthRepository.signIn).
-        val settings = SettingsStore(applicationContext)
         val lastUid = settings.lastUidValue()
         if (lastUid == null) {
             // Primeira conta deste aparelho (inclusive upgrade): vincula as
@@ -97,11 +107,10 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         return try {
             // F5g: o estado permanece Running durante TODAS as etapas abaixo.
             SyncStatus.set(SyncStatus.State.Running)
-            val fs = FirebaseFirestore.getInstance()
-            val root = fs.collection("users").document(user.uid)
             // F7a: operações remotas atrás da porta SyncRemote (testável em JVM).
             // Mesmo contrato de antes: getAll/set(merge)/delete por coleção flat.
-            val remote: SyncRemote = FirestoreSyncRemote(root)
+            val remote: SyncRemote = createSyncRemote(applicationContext, user.uid)
+                ?: return Result.success()
 
             // Guard de skew: LWW compara horários; relógio local errado
             // inverteria a ordem. Falha antes de qualquer pull/push.
@@ -219,11 +228,7 @@ private fun tombstoneMap(type: String, deletedAt: Long): Map<String, Any?> =
  * Leitura tolerante para o LWW. Puro/testável.
  */
 internal fun cloudUpdatedAt(data: Map<String, Any?>): Long =
-    when (val v = data["updatedAt"]) {
-        is Long -> v
-        is com.google.firebase.Timestamp -> v.toDate().time
-        else -> 0L
-    }
+    cloudTimestampMillis(data["updatedAt"]) ?: 0L
 
 /** updatedAt do doc para o PUSH (-1 quando ausente/ilegível = envia). */
 internal fun cloudUpdatedAtOrMinus1(data: Map<String, Any?>?): Long {

@@ -8,7 +8,7 @@ package com.bettertalker.app.data.work
  * impedia testá-los em JVM. Esta interface expõe exatamente o subconjunto
  * remoto usado hoje — coleções FLAT (chave = id do documento), leitura em
  * lote, leitura de doc único, set com merge e delete. A implementação de
- * produção é [FirestoreSyncRemote]; os testes usam um fake Map-based.
+ * produção fica no flavor `syncBeta`; os testes usam um fake Map-based.
  *
  * Contrato:
  * - [getAll] devolve `id -> dados`; documento sem dados vira mapa vazio.

@@ -61,15 +61,15 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
+          ./gradlew :app:testPublicAppDebugUnitTest --no-daemon --console=plain
 
       - name: Lint release
         working-directory: android
-        run: ./gradlew :app:lintRelease --no-daemon --console=plain
+        run: ./gradlew :app:lintPublicAppRelease --no-daemon --console=plain
 
       - name: Build signed release APK
         working-directory: android
-        run: ./gradlew :app:assembleRelease --no-daemon --console=plain
+        run: ./gradlew :app:assemblePublicAppRelease --no-daemon --console=plain
 
       - name: Verify release signature (not debug)
         working-directory: android
@@ -78,13 +78,13 @@ jobs:
             -name apksigner | sort -V | tail -1)
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs \
-            app/build/outputs/apk/release/app-release.apk | tee /tmp/apksigner.txt
+            app/build/outputs/apk/publicApp/release/app-release.apk | tee /tmp/apksigner.txt
           ! grep -qi "Android Debug" /tmp/apksigner.txt
 
       - name: SHA-256
         working-directory: android
         run: |
-          cd app/build/outputs/apk/release
+          cd app/build/outputs/apk/publicApp/release
           sha256sum app-release.apk > app-release.apk.sha256
           cat app-release.apk.sha256
 
@@ -93,8 +93,8 @@ jobs:
         with:
           name: better-talker-release
           path: |
-            android/app/build/outputs/apk/release/app-release.apk
-            android/app/build/outputs/apk/release/app-release.apk.sha256
+            android/app/build/outputs/apk/publicApp/release/app-release.apk
+            android/app/build/outputs/apk/publicApp/release/app-release.apk.sha256
           if-no-files-found: error
 
       - name: Publish GitHub Release (tag)
@@ -106,12 +106,12 @@ jobs:
           NOTES="docs/releases/${GITHUB_REF_NAME}.md"
           if [ -f "$NOTES" ]; then
             gh release create "$GITHUB_REF_NAME" \
-              android/app/build/outputs/apk/release/app-release.apk \
-              android/app/build/outputs/apk/release/app-release.apk.sha256 \
+              android/app/build/outputs/apk/publicApp/release/app-release.apk \
+              android/app/build/outputs/apk/publicApp/release/app-release.apk.sha256 \
               --title "Better Talker ${GITHUB_REF_NAME}" --notes-file "$NOTES"
           else
             gh release create "$GITHUB_REF_NAME" \
-              android/app/build/outputs/apk/release/app-release.apk \
-              android/app/build/outputs/apk/release/app-release.apk.sha256 \
+              android/app/build/outputs/apk/publicApp/release/app-release.apk \
+              android/app/build/outputs/apk/publicApp/release/app-release.apk.sha256 \
               --title "Better Talker ${GITHUB_REF_NAME}" --generate-notes
           fi

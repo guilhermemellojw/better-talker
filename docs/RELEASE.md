@@ -50,12 +50,12 @@ quatro valores prontos para copiar no GitHub; ele não é versionado.
 
 ```bash
 cd android
-./gradlew :app:testDebugUnitTest
-./gradlew :app:lintRelease
-./gradlew :app:assembleRelease
+./gradlew :app:testPublicAppDebugUnitTest
+./gradlew :app:lintPublicAppRelease
+./gradlew :app:assemblePublicAppRelease
 /home/guilherme/Android/Sdk/build-tools/36.0.0/apksigner verify --print-certs \
-  app/build/outputs/apk/release/app-release.apk
-sha256sum app/build/outputs/apk/release/app-release.apk
+  app/build/outputs/apk/publicApp/release/app-release.apk
+sha256sum app/build/outputs/apk/publicApp/release/app-release.apk
 ```
 
 O certificado esperado é `CN=Better Talker, OU=Release, O=Better Talker` —
@@ -64,7 +64,7 @@ nunca `Android Debug`.
 ## Release (GitHub)
 
 1. Atualize `versionName`/`versionCode` e `README.md`/`docs/FREEZE.md`.
-2. Rode a suíte, `lintRelease` e `assembleRelease`.
+2. Rode a suíte, `lintPublicAppRelease` e `assemblePublicAppRelease`.
 3. Confira `apksigner verify` e o SHA-256.
 4. Crie `docs/releases/vX.Y.Z.md` com as notas.
 5. Commit + tag `vX.Y.Z` + push da tag. O workflow

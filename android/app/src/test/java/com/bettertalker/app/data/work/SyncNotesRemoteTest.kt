@@ -188,12 +188,11 @@ class SyncNotesRemoteTest {
         assertEquals("Restaurada", dao.get("n1")!!.title)
     }
 
-    // 8. Leitura tolerante do updatedAt (Timestamp legado e Long novo).
+    // 8. Leitura atual do updatedAt (Long) e fallback para ausente.
     @Test
-    fun cloudUpdatedAt_aceitaTimestampELongLegado() {
+    fun cloudUpdatedAt_aceitaLongEIgnoraAusente() {
         assertEquals(123L, cloudUpdatedAt(mapOf("updatedAt" to 123L)))
-        val ts = com.google.firebase.Timestamp(java.util.Date(456L))
-        assertEquals(456L, cloudUpdatedAt(mapOf("updatedAt" to ts)))
+        assertEquals(456L, cloudUpdatedAt(mapOf("updatedAt" to 456)))
         assertEquals(0L, cloudUpdatedAt(emptyMap()))
     }
 

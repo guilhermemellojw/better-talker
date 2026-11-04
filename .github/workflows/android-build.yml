@@ -44,22 +44,28 @@ jobs:
           sdk.dir=/usr/local/lib/android/sdk
           EOF
 
-      - name: Write google-services.json (if configured)
+      - name: Write google-services.json (syncBeta only)
         run: |
+          mkdir -p android/app/src/syncBeta
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+            echo "$GOOGLE_SERVICES_JSON" > android/app/src/syncBeta/google-services.json
           fi
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
-      - name: Confirm native Firebase config
+      - name: Confirm Firebase config boundaries
         run: |
-          if [ -f android/app/google-services.json ]; then
-            echo "google-services.json present -> Google Services plugin will apply"
-            grep -E "project_id|package_name" android/app/google-services.json
+          if [ -f android/app/src/syncBeta/google-services.json ]; then
+            echo "syncBeta google-services.json present"
+            grep -E "project_id|package_name" android/app/src/syncBeta/google-services.json
           else
-            echo "google-services.json MISSING -> build sem Firebase (100% local)"
+            echo "syncBeta google-services.json MISSING -> beta compila sem sync"
           fi
+          if [ -f android/app/google-services.json ]; then
+            echo "::error::google-services.json na raiz do app vazaria para o público."
+            exit 1
+          fi
+          echo "publicApp não recebe google-services.json"
 
       - name: Run unit tests
         id: unit_tests
@@ -68,7 +74,7 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-test.log
+          ./gradlew :app:testPublicAppDebugUnitTest --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-test.log
 
       - name: Show test failure log
         if: steps.unit_tests.outcome == 'failure'
@@ -96,7 +102,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          ./gradlew :app:lintRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-lint.log
+          ./gradlew :app:lintPublicAppRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-lint.log
 
       - name: Show lint failure log
         if: steps.lint_release.outcome == 'failure'
@@ -124,7 +130,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+          ./gradlew :app:assemblePublicAppDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
 
       - name: Show Gradle failure log
         if: steps.build_apk.outcome == 'failure'
@@ -147,11 +153,23 @@ jobs:
           APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
             -name apksigner | sort -V | tail -1)
           test -n "$APKSIGNER"
-          "$APKSIGNER" verify --verbose app/build/outputs/apk/debug/app-debug.apk
+          "$APKSIGNER" verify --verbose app/build/outputs/apk/publicApp/debug/app-publicApp-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: better-talker-debug
-          path: android/app/build/outputs/apk/debug/
+          path: android/app/build/outputs/apk/publicApp/debug/
+          if-no-files-found: error
+
+      # O flavor beta precisa compilar mesmo sem o secret (sync fica inativo).
+      - name: Build syncBeta debug APK
+        working-directory: android
+        run: ./gradlew :app:assembleSyncBetaDebug --no-daemon --console=plain
+
+      - name: Upload syncBeta debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: better-talker-syncbeta-debug
+          path: android/app/build/outputs/apk/syncBeta/debug/
           if-no-files-found: error

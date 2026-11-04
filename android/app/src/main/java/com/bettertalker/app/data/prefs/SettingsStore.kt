@@ -217,6 +217,15 @@ class SettingsStore(
     val sttOnDevice: Flow<Boolean> = ctx.store.data.map { it[STT_ON_DEVICE] ?: true }
     suspend fun setSttOnDevice(v: Boolean) { ctx.store.edit { it[STT_ON_DEVICE] = v } }
 
+    /**
+     * M7: opt-in explícito do beta de sincronização. Desligado por padrão,
+     * inclusive no flavor syncBeta; sem ele nenhum worker é agendado.
+     */
+    private val SYNC_BETA_ENABLED = booleanPreferencesKey("sync_beta_enabled")
+    val syncBetaEnabled: Flow<Boolean> = ctx.store.data.map { it[SYNC_BETA_ENABLED] ?: false }
+    suspend fun syncBetaEnabledValue(): Boolean = syncBetaEnabled.first()
+    suspend fun setSyncBetaEnabled(v: Boolean) { ctx.store.edit { it[SYNC_BETA_ENABLED] = v } }
+
     /** Sync (M2): primeiro sync aguardando escolha (Enviar/Baixar/Mesclar). */
     private val SYNC_FIRST_PENDING = booleanPreferencesKey("sync_first_pending")
     val syncFirstPending: Flow<Boolean> = ctx.store.data.map { it[SYNC_FIRST_PENDING] ?: false }

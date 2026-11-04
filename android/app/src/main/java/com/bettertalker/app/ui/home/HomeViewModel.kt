@@ -3,6 +3,7 @@ package com.bettertalker.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.BuildConfig
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.util.toPastedNote
@@ -55,6 +56,11 @@ class HomeViewModel(
      * Syncing → Success ("Tudo atualizado!", recolhe em 2s) / NoLogin / Error.
      */
     fun syncNow() = viewModelScope.launch {
+        // Público/opt-out: o gesto de puxar não deve prometer sync.
+        if (!BuildConfig.SYNC_BETA || !settings.syncBetaEnabledValue()) {
+            _syncState.value = com.bettertalker.app.ui.components.SyncUiState.Idle
+            return@launch
+        }
         val auth = com.bettertalker.app.data.cloud.AuthRepository(appCtx)
         if (!auth.isConfigured() || auth.currentUser() == null) {
             _syncState.value = com.bettertalker.app.ui.components.SyncUiState.NoLogin
