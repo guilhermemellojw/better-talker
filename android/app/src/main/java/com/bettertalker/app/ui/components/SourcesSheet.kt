@@ -222,7 +222,8 @@ private fun PublicationRow(
         SourceRowAction.FOLLOW -> MaterialTheme.colorScheme.tertiary
         SourceRowAction.RESOLVE -> MaterialTheme.colorScheme.tertiary
         SourceRowAction.RETRY -> MaterialTheme.colorScheme.error
-        // Falta/Parcial pedem download, mas não são falha: tertiary, não error.
+        // Conferir/Abrir e Falta/Parcial pedem atenção, não são falha.
+        SourceRowAction.OPEN -> MaterialTheme.colorScheme.tertiary
         SourceRowAction.DOWNLOAD -> MaterialTheme.colorScheme.tertiary
     }
     val isAttention = rowState.attention
@@ -300,6 +301,10 @@ private fun PublicationRow(
                     onClick = onOpenLibrary,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Reindexar") }
+                SourceRowAction.OPEN -> TextButton(
+                    onClick = onOpenLibrary,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) { Text("Abrir") }
                 SourceRowAction.DOWNLOAD -> {
                     val url = downloadUrlFor(group)
                     TextButton(
