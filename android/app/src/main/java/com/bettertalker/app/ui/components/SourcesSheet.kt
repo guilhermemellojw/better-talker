@@ -217,14 +217,14 @@ private fun PublicationRow(
     // Badge = estado; botão = ação. Nunca usar o mesmo texto nos dois.
     val rowState = sourceRowState(group)
     val statusText = rowState.label
-    val statusColor = when (rowState.action) {
-        SourceRowAction.NONE -> MaterialTheme.colorScheme.secondary
-        SourceRowAction.FOLLOW -> MaterialTheme.colorScheme.tertiary
-        SourceRowAction.RESOLVE -> MaterialTheme.colorScheme.tertiary
-        SourceRowAction.RETRY -> MaterialTheme.colorScheme.error
-        // Conferir/Abrir e Falta/Parcial pedem atenção, não são falha.
-        SourceRowAction.OPEN -> MaterialTheme.colorScheme.tertiary
-        SourceRowAction.DOWNLOAD -> MaterialTheme.colorScheme.tertiary
+    val statusColor = when {
+        rowState.label == "Disponível" -> MaterialTheme.colorScheme.secondary
+        rowState.action == SourceRowAction.NONE -> MaterialTheme.colorScheme.secondary
+        rowState.action == SourceRowAction.FOLLOW -> MaterialTheme.colorScheme.tertiary
+        rowState.action == SourceRowAction.RESOLVE -> MaterialTheme.colorScheme.tertiary
+        rowState.action == SourceRowAction.RETRY -> MaterialTheme.colorScheme.error
+        // Conferir/Abrir e Falta pedem atenção, não são falha.
+        else -> MaterialTheme.colorScheme.tertiary
     }
     val isAttention = rowState.attention
 
@@ -242,7 +242,11 @@ private fun PublicationRow(
                 },
         ) {
             // Status icon (compact)
-            StatusPillIcon(pending = pending, status = group.status, tint = statusColor)
+            StatusPillIcon(
+                pending = pending,
+                ok = rowState.label == "Disponível",
+                tint = statusColor,
+            )
             Spacer(Modifier.width(8.dp))
             // Label + count
             Column(Modifier.weight(1f)) {
@@ -260,6 +264,14 @@ private fun PublicationRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                rowState.detail?.let { detail ->
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                    )
+                }
             }
             // Status pill
             Surface(
@@ -446,7 +458,7 @@ private fun SourceDetailLine(source: NoteSource) {
 @Composable
 private fun StatusPillIcon(
     pending: Boolean,
-    status: GroupStatus,
+    ok: Boolean,
     tint: Color,
     size: androidx.compose.ui.unit.Dp = 20.dp,
 ) {
@@ -458,11 +470,7 @@ private fun StatusPillIcon(
         )
     } else {
         Icon(
-            when (status) {
-                GroupStatus.OK -> Icons.Default.CheckCircle
-                GroupStatus.PARTIAL -> Icons.Default.Warning
-                GroupStatus.MISSING -> Icons.Default.Warning
-            },
+            if (ok) Icons.Default.CheckCircle else Icons.Default.Warning,
             contentDescription = null,
             tint = tint,
             modifier = Modifier.size(size),

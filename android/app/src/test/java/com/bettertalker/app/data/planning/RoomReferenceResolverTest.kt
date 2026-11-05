@@ -634,4 +634,26 @@ class RoomReferenceResolverTest {
         assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
         assertNull(out.text)
     }
+
+    @Test
+    fun resolvePublication_rangeDeArtigoIncompleto_ficaPartial() = runBlocking {
+        val out = resolver(itRows(), listOf(itAtt()))
+            .resolvePublication(
+                PublicationRef("it", article = "Gedalias", paragraph = 1, paragraphEnd = 4)
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("Cantor levita"))
+        assertTrue(out.text!!.contains("Filho de Aicão"))
+    }
+
+    @Test
+    fun resolvePublication_rangeDePaginaIncompleto_ficaPartial() = runBlocking {
+        val out = resolver(wRows(), listOf(attachment("w25.07", "w25.07")))
+            .resolvePublication(
+                PublicationRef("w25.07", page = 22, paragraph = 8, paragraphEnd = 11)
+            )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("parágrafo oito"))
+        assertTrue(out.text!!.contains("parágrafo nove"))
+    }
 }

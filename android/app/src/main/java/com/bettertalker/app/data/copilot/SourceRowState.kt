@@ -18,6 +18,8 @@ data class SourceRowState(
     val label: String,
     val action: SourceRowAction,
     val attention: Boolean,
+    /** Selo curto; ex.: "trecho aproximado" quando o arquivo está pronto. */
+    val detail: String? = null,
 )
 
 /** Decisão pura: grupo → pílula + ação. */
@@ -62,13 +64,24 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
         // Texto ausente com edição pronta: conferir/reindexar.
         hasMissingText ->
             SourceRowState("Conferir", SourceRowAction.OPEN, attention = true)
-        // Texto parcial: a edição está no aparelho; abrir para conferir.
+        // Texto parcial: o ARQUIVO está pronto. "Disponível" reflete o acervo;
+        // o selo avisa que o trecho é aproximado.
         hasPartialText ->
-            SourceRowState("Parcial", SourceRowAction.OPEN, attention = true)
+            SourceRowState(
+                "Disponível",
+                SourceRowAction.OPEN,
+                attention = false,
+                detail = "trecho aproximado",
+            )
         group.status == GroupStatus.MISSING ->
             SourceRowState("Falta", SourceRowAction.DOWNLOAD, attention = true)
         else ->
-            SourceRowState("Parcial", SourceRowAction.OPEN, attention = true)
+            SourceRowState(
+                "Disponível",
+                SourceRowAction.OPEN,
+                attention = false,
+                detail = "trecho aproximado",
+            )
     }
 }
 
