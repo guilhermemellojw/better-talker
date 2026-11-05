@@ -72,11 +72,12 @@ class SourceRowStateTest {
     }
 
     @Test
-    fun partial_labelParcialAcaoAbrir() {
+    fun partial_arquivoProntoMostraDisponivelComSeloAproximado() {
         val state = sourceRowState(group(GroupStatus.PARTIAL, listOf(source(text = TextStatus.PARTIAL))))
-        assertEquals("Parcial", state.label)
+        assertEquals("Disponível", state.label)
+        assertEquals("trecho aproximado", state.detail)
         assertEquals(SourceRowAction.OPEN, state.action)
-        assertTrue(state.attention)
+        assertFalse(state.attention)
     }
 
     @Test

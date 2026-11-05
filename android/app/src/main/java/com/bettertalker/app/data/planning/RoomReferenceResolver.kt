@@ -100,11 +100,18 @@ class RoomReferenceResolver(
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
         //    unidade inteira (PARTIAL — texto real, recorte aproximado).
         val paragraph = ref.paragraph
+        val paragraphEnd = ref.paragraphEnd
+            ?.takeIf { paragraph != null && it >= paragraph }
+            ?: paragraph
+        val expected = if (paragraph != null) {
+            paragraph..(paragraphEnd ?: paragraph)
+        } else {
+            IntRange.EMPTY
+        }
         val exact = if (paragraph != null) {
-            slice.filter {
-                it.paragraph == paragraph ||
-                    (it.paragraph == null &&
-                        RefDetector.leadingParagraphNumber(it.text) == paragraph)
+            slice.filter { row ->
+                val n = row.paragraph ?: RefDetector.leadingParagraphNumber(row.text)
+                n != null && n in expected
             }
         } else emptyList()
         val chosen = exact.ifEmpty { slice }
@@ -134,12 +141,17 @@ class RoomReferenceResolver(
             ref.chapter?.takeIf { it.isNotBlank() }?.let { append(" $it") }
             paragraph?.let { append(" §$it") }
         }
+        val found = exact.mapNotNull {
+            it.paragraph ?: RefDetector.leadingParagraphNumber(it.text)
+        }.toSet()
         return ResolvedReference(
             original = ref.symbol,
             canonicalRef = label,
             text = text,
             passageId = finalRows.first().id,
-            status = if (paragraph != null && exact.isNotEmpty()) {
+            status = if (paragraph != null && exact.isNotEmpty() &&
+                expected.all { it in found }
+            ) {
                 ReferenceStatus.RESOLVED
             } else {
                 ReferenceStatus.PARTIAL
@@ -173,11 +185,18 @@ class RoomReferenceResolver(
                 passageDao.byPageParagraph(hit.id, p, start, end ?: start)
             }.distinctBy { it.id }
             if (rows.isNotEmpty()) {
+                val found = rows.mapNotNull {
+                    it.paragraph ?: RefDetector.leadingParagraphNumber(it.text)
+                }.toSet()
                 return resolved(
                     ref = ref,
                     label = pageParagraphLabel(base, page, pageEnd, start, end),
                     rows = rows,
-                    status = ReferenceStatus.RESOLVED,
+                    status = if ((start..(end ?: start)).all { it in found }) {
+                        ReferenceStatus.RESOLVED
+                    } else {
+                        ReferenceStatus.PARTIAL
+                    },
                 )
             }
         }
