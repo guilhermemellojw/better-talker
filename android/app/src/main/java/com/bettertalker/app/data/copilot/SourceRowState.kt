@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.util.EditionStatus
 import com.bettertalker.app.data.util.GroupStatus
 import com.bettertalker.app.data.util.SourceAction
 import com.bettertalker.app.data.util.SourceGroup
@@ -7,7 +8,7 @@ import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.TextStatus
 
 /** Ação do botão de um grupo de fontes (separada do rótulo do badge). */
-enum class SourceRowAction { NONE, FOLLOW, RESOLVE, RETRY, DOWNLOAD }
+enum class SourceRowAction { NONE, FOLLOW, RESOLVE, RETRY, OPEN, DOWNLOAD }
 
 /**
  * Estado visual de uma linha de grupo no SourcesSheet. O rótulo é STATUS,
@@ -28,8 +29,17 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
     val hasMissingEdition = group.sources.any {
         it.status == SourceStatus.EDITION_MISSING
     }
-    val hasTextIssue = group.sources.any {
-        it.status == SourceStatus.TEXT_NOT_FOUND
+    // Edição pronta com texto parcial/ausente: o arquivo está no aparelho.
+    // A ação certa é conferir/reindexar na Biblioteca, nunca baixar de novo.
+    val hasPartialText = group.sources.any {
+        it.citation.edition == EditionStatus.READY &&
+            (it.citation.text == TextStatus.PARTIAL ||
+                it.citation.action == SourceAction.OPEN)
+    }
+    val hasMissingText = group.sources.any {
+        it.citation.edition == EditionStatus.READY &&
+            (it.citation.text == TextStatus.NOT_FOUND ||
+                it.citation.action == SourceAction.REINDEX)
     }
     // Ambiguidade nunca vira "Falta/Baixar": a ação certa é confirmar a edição.
     val hasAmbiguous = group.sources.any {
@@ -49,13 +59,16 @@ fun sourceRowState(group: SourceGroup): SourceRowState {
         // Edição ausente continua sendo download, mesmo com texto faltando.
         hasMissingEdition ->
             SourceRowState("Falta", SourceRowAction.DOWNLOAD, attention = true)
-        // Só texto faltando (sem edição ausente) é Conferir, inclusive MISSING.
-        hasTextIssue ->
-            SourceRowState("Conferir", SourceRowAction.RESOLVE, attention = true)
+        // Texto ausente com edição pronta: conferir/reindexar.
+        hasMissingText ->
+            SourceRowState("Conferir", SourceRowAction.OPEN, attention = true)
+        // Texto parcial: a edição está no aparelho; abrir para conferir.
+        hasPartialText ->
+            SourceRowState("Parcial", SourceRowAction.OPEN, attention = true)
         group.status == GroupStatus.MISSING ->
             SourceRowState("Falta", SourceRowAction.DOWNLOAD, attention = true)
         else ->
-            SourceRowState("Parcial", SourceRowAction.DOWNLOAD, attention = true)
+            SourceRowState("Parcial", SourceRowAction.OPEN, attention = true)
     }
 }
 
