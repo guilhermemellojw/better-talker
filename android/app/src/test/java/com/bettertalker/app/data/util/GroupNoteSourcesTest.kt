@@ -130,7 +130,7 @@ class GroupNoteSourcesTest {
         assertEquals(2, group.pendingCount)
         assertTrue(group.allPending)
         assertEquals(0, group.resolved)
-        assertEquals(GroupStatus.MISSING, group.status)
+        assertEquals(GroupStatus.PARTIAL, group.status)
     }
 
     @Test
@@ -159,4 +159,38 @@ class GroupNoteSourcesTest {
         assertEquals(24, bibleBookOrder("Jeremias"))
         assertEquals(Int.MAX_VALUE, bibleBookOrder("Livro desconhecido"))
     }
+
+    @Test
+    fun edicaoProntaComTextoParcial_naoEhMISSING() {
+        val groups = groupNoteSources(
+            listOf(
+                NoteSource(
+                    ref = "it “Presunção” § 10",
+                    kind = SourceKind.PUBLICATION,
+                    citation = CitationStatus(EditionStatus.READY, TextStatus.PARTIAL),
+                    publicationKey = "it",
+                    publicationLabel = "Estudo Perspicaz das Escrituras",
+                ),
+            ),
+        )
+        val group = groups.single()
+        assertEquals(GroupStatus.PARTIAL, group.status)
+    }
+
+    @Test
+    fun edicaoProntaComTextoNaoEncontrado_naoEhMISSING() {
+        val groups = groupNoteSources(
+            listOf(
+                NoteSource(
+                    ref = "w08 15/6 § 8",
+                    kind = SourceKind.PUBLICATION,
+                    citation = CitationStatus(EditionStatus.READY, TextStatus.NOT_FOUND),
+                    publicationKey = "w08 15/6",
+                    publicationLabel = "A Sentinela — 15/6/2008",
+                ),
+            ),
+        )
+        assertEquals(GroupStatus.PARTIAL, groups.single().status)
+    }
+
 }

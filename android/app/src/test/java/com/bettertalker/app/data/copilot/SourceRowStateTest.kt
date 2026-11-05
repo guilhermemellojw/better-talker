@@ -52,10 +52,10 @@ class SourceRowStateTest {
     @Test
     fun soTextoFaltando_semEdicaoAusente_viraConferir() {
         val state = sourceRowState(
-            group(GroupStatus.MISSING, listOf(source(text = TextStatus.NOT_FOUND)))
+            group(GroupStatus.PARTIAL, listOf(source(text = TextStatus.NOT_FOUND)))
         )
         assertEquals("Conferir", state.label)
-        assertEquals(SourceRowAction.RESOLVE, state.action)
+        assertEquals(SourceRowAction.OPEN, state.action)
         assertTrue(state.attention)
     }
 
@@ -72,10 +72,20 @@ class SourceRowStateTest {
     }
 
     @Test
-    fun partial_labelParcialAcaoDownload() {
+    fun partial_labelParcialAcaoAbrir() {
         val state = sourceRowState(group(GroupStatus.PARTIAL, listOf(source(text = TextStatus.PARTIAL))))
         assertEquals("Parcial", state.label)
-        assertEquals(SourceRowAction.DOWNLOAD, state.action)
+        assertEquals(SourceRowAction.OPEN, state.action)
+        assertTrue(state.attention)
+    }
+
+    @Test
+    fun edicaoProntaComTextoAusente_naoBaixaDeNovo() {
+        val state = sourceRowState(
+            group(GroupStatus.PARTIAL, listOf(source(edition = EditionStatus.READY, text = TextStatus.NOT_FOUND)))
+        )
+        assertEquals("Conferir", state.label)
+        assertEquals(SourceRowAction.OPEN, state.action)
     }
 
     @Test

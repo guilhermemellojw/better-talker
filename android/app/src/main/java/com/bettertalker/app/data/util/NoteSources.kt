@@ -206,12 +206,12 @@ fun groupNoteSources(sources: List<NoteSource>): List<SourceGroup> {
 }
 
 private fun groupStatus(items: List<NoteSource>): GroupStatus {
-    val resolved = items.count { it.citation.text == TextStatus.RESOLVED }
-    return when {
-        resolved == items.size -> GroupStatus.OK
-        resolved == 0 -> GroupStatus.MISSING
-        else -> GroupStatus.PARTIAL
-    }
+    // OK só quando todo texto citado foi resolvido. Uma edição pronta com
+    // trecho parcial/ausente é PARTIAL, não MISSING: o arquivo está no
+    // acervo e o próximo passo é conferir/reindexar, não baixar de novo.
+    if (items.all { it.citation.text == TextStatus.RESOLVED }) return GroupStatus.OK
+    if (items.all { it.citation.edition == EditionStatus.MISSING }) return GroupStatus.MISSING
+    return GroupStatus.PARTIAL
 }
 
 /** Ordem canônica do livro (1..66); desconhecido/outros = Int.MAX_VALUE. */
