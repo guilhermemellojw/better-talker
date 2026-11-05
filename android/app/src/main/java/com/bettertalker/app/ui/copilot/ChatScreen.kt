@@ -58,6 +58,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
@@ -107,6 +108,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -120,6 +122,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -3034,105 +3037,147 @@ private fun SourcesNeededCard(
     }
     val downloadUrl = (downloadSource?.downloadUrl
         ?: downloadSource?.refStatus?.downloadUrl)?.takeIf { it.isNotBlank() }
+    var expanded by remember(needed.question) { mutableStateOf(false) }
+
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+            // Aviso de apoio, não erro: o gate continua bloqueando a
+            // resposta, mas sem dominar o composer.
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Fontes necessárias",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .semantics {
+                        contentDescription =
+                            if (refs.size == 1) "1 fonte pendente" else "${refs.size} fontes pendentes"
+                        stateDescription = if (expanded) "Detalhes abertos" else "Detalhes recolhidos"
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp),
                 )
-                Text(
-                    if (refs.size == 1) "1 ref bloqueada" else "${refs.size} refs bloqueadas",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Text(
-                "Sua pergunta cita uma fonte que ainda não está pronta. " +
-                    "Baixe, reindexe ou confirme a edição — ou continue sem ela.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(4.dp))
-            refs.take(4).forEach { source ->
-                Text(
-                    "• ${source.ref}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    citationReason(source),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (source.citation.action != SourceAction.NONE) {
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
                     Text(
-                        "Ação: ${actionLabel(source.citation.action)}",
+                        if (refs.size == 1) "1 fonte pendente" else "${refs.size} fontes pendentes",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Toque para revisar ou continuar.",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
-            if (refs.size > 4) {
-                Text(
-                    "+${refs.size - 4} outra(s)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Recolher" else "Ver detalhes",
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(if (expanded) 180f else 0f),
                 )
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                if (downloadSource != null) {
-                    TextButton(
-                        onClick = {
-                            if (downloadCtl != null && downloadUrl != null) {
-                                downloadCtl.openPage(context, downloadUrl, onDone = onRefresh)
-                            } else {
-                                onOpenLibrary()
-                            }
-                        },
-                    ) { Text(if (downloadUrl != null) "Baixar no jw.org" else "Abrir Biblioteca") }
-                    val st = downloadSource.refStatus
-                    if (downloadCtl != null && st != null &&
-                        (st.apiPub != null || st.probePub != null)
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                ) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    Text(
+                        "Sua pergunta cita fontes que ainda não estão prontas. " +
+                            "Baixe, reindexe ou confirme a edição — ou continue sem ela.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    refs.take(4).forEach { source ->
+                        Text(
+                            "• ${source.ref}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            citationReason(source),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (source.citation.action != SourceAction.NONE) {
+                            Text(
+                                "Ação: ${actionLabel(source.citation.action)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    if (refs.size > 4) {
+                        Text(
+                            "+${refs.size - 4} outra(s)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        TextButton(
-                            onClick = {
-                                downloadCtl.downloadDirect(context, scope, st, onDone = onRefresh)
-                            },
-                        ) { Text("Baixar direto") }
+                        if (downloadSource != null) {
+                            TextButton(
+                                onClick = {
+                                    if (downloadCtl != null && downloadUrl != null) {
+                                        downloadCtl.openPage(context, downloadUrl, onDone = onRefresh)
+                                    } else {
+                                        onOpenLibrary()
+                                    }
+                                },
+                            ) { Text(if (downloadUrl != null) "Baixar no jw.org" else "Abrir Biblioteca") }
+                            val st = downloadSource.refStatus
+                            if (downloadCtl != null && st != null &&
+                                (st.apiPub != null || st.probePub != null)
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        downloadCtl.downloadDirect(context, scope, st, onDone = onRefresh)
+                                    },
+                                ) { Text("Baixar direto") }
+                            }
+                        }
+                        if (indexSource != null) {
+                            TextButton(onClick = onReindex) { Text("Reindexar") }
+                            if (indexSource.fileName?.endsWith(".jwpub", ignoreCase = true) == true) {
+                                TextButton(onClick = onOpenLibrary) { Text("Baixar EPUB") }
+                            }
+                        }
+                        if (confirmSource != null) {
+                            TextButton(onClick = onOpenEditor) { Text("Corrigir referência") }
+                        }
+                        if (waitSource != null) {
+                            TextButton(onClick = onOpenLibrary) { Text("Acompanhar") }
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        TextButton(onClick = onRefresh) { Text("Já baixei — atualizar") }
+                        TextButton(onClick = onContinue) { Text("Continuar sem") }
+                        TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
                     }
                 }
-                if (indexSource != null) {
-                    TextButton(onClick = onReindex) { Text("Reindexar") }
-                    if (indexSource.fileName?.endsWith(".jwpub", ignoreCase = true) == true) {
-                        TextButton(onClick = onOpenLibrary) { Text("Baixar EPUB") }
-                    }
-                }
-                if (confirmSource != null) {
-                    TextButton(onClick = onOpenEditor) { Text("Corrigir referência") }
-                }
-                if (waitSource != null) {
-                    TextButton(onClick = onOpenLibrary) { Text("Acompanhar") }
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                TextButton(onClick = onRefresh) { Text("Já baixei — atualizar") }
-                TextButton(onClick = onContinue) { Text("Continuar sem") }
-                TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
             }
         }
     }
