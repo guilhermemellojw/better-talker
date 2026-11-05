@@ -145,4 +145,12 @@ class ChatPersonaTest {
         assertTrue(comOratoria.contains("A TH NÃO ensina a preparar discursos públicos"))
         assertFalse(prompt(null).contains("BE 39-42"))
     }
+
+    @Test
+    fun regraDoCardExigePedidoExplicitoELeadIn() {
+        assertTrue(CARD_FIRST_RULE.contains("SOMENTE quando o usuário pedir"))
+        assertTrue(CARD_FIRST_RULE.contains("1–2 frases de conversa"))
+        assertTrue(CARD_FIRST_RULE.contains("nunca responda só com o card"))
+        assertTrue(CARD_FIRST_RULE.contains("não use o marcador"))
+    }
 }

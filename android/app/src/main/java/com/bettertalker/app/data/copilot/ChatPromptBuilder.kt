@@ -131,11 +131,13 @@ val CHAT_PERSONA = CHAT_PERSONA_BASE
  * system prompt. Texto aplicável dentro, conversa fora, um card por resposta.
  */
 const val CARD_FIRST_RULE =
-    "Texto aplicável (discurso, desenvolvimento, transição, introdução, conclusão, " +
-        "diálogo) vai dentro de <texto-do-card>...</texto-do-card>. Explicações, " +
-        "análise, perguntas e conversa ficam FORA. Um card por resposta. " +
-        "Se houver um parágrafo, transição ou ilustração PRONTA para aplicar, use o card; " +
-        "se for apenas ideia, lista ou análise, responda na conversa. " +
+    "A resposta padrão é CONVERSA: análise, orientação, ideias e próximos passos. " +
+        "Use <texto-do-card>...</texto-do-card> SOMENTE quando o usuário pedir " +
+        "explicitamente texto aplicável (escreva, desenvolva, redija, monte a fala, " +
+        "crie o texto) ou quando a resposta for um texto pronto que ele acabou de pedir. " +
+        "Explicações, análise, perguntas, listas de ideias e opinião ficam FORA do card. " +
+        "Sempre escreva 1–2 frases de conversa ANTES do card; nunca responda só com o card. " +
+        "Um card por resposta. Se for apenas ideia ou análise, não use o marcador. " +
         "Perguntas de explicação/análise (por que, o que significa, o que acha) sem pedido " +
         "explícito de escrita ficam na conversa, mesmo que a resposta tenha parágrafos."
 

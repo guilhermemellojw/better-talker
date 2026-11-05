@@ -399,20 +399,14 @@ fun StructureProposalCard(
     vm: CopilotViewModel,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.fillMaxWidth()
+    CardDisclosure(
+        title = "Estrutura proposta",
+        summary = ui.summary,
+        stateKey = ui.id,
+        modifier = modifier
             .padding(vertical = 4.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite }
+            .semantics { liveRegion = LiveRegionMode.Polite },
     ) {
-        Text("Estrutura proposta", style = MaterialTheme.typography.titleSmall)
-        if (ui.summary.isNotBlank()) {
-            Text(
-                ui.summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
         Text("Objetivo: ${ui.plan.mainIdea}", style = MaterialTheme.typography.bodySmall)
         Text("Tempo: ${ui.plan.minutes} min", style = MaterialTheme.typography.bodySmall)
         if (ui.plan.bibleRefs.isNotEmpty()) {
@@ -428,11 +422,9 @@ fun StructureProposalCard(
             )
         }
         ui.notice?.let {
-            Spacer(Modifier.height(4.dp))
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
-                // Obsoleta = aviso forte; demais avisos ficam discretos.
                 color = if (it.contains("obsoleta")) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.secondary,
             )
@@ -459,24 +451,18 @@ fun NoteStructureProposalCard(
     vm: CopilotViewModel,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.fillMaxWidth()
+    CardDisclosure(
+        title = "Estrutura da nota proposta",
+        summary = ui.summary,
+        stateKey = ui.id,
+        modifier = modifier
             .padding(vertical = 4.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite }
+            .semantics { liveRegion = LiveRegionMode.Polite },
     ) {
-        Text("Estrutura da nota proposta", style = MaterialTheme.typography.titleSmall)
-        if (ui.summary.isNotBlank()) {
-            Text(
-                ui.summary,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-        }
         Text(
             "Tema: ${ui.title} • ${ui.totalMinutes} min",
             style = MaterialTheme.typography.bodySmall,
         )
-        Spacer(Modifier.height(4.dp))
         ui.sections.forEachIndexed { i, s ->
             val refs = (s.bibleRefs + s.publicationRefs.map { it.symbol })
                 .joinToString(", ")
@@ -489,7 +475,6 @@ fun NoteStructureProposalCard(
             )
         }
         if (ui.hints.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
             Text(
                 "Sinais detectados: ${ui.hints.joinToString("; ")}",
                 style = MaterialTheme.typography.bodySmall,
@@ -497,18 +482,14 @@ fun NoteStructureProposalCard(
             )
         }
         ui.notice?.let {
-            Spacer(Modifier.height(4.dp))
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,
-                // Obsoleta = aviso forte; demais avisos ficam discretos.
                 color = if (it.contains("obsoleta")) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.secondary,
             )
         }
         if (!ui.applied && ui.notice == null) {
-            Spacer(Modifier.height(4.dp))
-            // Confirmação explícita: a aplicação SUBSTITUI as seções da nota.
             Text(
                 "Isto vai substituir as ${ui.currentSectionCount} seções atuais desta nota.",
                 style = MaterialTheme.typography.bodySmall,
@@ -565,16 +546,14 @@ fun MultiProposalCard(
     vm: CopilotViewModel,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.fillMaxWidth()
+    CardDisclosure(
+        title = "${ui.proposals.size} opções para: ${ui.theme}",
+        summary = "Escolha um ângulo para ver a estrutura.",
+        stateKey = ui.id,
+        modifier = modifier
             .padding(vertical = 4.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite }
+            .semantics { liveRegion = LiveRegionMode.Polite },
     ) {
-        Text(
-            "${ui.proposals.size} opções para: ${ui.theme}",
-            style = MaterialTheme.typography.titleSmall,
-        )
-        Spacer(Modifier.height(4.dp))
         ui.proposals.forEachIndexed { i, p ->
             val chosen = ui.chosen == p.id
             Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -604,7 +583,6 @@ fun MultiProposalCard(
             }
         }
         ui.notice?.let {
-            Spacer(Modifier.height(4.dp))
             Text(
                 it,
                 style = MaterialTheme.typography.bodySmall,

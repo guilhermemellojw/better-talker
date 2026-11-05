@@ -1365,7 +1365,6 @@ private fun MessageBubble(
                             null
                         },
                         leadingMark = assistantInlineMark(),
-                        collapseCard = card != null,
                         cardActions = if (card != null) {
                             {
                                 // M2a: card aninhado entra com fade + expand
@@ -2490,9 +2489,7 @@ fun ChatMessageText(
     onUseInCard: ((String) -> Unit)? = null,
     /** #22-fix (P1): selo prependado ao primeiro bloco de texto (ex.: "BT · "). */
     leadingMark: AnnotatedString? = null,
-    /** Card-first: preview longo do card nasce recolhido (ações visíveis). */
-    collapseCard: Boolean = false,
-    /** Card-first: ações renderizadas logo abaixo do bloco `<texto-do-card>`. */
+    /** Card-first: ações renderizadas dentro do disclosure `<texto-do-card>`. */
     cardActions: (@Composable () -> Unit)? = null,
 ) {
     if (md.isBlank()) return
@@ -2532,14 +2529,19 @@ fun ChatMessageText(
                     }
                     return@forEach
                 }
-                // #20-fix-a: render extraído (reusado pelo preview do card).
-                RenderBlock(block, mark, onUseInCard, collapseCard)
-                // Card-first: o card é o objeto principal; as ações ficam
-                // coladas no preview, não depois da conversa que o segue.
-                if (block is MdBlock.TextForCard && !actionsPlaced) {
-                    actionsPlaced = true
-                    cardActions?.invoke()
-                }
+                // #20-fix-a/3.4: o card é um disclosure; as ações só existem
+                // dentro dele e nunca aparecem antes do "Ver".
+                RenderBlock(
+                    block = block,
+                    mark = mark,
+                    onUseInCard = onUseInCard,
+                    cardActions = if (block is MdBlock.TextForCard && !actionsPlaced) {
+                        actionsPlaced = true
+                        cardActions
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
@@ -2555,7 +2557,7 @@ internal fun RenderBlock(
     block: MdBlock,
     mark: AnnotatedString?,
     onUseInCard: ((String) -> Unit)?,
-    collapseCard: Boolean = false,
+    cardActions: (@Composable () -> Unit)? = null,
 ) {
     when (block) {
         is MdBlock.Title -> Text(
@@ -2579,7 +2581,11 @@ internal fun RenderBlock(
             markInline(block.text, mark),
             style = MaterialTheme.typography.bodyLarge
         )
-        is MdBlock.TextForCard -> RenderTextForCard(block, onUseInCard, collapseCard)
+        is MdBlock.TextForCard -> RenderTextForCard(
+            block = block,
+            onUseInCard = onUseInCard,
+            cardActions = cardActions,
+        )
     }
 }
 
@@ -2659,68 +2665,30 @@ private fun RenderCheck(block: MdBlock.Check, mark: AnnotatedString?) {
 private fun RenderTextForCard(
     block: MdBlock.TextForCard,
     onUseInCard: ((String) -> Unit)?,
-    collapse: Boolean = false,
+    cardActions: (@Composable () -> Unit)? = null,
 ) {
-    val canCollapse = collapse && block.text.length > 700
-    var expanded by remember(block.text) { mutableStateOf(false) }
-    val showCollapsed = canCollapse && !expanded
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA)
-            )
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.outline,
-                MaterialTheme.shapes.medium,
-            )
-            .padding(12.dp),
+    val innerBlocks = remember(block.text) { cardInnerBlocks(block.text) }
+    val summary = remember(block.text) {
+        val plain = cardTextToMarkdown(block.text)
+        val words = plain.split(Regex("\\s+")).count { it.isNotBlank() }
+        "${words.coerceAtLeast(1)} palavras · toque em Ver para revisar"
+    }
+    CardDisclosure(
+        title = "Texto para o card",
+        summary = summary,
+        stateKey = block.text,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Texto para o card",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            if (onUseInCard != null) {
-                TextButton(onClick = { onUseInCard(cardTextToMarkdown(block.text)) }) {
-                    Text("⤓ Usar no card")
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        val innerBlocks = remember(block.text) { cardInnerBlocks(block.text) }
-        // Card-first: cards reais podem ter milhares de caracteres. Mostrar
-        // tudo empurrava "Adicionar ao final"/"Substituir" para fora da tela;
-        // o preview nasce recolhido e o texto completo fica a um toque.
-        Column(
-            modifier = if (showCollapsed) {
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 210.dp)
-                    .clipToBounds()
-            } else {
-                Modifier.fillMaxWidth()
-            },
-        ) {
+        Column(Modifier.fillMaxWidth()) {
             innerBlocks.forEach { inner ->
                 RenderBlock(inner, mark = null, onUseInCard = null)
             }
         }
-        if (canCollapse) {
-            TextButton(
-                onClick = { expanded = !expanded },
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Text(
-                    if (expanded) "Recolher texto" else "Ver texto completo",
-                    style = MaterialTheme.typography.labelMedium,
-                )
+        if (onUseInCard != null) {
+            TextButton(onClick = { onUseInCard(cardTextToMarkdown(block.text)) }) {
+                Text("⤓ Usar no card")
             }
         }
+        cardActions?.invoke()
     }
 }
 

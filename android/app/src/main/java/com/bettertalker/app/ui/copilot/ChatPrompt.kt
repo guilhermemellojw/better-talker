@@ -734,144 +734,121 @@ fun ProposalCard(
 ) {
     val applied = ui.applied
     val hasContent = sectionContentHtml.isNotBlank()
-    val shape = MaterialTheme.shapes.medium
     var menuOpen by remember { mutableStateOf(false) }
     var showDetails by remember(ui.verification) { mutableStateOf(false) }
 
-    Column(
-        modifier.fillMaxWidth()
+    CardDisclosure(
+        title = "Texto proposto",
+        summary = ui.proposal.explanation,
+        stateKey = ui.proposalMessageId ?: ui.sectionId ?: ui.proposal.hashCode(),
+        // Proposta nasce de uma ação explícita do usuário ("Criar proposta").
+        initiallyExpanded = true,
+        modifier = modifier
             .padding(vertical = 4.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite }
+            .semantics { liveRegion = LiveRegionMode.Polite },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = CONTENT_BLOCK_ALPHA))
-                .border(1.dp, MaterialTheme.colorScheme.outline, shape)
-                .padding(12.dp),
-        ) {
-            // Header: rótulo + ⋯ (ações avançadas).
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Texto proposto",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                Box {
-                    IconButton(
-                        onClick = { menuOpen = true },
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(18.dp))
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        // #26-fix: substituir é a ação AVANÇADA — o padrão do
-                        // botão primário é ADICIONAR (não destrutivo).
-                        if (hasContent && !applied) {
-                            DropdownMenuItem(
-                                text = { Text("Substituir a seção") },
-                                onClick = {
-                                    menuOpen = false
-                                    vm.acceptProposal(forceReplace = true)
-                                },
-                            )
-                        }
-                        if (!applied) {
-                            DropdownMenuItem(
-                                text = { Text(if (ui.verifying) "Verificando..." else "Verificar") },
-                                enabled = !ui.verifying,
-                                onClick = {
-                                    menuOpen = false
-                                    vm.verifyProposal()
-                                },
-                            )
-                        }
-                        if (ui.verification != null) {
-                            DropdownMenuItem(
-                                text = { Text("Ver detalhes de fidelidade") },
-                                onClick = {
-                                    menuOpen = false
-                                    showDetails = true
-                                },
-                            )
-                        }
-                        if (applied && vm.canUndoProposal) {
-                            DropdownMenuItem(
-                                text = { Text("Desfazer") },
-                                onClick = {
-                                    menuOpen = false
-                                    vm.undoProposal()
-                                },
-                            )
-                        }
-                        if (applied) {
-                            DropdownMenuItem(
-                                text = { Text("Fechar") },
-                                onClick = {
-                                    menuOpen = false
-                                    vm.rejectProposal()
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            ui.proposal.explanation?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary)
-            }
-            Spacer(Modifier.height(6.dp))
-
-            // Preview FORMATADO — mesmo render dos blocos das mensagens.
-            // Sem truncamento silencioso: o texto inteiro é renderizado.
-            val afterFull = remember(ui.proposal, ui.focusText) {
-                com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
-            }
-            val hasSuggestion = remember(afterFull) { stripSuggestionTags(afterFull).hasSuggestion }
-            if (hasSuggestion) {
-                Text(
-                    "💡 Sugestão criativa",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-            val previewBlocks = remember(afterFull) { cleanBlocks(parseBlocks(afterFull)) }
-            previewBlocks.forEach { block ->
-                RenderBlock(block, mark = null, onUseInCard = null)
-            }
-            ui.notice?.let {
-                Spacer(Modifier.height(6.dp))
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            Spacer(Modifier.height(8.dp))
-            if (!applied) {
-                // A decisão fica FORA do ⋯ (é o caminho principal).
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.weight(1f))
+            Box {
+                IconButton(
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.size(32.dp),
                 ) {
-                    Button(
-                        onClick = { vm.acceptProposal() },
-                        modifier = Modifier.weight(1f),
-                    ) { Text(proposalButtonLabel(sectionContentHtml)) }
-                    OutlinedButton(
-                        onClick = { vm.rejectProposal() },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("Manter atual") }
+                    Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(18.dp))
                 }
-            } else {
-                Text(
-                    "Aplicado ao card.",
-                    style = MaterialTheme.typography.labelSmall,
-                    // texto: primary (amarelo) dava 1,55:1 no light
-                    color = MaterialTheme.colorScheme.secondary,
-                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (hasContent && !applied) {
+                        DropdownMenuItem(
+                            text = { Text("Substituir a seção") },
+                            onClick = {
+                                menuOpen = false
+                                vm.acceptProposal(forceReplace = true)
+                            },
+                        )
+                    }
+                    if (!applied) {
+                        DropdownMenuItem(
+                            text = { Text(if (ui.verifying) "Verificando..." else "Verificar") },
+                            enabled = !ui.verifying,
+                            onClick = {
+                                menuOpen = false
+                                vm.verifyProposal()
+                            },
+                        )
+                    }
+                    if (ui.verification != null) {
+                        DropdownMenuItem(
+                            text = { Text("Ver detalhes de fidelidade") },
+                            onClick = {
+                                menuOpen = false
+                                showDetails = true
+                            },
+                        )
+                    }
+                    if (applied && vm.canUndoProposal) {
+                        DropdownMenuItem(
+                            text = { Text("Desfazer") },
+                            onClick = {
+                                menuOpen = false
+                                vm.undoProposal()
+                            },
+                        )
+                    }
+                    if (applied) {
+                        DropdownMenuItem(
+                            text = { Text("Fechar") },
+                            onClick = {
+                                menuOpen = false
+                                vm.rejectProposal()
+                            },
+                        )
+                    }
+                }
             }
+        }
+
+        // Preview FORMATADO — mesmo render dos blocos das mensagens.
+        // Sem truncamento silencioso: o texto inteiro é renderizado.
+        val afterFull = remember(ui.proposal, ui.focusText) {
+            com.bettertalker.app.data.edit.renderAfterText(ui.proposal, ui.focusText)
+        }
+        val hasSuggestion = remember(afterFull) { stripSuggestionTags(afterFull).hasSuggestion }
+        if (hasSuggestion) {
+            Text(
+                "💡 Sugestão criativa",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        val previewBlocks = remember(afterFull) { cleanBlocks(parseBlocks(afterFull)) }
+        previewBlocks.forEach { block ->
+            RenderBlock(block, mark = null, onUseInCard = null)
+        }
+        ui.notice?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (!applied) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Button(
+                    onClick = { vm.acceptProposal() },
+                    modifier = Modifier.weight(1f),
+                ) { Text(proposalButtonLabel(sectionContentHtml)) }
+                OutlinedButton(
+                    onClick = { vm.rejectProposal() },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Manter atual") }
+            }
+        } else {
+            Text(
+                "Aplicado ao card.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
         }
     }
 
