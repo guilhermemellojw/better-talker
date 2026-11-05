@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.domain.ContextPack
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,5 +49,28 @@ class NoteLensBlockTest {
         val block = buildNoteLensBlock("Nota", emptyList(), focusId = null, whole = false)
         assertTrue(block.contains("nota sem seções persistidas"))
         assertTrue(block.contains("Tópico atual (sem seção identificada)"))
+    }
+
+    @Test
+    fun lenteEntraNoPromptDoTurno() {
+        val lens = buildNoteLensBlock(
+            noteTitle = "A esperança que não decepciona",
+            sections = sections,
+            focusId = "s2",
+            whole = false,
+        )
+        val prompt = buildChatPrompt(
+            message = "como isso se liga à conclusão?",
+            history = emptyList(),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "Desenvolvimento",
+            blockMinutes = 10,
+            blockText = "texto do ponto 2",
+            userContextBlock = lens,
+        )
+        assertTrue(prompt.contains("## FOCO ATUAL"))
+        assertTrue(prompt.contains("Tópico 2/3: Desenvolvimento (10 min)"))
+        assertTrue(prompt.contains("Próxima: Conclusão"))
     }
 }

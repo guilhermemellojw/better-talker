@@ -108,4 +108,22 @@ class ChatSoftDeleteMigrationTest {
         assertEquals(2, singleInt("SELECT COUNT(*) FROM chat_messages WHERE noteId='n'"))
         assertTrue(singleInt("SELECT isActive FROM chat_messages WHERE id='m1'") == 0)
     }
+
+    @Test
+    fun fioDaNotaIncluiMensagensDeTopicosDiferentes() {
+        migrate()
+        // Mesma query do ChatDao.observe(noteId): o foco é metadado, não filtro.
+        exec(
+            "INSERT INTO chat_messages (id, noteId, fromMe, kind, payload, createdAt, sectionId) " +
+                "VALUES ('m3','n','1','text','{}',30,'s1')"
+        )
+        exec(
+            "INSERT INTO chat_messages (id, noteId, fromMe, kind, payload, createdAt, sectionId) " +
+                "VALUES ('m4','n','0','text','{}',40,'s2')"
+        )
+        assertEquals(
+            4,
+            singleInt("SELECT COUNT(*) FROM chat_messages WHERE noteId='n' AND isActive = 1"),
+        )
+    }
 }
