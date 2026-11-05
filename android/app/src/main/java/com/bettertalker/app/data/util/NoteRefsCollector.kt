@@ -164,22 +164,34 @@ object NoteRefsCollector {
      * Mais estável que o `raw` (o mesmo ponto pode vir como "§ 4" ou
      * "ponto 4" do parser/JSON da seção).
      */
-    fun sourceKey(ref: RefDetector.DetectedRef): String = buildString {
-        // A ref de texto carrega o artigo no editionKey ("book|it|a:presuncao"),
-        // a ref persistida da seção carrega só "book|it". O artigo já entra
-        // no campo abaixo; normalizar aqui evita a duplicata do it.
-        append(ref.editionKey.substringBefore("|a:"))
-        append('|').append(normalizeText(ref.article.orEmpty()))
-        append('|').append(normalizeText(ref.chapter.orEmpty()))
-        append('|').append(ref.page ?: -1)
-        append('|').append(ref.paragraph ?: -1)
-        // "§10" e "§10-§10" são a mesma unidade; sem normalizar, a ref de
-        // seção duplicava a ref do texto e ficava sem promptText.
-        append('|').append(
-            ref.paragraphEnd?.takeIf { it != ref.paragraph } ?: -1
-        )
-        // C2.5: "g 1/16" (ambíguo) não colapsa com uma ref exata da mesma edição.
-        if (ref.ambiguous) append("|amb")
+    fun sourceKey(ref: RefDetector.DetectedRef): String {
+        // Livros podem chegar com editionKey "book|it" (ref persistida) ou
+        // "book|it|a:presuncao|10" (detector de texto). A unidade já está
+        // nos campos article/chapter/page/§; a edição é só "book|<pubKey>".
+        val edition = if (ref.kind == RefDetector.Kind.BOOK) {
+            "book|${ref.pubKey}"
+        } else {
+            ref.editionKey
+        }
+        val article = normalizeText(ref.article.orEmpty())
+        val chapter = normalizeText(ref.chapter.orEmpty())
+        val paragraph = ref.paragraph
+        // "§10" e "§§10" são a mesma unidade: fim igual ao início não conta.
+        val paragraphEnd = ref.paragraphEnd?.takeIf { it != paragraph }
+        // Artigo/capítulo + § já identificam a unidade. Página vira detalhe
+        // (e pode faltar em uma das origens), então não entra na chave.
+        val unit = article.ifBlank { chapter }
+        val page = if (unit.isNotBlank() && paragraph != null) null else ref.page
+        return buildString {
+            append(edition)
+            append('|').append(article)
+            append('|').append(chapter)
+            append('|').append(page ?: -1)
+            append('|').append(paragraph ?: -1)
+            append('|').append(paragraphEnd ?: -1)
+            // C2.5: "g 1/16" (ambíguo) não colapsa com uma ref exata da mesma edição.
+            if (ref.ambiguous) append("|amb")
+        }
     }
 
     /**
@@ -277,15 +289,25 @@ object NoteRefsCollector {
     private fun publicationRaw(ref: PublicationRef): String = buildString {
         val article = ref.article?.trim()?.takeIf { it.isNotBlank() }
         val chapter = ref.chapter?.trim()?.takeIf { it.isNotBlank() }
+        val paragraph = ref.paragraph
+        // Artigo + § já identificam a unidade. A página no meio do rótulo
+        // ("it — Presunção pág. 8 § 10") quebrava o parser do próprio app;
+        // o dado continua em `page`, mas o raw segue o formato detectável.
+        if (article != null && article != chapter && paragraph != null) {
+            append(ref.symbol)
+            append(" — ").append(article)
+            append(" § ").append(paragraph)
+            return@buildString
+        }
         append(ref.symbol)
         if (article != null && article != chapter) append(" — ").append(article)
         chapter?.let { append(' ').append(it) }
         ref.page?.let { append(" pág. ").append(it) }
-        ref.paragraph?.let { paragraph ->
+        paragraph?.let {
             if (chapter?.contains("apêndice", ignoreCase = true) == true) {
-                append(" ponto ").append(paragraph)
+                append(" ponto ").append(it)
             } else {
-                append(" § ").append(paragraph)
+                append(" § ").append(it)
             }
         }
     }

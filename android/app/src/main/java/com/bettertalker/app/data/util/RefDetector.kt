@@ -260,7 +260,9 @@ object RefDetector {
     // (retas/curvas); aceita "n.°"/"n.º"/"número"/"§"/"parág.". O artigo
     // começa com letra (não confunde com "bh 109-110 §§ 10-11").
     private val ARTICLE_REF_RE = Regex(
-        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj)\s+["“'‘]?([A-Za-zÀ-ÿ][^"”'’\n()§]{1,69}?)["”'’]?\s*""" +
+        // Aceita também o formato persistido pelo app ("it — Presunção § 10"),
+        // que usa travessão entre o símbolo e o artigo.
+        """\b(it-[12]|it|rsg|pe|rs|re|dp|dg|bh|jv|kj)\s+(?:[—–-]\s*)?["“'‘]?([A-Za-zÀ-ÿ][^"”'’\n()§]{1,69}?)["”'’]?\s*""" +
             """(?:n\.\s*[ºo°]?|n[úu]mero|§§?|par[áa]g\.?|par[áa]grafo)\s*(\d{1,3})\b""",
         RegexOption.IGNORE_CASE
     )

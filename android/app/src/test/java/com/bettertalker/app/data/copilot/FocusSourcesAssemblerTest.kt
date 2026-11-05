@@ -9,6 +9,7 @@ import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.NoteSourcesResolver
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.SectionRefs
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
@@ -190,6 +191,48 @@ class FocusSourcesAssemblerTest {
             FocusDestination.INVENTORY,
             out.entries.first { it.reference.contains("w25.07") }.destination,
         )
+    }
+
+    @Test
+    fun checklistPreencheTextoDaNotaSemCitacaoExplicita() {
+        val pub = PublicationRef(
+            symbol = "it",
+            page = 8,
+            paragraph = 10,
+            paragraphEnd = 10,
+            article = "Presunção",
+        )
+        val refs = NoteRefsCollector.collect(
+            sections = listOf(SectionRefs(publicationRefs = listOf(pub))),
+        )
+        val ref = refs.publications.single()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val sources = NoteSourcesResolver.toNoteSources(
+            candidates = NoteSourcesResolver.candidatesOf(refs),
+            publicationStatuses = mapOf(
+                key to RefDetector.RefStatus(
+                    ref = ref,
+                    resolved = true,
+                    contentResolved = true,
+                    promptText = "texto do §10",
+                ),
+            ),
+            bibleStatuses = emptyMap(),
+        )
+        val out = FocusSourcesAssembler.assemble(
+            refs = refs,
+            noteSources = sources,
+            citedSources = emptyList(),
+            pack = pack(),
+            dossier = dossier(currentSection = section(publicationRefs = listOf(pub))),
+            question = "",
+            structural = null,
+        )
+
+        val entry = out.entries.single { it.key == key }
+        assertEquals(FocusStatus.RESOLVED, entry.status)
+        assertEquals("texto do §10", entry.text)
+        assertEquals(FocusDestination.FOCUS_BLOCK, entry.destination)
     }
 
     @Test

@@ -363,10 +363,11 @@ object FocusSourceResolver {
             val note = findPublicationNoteSource(ref, input.noteSources)
             val resolved = input.resolvedTexts[key]
             // Fallback: a nota já resolveu o trecho, mas ele não entrou no
-            // mapa do turno (ref fora do foco/duplicata). Sem isto, a linha
-            // virava TEXT_NOT_FOUND e o Copilot dizia não ter a fonte.
-            val noteText = note?.refStatus?.promptText
-                ?.takeIf { it.isNotBlank() }
+            // mapa do turno (ref fora do foco/duplicata). O promptText é a
+            // fonte preferida; snippet cobre o recorte parcial. Sem isto, a
+            // linha virava TEXT_NOT_FOUND e o Copilot dizia não ter a fonte.
+            val noteText = note?.refStatus?.promptText?.takeIf { it.isNotBlank() }
+                ?: note?.refStatus?.snippet?.takeIf { it.isNotBlank() }
             val text = resolved?.text?.takeIf { it.isNotBlank() }
                 ?: noteText.orEmpty()
             val edition = note?.citation?.edition
@@ -439,13 +440,24 @@ object FocusSourceResolver {
                 truncatedChars = 0,
             )
         }
+        // Ref canônica da nota que não é do ponto atual: inventário, com o
+        // status real do checklist. Nunca vira "trecho não encontrado" só
+        // porque a lente está em outra seção.
+        if (source.origin == FocusOrigin.NOTE &&
+            source.key !in normalized.dossierKeys &&
+            source.key !in normalized.pinnedKeys
+        ) {
+            return source.copy(
+                destination = FocusDestination.INVENTORY,
+                omissionReason = "fora do ponto atual; disponível no inventário da nota",
+                originalChars = source.text.length,
+                truncatedChars = 0,
+            )
+        }
         if (source.text.isBlank()) {
             return source.copy(
-                status = if (source.status == FocusStatus.RESOLVED) {
-                    FocusStatus.TEXT_NOT_FOUND
-                } else {
-                    source.status
-                },
+                // Mantém o status do checklist (ex.: RESOLVED). A ausência de
+                // texto é motivo de omissão, não um falso TEXT_NOT_FOUND.
                 destination = FocusDestination.OMITTED,
                 omissionReason = "sem trecho utilizável no acervo",
                 originalChars = 0,

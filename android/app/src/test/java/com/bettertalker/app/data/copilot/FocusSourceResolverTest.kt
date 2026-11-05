@@ -8,6 +8,8 @@ import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.NoteSourcesResolver
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.SectionRefs
+import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.CitationStatus
 import com.bettertalker.app.data.util.EditionStatus
@@ -334,6 +336,87 @@ class FocusSourceResolverTest {
         assertEquals(1, counts.orientation)
         assertEquals(1, counts.orientationInventory)
         assertEquals(0, counts.extras)
+    }
+
+    private fun itPresuncaoRefs(): NoteRefs = NoteRefsCollector.collect(
+        sections = listOf(
+            SectionRefs(
+                publicationRefs = listOf(
+                    PublicationRef(
+                        symbol = "it",
+                        page = 8,
+                        paragraph = 10,
+                        paragraphEnd = 10,
+                        article = "Presunção",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    private fun itPresuncaoStatus(
+        ref: RefDetector.DetectedRef,
+        promptText: String = "texto exato do §10",
+    ): RefDetector.RefStatus = RefDetector.RefStatus(
+        ref = ref,
+        resolved = true,
+        contentResolved = true,
+        snippet = promptText,
+        promptText = promptText,
+    )
+
+    @Test
+    fun notaResolvidaUsaPromptTextDoChecklistQuandoResolvedTextsNaoCasa() {
+        val refs = itPresuncaoRefs()
+        val ref = refs.publications.single()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = noteSourcesOf(
+                    refs,
+                    pubStatuses = mapOf(key to itPresuncaoStatus(ref)),
+                ),
+                // Propositalmente sem resolvedTexts: o fallback vem do checklist.
+                sectionKeys = setOf(key),
+            ),
+        )
+
+        val entry = out.entries.single()
+        assertEquals(FocusStatus.RESOLVED, entry.status)
+        assertEquals(FocusDestination.FOCUS_BLOCK, entry.destination)
+        assertEquals("texto exato do §10", entry.text)
+    }
+
+    @Test
+    fun notaForaDoFocoFicaNoInventarioSemFalsoTextNotFound() {
+        val refs = itPresuncaoRefs()
+        val ref = refs.publications.single()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = noteSourcesOf(
+                    refs,
+                    pubStatuses = mapOf(key to itPresuncaoStatus(ref)),
+                ),
+            ),
+        )
+
+        val entry = out.entries.single()
+        assertEquals(FocusDestination.INVENTORY, entry.destination)
+        assertEquals(FocusStatus.RESOLVED, entry.status)
+        assertTrue(entry.omissionReason!!.contains("fora do ponto atual"))
+        assertFalse(out.entries.any { it.status == FocusStatus.TEXT_NOT_FOUND })
+    }
+
+    @Test
+    fun keyOfAceitaFormatoPersistidoComTravessao() {
+        val detected = RefDetector.detect("it “Presunção” § 10").single()
+        assertEquals(
+            NoteRefsCollector.sourceKey(detected),
+            FocusSourceResolver.keyOf("it — Presunção § 10"),
+        )
     }
 
     @Test

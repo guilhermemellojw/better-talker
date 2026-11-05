@@ -100,6 +100,48 @@ class NoteRefsCollectorTest {
     }
 
     @Test
+    fun dedupItPresuncaoEntreTextoDetectadoERefPersistida() {
+        // Formato do detector: "it “Presunção” § 10".
+        val detected = RefDetector.detect("it “Presunção” § 10").single()
+        // Formato persistido pela seção: "it — Presunção § 10", com página e
+        // paragraphEnd que não podem criar uma segunda identidade.
+        val persisted = NoteRefsCollector.publicationRefToDetected(
+            PublicationRef(
+                symbol = "it",
+                page = 8,
+                paragraph = 10,
+                paragraphEnd = 10,
+                article = "Presunção",
+            ),
+        )!!
+        assertEquals("it — Presunção § 10", persisted.raw)
+        assertEquals(
+            NoteRefsCollector.sourceKey(detected),
+            NoteRefsCollector.sourceKey(persisted),
+        )
+
+        val refs = NoteRefsCollector.collect(
+            mdText = "it “Presunção” § 10",
+            sections = listOf(
+                section(
+                    publicationRefs = listOf(
+                        PublicationRef(
+                            symbol = "it",
+                            page = 8,
+                            paragraph = 10,
+                            paragraphEnd = 10,
+                            article = "Presunção",
+                        ),
+                    ),
+                ),
+            ).map { it.toSectionRefs() },
+        )
+        assertEquals(1, refs.publications.size)
+        assertEquals("Presunção", refs.publications.single().article)
+        assertEquals(10, refs.publications.single().paragraph)
+    }
+
+    @Test
     fun dedupBibliaPorLivroCanonico() {
         val refs = NoteRefsCollector.collect(
             mdText = "Jer. 45:3 e Jeremias 45:3",
