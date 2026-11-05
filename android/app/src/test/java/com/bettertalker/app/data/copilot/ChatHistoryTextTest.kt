@@ -142,4 +142,16 @@ class ChatHistoryTextTest {
         assertTrue(labeled.startsWith("[Tópico: Ponto 2]"))
         assertTrue(labeled.contains("Quer que eu escreva o bloco nessa linha?"))
     }
+
+    @Test
+    fun fioUnicoMantemTurnosDeFocosDiferentes() {
+        val turns = listOf(
+            labelChatTurn("Pergunta no ponto 1", "s1", "Introdução"),
+            labelChatTurn("Resposta no ponto 2", "s2", "Desenvolvimento"),
+        )
+        assertTrue(turns[0].startsWith("[Tópico: Introdução]"))
+        assertTrue(turns[1].startsWith("[Tópico: Desenvolvimento]"))
+        assertTrue(turns.joinToString("\n").contains("Pergunta no ponto 1"))
+        assertTrue(turns.joinToString("\n").contains("Resposta no ponto 2"))
+    }
 }

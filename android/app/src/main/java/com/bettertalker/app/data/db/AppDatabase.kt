@@ -426,14 +426,14 @@ interface ChatDao {
     suspend fun deactivateMessage(messageId: String)
 
     /**
-     * #26-fix-c: soft delete da pergunta editada E de tudo que veio depois,
-     * no MESMO escopo da conversa (Editar pergunta).
+     * #26-fix-c/3.4: soft delete da pergunta editada E de tudo que veio depois
+     * no fio único da nota (Editar pergunta).
      */
     @Query(
         "UPDATE chat_messages SET isActive = 0 WHERE noteId = :noteId " +
-            "AND sectionId IS :sectionId AND createdAt >= :fromCreatedAt"
+            "AND createdAt >= :fromCreatedAt"
     )
-    suspend fun deactivateMessagesFrom(noteId: String, sectionId: String?, fromCreatedAt: Long)
+    suspend fun deactivateMessagesFrom(noteId: String, fromCreatedAt: Long)
 
     /** #26-fix-c: substitui o payload de uma mensagem (edição inline). */
     @Query("UPDATE chat_messages SET payload = :newPayload WHERE id = :messageId")

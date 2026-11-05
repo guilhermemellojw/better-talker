@@ -98,10 +98,10 @@ class ChatSoftDeleteMigrationTest {
     @Test
     fun softDeleteAPartirDoTimestamp_escondePerguntaEResposta() {
         migrate()
-        // Mesma forma da query deactivateMessagesFrom do ChatDao.
+        // Mesma forma da query deactivateMessagesFrom do ChatDao (3.4: fio único).
         exec(
             "UPDATE chat_messages SET isActive = 0 WHERE noteId = 'n' " +
-                "AND sectionId IS NULL AND createdAt >= 10"
+                "AND createdAt >= 10"
         )
         assertEquals(0, singleInt("SELECT COUNT(*) FROM chat_messages WHERE noteId='n' AND isActive = 1"))
         // Linhas seguem no banco (histórico preservado).

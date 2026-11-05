@@ -8,6 +8,8 @@ import androidx.room.withTransaction
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.NoteLensSection
+import com.bettertalker.app.data.copilot.buildNoteLensBlock
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
 import com.bettertalker.app.data.copilot.CardOrigin
@@ -945,7 +947,7 @@ class CopilotViewModel(
         val targetScope = selected?.sectionId ?: target?.id
         if (selected != null) {
             _chatScope.value = selected.sectionId
-            _scopeMode.value = ScopeMode.SECTION
+            _focusMode.value = FocusMode.SECTION
         }
         postTransformCard(text, target, targetScope)
         lastEditorSelection = null
@@ -966,7 +968,7 @@ class CopilotViewModel(
             if (clean.isBlank()) return@launch
             val target = captureTransformTarget(sectionIdHint = sectionId)
             _chatScope.value = sectionId
-            _scopeMode.value = ScopeMode.SECTION
+            _focusMode.value = FocusMode.SECTION
             postTransformCard(clean, target, sectionId)
             lastEditorSelection = null
             _canTransformSelection.value = false
@@ -1012,7 +1014,7 @@ class CopilotViewModel(
             ?: _chatScope.value
             ?: _pushedContext?.sectionId
         if (sectionId == null) {
-            if (_scopeMode.value == ScopeMode.WHOLE) {
+            if (_focusMode.value == FocusMode.WHOLE) {
                 val note = db.noteDao().get(nid) ?: return null
                 return cardTargetForNote(
                     noteId = nid,
@@ -1367,6 +1369,8 @@ class CopilotViewModel(
         val kind: String, // text | ideas | refs | bases | sections | draft
         val text: String = "",
         val section: String = "",
+        /** Foco em que a mensagem foi produzida (null = discurso inteiro). */
+        val sectionId: String? = null,
         val cards: List<IdeaCard> = emptyList(),
         val detectedJson: String = "",
         val slots: List<String> = emptyList(),
@@ -1408,6 +1412,8 @@ class CopilotViewModel(
     }
     private val _noteText = MutableStateFlow("")
     private val _noteTitle = MutableStateFlow("")
+    /** Título da nota para a top bar do fio único. */
+    val noteTitle = _noteTitle.asStateFlow()
     private val _noteBody = MutableStateFlow("")
 
     // ---------- Fase 16: paridade com o chat da F15 ----------
@@ -1455,7 +1461,7 @@ class CopilotViewModel(
     private val _cardVerificationNotices = MutableStateFlow<Map<String, String>>(emptyMap())
     val cardVerificationNotices = _cardVerificationNotices.asStateFlow()
 
-    /** M1 — troca de escopo: skeleton enquanto a primeira consulta chega. */
+    /** M1 — carga inicial do fio: skeleton enquanto a primeira consulta chega. */
     private val _scopeLoading = MutableStateFlow(false)
     val scopeLoading = _scopeLoading.asStateFlow()
 
@@ -1683,9 +1689,9 @@ class CopilotViewModel(
      */
     private var _lastFocusedSectionId: String? = null
 
-    /** #10c: escopo do chat — Tópico (default) ou Discurso inteiro. */
-    private val _scopeMode = MutableStateFlow(ScopeMode.SECTION)
-    val scopeMode: StateFlow<ScopeMode> = _scopeMode.asStateFlow()
+    /** 3.4: foco do próximo turno — Tópico (default) ou Discurso inteiro. */
+    private val _focusMode = MutableStateFlow(FocusMode.SECTION)
+    val focusMode: StateFlow<FocusMode> = _focusMode.asStateFlow()
 
     /**
      * F2.3: escopo da conversa atual. `null` = conversa global da nota;
@@ -1718,7 +1724,7 @@ class CopilotViewModel(
     ): CardTarget? {
         val nid = noteId ?: return null
         val now = System.currentTimeMillis()
-        if (_scopeMode.value == ScopeMode.WHOLE) {
+        if (_focusMode.value == FocusMode.WHOLE) {
             val note = db.noteDao().get(nid) ?: return null
             return cardTargetForNote(
                 noteId = nid,
@@ -1731,7 +1737,7 @@ class CopilotViewModel(
         // Fallback: o tópico aberto no chat também é alvo inequívoco.
         val sectionId = target?.sectionId
             ?: _pushedContext?.sectionId
-            ?: _chatScope.value.takeIf { _scopeMode.value == ScopeMode.SECTION }
+            ?: _chatScope.value.takeIf { _focusMode.value == FocusMode.SECTION }
             ?: return null
         val section = db.speechSectionDao().get(sectionId) ?: return null
         val from = when {
@@ -1821,7 +1827,7 @@ class CopilotViewModel(
         // o último foco (alvo do toggle de volta).
         if (ctx?.sectionId != null) {
             _lastFocusedSectionId = ctx.sectionId
-            _scopeMode.value = ScopeMode.SECTION
+            _focusMode.value = FocusMode.SECTION
         }
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
@@ -1846,36 +1852,33 @@ class CopilotViewModel(
     val conversationLabel: StateFlow<String?> = _conversationLabel.asStateFlow()
 
     /**
-     * #10c — alterna o escopo do chat: Tópico ↔ Discurso inteiro.
-     *
-     * - SECTION → WHOLE: some o foco (histórico global da nota; GuideBar some).
-     * - WHOLE → SECTION: volta ao último tópico focado (ou à 1ª seção da nota);
-     *   sem seções, permanece em WHOLE.
+     * 3.4 — alterna a lente do próximo turno: Tópico ↔ Discurso inteiro.
+     * A conversa NÃO muda; só prompt, alvo e chip.
      */
-    fun toggleScope() = viewModelScope.launch {
-        if (_scopeMode.value == ScopeMode.SECTION) {
-            _scopeMode.value = ScopeMode.WHOLE
-            _chatScope.value = null
-            _pushedContext = null
+    fun toggleFocus() = viewModelScope.launch {
+        if (_focusMode.value == FocusMode.SECTION) {
+            setWholeFocusNow()
             return@launch
         }
-        val target = scopeRestoreTarget(
+        val target = focusRestoreTarget(
             lastFocused = _lastFocusedSectionId,
             sectionIds = _guideSections.value.map { it.id },
         ) ?: return@launch
-        setPushedContext(
-            ChatContext(
-                sectionId = target,
-                subPointId = null,
-                readiness = _readiness.value ?: com.bettertalker.app.ui.editor.NoteReadiness(
-                    hasSections = _guideSections.value.isNotEmpty(),
-                    hasOutline = false,
-                    hasMissingRefs = false,
-                    hasMissingBases = false,
-                    hasChatHistory = true,
-                ),
-            )
-        )
+        focusSection(target)
+    }
+
+    /** Chip: "Discurso inteiro" sem trocar/filtrar o fio. */
+    fun selectWholeFocus() = viewModelScope.launch { setWholeFocusNow() }
+
+    /** Chip: escolhe um tópico pelo menu, sem criar mensagem de anúncio. */
+    fun selectFocusSection(sectionId: String) = viewModelScope.launch {
+        focusSection(sectionId)
+    }
+
+    private fun setWholeFocusNow() {
+        _focusMode.value = FocusMode.WHOLE
+        _chatScope.value = null
+        _pushedContext = null
     }
 
     // ---------- Modo guiado seção-a-seção: foco real ----------
@@ -1897,16 +1900,17 @@ class CopilotViewModel(
     val focusRequests: SharedFlow<String> = _focusRequests.asSharedFlow()
 
     /**
-     * Troca o escopo para a seção: conversa, dossiê (via `_pushedContext`,
-     * lido no próximo `send()`) e rótulo acompanham. Anuncia na conversa
-     * nova. Emite o pedido de rolagem ao editor.
+     * Troca a LENTE para a seção: dossiê (via `_pushedContext`, lido no
+     * próximo `send()`) e rótulo acompanham. Não cria mensagem, não limpa a
+     * lista e não interrompe geração. Emite o pedido de rolagem ao editor.
      */
-    private suspend fun focusSection(sectionId: String, announce: Boolean = true) {
+    private suspend fun focusSection(sectionId: String) {
         val sections = _guideSections.value
         val idx = sections.indexOfFirst { it.id == sectionId }
         if (idx < 0) return
-        val sec = sections[idx]
         _chatScope.value = sectionId
+        _lastFocusedSectionId = sectionId
+        _focusMode.value = FocusMode.SECTION
         val nid = noteId
         val readiness = _pushedContext?.readiness
             ?: nid?.let {
@@ -1924,18 +1928,6 @@ class CopilotViewModel(
         _topicName.value = null
         _conversationLabel.value = resolveConversationLabel(ctx)
         _topicName.value = currentTopicName()
-        if (announce) {
-            post(
-                false,
-                "text",
-                ChatCodec.escMap(
-                    mapOf("text" to guideAnnounceLabel(idx, sections.size, sec.title, sec.minutes))
-                ),
-                // #23-fix-c: o anúncio pertence à conversa NOVA (escopo vivo),
-                // nunca ao escopo do turno em andamento.
-                targetScope = _chatScope.value,
-            )
-        }
         _focusRequests.emit(sectionId)
     }
 
@@ -2007,10 +1999,10 @@ class CopilotViewModel(
     private suspend fun resolveSectionNav(text: String): Boolean {
         if (_chatScope.value == null) {
             // #10c: em Discurso inteiro, navegação pede o escopo de tópico.
-            if (_scopeMode.value == ScopeMode.WHOLE &&
+            if (_focusMode.value == FocusMode.WHOLE &&
                 (isNextCommand(text) || isPrevCommand(text))
             ) {
-                postText(SCOPE_WHOLE_NAV_NOTICE)
+                postText(FOCUS_WHOLE_NAV_NOTICE)
                 return true
             }
             if (isApproveCommand(text)) return approveCurrentSectionNow()
@@ -2115,7 +2107,7 @@ class CopilotViewModel(
         // a gravação do CANCELLED terminar antes de montar o histórico.
         cancelledPersistJob?.join()
         cancelledPersistJob = null
-        val active = db.chatDao().allScoped(nid, _chatScope.value)
+        val active = db.chatDao().all(nid)
         val lastUser = active.lastOrNull { it.fromMe } ?: return@launch
         val lastAssistant = active.lastOrNull { !it.fromMe }
         val keepCancelled = lastAssistant?.let {
@@ -2136,20 +2128,20 @@ class CopilotViewModel(
 
     /**
      * #26-fix-c (DeepSeek Web): edita a pergunta e refaz o turno — a pergunta
-     * e TUDO que veio depois no MESMO escopo são desativados (soft delete) e
+     * e TUDO que veio depois no MESMO FIO são desativados (soft delete) e
      * uma nova mensagem com [newText] entra no lugar, disparando a geração.
      * O histórico anterior à pergunta editada fica intacto.
      */
     fun editUserMessage(messageId: String, createdAt: Long, newText: String) = viewModelScope.launch {
         val nid = noteId ?: return@launch
         if (_chatBusy.value) return@launch
-        // Guarda: só edita pergunta ATIVA do usuário no escopo atual.
-        val ok = db.chatDao().allScoped(nid, _chatScope.value).any {
+        // Guarda: só edita pergunta ATIVA do usuário neste fio.
+        val ok = db.chatDao().all(nid).any {
             it.id == messageId && it.fromMe && it.createdAt == createdAt
         }
         if (!ok) return@launch
         val text = validateOutgoingMessage(newText) ?: return@launch
-        db.chatDao().deactivateMessagesFrom(nid, _chatScope.value, createdAt)
+        db.chatDao().deactivateMessagesFrom(nid, createdAt)
         lastUserMessage = text
         send(text, postUserMessage = true, historyOverride = null)
     }
@@ -2171,7 +2163,7 @@ class CopilotViewModel(
             resetLocalProgress()
             _runState.value = ChatRunState.Sending
             try {
-                val target = db.chatDao().allScoped(nid, _chatScope.value)
+                val target = db.chatDao().all(nid)
                     .firstOrNull { it.id == messageId && !it.fromMe && it.kind == "text" }
                     ?: return@launch
                 // C1: o orçamento do "Continuar" olha para o que FALTA da meta,
@@ -2256,7 +2248,6 @@ class CopilotViewModel(
         }
     }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val messages = if (noteId != null) {
         // Card-first: o status do card depende do conteúdo ATUAL do alvo.
         // Observar as seções/nota faz o card virar STALE na hora em que o
@@ -2265,26 +2256,12 @@ class CopilotViewModel(
             db.speechSectionDao().observeForNote(noteId),
             db.noteDao().observeById(noteId),
         ) { _, _ -> Unit }
-        _chatScope.flatMapLatest { scope ->
-            // G3 (UX S): o parcial da geração anterior não vaza para o escopo novo.
-            resetLocalProgress()
-            // G2 (UX S): esvazia a lista antes do novo emit — sem "fantasma"
-            // da conversa da seção anterior por ~150ms. O skeleton fica até a
-            // PRIMEIRA emissão real do Room.
-            var syntheticEmission = true
-            db.chatDao().observeScoped(noteId, scope)
-                .onStart {
-                    _scopeLoading.value = true
-                    emit(emptyList())
-                }
-                .onEach {
-                    if (syntheticEmission) {
-                        syntheticEmission = false
-                    } else {
-                        _scopeLoading.value = false
-                    }
-                }
-        }.combine(targetChanges) { list, _ -> list }
+        // 3.4: um fio por NOTA. O foco (sectionId) é metadado do turno e
+        // muda apenas o prompt/alvo; trocar de tópico nunca troca a lista.
+        db.chatDao().observe(noteId)
+            .onStart { _scopeLoading.value = true }
+            .onEach { _scopeLoading.value = false }
+            .combine(targetChanges) { list, _ -> list }
             .map { list ->
             val items = list.map { e ->
                 when (e.kind) {
@@ -2292,36 +2269,42 @@ class CopilotViewModel(
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind,
                             section = m["section"].orEmpty(),
+                            sectionId = e.sectionId,
                             cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()),
                             origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "refs" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
+                            sectionId = e.sectionId,
                             detectedJson = m["detected"].orEmpty(),
                             origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "bases" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["text"].orEmpty(),
+                            sectionId = e.sectionId,
                             slots = m["slots"].orEmpty().split(",").filter { it.isNotBlank() },
                             origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "sections" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, text = m["title"].orEmpty(),
+                            sectionId = e.sectionId,
                             secItems = ChatCodec.sectionsFromJson(m["items"].orEmpty()),
                             origin = messageOriginOf(m), createdAt = e.createdAt)
                     }
                     "draft" -> {
                         val (title, items) = ChatCodec.draftFromJson(e.payload)
                         ChatItem(e.id, e.fromMe, e.kind, draftTitle = title,
+                            sectionId = e.sectionId,
                             draftItems = items, createdAt = e.createdAt)
                     }
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
                         val cardPayload = CardPayload.fromMap(m)
                         ChatItem(e.id, e.fromMe, "text",
+                            sectionId = e.sectionId,
                             text = m["text"].orEmpty(), origin = messageOriginOf(m),
                             durationMs = m["durationMs"]?.toLongOrNull(),
                             createdAt = e.createdAt,
@@ -2584,8 +2567,8 @@ class CopilotViewModel(
 
     fun clearChat() = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        // F2.3: limpa só a conversa do escopo atual (tópico ou global).
-        db.chatDao().clearScoped(nid, _chatScope.value)
+        // 3.4: o fio é único por nota; limpar remove a conversa inteira.
+        db.chatDao().clear(nid)
         // T1: o esboço colado vive só na conversa — limpar descarta o modo.
         pasteBuffer = null
         _pasteMode.value = false
@@ -2722,7 +2705,7 @@ class CopilotViewModel(
 
     private suspend fun lastIdeaCards(): List<IdeaCard> {
         val nid = noteId ?: return emptyList()
-        val last = db.chatDao().allScoped(nid, _chatScope.value)
+        val last = db.chatDao().all(nid)
             .lastOrNull { it.kind == "ideas" } ?: return emptyList()
         return ChatCodec.cardsFromJson(ChatCodec.unescMap(last.payload)["cards"].orEmpty())
     }
@@ -2733,7 +2716,7 @@ class CopilotViewModel(
      */
     fun dismissIdeaCard(messageId: String, index: Int) = viewModelScope.launch {
         val nid = noteId ?: return@launch
-        val e = db.chatDao().allScoped(nid, _chatScope.value)
+        val e = db.chatDao().all(nid)
             .firstOrNull { it.id == messageId && it.kind == "ideas" } ?: return@launch
         val m = ChatCodec.unescMap(e.payload)
         val cards = ChatCodec.cardsFromJson(m["cards"].orEmpty()).toMutableList()
@@ -2860,7 +2843,7 @@ class CopilotViewModel(
             lastDossier = dossier
             // Regra do bloco: a geração de uma seção usa section.minutes,
             // nunca o total do discurso.
-            val blockMinutes = if (_scopeMode.value == ScopeMode.WHOLE) {
+            val blockMinutes = if (_focusMode.value == FocusMode.WHOLE) {
                 null
             } else {
                 dossier?.currentSection?.minutes
@@ -3257,7 +3240,7 @@ class CopilotViewModel(
      */
     /** #14-fix: o foco de bloco/seleção só vale no escopo Tópico (SECTION). */
     private fun scopeBlockTitle(): String? =
-        if (_scopeMode.value == ScopeMode.WHOLE) null else _activeBlockTitle.value
+        if (_focusMode.value == FocusMode.WHOLE) null else _activeBlockTitle.value
 
     /**
      * "Texto total" no chat: NUNCA tenta um único texto gigante. Monta a fila
@@ -3438,7 +3421,7 @@ class CopilotViewModel(
         }.orEmpty()
         // #14-fix: em WHOLE o bloco/seleção não valem (sem "conclusão fantasma").
         val (effBlock, effSel) = effectiveFocusFields(
-            whole = _scopeMode.value == ScopeMode.WHOLE,
+            whole = _focusMode.value == FocusMode.WHOLE,
             activeBlockTitle = _activeBlockTitle.value,
             selection = _selection.value,
         )
@@ -3940,8 +3923,16 @@ class CopilotViewModel(
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
             .ifBlank { null }
-        // Volátil: trechos que a pergunta atual citou.
-        val volatileContextBlock = combineContextBlocks(null, questionVerses, questionPubs)
+        // Volátil: lente da nota (foco + vizinhas) e trechos citados agora.
+        val noteLens = buildNoteLensBlock(
+            noteTitle = _noteTitle.value,
+            sections = _guideSections.value.map {
+                NoteLensSection(id = it.id, title = it.title, minutes = it.minutes)
+            },
+            focusId = _chatScope.value.takeIf { _focusMode.value == FocusMode.SECTION },
+            whole = _focusMode.value == FocusMode.WHOLE,
+        )
+        val volatileContextBlock = combineContextBlocks(noteLens, questionVerses, questionPubs)
         // Corpus do gate: tudo o que foi injetado, estável + volátil.
         val effectiveContextBlock = combineContextBlocks(
             stableContextBlock,
@@ -4173,8 +4164,8 @@ class CopilotViewModel(
     }
 
     /**
-     * F2.3: histórico apenas do escopo atual (tópico ou global). Um tópico
-     * nunca vê as mensagens de outro.
+     * 3.4: histórico do fio ÚNICO da nota. Cada turno leva o rótulo do foco
+     * em que foi produzido; trocar de foco não remove turnos.
      */
     private suspend fun conversationTurnsScoped(): List<ChatTurn> {
         val nid = noteId ?: return emptyList()
@@ -4361,7 +4352,7 @@ class CopilotViewModel(
     private suspend fun currentFocusText(): String {
         // #14-fix: em WHOLE só o corpo da nota vale (sem bloco/seleção).
         val (effBlock, effSel) = effectiveFocusFields(
-            whole = _scopeMode.value == ScopeMode.WHOLE,
+            whole = _focusMode.value == FocusMode.WHOLE,
             activeBlockTitle = _activeBlockTitle.value,
             selection = _selection.value,
         )
@@ -4408,7 +4399,7 @@ class CopilotViewModel(
     /** Brief: mensagem do usuário anterior à resposta (ou a própria resposta). */
     private suspend fun briefFor(messageId: String): String {
         val nid = noteId ?: return ""
-        val all = db.chatDao().allScoped(nid, _chatScope.value)
+        val all = db.chatDao().all(nid)
         val idx = all.indexOfFirst { it.id == messageId }
         if (idx <= 0) return ""
         for (i in idx - 1 downTo 0) {
@@ -5336,7 +5327,7 @@ class CopilotViewModel(
         if (!ChatIntent.isYes(text) && !ChatIntent.isNo(text)) return false
         val nid = noteId ?: return false
         val lastCopilot = db.chatDao().all(nid)
-            .filter { it.isActive && it.sectionId == _chatScope.value }
+            .filter { it.isActive }
             .lastOrNull { !it.fromMe }
             ?: return false
         val map = ChatCodec.unescMap(lastCopilot.payload)
@@ -5480,7 +5471,7 @@ class CopilotViewModel(
         // (cobre recortes e o fluxo anafórico).
         val writeIntent = parseInsertSnippet(text) != null ||
             com.bettertalker.app.data.copilot.ChatRouter.isInsertIntoSpeechCommand(text)
-        scopeBlockedNotice(_scopeMode.value, insert = writeIntent, nav = false)?.let {
+        focusBlockedNotice(_focusMode.value, insert = writeIntent, nav = false)?.let {
             postText(it)
             return true
         }
@@ -5516,10 +5507,10 @@ class CopilotViewModel(
         return true
     }
 
-    /** Última resposta de texto do Copilot no escopo atual ("" se não houver). */
+    /** Última resposta de texto do Copilot no fio da nota ("" se não houver). */
     private suspend fun lastCopilotText(): String {
         val nid = noteId ?: return ""
-        return db.chatDao().allScoped(nid, _chatScope.value)
+        return db.chatDao().all(nid)
             .asReversed()
             .firstOrNull { !it.fromMe && it.kind == "text" }
             ?.let { ChatCodec.unescMap(it.payload)["text"].orEmpty() }
@@ -7155,28 +7146,28 @@ sealed interface GuideNavTarget {
 const val GUIDE_NO_NEXT_MESSAGE = "Não há próxima seção."
 const val GUIDE_NO_PREV_MESSAGE = "Não há seção anterior."
 
-/** #10c: escopo do chat — Tópico (default) ou Discurso inteiro. */
-enum class ScopeMode { SECTION, WHOLE }
+/** 3.4: foco do próximo turno — Tópico (default) ou Discurso inteiro. */
+enum class FocusMode { SECTION, WHOLE }
 
 /** #10c: avisos do escopo Discurso inteiro (escrita/navegação pedem tópico). */
-const val SCOPE_WHOLE_INSERT_NOTICE = "Mude o escopo para Tópico para inserir no card."
-const val SCOPE_WHOLE_NAV_NOTICE = "Mude o escopo para Tópico para navegar entre seções."
+const val FOCUS_WHOLE_INSERT_NOTICE = "Mude o foco para Tópico para inserir no card."
+const val FOCUS_WHOLE_NAV_NOTICE = "Mude o foco para Tópico para navegar entre seções."
 
 /**
  * #10c: alvo do retorno WHOLE→SECTION — último foco válido ou 1ª seção da
  * nota; null = sem seções (permanece em WHOLE). Puro/testável.
  */
-internal fun scopeRestoreTarget(lastFocused: String?, sectionIds: List<String>): String? =
+internal fun focusRestoreTarget(lastFocused: String?, sectionIds: List<String>): String? =
     lastFocused?.takeIf { it in sectionIds } ?: sectionIds.firstOrNull()
 
 /**
  * #10c: aviso quando o escopo WHOLE bloqueia a ação; null = segue normal.
  * Puro/testável.
  */
-internal fun scopeBlockedNotice(mode: ScopeMode, insert: Boolean, nav: Boolean): String? = when {
-    mode != ScopeMode.WHOLE -> null
-    insert -> SCOPE_WHOLE_INSERT_NOTICE
-    nav -> SCOPE_WHOLE_NAV_NOTICE
+internal fun focusBlockedNotice(mode: FocusMode, insert: Boolean, nav: Boolean): String? = when {
+    mode != FocusMode.WHOLE -> null
+    insert -> FOCUS_WHOLE_INSERT_NOTICE
+    nav -> FOCUS_WHOLE_NAV_NOTICE
     else -> null
 }
 const val GUIDE_NO_FOCUS_MESSAGE = "Abra um tópico no editor para navegar entre seções."
@@ -7206,7 +7197,7 @@ internal fun resolveNavTarget(
     }
 }
 
-/** Anúncio de troca de escopo postado na conversa nova. Puro/testável. */
+/** Rótulo legado de navegação; o fio único não posta anúncio de foco. */
 internal fun guideAnnounceLabel(index: Int, total: Int, title: String, minutes: Int): String =
     "— Tópico ${index + 1} de $total: $title ($minutes min) —"
 

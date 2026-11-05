@@ -485,7 +485,12 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // Exceção explícita: a persona fala em parágrafos curtos; no texto
         // longo a meta de tempo vence.
         "\nSe a TAREFA DE TEXTO LONGO estiver presente, a extensão alvo manda: " +
-        "escreva vários parágrafos longos e não resuma."
+        "escreva vários parágrafos longos e não resuma." +
+        // 3.4: fio único por nota; o foco é uma lente, não uma sala.
+        "\nVocê vê a nota inteira (título, estrutura, seções vizinhas e referências). " +
+        "Por padrão, escreva apenas o bloco em foco. Se o usuário pedir outra seção, " +
+        "use o esqueleto da nota e diga o que falta. “Discurso inteiro” é para " +
+        "planejamento e coerência, não para despejar o texto todo em uma resposta."
 
 /** T2 — verbos/pedidos que pedem resposta estruturada (texto normalizado). */
 private val STRUCTURED_HINTS = Regex(
@@ -507,6 +512,61 @@ fun wantsStructuredAnswer(message: String): Boolean =
  * sempre presentes; a intenção não força formatação. Puro/testável.
  */
 fun chatTailInstructions(): String = CHAT_TAIL_INSTRUCTIONS
+
+/** Seção da nota usada no bloco de lente do fio único (3.4). */
+data class NoteLensSection(
+    val id: String,
+    val title: String,
+    val minutes: Int? = null,
+)
+
+/**
+ * 3.4 — bloco volátil que mostra a nota inteira, o foco atual e as seções
+ * vizinhas. Não substitui o S-34 nem o dossiê; dá ao modelo a lente do turno.
+ * Puro/testável.
+ */
+fun buildNoteLensBlock(
+    noteTitle: String,
+    sections: List<NoteLensSection>,
+    focusId: String?,
+    whole: Boolean,
+): String {
+    val sb = StringBuilder()
+    sb.append("## NOTA\n")
+    sb.append("Título: ${noteTitle.ifBlank { "(sem título)" }}\n")
+    if (sections.isNotEmpty()) {
+        sections.forEachIndexed { i, s ->
+            val min = s.minutes?.let { " ($it min)" } ?: ""
+            sb.append("${i + 1}. ${s.title}$min\n")
+        }
+    } else {
+        sb.append("(nota sem seções persistidas)\n")
+    }
+    sb.append("\n## FOCO ATUAL\n")
+    if (whole) {
+        sb.append("Discurso inteiro — planejamento e coerência da nota.\n")
+    } else {
+        val index = sections.indexOfFirst { it.id == focusId }
+        if (index >= 0) {
+            val s = sections[index]
+            val min = s.minutes?.let { " ($it min)" } ?: ""
+            sb.append("Tópico ${index + 1}/${sections.size}: ${s.title}$min\n")
+            sb.append("\n## SEÇÕES VIZINHAS\n")
+            sb.append("Anterior: ${sections.getOrNull(index - 1)?.title ?: "(nenhuma)"}\n")
+            sb.append("Próxima: ${sections.getOrNull(index + 1)?.title ?: "(nenhuma)"}\n")
+        } else {
+            sb.append("Tópico atual (sem seção identificada).\n")
+        }
+    }
+    sb.append("\n## REGRA DE FOCO\n")
+    sb.append(
+        "Você vê a nota inteira. Por padrão, escreva apenas o bloco em foco. " +
+            "Se o usuário pedir outra seção, use o esqueleto e diga o que falta. " +
+            "“Discurso inteiro” é para planejamento/coerência, não para despejar " +
+            "o texto todo."
+    )
+    return sb.toString().trim()
+}
 
 /**
  * Prompt do chat. Ordem: brief (histórico + continuidade + mensagem), foco,
@@ -531,7 +591,7 @@ fun buildChatPrompt(
     val extension = extensionTargetSection(blockMinutes, longText)
     val brief = chatBriefToText(message, history, isFirstMessage)
     val volatile = userContextBlock?.takeIf { it.isNotBlank() }
-        ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }
+        ?.let { "\n\n## CONTEXTO DESTE TURNO\n$it\n" }
         .orEmpty()
     // F19-B.5: as regras do S-34 entram no prompt quando há estrutura (§12).
     val s34Rules = if (structural != null) "\n$S34_PROMPT_RULES\n" else ""
@@ -605,7 +665,7 @@ fun buildDeepSeekPrompts(
         extension + dossier + sources + "\n" + chatTailInstructions()).trim()
     // Fase 1: o que muda a cada pergunta fica no user (prefixo estável no system).
     val volatile = userContextBlock?.takeIf { it.isNotBlank() }
-        ?.let { "\n\n## TRECHOS DA PERGUNTA (contexto deste turno)\n$it\n" }
+        ?.let { "\n\n## CONTEXTO DESTE TURNO\n$it\n" }
         .orEmpty()
     val user = chatBriefToText(message, history, isFirstMessage) + volatile +
         "\n\n" + focusLine(message) +

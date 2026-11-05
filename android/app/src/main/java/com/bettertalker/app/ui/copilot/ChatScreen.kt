@@ -62,7 +62,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -244,12 +244,14 @@ fun ChatScreen(
     val chatScope by vm.chatScope.collectAsState()
     // Modo guiado seção-a-seção: seções reais do editor (navegação + indicador).
     val guideSections by vm.guideSections.collectAsState()
-    // #10c: escopo do chat (Tópico ↔ Discurso inteiro).
-    val scopeMode by vm.scopeMode.collectAsState()
+    // 3.4: foco do próximo turno (Tópico ↔ Discurso inteiro).
+    val focusMode by vm.focusMode.collectAsState()
     val guideIndex = remember(guideSections, chatScope) {
         guideSections.indexOfFirst { it.id == chatScope }
     }
     val guideCurrent = if (guideIndex >= 0) guideSections[guideIndex] else null
+    val noteTitle by vm.noteTitle.collectAsState()
+    var focusMenuOpen by remember { mutableStateOf(false) }
     val proposal by vm.proposal.collectAsState()
     // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
     val structureProposal by vm.structureProposal.collectAsState()
@@ -566,46 +568,65 @@ fun ChatScreen(
                 ),
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
-                    // #25-fix-c: barra única. Em Tópico: título da seção + posição
-                    // N/M (POSIÇÃO, não aprovação). Em Discurso inteiro: "Copilot".
-                    if (scopeMode == ScopeMode.SECTION && guideCurrent != null) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                guideCurrent.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            AnimatedContent(
-                                targetState = guideIndex to guideSections.size,
-                                transitionSpec = {
-                                    if (cardMotion == 0) {
-                                        EnterTransition.None togetherWith ExitTransition.None
-                                    } else {
-                                        fadeIn(tween(cardMotion)) togetherWith
-                                            fadeOut(tween(cardMotion))
-                                    }
+                    // 3.4: o fio é da nota; o foco vive no chip (não no título).
+                    Text(
+                        noteTitle.ifBlank { "Copilot" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                },
+                actions = {
+                    Box {
+                        FocusChip(
+                            whole = focusMode == FocusMode.WHOLE,
+                            sectionIndex = guideIndex.takeIf { it >= 0 }?.plus(1),
+                            sectionTotal = guideSections.size,
+                            onClick = { focusMenuOpen = true },
+                        )
+                        DropdownMenu(
+                            expanded = focusMenuOpen,
+                            onDismissRequest = { focusMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (focusMode == FocusMode.WHOLE) "✓ Discurso inteiro"
+                                        else "Discurso inteiro"
+                                    )
                                 },
-                                label = "section-index",
-                            ) { (index, total) ->
-                                Text(
-                                    "${index + 1}/$total",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                onClick = {
+                                    focusMenuOpen = false
+                                    vm.selectWholeFocus()
+                                },
+                            )
+                            guideSections.forEachIndexed { i, section ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(
+                                                (if (focusMode == FocusMode.SECTION &&
+                                                        chatScope == section.id
+                                                    ) "✓ " else "") +
+                                                    "Tópico ${i + 1}/${guideSections.size} · ${section.title}",
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                "${section.minutes} min",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        focusMenuOpen = false
+                                        vm.selectFocusSection(section.id)
+                                    },
                                 )
                             }
                         }
-                    } else {
-                        Text("Copilot", style = MaterialTheme.typography.titleMedium)
                     }
-                },
-                actions = {
-                    ScopeChip(
-                        whole = scopeMode == ScopeMode.WHOLE,
-                        onClick = vm::toggleScope,
-                    )
                     Box {
                         IconButton(onClick = { topMenuOpen = true }) {
                             Icon(Icons.Default.MoreVert, "Mais opções")
@@ -783,15 +804,15 @@ fun ChatScreen(
                         onDismiss = { vm.dismissSetupBanner() },
                     )
                 }
-                // #25-fix-c: a antiga Row GuideBar+ScopeChip foi unificada na
+                // #25-fix-c: a antiga Row GuideBar+FocusChip foi unificada na
                 // TopAppBar (título + N/M + chip). Navegação agora é por swipe.
                 // #25-fix-c: swipe horizontal navega entre seções (só em SECTION;
                 // guardas de limite evitam postar "Não há próxima/anterior").
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .pointerInput(scopeMode, guideIndex, guideSections.size) {
-                            if (scopeMode != ScopeMode.SECTION) return@pointerInput
+                        .pointerInput(focusMode, guideIndex, guideSections.size) {
+                            if (focusMode != FocusMode.SECTION) return@pointerInput
                             val threshold = 120.dp.toPx()
                             var totalDrag = 0f
                             detectHorizontalDragGestures(
@@ -826,11 +847,9 @@ fun ChatScreen(
                             )
                         }
                     }
-                    // F2.3: conversa por tópico ainda vazia — estado explícito.
-                    // M1: durante a troca de escopo, skeleton até a 1ª emissão.
-                    if (messages.isEmpty() && chatScope != null) {
-                        item(key = "topic-empty") {
-                            // M2a: skeleton e vazio no MESMO slot, com crossfade.
+                    // 3.4: o fio é único por nota; o vazio é da nota inteira.
+                    if (messages.isEmpty()) {
+                        item(key = "thread-empty") {
                             AnimatedContent(
                                 targetState = scopeLoading,
                                 transitionSpec = {
@@ -841,15 +860,20 @@ fun ChatScreen(
                                             fadeOut(tween(cardMotion))
                                     }
                                 },
-                                label = "scope-empty",
+                                label = "thread-empty",
                             ) { loading ->
                                 if (loading) {
                                     ScopeSkeleton()
                                 } else {
+                                    val focus = when {
+                                        focusMode == FocusMode.WHOLE -> "Discurso inteiro"
+                                        guideCurrent != null -> "Tópico: ${guideCurrent.title}"
+                                        else -> "Tópico"
+                                    }
                                     Text(
-                                        "Conversa deste tópico. Peça ao Copilot para " +
-                                            "desenvolver este tópico e depois diga " +
-                                            "“insira no tópico”.",
+                                        "Converse sobre este discurso. Foco atual: $focus. " +
+                                            "Peça para desenvolver o bloco ou pergunte sobre a " +
+                                            "coerência da nota inteira.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.secondary
                                     )
@@ -867,11 +891,24 @@ fun ChatScreen(
                         }
                         item(key = messageKey) {
                             if (m.cancelled) {
-                                PersistedCancelledItem(
-                                    item = m,
-                                    onRetry = vm::retry,
-                                    onDismiss = { vm.dismissCancelled(m.id) },
-                                )
+                                Column {
+                                    val cancelledIndex = m.sectionId?.let { id ->
+                                        guideSections.indexOfFirst { it.id == id }
+                                    } ?: -1
+                                    MessageFocusTag(
+                                        label = when {
+                                            m.sectionId == null -> "Discurso inteiro"
+                                            cancelledIndex >= 0 -> "Tópico ${cancelledIndex + 1}"
+                                            else -> "Tópico"
+                                        },
+                                        fromMe = m.fromMe,
+                                    )
+                                    PersistedCancelledItem(
+                                        item = m,
+                                        onRetry = vm::retry,
+                                        onDismiss = { vm.dismissCancelled(m.id) },
+                                    )
+                                }
                             } else {
                             // T5: entrada com fade sutil (~300ms) + placement.
                             Box(
@@ -881,6 +918,17 @@ fun ChatScreen(
                                 )
                             ) {
                                 Column {
+                                    val messageFocusIndex = m.sectionId?.let { id ->
+                                        guideSections.indexOfFirst { it.id == id }
+                                    } ?: -1
+                                    MessageFocusTag(
+                                        label = when {
+                                            m.sectionId == null -> "Discurso inteiro"
+                                            messageFocusIndex >= 0 -> "Tópico ${messageFocusIndex + 1}"
+                                            else -> "Tópico"
+                                        },
+                                        fromMe = m.fromMe,
+                                    )
                                     val turnReasoning = activeTurn?.takeIf {
                                         !m.fromMe && it.turnId == m.turnId &&
                                             it.reasoningText.isNotBlank()
@@ -1100,10 +1148,22 @@ fun ChatScreen(
                                         fromMe = false,
                                         kind = "text",
                                         text = turn.finalText,
+                                        sectionId = chatScope,
                                         createdAt = turn.startedAt,
                                         turnId = turn.turnId,
                                     )
                                     Column {
+                                        val syntheticIndex = synthetic.sectionId?.let { id ->
+                                            guideSections.indexOfFirst { it.id == id }
+                                        } ?: -1
+                                        MessageFocusTag(
+                                            label = when {
+                                                synthetic.sectionId == null -> "Discurso inteiro"
+                                                syntheticIndex >= 0 -> "Tópico ${syntheticIndex + 1}"
+                                                else -> "Tópico"
+                                            },
+                                            fromMe = false,
+                                        )
                                         TurnReasoningHeader(turn)
                                         MessageBubble(
                                             item = synthetic,
@@ -1738,7 +1798,7 @@ private fun LegacyStreamingItem(
     }
 }
 
-/** M1 — skeleton da troca de escopo, antes da primeira emissão do Room. */
+/** M1 — skeleton da carga inicial do fio da nota. */
 @Composable
 private fun ScopeSkeleton() {
     Column(
@@ -3112,43 +3172,50 @@ private fun BasesBody(
 }
 
 /**
- * #10c — chip do escopo do chat: "Tópico" (default) ↔ "Discurso inteiro".
- * Um toque alterna; em WHOLE a escrita pede o tópico.
+ * 3.4 — chip de foco: lente do próximo turno, nunca filtro da conversa.
+ * Mostra a posição dentro da nota e abre o seletor de tópicos.
  */
 @Composable
-private fun ScopeChip(
+private fun FocusChip(
     whole: Boolean,
+    sectionIndex: Int?,
+    sectionTotal: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motion = motionMillis(TURN_CROSSFADE_MS, rememberMotionScale())
+    val label = when {
+        whole -> "Discurso inteiro"
+        sectionIndex != null && sectionTotal > 0 ->
+            "Tópico $sectionIndex/$sectionTotal"
+        else -> "Tópico"
+    }
     AssistChip(
         onClick = onClick,
-        label = {
-            // M2a: troca de escopo com crossfade curto.
-            AnimatedContent(
-                targetState = whole,
-                transitionSpec = {
-                    if (motion == 0) {
-                        EnterTransition.None togetherWith ExitTransition.None
-                    } else {
-                        fadeIn(tween(motion)) togetherWith fadeOut(tween(motion))
-                    }
-                },
-                label = "scope-chip",
-            ) { w ->
-                Text(if (w) "Discurso inteiro" else "Tópico")
-            }
-        },
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingIcon = {
             Icon(
-                Icons.Default.SwapHoriz,
+                Icons.Default.KeyboardArrowDown,
                 null,
                 modifier = Modifier.size(16.dp),
             )
         },
         modifier = modifier,
     )
+}
+
+@Composable
+private fun MessageFocusTag(label: String, fromMe: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (fromMe) Arrangement.End else Arrangement.Start,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+    }
 }
 
 // ---------- #25-fix-c: navegação por swipe (pura/testável) ----------

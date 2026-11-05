@@ -71,4 +71,13 @@ class ChatTailFormatTest {
         assertFalse(p.contains("Quando estruturar"))
         assertTrue(p.contains("〈sugestão〉"))
     }
+
+    @Test
+    fun caudaExplicaFioUnicoEFoco() {
+        val tail = chatTailInstructions()
+        assertTrue(tail.contains("nota inteira"))
+        assertTrue(tail.contains("apenas o bloco em foco"))
+        assertTrue(tail.contains("planejamento e coerência"))
+        assertTrue(tail.contains("não para despejar o texto todo"))
+    }
 }
