@@ -215,13 +215,24 @@ object JwpubExtractor {
                             )
                         // RC1-pages: §§ do artigo ganham a página estimada
                         // (Document.First/LastPageNumber + posição do §).
+                        val layout = paragraphLayout(db, c.getLong(iDoc))
                         val pages = paragraphPages(
-                            labeledPositions = labeledParagraphPositions(db, c.getLong(iDoc)),
+                            labeledPositions = layout.positions,
                             firstPage = c.getInt(iFirst),
                             lastPage = c.getInt(iLast),
                             contentLength = c.getInt(iLen),
                         )
-                        val marked = markParagraphs(html)
+                        // JWPUB antigo: o HTML não traz data-pnum.
+                        // - com labels no banco (w08): insere §N por BeginPosition;
+                        // - sem labels (it): usa p-id/data-pid do HTML (p2 = §1).
+                        val htmlForMarkers = when {
+                            layout.positions.isEmpty() -> html
+                            layout.usedIndexFallback -> insertParagraphMarkersByPid(html)
+                            !html.contains("data-pnum=") ->
+                                insertParagraphMarkers(html, layout.positions)
+                            else -> html
+                        }
+                        val marked = markParagraphs(htmlForMarkers)
                         sb.append(
                             if (marked.contains("=== PAGE:")) marked
                             else withPageMarkers(marked, pages)
@@ -305,9 +316,75 @@ object JwpubExtractor {
      */
     private val PAR_NUM_RE = Regex("""<span[^>]*data-pnum="(\d{1,3})"[^>]*>.*?</span>""")
 
+    internal data class ParagraphLayout(
+        val positions: List<Pair<Int, Int>>,
+        /** true = numeração veio de ParagraphIndex (HTML sem labels). */
+        val usedIndexFallback: Boolean,
+    )
+
+    /**
+     * JWPUB antigo sem ParagraphNumberLabel: usa ParagraphIndex como número
+     * impresso (o índice 1 é o título; §1 é o primeiro parágrafo do corpo).
+     * Puro/testável. [rows] = (ParagraphIndex, ParagraphNumberLabel?, BeginPosition).
+     */
+    internal fun paragraphLayoutFromRows(rows: List<Triple<Int, Int?, Int>>): ParagraphLayout {
+        val anyLabel = rows.any { row ->
+            val label = row.second
+            label != null && label > 0
+        }
+        val positions = rows.mapNotNull { (index, label, begin) ->
+            val effective = when {
+                label != null && label > 0 -> label
+                !anyLabel && index > 1 -> index - 1
+                else -> null
+            }
+            if (effective == null || begin <= 0) null else effective to begin
+        }.distinctBy { it.first }
+        return ParagraphLayout(positions = positions, usedIndexFallback = !anyLabel)
+    }
+
+    /** Compatibilidade/teste: apenas as posições label → BeginPosition. */
+    internal fun paragraphMarkersFromRows(
+        rows: List<Triple<Int, Int?, Int>>,
+    ): List<Pair<Int, Int>> = paragraphLayoutFromRows(rows).positions
+
+    /**
+     * Insere §N no INÍCIO do parágrafo que contém cada BeginPosition.
+     * O BeginPosition aponta para o conteúdo (depois de <sup>/<strong>), então
+     * recuamos até o último <p ...> e inserimos após a tag de abertura.
+     */
+    internal fun insertParagraphMarkers(html: String, positions: List<Pair<Int, Int>>): String {
+        if (positions.isEmpty()) return html
+        val inserts = positions.mapNotNull { (label, position) ->
+            val safe = position.coerceIn(0, html.length)
+            val pStart = html.lastIndexOf("<p", safe, ignoreCase = true)
+            if (pStart < 0) return@mapNotNull null
+            val tagEnd = html.indexOf('>', pStart)
+            if (tagEnd < 0) return@mapNotNull null
+            label to (tagEnd + 1)
+        }.distinctBy { it.second }
+        if (inserts.isEmpty()) return html
+        val sb = StringBuilder(html)
+        inserts.sortedByDescending { it.second }.forEach { (label, at) ->
+            if (at in 0..sb.length) sb.insert(at, "\n§$label ")
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Fallback do `it`: o HTML tem `<p id="p2" data-pid="2">`; p1 é o título,
+     * então p2 vira §1. Usado só quando o banco não tem nenhum label.
+     */
+    internal fun insertParagraphMarkersByPid(html: String): String {
+        val re = Regex("""(<p\b[^>]*\bdata-pid="(\d{1,3})"[^>]*>)""")
+        return re.replace(html) { m ->
+            val pid = m.groupValues[2].toIntOrNull() ?: return@replace m.value
+            if (pid <= 1) m.value else m.value + "\n§${pid - 1} "
+        }
+    }
+
     /** RC1-pages: posições dos §§ numerados do artigo (label → BeginPosition). */
-    private fun labeledParagraphPositions(db: SQLiteDatabase, docId: Long): List<Pair<Int, Int>> {
-        val out = mutableListOf<Pair<Int, Int>>()
+    private fun paragraphLayout(db: SQLiteDatabase, docId: Long): ParagraphLayout {
         // Esquemas antigos (g 2013, user_version 7) não têm
         // ParagraphNumberLabel. Sem a coluna, ParagraphIndex é a melhor
         // aproximação posicional; se nem ela existir, não inventa página.
@@ -318,20 +395,27 @@ object JwpubExtractor {
                 while (c.moveToNext()) columns += c.getString(iName).orEmpty()
             }
         }
-        val labelColumn = when {
-            "ParagraphNumberLabel" in columns -> "ParagraphNumberLabel"
-            "ParagraphIndex" in columns -> "ParagraphIndex"
-            else -> return emptyList()
+        if ("BeginPosition" !in columns) return ParagraphLayout(emptyList(), false)
+        val indexColumn = if ("ParagraphIndex" in columns) "ParagraphIndex" else "rowid"
+        val labelColumn = if ("ParagraphNumberLabel" in columns) {
+            "ParagraphNumberLabel"
+        } else {
+            "NULL"
         }
-        if ("BeginPosition" !in columns) return emptyList()
+        val rows = mutableListOf<Triple<Int, Int?, Int>>()
         db.rawQuery(
-            "SELECT $labelColumn, BeginPosition FROM DocumentParagraph " +
-                "WHERE DocumentId = ? AND $labelColumn IS NOT NULL",
+            "SELECT $indexColumn, $labelColumn, BeginPosition FROM DocumentParagraph " +
+                "WHERE DocumentId = ?",
             arrayOf(docId.toString()),
         ).use { c ->
-            while (c.moveToNext()) out += c.getInt(0) to c.getInt(1)
+            while (c.moveToNext()) {
+                val index = c.getInt(0)
+                val label = if (c.isNull(1)) null else c.getInt(1)
+                val begin = if (c.isNull(2)) 0 else c.getInt(2)
+                rows += Triple(index, label, begin)
+            }
         }
-        return out
+        return paragraphLayoutFromRows(rows)
     }
 
     /**

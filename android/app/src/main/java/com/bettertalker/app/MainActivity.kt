@@ -144,10 +144,10 @@ private fun AppNav(
             }
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            // v7: parágrafo do JWPUB indexado pelo número REAL (data-pnum) —
-            // antes o §N caía na PERGUNTA do esboço e o texto do parágrafo
-            // ficava sem numeração (a citação devolvia o título).
-            if (settings.needsIndexFormat(7)) libRepo.reindexAll()
+            // v10: JWPUB antigo sem data-pnum ganha §N no início do <p>
+            // (label/índice do DocumentParagraph; `it` por data-pid).
+            // Reindexar uma vez após atualizar o extrator.
+            if (settings.needsIndexFormat(10)) libRepo.reindexAll()
         }
     }
 
