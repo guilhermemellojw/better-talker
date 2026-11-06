@@ -5,6 +5,16 @@
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
+> **2026-11-06 — A34 smoke 3.4.2/47:** 47 instalado por cima do 44 com
+> dados preservados. `it “Presunção” § 10` **Disponível** (ref exata),
+> `w08 15/6 8-9 §§ 8-11` **Disponível + trecho aproximado** apontando para
+> `w_T_20080615.jwpub`, download direto de edição ausente
+> (`A Sentinela — janeiro de 2024`) pelo próprio app (`downloadEdition`) e
+> estrutura do Ponto 1 com card recolhido, sem JSON, `partial=0` e
+> `route=outline`. Nota e arquivo de teste removidos; a Biblioteca ficou
+> com o acervo original. Dívida residual explícita, sem bloquear o v4.0:
+> `w08`/`rr` mais exatos e recuperação de JSON inválido/truncado do gerador.
+
 > **2026-11-06 — beta 48:** `3.4.2-syncbeta`/48 rebuildado via
 > `android-syncbeta.yml` (workflow_dispatch), artifact apenas, sem tag pública.
 > SHA-256 do APK: `a9b15b33ba662329e95d96cc3c87d71f715885d09be4f9073d4fb64b7c0e3507`.
