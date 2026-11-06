@@ -4795,7 +4795,16 @@ class CopilotViewModel(
             postText("Não consegui gerar a estrutura. Tente novamente.")
             return
         }
-        if (!validateStructureAccept(proposal, allowEmptyRefs)) {
+        val validation = com.bettertalker.app.domain.planning.OutlineProposalValidator
+            .validate(proposal, allowEmptyRefs = allowEmptyRefs)
+        if (validation is com.bettertalker.app.domain.planning.ValidationResult.Invalid) {
+            android.util.Log.w(
+                "CopilotLLM",
+                "estrutura inválida: errors=${validation.errors} " +
+                    "requestRefs=${request.bibleRefs.size} " +
+                    "sectionRefs=${proposal.sections.map { it.bibleRefs.size }} " +
+                    "sections=${proposal.sections.size}",
+            )
             postText(structureFailureMessage(hasRefs = !allowEmptyRefs))
             return
         }
@@ -7431,6 +7440,7 @@ internal fun buildStructureRequest(
         bibleRefs = bible,
         publicationRefs = pubs,
         methodPrinciples = methodPrinciples,
+        sectionScoped = true,
     )
 }
 

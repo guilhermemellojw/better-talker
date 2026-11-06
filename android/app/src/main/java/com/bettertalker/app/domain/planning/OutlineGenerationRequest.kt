@@ -35,4 +35,10 @@ data class OutlineGenerationRequest(
      * o prompt pede um discurso COMPLETO com a duração da parte V&M.
      */
     val materialNature: String? = null,
+    /**
+     * Estrutura de UMA seção (não um esboço do zero). Nesse modo as refs do
+     * request são autoritativas: se o modelo omitir/trocar a grafia, o parser
+     * pode preencher o plano com elas em vez de falhar por "incompleta".
+     */
+    val sectionScoped: Boolean = false,
 )

@@ -200,6 +200,7 @@ class StructureProposalTest {
     @Test
     fun comando_reconheceFormasEExcluiArmadilhas() {
         assertTrue(ChatRouter.isProposeStructureCommand("propõe estrutura para esta seção"))
+        assertTrue(ChatRouter.isProposeStructureCommand("proponha uma estrutura para este ponto"))
         assertTrue(ChatRouter.isProposeStructureCommand("propõe o plano"))
         assertTrue(ChatRouter.isProposeStructureCommand("planeja a seção"))
         assertTrue(ChatRouter.isProposeStructureCommand("define o objetivo desta seção"))

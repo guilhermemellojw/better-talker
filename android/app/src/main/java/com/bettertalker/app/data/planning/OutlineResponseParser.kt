@@ -1,8 +1,10 @@
 package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.llm.JsonCodec
-import com.bettertalker.app.domain.planning.OutlineGenerationRequest
+import com.bettertalker.app.data.s34.normalizeBibleBookName
+import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.stripPromptTags
+import com.bettertalker.app.domain.planning.OutlineGenerationRequest
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
@@ -54,6 +56,11 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
             ?.ifBlank { return null } ?: return null
         val sections = splitObjects(root.substring(sectionsSpan.start, sectionsSpan.end))
             .map { parseSection(it, request) ?: return null }
+        val repaired = if (request.sectionScoped) {
+            repairSectionScoped(sections, request)
+        } else {
+            sections
+        }
         return OutlineProposal(
             id = request.id,
             angle = request.angle,
@@ -61,7 +68,7 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
             title = title,
             summary = summary,
             totalMinutes = request.totalMinutes,
-            sections = sections,
+            sections = repaired,
         )
     }
 
@@ -74,7 +81,11 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
         val refs = stringArray(raw, "bibleRefs") ?: return null
         val pubs = objectArray(raw, "publicationRefs") ?: return null
         val method = stringField(raw, "methodPrinciple")?.let { stripPromptTags(it) }
-        val keptRefs = refs.filter { it in request.bibleRefs }
+        // O modelo varia a grafia ("Ezequiel 1:16" vs "Ez 1:16"); casar por
+        // livro/capítulo/versículo canônico antes de descartar como inventada.
+        val keptRefs = refs
+            .flatMap { matchRequestBibleRefs(it, request.bibleRefs) }
+            .distinct()
         val allowedSymbols = request.publicationRefs.map { it.symbol }.toSet()
         val keptPubs = pubs.mapNotNull { parsePublicationRef(it) }
             .filter { it.symbol in allowedSymbols }
@@ -86,6 +97,99 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
             publicationRefs = keptPubs,
             methodPrinciple = method?.ifBlank { null },
         )
+    }
+
+    /** Casa a ref do modelo com a lista autorizada por livro/cap/versículo. */
+    private fun matchRequestBibleRefs(
+        raw: String,
+        allowed: List<String>,
+    ): List<String> {
+        val keys = RefDetector.detectBible(raw)
+            .mapNotNull { bibleKey(it.label, it.chapter, it.verse) }
+            .toSet()
+        if (keys.isEmpty()) return emptyList()
+        return allowed.filter { candidate ->
+            RefDetector.detectBible(candidate).any {
+                bibleKey(it.label, it.chapter, it.verse) in keys
+            }
+        }
+    }
+
+    private fun bibleKey(label: String, chapter: Int, verse: Int): String? {
+        val book = normalizeBibleBookName(label) ?: return null
+        return "$book $chapter:$verse"
+    }
+
+    /**
+     * Reparos só para estrutura de UMA seção: refs autoritativas, títulos
+     * únicos e soma de minutos dentro do total. Evita o falso "estrutura
+     * incompleta" sem afetar o esboço do zero.
+     */
+    private fun repairSectionScoped(
+        sections: List<SectionPlan>,
+        request: OutlineGenerationRequest,
+    ): List<SectionPlan> {
+        if (sections.isEmpty()) return sections
+        var out = sections.map { it.copy(minutes = it.minutes.coerceAtLeast(1)) }
+        val total = request.totalMinutes
+        // O modelo pode devolver mais seções que minutos disponíveis (ou
+        // minutos 0). Funde o excedente para manter 1 min por seção e a soma
+        // dentro do total, em vez de falhar como "estrutura incompleta".
+        if (total > 0 && out.size > total) {
+            val keep = out.take(total - 1)
+            val merged = out.drop(total - 1).reduce { acc, section ->
+                acc.copy(
+                    title = "${acc.title} / ${section.title}",
+                    mainIdea = listOf(acc.mainIdea, section.mainIdea)
+                        .filter { it.isNotBlank() }
+                        .joinToString("\n\n"),
+                    bibleRefs = (acc.bibleRefs + section.bibleRefs).distinct(),
+                    publicationRefs = (acc.publicationRefs + section.publicationRefs)
+                        .distinct(),
+                    methodPrinciple = listOfNotNull(
+                        acc.methodPrinciple, section.methodPrinciple,
+                    ).filter { it.isNotBlank() }.distinct().joinToString(" ")
+                        .ifBlank { null },
+                )
+            }
+            out = (keep + merged).map { it.copy(minutes = 1) }
+        }
+        if (request.bibleRefs.isNotEmpty() &&
+            out.none { it.bibleRefs.isNotEmpty() }
+        ) {
+            val want = request.theme.trim().lowercase()
+            val target = out.indexOfFirst { section ->
+                val title = section.title.trim().lowercase()
+                title.isNotBlank() && (title.contains(want) || want.contains(title))
+            }.takeIf { it >= 0 } ?: 0
+            out = out.mapIndexed { index, section ->
+                if (index == target) {
+                    section.copy(bibleRefs = request.bibleRefs)
+                } else {
+                    section
+                }
+            }
+        }
+        if (out.size <= total && out.sumOf { it.minutes } > total) {
+            var remaining = total
+            out = out.mapIndexed { index, section ->
+                val left = out.size - index
+                val maxForThis = (remaining - (left - 1)).coerceAtLeast(1)
+                val minutes = section.minutes.coerceIn(1, maxForThis)
+                remaining -= minutes
+                section.copy(minutes = minutes)
+            }
+        }
+        val usedTitles = mutableSetOf<String>()
+        return out.map { section ->
+            val base = section.title.trim().ifBlank { "Seção" }
+            var title = base
+            var n = 2
+            while (!usedTitles.add(title.lowercase())) {
+                title = "$base ${n++}"
+            }
+            section.copy(title = title)
+        }
     }
 
     private fun parsePublicationRef(raw: String): PublicationRef? {
