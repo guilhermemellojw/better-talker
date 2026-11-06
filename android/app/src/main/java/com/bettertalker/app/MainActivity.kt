@@ -12,12 +12,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.bettertalker.app.navigation.resolveAssistantNoteId
+import com.bettertalker.app.ui.assistant.AssistantLanding
+import com.bettertalker.app.ui.assistant.AssistantViewModel
+import com.bettertalker.app.ui.session.NoteSession
+import com.bettertalker.app.ui.session.NoteSessionHostViewModel
 import com.bettertalker.app.ui.theme.texturedBackground
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
@@ -163,14 +169,18 @@ private fun AppNav(
     val homeTexture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
     val textureIntensity by settings.textureIntensity.collectAsState(initial = 0.05f)
 
-    // Hubs de escolha de nota (Treinar/Apresentar) — o usuário escolhe
-    // visualmente; nada de "última nota" silenciosa nem sheet.
-    fun goTrain() {
-        nav.navigate(Routes.TRAIN_HOME) { launchSingleTop = true }
+    // Abas: o Assistente é a raiz; as demais preservam estado ao alternar.
+    fun goTab(route: String) {
+        nav.navigate(route) {
+            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
-    fun goPresent() {
-        nav.navigate(Routes.PRESENT_HOME) { launchSingleTop = true }
-    }
+    fun goAssistant() = goTab(Routes.ASSISTANT)
+    fun goHome() = goTab(Routes.HOME)
+    fun goTrain() = goTab(Routes.TRAIN_HOME)
+    fun goPresent() = goTab(Routes.PRESENT_HOME)
 
     // "Inserir material → Escolher arquivo": a nota nasce aqui e o editor
     // consome o uri pendente ao abrir (importa o esboço).
@@ -186,6 +196,14 @@ private fun AppNav(
         com.bettertalker.app.data.repo.NotesRepository(ctx.applicationContext, db)
     }
 
+    // v4.0: uma sessão por nota, compartilhada entre editor, chat antigo e
+    // aba Assistente. O host é um ViewModel da Activity: sobrevive à rotação
+    // e libera os ViewModelStores no fim real do processo.
+    val sessionHost: NoteSessionHostViewModel = viewModel(
+        factory = NoteSessionHostViewModel.Factory(ctx, db, voiceRouter),
+    )
+    fun sessionFor(noteId: String): NoteSession = sessionHost.sessionFor(noteId)
+
     androidx.compose.material3.Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -199,12 +217,8 @@ private fun AppNav(
             if (showGlobalBar) {
                 com.bettertalker.app.ui.components.GlobalBottomBar(
                     currentRoute = currentRoute,
-                    onHome = {
-                        nav.navigate(Routes.HOME) {
-                            launchSingleTop = true
-                            popUpTo(Routes.HOME)
-                        }
-                    },
+                    onAssistant = ::goAssistant,
+                    onHome = ::goHome,
                     onTrain = ::goTrain,
                     onPresent = ::goPresent,
                 )
@@ -213,9 +227,52 @@ private fun AppNav(
     ) { pad ->
         NavHost(
             nav,
-            startDestination = Routes.HOME,
+            startDestination = Routes.ASSISTANT,
             modifier = androidx.compose.ui.Modifier.padding(pad),
         ) {
+        composable(Routes.ASSISTANT) {
+            val assistantVm: AssistantViewModel = viewModel(
+                factory = AssistantViewModel.Factory(db, settings),
+            )
+            val notes by assistantVm.notes.collectAsState()
+            val lastNoteId by assistantVm.lastNoteId.collectAsState()
+            val availableIds = remember(notes) {
+                notes?.map { it.id }?.toSet().orEmpty()
+            }
+            val targetId = resolveAssistantNoteId(lastNoteId, availableIds)
+            val target = remember(notes, targetId) {
+                notes?.firstOrNull { it.id == targetId }
+            }
+            // Nota apagada/na lixeira: não restaura um contexto fantasma.
+            androidx.compose.runtime.LaunchedEffect(notes, lastNoteId, targetId) {
+                if (notes != null && lastNoteId != null && targetId == null) {
+                    assistantVm.clearLastNoteId()
+                }
+            }
+            if (target != null) {
+                NoteChatHost(
+                    session = sessionFor(target.id),
+                    nav = nav,
+                    embedded = true,
+                    // Sem foco vindo do editor, o assistente começa no
+                    // discurso inteiro (não num "Tópico" sem número).
+                    defaultWholeFocus = true,
+                    onBack = {},
+                    onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
+                )
+            } else {
+                AssistantLanding(
+                    notes = notes.orEmpty(),
+                    loading = notes == null,
+                    onOpenNote = { id ->
+                        // Fixa o contexto antes de abrir o editor; voltar já
+                        // cai no chat dessa nota.
+                        scope.launch { settings.setLastNoteId(id) }
+                        nav.navigate(Routes.editor(id))
+                    },
+                )
+            }
+        }
         composable(Routes.HOME) {
             val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(ctx, db, settings))
             // compartilha o mesmo VM com a Lixeira (mesmo ciclo da Home)
@@ -263,7 +320,7 @@ private fun AppNav(
                 onOpenStage = { nav.navigate(Routes.stage(it)) },
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("train")) },
-                onGoToLibrary = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
+                onGoToLibrary = ::goHome,
             )
         }
         composable(Routes.PRESENT_HOME) {
@@ -277,7 +334,7 @@ private fun AppNav(
                 onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("present")) },
-                onGoToLibrary = { nav.navigate(Routes.HOME) { launchSingleTop = true } },
+                onGoToLibrary = ::goHome,
             )
         }
         composable(
@@ -356,8 +413,10 @@ private fun AppNav(
             val autoGenerate = back.arguments?.getBoolean("generate") ?: false
             // Navegação global: memoriza a última nota aberta (Treinar/Apresentar).
             androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
-            val vm: EditorViewModel = viewModel(key = noteId, factory = EditorViewModel.Factory(ctx, db, noteId))
-            val copilotVm: CopilotViewModel = viewModel(key = "cop-$noteId", factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter))
+            // v4.0: mesma sessão usada pela aba Assistente e pelo chat antigo.
+            val session = remember(noteId) { sessionFor(noteId) }
+            val vm: EditorViewModel = session.editorVm
+            val copilotVm: CopilotViewModel = session.copilotVm
             // Auto-gerar Tribuna se vindo do PresentHome
             if (autoGenerate) {
                 androidx.compose.runtime.LaunchedEffect(noteId) {
@@ -419,7 +478,12 @@ private fun AppNav(
             }
             EditorScreen(
                 vm,
-                onBack = { nav.popBackStack() },
+                // v4.0: o editor é imersivo e volta para a porta de entrada.
+                onBack = {
+                    if (!nav.popBackStack(Routes.ASSISTANT, inclusive = false)) {
+                        nav.popBackStack()
+                    }
+                },
                 onAttach = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
@@ -500,87 +564,13 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
-            // EditorViewModel do editor (mesma store da rota editor p/ enfileirar inserções)
-            val editorEntry = remember(back) { nav.getBackStackEntry(Routes.EDITOR) }
-            // Fase 18 §41: UMA instância de CopilotViewModel por nota, ancorada na
-            // rota do editor — proposta/verificação/estado sobrevivem ao
-            // editor↔chat. (Antes, cada rota tinha sua instância e o Voltar
-            // destruía a proposta em exibição.)
-            val copilotVm: CopilotViewModel = viewModel(
-                editorEntry, key = "cop-$noteId",
-                factory = CopilotViewModel.Factory(ctx, db, noteId, voiceRouter)
-            )
-            val editorVm: EditorViewModel = viewModel(
-                editorEntry, key = noteId,
-                factory = EditorViewModel.Factory(ctx, db, noteId)
-            )
-            // O chat pode ser restaurado sem a rota do editor: garante o
-            // gerador para o fluxo "texto total" → DraftSheet.
-            androidx.compose.runtime.LaunchedEffect(editorVm) {
-                val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
-                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
-                val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
-                editorVm.setSectionGenerator(
-                    com.bettertalker.app.data.planning.SectionGeneratorImpl(
-                        com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
-                    ),
-                    canGenerate,
-                )
-            }
-            // tema do esboço vira título da nota
-            val chatTitleEv by copilotVm.titleEvent.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(chatTitleEv) {
-                val t = chatTitleEv
-                if (!t.isNullOrBlank()) {
-                    editorVm.onTitle(t)
-                    copilotVm.consumeTitle()
-                }
-            }
-            val draftState by editorVm.draftState.collectAsState()
-            val editorSections by editorVm.sections.collectAsState()
-            ChatScreen(
-                copilotVm,
+            NoteChatHost(
+                session = sessionFor(noteId),
+                nav = nav,
+                embedded = false,
                 onBack = { nav.popBackStack() },
-                onInsert = { text, heading ->
-                    // F2.3: insere no tópico em foco; sem foco, comportamento legado.
-                    editorVm.queueInsertForTarget(copilotVm.currentTarget(), text, heading)
-                },
-                onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
-                headings = com.bettertalker.app.data.util.headingsOf(editorVm.mdText.collectAsState().value),
-                draftState = draftState,
-                draftSections = editorSections,
-                onDraftAccept = editorVm::acceptDraft,
-                onDraftDismiss = editorVm::dismissDraft,
-                onDraftUndo = editorVm::undoDraft,
-                onDraftRetry = {
-                    (draftState as? com.bettertalker.app.ui.editor.DraftUiState.Error)
-                        ?.target?.let(editorVm::startDraft)
-                },
-                onDraftNext = editorVm::nextDraft,
-                onDraftContinue = editorVm::continueDraft,
+                onOpenEditor = { nav.popBackStack() },
             )
-            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-                copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
-            }
-            // A seleção é capturada na rota do editor (acima) e persiste
-            // na instância única do CopilotViewModel ancorada no editor.
-            // Fase 3.5b.3: dossiê da seção ativa sob demanda (F2b: com alvo explícito).
-            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-                copilotVm.setDossierProvider { target -> editorVm.buildDossierFor(target) }
-            }
-            // Onboarding F2a: contexto empurrado pelo FAB (seleção + prontidão).
-            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-                editorVm.pushedContext.collect { copilotVm.setPushedContext(it) }
-            }
-            // Modo guiado seção-a-seção: seções reais do editor -> chat
-            // (navegação, indicador e gate; mesmo padrão do setSelection).
-            androidx.compose.runtime.LaunchedEffect(editorSections) {
-                copilotVm.setGuideSections(editorSections.map { it.section })
-            }
-            // Modo guiado seção-a-seção: foco do chat -> rolagem no editor.
-            androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-                copilotVm.focusRequests.collect { editorVm.scrollToSection(it) }
-            }
         }
         composable(
             Routes.LIBRARY,
@@ -605,5 +595,106 @@ private fun AppNav(
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
     }
+    }
+}
+
+/**
+ * Corpo compartilhado do chat de uma nota (rota antiga do editor e aba
+ * Assistente). Usa a MESMA sessão para preservar fio, proposta e drafts.
+ */
+@Composable
+private fun NoteChatHost(
+    session: NoteSession,
+    nav: androidx.navigation.NavHostController,
+    embedded: Boolean,
+    defaultWholeFocus: Boolean = false,
+    onBack: () -> Unit,
+    onOpenEditor: () -> Unit,
+) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val editorVm = session.editorVm
+    val copilotVm = session.copilotVm
+
+    // O chat pode ser restaurado sem a rota do editor: garante o gerador
+    // para o fluxo "texto total" → DraftSheet.
+    androidx.compose.runtime.LaunchedEffect(editorVm) {
+        val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
+        val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
+        val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
+        editorVm.setSectionGenerator(
+            com.bettertalker.app.data.planning.SectionGeneratorImpl(
+                com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
+            ),
+            canGenerate,
+        )
+    }
+    // tema do esboço vira título da nota
+    val chatTitleEv by copilotVm.titleEvent.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(chatTitleEv) {
+        val t = chatTitleEv
+        if (!t.isNullOrBlank()) {
+            editorVm.onTitle(t)
+            copilotVm.consumeTitle()
+        }
+    }
+    val draftState by editorVm.draftState.collectAsState()
+    val editorSections by editorVm.sections.collectAsState()
+    val mdText by editorVm.mdText.collectAsState()
+    ChatScreen(
+        copilotVm,
+        onBack = onBack,
+        onInsert = { text, heading ->
+            // F2.3: insere no tópico em foco; sem foco, comportamento legado.
+            editorVm.queueInsertForTarget(copilotVm.currentTarget(), text, heading)
+        },
+        onOpenLibrary = { nav.navigate(Routes.library(session.noteId)) },
+        embedded = embedded,
+        onOpenNote = if (embedded) ({
+            nav.navigate(Routes.editor(session.noteId))
+        }) else null,
+        onOpenEditor = onOpenEditor,
+        headings = com.bettertalker.app.data.util.headingsOf(mdText),
+        draftState = draftState,
+        draftSections = editorSections,
+        onDraftAccept = editorVm::acceptDraft,
+        onDraftDismiss = editorVm::dismissDraft,
+        onDraftUndo = editorVm::undoDraft,
+        onDraftRetry = {
+            (draftState as? com.bettertalker.app.ui.editor.DraftUiState.Error)
+                ?.target?.let(editorVm::startDraft)
+        },
+        onDraftNext = editorVm::nextDraft,
+        onDraftContinue = editorVm::continueDraft,
+    )
+    androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+        copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
+    }
+    // Fase 3.5b.3: dossiê da seção ativa sob demanda (F2b: com alvo explícito).
+    androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+        copilotVm.setDossierProvider { target -> editorVm.buildDossierFor(target) }
+    }
+    // Onboarding F2a: contexto empurrado pelo FAB (seleção + prontidão).
+    androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+        editorVm.pushedContext.collect { copilotVm.setPushedContext(it) }
+    }
+    // Modo guiado seção-a-seção: seções reais do editor -> chat.
+    androidx.compose.runtime.LaunchedEffect(editorSections) {
+        copilotVm.setGuideSections(editorSections.map { it.section })
+    }
+    // Modo guiado seção-a-seção: foco do chat -> rolagem no editor.
+    androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
+        copilotVm.focusRequests.collect { editorVm.scrollToSection(it) }
+    }
+    // Assistente restaurado sem foco do editor: lente = discurso inteiro.
+    if (defaultWholeFocus) {
+        val focusMode by copilotVm.focusMode.collectAsState()
+        val chatScope by copilotVm.chatScope.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(focusMode, chatScope) {
+            if (chatScope == null &&
+                focusMode == com.bettertalker.app.ui.copilot.FocusMode.SECTION
+            ) {
+                copilotVm.selectWholeFocus()
+            }
+        }
     }
 }
