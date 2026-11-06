@@ -385,8 +385,8 @@ object ChatRouter {
             APPLY_STRUCTURE_NOUN.containsMatchIn(t)
     }
 
-    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|sugere|sugerir|sugira|" +
-        "planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
+    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|proponha|proponham|" +
+        "sugere|sugerir|sugira|planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
     private val PROPOSE_STRUCT_PLAN_VERB = Regex("\\b(planeja|planejar|planeje)\\b")
     private val PROPOSE_STRUCT_NOUN_STRICT = Regex("\\b(estrutura|plano|objetivo|progressao)\\b")
     private val PROPOSE_STRUCT_TEXTS = Regex("\\btextos\\b")

@@ -84,6 +84,68 @@ class DefaultOutlineResponseParserTest {
     }
 
     @Test
+    fun estruturaDeSecao_casaGrafiaDiferenteDaRefCanonica() {
+        val req = request().copy(
+            bibleRefs = listOf("Ez 1:16", "Ez 1:17", "Ez 1:18"),
+            sectionScoped = true,
+        )
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"Movimento","minutes":2,"mainIdea":"m",
+             "bibleRefs":["Ezequiel 1:16"],"publicationRefs":[]}]}"""
+        val proposal = parser.parse(json, req)!!
+        assertEquals(
+            listOf("Ez 1:16"),
+            proposal.sections.single().bibleRefs,
+        )
+    }
+
+    @Test
+    fun estruturaDeSecao_semRefsDoModelo_usaRefsAutorizadas() {
+        val req = request().copy(
+            bibleRefs = listOf("Ez 1:16", "Ez 1:17"),
+            sectionScoped = true,
+        )
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"Movimento","minutes":2,"mainIdea":"m",
+             "bibleRefs":[],"publicationRefs":[]}]}"""
+        val proposal = parser.parse(json, req)!!
+        assertEquals(
+            listOf("Ez 1:16", "Ez 1:17"),
+            proposal.sections.single().bibleRefs,
+        )
+    }
+
+    @Test
+    fun estruturaDeSecao_minutoZeroEMaisSecoesQueMinutos_saoReparados() {
+        val req = request().copy(
+            totalMinutes = 4,
+            bibleRefs = listOf("Ez 1:16"),
+            sectionScoped = true,
+        )
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"A","minutes":1,"mainIdea":"a","bibleRefs":["Ez 1:16"],"publicationRefs":[]},
+            {"title":"B","minutes":0,"mainIdea":"b","bibleRefs":[],"publicationRefs":[]},
+            {"title":"C","minutes":1,"mainIdea":"c","bibleRefs":[],"publicationRefs":[]},
+            {"title":"D","minutes":1,"mainIdea":"d","bibleRefs":[],"publicationRefs":[]},
+            {"title":"E","minutes":1,"mainIdea":"e","bibleRefs":[],"publicationRefs":[]}
+        ]}"""
+        val proposal = parser.parse(json, req)!!
+        assertEquals(4, proposal.sections.size)
+        assertTrue(proposal.sections.all { it.minutes >= 1 })
+        assertEquals(4, proposal.sections.sumOf { it.minutes })
+    }
+
+    @Test
+    fun esbocoGeralSemRefs_naoRecebeFallback() {
+        val req = request().copy(sectionScoped = false)
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"A","minutes":2,"mainIdea":"m",
+             "bibleRefs":[],"publicationRefs":[]}]}"""
+        val proposal = parser.parse(json, req)!!
+        assertTrue(proposal.sections.single().bibleRefs.isEmpty())
+    }
+
+    @Test
     fun inventedBibleRef_isFiltered() {
         val json = """{"title":"t","summary":"s","sections":[
             {"title":"A","minutes":3,"mainIdea":"m","bibleRefs":["João 5:28,29","Gên 99:99"]}]}"""
