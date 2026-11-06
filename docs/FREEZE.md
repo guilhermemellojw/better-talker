@@ -5,6 +5,11 @@
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
+> **2026-11-06 — beta 48:** `3.4.2-syncbeta`/48 rebuildado via
+> `android-syncbeta.yml` (workflow_dispatch), artifact apenas, sem tag pública.
+> SHA-256 do APK: `a9b15b33ba662329e95d96cc3c87d71f715885d09be4f9073d4fb64b7c0e3507`.
+> O público 3.4.2/47 continua sendo o release atual.
+
 > **2026-11-06 — 3.4.2/47:** estruturas (`ProposeStructure`, ângulos, texto
 > colado e materialização) não espelham mais o JSON do gerador no chat: o
 > turno fica `WAITING partial=0` e o card aparece no fim. Guard bloqueia JSON
