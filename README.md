@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v3.4.1/46 — Copilot conversa primeiro, cards sob demanda, JWPUB v10 e refs de artigo sem duplicata; sync beta em APK separado.**
+> **Estágio: v3.4.2/47 — Copilot conversa primeiro, cards sob demanda, JWPUB v10, refs de artigo sem duplicata e estrutura sem JSON no chat; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -11,7 +11,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-11-06)
 
-- **Versão:** 3.4.1 (versionCode 46), pronta para publicar; **Copilot conversa primeiro** (card só em pedido explícito de texto, com conversa antes), **cards sob demanda** (texto/estrutura/ângulos recolhidos, proposta explícita expandida), **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** (parágrafos antigos + trecho aproximado), **jr/rr e download de edições antigas** e **refs de artigo sem duplicata** (`it “Presunção” § 10` uma vez; fora do foco vai ao inventário, sem falso “trecho não encontrado”). Validado no tablet; A34 já tinha smoke test do 3.4.0.
+- **Versão:** 3.4.2 (versionCode 47), pronta para publicar; **Copilot conversa primeiro** (card só em pedido explícito de texto, com conversa antes), **cards sob demanda** (texto/estrutura/ângulos recolhidos, proposta explícita expandida), **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** (parágrafos antigos + trecho aproximado), **jr/rr e download de edições antigas** **refs de artigo sem duplicata** (`it “Presunção” § 10` uma vez; fora do foco vai ao inventário, sem falso “trecho não encontrado”) e **estrutura sem JSON no chat** (streaming estruturado não espelha o gerador; parser aceita aliases e minutos decimais). Validado no tablet; A34 já tinha smoke test do 3.4.0.
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.

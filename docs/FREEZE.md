@@ -1,9 +1,20 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-06 · **Build de referência:** v3.4.1 (versionCode 46) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-06 · **Build de referência:** v3.4.2 (versionCode 47) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
+
+> **2026-11-06 — 3.4.2/47:** estruturas (`ProposeStructure`, ângulos, texto
+> colado e materialização) não espelham mais o JSON do gerador no chat: o
+> turno fica `WAITING partial=0` e o card aparece no fim. Guard bloqueia JSON
+> de outline no post, no cancelamento e em chat antigo. O roteador aceita
+> “quero/preciso/gostaria/estruture/organize…” e “estrutura do Ponto N” com
+> foco; o parser aceita `mainldea`/`publication Refs`/`biblerefs` e minutos
+> decimais. Inclui o lote de estrutura de seção (refs canonicalizadas, reparo
+> de minutos, `proponha`). Tablet validou os dois comandos com card recolhido
+> e sem JSON; CI da branch verde. Release público 3.4.2/47; beta 43 não
+> rebuildado (próximo beta usa 48).
 
 > **2026-11-06 — 3.4.1/46:** corrige a duplicata de refs de artigo que chegavam
 > pelo texto e pela seção (`it “Presunção” § 10`). A chave canônica normaliza
