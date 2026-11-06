@@ -82,12 +82,15 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FocusSources
 import com.bettertalker.app.data.copilot.QuickAction
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
+import com.bettertalker.app.data.voice.PttState
+import com.bettertalker.app.data.voice.PttSttChoice
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.ByodNotice
 import com.bettertalker.app.ui.components.parseBlocks
@@ -122,6 +125,14 @@ fun ChatPromptBar(
     onSend: () -> Unit,
     onStop: () -> Unit = {},
     onAttach: () -> Unit,
+    // v4.0: PTT no composer compartilhado (assistente + chat do editor).
+    // pttState == null mantém o caminho antigo (legado/testes).
+    pttState: PttState? = null,
+    pttPartial: String = "",
+    pttChoice: PttSttChoice? = null,
+    onPttPress: () -> Unit = {},
+    onPttRelease: () -> Unit = {},
+    onPttCancel: () -> Unit = {},
     voiceState: VoiceInputState = VoiceInputState.Idle,
     voiceSeconds: Int = 0,
     /** P0 voz: microfone desabilitado enquanto o TTS estiver falando. */
@@ -146,6 +157,13 @@ fun ChatPromptBar(
         shadowElevation = 4.dp
     ) {
         Column(Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
+            if (pttState != null &&
+                pttState != PttState.Idle &&
+                pttState !is PttState.Error
+            ) {
+                PttStatusRow(pttState, pttPartial, pttChoice)
+                Spacer(Modifier.height(4.dp))
+            }
             TextField(
                 value = input,
                 onValueChange = onInput,
@@ -186,42 +204,53 @@ fun ChatPromptBar(
                         )
                     },
                 )
-                // T3 (voz): microfone com tap-to-toggle. Primário quando o
-                // campo está vazio; secundário quando já há texto.
-                when (voiceState) {
-                    VoiceInputState.Listening -> {
-                        Text(
-                            voiceElapsedLabel(voiceSeconds),
-                            style = MaterialTheme.typography.labelMedium,
-                            // P2 (contraste): secondary passa AA nos dois temas.
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.semantics {
-                                liveRegion = LiveRegionMode.Polite
+                // v4.0: PTT no composer compartilhado. O caminho antigo
+                // (tap-to-toggle) fica só para chamadas sem PTT.
+                if (pttState != null) {
+                    PttMicButton(
+                        state = pttState,
+                        onPress = onPttPress,
+                        onRelease = onPttRelease,
+                        onCancel = onPttCancel,
+                    )
+                } else {
+                    // T3 (voz): microfone com tap-to-toggle. Primário quando o
+                    // campo está vazio; secundário quando já há texto.
+                    when (voiceState) {
+                        VoiceInputState.Listening -> {
+                            Text(
+                                voiceElapsedLabel(voiceSeconds),
+                                style = MaterialTheme.typography.labelMedium,
+                                // P2 (contraste): secondary passa AA nos dois temas.
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.semantics {
+                                    liveRegion = LiveRegionMode.Polite
+                                }
+                            )
+                            IconButton(onClick = onVoiceCancel) {
+                                Icon(Icons.Default.Close, "Cancelar gravação")
                             }
-                        )
-                        IconButton(onClick = onVoiceCancel) {
-                            Icon(Icons.Default.Close, "Cancelar gravação")
-                        }
-                        FilledIconButton(onClick = onVoiceFinish) {
-                            Icon(Icons.Default.Stop, "Concluir e transcrever")
-                        }
-                    }
-                    VoiceInputState.Processing -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                    }
-                    else -> {
-                        val desc = voiceMicDescription(voiceState)
-                        if (canSend) {
-                            IconButton(onClick = onVoice, enabled = !ttsSpeaking) {
-                                Icon(Icons.Default.Mic, desc)
+                            FilledIconButton(onClick = onVoiceFinish) {
+                                Icon(Icons.Default.Stop, "Concluir e transcrever")
                             }
-                        } else {
-                            FilledIconButton(onClick = onVoice, enabled = !ttsSpeaking) {
-                                Icon(Icons.Default.Mic, desc)
+                        }
+                        VoiceInputState.Processing -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        else -> {
+                            val desc = voiceMicDescription(voiceState)
+                            if (canSend) {
+                                IconButton(onClick = onVoice, enabled = !ttsSpeaking) {
+                                    Icon(Icons.Default.Mic, desc)
+                                }
+                            } else {
+                                FilledIconButton(onClick = onVoice, enabled = !ttsSpeaking) {
+                                    Icon(Icons.Default.Mic, desc)
+                                }
                             }
                         }
                     }
@@ -262,6 +291,91 @@ fun ChatPromptBar(
             }
         }
     }
+}
+
+/** Linha de estado do PTT no composer (parcial + motor + dica do gesto). */
+@Composable
+private fun PttStatusRow(
+    state: PttState,
+    partial: String,
+    choice: PttSttChoice?,
+) {
+    val label = when (state) {
+        PttState.Starting -> "Preparando microfone…"
+        PttState.Listening -> "Ouvindo…"
+        PttState.Transcribing -> "Transcrevendo…"
+        PttState.Thinking -> "Pensando…"
+        PttState.Speaking -> "Falando…"
+        else -> return
+    }
+    val hint = when (state) {
+        PttState.Starting -> "Aguarde o microfone abrir."
+        PttState.Listening -> "Solte para enviar · arraste para cancelar."
+        PttState.Speaking -> "Toque no microfone para interromper."
+        else -> null
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        when (state) {
+            PttState.Listening -> Icon(
+                Icons.Default.Mic,
+                null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.secondary,
+            )
+            PttState.Speaking -> Icon(
+                Icons.Default.Stop,
+                null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.tertiary,
+            )
+            else -> CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            if (partial.isNotBlank() &&
+                (state == PttState.Listening || state == PttState.Transcribing)
+            ) {
+                Text(
+                    partial,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            hint?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        choice?.let {
+            Text(
+                pttChoiceLabel(it),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Rótulo honesto do motor escolhido para o PTT. */
+private fun pttChoiceLabel(choice: PttSttChoice): String = when (choice) {
+    PttSttChoice.LOCAL -> "Offline"
+    PttSttChoice.ON_DEVICE -> "No aparelho"
+    PttSttChoice.SYSTEM -> "Serviço do sistema"
 }
 
 /** T3 (voz): rótulo do cronômetro da escuta ("Ouvindo… 0:07"). Puro/testável. */

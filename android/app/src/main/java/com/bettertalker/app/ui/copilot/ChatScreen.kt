@@ -116,6 +116,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -156,6 +159,8 @@ import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.util.SourceAction
 import com.bettertalker.app.data.util.actionLabel
 import com.bettertalker.app.data.util.citationReason
+import com.bettertalker.app.data.voice.PttState
+import com.bettertalker.app.data.voice.PttSttChoice
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.MdBlock
 import com.bettertalker.app.ui.components.PasteDestination
@@ -185,6 +190,15 @@ fun ChatScreen(
     onOpenNote: (() -> Unit)? = null,
     /** Ação de "abrir editor" dos cards de fontes; default = voltar. */
     onOpenEditor: (() -> Unit)? = null,
+    /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
+    pttState: PttState? = null,
+    pttPartial: String = "",
+    pttChoice: PttSttChoice? = null,
+    pttError: String? = null,
+    onPttPress: () -> Unit = {},
+    onPttRelease: () -> Unit = {},
+    onPttCancel: () -> Unit = {},
+    onPttErrorShown: () -> Unit = {},
     headings: List<String> = emptyList(),
     // T2 (Mini Discurso P2): o mesmo DraftSheet do editor, hospedado no chat
     // para o fluxo "conversar → gerar" sem trocar de tela.
@@ -292,6 +306,12 @@ fun ChatScreen(
         }
     }
     val ctx = LocalContext.current
+    // v4.0: erro de PTT/permissão vira snackbar, nunca mensagem no fio.
+    LaunchedEffect(pttError) {
+        val message = pttError ?: return@LaunchedEffect
+        snack.showSnackbar(message)
+        onPttErrorShown()
+    }
     // M2a: motion respeita a escala de animação do sistema (0 = instantâneo).
     val motionScale = rememberMotionScale()
     val cardMotion = motionMillis(CARD_MOTION_MS, motionScale)
@@ -323,7 +343,11 @@ fun ChatScreen(
     val composerFocus = remember { FocusRequester() }
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) vm.startVoiceInput() }
+    ) { granted ->
+        if (!granted) {
+            scope.launch { snack.showSnackbar("Permita o microfone para usar o PTT.") }
+        }
+    }
     LaunchedEffect(voiceState) {
         if (voiceState is VoiceInputState.Listening) {
             voiceSeconds = 0
@@ -359,12 +383,37 @@ fun ChatScreen(
         onDispose {
             vm.cancelVoiceInput()
             vm.stopSpeaking()
+            onPttCancel()
         }
     }
     // T4 (voz): leitura em voz alta das respostas (TTS nativo).
     val ttsReady by vm.ttsReady.collectAsState()
     val ttsInitialized by vm.ttsInitialized.collectAsState()
     val ttsSpeaking by vm.ttsSpeaking.collectAsState()
+    // v4.0: PTT — permissão no primeiro toque, barge-in e liberação em background.
+    val pttPressChecked: () -> Unit = {
+        if (ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            if (ttsSpeaking) vm.stopSpeaking()
+            if (busy) vm.stopGeneration()
+            onPttPress()
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                // Background/tela bloqueada: microfone e TTS nunca ficam vivos.
+                onPttCancel()
+                vm.stopSpeaking()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val voiceActive = voiceState is VoiceInputState.Listening ||
         voiceState is VoiceInputState.Processing
     var speakingId by remember { mutableStateOf<String?>(null) }
@@ -547,6 +596,16 @@ fun ChatScreen(
             scope.launch { snack.showSnackbar("Aguarde a resposta…") }
             return
         }
+        // Enviar texto enquanto o PTT grava encerraria em turno duplo;
+        // cancelar a escuta é mais seguro e previsível.
+        if (pttState != null &&
+            (pttState == PttState.Starting ||
+                pttState == PttState.Listening ||
+                pttState == PttState.Transcribing)
+        ) {
+            onPttCancel()
+        }
+        if (ttsSpeaking) vm.stopSpeaking()
         // #26-fix-c: com edição pendente, o envio substitui a pergunta antiga
         // (desativa ela + resposta) em vez de virar mais uma mensagem.
         val editId = editingMessageId
@@ -787,6 +846,12 @@ fun ChatScreen(
                     onSend = { doSend(input) },
                     onStop = vm::stopGeneration,
                     onAttach = { showAttach = true },
+                    pttState = pttState,
+                    pttPartial = pttPartial,
+                    pttChoice = pttChoice,
+                    onPttPress = pttPressChecked,
+                    onPttRelease = onPttRelease,
+                    onPttCancel = onPttCancel,
                     voiceState = voiceState,
                     voiceSeconds = voiceSeconds,
                     ttsSpeaking = ttsSpeaking,

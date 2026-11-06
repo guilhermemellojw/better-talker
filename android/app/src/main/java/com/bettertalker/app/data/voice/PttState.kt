@@ -100,6 +100,16 @@ class PttMachine {
 enum class PttSttChoice { LOCAL, ON_DEVICE, SYSTEM }
 
 /**
+ * Cancelamento por arrasto do PTT: para cima ou para a esquerda, além do
+ * limiar (distância euclidiana). Arrastar só para baixo/direita nunca cancela.
+ * Puro/testável; a UI converte dp → px.
+ */
+fun isPttCancelDrag(dx: Float, dy: Float, threshold: Float): Boolean {
+    if (dx >= 0f && dy >= 0f) return false
+    return dx * dx + dy * dy >= threshold * threshold
+}
+
+/**
  * Escolha do motor: local (sherpa) quando preferido e disponível; senão
  * on-device (API 31+); senão o serviço do sistema; sem nenhum → null.
  * Puro/testável.

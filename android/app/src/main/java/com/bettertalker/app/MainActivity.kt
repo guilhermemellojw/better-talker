@@ -24,6 +24,7 @@ import com.bettertalker.app.ui.assistant.AssistantLanding
 import com.bettertalker.app.ui.assistant.AssistantViewModel
 import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
+import com.bettertalker.app.ui.voice.PttHostViewModel
 import com.bettertalker.app.ui.theme.texturedBackground
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
@@ -204,6 +205,11 @@ private fun AppNav(
     )
     fun sessionFor(noteId: String): NoteSession = sessionHost.sessionFor(noteId)
 
+    // v4.0: PTT compartilhado pelo assistente e pelo chat do editor.
+    val pttHost: PttHostViewModel = viewModel(
+        factory = PttHostViewModel.Factory(ctx),
+    )
+
     androidx.compose.material3.Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -253,6 +259,7 @@ private fun AppNav(
                 NoteChatHost(
                     session = sessionFor(target.id),
                     nav = nav,
+                    ptt = pttHost.controller,
                     embedded = true,
                     // Sem foco vindo do editor, o assistente começa no
                     // discurso inteiro (não num "Tópico" sem número).
@@ -567,6 +574,7 @@ private fun AppNav(
             NoteChatHost(
                 session = sessionFor(noteId),
                 nav = nav,
+                ptt = pttHost.controller,
                 embedded = false,
                 onBack = { nav.popBackStack() },
                 onOpenEditor = { nav.popBackStack() },
@@ -606,6 +614,7 @@ private fun AppNav(
 private fun NoteChatHost(
     session: NoteSession,
     nav: androidx.navigation.NavHostController,
+    ptt: com.bettertalker.app.data.voice.PttController,
     embedded: Boolean,
     defaultWholeFocus: Boolean = false,
     onBack: () -> Unit,
@@ -640,6 +649,80 @@ private fun NoteChatHost(
     val draftState by editorVm.draftState.collectAsState()
     val editorSections by editorVm.sections.collectAsState()
     val mdText by editorVm.mdText.collectAsState()
+
+    // v4.0 — PTT: a sessão ativa troca os callbacks do motor compartilhado.
+    // A transcrição entra direto no fio (sem composer) e o turno por voz é o
+    // único que auto-fala a resposta.
+    val pttState by ptt.state.collectAsState()
+    val pttPartial by ptt.partial.collectAsState()
+    val pttChoice by ptt.choice.collectAsState()
+    val messages by copilotVm.messages.collectAsState()
+    val chatBusy by copilotVm.chatBusy.collectAsState()
+    val ttsSpeaking by copilotVm.ttsSpeaking.collectAsState()
+    val ttsReady by copilotVm.ttsReady.collectAsState()
+    var pttError by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<String?>(null)
+    }
+    var pttAwaiting by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    var pttSawBusy by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    var pttStartIndex by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(0)
+    }
+    val latestMessages by androidx.compose.runtime.rememberUpdatedState(messages)
+    androidx.compose.runtime.DisposableEffect(ptt, copilotVm) {
+        ptt.onTranscript = { text ->
+            pttAwaiting = true
+            pttSawBusy = false
+            pttStartIndex = latestMessages.size
+            copilotVm.send(text)
+        }
+        ptt.onError = { pttError = it }
+        ptt.onStopSpeaking = { copilotVm.stopSpeaking() }
+        ptt.onStopThinking = { copilotVm.stopGeneration() }
+        onDispose {
+            // Só encerra a escuta; os callbacks ficam para a próxima tela
+            // sobrescrever (evita corrida de dispose vs. nova composição).
+            ptt.cancel()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(chatBusy, pttAwaiting, messages) {
+        if (!pttAwaiting) return@LaunchedEffect
+        if (chatBusy) {
+            pttSawBusy = true
+            return@LaunchedEffect
+        }
+        if (!pttSawBusy) return@LaunchedEffect
+        val newAssistant = messages.drop(pttStartIndex)
+            .lastOrNull { !it.fromMe }
+            ?: return@LaunchedEffect
+        if (newAssistant.kind == "text" &&
+            newAssistant.text.isNotBlank() &&
+            ttsReady
+        ) {
+            copilotVm.speakMessage(newAssistant.text)
+            ptt.onResponseFinished(spoken = true)
+        } else {
+            ptt.onResponseFinished(spoken = false)
+        }
+        pttAwaiting = false
+        pttSawBusy = false
+    }
+    androidx.compose.runtime.LaunchedEffect(ptt, pttAwaiting) {
+        if (!pttAwaiting) return@LaunchedEffect
+        kotlinx.coroutines.delay(15_000)
+        if (pttAwaiting) {
+            ptt.onResponseFinished(spoken = false)
+            pttAwaiting = false
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(ttsSpeaking) {
+        if (ttsSpeaking) ptt.onSpeakingStarted() else ptt.onSpeakingFinished()
+    }
+
     ChatScreen(
         copilotVm,
         onBack = onBack,
@@ -653,6 +736,14 @@ private fun NoteChatHost(
             nav.navigate(Routes.editor(session.noteId))
         }) else null,
         onOpenEditor = onOpenEditor,
+        pttState = pttState,
+        pttPartial = pttPartial,
+        pttChoice = pttChoice,
+        pttError = pttError,
+        onPttPress = ptt::press,
+        onPttRelease = ptt::release,
+        onPttCancel = ptt::cancel,
+        onPttErrorShown = { pttError = null },
         headings = com.bettertalker.app.data.util.headingsOf(mdText),
         draftState = draftState,
         draftSections = editorSections,
