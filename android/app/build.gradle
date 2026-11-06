@@ -47,10 +47,10 @@ android {
         syncBeta {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
-            // Beta 43 (3.3.0-syncbeta). O público 3.4.2/47 instala por cima
-            // e desliga o sync; se o beta for rebuildado depois, usar 48.
-            versionCode 43
-            versionName "3.3.0"
+            // Beta 48 (3.4.2-syncbeta). Rebuild experimental após o público
+            // 3.4.2/47; o público não tem Firebase/sync.
+            versionCode 48
+            versionName "3.4.2"
             versionNameSuffix "-syncbeta"
         }
     }
