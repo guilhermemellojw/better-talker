@@ -149,7 +149,7 @@ fun ChatPromptBar(
             TextField(
                 value = input,
                 onValueChange = onInput,
-                placeholder = { Text("Cole um esboço ou pergunte…") },
+                placeholder = { Text("Converse com o BT…") },
                 modifier = Modifier.fillMaxWidth()
                     .then(
                         if (focusRequester != null) Modifier.focusRequester(focusRequester)

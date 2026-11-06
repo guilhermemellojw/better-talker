@@ -10,7 +10,8 @@ import org.junit.Test
 class RoutesTest {
 
     @Test
-    fun barraGlobal_naHomeHubsETribuna() {
+    fun barraGlobal_noAssistenteNaHomeHubsETribuna() {
+        assertTrue(shouldShowGlobalBar(Routes.ASSISTANT))
         assertTrue(shouldShowGlobalBar(Routes.HOME))
         assertTrue(shouldShowGlobalBar(Routes.TRAIN_HOME))
         assertTrue(shouldShowGlobalBar(Routes.PRESENT_HOME))
@@ -23,6 +24,7 @@ class RoutesTest {
 
     @Test
     fun abaAtiva_destacaOHubCorreto() {
+        assertEquals(BottomTab.ASSISTANT, activeTab(Routes.ASSISTANT))
         assertEquals(BottomTab.HOME, activeTab(Routes.HOME))
         assertEquals(BottomTab.TRAIN, activeTab(Routes.TRAIN_HOME))
         assertEquals(BottomTab.PRESENT, activeTab(Routes.PRESENT_HOME))
@@ -32,6 +34,13 @@ class RoutesTest {
         assertNull(activeTab(Routes.STAGE))
         assertNull(activeTab(Routes.EDITOR))
         assertNull(activeTab(null))
+    }
+
+    @Test
+    fun assistente_restauraUltimaNotaSomenteSeElaAindaExiste() {
+        assertEquals("nota-1", resolveAssistantNoteId("nota-1", setOf("nota-1", "nota-2")))
+        assertNull(resolveAssistantNoteId("nota-1", setOf("nota-2")))
+        assertNull(resolveAssistantNoteId(null, setOf("nota-1")))
     }
 
     @Test

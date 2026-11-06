@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
@@ -179,6 +180,11 @@ fun ChatScreen(
     onBack: () -> Unit,
     onInsert: (text: String, heading: String?) -> Unit,
     onOpenLibrary: () -> Unit,
+    /** Aba Assistente: sem seta de voltar e com ação "Abrir nota". */
+    embedded: Boolean = false,
+    onOpenNote: (() -> Unit)? = null,
+    /** Ação de "abrir editor" dos cards de fontes; default = voltar. */
+    onOpenEditor: (() -> Unit)? = null,
     headings: List<String> = emptyList(),
     // T2 (Mini Discurso P2): o mesmo DraftSheet do editor, hospedado no chat
     // para o fluxo "conversar → gerar" sem trocar de tela.
@@ -569,7 +575,13 @@ fun ChatScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
+                navigationIcon = {
+                    if (!embedded) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                        }
+                    }
+                },
                 title = {
                     // 3.4: o fio é da nota; o foco vive no chip (não no título).
                     Text(
@@ -628,6 +640,11 @@ fun ChatScreen(
                                     },
                                 )
                             }
+                        }
+                    }
+                    if (embedded && onOpenNote != null) {
+                        IconButton(onClick = onOpenNote) {
+                            Icon(Icons.Default.OpenInNew, "Abrir nota")
                         }
                     }
                     Box {
@@ -756,7 +773,7 @@ fun ChatScreen(
                         scope = scope,
                         downloadCtl = dl,
                         onOpenLibrary = onOpenLibrary,
-                        onOpenEditor = onBack,
+                        onOpenEditor = onOpenEditor ?: onBack,
                         onReindex = { vm.reindexSourcesNeeded() },
                         onRefresh = { vm.refreshSourcesNeeded() },
                         onContinue = { vm.continueWithoutSources() },

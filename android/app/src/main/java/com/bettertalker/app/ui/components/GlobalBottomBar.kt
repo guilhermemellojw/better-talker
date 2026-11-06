@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.TheaterComedy
@@ -19,13 +20,15 @@ import com.bettertalker.app.navigation.BottomTab
 import com.bettertalker.app.navigation.activeTab
 
 /**
- * Navegação global (Esboços · Treino · Palco). Visível em Esboços, nos hubs
- * e na Tribuna (o Treino é imersivo — a barra some). Treino/Palco abrem o
- * esboço atual do modo (com "Trocar esboço" quando necessário).
+ * Navegação global (Assistente · Esboços · Treino · Palco). Visível no
+ * Assistente, em Esboços, nos hubs e na Tribuna (o Treino é imersivo — a
+ * barra some). Treino/Palco abrem o esboço atual do modo (com "Trocar
+ * esboço" quando necessário).
  */
 @Composable
 fun GlobalBottomBar(
     currentRoute: String?,
+    onAssistant: () -> Unit,
     onHome: () -> Unit,
     onTrain: () -> Unit,
     onPresent: () -> Unit,
@@ -39,6 +42,12 @@ fun GlobalBottomBar(
             .height(72.dp),
         windowInsets = WindowInsets(0),
     ) {
+        NavigationBarItem(
+            selected = tab == BottomTab.ASSISTANT,
+            onClick = onAssistant,
+            icon = { Icon(Icons.Default.AutoAwesome, "Assistente") },
+            label = { Text("Assistente") },
+        )
         NavigationBarItem(
             selected = tab == BottomTab.HOME,
             onClick = onHome,

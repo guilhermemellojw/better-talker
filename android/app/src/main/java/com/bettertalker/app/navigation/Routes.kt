@@ -1,6 +1,8 @@
 package com.bettertalker.app.navigation
 
 object Routes {
+    /** Aba inicial do v4.0: assistente da nota atual/recentes. */
+    const val ASSISTANT = "assistant"
     const val HOME = "home"
     const val EDITOR = "editor/{noteId}?generate={generate}"
     const val LIBRARY = "library?linkNote={linkNote}"
@@ -40,13 +42,15 @@ object Routes {
 }
 
 /** Aba da barra global. Puro/testável. */
-enum class BottomTab { HOME, TRAIN, PRESENT }
+enum class BottomTab { ASSISTANT, HOME, TRAIN, PRESENT }
 
 /**
- * Aba ativa pela rota atual: hubs destacam a própria aba; a Tribuna destaca
- * "Apresentar"; o Ensaio não aparece (imersivo, sem barra). Puro/testável.
+ * Aba ativa pela rota atual: o assistente é a porta de entrada; os hubs
+ * destacam a própria aba; a Tribuna destaca "Apresentar"; o Ensaio não
+ * aparece (imersivo, sem barra). Puro/testável.
  */
 fun activeTab(route: String?): BottomTab? = when (route) {
+    Routes.ASSISTANT -> BottomTab.ASSISTANT
     Routes.HOME -> BottomTab.HOME
     Routes.TRAIN_HOME -> BottomTab.TRAIN
     Routes.PRESENT_HOME, Routes.TRIBUNA -> BottomTab.PRESENT
@@ -54,10 +58,17 @@ fun activeTab(route: String?): BottomTab? = when (route) {
 }
 
 /**
- * Barra de navegação global: aparece na Home, nos hubs (Treinar/Apresentar)
- * e na Tribuna — o Ensaio é imersivo (tela cheia, barra escondida) e as
- * demais telas têm navegação própria. Puro/testável.
+ * Barra de navegação global: aparece no Assistente, na Home, nos hubs
+ * (Treinar/Apresentar) e na Tribuna — o Ensaio é imersivo (tela cheia, barra
+ * escondida) e as demais telas têm navegação própria. Puro/testável.
  */
 fun shouldShowGlobalBar(route: String?): Boolean =
-    route == Routes.HOME || route == Routes.TRIBUNA ||
+    route == Routes.ASSISTANT || route == Routes.HOME || route == Routes.TRIBUNA ||
         route == Routes.TRAIN_HOME || route == Routes.PRESENT_HOME
+
+/**
+ * Destino restaurado do assistente: só vale se a nota ainda existe e não
+ * está na lixeira. Puro/testável (sem tocar no Room).
+ */
+fun resolveAssistantNoteId(lastNoteId: String?, availableIds: Set<String>): String? =
+    lastNoteId?.takeIf { it in availableIds }
