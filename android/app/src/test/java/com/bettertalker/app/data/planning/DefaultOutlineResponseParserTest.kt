@@ -50,6 +50,44 @@ class DefaultOutlineResponseParserTest {
     }
 
     @Test
+    fun aliasesEMinutosDecimais_saoAceitos() {
+        val req = request().copy(
+            totalMinutes = 4,
+            bibleRefs = listOf("Ez 1:16"),
+            sectionScoped = true,
+        )
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"A","minutes":1.5,"mainldea":"m","biblerefs":["Ezequiel 1:16"],
+             "publication Refs":[{"symbol":"w19.03","page":8}]},
+            {"title":"B","minutes":0.5,"mainIdea":"n"}
+        ]}"""
+        val proposal = parser.parse(json, req)!!
+        assertEquals(2, proposal.sections.size)
+        assertEquals(2, proposal.sections[0].minutes)
+        assertEquals(1, proposal.sections[1].minutes)
+        assertEquals(listOf("Ez 1:16"), proposal.sections[0].bibleRefs)
+        assertEquals(
+            listOf("w19.03"),
+            proposal.sections[0].publicationRefs.map { it.symbol },
+        )
+        assertTrue(proposal.sections[1].bibleRefs.isEmpty())
+        assertTrue(proposal.sections[1].publicationRefs.isEmpty())
+    }
+
+    @Test
+    fun refsComoStringsETiposAusentes_saoAceitos() {
+        val req = request().copy(bibleRefs = emptyList(), sectionScoped = true)
+        val json = """{"title":"t","summary":"s","sections":[
+            {"title":"A","minutes":2,"mainIdea":"m",
+             "publicationRefs":["w19.03"]}
+        ]}"""
+        val proposal = parser.parse(json, req)!!
+        val section = proposal.sections.single()
+        assertTrue(section.bibleRefs.isEmpty())
+        assertEquals(listOf("w19.03"), section.publicationRefs.map { it.symbol })
+    }
+
+    @Test
     fun malformedJson_returnsNull() {
         assertNull(parser.parse("""{"title":"x","summary""", request()))
     }

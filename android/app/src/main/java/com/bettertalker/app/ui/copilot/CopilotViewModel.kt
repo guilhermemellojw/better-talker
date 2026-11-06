@@ -132,6 +132,8 @@ import com.bettertalker.app.data.util.vmRejectionMessage
 import com.bettertalker.app.data.planning.truncateIfCut
 import com.bettertalker.app.data.planning.OutlineGeneratorImpl
 import com.bettertalker.app.data.planning.OutlineProposerFactory
+import com.bettertalker.app.data.planning.OUTLINE_JSON_CHAT_FALLBACK
+import com.bettertalker.app.data.planning.looksLikeOutlineJson
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.OutlineAngle
@@ -1786,8 +1788,15 @@ class CopilotViewModel(
             }.collect { progress ->
                 val current = _activeTurn.value ?: return@collect
                 if (current.turnId != turnId) return@collect
+                // JSON do outline é detalhe interno: nunca vira bolha, mesmo
+                // se uma rota estruturada falhar antes do detach.
+                val safePartial = if (looksLikeOutlineJson(progress.partial)) {
+                    ""
+                } else {
+                    progress.partial
+                }
                 val next = current.withProgress(
-                    partial = progress.partial,
+                    partial = safePartial,
                     reasoning = progress.reasoning,
                     retryNotice = progress.retryNotice,
                     now = System.currentTimeMillis(),
@@ -1802,6 +1811,32 @@ class CopilotViewModel(
                     lastPhase = next.phase
                 }
                 _activeTurn.value = next
+            }
+        }
+    }
+
+    /**
+     * Rotas estruturadas usam o provider como gerador interno (JSON), não
+     * como resposta do chat. Desliga o espelho de streaming antes de gerar:
+     * o JSON não vira parcial nem sobrevive no turno cancelado; o card final
+     * continua sendo postado normalmente.
+     */
+    private fun detachStructuredProgress() {
+        activeTurnProgressJob?.cancel()
+        activeTurnProgressJob = null
+        com.bettertalker.app.data.llm.LocalProgress.reset()
+        _activeTurn.value = _activeTurn.value?.let { turn ->
+            if (!turn.isLive) {
+                turn
+            } else {
+                turn.copy(
+                    phase = TurnPhase.WAITING,
+                    partialText = "",
+                    reasoningText = "",
+                    reasoningStartedAt = null,
+                    reasoningEndedAt = null,
+                    retryNotice = null,
+                )
             }
         }
     }
@@ -2303,15 +2338,26 @@ class CopilotViewModel(
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
                         val cardPayload = CardPayload.fromMap(m)
+                        val rawText = m["text"].orEmpty()
+                        // Chat antigo pode ter o JSON do outline persistido
+                        // como parcial cancelado; exibe mensagem amigável sem
+                        // reescrever o banco.
+                        val text = if (!e.fromMe && looksLikeOutlineJson(rawText)) {
+                            OUTLINE_JSON_CHAT_FALLBACK
+                        } else {
+                            rawText
+                        }
                         ChatItem(e.id, e.fromMe, "text",
                             sectionId = e.sectionId,
-                            text = m["text"].orEmpty(), origin = messageOriginOf(m),
+                            text = text, origin = messageOriginOf(m),
                             durationMs = m["durationMs"]?.toLongOrNull(),
                             createdAt = e.createdAt,
                             isTruncated = m["truncated"] == "1",
                             turnId = m["turnId"].orEmpty(),
                             reasoningSeconds = m["reasoningSeconds"]?.toIntOrNull() ?: 0,
-                            cancelled = m["cancelled"] == "1",
+                            // JSON sanitizado deixa de ser "parcial cancelado"
+                            // e vira mensagem normal (sem cursor).
+                            cancelled = m["cancelled"] == "1" && text == rawText,
                             cardPayload = cardPayload)
                     }
                 }
@@ -2428,7 +2474,14 @@ class CopilotViewModel(
         turn: TurnUiState,
         scope: String?,
     ): String {
-        val payload = turn.cancelledPayload()
+        // Mesmo se um cancelamento antigo/rota não estruturada deixar o JSON
+        // no parcial, ele não é persistido como fala do Copilot.
+        val safeTurn = if (looksLikeOutlineJson(turn.partialText)) {
+            turn.copy(partialText = OUTLINE_JSON_CHAT_FALLBACK)
+        } else {
+            turn
+        }
+        val payload = safeTurn.cancelledPayload()
         val messageId = newId("msg")
         db.chatDao().put(
             ChatEntity(
@@ -2472,6 +2525,12 @@ class CopilotViewModel(
         if (durationMs != null && durationMs > 0) withOrigin["durationMs"] = durationMs.toString()
         // #ui-polish: flag de corte no payload JSON (sem migration).
         if (truncated) withOrigin["truncated"] = "1"
+        // Guarda final: JSON de outline nunca vira resposta de chat.
+        if (!fromMe && kind == "text" &&
+            looksLikeOutlineJson(withOrigin["text"].orEmpty())
+        ) {
+            withOrigin["text"] = OUTLINE_JSON_CHAT_FALLBACK
+        }
         // M1: a pergunta e a resposta final compartilham o turnId; avisos
         // intermediários não recebem a chave para não colidirem no LazyColumn.
         val effectiveTurnId = turnId?.takeIf {
@@ -4755,6 +4814,7 @@ class CopilotViewModel(
      * Proposta válida vira `StructureProposalUi` + anúncio no escopo.
      */
     private suspend fun proposeStructureFor(target: DraftTarget?) {
+        detachStructuredProgress()
         val sectionId = (target as? DraftTarget.Section)?.sectionId
         if (sectionId == null) {
             postText(structureTargetError(target) ?: STRUCTURE_NEEDS_SECTION_MESSAGE)
@@ -4945,6 +5005,7 @@ class CopilotViewModel(
         target: DraftTarget?,
         materialNature: String? = null,
     ) {
+        detachStructuredProgress()
         val targetError = structurePastedTargetError(target)
         if (targetError != null) {
             postText(targetError)
@@ -5068,6 +5129,7 @@ class CopilotViewModel(
      * do #5b, sem lógica duplicada.
      */
     private suspend fun proposeAnglesFor(theme: String?) {
+        detachStructuredProgress()
         val clean = theme?.trim()?.takeIf { it.isNotBlank() }
         if (clean == null) {
             postText(ANGLES_NEEDS_THEME_MESSAGE)
@@ -5114,6 +5176,7 @@ class CopilotViewModel(
     private suspend fun generateLocalNeeds(
         inputs: com.bettertalker.app.data.copilot.ChatRouter.LocalNeedsInputs,
     ) {
+        detachStructuredProgress()
         val nid = noteId
         if (nid == null) {
             postText("Abra uma nota para eu montar o discurso.")
@@ -6790,6 +6853,7 @@ class CopilotViewModel(
      * (T1/Fase 2.2). Sem RAG/dossiê.
      */
     private suspend fun requestApplyStructure(history: List<ChatTurn>) {
+        detachStructuredProgress()
         val nid = noteId ?: return
         val remote = ProviderFactory.resolveRemote(settings, app)
         if (!ProviderFactory.useRemoteRoute(remote)) {

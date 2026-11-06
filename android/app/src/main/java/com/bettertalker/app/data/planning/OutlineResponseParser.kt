@@ -8,6 +8,7 @@ import com.bettertalker.app.domain.planning.OutlineGenerationRequest
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.SectionPlan
+import kotlin.math.roundToInt
 
 /**
  * Converte o JSON textual retornado pelo LLM em [OutlineProposal].
@@ -46,13 +47,13 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
     private fun parseOrNull(jsonText: String, request: OutlineGenerationRequest): OutlineProposal? {
         if (jsonText.contains("```")) return null
         val root = rootObject(jsonText) ?: return null
-        val sectionsSpan = arraySpan(root, "sections") ?: return null
+        val sectionsSpan = arraySpan(root, "sections", "section", "secoes") ?: return null
         val head = root.substring(0, sectionsSpan.start) + root.substring(sectionsSpan.end)
         // F5f (E2E): o modelo às vezes embrulha o texto em tags próprias
         // ("<sugestão>…</sugestão>") — sanitizar antes de aceitar o campo.
-        val title = stringField(head, "title")?.let { stripPromptTags(it) }
+        val title = stringField(head, "title", "titulo")?.let { stripPromptTags(it) }
             ?.ifBlank { return null } ?: return null
-        val summary = stringField(head, "summary")?.let { stripPromptTags(it) }
+        val summary = stringField(head, "summary", "resumo")?.let { stripPromptTags(it) }
             ?.ifBlank { return null } ?: return null
         val sections = splitObjects(root.substring(sectionsSpan.start, sectionsSpan.end))
             .map { parseSection(it, request) ?: return null }
@@ -74,20 +75,35 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
 
     private fun parseSection(raw: String, request: OutlineGenerationRequest): SectionPlan? {
         // F5f (E2E): campos de TEXTO passam por stripPromptTags; refs
-        // (estruturadas) não.
-        val title = stringField(raw, "title")?.let { stripPromptTags(it) } ?: return null
-        val minutes = intField(raw, "minutes") ?: return null
-        val mainIdea = stringField(raw, "mainIdea")?.let { stripPromptTags(it) } ?: return null
-        val refs = stringArray(raw, "bibleRefs") ?: return null
-        val pubs = objectArray(raw, "publicationRefs") ?: return null
-        val method = stringField(raw, "methodPrinciple")?.let { stripPromptTags(it) }
+        // (estruturadas) não. Aliases cobrem JSONs reais em que o modelo
+        // troca `mainIdea` por `mainldea`, `publicationRefs` por
+        // `publication Refs`, etc.
+        val title = stringField(raw, "title", "titulo")?.let { stripPromptTags(it) } ?: return null
+        val minutes = minutesField(raw) ?: return null
+        val mainIdea = stringField(
+            raw,
+            "mainIdea",
+            "mainldea",
+            "main idea",
+            "main_idea",
+            "ideiaPrincipal",
+        )?.let { stripPromptTags(it) } ?: return null
+        val refs = stringArray(raw, "bibleRefs", "biblerefs", "bible Refs", "bible_refs")
+            ?: return null
+        val pubs = publicationRefs(raw) ?: return null
+        val method = stringField(
+            raw,
+            "methodPrinciple",
+            "method Principle",
+            "method_principle",
+        )?.let { stripPromptTags(it) }
         // O modelo varia a grafia ("Ezequiel 1:16" vs "Ez 1:16"); casar por
         // livro/capítulo/versículo canônico antes de descartar como inventada.
         val keptRefs = refs
             .flatMap { matchRequestBibleRefs(it, request.bibleRefs) }
             .distinct()
         val allowedSymbols = request.publicationRefs.map { it.symbol }.toSet()
-        val keptPubs = pubs.mapNotNull { parsePublicationRef(it) }
+        val keptPubs = pubs
             .filter { it.symbol in allowedSymbols }
         return SectionPlan(
             title = title,
@@ -193,12 +209,34 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
     }
 
     private fun parsePublicationRef(raw: String): PublicationRef? {
-        val symbol = stringField(raw, "symbol")?.ifBlank { return null } ?: return null
+        val symbol = stringField(raw, "symbol", "simbolo")
+            ?.ifBlank { return null } ?: return null
         return PublicationRef(
             symbol = symbol,
-            page = intField(raw, "page"),
-            paragraph = intField(raw, "paragraph"),
+            page = intField(raw, "page", "pagina"),
+            paragraph = intField(raw, "paragraph", "paragrafo"),
         )
+    }
+
+    /**
+     * `publicationRefs` como objetos (`{symbol,page,paragraph}`) ou, em
+     * respostas degradadas, como lista de símbolos. Ausente = vazio.
+     */
+    private fun publicationRefs(raw: String): List<PublicationRef>? {
+        val keys = arrayOf(
+            "publicationRefs",
+            "publication Refs",
+            "publication_refs",
+            "publications",
+            "pubRefs",
+        )
+        val objects = objectArray(raw, *keys) ?: return null
+        if (objects.isNotEmpty()) {
+            return objects.mapNotNull { parsePublicationRef(it) }
+        }
+        // Array de strings ("w19.03"), não de objetos.
+        val strings = stringArray(raw, *keys) ?: return null
+        return strings.map { PublicationRef(symbol = it) }
     }
 
     /** Objeto raiz: do primeiro `{` ao seu `}` correspondente. */
@@ -209,36 +247,67 @@ class DefaultOutlineResponseParser : OutlineResponseParser {
         return text.substring(start, end)
     }
 
-    /** Span [start, end) do conteúdo interno do array da [key] (sem os colchetes). */
-    private fun arraySpan(scope: String, key: String): TextSpan? {
-        val m = Regex("\"$key\"\\s*:\\s*\\[").find(scope) ?: return null
+    private fun keyAlternation(keys: Array<out String>): String =
+        keys.joinToString("|") { Regex.escape(it) }
+
+    private fun keyPresent(scope: String, keys: Array<out String>): Boolean =
+        Regex("\"(?:${keyAlternation(keys)})\"\\s*:", RegexOption.IGNORE_CASE)
+            .containsMatchIn(scope)
+
+    /** Span [start, end) do conteúdo interno do array da chave (sem os colchetes). */
+    private fun arraySpan(scope: String, vararg keys: String): TextSpan? {
+        val m = Regex(
+            "\"(?:${keyAlternation(keys)})\"\\s*:\\s*\\[",
+            RegexOption.IGNORE_CASE,
+        ).find(scope) ?: return null
         val open = m.range.last
         val close = matchClose(scope, open, '[', ']') ?: return null
         return TextSpan(open + 1, close)
     }
 
-    /** Span [start, end) do conteúdo interno do array opcional da [key]; ausente = vazio, malformado = null. */
-    private fun objectArray(scope: String, key: String): List<String>? {
-        if (!Regex("\"$key\"\\s*:").containsMatchIn(scope)) return emptyList()
-        val span = arraySpan(scope, key) ?: return null
+    /** Array opcional de objetos; ausente = vazio, malformado = null. */
+    private fun objectArray(scope: String, vararg keys: String): List<String>? {
+        if (!keyPresent(scope, keys)) return emptyList()
+        val span = arraySpan(scope, *keys) ?: return null
         return splitObjects(scope.substring(span.start, span.end))
     }
 
-    private fun stringArray(scope: String, key: String): List<String>? {
-        val span = arraySpan(scope, key) ?: return null
+    /** Array de strings; ausente = vazio, malformado = null. */
+    private fun stringArray(scope: String, vararg keys: String): List<String>? {
+        if (!keyPresent(scope, keys)) return emptyList()
+        val span = arraySpan(scope, *keys) ?: return null
         return STRING_ITEM.findAll(scope.substring(span.start, span.end))
             .map { unesc(it.groupValues[1]) }
             .toList()
     }
 
-    private fun stringField(scope: String, key: String): String? {
-        val m = Regex("\"$key\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(scope) ?: return null
+    private fun stringField(scope: String, vararg keys: String): String? {
+        val m = Regex(
+            "\"(?:${keyAlternation(keys)})\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"",
+            RegexOption.IGNORE_CASE,
+        ).find(scope) ?: return null
         return unesc(m.groupValues[1])
     }
 
-    private fun intField(scope: String, key: String): Int? {
-        val m = Regex("\"$key\"\\s*:\\s*(-?\\d+)").find(scope) ?: return null
+    private fun intField(scope: String, vararg keys: String): Int? {
+        val m = Regex(
+            "\"(?:${keyAlternation(keys)})\"\\s*:\\s*(-?\\d+)",
+            RegexOption.IGNORE_CASE,
+        ).find(scope) ?: return null
         return m.groupValues[1].toIntOrNull()
+    }
+
+    /**
+     * Minutos aceitam decimal (`1.5`, `0.5`): o contrato da UI é Int, então
+     * arredonda para o inteiro mais próximo. O reparo de seção cuida do piso 1
+     * e da soma dentro do total.
+     */
+    private fun minutesField(scope: String): Int? {
+        val m = Regex(
+            "\"(?:minutes|minutos|min)\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)",
+            RegexOption.IGNORE_CASE,
+        ).find(scope) ?: return null
+        return m.groupValues[1].toDoubleOrNull()?.roundToInt()
     }
 
     /** Divide o conteúdo de um array nos spans de cada objeto `{...}` de topo. */

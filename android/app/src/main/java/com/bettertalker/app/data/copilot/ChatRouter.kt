@@ -385,12 +385,35 @@ object ChatRouter {
             APPLY_STRUCTURE_NOUN.containsMatchIn(t)
     }
 
-    private val PROPOSE_STRUCT_VERB = Regex("\\b(propoe|propor|propoem|proponha|proponham|" +
-        "sugere|sugerir|sugira|planeja|planejar|planeje|define|defina|definir|usa|usar|use)\\b")
+    private val PROPOSE_STRUCT_VERB = Regex(
+        "\\b(propoe|propor|propoem|proponha|proponham|" +
+            "sugere|sugerir|sugira|planeja|planejar|planeje|define|defina|definir|" +
+            "usa|usar|use|quero|queria|preciso|precisaria|gostaria|desejo|" +
+            "estruture|estruturem|organiza|organizar|organize|organizem|" +
+            "monte|montar|montem|faca|facam|fazer)\\b",
+    )
     private val PROPOSE_STRUCT_PLAN_VERB = Regex("\\b(planeja|planejar|planeje)\\b")
     private val PROPOSE_STRUCT_NOUN_STRICT = Regex("\\b(estrutura|plano|objetivo|progressao)\\b")
     private val PROPOSE_STRUCT_TEXTS = Regex("\\btextos\\b")
     private val PROPOSE_STRUCT_SCOPE = Regex("\\b(secao|secoes|topico|topicos|ponto|pontos|parte)\\b")
+    /**
+     * Verbos de organização que, com escopo explícito, pedem estrutura.
+     * "monte/faça" ficam de fora daqui: com "texto" seriam escrita normal.
+     */
+    private val PROPOSE_STRUCT_SCOPED_ACTION = Regex(
+        "\\b(estruture|estruturem|organiza|organizar|organize|organizem)\\b",
+    )
+    /**
+     * "Estrutura do Ponto 1" / "plano desta seção" sem verbo: aceito só com
+     * foco ativo e quando o texto é essencialmente o pedido (não uma pergunta
+     * ou uma frase sobre a estrutura).
+     */
+    private val PROPOSE_STRUCT_BARE = Regex(
+        "^(?:a |o |essa |esta )?(?:estrutura|plano|objetivo)" +
+            "(?:\\s+(?:do|da|de|para o|para a|deste|desta|nesse|nessa))?" +
+            "\\s+(?:ponto|secao|topico|parte)\\s*\\d*\\s*$",
+        RegexOption.IGNORE_CASE,
+    )
 
     /**
      * T2 (Fase 2.1) — ordem dos intercepts do `send()`: colagem NOVA primeiro;
@@ -426,11 +449,17 @@ object ChatRouter {
      * Puro/testável.
      */
     fun isProposeStructureCommand(text: String, focused: Boolean = false): Boolean {
-        val t = " ${normalizeText(text)} "
-        if (!PROPOSE_STRUCT_VERB.containsMatchIn(t)) return false
+        val raw = normalizeText(text).trim()
+        val t = " $raw "
+        if (!PROPOSE_STRUCT_VERB.containsMatchIn(t)) {
+            // "Estrutura do Ponto 1" sem verbo: só com foco e sem virar
+            // pergunta/frase sobre a estrutura.
+            return focused && PROPOSE_STRUCT_BARE.matches(raw)
+        }
         if (PROPOSE_STRUCT_NOUN_STRICT.containsMatchIn(t)) return true
         val scope = PROPOSE_STRUCT_SCOPE.containsMatchIn(t)
         if (PROPOSE_STRUCT_PLAN_VERB.containsMatchIn(t) && scope) return true
+        if (PROPOSE_STRUCT_SCOPED_ACTION.containsMatchIn(t) && scope) return true
         if (PROPOSE_STRUCT_TEXTS.containsMatchIn(t) && (scope || focused)) return true
         return false
     }
