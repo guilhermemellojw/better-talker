@@ -32,6 +32,23 @@ class VmMaterialDetectorTest {
     }
 
     @Test
+    fun tesouros1_carroCelestial_comRr_detectaTalk() {
+        val part = single(
+            "Acompanhe o passo do carro celestial de Jeová (10 min) " +
+                "[Mostre o VÍDEO Introdução a Ezequiel.] " +
+                "A parte celestial da organização de Jeová é representada por um carro " +
+                "imenso que é extremamente rápido e consegue mudar de direção com muita " +
+                "facilidade. (Eze. 1:16-18; rr 37-38 §§ 18-19) " +
+                "Jeová controla os movimentos desse carro. " +
+                "(Eze. 1:20, 26-28; rr 38-39 §§ 21-24)"
+        )
+        assertEquals(VmNature.TALK, part.nature)
+        assertEquals(10, part.minutes)
+        assertTrue(part.body.contains("rr 37-38"))
+        assertTrue(part.body.contains("rr 38-39"))
+    }
+
+    @Test
     fun tesouros2_formatoCorpo_joiasEspirituais() {
         val part = single(
             """

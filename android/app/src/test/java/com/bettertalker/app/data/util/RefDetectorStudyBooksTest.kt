@@ -50,6 +50,35 @@ class RefDetectorStudyBooksTest {
         assertTrue(RefDetector.detect("(it-3 575)").isEmpty())
     }
 
+    @Test
+    fun detect_jr29_semParenteses_viraEstudo29() {
+        val ref = single("Zedequias não fez o que era certo. (Jer. 52:1, 2; jr 29)")
+        assertEquals("jr", ref.pubKey)
+        assertEquals("estudo 29", ref.chapter)
+        assertEquals(null, ref.page)
+    }
+
+    @Test
+    fun detect_rr_faixaDePaginasEParagraphs() {
+        val ref = single("(Eze. 1:16-18; rr 37-38 §§ 18-19)")
+        assertEquals("rr", ref.pubKey)
+        assertEquals(37, ref.page)
+        assertEquals(38, ref.pageEnd)
+        assertEquals(18, ref.paragraph)
+        assertEquals(19, ref.paragraphEnd)
+        assertEquals(null, ref.chapter)
+    }
+
+    @Test
+    fun detect_rr_segundaFaixa() {
+        val ref = single("(Eze. 1:20, 26-28; rr 38-39 §§ 21-24)")
+        assertEquals("rr", ref.pubKey)
+        assertEquals(38, ref.page)
+        assertEquals(39, ref.pageEnd)
+        assertEquals(21, ref.paragraph)
+        assertEquals(24, ref.paragraphEnd)
+    }
+
     // ---------- T2: matching unificado (it-1/it-2 → it; dx → rsg) ----------
 
     private fun att(name: String) = com.bettertalker.app.data.db.AttachmentEntity(

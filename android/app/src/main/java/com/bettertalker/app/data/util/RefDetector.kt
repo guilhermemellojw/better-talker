@@ -190,6 +190,12 @@ object RefDetector {
             """(?:\s*(?:§\s*(\d{1,3})|ponto\s+(\d{1,3})))?""",
         RegexOption.IGNORE_CASE
     )
+
+    /** Livros citados por página + § (não por estudo/capítulo). */
+    private val PAGE_RANGE_BOOKS = setOf("cl", "rr")
+
+    /** Siglas curtas de livro aceitas mesmo sem parênteses ("jr 29"). */
+    private val BARE_BOOK_SYMBOLS = setOf("cl", "jr", "rr")
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
     // Roda antes das rotas legadas; cobre "(it-1 813)", "(kj 264-5)",
     // "(it-2 1050)" e o volume unificado "(it 813)". O `it` nu vem DEPOIS
@@ -848,28 +854,96 @@ object RefDetector {
                 )
             }
         }
-        // sigla + número avulsos: "lff 27", "(jy 15)" — fora códigos de revista
+        // livro com faixa de páginas + §§: "rr 37-38 §§ 18-19".
+        // `rr` e `cl` citam página impressa, não número de estudo.
+        Regex(
+            """\b([a-z]{2,4})\s+(\d{1,3})\s*-\s*(\d{1,3})\s*§{1,2}\s*(\d{1,3})""" +
+                """(?:\s*-\s*(\d{1,3}))?"""
+        ).findAll(text).forEach { m ->
+            val sym = m.groupValues[1].lowercase()
+            if (!PubCatalog.isSymbol(sym)) return@forEach
+            val canonical = PubCatalog.resolveSymbol(sym) ?: sym
+            if (canonical !in PAGE_RANGE_BOOKS) return@forEach
+            val page = m.groupValues[2].toIntOrNull()
+            val pageEnd = m.groupValues[3].toIntOrNull()
+            val par = m.groupValues[4].toIntOrNull()
+            val parEnd = m.groupValues[5].toIntOrNull()
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} " +
+                        "(p. $page-$pageEnd §§ $par-${parEnd ?: par})",
+                    page = page,
+                    pageEnd = pageEnd,
+                    paragraph = par,
+                    paragraphEnd = parEnd,
+                )
+            )
+        }
+        // jr por faixa de PÁGINAS: "jr 140-142" (o mesmo jr 29 sem faixa é
+        // estudo/capítulo, tratado abaixo). Faixa de 3-4 dígitos evita
+        // confundir "jr 27-28" (estudos) com páginas.
+        Regex(
+            """\b(jr)\s+(\d{3,4})\s*[-–]\s*(\d{1,4})""" +
+                """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?"""
+        ).findAll(text).forEach { m ->
+            val canonical = PubCatalog.resolveSymbol("jr") ?: "jr"
+            val page = m.groupValues[2].toIntOrNull()
+            val pageEnd = m.groupValues[3].toIntOrNull()
+            val par = m.groupValues[4].toIntOrNull()
+            val parEnd = m.groupValues[5].toIntOrNull()
+            bookKeys += canonical
+            add(
+                DetectedRef(
+                    m.value.trim(), Kind.BOOK, canonical,
+                    "book|$canonical",
+                    "${PubCatalog.titleOf(canonical) ?: canonical} " +
+                        "(p. $page-$pageEnd" +
+                        (par?.let { " §§ $it-${parEnd ?: it}" } ?: "") + ")",
+                    page = page,
+                    pageEnd = pageEnd,
+                    paragraph = par,
+                    paragraphEnd = parEnd,
+                )
+            )
+        }
+        // sigla + número avulsos: "lff 27", "(jy 15)", "jr 29" — fora códigos de revista
         // (lookahead final: \b impediria consumir o ")" e quebraria o balanceamento)
         Regex("""\(?\b([a-z]{2,4}(?:-[12])?)\s+(\d{1,3})\)?(?![a-z0-9])""").findAll(text).forEach { m ->
-            val raw = m.value.trim()
-            val balanced = raw.startsWith("(") == raw.endsWith(")")
-            if (!balanced) return@forEach
+            val matched = m.value.trim()
+            // "(" só vale se o fechamento correspondente veio no match. Um
+            // ")" solto pertence ao grupo externo: "(Jer. 52:1; jr 29)".
+            if (matched.startsWith("(") && !matched.endsWith(")")) return@forEach
+            val raw = if (!matched.startsWith("(") && matched.endsWith(")")) {
+                matched.dropLast(1).trim()
+            } else {
+                matched
+            }
             val sym = m.groupValues[1].lowercase()
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
             // Já há uma ref específica dessa publicação (ex.: "re 292" por
             // página); o número avulso não é uma segunda unidade.
             if (sym in bookKeys) return@forEach
-            if (sym.length < 3 && !raw.startsWith("(")) return@forEach
+            if (sym.length < 3 && !raw.startsWith("(") &&
+                sym !in BARE_BOOK_SYMBOLS
+            ) {
+                return@forEach
+            }
             if (!PubCatalog.isSymbol(sym)) return@forEach
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
-            val unit = "estudo ${m.groupValues[2]}"
+            val num = m.groupValues[2].toIntOrNull()
+            val pageBook = canonical in PAGE_RANGE_BOOKS
+            val unit = if (pageBook) "pág. $num" else "estudo $num"
             bookKeys += canonical
             add(
                 DetectedRef(
                     raw, Kind.BOOK, canonical,
                     "book|$canonical",
                     "${PubCatalog.titleOf(canonical) ?: canonical} ($unit)",
-                    chapter = unit,
+                    page = if (pageBook) num else null,
+                    chapter = if (pageBook) null else "estudo $num",
                 )
             )
         }
@@ -1173,10 +1247,16 @@ object RefDetector {
                         true,
                     )
                 }
-                else if (parts.size == 3 && m in 1..12) Triple(
-                    REVISTAS + "sentinela-estudo-" + monthSlug(m) + "-" + parts[1] + "/",
-                    "Abre a edição ${ref.label} com download.", true
-                )
+                else if (parts.size == 3 && m in 1..12) {
+                    // 2017 é a exceção de slug no site: a edição de estudo
+                    // usa o prefixo "a-" (validado no ar).
+                    val prefix = if (parts[1] == "2017") "a-" else ""
+                    Triple(
+                        REVISTAS + prefix + "sentinela-estudo-" +
+                            monthSlug(m) + "-" + parts[1] + "/",
+                        "Abre a edição ${ref.label} com download.", true
+                    )
+                }
                 else Triple(MAGAZINES_LANDING, "Procure a edição ${ref.label} e baixe em PDF ou EPUB.", false)
             }
             // Sentinela pública numerada recente: sentinela-no1-2024 (verificado)

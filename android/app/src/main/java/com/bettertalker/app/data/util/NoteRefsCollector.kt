@@ -125,20 +125,38 @@ object NoteRefsCollector {
      * cobre a menção; a unidade específica é a identidade.
      */
     private fun dedupUnits(refs: List<RefDetector.DetectedRef>): List<RefDetector.DetectedRef> {
-        val specific = refs.filter { !it.chapter.isNullOrBlank() || !it.article.isNullOrBlank() }
-        val generic = refs.filter { it.chapter.isNullOrBlank() && it.article.isNullOrBlank() }
-        val keptGeneric = generic.filterNot { g ->
-            specific.any { s ->
-                s.pubKey == g.pubKey && (
-                    // genérica sem unidade: a específica da mesma publicação cobre
-                    (g.page == null && g.paragraph == null && g.paragraphEnd == null) ||
-                        // mesmo ponto, mas a específica traz o capítulo/artigo
-                        (s.page == g.page && s.paragraph == g.paragraph &&
-                            s.paragraphEnd == g.paragraphEnd)
-                    )
+        // Página/§ também são unidade: uma revista "w23.08 29-30 §§ 12-13"
+        // não pode conviver com a menção genérica "w23.08" da mesma edição.
+        fun hasUnit(ref: RefDetector.DetectedRef): Boolean =
+            !ref.chapter.isNullOrBlank() || !ref.article.isNullOrBlank() ||
+                ref.page != null || ref.pageEnd != null ||
+                ref.paragraph != null || ref.paragraphEnd != null
+        fun hasChapterOrArticle(ref: RefDetector.DetectedRef): Boolean =
+            !ref.chapter.isNullOrBlank() || !ref.article.isNullOrBlank()
+        // O artigo pode estar no editionKey ("book|it|a:presuncao") ou no
+        // campo article; para comparar edições, use a base comum.
+        fun baseEdition(ref: RefDetector.DetectedRef): String =
+            ref.editionKey.substringBefore("|a:")
+        val withUnit = refs.filter(::hasUnit)
+        val noUnit = refs.filterNot(::hasUnit).filterNot { g ->
+            // Só a MESMA edição cobre a menção genérica: w23.08 genérico
+            // não pode sumir por causa de w25.07 (ambos pubKey "w").
+            withUnit.any { s -> baseEdition(s) == baseEdition(g) }
+        }
+        val withChapter = withUnit.filter(::hasChapterOrArticle)
+        val withoutChapter = withUnit.filterNot(::hasChapterOrArticle)
+        val keptWithoutChapter = withoutChapter.filterNot { g ->
+            // "lmd lição 7 ponto 4" + ref persistida {"lmd", §4}: a versão
+            // sem capítulo é a mesma unidade e não vira segunda linha.
+            withChapter.any { s ->
+                baseEdition(s) == baseEdition(g) &&
+                    s.page == g.page && s.paragraph == g.paragraph &&
+                    (s.paragraphEnd ?: s.paragraph) ==
+                    (g.paragraphEnd ?: g.paragraph)
             }
         }
-        return (specific + keptGeneric).distinctBy { sourceKey(it) }
+        return (withChapter + keptWithoutChapter + noUnit)
+            .distinctBy { sourceKey(it) }
     }
 
     /**
@@ -147,12 +165,19 @@ object NoteRefsCollector {
      * "ponto 4" do parser/JSON da seção).
      */
     fun sourceKey(ref: RefDetector.DetectedRef): String = buildString {
-        append(ref.editionKey)
+        // A ref de texto carrega o artigo no editionKey ("book|it|a:presuncao"),
+        // a ref persistida da seção carrega só "book|it". O artigo já entra
+        // no campo abaixo; normalizar aqui evita a duplicata do it.
+        append(ref.editionKey.substringBefore("|a:"))
         append('|').append(normalizeText(ref.article.orEmpty()))
         append('|').append(normalizeText(ref.chapter.orEmpty()))
         append('|').append(ref.page ?: -1)
         append('|').append(ref.paragraph ?: -1)
-        append('|').append(ref.paragraphEnd ?: -1)
+        // "§10" e "§10-§10" são a mesma unidade; sem normalizar, a ref de
+        // seção duplicava a ref do texto e ficava sem promptText.
+        append('|').append(
+            ref.paragraphEnd?.takeIf { it != ref.paragraph } ?: -1
+        )
         // C2.5: "g 1/16" (ambíguo) não colapsa com uma ref exata da mesma edição.
         if (ref.ambiguous) append("|amb")
     }
