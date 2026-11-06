@@ -369,4 +369,28 @@ class FocusSourceResolverTest {
         assertEquals(1, counts.truncated)
         assertEquals(0, counts.budget)
     }
+
+    @Test
+    fun notaResolvidaUsaPromptTextQuandoTurnoNaoTrouxeTexto() {
+        val refs = NoteRefsCollector.collect(plainText = w2507)
+        val ref = refs.publications.single()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val status = RefDetector.RefStatus(
+            ref = ref,
+            resolved = true,
+            contentResolved = true,
+            promptText = "Baruque não estava satisfeito.",
+        )
+        val sources = noteSourcesOf(refs, pubStatuses = mapOf(key to status))
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = sources,
+                sectionKeys = setOf(w2507),
+            ),
+        )
+        val entry = out.entries.first { it.key == key }
+        assertEquals(FocusStatus.RESOLVED, entry.status)
+        assertEquals("Baruque não estava satisfeito.", entry.text)
+    }
 }

@@ -193,4 +193,44 @@ class NoteRefsCollectorTest {
         )
         assertEquals(items, decoded)
     }
+
+    @Test
+    fun revistaComFaixaNaoDuplicaComMencaoGenerica() {
+        val refs = NoteRefsCollector.collect(
+            plainText = "w23.08 29-30 §§ 12-13",
+            sections = listOf(
+                section(
+                    publicationRefs = listOf(
+                        PublicationRef(
+                            "w23.08", page = 29, pageEnd = 30,
+                            paragraph = 12, paragraphEnd = 13,
+                        ),
+                        PublicationRef("w23.08"),
+                    ),
+                ),
+            ).map { it.toSectionRefs() },
+        )
+        assertEquals(1, refs.publications.size)
+        val ref = refs.publications.single()
+        assertEquals(29, ref.page)
+        assertEquals(12, ref.paragraph)
+    }
+
+    @Test
+    fun paragrafoUnicoNaoDuplicaComFimIgualAoInicio() {
+        val refs = NoteRefsCollector.collect(
+            plainText = "it “Presunção” § 10",
+            sections = listOf(
+                section(
+                    publicationRefs = listOf(
+                        PublicationRef(
+                            "it", article = "Presunção",
+                            paragraph = 10, paragraphEnd = 10,
+                        ),
+                    ),
+                ),
+            ).map { it.toSectionRefs() },
+        )
+        assertEquals(1, refs.publications.size)
+    }
 }

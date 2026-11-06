@@ -88,4 +88,16 @@ class NoteSourceDownloadUrlTest {
         assertEquals("https://www.jw.org/pt/biblioteca/revistas/w20080615/", url)
         assertTrue(exact)
     }
+
+    @Test
+    fun sentinelaEstudo2017_usaPrefixoASentinela() {
+        // 2017 é a exceção de slug: /a-sentinela-estudo-outubro-2017/.
+        val ref = RefDetector.detect("w17.10 23 §§ 9-10").single()
+        val (url, _, exact) = RefDetector.downloadUrl(ref)
+        assertEquals(
+            "https://www.jw.org/pt/biblioteca/revistas/a-sentinela-estudo-outubro-2017/",
+            url,
+        )
+        assertTrue(exact)
+    }
 }

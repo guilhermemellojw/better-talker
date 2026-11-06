@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -214,6 +215,7 @@ private fun PublicationRow(
     onRefresh: () -> Unit,
 ) {
     val pending = group.pendingCount > 0
+    val scope = rememberCoroutineScope()
     // Badge = estado; botão = ação. Nunca usar o mesmo texto nos dois.
     val rowState = sourceRowState(group)
     val statusText = rowState.label
@@ -318,19 +320,31 @@ private fun PublicationRow(
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) { Text("Abrir") }
                 SourceRowAction.DOWNLOAD -> {
+                    // Preferir o arquivo direto da API oficial; a landing page
+                    // é só fallback (algumas edições antigas têm slug próprio).
+                    val direct = group.sources.firstNotNullOfOrNull { source ->
+                        source.refStatus?.takeIf {
+                            it.apiPub != null || it.probePub != null
+                        }
+                    }
                     val url = downloadUrlFor(group)
                     TextButton(
                         onClick = {
-                            if (url != null && downloadCtl != null) {
-                                downloadCtl.openPage(ctx, url, onDownloaded)
-                            } else {
-                                // Nunca abrir a Biblioteca em silêncio por falta
-                                // de URL: a Biblioteca é para gerenciar, não baixar.
-                                android.widget.Toast.makeText(
-                                    ctx,
-                                    "Não consegui abrir a página desta edição.",
-                                    android.widget.Toast.LENGTH_LONG,
-                                ).show()
+                            when {
+                                direct != null && downloadCtl != null ->
+                                    downloadCtl.downloadDirect(
+                                        ctx, scope, direct, onDownloaded
+                                    )
+                                url != null && downloadCtl != null ->
+                                    downloadCtl.openPage(ctx, url, onDownloaded)
+                                else ->
+                                    // Nunca abrir a Biblioteca em silêncio por
+                                    // falta de URL: a Biblioteca gerencia, não baixa.
+                                    android.widget.Toast.makeText(
+                                        ctx,
+                                        "Não consegui abrir a página desta edição.",
+                                        android.widget.Toast.LENGTH_LONG,
+                                    ).show()
                             }
                         },
                         modifier = Modifier.heightIn(min = 48.dp),

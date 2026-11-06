@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
+import com.bettertalker.app.data.util.EditionStatus
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSource
@@ -360,20 +361,37 @@ object FocusSourceResolver {
         input.noteRefs.publications.forEach { ref ->
             val key = NoteRefsCollector.sourceKey(ref)
             val note = findPublicationNoteSource(ref, input.noteSources)
-            val text = input.resolvedTexts[key]
+            val resolved = input.resolvedTexts[key]
+            // Fallback: a nota já resolveu o trecho, mas ele não entrou no
+            // mapa do turno (ref fora do foco/duplicata). Sem isto, a linha
+            // virava TEXT_NOT_FOUND e o Copilot dizia não ter a fonte.
+            val noteText = note?.refStatus?.promptText
+                ?.takeIf { it.isNotBlank() }
+            val text = resolved?.text?.takeIf { it.isNotBlank() }
+                ?: noteText.orEmpty()
+            val edition = note?.citation?.edition
+            val status = when {
+                // Edição ausente/falha/indexando manda no estado; o texto
+                // NOT_FOUND não pode mascarar um INDEX_FAILED.
+                edition != null && edition != EditionStatus.READY ->
+                    mergeStatus(note?.status, resolved?.status)
+                note?.citation?.text == TextStatus.PARTIAL -> FocusStatus.PARTIAL
+                note?.citation?.text == TextStatus.NOT_FOUND ->
+                    FocusStatus.TEXT_NOT_FOUND
+                text.isNotBlank() &&
+                    note?.citation?.text == TextStatus.RESOLVED ->
+                    FocusStatus.RESOLVED
+                else -> mergeStatus(note?.status, resolved?.status)
+            }
             out += FocusSource(
                 key = key,
                 reference = ref.raw,
                 kind = SourceKind.PUBLICATION,
                 origin = originOf(key, normalized),
-                status = if (note?.citation?.text == TextStatus.PARTIAL) {
-                    FocusStatus.PARTIAL
-                } else {
-                    mergeStatus(note?.status, text?.status)
-                },
+                status = status,
                 unit = unitOf(ref),
-                text = text?.text.orEmpty(),
-                originalChars = text?.text?.length ?: 0,
+                text = text,
+                originalChars = text.length,
                 publicationLabel = note?.publicationLabel,
                 publicationKey = note?.publicationKey ?: ref.pubKey,
             )
