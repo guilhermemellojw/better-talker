@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Label exclusivo do APK de debug para não confundir com o release. -->
+    <string name="app_name">BT Debug</string>
+    <string name="title_activity_main">BT Debug</string>
+</resources>
