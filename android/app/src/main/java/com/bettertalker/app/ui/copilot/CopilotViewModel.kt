@@ -3137,9 +3137,12 @@ class CopilotViewModel(
                     // injetado) e o aviso suave [NO_S34_WARNING] entra no fim
                     // da resposta. Com S-34, a geração oratória ancorada segue.
                     if (shouldDegradeOratoryToChat(hasS34Document = _lastS34Document != null)) {
+                        val noteType = noteId
+                            ?.let { db.noteDao().get(it)?.discourseType }
+                            ?.let { DiscourseType.fromNameOrDefault(it) }
                         answerRemote(
                             text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
-                            noS34Warning = true,
+                            noS34Warning = needsS34Warning(noteType),
                             blockMinutes = blockMinutes,
                         )
                         return@launch
@@ -7173,6 +7176,14 @@ internal fun buildOutlineConversion(
  * Pura, testável.
  */
 internal fun shouldDegradeOratoryToChat(hasS34Document: Boolean): Boolean = !hasS34Document
+
+/**
+ * O aviso de S-34 ausente só faz sentido em nota do tipo S-34. Partes V&M
+ * (Tesouros, Ministério, demonstração) nunca terão S-34 vinculado por
+ * definição e não devem receber o alerta no fim da resposta.
+ */
+internal fun needsS34Warning(discourseType: DiscourseType?): Boolean =
+    discourseType == DiscourseType.S34_DISCOURSE
 
 /**
  * #15d-escopo: a sugestão de vincular publicações é legítima quando o RAG

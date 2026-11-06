@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.domain.speech.DiscourseType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,6 +23,17 @@ class S34GateTest {
     @Test
     fun comS34_geracaoAncorada_semAviso() {
         assertFalse(shouldDegradeOratoryToChat(hasS34Document = true))
+    }
+
+    @Test
+    fun avisoSoValeParaNotaTipoS34() {
+        assertTrue(needsS34Warning(DiscourseType.S34_DISCOURSE))
+        assertFalse(needsS34Warning(DiscourseType.TREASURES_TALK))
+        assertFalse(needsS34Warning(DiscourseType.MINISTRY_PART))
+        assertFalse(needsS34Warning(DiscourseType.MINISTRY_TALK))
+        assertFalse(needsS34Warning(DiscourseType.FREE_DEMO))
+        assertFalse(needsS34Warning(DiscourseType.AVULSO))
+        assertFalse(needsS34Warning(null))
     }
 
     @Test
