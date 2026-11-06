@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 45
-        versionName "3.4.0"
+        versionCode 46
+        versionName "3.4.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
@@ -47,8 +47,8 @@ android {
         syncBeta {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
-            // Beta 43 (3.3.0-syncbeta). O público 3.4.0/45 instala por cima
-            // e desliga o sync; se o beta for rebuildado depois, usar 46.
+            // Beta 43 (3.3.0-syncbeta). O público 3.4.1/46 instala por cima
+            // e desliga o sync; se o beta for rebuildado depois, usar 47.
             versionCode 43
             versionName "3.3.0"
             versionNameSuffix "-syncbeta"
