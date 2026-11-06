@@ -12,7 +12,11 @@
 > (`A Sentinela — janeiro de 2024`) pelo próprio app (`downloadEdition`) e
 > estrutura do Ponto 1 com card recolhido, sem JSON, `partial=0` e
 > `route=outline`. Nota e arquivo de teste removidos; a Biblioteca ficou
-> com o acervo original. Dívida residual explícita, sem bloquear o v4.0:
+> com o acervo original. No tablet, 5 anexos falhados foram removidos
+> (`S-38_T`, `be_T`, `th_T`, duplicata de `w_T_20080615` e `nwt_T.epub`);
+> `it_T` foi mantido por ser o arquivo real do Estudo Perspicaz, e as fontes
+> das notas (`it`, `w08`, TNM, `rr`, `jr`, `w17.10`, `w24.01`) seguem
+> **Disponíveis**. Dívida residual explícita, sem bloquear o v4.0:
 > `w08`/`rr` mais exatos e recuperação de JSON inválido/truncado do gerador.
 
 > **2026-11-06 — beta 48:** `3.4.2-syncbeta`/48 rebuildado via
