@@ -123,7 +123,7 @@ class PresentViewModel(
                 mode = if (demo) PresentMode.SCRIPT else PresentMode.CUES,
                 startIndex = saved?.index ?: 0,
                 timerVisible = true,
-                orientation = PresentOrientation.PORTRAIT,
+                orientation = PresentOrientation.AUTO,
                 roleIndex = 0,
                 continueSaved = saved != null,
             )

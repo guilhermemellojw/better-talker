@@ -100,7 +100,7 @@ fun PresentStageScreen(
     val sectionState = stageTimerState(sectionElapsed, sectionMinutes)
     val scriptMode = prep.mode == PresentMode.SCRIPT
 
-    // Orientação: retrato é o padrão; "Travar" fixa a orientação atual.
+    // Orientação: segue o padrão do dispositivo; "Travar" fixa a atual.
     DisposableEffect(prep.orientation) {
         val previous = activity?.requestedOrientation
         when (prep.orientation) {

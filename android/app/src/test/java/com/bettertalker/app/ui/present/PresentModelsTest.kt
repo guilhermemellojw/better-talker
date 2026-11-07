@@ -152,4 +152,9 @@ class PresentModelsTest {
         assertFalse(presentBatteryLow(10, charging = true))
         assertEquals("Retrato", presentOrientationLabel(PresentOrientation.PORTRAIT))
     }
+
+    @Test
+    fun prepSegueOrientacaoDoDispositivoPorPadrao() {
+        assertEquals(PresentOrientation.AUTO, PresentPrep().orientation)
+    }
 }
