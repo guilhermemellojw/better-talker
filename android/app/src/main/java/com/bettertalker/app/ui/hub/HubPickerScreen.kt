@@ -64,6 +64,7 @@ fun HubPickerScreen(
         }
     }
     val isTrain = mode == "train"
+    val isAssistant = mode == "assistant"
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.navigationBars,
@@ -120,26 +121,32 @@ fun HubPickerScreen(
                             colorArgb = card.colorArgb,
                             onClick = {
                                 scope.launch {
-                                    if (isTrain) vm.setTrainNoteNow(card.id)
-                                    else vm.setPresentNoteNow(card.id)
+                                    when {
+                                        isAssistant -> vm.setAssistantNoteNow(card.id)
+                                        isTrain -> vm.setTrainNoteNow(card.id)
+                                        else -> vm.setPresentNoteNow(card.id)
+                                    }
                                     onBack()
                                 }
                             },
                             badgeText = if (card.isDemonstration) "Demonstração" else "Discurso",
                             durationText = card.minutes?.let { "$it min" },
-                            statusText = buildString {
-                                val current = if (isTrain) trainId == card.id else presentId == card.id
-                                if (current) append("Atual · ")
-                                if (isTrain) {
-                                    append(if (card.hasText) "Tem texto" else "Sem texto")
-                                } else {
-                                    val readiness = card.presentReadiness ?: PresentReadiness.MISSING
-                                    append(
-                                        presentReadinessLabel(
-                                            readiness,
-                                            demo = card.isDemonstration,
+                            statusText = when {
+                                isAssistant -> if (card.hasText) "Tem texto" else "Sem texto"
+                                else -> buildString {
+                                    val current = if (isTrain) trainId == card.id else presentId == card.id
+                                    if (current) append("Atual · ")
+                                    if (isTrain) {
+                                        append(if (card.hasText) "Tem texto" else "Sem texto")
+                                    } else {
+                                        val readiness = card.presentReadiness ?: PresentReadiness.MISSING
+                                        append(
+                                            presentReadinessLabel(
+                                                readiness,
+                                                demo = card.isDemonstration,
+                                            )
                                         )
-                                    )
+                                    }
                                 }
                             },
                         )

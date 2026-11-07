@@ -20,7 +20,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bettertalker.app.navigation.resolveAssistantNoteId
-import com.bettertalker.app.ui.assistant.AssistantLanding
 import com.bettertalker.app.ui.assistant.AssistantViewModel
 import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
@@ -242,6 +241,12 @@ private fun AppNav(
             val assistantVm: AssistantViewModel = viewModel(
                 factory = AssistantViewModel.Factory(db, settings),
             )
+            // v4.1: assistente global (sem nota) + walkie da nota vinculada.
+            val globalVm: com.bettertalker.app.ui.assistant.GlobalAssistantViewModel = viewModel(
+                factory = com.bettertalker.app.ui.assistant.GlobalAssistantViewModel.Factory(
+                    ctx, db, settings, voiceRouter,
+                ),
+            )
             val notes by assistantVm.notes.collectAsState()
             val lastNoteId by assistantVm.lastNoteId.collectAsState()
             val practice by assistantVm.practiceContext.collectAsState()
@@ -275,20 +280,27 @@ private fun AppNav(
                     defaultWholeFocus = true,
                     practiceContext = practice?.takeIf { it.noteId == target.id },
                     walkieDefault = true,
-                    onChangeNote = ::goHome,
+                    // v4.1: “Trocar nota” limpa o vínculo e volta à home global;
+                    // não navega para a Home/Esboços.
+                    onChangeNote = {
+                        assistantVm.clearLastNoteId()
+                        assistantVm.clearPracticeContext()
+                        globalVm.clearBinding()
+                    },
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
                 )
             } else {
-                AssistantLanding(
-                    notes = notes.orEmpty(),
+                val globalNotes by globalVm.notes.collectAsState()
+                com.bettertalker.app.ui.assistant.AssistantGlobalRoute(
+                    vm = globalVm,
+                    notes = globalNotes,
                     loading = notes == null,
-                    onOpenNote = { id ->
-                        // Fixa o contexto antes de abrir o editor; voltar já
-                        // cai no chat dessa nota.
-                        scope.launch { settings.setLastNoteId(id) }
-                        nav.navigate(Routes.editor(id))
-                    },
+                    ptt = pttHost.controller,
+                    onPickNote = { nav.navigate(Routes.picker("assistant")) },
+                    onOpenModel = { nav.navigate(Routes.MODEL) },
+                    onStartTrain = { id -> nav.navigate(Routes.stage(id)) },
+                    onOpenPresent = { id -> nav.navigate(Routes.present(id)) },
                 )
             }
         }

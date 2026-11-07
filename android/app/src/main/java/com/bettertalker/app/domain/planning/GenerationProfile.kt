@@ -25,7 +25,10 @@ enum class GenerationProfile {
     FREE_DEMO,
 
     /** Apenas o esqueleto JSON (outline), sem texto final. */
-    STRUCTURE_PLANNER;
+    STRUCTURE_PLANNER,
+
+    /** Assistente global “Alexa”: conversa solta, sem nota/dossiê. */
+    GLOBAL_ASSISTANT;
 
     companion object {
         /**

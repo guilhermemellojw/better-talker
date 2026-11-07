@@ -192,6 +192,11 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
         if (id != null) settings.setLastNoteId(id)
     }
 
+    /** v4.1: picker do Assistente só vincula; não abre editor/Treino/Palco. */
+    fun setAssistantNoteNow(id: String) = viewModelScope.launch {
+        settings.setLastNoteId(id)
+    }
+
     class Factory(private val ctx: Context, private val db: AppDatabase) :
         ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
