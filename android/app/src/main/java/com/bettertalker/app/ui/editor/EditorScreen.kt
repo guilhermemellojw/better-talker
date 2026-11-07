@@ -9,12 +9,12 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -99,6 +100,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -307,6 +310,14 @@ fun EditorScreen(
     } else {
         wordCount.label
     }
+    // Versão curta para a topbar de uma linha em telas estreitas.
+    val wordCountCompactLabel = when {
+        wordCount.developed > 0 && wordCount.outline > 0 ->
+            "${wordCount.developed}+${wordCount.outline}"
+        wordCount.developed > 0 -> "${wordCount.developed}p"
+        wordCount.outline > 0 -> "0/${wordCount.outline}"
+        else -> "0p"
+    }
 
     // Recolhe a TopAppBar no scroll down; volta em qualquer scroll up.
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -339,27 +350,133 @@ fun EditorScreen(
         containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
+            // Topbar de uma linha: título + status + métricas + ações.
+            // Em telas estreitas os metadados viram versões curtas e o
+            // título cede espaço (ellipsis), sem criar uma segunda linha.
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 scrollBehavior = scrollBehavior,
-                navigationIcon = { IconButton(onClick = requestBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
+                navigationIcon = {
+                    IconButton(onClick = requestBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                    }
+                },
                 title = {
-                    Text(
-                        title.ifBlank { "Sem título" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val compact = maxWidth < 600.dp
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                title.ifBlank { "Sem título" },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            if (saving) {
+                                Text(
+                                    "Salvando…",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Salvo",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                if (!compact) {
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        "Salvo",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (compact) wordCountCompactLabel else wordCountLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (wordCount.needsDevelopmentHint) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .widthIn(max = if (compact) 64.dp else 320.dp)
+                                    .clearAndSetSemantics {
+                                        contentDescription = wordCountLabel
+                                    },
+                            )
+                            val sources = noteSources
+                            if (sources != null && sources.hasRefs) {
+                                Spacer(Modifier.width(6.dp))
+                                if (compact) {
+                                    // Sem chip no phone: o contorno do chip
+                                    // consome largura demais e espreme o título.
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clip(MaterialTheme.shapes.small)
+                                            .clickable { showSources = true }
+                                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.MenuBook,
+                                            contentDescription = "Fontes",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                        Spacer(Modifier.width(3.dp))
+                                        Text(
+                                            "${sources.resolved}/${sources.total}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                } else {
+                                    AssistChip(
+                                        onClick = { showSources = true },
+                                        label = {
+                                            Text(
+                                                "Fontes ${sources.resolved}/${sources.total}",
+                                                maxLines = 1,
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.MenuBook,
+                                                null,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 },
                 actions = {
                     IconButton(onClick = { preview = !preview }) {
-                        Icon(if (preview) Icons.Default.Edit else Icons.Default.Visibility, "Preview")
+                        Icon(
+                            if (preview) Icons.Default.Edit else Icons.Default.Visibility,
+                            if (preview) "Editar" else "Modo leitura",
+                        )
                     }
-                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opções") }
+                    IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Mais ações") }
                     DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                         // UX refactor: o Editor é focado em escrita/exportação —
                         // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
@@ -375,67 +492,6 @@ fun EditorScreen(
                     }
                 }
             )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!saving) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                Text(
-                    if (saving) "Salvando…" else "Salvo",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "·",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    wordCountLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (wordCount.needsDevelopmentHint) {
-                        MaterialTheme.colorScheme.tertiary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val sources = noteSources
-                if (sources != null && sources.hasRefs) {
-                    Spacer(Modifier.width(8.dp))
-                    AssistChip(
-                        onClick = { showSources = true },
-                        label = {
-                            Text(
-                                "Fontes ${sources.resolved}/${sources.total}",
-                                maxLines = 1,
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.MenuBook,
-                                null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                    )
-                }
-            }
-            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { pad ->
@@ -445,7 +501,7 @@ fun EditorScreen(
                 .padding(pad)
                 .consumeWindowInsets(pad)
         ) {
-            // Contador de palavras agora vive na TopAppBar (subtitle).
+            // Contador de palavras vive na TopAppBar (linha única).
             // Toolbar fixa (não rola): com a TopAppBar recolhida assume o
             // topo, por isso o inset da status bar (consumido quando ela
             // ainda está expandida).
