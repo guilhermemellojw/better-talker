@@ -475,9 +475,10 @@ class RoomReferenceResolverTest {
     }
 
     @Test
-    fun resolvePublication_paginaComIndiceSemParagrafo_naoUsaParagrafoGlobal() = runBlocking {
+    fun resolvePublication_paginaComParagrafoAusente_naoUsaParagrafoDeOutroArtigo() = runBlocking {
         // it-1 544 §4: a página 544 não tem §4; o fallback global pegaria
-        // o §4 de outro artigo (página 12). Com página indexada, não pode.
+        // o §4 de outro artigo (página 12). Com página indexada, devolve a
+        // PÁGINA 544 como PARTIAL — nunca o § de outro artigo.
         val rows = listOf(
             passage(
                 "a8", "w25.07", "w25.07 p22 §8", "Parágrafo oito da página 22.",
@@ -490,8 +491,58 @@ class RoomReferenceResolverTest {
         )
         val out = resolver(rows, listOf(attachment("w25.07", "w25.07")))
             .resolvePublication(PublicationRef("w25.07", page = 22, paragraph = 99))
-        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
-        assertNull(out.text)
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("página 22"))
+        assertFalse(out.text.orEmpty().contains("página 30"))
+        assertEquals("w25.07 pág. 22", out.canonicalRef)
+    }
+
+    @Test
+    fun resolvePublication_paginaComNumeracaoLocal_usaContextoDaPagina() = runBlocking {
+        // Caso real (Despertai! 08/13 pág. 8 §§ 1-2): o índice numera os §§
+        // do artigo (16-18), mas a ref usa a numeração local (1-2). A página
+        // está no acervo e o contexto do esboço aponta o trecho certo.
+        val rows = listOf(
+            passage(
+                "g16", "g_T_201308", "g 08/13 pág. 8 §16",
+                "Milhões de pessoas responderiam com um enfático ‘sim’.",
+                "milhoes de pessoas responderiam com um enfatico sim",
+                ord = 0, page = 8, paragraph = 16,
+            ),
+            passage(
+                "g17a", "g_T_201308", "g 08/13 pág. 8 §17",
+                "E, visto que Deus vive para sempre, ele colocou em nós o desejo de viver para sempre.",
+                "e visto que deus vive para sempre ele colocou em nos o desejo de viver para sempre",
+                ord = 1, page = 8, paragraph = 17,
+            ),
+            passage(
+                "g17b", "g_T_201308", "g 08/13 pág. 8 §17",
+                "“Pôs no coração do homem o anseio pela eternidade”, diz Eclesiastes 3:11.",
+                "pos no coracao do homem o anseio pela eternidade diz eclesiastes 3 11",
+                ord = 2, page = 8, paragraph = 17,
+            ),
+            passage(
+                "g18", "g_T_201308", "g 08/13 pág. 8 §18",
+                "Existem evidências físicas de que os humanos foram projetados para viver mais.",
+                "existem evidencias fisicas de que os humanos foram projetados para viver mais",
+                ord = 3, page = 8, paragraph = 18,
+            ),
+        )
+        val out = resolver(
+            rows,
+            listOf(attachment("g_T_201308", "g").copy(fileName = "g_T_201308.jwpub")),
+        ).resolvePublication(
+            PublicationRef(
+                "g 8/13",
+                page = 8,
+                paragraph = 1,
+                paragraphEnd = 2,
+                context = "Temos o desejo de continuar vivendo e nunca morrer. " +
+                    "[Leia Eclesiastes 3:11.]",
+            ),
+        )
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text.orEmpty().contains("desejo de viver para sempre"))
     }
 
     @Test

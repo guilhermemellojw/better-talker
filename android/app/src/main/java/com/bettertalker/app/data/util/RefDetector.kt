@@ -114,6 +114,12 @@ object RefDetector {
     const val CONTENT_WARNING = "⚠️ citação sem fonte no acervo"
 
     /**
+     * A edição está no acervo, mas o trecho citado não foi localizado.
+     * Diferente de [CONTENT_WARNING]: não diz que a publicação inteira falta.
+     */
+    const val TEXT_NOT_FOUND_WARNING = "⚠️ edição no acervo; trecho não encontrado"
+
+    /**
      * T1 (refs por página) — aviso específico para citação SÓ por página
      * (`page != null`, sem artigo/capítulo/lição/estudo): o acervo não tem
      * paginação (JWPUB/EPUB são reflowable), então a página sozinha nunca
@@ -1561,10 +1567,13 @@ object RefDetector {
         // sequencial ("§605") e não o § da revista.
         val parStart = ref.paragraph
         val parEnd = ref.paragraphEnd ?: parStart
+        val pageStart = ref.page
+        val pageEnd = ref.pageEnd?.takeIf { p -> pageStart != null && p > pageStart }
+            ?: pageStart
         val structuredHits = passages.filter { p ->
             val pParagraph = p.paragraph ?: leadingParagraphNumber(p.text)
             if (pParagraph == null) return@filter false
-            val pageOk = ref.page == null || p.page == ref.page
+            val pageOk = pageStart == null || (p.page != null && p.page in pageStart..pageEnd!!)
             val parOk = parStart == null || (pParagraph in parStart..(parEnd ?: parStart))
             pageOk && parOk
         }
@@ -1574,25 +1583,39 @@ object RefDetector {
             val snippet = structuredHits.joinToString(" ") { it.text }.trim().take(600)
             return ContentCheck(resolved = true, snippet = snippet, warning = null)
         }
-        // C2.6: página sem § — texto real da página. Com § explícito, um
-        // parágrafo diferente na mesma página não sustenta a citação; a
-        // exceção é índice antigo sem NENHUM paragraph (g 2013/wp 2019).
-        if (ref.page != null) {
-            val pageEnd = ref.pageEnd?.takeIf { it > ref.page } ?: ref.page
-            val pageRows = passages.filter { p ->
-                p.page != null && p.page in ref.page..pageEnd
+        // C2.6: página sem § — texto real da página. Página COM § mas sem o
+        // § citado no índice (numeração local do artigo, edição reindexada,
+        // typo) também é fonte real: devolve a página como PARTIAL com um
+        // aviso de que o § exato não está no índice. O fallback global de §
+        // continua bloqueado — nunca troca o § citado por outro artigo.
+        val pageRows = if (pageStart != null) {
+            passages.filter { p -> p.page != null && p.page in pageStart..pageEnd!! }
+        } else {
+            emptyList()
+        }
+        if (pageRows.isNotEmpty()) {
+            val contextMatch = ref.context
+                ?.takeIf { it.isNotBlank() }
+                ?.let { ctx -> bestContextWindow(pageRows.map { it.text }, ctx, window = 3) }
+            val focused = if (contextMatch != null && ref.paragraph != null) {
+                val startIndex = contextMatch.index
+                val endIndex = (startIndex + 2).coerceAtMost(pageRows.lastIndex)
+                pageRows.subList(startIndex, endIndex + 1)
+            } else {
+                pageRows
             }
-            val pageUsable = ref.paragraph == null || pageRows.all { it.paragraph == null }
-            if (pageRows.isNotEmpty() && pageUsable) {
-                val snippet = pageRows.joinToString(" ") { it.text }.trim().take(600)
-                return ContentCheck(
-                    resolved = true,
-                    snippet = snippet,
-                    warning = null,
-                    partial = ref.paragraph == null,
-                    note = if (ref.paragraph == null) "página localizada" else null,
-                )
-            }
+            val snippet = focused.joinToString(" ") { it.text }.trim().take(600)
+            return ContentCheck(
+                resolved = true,
+                snippet = snippet,
+                warning = null,
+                partial = true,
+                note = if (ref.paragraph == null) {
+                    "página localizada"
+                } else {
+                    "página localizada; § citado fora do índice"
+                },
+            )
         }
         // C2.6: PDF/EPUB sem página/§ — frase do esboço acima do threshold.
         val context = ref.context?.takeIf { it.isNotBlank() }

@@ -18,12 +18,22 @@ class RefContentCheckTest {
         label = "A Sentinela N.º 1 2024"
     )
 
-    private fun passage(id: String, ref: String, text: String) = PassageEntity(
+    private fun passage(
+        id: String,
+        ref: String,
+        text: String,
+        page: Int? = null,
+        paragraph: Int? = null,
+        ord: Int = 0,
+    ) = PassageEntity(
         id = id,
         attachmentId = "att-1",
         text = text,
         normalized = normalizeText(text),
-        ref = ref
+        ref = ref,
+        page = page,
+        paragraph = paragraph,
+        ord = ord,
     )
 
     @Test
@@ -118,6 +128,85 @@ class RefContentCheckTest {
         val check = RefDetector.resolveContent(ref, emptyList(), corpusAvailable = true)
         assertFalse(check.resolved)
         assertEquals(RefDetector.CONTENT_WARNING, check.warning)
+    }
+
+    @Test
+    fun paginaComNumeracaoLocal_usaContextoDaPagina() {
+        // Despertai! 08/13 pág. 8 §§ 1-2: o índice numera os §§ 16-18, mas a
+        // ref usa a numeração local. A página existe e o contexto do esboço
+        // localiza o trecho — não pode virar "sem fonte no acervo".
+        val ref = RefDetector.DetectedRef(
+            raw = "g 8/13 pág. 8 §§ 1-2",
+            kind = RefDetector.Kind.MAGAZINE,
+            pubKey = "g",
+            editionKey = "g|2013|8",
+            label = "Despertai! 08/13 • pág. 8 §§ 1-2",
+            page = 8,
+            paragraph = 1,
+            paragraphEnd = 2,
+            context = "Temos o desejo de continuar vivendo e nunca morrer. " +
+                "[Leia Eclesiastes 3:11.]",
+        )
+        val rows = listOf(
+            passage(
+                "g16", "g 08/13 pág. 8 §16",
+                "Milhões de pessoas responderiam com um enfático ‘sim’.",
+                page = 8, paragraph = 16, ord = 0,
+            ),
+            passage(
+                "g17a", "g 08/13 pág. 8 §17",
+                "E, visto que Deus vive para sempre, ele colocou em nós o desejo de viver para sempre.",
+                page = 8, paragraph = 17, ord = 1,
+            ),
+            passage(
+                "g17b", "g 08/13 pág. 8 §17",
+                "“Pôs no coração do homem o anseio pela eternidade”, diz Eclesiastes 3:11.",
+                page = 8, paragraph = 17, ord = 2,
+            ),
+            passage(
+                "g18", "g 08/13 pág. 8 §18",
+                "Existem evidências físicas de que os humanos foram projetados para viver mais.",
+                page = 8, paragraph = 18, ord = 3,
+            ),
+        )
+        val check = RefDetector.resolveContent(ref, rows, corpusAvailable = true)
+        assertTrue(check.resolved)
+        assertTrue(check.partial)
+        assertNull(check.warning)
+        assertTrue(check.snippet!!.contains("desejo de viver para sempre"))
+    }
+
+    @Test
+    fun citacaoEmDuasPaginas_casaParagrafoNaSegundaPagina() {
+        // rr 37-38 §§ 18-19: o §19 está na página 38, não na 37. A faixa de
+        // páginas precisa entrar na checagem estruturada.
+        val ref = RefDetector.DetectedRef(
+            raw = "rr 37-38 §§ 18-19",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "rr",
+            editionKey = "book|rr",
+            label = "Adoração Pura pág. 37-38 §§ 18-19",
+            page = 37,
+            pageEnd = 38,
+            paragraph = 18,
+            paragraphEnd = 19,
+        )
+        val rows = listOf(
+            passage(
+                "r18", "rr pág. 37 §18",
+                "O que o tamanho impressionante das rodas e seus muitos olhos nos ensinam.",
+                page = 37, paragraph = 18, ord = 0,
+            ),
+            passage(
+                "r19", "rr pág. 38 §19",
+                "O carro de Jeová é muito rápido e consegue mudar de direção com facilidade.",
+                page = 38, paragraph = 19, ord = 1,
+            ),
+        )
+        val check = RefDetector.resolveContent(ref, rows, corpusAvailable = true)
+        assertTrue(check.resolved)
+        assertNull(check.warning)
+        assertTrue(check.snippet!!.contains("mudar de direção"))
     }
 
     @Test

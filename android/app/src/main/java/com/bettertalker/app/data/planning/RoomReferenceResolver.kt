@@ -213,25 +213,23 @@ class RoomReferenceResolver(
             (page != null &&
                 passageDao.byPage(hit.id, 0, Int.MAX_VALUE, 1).isNotEmpty())
 
-        // Página sem § → PARTIAL. Página com § só cai aqui quando o índice
-        // antigo NÃO tem números de parágrafo (todas as linhas com
-        // paragraph=null): aí o texto da página é a melhor leitura real.
-        // Se há §§ indexados e nenhum casa, não devolve a página errada.
+        // Página sem § → PARTIAL. Página COM § mas sem o § citado no índice
+        // (numeração local do artigo, edição reindexada, typo) também é
+        // fonte real: devolve a PÁGINA citada como PARTIAL. O fallback
+        // global de § continua bloqueado quando há índice de página — nunca
+        // troca o § citado pelo § de outro artigo.
         if (page != null && pageRows.isNotEmpty()) {
-            val pageUsable = start == null || pageRows.all { it.paragraph == null }
-            if (pageUsable) {
-                val focused = focusPageRows(pageRows, start, end, ref.context)
-                return resolved(
-                    ref = ref,
-                    label = pageLabel(base, page, pageEnd),
-                    rows = focused,
-                    status = ReferenceStatus.PARTIAL,
-                    // Faixa de várias páginas sem foco por §/contexto:
-                    // começo + fim, para não perder o trecho citado no fim.
-                    headTail = pageEnd != null && pageEnd > page &&
-                        focused.size == pageRows.size,
-                )
-            }
+            val focused = focusPageRows(pageRows, start, end, ref.context)
+            return resolved(
+                ref = ref,
+                label = pageLabel(base, page, pageEnd),
+                rows = focused,
+                status = ReferenceStatus.PARTIAL,
+                // Faixa de várias páginas sem foco por §/contexto:
+                // começo + fim, para não perder o trecho citado no fim.
+                headTail = pageEnd != null && pageEnd > page &&
+                    focused.size == pageRows.size,
+            )
         }
 
         // § sem página (ou índice antigo sem página): único caso em que o

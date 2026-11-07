@@ -301,4 +301,51 @@ class NoteSourcesResolverTest {
         assertEquals(SourceAction.REINDEX, noVerse.citation.action)
         assertEquals("TNM presente; versículo não encontrado", citationReason(noVerse))
     }
+
+    @Test
+    fun toNoteSources_mesmaEdicao_textoAusenteNaoDizSemFonteNoAcervo() {
+        // Duas refs da MESMA edição (Despertai! 08/13): a primeira localiza
+        // o texto; a segunda só não achou o §. A edição está no acervo — a
+        // segunda não pode ser rotulada como "sem fonte no acervo".
+        val page6 = RefDetector.detect("g 8/13 pág. 6").single()
+        val page8 = RefDetector.detect("g 8/13 pág. 8 §§ 1-2").single()
+        val candidates = listOf(page6, page8).map { ref ->
+            SourceCandidate(
+                key = NoteSourcesResolver.sourceKey(ref),
+                ref = ref.raw,
+                kind = SourceKind.PUBLICATION,
+                publication = ref,
+            )
+        }
+        val statuses = mapOf(
+            NoteSourcesResolver.sourceKey(page6) to RefDetector.RefStatus(
+                ref = page6,
+                resolved = true,
+                contentResolved = true,
+                fileName = "g_T_201308.jwpub",
+            ),
+            NoteSourcesResolver.sourceKey(page8) to RefDetector.RefStatus(
+                ref = page8,
+                resolved = true,
+                contentResolved = false,
+                contentWarning = RefDetector.TEXT_NOT_FOUND_WARNING,
+                fileName = "g_T_201308.jwpub",
+            ),
+        )
+
+        val sources = NoteSourcesResolver.toNoteSources(candidates, statuses, emptyMap())
+        val row = sources.sources.first { it.refStatus?.ref?.paragraph == 1 }
+        assertEquals(EditionStatus.READY, row.citation.edition)
+        assertEquals(TextStatus.NOT_FOUND, row.citation.text)
+        assertTrue(row.hint.orEmpty().contains("edição no acervo"))
+        assertFalse(row.hint.orEmpty().contains("sem fonte"))
+
+        // As duas refs continuam no MESMO grupo de publicação.
+        val group = groupNoteSources(sources.sources)
+            .single { it.key == "pub:g 8/13" }
+        assertEquals(2, group.total)
+        assertTrue(group.sources.none {
+            it.hint?.contains("sem fonte", ignoreCase = true) == true
+        })
+    }
 }

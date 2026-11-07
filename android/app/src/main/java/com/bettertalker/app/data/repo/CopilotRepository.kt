@@ -545,7 +545,14 @@ class CopilotRepository(private val db: AppDatabase) {
                     promptText = fallbackText.takeIf { it.isNotBlank() }?.take(
                         com.bettertalker.app.data.planning.MAX_UNIT_CHARS
                     ),
-                    contentWarning = check.warning,
+                    // A edição pode estar no acervo e só o trecho faltar. Nesse
+                    // caso o aviso não pode dizer "sem fonte no acervo" — o
+                    // arquivo está lá; o que falta é o § citado.
+                    contentWarning = if (st.resolved) {
+                        check.warning?.let { RefDetector.TEXT_NOT_FOUND_WARNING }
+                    } else {
+                        check.warning
+                    },
                 )
             }
         }

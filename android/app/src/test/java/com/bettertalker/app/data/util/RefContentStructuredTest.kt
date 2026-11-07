@@ -50,11 +50,15 @@ class RefContentStructuredTest {
     }
 
     @Test
-    fun citacaoDeOutroParagrafo_naoResolve() {
+    fun citacaoDeOutroParagrafo_resolveComoPaginaParcial() {
+        // O § exato não está no índice, mas a PÁGINA citada está. Devolve a
+        // página como PARTIAL (nunca como § exato) — antes virava "sem fonte".
         val outra = body.copy(id = "x", page = 22, paragraph = 3, ord = 100)
         val check = RefDetector.resolveContent(ref, listOf(outra), corpusAvailable = true)
-        assertTrue(!check.resolved)
-        assertNotNull(check.warning)
+        assertTrue(check.resolved)
+        assertTrue(check.partial)
+        assertNotNull(check.note)
+        assertTrue(check.note!!.contains("§"))
     }
 
     @Test
