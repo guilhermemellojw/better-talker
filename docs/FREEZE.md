@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-07 · **Build de referência:** v4.0.2 (versionCode 53, tag `v4.0.2`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-07 · **Build de referência:** v4.1 (versionCode 55, tag `v4.1.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > **2026-11-07 — v4.0/49 (fatias 2–5 + Walkie + scroll):** aba Assistente com
 > sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta
@@ -49,6 +49,22 @@
 > Validado no A34 com/sem chave e com seções vazias. Tag `v4.0.2`; APK público
 > + SHA-256 `7a261093…` no GitHub Release; `4.0.2-syncbeta`/54 é artefato
 > separado.
+
+> **2026-11-07 — v4.1/55 (Assistente Global):** a aba Assistente funciona
+> **sem nota aberta**: saudação local, PTT grande, chips de esboços recentes,
+> chat global efêmero e comandos locais (listar/abrir/criar esboços, Treino,
+> Palco, ajuda, configurar IA). Abrir uma nota a vincula ao Assistente e abre
+> o **walkie da nota**; o editor só abre por “Abrir nota”. Texto livre usa o
+> LLM quando há chave (prompt global, só títulos recentes, máx. 4 frases) e,
+> sem chave, responde localmente com ação “Configurar IA”. PTT/TTS reutilizam
+> o motor existente, com barge-in e parada ao sair/background; áudio nunca é
+> persistido. Branch `feat/v4.1-assistant-global` (`f02c3e6`), CI `42414281250`
+> verde; A34 validou lista/abrir/ambíguo/inexistente, fallback sem chave, LLM
+> com chave, TTS/barge-in, rotação/background e ausência de áudio persistido;
+> PTT com **voz humana pt-BR** (“Quais esboços tenho?”) listou corretamente os
+> esboços. Confirmação de **TalkBack audível** fica como validação de uso
+> (labels/live regions já verificados). Tag `v4.1.0`; APK público
+> + SHA-256 no GitHub Release; `4.1-syncbeta`/56 é artefato separado.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
