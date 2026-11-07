@@ -47,7 +47,8 @@
 > seções, configurar IA quando falta a chave, fechar). O desvio Palco→editor
 > (`generate=true`) foi removido; o “Gerar Tribuna” manual do editor continua.
 > Validado no A34 com/sem chave e com seções vazias. Tag `v4.0.2`; APK público
-> + SHA-256 no GitHub Release; `4.0.2-syncbeta`/54 é artefato separado.
+> + SHA-256 `7a261093…` no GitHub Release; `4.0.2-syncbeta`/54 é artefato
+> separado.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
