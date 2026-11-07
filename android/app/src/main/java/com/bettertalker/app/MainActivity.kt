@@ -32,6 +32,7 @@ import com.bettertalker.app.data.repo.LibraryRepository
 import com.bettertalker.app.navigation.Routes
 import com.bettertalker.app.ui.copilot.ChatScreen
 import com.bettertalker.app.ui.copilot.CopilotViewModel
+import com.bettertalker.app.ui.copilot.TribunaResult
 import com.bettertalker.app.ui.editor.EditorScreen
 import com.bettertalker.app.ui.editor.EditorViewModel
 import com.bettertalker.app.ui.account.AccountScreen
@@ -355,15 +356,64 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(presentId) {
                 presentId?.let { settings.setLastNoteId(it) }
             }
+            // 4.0.2: gera a Tribuna na própria rota do Palco, com progresso e
+            // erro acionável — sem desviar para o editor.
+            var tribunaGeneratingNoteId by remember {
+                androidx.compose.runtime.mutableStateOf<String?>(null)
+            }
+            var tribunaFailure by remember {
+                androidx.compose.runtime.mutableStateOf<TribunaFailureUi?>(null)
+            }
+            val startTribuna: (String) -> Unit = { id ->
+                if (tribunaGeneratingNoteId == null) {
+                    tribunaFailure = null
+                    tribunaGeneratingNoteId = id
+                    sessionFor(id).copilotVm.generateTribuna { result ->
+                        tribunaGeneratingNoteId = null
+                        when (result) {
+                            TribunaResult.Success -> nav.navigate(Routes.tribuna(id))
+                            is TribunaResult.Failure -> tribunaFailure = TribunaFailureUi(
+                                noteId = id,
+                                message = result.message,
+                                canOpenEditor = result.canOpenEditor,
+                                canConfigureAi = result.canConfigureAi,
+                            )
+                        }
+                    }
+                }
+            }
             com.bettertalker.app.ui.hub.PresentHomeScreen(
                 hubVm,
                 onPresent = { nav.navigate(Routes.present(it)) },
                 onOpenTribuna = { nav.navigate(Routes.tribuna(it)) },
-                onGenerateTribuna = { id -> nav.navigate(Routes.editor(id, generate = true)) },
+                onGenerateTribuna = startTribuna,
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("present")) },
                 onGoToLibrary = ::goHome,
             )
+            if (tribunaGeneratingNoteId != null) {
+                com.bettertalker.app.ui.hub.TribunaProgressDialog()
+            }
+            tribunaFailure?.let { failure ->
+                com.bettertalker.app.ui.hub.TribunaErrorDialog(
+                    message = failure.message,
+                    canOpenEditor = failure.canOpenEditor,
+                    canConfigureAi = failure.canConfigureAi,
+                    onRetry = {
+                        tribunaFailure = null
+                        startTribuna(failure.noteId)
+                    },
+                    onOpenEditor = {
+                        tribunaFailure = null
+                        nav.navigate(Routes.editor(failure.noteId))
+                    },
+                    onConfigureAi = {
+                        tribunaFailure = null
+                        nav.navigate(Routes.MODEL)
+                    },
+                    onDismiss = { tribunaFailure = null },
+                )
+            }
         }
         composable(
             Routes.PICKER,
@@ -434,27 +484,15 @@ private fun AppNav(
             Routes.EDITOR,
             arguments = listOf(
                 navArgument("noteId") { type = NavType.StringType },
-                navArgument("generate") { type = NavType.BoolType; defaultValue = false },
             )
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
-            val autoGenerate = back.arguments?.getBoolean("generate") ?: false
             // Navegação global: memoriza a última nota aberta (Treinar/Apresentar).
             androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
             // v4.0: mesma sessão usada pela aba Assistente e pelo chat antigo.
             val session = remember(noteId) { sessionFor(noteId) }
             val vm: EditorViewModel = session.editorVm
             val copilotVm: CopilotViewModel = session.copilotVm
-            // Auto-gerar Tribuna se vindo do PresentHome
-            if (autoGenerate) {
-                androidx.compose.runtime.LaunchedEffect(noteId) {
-                    copilotVm.generateTribuna { ok ->
-                        if (ok) nav.navigate(Routes.tribuna(noteId)) {
-                            popUpTo(Routes.EDITOR) { inclusive = true }
-                        }
-                    }
-                }
-            }
             // "Escolher arquivo" da Home: importa o esboço na nota recém-criada.
             val pending = pendingImport
             androidx.compose.runtime.LaunchedEffect(noteId, pending) {
@@ -518,12 +556,14 @@ private fun AppNav(
                 onGenerateTribuna = {
                     // Só abre a Tribuna se a geração salvou ao menos uma
                     // cápsula; falha permanece no editor com erro/retry.
-                    copilotVm.generateTribuna { ok ->
-                        if (ok) {
+                    copilotVm.generateTribuna { result ->
+                        if (result is TribunaResult.Success) {
                             nav.navigate(Routes.tribuna(noteId))
                         } else {
-                            editorNotice = noteId to
-                                "Não consegui gerar a Tribuna. Tente novamente pelo menu ⋮ → Gerar Tribuna."
+                            val reason = (result as? TribunaResult.Failure)?.message
+                            editorNotice = noteId to (reason
+                                ?: "Não consegui gerar a Tribuna. " +
+                                "Tente novamente pelo menu ⋮ → Gerar Tribuna.")
                         }
                     }
                 },
@@ -641,6 +681,14 @@ private fun AppNav(
     }
     }
 }
+
+/** Estado do erro de geração da Tribuna no Palco (diálogo acionável). */
+private data class TribunaFailureUi(
+    val noteId: String,
+    val message: String,
+    val canOpenEditor: Boolean,
+    val canConfigureAi: Boolean,
+)
 
 /**
  * Corpo compartilhado do chat de uma nota (rota antiga do editor e aba

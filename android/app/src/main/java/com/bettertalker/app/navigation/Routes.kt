@@ -4,7 +4,7 @@ object Routes {
     /** Aba inicial do v4.0: assistente da nota atual/recentes. */
     const val ASSISTANT = "assistant"
     const val HOME = "home"
-    const val EDITOR = "editor/{noteId}?generate={generate}"
+    const val EDITOR = "editor/{noteId}"
     const val LIBRARY = "library?linkNote={linkNote}"
     const val TRASH = "trash"
     const val ACCOUNT = "account"
@@ -31,7 +31,7 @@ object Routes {
     const val PRESENT = "present/{noteId}"
     /** Picker compartilhado de esboço (Treino/Palco). */
     const val PICKER = "picker/{mode}"
-    fun editor(noteId: String, generate: Boolean = false) = "editor/$noteId?generate=$generate"
+    fun editor(noteId: String) = "editor/$noteId"
     fun chat(noteId: String) = "chat/$noteId"
     fun tribuna(noteId: String) = "tribuna/$noteId"
     fun stage(noteId: String) = "stage/$noteId"

@@ -5452,23 +5452,25 @@ class CopilotViewModel(
      * por seção, salvas em `tribunaJson`. Não streama; não passa pelo gate
      * (o texto é para o usuário editar).
      */
-    fun generateTribuna(onResult: (Boolean) -> Unit = {}) {
+    fun generateTribuna(onResult: (TribunaResult) -> Unit = {}) {
         viewModelScope.launch {
             val nid = noteId
             if (nid == null) {
-                onResult(false)
+                onResult(TribunaFailures.noNote())
                 return@launch
             }
             val remote = ProviderFactory.resolveRemote(settings, app)
             if (!ProviderFactory.useRemoteRoute(remote)) {
-                postText("Configure a chave de IA na tela Modelo IA para gerar a Tribuna.")
-                onResult(false)
+                val failure = TribunaFailures.noAiKey()
+                postText(failure.message)
+                onResult(failure)
                 return@launch
             }
             val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
             if (sections.none { it.contentHtml.isNotBlank() }) {
-                postText("As seções ainda estão vazias — desenvolva o discurso antes de gerar a Tribuna.")
-                onResult(false)
+                val failure = TribunaFailures.emptySections()
+                postText(failure.message)
+                onResult(failure)
                 return@launch
             }
             val prompt = com.bettertalker.app.data.copilot.buildTribunaPrompt(sections)
@@ -5493,8 +5495,9 @@ class CopilotViewModel(
                 null
             }
             if (res == null) {
-                postText("Não consegui gerar a Tribuna. Tente novamente.")
-                onResult(false)
+                val failure = TribunaFailures.providerFailed()
+                postText(failure.message)
+                onResult(failure)
                 return@launch
             }
             android.util.Log.i(
@@ -5511,11 +5514,9 @@ class CopilotViewModel(
                 ).line(),
             )
             if (res.meta.finishReason == "length") {
-                postText(
-                    "A Tribuna foi cortada pelo limite de tokens. " +
-                        "Tente novamente com menos seções."
-                )
-                onResult(false)
+                val failure = TribunaFailures.truncated()
+                postText(failure.message)
+                onResult(failure)
                 return@launch
             }
             val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
@@ -5533,8 +5534,9 @@ class CopilotViewModel(
                 saved++
             }
             if (saved == 0) {
-                postText("A resposta da Tribuna veio vazia ou em formato inesperado. Tente novamente.")
-                onResult(false)
+                val failure = TribunaFailures.emptyResponse()
+                postText(failure.message)
+                onResult(failure)
             } else {
                 post(
                     false,
@@ -5543,7 +5545,7 @@ class CopilotViewModel(
                         "text" to "— Tribuna gerada para $saved seções —",
                     )),
                 )
-                onResult(true)
+                onResult(TribunaResult.Success)
             }
         }
     }
