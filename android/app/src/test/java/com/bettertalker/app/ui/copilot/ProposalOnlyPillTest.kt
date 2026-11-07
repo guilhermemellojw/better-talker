@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -69,5 +70,58 @@ class ProposalOnlyPillTest {
         )
         assertTrue(action is MessagesEffect.ScrollTo)
         assertEquals(7, (action as MessagesEffect.ScrollTo).index)
+        assertFalse(action.instant)
+    }
+
+    // ---------- #fix-scroll: primeira carga × eventos seguintes ----------
+
+    @Test
+    fun primeiraCarga_posicionaInstantaneoNoFim() {
+        val action = messagesEffect(
+            messageAdded = true, proposalAdded = false, messageCount = 30,
+            hasContext = true, hasTopicEmpty = false,
+            lastItemIndex = 31, followEnd = true,
+            initialLoad = true, atBottom = false,
+        )
+        assertTrue(action is MessagesEffect.ScrollTo)
+        assertTrue((action as MessagesEffect.ScrollTo).instant)
+        assertEquals(31, action.index)
+    }
+
+    @Test
+    fun primeiraCargaComProposta_tambemEhInstantanea() {
+        val action = messagesEffect(
+            messageAdded = false, proposalAdded = true, messageCount = 2,
+            hasContext = true, hasTopicEmpty = false,
+            lastItemIndex = 4, followEnd = true,
+            initialLoad = true, atBottom = false,
+        )
+        assertTrue(action is MessagesEffect.ScrollTo)
+        assertTrue((action as MessagesEffect.ScrollTo).instant)
+        assertEquals(4, action.index)
+    }
+
+    @Test
+    fun seguindoMasForaDoFim_naoPuxaOUsuario_contaNova() {
+        val action = messagesEffect(
+            messageAdded = true, proposalAdded = false, messageCount = 6,
+            hasContext = false, hasTopicEmpty = false,
+            lastItemIndex = 7, followEnd = true,
+            atBottom = false,
+        )
+        assertEquals(MessagesEffect.CountUnseen, action)
+    }
+
+    @Test
+    fun seguindoENoFim_animaUmItem() {
+        val action = messagesEffect(
+            messageAdded = true, proposalAdded = false, messageCount = 6,
+            hasContext = false, hasTopicEmpty = false,
+            lastItemIndex = 7, followEnd = true,
+            atBottom = true,
+        )
+        assertTrue(action is MessagesEffect.ScrollTo)
+        assertFalse((action as MessagesEffect.ScrollTo).instant)
+        assertEquals(5, action.index)
     }
 }

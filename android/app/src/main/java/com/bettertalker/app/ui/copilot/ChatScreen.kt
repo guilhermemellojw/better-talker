@@ -48,6 +48,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -324,7 +325,10 @@ fun ChatScreen(
     val motionScale = rememberMotionScale()
     val cardMotion = motionMillis(CARD_MOTION_MS, motionScale)
     val streamFade = motionMillis(STREAM_CROSSFADE_MS, motionScale)
-    val listState = rememberLazyListState()
+    // Fatia v4.0/fix-scroll: a sessão da nota é a chave do estado da lista.
+    // Sem isso, trocar de nota no Assistente reaproveita posição/“seen” da
+    // conversa anterior. `rememberSaveable` preserva a posição ao trocar de aba.
+    val listState = rememberSaveable(vm, saver = LazyListState.Saver) { LazyListState() }
     val dl = rememberDownloadCtl(vm, snack)
     var input by rememberSaveable { mutableStateOf("") }
     // #26-fix-c: pergunta em edição — o próximo envio SUBSTITUI a antiga
@@ -434,9 +438,9 @@ fun ChatScreen(
         }
     }
     // auto-scroll só se já estiver no fim; senão acumula pílula "novas"
-    var unseenCount by remember { mutableStateOf(0) }
+    var unseenCount by rememberSaveable(vm) { mutableStateOf(0) }
     // Mantém o último número durante o exit da pílula (não mostra "0 novas").
-    var pillCount by remember { mutableIntStateOf(0) }
+    var pillCount by rememberSaveable(vm) { mutableStateOf(0) }
     LaunchedEffect(unseenCount) { if (unseenCount > 0) pillCount = unseenCount }
     val pillMotion = motionMillis(PILL_MOTION_MS, motionScale)
     val atBottom by remember {
@@ -505,15 +509,19 @@ fun ChatScreen(
     // parcial do streaming; o usuário "solta" ao arrastar para cima e reata
     // pelo botão "novas". Antes, a checagem de layout corria com a própria
     // inserção do item e o fim do texto ficava abaixo do fold.
-    var followEnd by remember { mutableStateOf(true) }
+    // #fix-scroll: preserva a posição e o "seguir o fim" ao trocar de aba.
+    var followEnd by rememberSaveable(vm) { mutableStateOf(true) }
+    // #fix-scroll: o primeiro carregamento NÃO anima pelo histórico — ele
+    // posiciona instantaneamente no fim e libera os auto-scrolls seguintes.
+    var initialScrollDone by rememberSaveable(vm) { mutableStateOf(false) }
     // M2a: distingue o primeiro frame do turno (âncora no início) dos updates
     // de streaming (âncora no fim do texto).
-    var seenTurnId by remember { mutableStateOf<String?>(null) }
+    var seenTurnId by rememberSaveable(vm) { mutableStateOf<String?>(null) }
     // #25-fix-a/#26-fix: o que já foi "visto" — distingue CHEGADA de remoção
-    // (fechar proposta não conta como novidade). Inicia em 0/false para o
-    // primeiro efeito rolar até o fim ao abrir a conversa.
-    var seenMessages by remember { mutableStateOf(0) }
-    var seenProposal by remember { mutableStateOf(false) }
+    // (fechar proposta não conta como novidade). Saveable: voltar da aba não
+    // pode reinterpretar o histórico inteiro como mensagem nova.
+    var seenMessages by rememberSaveable(vm) { mutableStateOf(0) }
+    var seenProposal by rememberSaveable(vm) { mutableStateOf(false) }
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { i ->
             when (i) {
@@ -529,6 +537,11 @@ fun ChatScreen(
         // na TRANSIÇÃO falsa→verdadeira (removê-la/fechar não conta). Alvo:
         // mensagem nova → última MENSAGEM; proposta no fim → último ITEM
         // (o card renderiza depois das mensagens).
+        //
+        // #fix-scroll: o primeiro carregamento não vazio é posicionado de
+        // forma INSTANTÂNEA no fim. Só depois de `initialScrollDone` os
+        // efeitos de mensagem/turno/parcial podem animar.
+        val firstLoad = !initialScrollDone && (messages.isNotEmpty() || hasProposal)
         val messageAdded = messages.size > seenMessages
         val proposalAdded = hasProposal && !seenProposal
         seenMessages = messages.size
@@ -541,8 +554,17 @@ fun ChatScreen(
             hasTopicEmpty = messages.isEmpty() && chatScope != null,
             lastItemIndex = lastItemIndex,
             followEnd = followEnd,
+            initialLoad = firstLoad,
+            atBottom = atBottom,
         )) {
-            is MessagesEffect.ScrollTo -> listState.animateScrollToItem(action.index)
+            is MessagesEffect.ScrollTo -> {
+                if (action.instant) {
+                    listState.scrollToItem(action.index, Int.MAX_VALUE)
+                    initialScrollDone = true
+                } else {
+                    listState.animateScrollToItem(action.index)
+                }
+            }
             MessagesEffect.CountUnseen -> unseenCount++
             MessagesEffect.Nothing -> Unit
         }
@@ -553,7 +575,8 @@ fun ChatScreen(
     // #reasoning-ui: enquanto o cabeçalho "Pensando…" está na janela de 2s
     // após o content começar, ancora no TOPO do item para o usuário ver o
     // auto-colapso; depois volta a seguir o FIM do texto.
-    LaunchedEffect(localPartial, reasoningVisible, localReasoning) {
+    LaunchedEffect(localPartial, reasoningVisible, localReasoning, initialScrollDone) {
+        if (!initialScrollDone) return@LaunchedEffect
         if (activeTurn == null && localPartial.isNotBlank() && followEnd) {
             val keepHeader = reasoningVisible && localReasoning.isNotBlank()
             if (keepHeader) {
@@ -568,14 +591,21 @@ fun ChatScreen(
     // #reasoning-ui: o bloco "Pensando…" pode ser o primeiro conteúdo do item
     // (antes do partial). Sem este scroll ele nasce abaixo da viewport e o
     // usuário nunca vê o cabeçalho. Alinha o fim do item, como o parcial.
-    LaunchedEffect(localReasoning) {
+    LaunchedEffect(localReasoning, initialScrollDone) {
+        if (!initialScrollDone) return@LaunchedEffect
         if (activeTurn == null && localReasoning.isNotBlank() && localPartial.isBlank() && followEnd) {
             listState.animateScrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
     // M2a: âncora estável no TURNO (turnId), não no slot de streaming/final.
     // Primeiro frame do turno → topo; updates → fim do texto (se followEnd).
-    LaunchedEffect(activeTurn?.turnId, activeTurn?.partialText?.length, activeTurn?.phase) {
+    LaunchedEffect(
+        activeTurn?.turnId,
+        activeTurn?.partialText?.length,
+        activeTurn?.phase,
+        initialScrollDone,
+    ) {
+        if (!initialScrollDone) return@LaunchedEffect
         val turn = activeTurn
         if (followEnd && showActiveTurn && turn != null) {
             if (seenTurnId != turn.turnId) {
@@ -590,12 +620,20 @@ fun ChatScreen(
     // lista continua colada no fundo quando o IME encolhe o viewport.
     // (O padding do IME fica SÓ no composer; a lista não o duplica.)
     val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
-    LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && followEnd) {
+    LaunchedEffect(imeBottom, initialScrollDone) {
+        if (initialScrollDone && imeBottom > 0 && followEnd) {
             listState.scrollToItem(lastItemIndex, Int.MAX_VALUE)
         }
     }
-    LaunchedEffect(atBottom) { if (atBottom) unseenCount = 0 }
+    // #fix-scroll: chegar ao fim (arrasto/fling/pílula) reata o followEnd.
+    // A posição salva de uma aba anterior é respeitada porque só age quando
+    // o usuário realmente está no fim.
+    LaunchedEffect(atBottom, listState.isScrollInProgress) {
+        if (atBottom && !listState.isScrollInProgress) {
+            unseenCount = 0
+            followEnd = true
+        }
+    }
     dl.host(scope)
 
     fun doSend(text: String) {
@@ -2458,7 +2496,11 @@ internal fun turnAnchorIndex(
 
 /** #25-fix-a: ação do efeito de mensagem nova. Puro/testável. */
 internal sealed interface MessagesEffect {
-    data class ScrollTo(val index: Int) : MessagesEffect
+    /**
+     * Rola até [index]. [instant] = primeiro carregamento (sem animar pelo
+     * histórico); false = mensagem nova acompanhando o fim.
+     */
+    data class ScrollTo(val index: Int, val instant: Boolean = false) : MessagesEffect
     data object CountUnseen : MessagesEffect
     data object Nothing : MessagesEffect
 }
@@ -2466,8 +2508,12 @@ internal sealed interface MessagesEffect {
 /**
  * #25-fix-a / #26-fix — ação do efeito de CONTEÚDO NOVO (mensagem e/ou
  * proposta). Uma decisão por evento: mensagem+proposta juntas contam 1×.
- * Com `followEnd`: mensagem → última MENSAGEM; proposta no fim → último ITEM
- * (o card renderiza DEPOIS das mensagens). Sem `followEnd`: conta uma nova.
+ * Com `followEnd` E já no fim (`atBottom`): mensagem → última MENSAGEM;
+ * proposta no fim → último ITEM (o card renderiza DEPOIS das mensagens).
+ * Sem seguir o fim (ou fora dele): conta uma nova.
+ *
+ * `initialLoad`: primeira carga não vazia → posiciona no fim de forma
+ * instantânea (`instant = true`), sem atravessar o histórico.
  * Nada novo (remoções) → Nothing. Puro/testável.
  */
 internal fun messagesEffect(
@@ -2478,11 +2524,15 @@ internal fun messagesEffect(
     hasTopicEmpty: Boolean,
     lastItemIndex: Int,
     followEnd: Boolean,
+    initialLoad: Boolean = false,
+    atBottom: Boolean = followEnd,
 ): MessagesEffect = when {
+    initialLoad -> MessagesEffect.ScrollTo(lastItemIndex, instant = true)
     !messageAdded && !proposalAdded -> MessagesEffect.Nothing
-    followEnd -> MessagesEffect.ScrollTo(
+    followEnd && atBottom -> MessagesEffect.ScrollTo(
         if (proposalAdded) lastItemIndex
-        else lastMessageIndex(messageCount, hasContext, hasTopicEmpty)
+        else lastMessageIndex(messageCount, hasContext, hasTopicEmpty),
+        instant = false,
     )
     else -> MessagesEffect.CountUnseen
 }
