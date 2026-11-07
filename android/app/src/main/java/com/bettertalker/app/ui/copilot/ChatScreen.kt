@@ -136,6 +136,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardPayload
 import com.bettertalker.app.data.copilot.CardStatus
@@ -190,6 +191,8 @@ fun ChatScreen(
     onOpenNote: (() -> Unit)? = null,
     /** Ação de "abrir editor" dos cards de fontes; default = voltar. */
     onOpenEditor: (() -> Unit)? = null,
+    /** Fatia 4: navegação de seção/Treino/Palco vinda do chat ou da sugestão. */
+    onNavigate: (ResolvedChatNav) -> Unit = {},
     /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
     pttState: PttState? = null,
     pttPartial: String = "",
@@ -282,6 +285,8 @@ fun ChatScreen(
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
     // #15d-escopo: sugestão de vincular publicações (RAG fraco por escopo).
     val scopeSuggestion by vm.scopeSuggestion.collectAsState()
+    // Fatia 4: próximo passo de mentoria (só executa com o toque).
+    val nextStep by vm.nextStepSuggestion.collectAsState()
     // F5d (Modo B): opções de ângulos para um tema do zero.
     val multiProposal by vm.multiProposal.collectAsState()
     val insert by vm.insertReq.collectAsState()
@@ -762,6 +767,23 @@ fun ChatScreen(
                         onPick = { doSend(it) },
                         onAttach = { showAttach = true },
                         onPrefill = { input = it; composerFocus.requestFocus() }
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                // Fatia 4: sugestão de próximo passo — confirmação explícita.
+                val suggestion = nextStep
+                if (suggestion != null && !busy) {
+                    NextStepCard(
+                        suggestion = suggestion,
+                        onAccept = {
+                            vm.dismissNextStepSuggestion()
+                            when (val action = suggestion.action) {
+                                is ResolvedChatNav.DevelopCurrent ->
+                                    vm.send("Desenvolva este ponto")
+                                else -> onNavigate(action)
+                            }
+                        },
+                        onDismiss = vm::dismissNextStepSuggestion,
                     )
                     Spacer(Modifier.height(6.dp))
                 }

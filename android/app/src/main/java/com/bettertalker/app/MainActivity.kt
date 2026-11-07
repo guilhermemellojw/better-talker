@@ -26,6 +26,7 @@ import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
 import com.bettertalker.app.ui.voice.PttHostViewModel
 import com.bettertalker.app.ui.theme.texturedBackground
+import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.repo.LibraryRepository
 import com.bettertalker.app.navigation.Routes
@@ -650,6 +651,41 @@ private fun NoteChatHost(
     val editorSections by editorVm.sections.collectAsState()
     val mdText by editorVm.mdText.collectAsState()
 
+    // Fatia 4 — navegação/mentoria: o chat pede; a tela dona da rota executa.
+    val navScope = androidx.compose.runtime.rememberCoroutineScope()
+    val navSettings = androidx.compose.runtime.remember(ctx) {
+        com.bettertalker.app.data.prefs.SettingsStore(ctx)
+    }
+    val navigateFromChat: (ResolvedChatNav) -> Unit =
+        remember(editorVm, copilotVm, nav, session.noteId, embedded, onOpenEditor) {
+            { request ->
+                when (request) {
+                    is ResolvedChatNav.OpenSection -> {
+                        editorVm.scrollToSection(request.sectionId)
+                        onOpenEditor()
+                    }
+                    is ResolvedChatNav.DevelopCurrent -> {
+                        copilotVm.send("Desenvolva este ponto")
+                    }
+                    ResolvedChatNav.StartTrain -> {
+                        navScope.launch {
+                            navSettings.setTrainNoteId(session.noteId)
+                            nav.navigate(Routes.stage(session.noteId))
+                        }
+                    }
+                    ResolvedChatNav.OpenPresent -> {
+                        navScope.launch {
+                            navSettings.setPresentNoteId(session.noteId)
+                            nav.navigate(Routes.present(session.noteId))
+                        }
+                    }
+                }
+            }
+        }
+    androidx.compose.runtime.LaunchedEffect(copilotVm, nav) {
+        copilotVm.navigationRequests.collect { navigateFromChat(it) }
+    }
+
     // v4.0 — PTT: a sessão ativa troca os callbacks do motor compartilhado.
     // A transcrição entra direto no fio (sem composer) e o turno por voz é o
     // único que auto-fala a resposta.
@@ -736,6 +772,7 @@ private fun NoteChatHost(
             nav.navigate(Routes.editor(session.noteId))
         }) else null,
         onOpenEditor = onOpenEditor,
+        onNavigate = navigateFromChat,
         pttState = pttState,
         pttPartial = pttPartial,
         pttChoice = pttChoice,

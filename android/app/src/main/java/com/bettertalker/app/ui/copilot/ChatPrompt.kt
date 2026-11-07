@@ -86,7 +86,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.copilot.EvidenceMeta
 import com.bettertalker.app.data.copilot.FocusSources
+import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.QuickAction
+import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.glyph
 import com.bettertalker.app.data.domain.TrainingCategory
 import com.bettertalker.app.data.voice.PttState
@@ -527,6 +529,8 @@ fun ChatErrorRow(
  */
 fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
     listOf(
+        "Próximo passo",
+        "Mostrar fontes",
         "Ideias para a introdução",
         "Exemplo de introdução",
         "Desenvolva a introdução",
@@ -537,7 +541,58 @@ fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
         "Sincronizar esboço"
     )
 } else {
-    listOf("Resumir", "Quais refs faltam?")
+    listOf("Próximo passo", "Mostrar fontes", "Resumir", "Quais refs faltam?")
+}
+
+/** Fatia 4 — rótulo do botão da sugestão de próximo passo. Puro/testável. */
+internal fun nextStepActionLabel(action: ResolvedChatNav): String = when (action) {
+    is ResolvedChatNav.OpenSection -> "Abrir"
+    is ResolvedChatNav.DevelopCurrent -> "Desenvolver"
+    ResolvedChatNav.StartTrain -> "Iniciar Treino"
+    ResolvedChatNav.OpenPresent -> "Ir para o Palco"
+}
+
+/**
+ * Fatia 4 — sugestão de próximo passo. O mentor propõe; nada executa sem o
+ * toque em [onAccept]. "Agora não" dispensa sem alterar a nota.
+ */
+@Composable
+fun NextStepCard(
+    suggestion: NextStepSuggestion,
+    onAccept: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(14.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(
+                "Próximo passo",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            Text(
+                suggestion.label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                suggestion.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismiss) { Text("Agora não") }
+                TextButton(onClick = onAccept) { Text(nextStepActionLabel(suggestion.action)) }
+            }
+        }
+    }
 }
 
 /**
