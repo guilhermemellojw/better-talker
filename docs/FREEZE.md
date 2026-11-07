@@ -24,6 +24,18 @@
 > Outlined) no item **Palco** da barra global; main `37eb92b` com CI verde.
 > A tag/release `v4.0.0` permanece imutável; o ícone entra na próxima build.
 
+> **2026-11-07 — fontes da mesma publicação (`9ff828c`):** quando a página
+> citada está no índice mas o § citado não (numeração local do artigo, edição
+> reindexada ou typo), o resolvedor devolve a **página** como PARTIAL em vez
+> de “sem fonte no acervo”; o fallback global de § continua bloqueado para
+> nunca trocar o § por outro artigo. O aviso agora distingue “edição no
+> acervo; trecho não encontrado” de “sem fonte no acervo”, e o detalhe da
+> revista mostra página/§ para separar duas refs da mesma edição.
+> Reproduzido na nota “N.º 35” (Despertai! 8/2013 pág. 6 × pág. 8 §§ 1-2) e
+> validado no **A34** (2 referências, grupo **Disponível**); regression check
+> da nota “Acompanhe o passo…” (`rr` 37-38 §§ 18-19 × 38-39 §§ 21-24) ok.
+> Testes JVM e lint verdes no CI `42405636206`.
+
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
 
