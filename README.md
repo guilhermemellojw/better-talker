@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v3.4.2/47 — Copilot conversa primeiro, cards sob demanda, JWPUB v10, refs de artigo sem duplicata e estrutura sem JSON no chat; sync beta em APK separado.**
+> **Estágio: v4.0/49 — Assistente como porta de entrada, PTT com STT/TTS locais, mentoria/navegação e contexto de Treino/Palco; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -9,9 +9,9 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 > **Nomenclatura:** **Esboços** é a biblioteca; **Treino** é a aba de ensaio; **Palco** é a apresentação ao vivo. “Ensaio” e “Apresentar” são nomes históricos.
 
-## 📌 Estado atual (2026-11-06)
+## 📌 Estado atual (2026-11-07)
 
-- **Versão:** 3.4.2 (versionCode 47), pronta para publicar; **Copilot conversa primeiro** (card só em pedido explícito de texto, com conversa antes), **cards sob demanda** (texto/estrutura/ângulos recolhidos, proposta explícita expandida), **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** (parágrafos antigos + trecho aproximado), **jr/rr e download de edições antigas** **refs de artigo sem duplicata** (`it “Presunção” § 10` uma vez; fora do foco vai ao inventário, sem falso “trecho não encontrado”) e **estrutura sem JSON no chat** (streaming estruturado não espelha o gerador; parser aceita aliases e minutos decimais). Validado no tablet e no A34 (47 instalado sobre o 44, dados preservados; `it` exato, `w08` aproximado, download direto e estrutura sem JSON).
+- **Versão:** 4.0 (versionCode 49), pronta para publicar; **aba Assistente** como porta de entrada com sessão de nota compartilhada, **PTT** com STT Sherpa local (fallback on-device), auto-TTS Piper e barge-in, **mentoria/navegação** (`abrir o Ponto 2`, `mostrar fontes`, `iniciar Treino`, `ir para o Palco`) e **contexto de Treino/Palco** no Assistente (readiness, última preparação escolhida, Tribuna/roteiro e retomada da sessão salva). Inclui o **Copilot conversa primeiro**, **cards sob demanda**, **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** e **refs de artigo sem duplicata**. Validado no tablet (debug e release local).
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -28,8 +28,8 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **A1/A2 — release seguro (2026-10-26):** chave DeepSeek cifrada com AES/GCM e chave não exportável no **Android Keystore** (migração automática do texto claro legado); `allowBackup=false`; APK de release assinado com keystore fora do repo (RSA 4096), `debuggable=false`; HTTPS only e WebView sem acesso a arquivos/conteúdo; ABI `arm64-v8a`; CI de release com `lintRelease`, `assembleRelease`, verificação por `apksigner` e SHA-256 — dry-run verde. Keystore e senhas ficam fora do repo (backup offline obrigatório). Ver [RELEASE.md](docs/RELEASE.md).
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
-- **Testes:** **2.831 testes JVM verdes** na main (C2.5 + M2a + M2b + 45 min + fontes/gate + voz/STT + C2 + M1 + card-first + Treino + Palco + lote visual) · `lintDebug` 0 errors.
-- **Distribuição:** **v3.3.0/44** (APK assinado + SHA-256, arm64; hash no `app-release.apk.sha256` do release). O v3.2.0/42 e anteriores continuam disponíveis. O sync beta é um APK separado (`3.3.0-syncbeta`, 43) e não entra no release público. Ver [v3.3.0](docs/releases/v3.3.0.md) e [RELEASE.md](docs/RELEASE.md).
+- **Testes:** **2.973 testes JVM verdes** na main (v4.0: Assistente + PTT/STT/TTS + mentoria/navegação + contexto Treino/Palco, além de C2.5, M2a/M2b, 45 min, fontes/gate, C2, M1, card-first, Treino e Palco) · `lintRelease` 0 errors.
+- **Distribuição:** **v3.4.2/47** pública (APK assinado + SHA-256, arm64); **v4.0/49 em preparação** nesta branch, com smoke no tablet. O sync beta é um APK separado (`4.0-syncbeta`, 50) e não entra no release público. Ver [v3.4.2](docs/releases/v3.4.2.md) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
@@ -37,7 +37,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Verifier Nível 2:** as referências bíblicas do ponto atual do S-34 são resolvidas no índice TNM local e injetadas no corpus do `GroundednessVerifier` como `[ref] texto`. Citações reais deixam de ser sinalizadas; refs não resolvidas são omitidas (sem fallback fantasma).
 - **Language Guide:** guia de linguagem simples injetado nas personas de chat, geração, discurso, demonstração e modo colar. Frases curtas, voz ativa e termos TJ preservados (`Jeová`, `as Escrituras`, `publicador` etc.); academicismos como `outrossim` entram na lista de termos a evitar.
 - **Colar V&M — 5 formatos:** a detecção da parte de Tesouros passou a usar estrutura + posição + minutos + refs (sem depender do título), e cada frase do corpo vira um subtópico na **LINHA DE RACIOCÍNIO**. O **MINI DISCURSO** nasce vazio para geração; o texto colado permanece no `plainText` da nota para busca/prévia.
-- **Testes:** 2125 testes JVM verdes na época (hoje: 2.831).
+- **Testes:** 2125 testes JVM verdes na época (hoje: 2.973).
 
 ## 🆕 Novidades da v2.2
 

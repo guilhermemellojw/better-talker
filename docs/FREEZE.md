@@ -1,6 +1,18 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-06 · **Build de referência:** v3.4.2 (versionCode 47) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-07 · **Build de referência:** v4.0 (versionCode 49, em preparação) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-07 — v4.0/49 (fatias 2–5):** aba Assistente com sessão de nota
+> compartilhada; PTT com STT Sherpa local (fallback on-device), auto-TTS
+> Piper e barge-in (áudio descartado); mentoria/navegação determinística
+> (“abrir o Ponto 2”, “mostrar fontes”, “iniciar Treino”, “ir para o Palco”)
+> com sugestão de próximo passo confirmável; contexto de Treino/Palco no
+> Assistente (nota atual, readiness, última preparação escolhida,
+> Tribuna/roteiro e retomada da sessão salva), sem persistir resultados de
+> treino. S-34: aviso só em `S34_DISCOURSE`. Tablet validou a troca de nota
+> pelo Palco, a linha de contexto, “Continuar no Palco” + “Iniciar Treino” e
+> a navegação; 2.973 testes JVM/0 verdes e lintRelease verde no CI da fatia.
+> Bump público 4.0/49 e beta 50; tag/release só com pedido explícito.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
