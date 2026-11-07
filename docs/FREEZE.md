@@ -38,8 +38,8 @@
 
 > **2026-11-07 — v4.0.1/51 (ícone do Palco + fontes):** tag `v4.0.1` com o
 > ícone `interpreter_mode` no Palco e a correção de fontes acima. APK público
-> assinado + SHA-256 no GitHub Release; `4.0.1-syncbeta`/52 é artefato
-> separado. Atualização por cima do público 4.0/49 preserva os dados.
+> assinado + SHA-256 `74202a45…` no GitHub Release; `4.0.1-syncbeta`/52 é
+> artefato separado. Atualização por cima do público 4.0/49 preserva os dados.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
