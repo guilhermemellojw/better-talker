@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -100,6 +101,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.ParagraphStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -337,6 +339,7 @@ fun EditorScreen(
         containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
+            Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -344,42 +347,13 @@ fun EditorScreen(
                 scrollBehavior = scrollBehavior,
                 navigationIcon = { IconButton(onClick = requestBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 title = {
-                    Column {
-                        Text(
-                            if (saving) "Salvando…" else "Salvo local",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                wordCountLabel,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (wordCount.needsDevelopmentHint) {
-                                    MaterialTheme.colorScheme.tertiary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.weight(1f, fill = false),
-                                maxLines = 2,
-                            )
-                            val sources = noteSources
-                            if (sources != null && sources.hasRefs) {
-                                Spacer(Modifier.width(8.dp))
-                                AssistChip(
-                                    onClick = { showSources = true },
-                                    label = {
-                                        Text("Fontes ${sources.resolved}/${sources.total}")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.MenuBook,
-                                            null,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    },
-                                )
-                            }
-                        }
-                    }
+                    Text(
+                        title.ifBlank { "Sem título" },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 },
                 actions = {
                     IconButton(onClick = { preview = !preview }) {
@@ -401,6 +375,67 @@ fun EditorScreen(
                     }
                 }
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!saving) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(
+                    if (saving) "Salvando…" else "Salvo",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "·",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    wordCountLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (wordCount.needsDevelopmentHint) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val sources = noteSources
+                if (sources != null && sources.hasRefs) {
+                    Spacer(Modifier.width(8.dp))
+                    AssistChip(
+                        onClick = { showSources = true },
+                        label = {
+                            Text(
+                                "Fontes ${sources.resolved}/${sources.total}",
+                                maxLines = 1,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.MenuBook,
+                                null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                    )
+                }
+            }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { pad ->
@@ -472,8 +507,8 @@ fun EditorScreen(
                 // Título estilo Notes: grande, sem borda
                 androidx.compose.material3.TextField(
                     value = title, onValueChange = vm::onTitle,
-                    placeholder = { Text("Título", style = MaterialTheme.typography.titleLarge) },
-                    textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    placeholder = { Text("Título", style = MaterialTheme.typography.titleMedium) },
+                    textStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     singleLine = true,
                     colors = androidx.compose.material3.TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
