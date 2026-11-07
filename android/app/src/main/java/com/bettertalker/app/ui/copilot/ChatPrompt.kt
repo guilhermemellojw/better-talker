@@ -559,7 +559,7 @@ internal fun nextStepActionLabel(action: ResolvedChatNav): String = when (action
 @Composable
 fun NextStepCard(
     suggestion: NextStepSuggestion,
-    onAccept: () -> Unit,
+    onAction: (ResolvedChatNav) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -589,7 +589,14 @@ fun NextStepCard(
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(onClick = onDismiss) { Text("Agora não") }
-                TextButton(onClick = onAccept) { Text(nextStepActionLabel(suggestion.action)) }
+                suggestion.secondaryAction?.let { secondary ->
+                    TextButton(onClick = { onAction(secondary) }) {
+                        Text(nextStepActionLabel(secondary))
+                    }
+                }
+                TextButton(onClick = { onAction(suggestion.action) }) {
+                    Text(nextStepActionLabel(suggestion.action))
+                }
             }
         }
     }

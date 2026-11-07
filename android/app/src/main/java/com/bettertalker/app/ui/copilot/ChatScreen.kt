@@ -136,6 +136,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardPayload
@@ -193,6 +194,8 @@ fun ChatScreen(
     onOpenEditor: (() -> Unit)? = null,
     /** Fatia 4: navegação de seção/Treino/Palco vinda do chat ou da sugestão. */
     onNavigate: (ResolvedChatNav) -> Unit = {},
+    /** Fatia 5: snapshot de prática da nota ativa (só no Assistente). */
+    practiceContext: PracticeSnapshot? = null,
     /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
     pttState: PttState? = null,
     pttPartial: String = "",
@@ -775,9 +778,9 @@ fun ChatScreen(
                 if (suggestion != null && !busy) {
                     NextStepCard(
                         suggestion = suggestion,
-                        onAccept = {
+                        onAction = { action ->
                             vm.dismissNextStepSuggestion()
-                            when (val action = suggestion.action) {
+                            when (action) {
                                 is ResolvedChatNav.DevelopCurrent ->
                                     vm.send("Desenvolva este ponto")
                                 else -> onNavigate(action)
@@ -911,6 +914,8 @@ fun ChatScreen(
                         onDismiss = { vm.dismissSetupBanner() },
                     )
                 }
+                // Fatia 5: linha de contexto de prática (só no Assistente).
+                practiceContext?.let { PracticeContextStrip(it) }
                 // #25-fix-c: a antiga Row GuideBar+FocusChip foi unificada na
                 // TopAppBar (título + N/M + chip). Navegação agora é por swipe.
                 // #25-fix-c: swipe horizontal navega entre seções (só em SECTION;
@@ -3348,4 +3353,28 @@ internal fun swipeTarget(totalDrag: Float, threshold: Float): SwipeAction = when
     totalDrag < -threshold -> SwipeAction.Next
     totalDrag > threshold -> SwipeAction.Previous
     else -> SwipeAction.None
+}
+
+/**
+ * Fatia 5 — linha compacta do contexto de prática. Só informa; as ações
+ * continuam no card de próximo passo (com confirmação).
+ */
+@Composable
+private fun PracticeContextStrip(snapshot: PracticeSnapshot) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Text(
+            "Prática · ${snapshot.contextLine}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
 }

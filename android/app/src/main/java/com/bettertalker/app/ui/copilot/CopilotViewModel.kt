@@ -1442,6 +1442,24 @@ class CopilotViewModel(
     val noteTitle = _noteTitle.asStateFlow()
     private val _noteBody = MutableStateFlow("")
 
+    /**
+     * Fatia 5: bloco de contexto de prática (Treino/Palco) no prompt. Vazio
+     * fora do Assistente. Não é resultado de treino — é readiness/prescrição.
+     */
+    private val _practiceContext = MutableStateFlow("")
+    fun setPracticeContext(block: String?) {
+        _practiceContext.value = block.orEmpty()
+    }
+
+    /** Dossiê + snapshot de prática no mesmo contextBlock do LlmRequest. */
+    private fun contextBlockWithPractice(
+        dossier: Dossier?,
+        includeSpeakerNote: Boolean,
+    ): String? = listOfNotNull(
+        dossier?.let { dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote) },
+        _practiceContext.value.takeIf { it.isNotBlank() },
+    ).joinToString("\n\n").ifBlank { null }
+
     // ---------- Fase 16: paridade com o chat da F15 ----------
 
     /**
@@ -2124,11 +2142,32 @@ class CopilotViewModel(
         return com.bettertalker.app.data.copilot.sectionShortTitle(section, body).lowercase()
     }
 
-    /** Monta a sugestão de próximo passo a partir das seções reais. */
-    private fun suggestNextStepNow() {
+    /** Monta a sugestão de próximo passo a partir das seções e da prática. */
+    private suspend fun suggestNextStepNow() {
+        val sections = _guideSections.value
+        val nid = noteId
+        val note = nid?.let { db.noteDao().get(it) }
+        val subPointsBySection = if (sections.isEmpty()) {
+            emptyMap()
+        } else {
+            db.subPointDao().forSections(sections.map { it.id })
+                .map { it.toDomain() }
+                .groupBy { it.sectionId }
+        }
+        val practice = nid?.let {
+            buildPracticeSnapshot(
+                noteId = it,
+                note = note,
+                sections = sections,
+                subPointsBySection = subPointsBySection,
+                trainPrepRaw = settings.trainPrep(it),
+                presentSessionRaw = settings.presentSession(it),
+            )
+        }
         val suggestion = nextStepSuggestion(
-            sections = _guideSections.value,
+            sections = sections,
             focusedSectionId = _chatScope.value,
+            practice = practice,
         )
         if (suggestion == null) {
             postText(
@@ -3174,12 +3213,10 @@ class CopilotViewModel(
             // na pergunta genérica, mas tirava do modelo o TRECHO LITERAL da
             // publicação — que é exatamente o que o Web entrega. Sem dossiê
             // o modelo responde "a fonte não traz esse texto" (medido no A34).
-            val contextBlock = dossier?.let {
-                dossierPromptBuilder.buildContextBlock(
-                    it,
-                    includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                )
-            }
+            val contextBlock = contextBlockWithPractice(
+                dossier = dossier,
+                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+            )
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
             // Fase 4 — refinamento de seção sem geração anterior: o texto
@@ -4719,12 +4756,10 @@ class CopilotViewModel(
                         maxOutputTokensCap = OutputBudget.PROPOSAL_MAX,
                         // F2b: dossiê do último send() (a proposta nasce do turno).
                         // F5c: dedupe da ORIENTAÇÃO DO ORADOR (igual ao send()).
-                        contextBlock = lastDossier?.let {
-                            dossierPromptBuilder.buildContextBlock(
-                                it,
-                                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                            )
-                        },
+                        contextBlock = contextBlockWithPractice(
+                            dossier = lastDossier,
+                            includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                        ),
                     ))
                 }
                 android.util.Log.e("CopilotLLM", "proposal generated len=" + res.text.length +

@@ -243,6 +243,7 @@ private fun AppNav(
             )
             val notes by assistantVm.notes.collectAsState()
             val lastNoteId by assistantVm.lastNoteId.collectAsState()
+            val practice by assistantVm.practiceContext.collectAsState()
             val availableIds = remember(notes) {
                 notes?.map { it.id }?.toSet().orEmpty()
             }
@@ -254,9 +255,15 @@ private fun AppNav(
             androidx.compose.runtime.LaunchedEffect(notes, lastNoteId, targetId) {
                 if (notes != null && lastNoteId != null && targetId == null) {
                     assistantVm.clearLastNoteId()
+                    assistantVm.clearPracticeContext()
                 }
             }
             if (target != null) {
+                // Fatia 5: recarrega readiness de Treino/Palco ao entrar na aba
+                // (o ensaio acontece fora desta composição).
+                androidx.compose.runtime.LaunchedEffect(target.id) {
+                    assistantVm.refreshPracticeContext(target.id)
+                }
                 NoteChatHost(
                     session = sessionFor(target.id),
                     nav = nav,
@@ -265,6 +272,7 @@ private fun AppNav(
                     // Sem foco vindo do editor, o assistente começa no
                     // discurso inteiro (não num "Tópico" sem número).
                     defaultWholeFocus = true,
+                    practiceContext = practice?.takeIf { it.noteId == target.id },
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
                 )
@@ -323,6 +331,11 @@ private fun AppNav(
             val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
                 factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
             )
+            // Fatia 5: a nota atual do Treino é o contexto do Assistente.
+            val trainId by hubVm.trainNoteId.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(trainId) {
+                trainId?.let { settings.setLastNoteId(it) }
+            }
             com.bettertalker.app.ui.hub.TrainHomeScreen(
                 hubVm,
                 onOpenStage = { nav.navigate(Routes.stage(it)) },
@@ -335,6 +348,11 @@ private fun AppNav(
             val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
                 factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
             )
+            // Fatia 5: a nota atual do Palco é o contexto do Assistente.
+            val presentId by hubVm.presentNoteId.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(presentId) {
+                presentId?.let { settings.setLastNoteId(it) }
+            }
             com.bettertalker.app.ui.hub.PresentHomeScreen(
                 hubVm,
                 onPresent = { nav.navigate(Routes.present(it)) },
@@ -520,6 +538,11 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // Fatia 5: o Assistente segue a nota da prática.
+            androidx.compose.runtime.LaunchedEffect(noteId) {
+                settings.setTrainNoteId(noteId)
+                settings.setLastNoteId(noteId)
+            }
             // Voz premium (Piper): provisionada no 1º Ensaio (sem UI de
             // gerenciamento) e reaplicada depois — o roteador pode ter caído
             // no nativo no boot por falta do modelo no disco.
@@ -540,6 +563,11 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // Fatia 5: o Assistente segue a nota da prática.
+            androidx.compose.runtime.LaunchedEffect(noteId) {
+                settings.setPresentNoteId(noteId)
+                settings.setLastNoteId(noteId)
+            }
             val presentVm: com.bettertalker.app.ui.present.PresentViewModel = viewModel(
                 key = "present-$noteId",
                 factory = com.bettertalker.app.ui.present.PresentViewModel.Factory(db, settings, noteId),
@@ -557,6 +585,11 @@ private fun AppNav(
             arguments = listOf(navArgument("noteId") { type = NavType.StringType })
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
+            // Fatia 5: a Tribuna também é contexto de Palco.
+            androidx.compose.runtime.LaunchedEffect(noteId) {
+                settings.setPresentNoteId(noteId)
+                settings.setLastNoteId(noteId)
+            }
             val tribunaVm: com.bettertalker.app.ui.tribuna.TribunaViewModel = viewModel(
                 key = "tribuna-$noteId",
                 factory = com.bettertalker.app.ui.tribuna.TribunaViewModel.Factory(
@@ -618,6 +651,8 @@ private fun NoteChatHost(
     ptt: com.bettertalker.app.data.voice.PttController,
     embedded: Boolean,
     defaultWholeFocus: Boolean = false,
+    /** Fatia 5: snapshot de Treino/Palco (só no Assistente). */
+    practiceContext: com.bettertalker.app.data.copilot.PracticeSnapshot? = null,
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
 ) {
@@ -650,6 +685,11 @@ private fun NoteChatHost(
     val draftState by editorVm.draftState.collectAsState()
     val editorSections by editorVm.sections.collectAsState()
     val mdText by editorVm.mdText.collectAsState()
+
+    // Fatia 5: snapshot de prática no prompt do chat (nunca resultado de treino).
+    androidx.compose.runtime.LaunchedEffect(practiceContext?.promptBlock) {
+        copilotVm.setPracticeContext(practiceContext?.promptBlock)
+    }
 
     // Fatia 4 — navegação/mentoria: o chat pede; a tela dona da rota executa.
     val navScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -773,6 +813,7 @@ private fun NoteChatHost(
         }) else null,
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
+        practiceContext = practiceContext,
         pttState = pttState,
         pttPartial = pttPartial,
         pttChoice = pttChoice,

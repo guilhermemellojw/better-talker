@@ -54,6 +54,8 @@ data class NextStepSuggestion(
     val label: String,
     val detail: String,
     val action: ResolvedChatNav,
+    /** Alternativa explícita (Treinar × Apresentar) quando o texto está completo. */
+    val secondaryAction: ResolvedChatNav? = null,
 )
 
 /**
@@ -62,25 +64,27 @@ data class NextStepSuggestion(
  * Prioridade:
  * 1. primeiro trecho sem texto (introdução, pontos ou conclusão);
  * 2. se o trecho sem texto é o que está em foco, sugerir desenvolvê-lo;
- * 3. com todos os trechos preenchidos, sugerir o Treino.
+ * 3. com todos os trechos preenchidos, sugerir Treino e/ou Palco —
+ *    continuar a sessão salva > apresentar (pronto) > treinar.
  *
  * Puro/testável: sem Room, LLM ou Compose.
  */
 fun nextStepSuggestion(
     sections: List<SpeechSection>,
     focusedSectionId: String?,
+    practice: PracticeSnapshot? = null,
 ): NextStepSuggestion? {
     if (sections.isEmpty()) return null
     val ordered = sections.sortedBy { it.order }
     val body = ordered.filter { it.role == SectionRole.BODY }
-    val blank = ordered.firstOrNull { !hasVisibleText(it.contentHtml) }
+    val blank = ordered.firstOrNull { section ->
+        val hasText = practice?.hasTextBySectionId?.get(section.id)
+            ?: hasVisibleText(section.contentHtml)
+        !hasText
+    }
 
     if (blank == null) {
-        return NextStepSuggestion(
-            label = "Iniciar Treino",
-            detail = "Todos os trechos têm texto. Hora de treinar a apresentação.",
-            action = ResolvedChatNav.StartTrain,
-        )
+        return completeTextSuggestion(practice)
     }
 
     val title = sectionShortTitle(blank, body)
@@ -100,6 +104,40 @@ fun nextStepSuggestion(
             title = blank.title,
             sectionNumber = ordered.indexOf(blank) + 1,
         ),
+    )
+}
+
+/**
+ * Com todos os trechos preenchidos, a mentoria oferece as duas práticas:
+ * continuar o Palco (se há sessão salva), apresentar (Tribuna/roteiro pronto)
+ * ou começar pelo Treino. A segunda ação é sempre explícita na tela.
+ */
+private fun completeTextSuggestion(practice: PracticeSnapshot?): NextStepSuggestion {
+    val train = ResolvedChatNav.StartTrain
+    val present = ResolvedChatNav.OpenPresent
+    val saved = practice?.resumeLabel
+    if (saved != null) {
+        return NextStepSuggestion(
+            label = "Continuar no Palco",
+            detail = "Retome de onde parou: $saved.",
+            action = present,
+            secondaryAction = train,
+        )
+    }
+    if (practice?.presentState == PracticePresentState.READY) {
+        return NextStepSuggestion(
+            label = "Apresentar",
+            detail = "Prática pronta: ${practice.presentLabel.lowercase()}. " +
+                "Você também pode treinar antes.",
+            action = present,
+            secondaryAction = train,
+        )
+    }
+    return NextStepSuggestion(
+        label = "Iniciar Treino",
+        detail = "Texto completo. Você também pode ir para o Palco.",
+        action = train,
+        secondaryAction = present,
     )
 }
 

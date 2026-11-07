@@ -173,12 +173,24 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
         list.firstOrNull { it.id == id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    fun setTrainNote(id: String?) = viewModelScope.launch { settings.setTrainNoteId(id) }
-    fun setPresentNote(id: String?) = viewModelScope.launch { settings.setPresentNoteId(id) }
+    fun setTrainNote(id: String?) = viewModelScope.launch {
+        settings.setTrainNoteId(id)
+        if (id != null) settings.setLastNoteId(id)
+    }
+    fun setPresentNote(id: String?) = viewModelScope.launch {
+        settings.setPresentNoteId(id)
+        if (id != null) settings.setLastNoteId(id)
+    }
 
     /** Grava e espera (picker navega depois; evita piscar o empty state). */
-    suspend fun setTrainNoteNow(id: String?) = settings.setTrainNoteId(id)
-    suspend fun setPresentNoteNow(id: String?) = settings.setPresentNoteId(id)
+    suspend fun setTrainNoteNow(id: String?) {
+        settings.setTrainNoteId(id)
+        if (id != null) settings.setLastNoteId(id)
+    }
+    suspend fun setPresentNoteNow(id: String?) {
+        settings.setPresentNoteId(id)
+        if (id != null) settings.setLastNoteId(id)
+    }
 
     class Factory(private val ctx: Context, private val db: AppDatabase) :
         ViewModelProvider.Factory {

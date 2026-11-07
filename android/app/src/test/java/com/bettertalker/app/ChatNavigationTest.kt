@@ -3,6 +3,8 @@ package com.bettertalker.app
 import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatRouter
 import com.bettertalker.app.data.copilot.ChatRouter.Route
+import com.bettertalker.app.data.copilot.PracticePresentState
+import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.nextStepSuggestion
 import com.bettertalker.app.domain.speech.SectionRole
@@ -185,6 +187,83 @@ class ChatNavigationTest {
         val s = nextStepSuggestion(sections, focusedSectionId = "b1")!!
         assertEquals("Iniciar Treino", s.label)
         assertEquals(ResolvedChatNav.StartTrain, s.action)
+    }
+
+    @Test
+    fun textoCompletoComPalcoProntoOfereceApresentarETreinar() {
+        val sections = listOf(
+            section("i", 0, SectionRole.INTRO, "Introdução", "<p>texto</p>"),
+            section("b1", 1, SectionRole.BODY, "Ponto 1", "<p>texto</p>"),
+            section("c", 2, SectionRole.CONCLUSION, "Conclusão", "<p>texto</p>"),
+        )
+        val practice = PracticeSnapshot(
+            noteId = "note",
+            hasTrainingText = true,
+            hasTextBySectionId = sections.associate { it.id to true },
+            presentState = PracticePresentState.READY,
+            presentLabel = "Tribuna pronta",
+        )
+        val s = nextStepSuggestion(sections, focusedSectionId = "b1", practice = practice)!!
+        assertEquals("Apresentar", s.label)
+        assertEquals(ResolvedChatNav.OpenPresent, s.action)
+        assertEquals(ResolvedChatNav.StartTrain, s.secondaryAction)
+    }
+
+    @Test
+    fun sessaoSalvaSugereContinuarNoPalco() {
+        val sections = listOf(
+            section("i", 0, SectionRole.INTRO, "Introdução", "<p>texto</p>"),
+            section("b1", 1, SectionRole.BODY, "Ponto 1", "<p>texto</p>"),
+            section("c", 2, SectionRole.CONCLUSION, "Conclusão", "<p>texto</p>"),
+        )
+        val practice = PracticeSnapshot(
+            noteId = "note",
+            hasTrainingText = true,
+            hasTextBySectionId = sections.associate { it.id to true },
+            presentState = PracticePresentState.READY,
+            presentLabel = "Tribuna pronta",
+            savedSectionIndex = 1,
+            savedSectionTitle = "Ponto 1",
+            savedElapsedSec = 312,
+        )
+        val s = nextStepSuggestion(sections, focusedSectionId = null, practice = practice)!!
+        assertEquals("Continuar no Palco", s.label)
+        assertTrue(s.detail, s.detail.contains("seção 2"))
+        assertTrue(s.detail, s.detail.contains("5:12"))
+        assertEquals(ResolvedChatNav.OpenPresent, s.action)
+        assertEquals(ResolvedChatNav.StartTrain, s.secondaryAction)
+    }
+
+    @Test
+    fun subpontosContamComoTrechoPreenchido() {
+        val sections = listOf(
+            section("i", 0, SectionRole.INTRO, "Introdução", "<p>texto</p>"),
+            // S-34: contentHtml vazio, mas o subponto tem desenvolvimento.
+            section("b1", 1, SectionRole.BODY, "Ponto 1", ""),
+            section("c", 2, SectionRole.CONCLUSION, "Conclusão", "<p>texto</p>"),
+        )
+        val practice = PracticeSnapshot(
+            noteId = "note",
+            hasTrainingText = true,
+            hasTextBySectionId = mapOf("i" to true, "b1" to true, "c" to true),
+            presentState = PracticePresentState.MISSING,
+            presentLabel = "Falta gerar a Tribuna",
+        )
+        val s = nextStepSuggestion(sections, focusedSectionId = null, practice = practice)!!
+        assertEquals("Iniciar Treino", s.label)
+        assertEquals(ResolvedChatNav.StartTrain, s.action)
+        assertEquals(ResolvedChatNav.OpenPresent, s.secondaryAction)
+    }
+
+    @Test
+    fun textoCompletoSemPalcoAindaOfereceAsDuasAcoes() {
+        val sections = listOf(
+            section("b1", 0, SectionRole.BODY, "Ponto 1", "<p>texto</p>"),
+        )
+        val s = nextStepSuggestion(sections, focusedSectionId = null)!!
+        assertEquals("Iniciar Treino", s.label)
+        assertEquals(ResolvedChatNav.StartTrain, s.action)
+        assertEquals(ResolvedChatNav.OpenPresent, s.secondaryAction)
     }
 
     @Test
