@@ -1224,11 +1224,11 @@ class CopilotViewModel(
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
         val text = extractCardText(map["text"].orEmpty()) ?: return
-        // HTML final do editor: markdown/HTML do card deixa de aparecer cru.
-        val cardHtml = cardTextToEditorHtml(text)
-        if (cardHtml.isBlank()) return
         val now = System.currentTimeMillis()
         try {
+            // HTML final do editor: markdown/HTML do card deixa de aparecer cru.
+            val cardHtml = cardTextToEditorHtml(text)
+            if (cardHtml.isBlank()) return
             val previousHtml: String
             val postHtml: String
             var stale = false
