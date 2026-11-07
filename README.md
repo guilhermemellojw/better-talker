@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v4.0/49 publicado (tag v4.0.0) — Assistente como porta de entrada, modo Walkie com PTT/STT/TTS locais, mentoria/navegação e contexto de Treino/Palco; sync beta em APK separado.**
+> **Estágio: v4.0.1/51 publicado (tag v4.0.1) — Assistente como porta de entrada, modo Walkie com PTT/STT/TTS locais, mentoria/navegação e contexto de Treino/Palco; ícone novo do Palco e fontes com página localizada; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -11,7 +11,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 
 ## 📌 Estado atual (2026-11-07)
 
-- **Versão:** 4.0 (versionCode 49), pronta para publicar; **aba Assistente** como porta de entrada com sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta em texto, chat completo a um toque), **PTT** com STT Sherpa local (fallback on-device), auto-TTS Piper e barge-in, **mentoria/navegação** (`abrir o Ponto 2`, `mostrar fontes`, `iniciar Treino`, `ir para o Palco`) e **contexto de Treino/Palco** no Assistente (readiness, última preparação escolhida, Tribuna/roteiro e retomada da sessão salva). Inclui o **Copilot conversa primeiro**, **cards sob demanda**, **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** e **refs de artigo sem duplicata**. O chat longo entra direto no fim, sem animar pelo histórico. Validado no tablet (debug e release local).
+- **Versão:** 4.0.1 (versionCode 51); **aba Assistente** como porta de entrada com sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta em texto, chat completo a um toque), **PTT** com STT Sherpa local (fallback on-device), auto-TTS Piper e barge-in, **mentoria/navegação** (`abrir o Ponto 2`, `mostrar fontes`, `iniciar Treino`, `ir para o Palco`) e **contexto de Treino/Palco** no Assistente (readiness, última preparação escolhida, Tribuna/roteiro e retomada da sessão salva). Inclui o **Copilot conversa primeiro**, **cards sob demanda**, **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** e **refs de artigo sem duplicata**. O chat longo entra direto no fim, sem animar pelo histórico. No 4.0.1: ícone `interpreter_mode` no **Palco** e fontes da nota que devolvem a **página localizada** quando o § citado não está no índice, sem “sem fonte no acervo”. Validado no tablet e no A34 (debug e release local).
 - **Portas de entrada (FAB `+`):** **Importar esboço S-34** (arquivo DOCX/PDF/JWPUB), **Colar parte da reunião V&M** (texto da parte S-38) e **Criar esboço do zero** (discurso público ou demonstração livre). “Nota rápida” segue como ação secundária.
 - **S-34:** importação por arquivo → parser estrutural → outline persistido (seções, subpontos e referências) → o Copilot recebe a estrutura. Validado com um S-34 real de 4 seções/30 min: 75 referências (67 bíblicas + 8 de publicações). Ver [validação no Redmi 9](docs/reports/validacao-2026-10-25-redmi9.md).
 - **Fase 2 (S-34):** rodapé/cobertura não viram subponto; total declarado é respeitado (30 min, não 32); contador separa **desenvolvidas × esboço**; ✨ do Copilot no cabeçalho do card ativo. Validado no A34 com import novo e nota de Tesouros de 10 min.
@@ -29,7 +29,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **2.983 testes JVM verdes** na main (v4.0: Assistente + Walkie + PTT/STT/TTS + mentoria/navegação + contexto Treino/Palco, além de C2.5, M2a/M2b, 45 min, fontes/gate, C2, M1, card-first, Treino e Palco) · `lintRelease` 0 errors.
-- **Distribuição:** **v4.0/49 pública** (tag `v4.0.0`; APK assinado + SHA-256 `1618598c…`, arm64). O sync beta é um APK separado (`4.0-syncbeta`, 50) e não entra no release público. Ver [v4.0.0](https://github.com/guilhermemellojw/better-talker/releases/tag/v4.0.0) e [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v4.0.1/51 pública** (tag `v4.0.1`; APK assinado + SHA-256 no release, arm64). O sync beta é um APK separado (`4.0.1-syncbeta`, 52) e não entra no release público. Ver [v4.0.1](https://github.com/guilhermemellojw/better-talker/releases/tag/v4.0.1) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 

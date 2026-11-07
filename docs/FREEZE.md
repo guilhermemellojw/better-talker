@@ -1,6 +1,6 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-07 · **Build de referência:** v4.0 (versionCode 49, tag `v4.0.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-07 · **Build de referência:** v4.0.1 (versionCode 51, tag `v4.0.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
 > **2026-11-07 — v4.0/49 (fatias 2–5 + Walkie + scroll):** aba Assistente com
 > sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta
@@ -35,6 +35,11 @@
 > validado no **A34** (2 referências, grupo **Disponível**); regression check
 > da nota “Acompanhe o passo…” (`rr` 37-38 §§ 18-19 × 38-39 §§ 21-24) ok.
 > Testes JVM e lint verdes no CI `42405636206`.
+
+> **2026-11-07 — v4.0.1/51 (ícone do Palco + fontes):** tag `v4.0.1` com o
+> ícone `interpreter_mode` no Palco e a correção de fontes acima. APK público
+> assinado + SHA-256 no GitHub Release; `4.0.1-syncbeta`/52 é artefato
+> separado. Atualização por cima do público 4.0/49 preserva os dados.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.
