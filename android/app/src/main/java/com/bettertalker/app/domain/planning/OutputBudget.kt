@@ -59,6 +59,10 @@ object OutputBudget {
     const val TRIBUNA_MIN = 2048
     const val TRIBUNA_MAX = 4096
 
+    /** v4.2: Tribuna 2.0 — uma chamada por seção (folha de cues). */
+    const val TRIBUNA_SECTION_MIN = 600
+    const val TRIBUNA_SECTION_MAX = 900
+
     /** Chat: mais espaço quando a resposta cita fontes resolvidas. */
     fun chat(hasResolvedRefs: Boolean): Int =
         if (hasResolvedRefs) CHAT_WITH_SOURCES else CHAT
@@ -195,6 +199,17 @@ object OutputBudget {
     /** Tribuna: um JSON pequeno por seção; cresce com o número de seções. */
     fun tribuna(sectionCount: Int): Int =
         (TRIBUNA_MIN + sectionCount.coerceAtLeast(0) * 80).coerceIn(TRIBUNA_MIN, TRIBUNA_MAX)
+
+    /**
+     * v4.2: orçamento de UMA seção da Tribuna 2.0 (folha de cues).
+     * Sempre entre 600 e 900 tokens; cresce com duração e imagens.
+     */
+    fun tribunaSection(minutes: Int?, imageCount: Int = 0): Int {
+        val byMinutes = minutes?.takeIf { it > 0 }?.let { it * 24 } ?: 0
+        val byImages = imageCount.coerceAtLeast(0) * 30
+        return (TRIBUNA_SECTION_MIN + byMinutes + byImages)
+            .coerceIn(TRIBUNA_SECTION_MIN, TRIBUNA_SECTION_MAX)
+    }
 
     /** Pedido longo: mesma fórmula já validada do texto longo. */
     fun longText(request: LongTextRequest): LongTextBudget = budgetForRequest(request)

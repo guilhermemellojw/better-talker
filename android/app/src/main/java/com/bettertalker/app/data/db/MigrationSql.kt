@@ -184,4 +184,31 @@ object MigrationSql {
     val MIGRATION_21_22: List<String> = listOf(
         "ALTER TABLE `attachments` ADD COLUMN `sha256` TEXT",
     )
+
+    /**
+     * v22 -> v23: imagens da nota (anexo por seção ou da nota inteira).
+     * Aditiva, sem perda; bytes ficam em filesDir/images.
+     */
+    val MIGRATION_22_23: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `note_images` (
+            `id` TEXT NOT NULL,
+            `noteId` TEXT NOT NULL,
+            `sectionId` TEXT,
+            `path` TEXT NOT NULL,
+            `mime` TEXT NOT NULL,
+            `caption` TEXT NOT NULL,
+            `kind` TEXT NOT NULL,
+            `order` INTEGER NOT NULL,
+            `addedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`id`),
+            FOREIGN KEY(`noteId`) REFERENCES `notes`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE,
+            FOREIGN KEY(`sectionId`) REFERENCES `speech_sections`(`id`)
+                ON UPDATE NO ACTION ON DELETE SET NULL
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_note_images_noteId` ON `note_images`(`noteId`)",
+        "CREATE INDEX IF NOT EXISTS `index_note_images_sectionId` ON `note_images`(`sectionId`)",
+    )
 }

@@ -131,6 +131,8 @@ dependencies {
     implementation 'androidx.startup:startup-runtime:1.2.0'
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:${rootProject.ext.lifecycleVersion}"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:${rootProject.ext.lifecycleVersion}"
+    // v4.2: thumbnails/cache local das imagens da nota (sem upload).
+    implementation "io.coil-kt:coil-compose:2.7.0"
 
     // Room (notas + anexos)
     implementation "androidx.room:room-runtime:${rootProject.ext.roomVersion}"

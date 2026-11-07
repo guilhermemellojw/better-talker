@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.present
 
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.ui.stage.StageTurn
 
@@ -92,7 +93,13 @@ data class PresentCue(
     val minutes: Int,
     val capsule: TribunaCapsule?,
     val turns: List<StageTurn> = emptyList(),
-)
+    /** v4.2: imagens da seção (cue de imagem/tela cheia; nunca no HTML). */
+    val images: List<NoteImageEntity> = emptyList(),
+) {
+    /** v4.2: meta de tempo da seção (cues mandam; fallback = minutos). */
+    val targetMinutes: Int
+        get() = capsule?.timeMinutes?.takeIf { it > 0 } ?: minutes
+}
 
 /** Turno achatado do roteiro para o modo demo. */
 data class PresentScriptItem(val cueIndex: Int, val turn: StageTurn)

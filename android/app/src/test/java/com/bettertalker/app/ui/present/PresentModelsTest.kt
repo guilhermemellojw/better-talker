@@ -157,4 +157,13 @@ class PresentModelsTest {
     fun prepSegueOrientacaoDoDispositivoPorPadrao() {
         assertEquals(PresentOrientation.AUTO, PresentPrep().orientation)
     }
+
+    @Test
+    fun metaDaSecaoUsaOTempoDaCapsulaQuandoExiste() {
+        assertEquals(5, cue("s1", 0).targetMinutes)
+        val timed = cue("s2", 1, capsule = capsule("s2").copy(timeMinutes = 7))
+        assertEquals(7, timed.targetMinutes)
+        val zeroed = cue("s3", 2, capsule = capsule("s3").copy(timeMinutes = 0))
+        assertEquals(5, zeroed.targetMinutes)
+    }
 }

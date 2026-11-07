@@ -50,8 +50,65 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val copilotRepo = com.bettertalker.app.data.repo.CopilotRepository(db)
     private val libraryRepo = com.bettertalker.app.data.repo.LibraryRepository(appCtx, db)
     private val settings = SettingsStore(appCtx)
+    private val imageStore = com.bettertalker.app.data.images.NoteImageStore(
+        appCtx.applicationContext, db.noteImageDao(),
+    )
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
+
+    /** v4.2: imagens da nota (seção ou nota inteira). */
+    val noteImages: StateFlow<List<com.bettertalker.app.data.db.NoteImageEntity>> =
+        db.noteImageDao().observeForNote(noteId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addImage(sectionId: String?, uri: android.net.Uri) {
+        viewModelScope.launch {
+            val existing = if (sectionId == null) {
+                db.noteImageDao().forNote(noteId)
+            } else {
+                db.noteImageDao().forSection(sectionId)
+            }
+            imageStore.import(
+                noteId = noteId,
+                sectionId = sectionId,
+                uri = uri,
+                order = (existing.maxOfOrNull { it.order } ?: -1) + 1,
+            )
+        }
+    }
+
+    fun deleteImage(imageId: String) {
+        viewModelScope.launch {
+            db.noteImageDao().get(imageId)?.let { imageStore.delete(it) }
+        }
+    }
+
+    fun updateImageCaption(imageId: String, caption: String) {
+        viewModelScope.launch { db.noteImageDao().updateCaption(imageId, caption.trim()) }
+    }
+
+    fun updateImageKind(imageId: String, kind: String) {
+        viewModelScope.launch { db.noteImageDao().updateKind(imageId, kind) }
+    }
+
+    fun moveImage(imageId: String, direction: Int) {
+        viewModelScope.launch {
+            val image = db.noteImageDao().get(imageId) ?: return@launch
+            val list = if (image.sectionId == null) {
+                db.noteImageDao().forNote(noteId)
+            } else {
+                db.noteImageDao().forSection(image.sectionId)
+            }
+            val index = list.indexOfFirst { it.id == imageId }
+            val swap = index + direction
+            if (index < 0 || swap !in list.indices) return@launch
+            list.forEachIndexed { i, item ->
+                if (item.order != i) db.noteImageDao().updateOrder(item.id, i)
+            }
+            db.noteImageDao().updateOrder(list[index].id, swap)
+            db.noteImageDao().updateOrder(list[swap].id, index)
+        }
+    }
 
     /** UX de demonstrações (V&M): true quando a nota é MINISTRY_PART. */
     private val _isDemonstration = MutableStateFlow(false)

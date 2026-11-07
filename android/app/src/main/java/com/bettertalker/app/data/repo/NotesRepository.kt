@@ -139,8 +139,14 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
         SyncScheduler.requestSync(ctx)
     }
 
-    /** Exclusão definitiva: remove a nota + esboço + anexos vinculados (arquivos e trechos). */
+    /** Exclusão definitiva: remove a nota + esboço + anexos e imagens vinculados. */
     suspend fun deleteForever(id: String) {
+        // v4.2: bytes privados das imagens (o registro cai pela FK em cascade).
+        runCatching {
+            com.bettertalker.app.data.images.NoteImageStore(
+                ctx.applicationContext, db.noteImageDao(),
+            ).deleteFilesForNote(id)
+        }
         for (a in db.attachmentDao().all().filter { it.noteId == id }) {
             runCatching { File(a.appPath).delete() }
             db.passageDao().deleteForAttachment(a.id)

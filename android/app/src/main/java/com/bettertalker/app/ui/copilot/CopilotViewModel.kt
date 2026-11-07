@@ -5448,9 +5448,9 @@ class CopilotViewModel(
     }
 
     /**
-     * #20-fix-a: gera a Tribuna da nota — cápsulas (ideia/âncora/transição)
-     * por seção, salvas em `tribunaJson`. Não streama; não passa pelo gate
-     * (o texto é para o usuário editar).
+     * #20-fix-a / v4.2: gera a Tribuna da nota — uma chamada por seção,
+     * salvando cada cápsula logo após a resposta. Não streama; não passa pelo
+     * gate (o texto é para o usuário editar).
      */
     fun generateTribuna(onResult: (TribunaResult) -> Unit = {}) {
         viewModelScope.launch {
@@ -5466,88 +5466,170 @@ class CopilotViewModel(
                 onResult(failure)
                 return@launch
             }
-            val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
-            if (sections.none { it.contentHtml.isNotBlank() }) {
+            val usable = db.speechSectionDao().forNote(nid)
+                .map { it.toDomain() }
+                .filter { it.contentHtml.isNotBlank() }
+            if (usable.isEmpty()) {
                 val failure = TribunaFailures.emptySections()
                 postText(failure.message)
                 onResult(failure)
                 return@launch
             }
-            val prompt = com.bettertalker.app.data.copilot.buildTribunaPrompt(sections)
             val provider = ProviderFactory.createFor(
                 remote, app, thinkingEffortFor(_thinkingMode.value)
             )
-            val res = try {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    provider.generate(
-                        com.bettertalker.app.data.llm.LlmRequest(
-                            text = prompt,
-                            action = com.bettertalker.app.data.llm.LlmAction.CHAT,
-                            message = prompt,
-                            maxOutputTokens = OutputBudget.tribuna(sections.size),
-                            maxOutputTokensCap = OutputBudget.TRIBUNA_MAX,
-                        )
-                    )
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
-            }
-            if (res == null) {
-                val failure = TribunaFailures.providerFailed()
-                postText(failure.message)
-                onResult(failure)
-                return@launch
-            }
-            android.util.Log.i(
-                "CopilotLLM",
-                generationTelemetry(
-                    route = "tribuna",
-                    text = res.text,
-                    budget = res.meta.budget,
-                    finishReason = res.meta.finishReason,
-                    truncated = res.meta.finishReason == "length",
-                    thinking = res.meta.thinking,
-                    attempts = res.meta.attempts,
-                        retries = res.meta.retries,
-                ).line(),
-            )
-            if (res.meta.finishReason == "length") {
-                val failure = TribunaFailures.truncated()
-                postText(failure.message)
-                onResult(failure)
-                return@launch
-            }
-            val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
-            val byId = com.bettertalker.app.domain.speech.tribunaCapsulesFromJson(json)
-                .associateBy { it.sectionId }
             var saved = 0
-            sections.forEach { s ->
-                val capsule = byId[s.id] ?: return@forEach
-                db.speechSectionDao().upsert(
-                    s.copy(
-                        tribunaJson = capsule.toJson(),
-                        updatedAt = System.currentTimeMillis(),
-                    ).toEntity()
+            var failed = 0
+            usable.forEachIndexed { index, section ->
+                val capsule = generateTribunaCapsule(
+                    provider = provider,
+                    section = section,
+                    nextSectionTitle = usable.getOrNull(index + 1)?.title,
                 )
-                saved++
+                if (capsule == null) {
+                    failed++
+                } else {
+                    db.speechSectionDao().upsert(
+                        section.copy(
+                            tribunaJson = capsule.toJson(),
+                            updatedAt = System.currentTimeMillis(),
+                        ).toEntity()
+                    )
+                    saved++
+                }
             }
             if (saved == 0) {
                 val failure = TribunaFailures.emptyResponse()
                 postText(failure.message)
                 onResult(failure)
             } else {
+                val extra = if (failed > 0) " ($failed sem resposta)" else ""
                 post(
                     false,
                     "text",
                     ChatCodec.escMap(mapOf(
-                        "text" to "— Tribuna gerada para $saved seções —",
+                        "text" to "— Tribuna gerada para $saved seções$extra —",
                     )),
                 )
                 onResult(TribunaResult.Success)
             }
         }
+    }
+
+    /**
+     * v4.2: regenera SÓ uma seção da Tribuna (a partir da tela da Tribuna).
+     * Mesmo contrato de provider/orçamento da geração completa.
+     */
+    fun regenerateTribunaSection(
+        sectionId: String,
+        onResult: (TribunaResult) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val remote = ProviderFactory.resolveRemote(settings, app)
+            if (!ProviderFactory.useRemoteRoute(remote)) {
+                val failure = TribunaFailures.noAiKey()
+                postText(failure.message)
+                onResult(failure)
+                return@launch
+            }
+            val entity = db.speechSectionDao().get(sectionId)
+            if (entity == null) {
+                onResult(TribunaFailures.noNote())
+                return@launch
+            }
+            val section = entity.toDomain()
+            if (section.contentHtml.isBlank()) {
+                val failure = TribunaFailures.emptySections()
+                postText(failure.message)
+                onResult(failure)
+                return@launch
+            }
+            val nextTitle = db.speechSectionDao().forNote(section.noteId)
+                .map { it.toDomain() }
+                .sortedBy { it.order }
+                .firstOrNull { it.order > section.order }
+                ?.title
+            val provider = ProviderFactory.createFor(
+                remote, app, thinkingEffortFor(_thinkingMode.value)
+            )
+            val capsule = generateTribunaCapsule(provider, section, nextTitle)
+            if (capsule == null) {
+                val failure = TribunaFailures.providerFailed()
+                onResult(failure)
+            } else {
+                db.speechSectionDao().upsert(
+                    section.copy(
+                        tribunaJson = capsule.toJson(),
+                        updatedAt = System.currentTimeMillis(),
+                    ).toEntity()
+                )
+                onResult(TribunaResult.Success)
+            }
+        }
+    }
+
+    /**
+     * v4.2: uma seção = 1 chamada de 600–900 tokens. Recebe só legendas das
+     * imagens (texto); o provider é DeepSeek texto-only.
+     */
+    private suspend fun generateTribunaCapsule(
+        provider: com.bettertalker.app.data.llm.LlmProvider,
+        section: com.bettertalker.app.domain.speech.SpeechSection,
+        nextSectionTitle: String?,
+    ): com.bettertalker.app.domain.speech.TribunaCapsule? {
+        val images = runCatching { db.noteImageDao().forSection(section.id) }
+            .getOrDefault(emptyList())
+        val subPoints = runCatching {
+            db.subPointDao().forSection(section.id).map { it.outlineText }
+        }.getOrDefault(emptyList())
+        val prompt = com.bettertalker.app.data.copilot.buildTribunaSectionPrompt(
+            section = section,
+            images = images.map {
+                com.bettertalker.app.data.copilot.TribunaImageHint(
+                    id = it.id,
+                    caption = it.caption,
+                    kind = it.kind,
+                )
+            },
+            nextSectionTitle = nextSectionTitle,
+            subPoints = subPoints,
+        )
+        val res = try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                provider.generate(
+                    com.bettertalker.app.data.llm.LlmRequest(
+                        text = prompt,
+                        action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                        message = prompt,
+                        maxOutputTokens = OutputBudget.tribunaSection(
+                            section.minutes, images.size,
+                        ),
+                        maxOutputTokensCap = OutputBudget.TRIBUNA_SECTION_MAX,
+                    )
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        android.util.Log.i(
+            "CopilotLLM",
+            generationTelemetry(
+                route = "tribuna-section",
+                text = res.text,
+                budget = res.meta.budget,
+                finishReason = res.meta.finishReason,
+                truncated = res.meta.finishReason == "length",
+                thinking = res.meta.thinking,
+                attempts = res.meta.attempts,
+                retries = res.meta.retries,
+            ).line(),
+        )
+        if (res.meta.finishReason == "length") return null
+        val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
+        return com.bettertalker.app.domain.speech.tribunaCapsuleFromJson(json)
+            ?.copy(sectionId = section.id)
     }
 
     /**

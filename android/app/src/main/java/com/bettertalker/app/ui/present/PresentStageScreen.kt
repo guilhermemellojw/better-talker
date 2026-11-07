@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +59,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.bettertalker.app.data.db.NoteImageEntity
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
+import com.bettertalker.app.ui.components.NoteImageFullScreen
+import com.bettertalker.app.ui.components.NoteImageStrip
+import com.bettertalker.app.ui.components.NoteImageThumb
 import com.bettertalker.app.ui.stage.StageAccent
 import com.bettertalker.app.ui.stage.StageBg
 import com.bettertalker.app.ui.stage.StageDim
@@ -96,9 +106,14 @@ fun PresentStageScreen(
     val role = speakers.getOrNull(prep.roleIndex.coerceIn(0, (speakers.size - 1).coerceAtLeast(0)))
     var exitDialog by remember { mutableStateOf(false) }
     val scroll = rememberScrollState()
-    val sectionMinutes = currentCue?.minutes ?: 0
+    val sectionMinutes = currentCue?.targetMinutes ?: 0
     val sectionState = stageTimerState(sectionElapsed, sectionMinutes)
     val scriptMode = prep.mode == PresentMode.SCRIPT
+    // v4.2: mapa (todas as cues) x foco (uma cue por vez); estado local do palco.
+    var mapMode by remember { mutableStateOf(true) }
+    var focusCueIndex by remember { mutableStateOf(0) }
+    var previewImage by remember { mutableStateOf<NoteImageEntity?>(null) }
+    LaunchedEffect(currentIndex) { focusCueIndex = 0 }
 
     // Orientação: segue o padrão do dispositivo; "Travar" fixa a atual.
     DisposableEffect(prep.orientation) {
@@ -188,6 +203,11 @@ fun PresentStageScreen(
                 CueContent(
                     cue = currentCue,
                     fontSp = fontSp,
+                    mapMode = mapMode,
+                    focusCueIndex = focusCueIndex,
+                    sectionElapsed = sectionElapsed,
+                    onFocusCue = { focusCueIndex = it },
+                    onPreviewImage = { previewImage = it },
                 )
             }
         }
@@ -263,6 +283,14 @@ fun PresentStageScreen(
                     enabled = canPrevious,
                 ) { Text("‹ Anterior", color = if (canPrevious) StageFg else StageDim) }
                 Spacer(Modifier.weight(1f))
+                if (!scriptMode) {
+                    val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
+                    if (hasCueSheet) {
+                        TextButton(onClick = { mapMode = !mapMode }) {
+                            Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
+                        }
+                    }
+                }
                 Text(
                     if (scriptMode) "Turno ${scriptIndex + 1}/${scriptItems.size}"
                     else "Seção ${currentIndex + 1}/${cues.size}",
@@ -334,10 +362,26 @@ fun PresentStageScreen(
             },
         )
     }
+
+    previewImage?.let { image ->
+        NoteImageFullScreen(
+            path = image.path,
+            caption = image.caption,
+            onDismiss = { previewImage = null },
+        )
+    }
 }
 
 @Composable
-private fun CueContent(cue: PresentCue?, fontSp: Int) {
+private fun CueContent(
+    cue: PresentCue?,
+    fontSp: Int,
+    mapMode: Boolean,
+    focusCueIndex: Int,
+    sectionElapsed: Long,
+    onFocusCue: (Int) -> Unit,
+    onPreviewImage: (NoteImageEntity) -> Unit,
+) {
     if (cue == null) {
         MissingCue("Nenhuma seção disponível.", title = "Sem seção")
         return
@@ -346,6 +390,90 @@ private fun CueContent(cue: PresentCue?, fontSp: Int) {
     if (capsule == null) {
         MissingCue("Tribuna não gerada para esta seção. Avance ou abra a Tribuna no editor.")
         return
+    }
+
+    // v4.2: folha de cues (mapa) ou uma cue em foco. Cápsula antiga cai no
+    // layout de 4 campos abaixo (compatibilidade sem migração).
+    if (capsule.cues.isNotEmpty()) {
+        // Se o modelo não criou cue IMAGE, as imagens da seção ainda ficam
+        // acessíveis (toque abre tela cheia) sem entrar no texto.
+        if (cue.images.isNotEmpty() && capsule.cues.none { it.kind == TribunaCueKind.IMAGE }) {
+            NoteImageStrip(
+                images = cue.images,
+                thumbSizeDp = 68,
+                captionColor = StageDim,
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+        val focused = focusCueIndex.coerceIn(0, capsule.cues.lastIndex)
+        Text(
+            if (mapMode) "MAPA DE CUES" else "FOCO · ${focused + 1}/${capsule.cues.size}",
+            color = StageAccent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        if (mapMode) {
+            capsule.cues.forEach { current ->
+                PresentCueLine(
+                    cue = current,
+                    fontSp = fontSp,
+                    image = cueImage(current, cue.images),
+                    onPreviewImage = onPreviewImage,
+                )
+            }
+        } else {
+            PresentCueLine(
+                cue = capsule.cues[focused],
+                fontSp = fontSp,
+                image = cueImage(capsule.cues[focused], cue.images),
+                onPreviewImage = onPreviewImage,
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { onFocusCue((focused - 1).coerceAtLeast(0)) },
+                    enabled = focused > 0,
+                ) { Text("‹ Cue", color = if (focused > 0) StageFg else StageDim) }
+                Spacer(Modifier.weight(1f))
+                Text("${focused + 1}/${capsule.cues.size}", color = StageDim, fontSize = 11.sp)
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { onFocusCue((focused + 1).coerceAtMost(capsule.cues.lastIndex)) },
+                    enabled = focused < capsule.cues.lastIndex,
+                ) { Text("Cue ›", color = if (focused < capsule.cues.lastIndex) StageFg else StageDim) }
+            }
+        }
+        // v4.2: checkpoint explícito do tempo acumulado nesta seção.
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "CHECKPOINT · ${formatClock(sectionElapsed)} acumulado nesta seção · meta ${cue.targetMinutes} min",
+            color = StageAccent.copy(alpha = 0.9f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        if (capsule.anchorPhrase.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "ÂNCORA: ${capsule.anchorPhrase}",
+                color = StageDim,
+                fontSize = (fontSp * 0.68f).sp,
+                lineHeight = (fontSp * 1.15f).sp,
+            )
+        }
+        return
+    }
+
+    if (cue.images.isNotEmpty()) {
+        NoteImageStrip(
+            images = cue.images,
+            thumbSizeDp = 68,
+            captionColor = StageDim,
+        )
+        Spacer(Modifier.height(18.dp))
     }
     Text(
         "FRASE-ÂNCORA",
@@ -373,6 +501,99 @@ private fun CueContent(cue: PresentCue?, fontSp: Int) {
     CueBlock("IDEIA CENTRAL", capsule.mainIdea, fontSp)
     CueBlock("TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp)
     CueBlock("TRANSIÇÃO", capsule.transition.orEmpty(), fontSp, dim = true)
+    Text(
+        "CHECKPOINT · ${formatClock(sectionElapsed)} acumulado nesta seção · meta ${cue.targetMinutes} min",
+        color = StageAccent.copy(alpha = 0.9f),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+    )
+}
+
+/** v4.2: resolve a imagem de uma cue; imagem só aparece se for cue IMAGE. */
+private fun cueImage(cue: TribunaCue, images: List<NoteImageEntity>): NoteImageEntity? {
+    if (cue.kind != TribunaCueKind.IMAGE) return null
+    return cue.imageId?.let { id -> images.firstOrNull { it.id == id } }
+        ?: images.firstOrNull()
+}
+
+private fun presentCueLabel(kind: TribunaCueKind): String = when (kind) {
+    TribunaCueKind.HOOK -> "GANCHO"
+    TribunaCueKind.REASONING -> "RACIOCÍNIO"
+    TribunaCueKind.SCRIPTURE -> "TEXTO"
+    TribunaCueKind.ILLUSTRATION -> "ILUSTRAÇÃO"
+    TribunaCueKind.APPLICATION -> "APLICAÇÃO"
+    TribunaCueKind.IMAGE -> "IMAGEM"
+    TribunaCueKind.TRANSITION -> "TRANSIÇÃO"
+    TribunaCueKind.INVITATION -> "CONVITE"
+    TribunaCueKind.RECAP -> "RECAPITULAÇÃO"
+    TribunaCueKind.APPEAL -> "APELO"
+}
+
+@Composable
+private fun PresentCueLine(
+    cue: TribunaCue,
+    fontSp: Int,
+    image: NoteImageEntity?,
+    onPreviewImage: (NoteImageEntity) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp),
+    ) {
+        Surface(
+            color = StageAccent.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(50),
+        ) {
+            Text(
+                presentCueLabel(cue.kind),
+                color = StageAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            cue.text,
+            color = StageFg,
+            fontSize = (fontSp * 0.92f).sp,
+            lineHeight = (fontSp * 1.35f).sp,
+            fontWeight = if (cue.kind == TribunaCueKind.SCRIPTURE) {
+                FontWeight.SemiBold
+            } else {
+                FontWeight.Normal
+            },
+        )
+        if (cue.refs.isNotEmpty()) {
+            Text(
+                cue.refs.joinToString(" · "),
+                color = StageDim,
+                fontSize = (fontSp * 0.68f).sp,
+            )
+        }
+        // v4.2: cue de imagem TOCÁVEL (tela cheia); sem autoexibição.
+        if (cue.kind == TribunaCueKind.IMAGE && image != null) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NoteImageThumb(
+                    path = image.path,
+                    caption = cue.imageCaption ?: image.caption,
+                    sizeDp = 72,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clickable { onPreviewImage(image) },
+                )
+                Text(
+                    cue.imageCaption ?: image.caption.ifBlank { "Imagem da seção" },
+                    color = StageDim,
+                    fontSize = (fontSp * 0.66f).sp,
+                    modifier = Modifier.padding(start = 10.dp),
+                )
+            }
+        }
+    }
 }
 
 @Composable

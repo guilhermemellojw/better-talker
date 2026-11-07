@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -69,8 +70,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.util.headingOffset
 import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.ui.components.NoteImageStrip
 import com.bettertalker.app.domain.speech.SubPoint
 import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.ui.BasicRichTextEditor
@@ -120,6 +123,10 @@ fun SectionCardEditor(
     onRemoveSection: () -> Unit = {},
     /** Fase 1: único ponto de entrada do Copilot no card ativo (✨ no rodapé). */
     onCopilot: () -> Unit = {},
+    /** v4.2: imagens anexadas a esta seção (nunca entram no HTML). */
+    images: List<NoteImageEntity> = emptyList(),
+    /** v4.2: abre o sheet de imagens desta seção. */
+    onOpenImages: () -> Unit = {},
     /** UX de demonstrações (V&M): badge "Demonstração" no cabeçalho. */
     isDemonstration: Boolean = false,
     onApproveSection: () -> Unit = {},
@@ -224,6 +231,7 @@ fun SectionCardEditor(
                     onRemove = { confirmDelete = true },
                     showUnapprove = state.section.approvedAt != null,
                     onUnapprove = onUnapproveSection,
+                    onOpenImages = onOpenImages,
                 )
             }
         }
@@ -353,40 +361,70 @@ fun SectionCardEditor(
                     }
                 }
 
-                // Rodapé mínimo: handle de D&D + chips de demonstração.
+                // Rodapé mínimo: handle de D&D, imagens e chips de demonstração.
                 // Minutos, ✨ e ⋮ vivem no cabeçalho.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
+                Column(
+                    Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                        .padding(start = 8.dp, end = 8.dp, bottom = 4.dp),
                 ) {
-                    SectionDragHandle(
-                        onDragStart = onDragStart,
-                        onDrag = onDrag,
-                        onDragEnd = onDragEnd,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionDragHandle(
+                            onDragStart = onDragStart,
+                            onDrag = onDrag,
+                            onDragEnd = onDragEnd,
+                        )
+                        // v4.2: as imagens são anexos da seção — o chip abre o
+                        // sheet; nada é inserido no HTML.
+                        if (!readOnly) {
+                            Spacer(Modifier.width(4.dp))
+                            AssistChip(
+                                onClick = onOpenImages,
+                                label = { Text("Imagens (${images.size})") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.AddPhotoAlternate,
+                                        null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                },
+                            )
+                        }
+                    }
                     // UX de demonstrações: atalhos de papel no rodapé do card
                     // (inserem o rótulo em negrito no editor do diálogo).
                     if (isDemonstration && isBody && !readOnly) {
-                        val dialogKey = "section-${state.section.id}"
-                        Spacer(Modifier.width(4.dp))
-                        AssistChip(
-                            onClick = {
-                                editorStates[dialogKey]
-                                    ?.insertHtmlAfterSelection("<b>Publicador:</b> ")
-                            },
-                            label = { Text("+ Publicador") },
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        AssistChip(
-                            onClick = {
-                                editorStates[dialogKey]
-                                    ?.insertHtmlAfterSelection("<b>Morador:</b> ")
-                            },
-                            label = { Text("+ Morador") },
-                        )
+                        Row(
+                            Modifier.padding(start = 56.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val dialogKey = "section-${state.section.id}"
+                            AssistChip(
+                                onClick = {
+                                    editorStates[dialogKey]
+                                        ?.insertHtmlAfterSelection("<b>Publicador:</b> ")
+                                },
+                                label = { Text("+ Publicador") },
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            AssistChip(
+                                onClick = {
+                                    editorStates[dialogKey]
+                                        ?.insertHtmlAfterSelection("<b>Morador:</b> ")
+                                },
+                                label = { Text("+ Morador") },
+                            )
+                        }
                     }
+                }
+                if (images.isNotEmpty()) {
+                    NoteImageStrip(
+                        images = images,
+                        thumbSizeDp = 44,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                    )
                 }
             }
         }
@@ -860,6 +898,7 @@ private fun SectionMenuButton(
     // mostra só o estado "Seção aprovada").
     showUnapprove: Boolean = false,
     onUnapprove: () -> Unit = {},
+    onOpenImages: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (readOnly) return
@@ -907,6 +946,10 @@ private fun SectionMenuButton(
                     },
                 )
             }
+            DropdownMenuItem(
+                text = { Text("Imagens da seção") },
+                onClick = { onOpenImages(); menuOpen = false },
+            )
             DropdownMenuItem(
                 text = { Text("Excluir", color = MaterialTheme.colorScheme.error) },
                 onClick = { onRemove(); menuOpen = false },
