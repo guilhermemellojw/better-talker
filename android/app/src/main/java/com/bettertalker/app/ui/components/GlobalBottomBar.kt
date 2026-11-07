@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.TheaterComedy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -63,7 +62,7 @@ fun GlobalBottomBar(
         NavigationBarItem(
             selected = tab == BottomTab.PRESENT,
             onClick = onPresent,
-            icon = { Icon(Icons.Default.TheaterComedy, "Palco") },
+            icon = { Icon(InterpreterMode, "Palco") },
             label = { Text("Palco") },
         )
     }
