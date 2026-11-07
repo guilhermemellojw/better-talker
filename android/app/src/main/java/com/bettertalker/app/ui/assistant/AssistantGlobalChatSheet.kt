@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -57,9 +58,15 @@ fun AssistantGlobalChatSheet(
     focusComposer: Boolean = false,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+
+    // Chat sempre na mensagem mais recente (o histórico é efêmero e curto).
+    LaunchedEffect(turns.size) {
+        if (turns.isNotEmpty()) listState.scrollToItem(turns.lastIndex)
+    }
 
     fun submit() {
         val text = input.trim()
@@ -100,6 +107,7 @@ fun AssistantGlobalChatSheet(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth(),
+                state = listState,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(turns, key = { it.id }) { turn ->

@@ -162,21 +162,43 @@ fun AssistantGlobalScreen(
         }
         if (pending != null) {
             Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = { onSendText("Sim") }, label = { Text("Sim") })
-                AssistChip(onClick = { onSendText("Não") }, label = { Text("Não") })
+            when (val p = pending) {
+                is GlobalPending.ChooseNote -> LazyRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(p.candidates.take(6)) { note ->
+                        val index = p.candidates.indexOf(note) + 1
+                        AssistChip(
+                            onClick = { onSendText(index.toString()) },
+                            label = {
+                                Text(
+                                    "$index) ${note.title}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                        )
+                    }
+                }
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick = { onSendText("Sim") }, label = { Text("Sim") })
+                    AssistChip(onClick = { onSendText("Não") }, label = { Text("Não") })
+                }
             }
         }
 
         Spacer(Modifier.weight(1f))
-        Text(
-            status,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .height(28.dp)
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        )
+        Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+            if (status != "Segure para falar") {
+                Text(
+                    status,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+        }
         if (pttPartial.isNotBlank()) {
             Text(
                 "“$pttPartial”",
