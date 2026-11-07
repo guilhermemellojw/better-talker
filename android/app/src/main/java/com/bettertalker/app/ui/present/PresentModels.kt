@@ -123,7 +123,7 @@ data class PresentPrep(
     val mode: PresentMode = PresentMode.CUES,
     val startIndex: Int = 0,
     val timerVisible: Boolean = true,
-    val orientation: PresentOrientation = PresentOrientation.PORTRAIT,
+    val orientation: PresentOrientation = PresentOrientation.AUTO,
     val roleIndex: Int = 0,
     /** Retoma seção/tempo salvos ao sair do palco. */
     val continueSaved: Boolean = false,
