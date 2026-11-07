@@ -273,6 +273,8 @@ private fun AppNav(
                     // discurso inteiro (não num "Tópico" sem número).
                     defaultWholeFocus = true,
                     practiceContext = practice?.takeIf { it.noteId == target.id },
+                    walkieDefault = true,
+                    onChangeNote = ::goHome,
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
                 )
@@ -653,6 +655,10 @@ private fun NoteChatHost(
     defaultWholeFocus: Boolean = false,
     /** Fatia 5: snapshot de Treino/Palco (só no Assistente). */
     practiceContext: com.bettertalker.app.data.copilot.PracticeSnapshot? = null,
+    /** v4.0 Walkie: o Assistente abre no modo PTT grande. */
+    walkieDefault: Boolean = false,
+    /** v4.0 Walkie: “Trocar nota” leva ao seletor/Esboços. */
+    onChangeNote: () -> Unit = {},
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
 ) {
@@ -685,6 +691,22 @@ private fun NoteChatHost(
     val draftState by editorVm.draftState.collectAsState()
     val editorSections by editorVm.sections.collectAsState()
     val mdText by editorVm.mdText.collectAsState()
+
+    // v4.0 Walkie: apresentação local da sessão; o chat completo é um toque.
+    var walkie by androidx.compose.runtime.saveable.rememberSaveable(
+        session.noteId,
+        walkieDefault,
+    ) {
+        androidx.compose.runtime.mutableStateOf(walkieDefault)
+    }
+    var fullFocusRequest by androidx.compose.runtime.saveable.rememberSaveable(
+        session.noteId,
+    ) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val walkieNoteTitle by copilotVm.noteTitle.collectAsState()
+    val activeTurn by copilotVm.activeTurn.collectAsState()
+    val nextStep by copilotVm.nextStepSuggestion.collectAsState()
 
     // Fatia 5: snapshot de prática no prompt do chat (nunca resultado de treino).
     androidx.compose.runtime.LaunchedEffect(practiceContext?.promptBlock) {
@@ -736,6 +758,27 @@ private fun NoteChatHost(
     val chatBusy by copilotVm.chatBusy.collectAsState()
     val ttsSpeaking by copilotVm.ttsSpeaking.collectAsState()
     val ttsReady by copilotVm.ttsReady.collectAsState()
+    // v4.0 Walkie: mesmo gate de permissão/barge-in do composer.
+    val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            if (ttsSpeaking) copilotVm.stopSpeaking()
+            if (chatBusy) copilotVm.stopGeneration()
+            ptt.press()
+        }
+    }
+    val pttPressChecked: () -> Unit = {
+        if (ctx.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            if (ttsSpeaking) copilotVm.stopSpeaking()
+            if (chatBusy) copilotVm.stopGeneration()
+            ptt.press()
+        } else {
+            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
     var pttError by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<String?>(null)
     }
@@ -799,6 +842,31 @@ private fun NoteChatHost(
         if (ttsSpeaking) ptt.onSpeakingStarted() else ptt.onSpeakingFinished()
     }
 
+    if (walkieDefault && walkie) {
+        com.bettertalker.app.ui.assistant.AssistantWalkieScreen(
+            noteTitle = walkieNoteTitle,
+            practiceContext = practiceContext,
+            messages = messages,
+            activeTurn = activeTurn,
+            pttState = pttState,
+            pttPartial = pttPartial,
+            ttsSpeaking = ttsSpeaking,
+            nextStep = nextStep,
+            onPttPress = pttPressChecked,
+            onPttRelease = { ptt.release() },
+            onPttCancel = { ptt.cancel() },
+            onOpenChat = {
+                walkie = false
+                fullFocusRequest = false
+            },
+            onDigit = {
+                walkie = false
+                fullFocusRequest = true
+            },
+            onOpenNote = onOpenEditor,
+            onChangeNote = onChangeNote,
+        )
+    } else {
     ChatScreen(
         copilotVm,
         onBack = onBack,
@@ -814,6 +882,9 @@ private fun NoteChatHost(
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
         practiceContext = practiceContext,
+        onBackToWalkie = if (walkieDefault) ({ walkie = true }) else null,
+        focusComposerOnStart = fullFocusRequest,
+        onComposerFocusConsumed = { fullFocusRequest = false },
         pttState = pttState,
         pttPartial = pttPartial,
         pttChoice = pttChoice,
@@ -835,6 +906,7 @@ private fun NoteChatHost(
         onDraftNext = editorVm::nextDraft,
         onDraftContinue = editorVm::continueDraft,
     )
+    }
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
         copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
     }

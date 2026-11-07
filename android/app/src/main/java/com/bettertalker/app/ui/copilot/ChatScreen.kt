@@ -197,6 +197,11 @@ fun ChatScreen(
     onNavigate: (ResolvedChatNav) -> Unit = {},
     /** Fatia 5: snapshot de prática da nota ativa (só no Assistente). */
     practiceContext: PracticeSnapshot? = null,
+    /** v4.0 Walkie: seta de volta ao modo walkie no chat embutido. */
+    onBackToWalkie: (() -> Unit)? = null,
+    /** v4.0 Walkie: “Digitar” abre o chat com o campo focado. */
+    focusComposerOnStart: Boolean = false,
+    onComposerFocusConsumed: () -> Unit = {},
     /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
     pttState: PttState? = null,
     pttPartial: String = "",
@@ -389,6 +394,13 @@ fun ChatScreen(
                 vm.consumeVoiceResult()
             }
             else -> Unit
+        }
+    }
+    LaunchedEffect(Unit) {
+        if (focusComposerOnStart) {
+            delay(180)
+            composerFocus.requestFocus()
+            onComposerFocusConsumed()
         }
     }
     DisposableEffect(Unit) {
@@ -681,9 +693,15 @@ fun ChatScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 navigationIcon = {
-                    if (!embedded) {
-                        IconButton(onClick = onBack) {
+                    when {
+                        !embedded -> IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                        }
+                        onBackToWalkie != null -> IconButton(onClick = onBackToWalkie) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                "Voltar ao walkie",
+                            )
                         }
                     }
                 },

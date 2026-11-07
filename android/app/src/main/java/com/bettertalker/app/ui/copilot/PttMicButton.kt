@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.voice.PttState
 import com.bettertalker.app.data.voice.isPttCancelDrag
@@ -39,9 +40,15 @@ internal fun PttMicButton(
     onPress: () -> Unit,
     onRelease: () -> Unit,
     onCancel: () -> Unit,
+    /** v4.0 Walkie: 48dp no composer; 160/200dp no modo walkie. */
+    size: Dp = 48.dp,
 ) {
     val haptic = LocalHapticFeedback.current
-    val threshold = with(LocalDensity.current) { 72.dp.toPx() }
+    // Mantém o gesto previsível: 72dp no composer e um arrasto proporcional
+    // (mas não gigante) no botão grande do walkie.
+    val threshold = with(LocalDensity.current) {
+        maxOf(72.dp, size * 0.9f).toPx()
+    }
     val press by rememberUpdatedState(onPress)
     val release by rememberUpdatedState(onRelease)
     val cancel by rememberUpdatedState(onCancel)
@@ -69,7 +76,7 @@ internal fun PttMicButton(
 
     Box(
         Modifier
-            .size(48.dp)
+            .size(size)
             .clip(CircleShape)
             .background(container)
             .semantics { contentDescription = desc }
@@ -113,12 +120,22 @@ internal fun PttMicButton(
         when (state) {
             PttState.Starting, PttState.Transcribing, PttState.Thinking ->
                 CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(size * 0.42f),
+                    strokeWidth = (size.value * 0.04f).dp,
                     color = content,
                 )
-            PttState.Speaking -> Icon(Icons.Default.Stop, desc, tint = content)
-            else -> Icon(Icons.Default.Mic, desc, tint = content)
+            PttState.Speaking -> Icon(
+                Icons.Default.Stop,
+                desc,
+                tint = content,
+                modifier = Modifier.size(size * 0.45f),
+            )
+            else -> Icon(
+                Icons.Default.Mic,
+                desc,
+                tint = content,
+                modifier = Modifier.size(size * 0.45f),
+            )
         }
     }
 }
