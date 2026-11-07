@@ -4,6 +4,7 @@ import com.bettertalker.app.data.s34.S34Document
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.planning.Audience
+import com.bettertalker.app.domain.speech.SectionRole
 
 /**
  * Fase 20-D — roteamento natural do chat para a sessão oratória.
@@ -88,6 +89,13 @@ object ChatRouter {
          * se há S-34 vinculado), nunca pelo route() puro.
          */
         data class PasteAndChat(val reason: String) : Route
+
+        /**
+         * Fatia 4 — comando determinístico de navegação/mentoria:
+         * "abrir o Ponto 2", "mostrar fontes", "iniciar Treino",
+         * "ir para o Palco", "qual o próximo passo?".
+         */
+        data class Navigate(val action: ChatNavAction, val reason: String) : Route
 
         data class General(val reason: String) : Route
     }
@@ -579,6 +587,81 @@ object ChatRouter {
     private val TOPIC_REFERENCES =
         Regex("\\b(referencias|referencia|textos|versiculos|publicacoes|publicacao|citac|w\\d{2})\\b")
 
+    // ---------- Fatia 4: navegação/mentoria ----------
+
+    /** Cortesia no início não muda a intenção ("pode abrir o ponto 2?"). */
+    private val NAV_POLITE = Regex("\\b(por favor|pode|poderia|consegue|conseguiria)\\b")
+
+    /** Verbos de navegação (imperativos ou pedidos explícitos). */
+    private val NAV_VERB = Regex(
+        "\\b(abrir|abre|abra|mostrar|mostra|mostre|exibir|exibe|exiba|ver|veja|" +
+            "ir para|vai para|va para|levar para|leve para|navegar para|navegue para|" +
+            "iniciar|inicia|inicie|comecar|comeca|comece|entrar|entre|treinar|apresentar)\\b"
+    )
+    private val NAV_SECTION_NUMBER = Regex("\\b(ponto|topico|secao)\\s+(\\d{1,2})\\b")
+    private val NAV_SOURCES = Regex("\\b(fontes|referencias)\\b")
+    private val NAV_TRAIN = Regex("\\b(treino|treinar)\\b")
+    private val NAV_PRESENT = Regex("\\b(palco|apresentar|apresentacao)\\b")
+    private val NAV_NEXT_STEP = Regex(
+        "\\b(me guie|me guia|guia-me|guiame|qual e o proximo passo|qual o proximo passo|" +
+            "o que faco agora|proximo passo|como continuo|o que vem agora)\\b"
+    )
+
+    /**
+     * Reconhece um comando de navegação sem tocar em banco/LLM.
+     *
+     * Conservador de propósito: perguntas ("como abrir o ponto 2?", "quais
+     * são as fontes?") NÃO sequestram; só verbos imperativos/pedidos claros.
+     * A resolução do número/role contra as seções reais fica no ViewModel.
+     * Puro/testável.
+     */
+    fun navigationCommand(text: String): ChatNavAction? {
+        var t = normalizeText(text).trim()
+        if (t.isEmpty()) return null
+        t = NAV_POLITE.replace(t, " ").replace(Regex("\\s+"), " ").trim()
+        if (t.isEmpty()) return null
+        val padded = " $t "
+
+        // "me guie"/"próximo passo" vencem o guard de "como" ("como continuo").
+        if (NAV_NEXT_STEP.containsMatchIn(padded)) return ChatNavAction.NextStep
+        // Pergunta de instrução ("como abrir o ponto 2?") não é comando.
+        if (Regex("\\bcomo\\b").containsMatchIn(t)) return null
+
+        if (NAV_TRAIN.containsMatchIn(padded)) {
+            val bare = t in setOf("treino", "treinar", "iniciar treino", "comecar treino")
+            if (bare || NAV_VERB.containsMatchIn(padded)) return ChatNavAction.Train
+        }
+        if (NAV_PRESENT.containsMatchIn(padded)) {
+            val bare = t in setOf("palco", "apresentar", "apresentacao")
+            if (bare || NAV_VERB.containsMatchIn(padded)) return ChatNavAction.Present
+        }
+        if (NAV_SOURCES.containsMatchIn(padded)) {
+            val bare = t in setOf("fontes", "fontes e apoio", "referencias")
+            if (bare || NAV_VERB.containsMatchIn(padded)) return ChatNavAction.Sources
+        }
+
+        if (NAV_VERB.containsMatchIn(padded)) {
+            if (Regex("\\bintroducao\\b").containsMatchIn(t)) {
+                return ChatNavAction.Section(role = SectionRole.INTRO)
+            }
+            if (Regex("\\bconclusao\\b").containsMatchIn(t)) {
+                return ChatNavAction.Section(role = SectionRole.CONCLUSION)
+            }
+            if (Regex("\\bdesenvolvimento\\b").containsMatchIn(t)) {
+                return ChatNavAction.Section(number = 1)
+            }
+            NAV_SECTION_NUMBER.find(t)?.let { m ->
+                val noun = m.groupValues[1]
+                val n = m.groupValues[2].toIntOrNull() ?: return@let
+                return ChatNavAction.Section(
+                    number = n,
+                    byTopic = noun == "topico" || noun == "secao",
+                )
+            }
+        }
+        return null
+    }
+
     fun route(
         text: String,
         document: S34Document?,
@@ -594,6 +677,12 @@ object ChatRouter {
                 return Route.ProposalReply(true, "resposta de aceite")
             REJECT_RE.containsMatchIn(t.trim()) ->
                 return Route.ProposalReply(false, "resposta de rejeição")
+        }
+
+        // Fatia 4 — navegação/mentoria: determinística, antes da oratória
+        // (que sequestraria "mostrar o ponto 2") e do LLM.
+        navigationCommand(text)?.let {
+            return Route.Navigate(it, "comando de navegação/mentoria")
         }
 
         // T2 (Fase 2): materializar a estrutura — antes da oratória e do
@@ -731,6 +820,17 @@ object ChatRouter {
         is Route.GenerateLocalNeeds -> "route=GENERATE_LOCAL_NEEDS theme=${route.inputs.theme} " +
             "minutes=${route.inputs.minutes} reason=${route.reason}"
         is Route.PasteAndChat -> "route=PASTE_AND_CHAT reason=${route.reason}"
+        is Route.Navigate -> "route=NAVIGATE action=${describeNav(route.action)} " +
+            "reason=${route.reason}"
         is Route.General -> "route=GENERAL reason=${route.reason}"
+    }
+
+    private fun describeNav(action: ChatNavAction): String = when (action) {
+        is ChatNavAction.Section -> "SECTION number=${action.number ?: "—"} " +
+            "role=${action.role ?: "—"} byTopic=${action.byTopic}"
+        ChatNavAction.Sources -> "SOURCES"
+        ChatNavAction.Train -> "TRAIN"
+        ChatNavAction.Present -> "PRESENT"
+        ChatNavAction.NextStep -> "NEXT_STEP"
     }
 }

@@ -48,6 +48,8 @@ class ChatActionsTest {
         // conversa vazia (sem perda de feature).
         val chips = localSuggestionTexts(hasOutline = true)
         listOf(
+            "Próximo passo",
+            "Mostrar fontes",
             "Resumir",
             "Quais refs faltam?",
             "Mostre as seções",

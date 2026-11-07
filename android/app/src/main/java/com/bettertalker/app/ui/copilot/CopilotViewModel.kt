@@ -7,8 +7,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardMetrics
+import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
+import com.bettertalker.app.data.copilot.ResolvedChatNav
+import com.bettertalker.app.data.copilot.nextStepSuggestion
 import com.bettertalker.app.data.copilot.buildNoteLensBlock
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
@@ -1996,6 +2000,127 @@ class CopilotViewModel(
         navigateSection(GuideNavDirection.PREV)
     }
 
+    // ---------- Fatia 4: navegação/mentoria ----------
+
+    /**
+     * Pedidos de navegação resolvidos (seção, Treino, Palco). A tela dona da
+     * rota executa; o ViewModel não conhece NavController.
+     */
+    private val _navigationRequests =
+        MutableSharedFlow<ResolvedChatNav>(extraBufferCapacity = 4)
+    val navigationRequests: SharedFlow<ResolvedChatNav> =
+        _navigationRequests.asSharedFlow()
+
+    /** Próximo passo sugerido — só executa com o toque do usuário. */
+    private val _nextStepSuggestion = MutableStateFlow<NextStepSuggestion?>(null)
+    val nextStepSuggestion: StateFlow<NextStepSuggestion?> =
+        _nextStepSuggestion.asStateFlow()
+
+    fun dismissNextStepSuggestion() {
+        _nextStepSuggestion.value = null
+    }
+
+    /**
+     * Executa um comando de navegação determinístico. Retorna true = consumiu
+     * (nunca vai ao LLM). Nada é editado aqui.
+     */
+    private suspend fun handleNavigation(action: ChatNavAction): Boolean {
+        _nextStepSuggestion.value = null
+        when (action) {
+            is ChatNavAction.Section -> {
+                val resolved = resolveNavSection(action)
+                if (resolved == null) {
+                    postText(navSectionMissingMessage(action), MessageOrigin.LOCAL)
+                    return true
+                }
+                val (section, index) = resolved
+                focusSection(section.id)
+                postText("Abrindo ${sectionShortTitleFor(section)}…", MessageOrigin.LOCAL)
+                _navigationRequests.emit(
+                    ResolvedChatNav.OpenSection(
+                        sectionId = section.id,
+                        title = section.title,
+                        sectionNumber = index + 1,
+                    )
+                )
+            }
+            ChatNavAction.Sources -> {
+                postText("Mostrando as fontes da nota…", MessageOrigin.LOCAL)
+                answerCheckRefs()
+            }
+            ChatNavAction.Train -> {
+                _navigationRequests.emit(ResolvedChatNav.StartTrain)
+            }
+            ChatNavAction.Present -> {
+                _navigationRequests.emit(ResolvedChatNav.OpenPresent)
+            }
+            ChatNavAction.NextStep -> {
+                suggestNextStepNow()
+            }
+        }
+        return true
+    }
+
+    /** Resolve "Ponto 2"/"Tópico 2"/introdução/conclusão contra a nota real. */
+    private fun resolveNavSection(
+        action: ChatNavAction.Section,
+    ): Pair<SpeechSection, Int>? {
+        val all = _guideSections.value
+        if (all.isEmpty()) return null
+        val pool = when {
+            action.role != null -> all.filter { it.role == action.role }
+            action.byTopic -> all
+            else -> all.filter { it.role == SectionRole.BODY }
+        }
+        val number = (action.number ?: 1).coerceAtLeast(1)
+        val section = pool.getOrNull(number - 1) ?: return null
+        val index = all.indexOfFirst { it.id == section.id }
+        if (index < 0) return null
+        return section to index
+    }
+
+    private fun navSectionMissingMessage(action: ChatNavAction.Section): String {
+        val all = _guideSections.value
+        val pool = when {
+            action.role != null -> all.filter { it.role == action.role }
+            action.byTopic -> all
+            else -> all.filter { it.role == SectionRole.BODY }
+        }
+        val noun = when {
+            action.role == SectionRole.INTRO -> "a introdução"
+            action.role == SectionRole.CONCLUSION -> "a conclusão"
+            action.byTopic -> "o tópico ${action.number ?: 1}"
+            else -> "o ponto ${action.number ?: 1}"
+        }
+        if (pool.isEmpty()) return "Não encontrei $noun nesta nota."
+        val singular = if (action.byTopic || action.role != null) "seção" else "ponto"
+        val plural = if (singular == "seção") "seções" else "pontos"
+        val count = if (pool.size == 1) singular else plural
+        return "Não encontrei $noun — esta nota tem ${pool.size} $count."
+    }
+
+    private fun sectionShortTitleFor(section: SpeechSection): String {
+        val body = _guideSections.value.filter { it.role == SectionRole.BODY }
+        return com.bettertalker.app.data.copilot.sectionShortTitle(section, body).lowercase()
+    }
+
+    /** Monta a sugestão de próximo passo a partir das seções reais. */
+    private fun suggestNextStepNow() {
+        val suggestion = nextStepSuggestion(
+            sections = _guideSections.value,
+            focusedSectionId = _chatScope.value,
+        )
+        if (suggestion == null) {
+            postText(
+                "Esta nota ainda não tem seções. Abra o editor e crie a estrutura.",
+                MessageOrigin.LOCAL,
+            )
+            return
+        }
+        _nextStepSuggestion.value = suggestion
+        postText("Próximo passo: ${suggestion.label.lowercase()}.", MessageOrigin.LOCAL)
+    }
+
     /**
      * Aprova a seção em foco (mesmo efeito do toggle do editor: mesma
      * coluna, via DAO — o editor observa o banco e reflete sozinho).
@@ -2854,6 +2979,8 @@ class CopilotViewModel(
             _sourcesNeeded.value = null
         }
         lastUserMessage = text
+        // Fatia 4: uma nova fala invalida a sugestão de próximo passo.
+        if (postUserMessage) _nextStepSuggestion.value = null
         // #23-fix-c (G1): captura o escopo do turno ANTES de gerar.
         turnScope = _chatScope.value
         currentGenerationJob = viewModelScope.launch {
@@ -3006,6 +3133,12 @@ class CopilotViewModel(
                 proposeStructureFor(currentTarget())
                 return@launch
             }
+            // Fatia 4 — navegação/mentoria determinística: não monta dossiê,
+            // não consulta RAG e nunca vai ao LLM.
+            com.bettertalker.app.data.copilot.ChatRouter.navigationCommand(text)?.let {
+                handleNavigation(it)
+                return@launch
+            }
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -3107,6 +3240,10 @@ class CopilotViewModel(
                 return@launch
             }
             when (route) {
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.Navigate -> {
+                    handleNavigation(route.action)
+                    return@launch
+                }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.OutOfScope -> {
                     postText(route.message)
                     return@launch
