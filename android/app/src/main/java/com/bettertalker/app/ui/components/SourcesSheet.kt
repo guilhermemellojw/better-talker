@@ -55,6 +55,8 @@ import com.bettertalker.app.data.util.SourceGroup
 import com.bettertalker.app.data.util.SourceKind
 import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.copilot.SourceRowAction
+import com.bettertalker.app.data.copilot.refDisplayLabel
+import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.data.copilot.downloadUrlFor
 import com.bettertalker.app.data.copilot.sourceRowState
 import com.bettertalker.app.data.util.citationStatusLabel
@@ -446,9 +448,13 @@ private fun BookDetailRow(
 
 @Composable
 private fun SourceDetailLine(source: NoteSource) {
+    val label = source.refStatus?.ref
+        ?.takeIf { it.kind == RefDetector.Kind.MAGAZINE }
+        ?.let { refDisplayLabel(it) }
+        ?: source.ref
     Column(Modifier.padding(vertical = 2.dp)) {
         Text(
-            source.ref,
+            label,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold,
         )

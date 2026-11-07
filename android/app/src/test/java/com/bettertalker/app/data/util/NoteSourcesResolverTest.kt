@@ -307,8 +307,10 @@ class NoteSourcesResolverTest {
         // Duas refs da MESMA edição (Despertai! 08/13): a primeira localiza
         // o texto; a segunda só não achou o §. A edição está no acervo — a
         // segunda não pode ser rotulada como "sem fonte no acervo".
-        val page6 = RefDetector.detect("g 8/13 pág. 6").single()
-        val page8 = RefDetector.detect("g 8/13 pág. 8 §§ 1-2").single()
+        val page6 = RefDetector.detect("g 8/13 pág. 6")
+            .first { it.kind == RefDetector.Kind.MAGAZINE }
+        val page8 = RefDetector.detect("g 8/13 pág. 8 §§ 1-2")
+            .first { it.kind == RefDetector.Kind.MAGAZINE }
         val candidates = listOf(page6, page8).map { ref ->
             SourceCandidate(
                 key = NoteSourcesResolver.sourceKey(ref),

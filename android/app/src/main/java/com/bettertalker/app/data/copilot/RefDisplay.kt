@@ -44,8 +44,6 @@ fun refUnitLabel(ref: RefDetector.DetectedRef): String {
 /** Linha do card: “Ame as Pessoas — lição 9, ponto 5”. */
 fun refDisplayLabel(ref: RefDetector.DetectedRef): String {
     val base = ref.label
-    // Revistas já trazem página/§ no label; não duplicar.
-    if (ref.kind == RefDetector.Kind.MAGAZINE) return base
     val unit = refUnitLabel(ref)
     if (unit.isBlank()) return base
     if (normalizeText(base).contains(normalizeText(unit))) return base

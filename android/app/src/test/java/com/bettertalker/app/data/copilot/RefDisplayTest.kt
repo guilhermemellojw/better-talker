@@ -71,4 +71,21 @@ class RefDisplayTest {
         assertEquals("A Sentinela 7/2025 • pág. 22 §§ 8-9", refDisplayLabel(r))
         assertEquals("w|2025|7", refGroupKey(r))
     }
+
+    @Test
+    fun revistaSemUnidadeNoLabel_recebePaginaEParagrafo() {
+        // Refs persistidas de revista trazem só a edição no label; o detalhe
+        // do sheet precisa mostrar a página/§ para distinguir duas refs da
+        // MESMA edição (Despertai! 08/13 pág. 6 × pág. 8 §§ 1-2).
+        val r = ref(
+            "Despertai! 8/2013",
+            kind = RefDetector.Kind.MAGAZINE,
+            page = 8,
+            paragraph = 1,
+            end = 2,
+            pubKey = "g",
+            editionKey = "g|2013|8",
+        )
+        assertEquals("Despertai! 8/2013 — pág. 8, §§ 1-2", refDisplayLabel(r))
+    }
 }
