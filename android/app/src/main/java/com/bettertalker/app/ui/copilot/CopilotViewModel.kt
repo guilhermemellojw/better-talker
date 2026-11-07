@@ -105,6 +105,7 @@ import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.HtmlInlineSanitizer
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSource
@@ -125,7 +126,6 @@ import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.data.util.materialMinutesOf
 import com.bettertalker.app.data.util.newId
 import com.bettertalker.app.data.util.parseInsertSnippet
-import com.bettertalker.app.data.util.paragraphsToHtml
 import com.bettertalker.app.data.util.planPaste
 import com.bettertalker.app.data.util.snippetLabel
 import com.bettertalker.app.data.util.stripInternalTags
@@ -442,6 +442,23 @@ internal fun cleanForInsert(raw: String): String {
     // pós-escrito "meta" e linhas em branco duplicadas.
     val stripped = stripMetaPreamble(stripPromptTags(raw))
     return stripped.replace(Regex("\\n{3,}"), "\n\n").trim()
+}
+
+/**
+ * Texto do card (`<texto-do-card>`) → HTML do editor.
+ *
+ * O card pode vir como texto puro, markdown (`**negrito**`) ou HTML
+ * (`<p><b>Papel:</b>…`). O caminho card-first gravava o texto cru dentro de
+ * `<p>`, então os marcadores apareciam literais no editor. Normaliza para
+ * markdown (remove `〈sugestão〉` e converte HTML inline) e usa o MESMO
+ * parser do `insertMarkdown` para gerar o HTML final. Puro/testável.
+ */
+internal fun cardTextToEditorHtml(text: String): String {
+    val markdown = HtmlInlineSanitizer.htmlInlineToMarkdown(stripInternalTags(text))
+    if (markdown.isBlank()) return ""
+    return com.mohamedrejeb.richeditor.model.RichTextState()
+        .apply { setMarkdown(markdown) }
+        .toHtml()
 }
 
 /**
@@ -1207,6 +1224,9 @@ class CopilotViewModel(
         val map = ChatCodec.unescMap(entity.payload)
         val card = CardPayload.fromMap(map) ?: return
         val text = extractCardText(map["text"].orEmpty()) ?: return
+        // HTML final do editor: markdown/HTML do card deixa de aparecer cru.
+        val cardHtml = cardTextToEditorHtml(text)
+        if (cardHtml.isBlank()) return
         val now = System.currentTimeMillis()
         try {
             val previousHtml: String
@@ -1235,9 +1255,9 @@ class CopilotViewModel(
                     }
                     previousHtml = section.contentHtml
                     postHtml = if (mode == CardInsertMode.REPLACE) {
-                        paragraphsToHtml(text)
+                        cardHtml
                     } else {
-                        appendCardHtml(previousHtml, text)
+                        appendCardHtml(previousHtml, cardHtml)
                     }
                     val updated = section.copy(contentHtml = postHtml, updatedAt = now)
                     db.withTransaction {
@@ -1271,9 +1291,9 @@ class CopilotViewModel(
                     }
                     previousHtml = note.richHtml
                     postHtml = if (mode == CardInsertMode.REPLACE) {
-                        paragraphsToHtml(text)
+                        cardHtml
                     } else {
-                        appendCardHtml(previousHtml, text)
+                        appendCardHtml(previousHtml, cardHtml)
                     }
                     val updated = note.copy(richHtml = postHtml, updatedAt = now)
                     db.withTransaction {
@@ -1363,9 +1383,9 @@ class CopilotViewModel(
         )
     }
 
-    private fun appendCardHtml(previous: String, text: String): String =
-        if (previous.isBlank()) paragraphsToHtml(text)
-        else previous.trimEnd() + "\n" + paragraphsToHtml(text)
+    private fun appendCardHtml(previous: String, cardHtml: String): String =
+        if (previous.isBlank()) cardHtml
+        else previous.trimEnd() + "\n" + cardHtml
 
     // ---------- conversa (chat colaborativo, salvo por nota) ----------
 
