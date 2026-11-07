@@ -15,8 +15,10 @@
 > usuário estiver no fim. S-34: aviso só em `S34_DISCOURSE`. Tablet validou
 > Walkie, troca de nota pelo Palco, linha de contexto, “Continuar no Palco” +
 > “Iniciar Treino”, navegação e scroll; 2.983 testes JVM/0 verdes e
-> lintRelease verde no CI das fatias. Bump público 4.0/49 e beta 50;
-> tag/release só com pedido explícito.
+> lintRelease verde no CI das fatias. **Tag `v4.0.0` publicada** em
+> 2026-11-07; APK assinado + SHA-256 `1618598c…` no
+> [GitHub Release](https://github.com/guilhermemellojw/better-talker/releases/tag/v4.0.0);
+> beta 50 buildado como artefato separado.
 
 > “Congelado” = não reintroduzir sem decisão explícita. “Decisão pendente” = o
 > código/schema pode existir, mas o produto ainda não fechou o comportamento.

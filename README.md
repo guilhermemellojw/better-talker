@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v4.0/49 — Assistente como porta de entrada, modo Walkie com PTT/STT/TTS locais, mentoria/navegação e contexto de Treino/Palco; sync beta em APK separado.**
+> **Estágio: v4.0/49 publicado (tag v4.0.0) — Assistente como porta de entrada, modo Walkie com PTT/STT/TTS locais, mentoria/navegação e contexto de Treino/Palco; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -29,7 +29,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **2.983 testes JVM verdes** na main (v4.0: Assistente + Walkie + PTT/STT/TTS + mentoria/navegação + contexto Treino/Palco, além de C2.5, M2a/M2b, 45 min, fontes/gate, C2, M1, card-first, Treino e Palco) · `lintRelease` 0 errors.
-- **Distribuição:** **v3.4.2/47** pública (APK assinado + SHA-256, arm64); **v4.0/49 em preparação** nesta branch, com smoke no tablet. O sync beta é um APK separado (`4.0-syncbeta`, 50) e não entra no release público. Ver [v3.4.2](docs/releases/v3.4.2.md) e [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v4.0/49 pública** (tag `v4.0.0`; APK assinado + SHA-256 `1618598c…`, arm64). O sync beta é um APK separado (`4.0-syncbeta`, 50) e não entra no release público. Ver [v4.0.0](https://github.com/guilhermemellojw/better-talker/releases/tag/v4.0.0) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
