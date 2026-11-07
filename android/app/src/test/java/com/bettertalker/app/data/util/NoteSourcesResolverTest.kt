@@ -5,6 +5,7 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.domain.speech.SubPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
