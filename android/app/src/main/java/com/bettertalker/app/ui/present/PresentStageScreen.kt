@@ -100,6 +100,8 @@ fun PresentStageScreen(
     val running by vm.running.collectAsState()
     val paused by vm.pausedByLifecycle.collectAsState()
     val speakers by vm.speakers.collectAsState()
+    val mapMode by vm.mapMode.collectAsState()
+    val focusCueIndex by vm.focusCueIndex.collectAsState()
     val currentCue = cues.getOrNull(currentIndex)
     val currentScript = scriptItems.getOrNull(scriptIndex)
     val nextScript = scriptItems.getOrNull(scriptIndex + 1)
@@ -109,11 +111,8 @@ fun PresentStageScreen(
     val sectionMinutes = currentCue?.targetMinutes ?: 0
     val sectionState = stageTimerState(sectionElapsed, sectionMinutes)
     val scriptMode = prep.mode == PresentMode.SCRIPT
-    // v4.2: mapa (todas as cues) x foco (uma cue por vez); estado local do palco.
-    var mapMode by remember { mutableStateOf(true) }
-    var focusCueIndex by remember { mutableStateOf(0) }
+    // v5.1: Mapa/Foco e foco por seção vêm do PresentViewModel/DataStore.
     var previewImage by remember { mutableStateOf<NoteImageEntity?>(null) }
-    LaunchedEffect(currentIndex) { focusCueIndex = 0 }
 
     // Orientação: segue o padrão do dispositivo; "Travar" fixa a atual.
     DisposableEffect(prep.orientation) {
@@ -206,7 +205,7 @@ fun PresentStageScreen(
                     mapMode = mapMode,
                     focusCueIndex = focusCueIndex,
                     sectionElapsed = sectionElapsed,
-                    onFocusCue = { focusCueIndex = it },
+                    onFocusCue = { vm.setFocusCue(it) },
                     onPreviewImage = { previewImage = it },
                 )
             }
@@ -286,7 +285,7 @@ fun PresentStageScreen(
                 if (!scriptMode) {
                     val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
                     if (hasCueSheet) {
-                        TextButton(onClick = { mapMode = !mapMode }) {
+                        TextButton(onClick = { vm.setMapMode(!mapMode) }) {
                             Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
                         }
                     }
@@ -391,6 +390,13 @@ private fun CueContent(
         MissingCue("Tribuna não gerada para esta seção. Avance ou abra a Tribuna no editor.")
         return
     }
+    if (capsule.cues.isEmpty() && capsule.cueSheetVersion >= 2) {
+        MissingCue(
+            "Sem lembretes nesta seção. Abra a Tribuna para adicionar.",
+            title = "Mapa vazio",
+        )
+        return
+    }
 
     // v4.2: folha de cues (mapa) ou uma cue em foco. Cápsula antiga cai no
     // layout de 4 campos abaixo (compatibilidade sem migração).
@@ -407,7 +413,7 @@ private fun CueContent(
         }
         val focused = focusCueIndex.coerceIn(0, capsule.cues.lastIndex)
         Text(
-            if (mapMode) "MAPA DE CUES" else "FOCO · ${focused + 1}/${capsule.cues.size}",
+            if (mapMode) "MAPA DE LEMBRETES" else "FOCO · ${focused + 1}/${capsule.cues.size}",
             color = StageAccent,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -437,14 +443,14 @@ private fun CueContent(
                 TextButton(
                     onClick = { onFocusCue((focused - 1).coerceAtLeast(0)) },
                     enabled = focused > 0,
-                ) { Text("‹ Cue", color = if (focused > 0) StageFg else StageDim) }
+                ) { Text("‹ Lembrete", color = if (focused > 0) StageFg else StageDim) }
                 Spacer(Modifier.weight(1f))
                 Text("${focused + 1}/${capsule.cues.size}", color = StageDim, fontSize = 11.sp)
                 Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = { onFocusCue((focused + 1).coerceAtMost(capsule.cues.lastIndex)) },
                     enabled = focused < capsule.cues.lastIndex,
-                ) { Text("Cue ›", color = if (focused < capsule.cues.lastIndex) StageFg else StageDim) }
+                ) { Text("Lembrete ›", color = if (focused < capsule.cues.lastIndex) StageFg else StageDim) }
             }
         }
         // v4.2: checkpoint explícito do tempo acumulado nesta seção.
@@ -518,11 +524,16 @@ private fun cueImage(cue: TribunaCue, images: List<NoteImageEntity>): NoteImageE
 
 private fun presentCueLabel(kind: TribunaCueKind): String = when (kind) {
     TribunaCueKind.HOOK -> "GANCHO"
+    TribunaCueKind.CONTEXT -> "CONTEXTO"
+    TribunaCueKind.QUESTION -> "PERGUNTA"
     TribunaCueKind.REASONING -> "RACIOCÍNIO"
     TribunaCueKind.SCRIPTURE -> "TEXTO"
+    TribunaCueKind.READING -> "LEITURA"
     TribunaCueKind.ILLUSTRATION -> "ILUSTRAÇÃO"
+    TribunaCueKind.QUOTE -> "CITAÇÃO"
     TribunaCueKind.APPLICATION -> "APLICAÇÃO"
     TribunaCueKind.IMAGE -> "IMAGEM"
+    TribunaCueKind.DELIVERY -> "ENTREGA"
     TribunaCueKind.TRANSITION -> "TRANSIÇÃO"
     TribunaCueKind.INVITATION -> "CONVITE"
     TribunaCueKind.RECAP -> "RECAPITULAÇÃO"
@@ -557,13 +568,18 @@ private fun PresentCueLine(
         Spacer(Modifier.height(5.dp))
         Text(
             cue.text,
-            color = StageFg,
+            color = if (cue.kind == TribunaCueKind.DELIVERY) StageDim else StageFg,
             fontSize = (fontSp * 0.92f).sp,
             lineHeight = (fontSp * 1.35f).sp,
             fontWeight = if (cue.kind == TribunaCueKind.SCRIPTURE) {
                 FontWeight.SemiBold
             } else {
                 FontWeight.Normal
+            },
+            fontStyle = if (cue.kind == TribunaCueKind.DELIVERY) {
+                androidx.compose.ui.text.font.FontStyle.Italic
+            } else {
+                androidx.compose.ui.text.font.FontStyle.Normal
             },
         )
         if (cue.refs.isNotEmpty()) {

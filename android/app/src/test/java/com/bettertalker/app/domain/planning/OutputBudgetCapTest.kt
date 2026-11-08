@@ -1,5 +1,6 @@
 package com.bettertalker.app.domain.planning
 
+import com.bettertalker.app.domain.speech.TribunaDetail
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,6 +60,37 @@ class OutputBudgetCapTest {
         (0..60).forEach { minutes ->
             val budget = OutputBudget.tribunaSection(minutes, imageCount = minutes % 4)
             assertTrue("min=$minutes budget=$budget", budget in 600..900)
+        }
+    }
+
+    @Test
+    fun tribunaPorDetalheRespeitaAsTresFaixas() {
+        assertEquals(500, OutputBudget.tribunaSection(null, 0, TribunaDetail.COMPACT))
+        assertEquals(620, OutputBudget.tribunaSection(5, 0, TribunaDetail.COMPACT))
+        assertEquals(700, OutputBudget.tribunaSection(30, 3, TribunaDetail.COMPACT))
+
+        assertEquals(600, OutputBudget.tribunaSection(null, 0, TribunaDetail.STANDARD))
+        assertEquals(720, OutputBudget.tribunaSection(5, 0, TribunaDetail.STANDARD))
+        assertEquals(900, OutputBudget.tribunaSection(30, 3, TribunaDetail.STANDARD))
+
+        assertEquals(900, OutputBudget.tribunaSection(null, 0, TribunaDetail.DETAILED))
+        assertEquals(1020, OutputBudget.tribunaSection(5, 0, TribunaDetail.DETAILED))
+        assertEquals(1400, OutputBudget.tribunaSection(30, 3, TribunaDetail.DETAILED))
+
+        (0..60).forEach { minutes ->
+            val images = minutes % 4
+            assertTrue(
+                OutputBudget.tribunaSection(minutes, images, TribunaDetail.COMPACT)
+                    in 500..700,
+            )
+            assertTrue(
+                OutputBudget.tribunaSection(minutes, images, TribunaDetail.STANDARD)
+                    in 600..900,
+            )
+            assertTrue(
+                OutputBudget.tribunaSection(minutes, images, TribunaDetail.DETAILED)
+                    in 900..1400,
+            )
         }
     }
 

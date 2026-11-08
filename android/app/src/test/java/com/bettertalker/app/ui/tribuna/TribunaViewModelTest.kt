@@ -5,7 +5,10 @@ import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
+import com.bettertalker.app.domain.speech.TribunaDetail
+import com.bettertalker.app.domain.speech.TribunaMapStatus
 import com.bettertalker.app.domain.speech.toJson
+import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -75,6 +78,24 @@ class TribunaViewModelTest {
         override suspend fun setFontSp(v: Int) { set = v }
     }
 
+    private class FakeDetailPrefs : TribunaDetailPrefs {
+        val note = MutableStateFlow(TribunaDetail.STANDARD)
+        val sections = mutableMapOf<String, MutableStateFlow<TribunaDetail?>>()
+        override fun noteDetail(noteId: String): Flow<TribunaDetail> = note
+        override fun sectionDetail(noteId: String, sectionId: String): Flow<TribunaDetail?> =
+            sections.getOrPut(sectionId) { MutableStateFlow(null) }
+        override suspend fun setNoteDetail(noteId: String, detail: TribunaDetail) {
+            note.value = detail
+        }
+        override suspend fun setSectionDetail(
+            noteId: String,
+            sectionId: String,
+            detail: TribunaDetail,
+        ) {
+            sections.getOrPut(sectionId) { MutableStateFlow(null) }.value = detail
+        }
+    }
+
     private fun entity(id: String, order: Int, tribuna: String? = null) = SpeechSectionEntity(
         id = id, noteId = "n1", order = order, role = "BODY", title = "PONTO $order",
         minutes = 5, contentHtml = "<p>x</p>", bibleRefsJson = "[]",
@@ -91,6 +112,7 @@ class TribunaViewModelTest {
         dao: FakeDao,
         speaker: FakeSpeaker = FakeSpeaker(),
         isDemonstration: Boolean = false,
+        detailPrefs: FakeDetailPrefs? = null,
         block: suspend (TribunaViewModel, FakeSpeaker, FakeDao) -> Unit,
     ) = runBlocking {
         val scope = CoroutineScope(Dispatchers.Default)
@@ -98,12 +120,34 @@ class TribunaViewModelTest {
             val vm = TribunaViewModel(
                 dao, "n1", speaker, FakePrefs(), debounceMs = 0, scope = scope,
                 isDemonstrationProvider = { isDemonstration },
+                detailPrefs = detailPrefs,
             )
             block(vm, speaker, dao)
             delay(60)
         } finally {
             scope.cancel()
         }
+    }
+
+    private suspend fun awaitCards(vm: TribunaViewModel) {
+        val deadline = System.currentTimeMillis() + 2_000
+        while (vm.cards.value.isEmpty() && System.currentTimeMillis() < deadline) delay(10)
+    }
+
+    /** Espera o autosave gravar uma cápsula que satisfaça [predicate]. */
+    private suspend fun awaitCapsule(
+        dao: FakeDao,
+        predicate: (TribunaCapsule) -> Boolean,
+    ): TribunaCapsule? {
+        var parsed: TribunaCapsule? = null
+        val deadline = System.currentTimeMillis() + 2_000
+        while (System.currentTimeMillis() < deadline) {
+            parsed = dao.rows.value.firstOrNull()?.tribunaJson
+                ?.let { tribunaCapsuleFromJson(it) }
+            if (parsed != null && predicate(parsed)) return parsed
+            delay(10)
+        }
+        return parsed
     }
 
     @Test
@@ -280,5 +324,250 @@ class TribunaViewModelTest {
         }
         assertEquals("Texto novo", parsed?.cues?.first()?.text)
         assertEquals(listOf("Sal 2:2", "Ef 1:1"), parsed?.cues?.first()?.refs)
+    }
+
+    // ---------- v5.1: edição completa da folha, mapa vazio e detalhe ----------
+
+    @Test
+    fun addCueConverteCapsulaAntigaEPreservaCabecalho() = withVm(
+        FakeDao(listOf(entity("s1", 0, capsule("s1", "Âncora ouro").toJson())))
+    ) { vm, _, dao ->
+        vm.load()
+        awaitCards(vm)
+        vm.addCue("s1", TribunaCueKind.HOOK)
+        val card = vm.cards.value.first { it.sectionId == "s1" }
+        val c = card.capsule!!
+        assertEquals(2, c.cueSheetVersion)
+        assertEquals("Âncora ouro", c.anchorPhrase)
+        assertEquals("Ideia s1", c.mainIdea)
+        assertEquals(1, c.cues.size)
+        assertEquals(TribunaCueKind.HOOK, c.cues[0].kind)
+        assertTrue(!card.legacyMap)
+
+        val parsed = awaitCapsule(dao) { it.cueSheetVersion == 2 && it.cues.size == 1 }
+        assertEquals("Âncora ouro", parsed?.anchorPhrase)
+        assertEquals(TribunaCueKind.HOOK, parsed?.cues?.first()?.kind)
+    }
+
+    @Test
+    fun removeCueRemoveSoOLembreteERestaurarDesfaz() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2,
+                        cues = listOf(
+                            TribunaCue(TribunaCueKind.HOOK, "Abertura"),
+                            TribunaCue(TribunaCueKind.APPLICATION, "Aplicar"),
+                        ),
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, _ ->
+        vm.load()
+        awaitCards(vm)
+        val before = vm.cards.value.first().capsule!!
+        vm.removeCue("s1", 0)
+        val after = vm.cards.value.first().capsule!!
+        assertEquals(1, after.cues.size)
+        assertEquals("Aplicar", after.cues[0].text)
+        assertEquals("Âncora", after.anchorPhrase)
+
+        vm.restoreCapsule("s1", before)
+        assertEquals(before, vm.cards.value.first().capsule)
+    }
+
+    @Test
+    fun moveCueTrocaVizinhosENaoPassaDosLimites() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2,
+                        cues = listOf(
+                            TribunaCue(TribunaCueKind.HOOK, "A"),
+                            TribunaCue(TribunaCueKind.REASONING, "B"),
+                            TribunaCue(TribunaCueKind.APPLICATION, "C"),
+                        ),
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, _ ->
+        vm.load()
+        awaitCards(vm)
+        fun texts() = vm.cards.value.first().capsule!!.cues.map { it.text }
+
+        vm.moveCue("s1", 0, 1)
+        assertEquals(listOf("B", "A", "C"), texts())
+
+        vm.moveCue("s1", 2, 1)
+        assertEquals(listOf("B", "A", "C"), texts())
+
+        vm.moveCue("s1", 0, -1)
+        assertEquals(listOf("B", "A", "C"), texts())
+
+        vm.moveCue("s1", 1, -1)
+        assertEquals(listOf("A", "B", "C"), texts())
+    }
+
+    @Test
+    fun editarTipoImagemTermosETempoPersiste() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2,
+                        cues = listOf(TribunaCue(TribunaCueKind.REASONING, "Texto")),
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, dao ->
+        vm.load()
+        awaitCards(vm)
+        vm.updateCueKind("s1", 0, TribunaCueKind.IMAGE)
+        vm.updateCueImage("s1", 0, "img-1", "Legenda")
+        vm.updateKeyTerms("s1", listOf(" fé ", "", "amor"))
+        vm.updateTimeMinutes("s1", 0)
+        assertNull(vm.cards.value.first().capsule?.timeMinutes)
+        vm.updateTimeMinutes("s1", 7)
+
+        val local = vm.cards.value.first().capsule!!
+        assertEquals(TribunaCueKind.IMAGE, local.cues[0].kind)
+        assertEquals("img-1", local.cues[0].imageId)
+        assertEquals("Legenda", local.cues[0].imageCaption)
+        assertEquals(listOf("fé", "amor"), local.keyTerms)
+        assertEquals(7, local.timeMinutes)
+
+        val parsed = awaitCapsule(dao) {
+            it.cues.firstOrNull()?.kind == TribunaCueKind.IMAGE &&
+                it.timeMinutes == 7 &&
+                it.keyTerms == listOf("fé", "amor")
+        }
+        assertEquals("img-1", parsed?.cues?.first()?.imageId)
+        assertEquals(listOf("fé", "amor"), parsed?.keyTerms)
+    }
+
+    @Test
+    fun converterCapsulaAntigaCriaMapaVazioSemPerderCabecalho() = withVm(
+        FakeDao(listOf(entity("s1", 0, capsule("s1", "Âncora ouro").toJson())))
+    ) { vm, _, dao ->
+        vm.load()
+        awaitCards(vm)
+        vm.convertToCueSheet("s1")
+        val card = vm.cards.value.first()
+        assertTrue(card.emptyCueSheet)
+        assertTrue(!card.legacyMap)
+        assertEquals(TribunaMapStatus.INCOMPLETE, card.quality.status)
+        assertTrue(card.quality.reasons.contains("sem lembretes"))
+        assertEquals("Âncora ouro", card.capsule?.anchorPhrase)
+
+        val parsed = awaitCapsule(dao) { it.cueSheetVersion == 2 }
+        assertEquals(2, parsed?.cueSheetVersion)
+        assertTrue(parsed?.cues?.isEmpty() == true)
+        assertEquals("Âncora ouro", parsed?.anchorPhrase)
+    }
+
+    @Test
+    fun folhaV2VaziaVemDoBancoComoMapaVazioENaoComoLegado() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2,
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, _ ->
+        vm.load()
+        awaitCards(vm)
+        val card = vm.cards.value.first()
+        assertTrue(card.emptyCueSheet)
+        assertTrue(!card.legacyMap)
+        assertEquals(TribunaMapStatus.INCOMPLETE, card.quality.status)
+    }
+
+    @Test
+    fun secoesComRefsSemRefsNosLembretesFicamIncompletas() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2, keyTerms = listOf("termo"),
+                        cues = listOf(TribunaCue(TribunaCueKind.REASONING, "Argumento")),
+                    ).toJson(),
+                ).copy(bibleRefsJson = "[\"Sal 1:1\"]"),
+            )
+        )
+    ) { vm, _, _ ->
+        vm.load()
+        awaitCards(vm)
+        val card = vm.cards.value.first()
+        assertTrue(card.sectionHasRefs)
+        assertEquals(TribunaMapStatus.INCOMPLETE, card.quality.status)
+        assertTrue(card.quality.reasons.contains("sem refs"))
+    }
+
+    @Test
+    fun transicaoSoEhExigidaForaDaUltimaSecao() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2, keyTerms = listOf("termo"),
+                        cues = listOf(TribunaCue(TribunaCueKind.REASONING, "Argumento")),
+                    ).toJson(),
+                ),
+                entity(
+                    "s2", 1,
+                    TribunaCapsule(
+                        sectionId = "s2", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cueSheetVersion = 2, keyTerms = listOf("termo"),
+                        cues = listOf(TribunaCue(TribunaCueKind.APPLICATION, "Aplicar")),
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, _ ->
+        vm.load()
+        awaitCards(vm)
+        val first = vm.cards.value[0]
+        val last = vm.cards.value[1]
+        assertTrue(!first.isLastSection)
+        assertTrue(first.quality.reasons.contains("sem transição"))
+        assertEquals(TribunaMapStatus.INCOMPLETE, first.quality.status)
+        assertTrue(last.isLastSection)
+        assertEquals(TribunaMapStatus.COMPLETE, last.quality.status)
+    }
+
+    @Test
+    fun detalheDaNotaEDaSecaoPersistemNoSeam() {
+        val detailPrefs = FakeDetailPrefs()
+        withVm(
+            FakeDao(listOf(entity("s1", 0, capsule("s1").toJson()))),
+            detailPrefs = detailPrefs,
+        ) { vm, _, _ ->
+            vm.setNoteDetail(TribunaDetail.DETAILED)
+            vm.setSectionDetail("s1", TribunaDetail.COMPACT)
+            delay(40)
+            assertEquals(TribunaDetail.DETAILED, detailPrefs.note.value)
+            assertEquals(TribunaDetail.COMPACT, detailPrefs.sections["s1"]?.value)
+            assertEquals(TribunaDetail.DETAILED, vm.noteDetail.value)
+        }
     }
 }
