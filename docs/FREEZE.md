@@ -12,8 +12,12 @@
 > **3.042 testes JVM / 0**. A34 debug partiu de `UPGRADE_SEEN` sem dismiss e
 > validou resgate, morte/relançamento, dismiss e abertura manual pela Ajuda.
 > Pendências de uso: **TalkBack audível** e tema claro/escuro (bug de tema vira
-> 5.0.2/5.1). Tag `v5.0.1`; APK público assinado + SHA-256 no GitHub Release;
-> `5.0.1-syncbeta`/62 é artefato separado.
+> 5.0.2/5.1). Tag `v5.0.1` (`820f34f`); APK público assinado + SHA-256
+> `208c2da036a4789ea078e42b9ab67b25966d68255ea1616aa5b57a2ed98e5378` no
+> GitHub Release; `5.0.1-syncbeta`/62 é artefato separado (run
+> `42526145146`, SHA-256 `fdb0952f…`). Release 61 instalado por cima do
+> público 5.0/59 no A34: “Novidades” resgatado, morte antes do dismiss
+> reexibiu, dismiss não repetiu e a Ajuda abriu manualmente.
 
 > **2026-11-08 — v5.0/59 (onboarding + ajuda contextual):** primeira abertura
 > guiada com quatro caminhos, skip/back, replay e “Novidades do 5.0” para
