@@ -38,6 +38,7 @@ fun PresentHomeScreen(
     onOpenEditor: (String) -> Unit,
     onPickNote: () -> Unit,
     onGoToLibrary: () -> Unit,
+    onOpenHelp: () -> Unit = {},
 ) {
     val card by vm.presentCard.collectAsState()
     val all by vm.cards.collectAsState()
@@ -50,6 +51,9 @@ fun PresentHomeScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 title = { Text("Palco") },
+                actions = {
+                    com.bettertalker.app.ui.help.HelpTopBarButton(onOpenHelp)
+                },
             )
         },
     ) { pad ->

@@ -19,6 +19,7 @@ class RoutesTest {
         assertFalse(shouldShowGlobalBar(Routes.STAGE))
         assertFalse(shouldShowGlobalBar(Routes.EDITOR))
         assertFalse(shouldShowGlobalBar(Routes.SETTINGS))
+        assertFalse(shouldShowGlobalBar(Routes.ONBOARDING))
         assertFalse(shouldShowGlobalBar(null))
     }
 
@@ -33,6 +34,7 @@ class RoutesTest {
         // Ensaio é imersivo (sem barra) e demais telas não têm aba.
         assertNull(activeTab(Routes.STAGE))
         assertNull(activeTab(Routes.EDITOR))
+        assertNull(activeTab(Routes.ONBOARDING))
         assertNull(activeTab(null))
     }
 

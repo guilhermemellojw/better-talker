@@ -151,6 +151,8 @@ fun EditorScreen(
     onNoticeShown: () -> Unit = {},
     /** #20-fix-a: gera a Tribuna da nota (cápsulas por seção). */
     onGenerateTribuna: () -> Unit = {},
+    /** v5.0: abre a ajuda contextual com a seção ativa (se houver). */
+    onOpenHelp: (sectionId: String?, sectionTitle: String?) -> Unit = { _, _ -> },
 ) {
     // Guarda de foco: ao abrir o chat, o editor solta o foco para que o
     // teclado/IME não continue entregando texto ao campo errado.
@@ -490,6 +492,18 @@ fun EditorScreen(
                         // UX refactor: o Editor é focado em escrita/exportação —
                         // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
                         // atalhos de Ensaio/Tribuna (agora na barra global) saíram.
+                        DropdownMenuItem(
+                            text = { Text("Ajuda") },
+                            onClick = {
+                                showMenu = false
+                                onOpenHelp(
+                                    activeSectionId,
+                                    sections.firstOrNull {
+                                        it.section.id == activeSectionId
+                                    }?.section?.title,
+                                )
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },

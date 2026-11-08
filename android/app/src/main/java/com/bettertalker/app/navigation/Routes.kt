@@ -29,6 +29,8 @@ object Routes {
     const val PRESENT_HOME = "present"
     /** Apresentar live — pré-voo + palco read-only (imersivo). */
     const val PRESENT = "present/{noteId}"
+    /** v5.0: primeira abertura guiada (replay opcional para “Rever passos”). */
+    const val ONBOARDING = "onboarding?replay={replay}"
     /** Picker compartilhado de esboço (Treino/Palco). */
     const val PICKER = "picker/{mode}"
     fun editor(noteId: String) = "editor/$noteId"
@@ -37,6 +39,7 @@ object Routes {
     fun stage(noteId: String) = "stage/$noteId"
     fun present(noteId: String) = "present/$noteId"
     fun picker(mode: String) = "picker/$mode"
+    fun onboarding(replay: Boolean = false) = "onboarding?replay=$replay"
     fun library(linkNote: String? = null) =
         "library?linkNote=${linkNote.orEmpty()}"
 }

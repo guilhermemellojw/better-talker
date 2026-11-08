@@ -172,6 +172,10 @@ interface NoteDao {
     suspend fun clearFolder(folderId: String)
     @Query("SELECT COUNT(*) FROM notes WHERE trashed = 0")
     suspend fun count(): Int
+    @Query("SELECT COUNT(*) FROM notes WHERE trashed = 0")
+    fun observeCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM notes WHERE trashed = 0 AND TRIM(title) <> 'Meu primeiro discurso'")
+    fun observeUserCount(): Flow<Int>
 }
 
 @Dao
