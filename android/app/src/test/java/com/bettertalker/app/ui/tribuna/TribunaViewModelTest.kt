@@ -253,7 +253,15 @@ class TribunaViewModelTest {
         )
     ) { vm, _, dao ->
         vm.load()
-        delay(30)
+        // Espera a carga inicial no CI lento; editar antes de `load` perderia
+        // a cápsula e o autosave não teria o que persistir.
+        val loadDeadline = System.currentTimeMillis() + 2_000
+        while (vm.cards.value.none { it.sectionId == "s1" } &&
+            System.currentTimeMillis() < loadDeadline
+        ) {
+            delay(10)
+        }
+        assertTrue(vm.cards.value.any { it.sectionId == "s1" })
         vm.updateCueText("s1", 0, "Texto novo")
         vm.updateCueRefs("s1", 0, listOf("Sal 2:2", "Ef 1:1"))
         // Autosave é assíncrono; no CI o debounce 0 ainda pode atrasar.
