@@ -13,6 +13,14 @@ class OnboardingFlowTest {
             OnboardingLaunch.Full,
             OnboardingFlow.launchFor(OnboardingV5State.NOT_STARTED, noteCount = 0),
         )
+        assertEquals(
+            UpgradeNoticeAction.FULL_ONBOARDING,
+            OnboardingFlow.upgradeNoticeAction(
+                OnboardingV5State.NOT_STARTED,
+                meaningfulNotes = 0,
+                dismissed = false,
+            ),
+        )
     }
 
     @Test
@@ -20,6 +28,52 @@ class OnboardingFlowTest {
         assertEquals(
             OnboardingLaunch.UpgradeNotice,
             OnboardingFlow.launchFor(OnboardingV5State.NOT_STARTED, noteCount = 2),
+        )
+        assertEquals(
+            UpgradeNoticeAction.SHOW_UPGRADE,
+            OnboardingFlow.upgradeNoticeAction(
+                OnboardingV5State.NOT_STARTED,
+                meaningfulNotes = 2,
+                dismissed = false,
+            ),
+        )
+    }
+
+    @Test
+    fun upgradeSeenSemDismissEhResgatado() {
+        assertEquals(
+            UpgradeNoticeAction.SHOW_UPGRADE,
+            OnboardingFlow.upgradeNoticeAction(
+                OnboardingV5State.UPGRADE_SEEN,
+                meaningfulNotes = 2,
+                dismissed = false,
+            ),
+        )
+        assertEquals(
+            UpgradeNoticeAction.NONE,
+            OnboardingFlow.upgradeNoticeAction(
+                OnboardingV5State.UPGRADE_SEEN,
+                meaningfulNotes = 2,
+                dismissed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun dismissEDoneNaoReabrem() {
+        listOf(OnboardingV5State.DONE, OnboardingV5State.DISMISSED).forEach { state ->
+            assertEquals(
+                UpgradeNoticeAction.NONE,
+                OnboardingFlow.upgradeNoticeAction(state, meaningfulNotes = 2, dismissed = false),
+            )
+        }
+        assertEquals(
+            UpgradeNoticeAction.NONE,
+            OnboardingFlow.upgradeNoticeAction(
+                OnboardingV5State.NOT_STARTED,
+                meaningfulNotes = 2,
+                dismissed = true,
+            ),
         )
     }
 

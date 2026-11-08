@@ -307,6 +307,35 @@ class SettingsStore(
         ctx.store.edit { it[ONBOARDING_V5_STATE] = state.name }
     }
 
+    private val UPGRADE_V5_SEEN = booleanPreferencesKey("upgrade_v5_seen")
+    private val UPGRADE_V5_DISMISSED = booleanPreferencesKey("upgrade_v5_dismissed")
+
+    val upgradeV5Seen: Flow<Boolean> = ctx.store.data.map { it[UPGRADE_V5_SEEN] ?: false }
+    val upgradeV5Dismissed: Flow<Boolean> =
+        ctx.store.data.map { it[UPGRADE_V5_DISMISSED] ?: false }
+
+    /** Só métrica/migração: nunca suprime o resgate do sheet. */
+    suspend fun markUpgradeV5Seen() {
+        ctx.store.edit { it[UPGRADE_V5_SEEN] = true }
+    }
+
+    /**
+     * Fonte de verdade do “não mostrar mais”. Também consolida o estado de
+     * onboarding para que a 5.0.1 não repita o sheet automaticamente.
+     */
+    suspend fun markUpgradeV5Dismissed() {
+        ctx.store.edit {
+            it[UPGRADE_V5_DISMISSED] = true
+            val current = OnboardingV5State.fromName(it[ONBOARDING_V5_STATE])
+            if (current == OnboardingV5State.NOT_STARTED ||
+                current == OnboardingV5State.UPGRADE_SEEN
+            ) {
+                it[ONBOARDING_V5_STATE] = OnboardingV5State.UPGRADE_SEEN.name
+            }
+        }
+        incrementHelpMetric("upgrade_welcome_dismissed")
+    }
+
     private val HELP_TRIGGERS = stringPreferencesKey("help_triggers_v5")
 
     suspend fun helpTriggerStates(): Map<HelpTriggerId, HelpTriggerState> =
