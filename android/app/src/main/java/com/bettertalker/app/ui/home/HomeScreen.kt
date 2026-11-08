@@ -88,6 +88,7 @@ import com.bettertalker.app.R
 import com.bettertalker.app.data.util.PasteDoor
 import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.pasteApplyFeedback
+import com.bettertalker.app.domain.help.HelpTriggerDecision
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.components.NoteItem
 import com.bettertalker.app.ui.components.PasteDestination
@@ -96,6 +97,9 @@ import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.SyncTopBanner
 import com.bettertalker.app.ui.components.SyncUiState
 import com.bettertalker.app.ui.components.ViewModeMenu
+import com.bettertalker.app.ui.help.HelpTopBarButton
+import com.bettertalker.app.ui.help.HelpTriggerCard
+import com.bettertalker.app.ui.help.helpActionLabel
 import com.bettertalker.app.ui.theme.NOTE_COLORS
 import kotlinx.coroutines.launch
 
@@ -116,6 +120,16 @@ fun HomeScreen(
     onTrainNote: (String) -> Unit = {},
     /** Menu do card: define o esboço atual do Palco e abre a aba. */
     onPresentNote: (String) -> Unit = {},
+    /** v5.0: ajuda contextual na top bar. */
+    onOpenHelp: () -> Unit = {},
+    /** v5.0: intenção vinda do onboarding/ajuda. */
+    startCreateSheet: Boolean = false,
+    startPasteSheet: Boolean = false,
+    onLaunchConsumed: () -> Unit = {},
+    helpTrigger: HelpTriggerDecision? = null,
+    onHelpTriggerAction: () -> Unit = {},
+    onSnoozeHelpTrigger: () -> Unit = {},
+    onDismissHelpTrigger: () -> Unit = {},
 ) {
     val notes by vm.notes.collectAsState()
     val folders by vm.folders.collectAsState()
@@ -139,6 +153,18 @@ fun HomeScreen(
     // Fase B: porta única de colar material (prévia antes de criar).
     var showPasteSheet by remember { mutableStateOf(false) }
     var showScratchDialog by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(startCreateSheet, startPasteSheet) {
+        when {
+            startCreateSheet -> {
+                showCreateSheet = true
+                onLaunchConsumed()
+            }
+            startPasteSheet -> {
+                showPasteSheet = true
+                onLaunchConsumed()
+            }
+        }
+    }
     // UX refactor: gerenciamento de arquivo no card (confirmação + mover).
     var confirmDelete by remember {
         mutableStateOf<com.bettertalker.app.data.db.NoteEntity?>(null)
@@ -429,6 +455,7 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    HelpTopBarButton(onOpenHelp)
                     IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
                     // Modos de visualização (Grade / Lista compacta / Detalhada).
@@ -528,6 +555,16 @@ fun HomeScreen(
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                         Spacer(Modifier.height(16.dp))
+                        if (helpTrigger != null && !searching && !inFolder) {
+                            HelpTriggerCard(
+                                message = helpTrigger.message,
+                                actionLabel = helpActionLabel(helpTrigger.action),
+                                onAction = onHelpTriggerAction,
+                                onSnooze = onSnoozeHelpTrigger,
+                                onDismiss = onDismissHelpTrigger,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
                         when {
                             searching -> OutlinedButton(onClick = { vm.setQuery("") }) {
                                 Text("Limpar busca")

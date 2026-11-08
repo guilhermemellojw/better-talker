@@ -58,6 +58,7 @@ fun TribunaErrorDialog(
     onOpenEditor: () -> Unit,
     onConfigureAi: () -> Unit,
     onDismiss: () -> Unit,
+    onOpenHelp: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -78,6 +79,9 @@ fun TribunaErrorDialog(
                 }
                 if (canConfigureAi) {
                     TextButton(onClick = onConfigureAi) { Text("Configurar IA") }
+                }
+                if (onOpenHelp != null) {
+                    TextButton(onClick = onOpenHelp) { Text("Entender o erro") }
                 }
                 TextButton(onClick = onDismiss) { Text("Fechar") }
             }

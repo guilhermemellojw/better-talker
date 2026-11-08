@@ -4,10 +4,15 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.bettertalker.app.data.security.KeystoreSecretCipher
 import com.bettertalker.app.data.security.SecretCipher
+import com.bettertalker.app.domain.help.HelpTriggerCodec
+import com.bettertalker.app.domain.help.HelpTriggerId
+import com.bettertalker.app.domain.help.HelpTriggerState
+import com.bettertalker.app.domain.onboarding.OnboardingV5State
 import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
@@ -290,6 +295,58 @@ class SettingsStore(
     private val LAST_NOTE_ID = stringPreferencesKey("last_note_id")
     val lastNoteId: Flow<String?> = ctx.store.data.map { it[LAST_NOTE_ID] }
     suspend fun setLastNoteId(id: String) { ctx.store.edit { it[LAST_NOTE_ID] = id } }
+
+    // ---------- v5.0: onboarding, ajuda e gatilhos ----------
+
+    private val ONBOARDING_V5_STATE = stringPreferencesKey("onboarding_v5_state")
+    val onboardingV5State: Flow<OnboardingV5State> = ctx.store.data.map {
+        OnboardingV5State.fromName(it[ONBOARDING_V5_STATE])
+    }
+
+    suspend fun setOnboardingV5State(state: OnboardingV5State) {
+        ctx.store.edit { it[ONBOARDING_V5_STATE] = state.name }
+    }
+
+    private val HELP_TRIGGERS = stringPreferencesKey("help_triggers_v5")
+
+    suspend fun helpTriggerStates(): Map<HelpTriggerId, HelpTriggerState> =
+        HelpTriggerCodec.decode(ctx.store.data.first()[HELP_TRIGGERS])
+
+    suspend fun markHelpTriggerSeen(id: HelpTriggerId, now: Long) {
+        ctx.store.edit { prefs ->
+            val current = HelpTriggerCodec.decode(prefs[HELP_TRIGGERS])
+            val state = current[id] ?: HelpTriggerState()
+            prefs[HELP_TRIGGERS] = HelpTriggerCodec.encode(
+                current + (id to state.copy(seen = true, lastShownAt = now))
+            )
+        }
+    }
+
+    suspend fun dismissHelpTrigger(id: HelpTriggerId) {
+        ctx.store.edit { prefs ->
+            val current = HelpTriggerCodec.decode(prefs[HELP_TRIGGERS])
+            val state = current[id] ?: HelpTriggerState()
+            prefs[HELP_TRIGGERS] = HelpTriggerCodec.encode(
+                current + (id to state.copy(dismissed = true))
+            )
+        }
+    }
+
+    /** Contadores locais da ajuda; nada é enviado. */
+    suspend fun incrementHelpMetric(name: String) {
+        val key = intPreferencesKey("help_metric_$name")
+        ctx.store.edit { prefs -> prefs[key] = (prefs[key] ?: 0) + 1 }
+    }
+
+    val helpMetrics: Flow<Map<String, Int>> = ctx.store.data.map { prefs ->
+        prefs.asMap().mapNotNull { (key, value) ->
+            if (!key.name.startsWith("help_metric_") || value !is Int) {
+                null
+            } else {
+                key.name.removePrefix("help_metric_") to value
+            }
+        }.toMap()
+    }
     suspend fun clearLastNoteId() { ctx.store.edit { it.remove(LAST_NOTE_ID) } }
 }
 

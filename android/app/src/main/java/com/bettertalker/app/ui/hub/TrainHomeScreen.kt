@@ -30,6 +30,7 @@ fun TrainHomeScreen(
     onOpenEditor: (String) -> Unit,
     onPickNote: () -> Unit,
     onGoToLibrary: () -> Unit,
+    onOpenHelp: () -> Unit = {},
 ) {
     val card by vm.trainCard.collectAsState()
     val all by vm.cards.collectAsState()
@@ -42,6 +43,9 @@ fun TrainHomeScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
                 title = { Text("Treino") },
+                actions = {
+                    com.bettertalker.app.ui.help.HelpTopBarButton(onOpenHelp)
+                },
             )
         },
     ) { pad ->

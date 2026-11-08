@@ -121,6 +121,11 @@ internal class FakeNoteDao(rows: List<NoteEntity> = emptyList()) : NoteDao {
     }
 
     override suspend fun count(): Int = rows.count { !it.trashed }
+
+    override fun observeCount(): Flow<Int> = flowOf(rows.count { !it.trashed })
+
+    override fun observeUserCount(): Flow<Int> =
+        flowOf(rows.count { !it.trashed && it.title.trim() != "Meu primeiro discurso" })
 }
 
 internal class FakeTombstoneDao(rows: List<TombstoneEntity> = emptyList()) : TombstoneDao {

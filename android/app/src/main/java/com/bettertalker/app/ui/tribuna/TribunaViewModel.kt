@@ -187,11 +187,13 @@ class TribunaViewModel(
                 if (c.sectionId == sectionId) c.copy(capsule = c.capsule?.let(transform)) else c
             }
         }
+        // Captura o snapshot AQUI: uma emissão do banco (ex.: autosave anterior)
+        // não pode sobrescrever a edição otimista antes do debounce terminar.
+        val capsule = _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule
+            ?: return
         persistJobs[sectionId]?.cancel()
         persistJobs[sectionId] = workScope.launch {
             delay(debounceMs)
-            val capsule = _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule
-                ?: return@launch
             val entity = dao.get(sectionId) ?: return@launch
             dao.upsert(
                 entity.copy(

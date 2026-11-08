@@ -102,6 +102,7 @@ fun AssistantGlobalScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier.weight(1f),
             )
+            com.bettertalker.app.ui.help.HelpTopBarButton(onHelp)
             Box {
                 IconButton(onClick = { menuOpen = true }) {
                     Icon(Icons.Default.MoreVert, "Mais opções do Assistente")

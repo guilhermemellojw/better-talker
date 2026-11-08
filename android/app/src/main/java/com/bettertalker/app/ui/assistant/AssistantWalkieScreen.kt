@@ -69,6 +69,7 @@ fun AssistantWalkieScreen(
     onDigit: () -> Unit,
     onOpenNote: () -> Unit,
     onChangeNote: () -> Unit,
+    onOpenHelp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -121,6 +122,7 @@ fun AssistantWalkieScreen(
                     )
                 }
             }
+            com.bettertalker.app.ui.help.HelpTopBarButton(onOpenHelp)
             Box {
                 IconButton(onClick = { menuOpen = true }) {
                     Icon(Icons.Default.MoreVert, "Mais opções")

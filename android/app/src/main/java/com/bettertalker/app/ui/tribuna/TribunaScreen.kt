@@ -70,6 +70,8 @@ import kotlinx.coroutines.launch
 fun TribunaScreen(
     vm: TribunaViewModel,
     onBack: () -> Unit,
+    /** v5.0: ajuda contextual na top bar. */
+    onOpenHelp: () -> Unit = {},
     /** v4.2: regenera só uma seção; entrega a mensagem de erro (ou null). */
     onRegenerateSection: (String, (String?) -> Unit) -> Unit = { _, done -> done(null) },
 ) {
@@ -100,6 +102,7 @@ fun TribunaScreen(
                     }
                 },
                 actions = {
+                    com.bettertalker.app.ui.help.HelpTopBarButton(onOpenHelp)
                     // Fonte: mesmo reuso do Ensaio (stageFontSp).
                     TextButton(onClick = { vm.setFontSp(fontSp - 2) }) {
                         Text("A−", fontWeight = FontWeight.Bold)

@@ -37,6 +37,8 @@ fun AssistantGlobalRoute(
     onOpenModel: () -> Unit,
     onStartTrain: (String) -> Unit,
     onOpenPresent: (String) -> Unit,
+    onOpenHelp: () -> Unit = {},
+    openChatRequest: Int = 0,
 ) {
     val ctx = LocalContext.current
     val turns by vm.turns.collectAsState()
@@ -49,6 +51,12 @@ fun AssistantGlobalRoute(
 
     var chatOpen by rememberSaveable { mutableStateOf(false) }
     var focusComposer by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openChatRequest) {
+        if (openChatRequest > 0) {
+            focusComposer = true
+            chatOpen = true
+        }
+    }
     var pttAwaiting by remember { mutableStateOf(false) }
     var pttStartIndex by remember { mutableStateOf(0) }
     val latestTurns by rememberUpdatedState(turns)
@@ -168,7 +176,7 @@ fun AssistantGlobalRoute(
         },
         onCreateFirst = { vm.send("Criar um esboço novo") },
         onConfigureAi = onOpenModel,
-        onHelp = { vm.send("Ajuda") },
+        onHelp = onOpenHelp,
         onRetry = { vm.retryLast() },
         onSendText = { text -> vm.send(text) },
     )

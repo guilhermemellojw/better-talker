@@ -2,12 +2,16 @@ package com.bettertalker.app
 
 import android.os.Bundle
 import androidx.fragment.app.FragmentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
@@ -20,6 +24,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bettertalker.app.navigation.resolveAssistantNoteId
+import com.bettertalker.app.domain.help.AssistantHelpContext
+import com.bettertalker.app.domain.help.HelpAction
+import com.bettertalker.app.domain.help.HelpErrorKind
+import com.bettertalker.app.domain.help.HelpSource
+import com.bettertalker.app.domain.help.HelpTriggerDecision
+import com.bettertalker.app.domain.help.HelpTriggerEngine
+import com.bettertalker.app.domain.help.HelpTriggerId
+import com.bettertalker.app.domain.onboarding.OnboardingV5State
 import com.bettertalker.app.ui.assistant.AssistantViewModel
 import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
@@ -51,6 +63,9 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+/** Ação pendente ao cair na Home vinda do onboarding/ajuda. */
+private enum class HomeLaunchAction { CREATE, PASTE }
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -198,6 +213,127 @@ private fun AppNav(
         com.bettertalker.app.data.repo.NotesRepository(ctx.applicationContext, db)
     }
 
+    // ---------- v5.0: onboarding, ajuda local e gatilhos ----------
+    val onboardingState by settings.onboardingV5State.collectAsState(
+        initial = OnboardingV5State.NOT_STARTED
+    )
+    val activeNoteCount by db.noteDao().observeCount().collectAsState(initial = null)
+    var onboardingDecisionDone by rememberSaveable { mutableStateOf(false) }
+    var showUpgradeSheet by rememberSaveable { mutableStateOf(false) }
+    var helpContext by remember { mutableStateOf<AssistantHelpContext?>(null) }
+    var homeLaunchAction by remember { mutableStateOf<HomeLaunchAction?>(null) }
+    var helpTrigger by remember { mutableStateOf<HelpTriggerDecision?>(null) }
+    var helpTriggerShownThisSession by rememberSaveable { mutableStateOf(false) }
+    var assistantChatRequest by remember { mutableStateOf(0) }
+
+    val helpImportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val id = notesRepo.newNote(null)
+                pendingImport = id to uri
+                nav.navigate(Routes.editor(id))
+            }
+        }
+    }
+
+    fun openHelp(context: AssistantHelpContext) {
+        helpContext = context
+        scope.launch { settings.incrementHelpMetric("help_opened") }
+    }
+
+    fun handleHelpAction(action: HelpAction, context: AssistantHelpContext) {
+        scope.launch { settings.incrementHelpMetric("help_action_clicked") }
+        when (action) {
+            HelpAction.OPEN_IMPORT -> helpImportPicker.launch(arrayOf("*/*"))
+            HelpAction.OPEN_PASTE -> {
+                homeLaunchAction = HomeLaunchAction.PASTE
+                if (currentRoute != Routes.HOME) nav.navigate(Routes.HOME)
+            }
+            HelpAction.OPEN_CREATE -> {
+                homeLaunchAction = HomeLaunchAction.CREATE
+                if (currentRoute != Routes.HOME) nav.navigate(Routes.HOME)
+            }
+            HelpAction.OPEN_EDITOR -> context.noteId
+                ?.let { nav.navigate(Routes.editor(it)) }
+                ?: nav.navigate(Routes.HOME)
+            HelpAction.OPEN_LIBRARY -> nav.navigate(Routes.library(context.noteId))
+            HelpAction.OPEN_MODEL -> nav.navigate(Routes.MODEL)
+            HelpAction.OPEN_TRAIN -> nav.navigate(Routes.TRAIN_HOME)
+            HelpAction.OPEN_PRESENT -> nav.navigate(Routes.PRESENT_HOME)
+            HelpAction.OPEN_TRIBUNA -> context.noteId
+                ?.let { nav.navigate(Routes.tribuna(it)) }
+                ?: nav.navigate(Routes.PRESENT_HOME)
+            HelpAction.OPEN_VOICE -> nav.navigate(Routes.VOICE)
+            HelpAction.OPEN_ASSISTANT -> {
+                assistantChatRequest++
+                nav.navigate(Routes.ASSISTANT)
+            }
+            HelpAction.OPEN_HELP_TOPIC -> {
+                scope.launch { settings.incrementHelpMetric("help_reopened") }
+                nav.navigate(Routes.onboarding(true))
+            }
+            HelpAction.NONE -> Unit
+        }
+    }
+
+    // Decisão de onboarding depois de o banco estar pronto. Só uma vez por
+    // processo; rotação não repete “Novidades”/tour.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (onboardingDecisionDone) return@LaunchedEffect
+        onboardingDecisionDone = true
+        val state = settings.onboardingV5State.first()
+        // A nota demo criada no primeiro banco não conta como uso real; sem
+        // isso, uma instalação nova poderia cair no “Novidades” de upgrade.
+        val existing = db.noteDao().observe(null, "").first()
+        val meaningful = existing.count {
+            !com.bettertalker.app.domain.onboarding.OnboardingFlow.isSeedNote(it.title)
+        }
+        when (com.bettertalker.app.domain.onboarding.OnboardingFlow.launchFor(state, meaningful)) {
+            com.bettertalker.app.domain.onboarding.OnboardingLaunch.UpgradeNotice -> {
+                // Upgrade: o “Novidades” é marcado como visto ao ser exibido.
+                settings.setOnboardingV5State(OnboardingV5State.UPGRADE_SEEN)
+                settings.incrementHelpMetric("upgrade_welcome_seen")
+                showUpgradeSheet = true
+            }
+            com.bettertalker.app.domain.onboarding.OnboardingLaunch.Full -> {
+                settings.incrementHelpMetric("onboarding_started")
+                nav.navigate(Routes.onboarding(false)) { launchSingleTop = true }
+            }
+            com.bettertalker.app.domain.onboarding.OnboardingLaunch.None -> Unit
+        }
+    }
+
+    // Gatilho inline mínimo: biblioteca vazia. Os erros de geração/fontes já
+    // têm CTA própria; não duplicamos. No máximo um por sessão.
+    androidx.compose.runtime.LaunchedEffect(
+        currentRoute, activeNoteCount, onboardingState, showUpgradeSheet, imeOpen,
+        helpTriggerShownThisSession,
+    ) {
+        if (helpTriggerShownThisSession) return@LaunchedEffect
+        if (!onboardingState.settled) {
+            helpTrigger = null
+            return@LaunchedEffect
+        }
+        if (currentRoute != Routes.HOME || activeNoteCount != 0 || imeOpen || showUpgradeSheet) {
+            helpTrigger = null
+            return@LaunchedEffect
+        }
+        val now = System.currentTimeMillis()
+        val decision = HelpTriggerEngine.choose(
+            candidates = setOf(HelpTriggerId.EMPTY_LIBRARY),
+            states = settings.helpTriggerStates(),
+            now = now,
+            onboardingSettled = true,
+        ) ?: return@LaunchedEffect
+        settings.markHelpTriggerSeen(HelpTriggerId.EMPTY_LIBRARY, now)
+        settings.incrementHelpMetric("trigger_shown")
+        helpTriggerShownThisSession = true
+        helpTrigger = decision
+    }
+
+
     // v4.0: uma sessão por nota, compartilhada entre editor, chat antigo e
     // aba Assistente. O host é um ViewModel da Activity: sobrevive à rotação
     // e libera os ViewModelStores no fim real do processo.
@@ -237,8 +373,85 @@ private fun AppNav(
             startDestination = Routes.ASSISTANT,
             modifier = androidx.compose.ui.Modifier.padding(pad),
         ) {
-        composable(Routes.ASSISTANT) {
-            val assistantVm: AssistantViewModel = viewModel(
+        composable(
+            Routes.ONBOARDING,
+            arguments = listOf(
+                navArgument("replay") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+        ) { entry ->
+            val replay = entry.arguments?.getBoolean("replay") ?: false
+            fun leaveOnboarding(state: OnboardingV5State?, metric: String?, route: String?) {
+                scope.launch {
+                    if (!replay) {
+                        state?.let { settings.setOnboardingV5State(it) }
+                        metric?.let { settings.incrementHelpMetric(it) }
+                        if (metric?.startsWith("path_") == true) {
+                            settings.incrementHelpMetric("onboarding_completed")
+                        }
+                    }
+                }
+                if (!nav.popBackStack()) nav.navigate(Routes.ASSISTANT)
+                if (route != null) nav.navigate(route)
+            }
+            com.bettertalker.app.ui.onboarding.OnboardingScreen(
+                replay = replay,
+                onSkip = {
+                    leaveOnboarding(
+                        state = if (replay) null else OnboardingV5State.DISMISSED,
+                        metric = if (replay) null else "onboarding_skipped",
+                        route = null,
+                    )
+                },
+                onImport = { uri ->
+                    scope.launch {
+                        val id = notesRepo.newNote(null)
+                        pendingImport = id to uri
+                        if (!replay) {
+                            settings.setOnboardingV5State(OnboardingV5State.DONE)
+                            settings.incrementHelpMetric("path_import")
+                            settings.incrementHelpMetric("onboarding_completed")
+                        }
+                        if (!nav.popBackStack()) nav.navigate(Routes.ASSISTANT)
+                        nav.navigate(Routes.editor(id))
+                    }
+                },
+                onPaste = {
+                    leaveOnboarding(
+                        state = if (replay) null else OnboardingV5State.DONE,
+                        metric = if (replay) null else "path_paste",
+                        route = null,
+                    )
+                    homeLaunchAction = HomeLaunchAction.PASTE
+                    nav.navigate(Routes.HOME)
+                },
+                onCreate = {
+                    leaveOnboarding(
+                        state = if (replay) null else OnboardingV5State.DONE,
+                        metric = if (replay) null else "path_create",
+                        route = null,
+                    )
+                    homeLaunchAction = HomeLaunchAction.CREATE
+                    nav.navigate(Routes.HOME)
+                },
+                onExplore = {
+                    if (!replay) {
+                        scope.launch { settings.incrementHelpMetric("path_explore") }
+                    }
+                },
+                onFinish = { openLibrary ->
+                    if (!openLibrary) assistantChatRequest++
+                    leaveOnboarding(
+                        state = if (replay) null else OnboardingV5State.DONE,
+                        metric = if (replay) null else "onboarding_completed",
+                        route = if (openLibrary) Routes.HOME else null,
+                    )
+                },
+            )
+        }
+        composable(Routes.ASSISTANT) {            val assistantVm: AssistantViewModel = viewModel(
                 factory = AssistantViewModel.Factory(db, settings),
             )
             // v4.1: assistente global (sem nota) + walkie da nota vinculada.
@@ -289,6 +502,16 @@ private fun AppNav(
                     },
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
+                    onOpenHelp = {
+                        openHelp(
+                            AssistantHelpContext(
+                                route = Routes.ASSISTANT,
+                                noteId = target.id,
+                                noteTitle = target.title,
+                                source = HelpSource.HELP_BUTTON,
+                            )
+                        )
+                    },
                 )
             } else {
                 val globalNotes by globalVm.notes.collectAsState()
@@ -301,6 +524,15 @@ private fun AppNav(
                     onOpenModel = { nav.navigate(Routes.MODEL) },
                     onStartTrain = { id -> nav.navigate(Routes.stage(id)) },
                     onOpenPresent = { id -> nav.navigate(Routes.present(id)) },
+                    onOpenHelp = {
+                        openHelp(
+                            AssistantHelpContext(
+                                route = Routes.ASSISTANT,
+                                source = HelpSource.HELP_BUTTON,
+                            )
+                        )
+                    },
+                    openChatRequest = assistantChatRequest,
                 )
             }
         }
@@ -314,6 +546,39 @@ private fun AppNav(
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 // #10b: ⚙ → SettingsScreen (Conta/Aparência/IA).
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenHelp = {
+                    openHelp(
+                        AssistantHelpContext(
+                            route = Routes.HOME,
+                            source = HelpSource.HELP_BUTTON,
+                        )
+                    )
+                },
+                startCreateSheet = homeLaunchAction == HomeLaunchAction.CREATE,
+                startPasteSheet = homeLaunchAction == HomeLaunchAction.PASTE,
+                onLaunchConsumed = { homeLaunchAction = null },
+                helpTrigger = helpTrigger,
+                onHelpTriggerAction = {
+                    val decision = helpTrigger
+                    helpTrigger = null
+                    if (decision != null) {
+                        handleHelpAction(
+                            decision.action,
+                            AssistantHelpContext(
+                                route = Routes.HOME,
+                                source = HelpSource.TRIGGER,
+                            ),
+                        )
+                    }
+                },
+                onDismissHelpTrigger = {
+                    helpTrigger = null
+                    scope.launch {
+                        settings.dismissHelpTrigger(HelpTriggerId.EMPTY_LIBRARY)
+                        settings.incrementHelpMetric("trigger_dismissed")
+                    }
+                },
+                onSnoozeHelpTrigger = { helpTrigger = null },
                 onImportMaterial = { uri ->
                     scope.launch {
                         val id = notesRepo.newNote(null)
@@ -357,6 +622,14 @@ private fun AppNav(
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("train")) },
                 onGoToLibrary = ::goHome,
+                onOpenHelp = {
+                    openHelp(
+                        AssistantHelpContext(
+                            route = Routes.TRAIN_HOME,
+                            source = HelpSource.HELP_BUTTON,
+                        )
+                    )
+                },
             )
         }
         composable(Routes.PRESENT_HOME) {
@@ -402,6 +675,14 @@ private fun AppNav(
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
                 onPickNote = { nav.navigate(Routes.picker("present")) },
                 onGoToLibrary = ::goHome,
+                onOpenHelp = {
+                    openHelp(
+                        AssistantHelpContext(
+                            route = Routes.PRESENT_HOME,
+                            source = HelpSource.HELP_BUTTON,
+                        )
+                    )
+                },
             )
             if (tribunaGeneratingNoteId != null) {
                 com.bettertalker.app.ui.hub.TribunaProgressDialog()
@@ -422,6 +703,21 @@ private fun AppNav(
                     onConfigureAi = {
                         tribunaFailure = null
                         nav.navigate(Routes.MODEL)
+                    },
+                    onOpenHelp = {
+                        tribunaFailure = null
+                        openHelp(
+                            AssistantHelpContext(
+                                route = Routes.PRESENT_HOME,
+                                noteId = failure.noteId,
+                                errorKind = if (failure.canConfigureAi) {
+                                    HelpErrorKind.NO_KEY
+                                } else {
+                                    HelpErrorKind.GENERATION
+                                },
+                                source = HelpSource.ERROR_ACTION,
+                            )
+                        )
                     },
                     onDismiss = { tribunaFailure = null },
                 )
@@ -565,6 +861,17 @@ private fun AppNav(
                 onAttach = { nav.navigate(Routes.library(noteId)) },
                 onOpenChat = { nav.navigate(Routes.chat(noteId)) },
                 copilotVm = copilotVm,
+                onOpenHelp = { sectionId, sectionTitle ->
+                    openHelp(
+                        AssistantHelpContext(
+                            route = Routes.EDITOR,
+                            noteId = noteId,
+                            sectionId = sectionId,
+                            sectionTitle = sectionTitle,
+                            source = HelpSource.HELP_BUTTON,
+                        )
+                    )
+                },
                 onGenerateTribuna = {
                     // Só abre a Tribuna se a geração salvou ao menos uma
                     // cápsula; falha permanece no editor com erro/retry.
@@ -653,6 +960,15 @@ private fun AppNav(
             com.bettertalker.app.ui.tribuna.TribunaScreen(
                 tribunaVm,
                 onBack = { nav.popBackStack() },
+                onOpenHelp = {
+                    openHelp(
+                        AssistantHelpContext(
+                            route = Routes.TRIBUNA,
+                            noteId = noteId,
+                            source = HelpSource.HELP_BUTTON,
+                        )
+                    )
+                },
                 onRegenerateSection = { sectionId, done ->
                     sessionFor(noteId).copilotVm.regenerateTribunaSection(sectionId) { result ->
                         done((result as? TribunaResult.Failure)?.message)
@@ -697,6 +1013,50 @@ private fun AppNav(
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
     }
+
+    if (showUpgradeSheet) {
+        com.bettertalker.app.ui.onboarding.OnboardingUpgradeSheet(
+            onDismiss = { showUpgradeSheet = false },
+            onOpenHelp = {
+                showUpgradeSheet = false
+                openHelp(
+                    AssistantHelpContext(
+                        route = currentRoute ?: Routes.ASSISTANT,
+                        source = HelpSource.HELP_REOPEN,
+                    )
+                )
+            },
+        )
+    }
+
+    helpContext?.let { context ->
+        com.bettertalker.app.ui.help.HelpSheet(
+            context = context,
+            onDismiss = { helpContext = null },
+            onAction = { action ->
+                helpContext = null
+                handleHelpAction(action, context)
+            },
+            onAskBt = {
+                helpContext = null
+                val note = context.noteId
+                if (note != null) {
+                    nav.navigate(Routes.chat(note))
+                } else {
+                    assistantChatRequest++
+                    nav.navigate(Routes.ASSISTANT)
+                }
+            },
+            onReplayOnboarding = {
+                helpContext = null
+                scope.launch { settings.incrementHelpMetric("help_reopened") }
+                nav.navigate(Routes.onboarding(true))
+            },
+            onTopicAction = {
+                scope.launch { settings.incrementHelpMetric("topic_opened") }
+            },
+        )
+    }
     }
 }
 
@@ -727,6 +1087,7 @@ private fun NoteChatHost(
     onChangeNote: () -> Unit = {},
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
+    onOpenHelp: () -> Unit = {},
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val editorVm = session.editorVm
@@ -931,6 +1292,7 @@ private fun NoteChatHost(
             },
             onOpenNote = onOpenEditor,
             onChangeNote = onChangeNote,
+            onOpenHelp = onOpenHelp,
         )
     } else {
     ChatScreen(
