@@ -31,7 +31,9 @@ import com.bettertalker.app.domain.help.HelpSource
 import com.bettertalker.app.domain.help.HelpTriggerDecision
 import com.bettertalker.app.domain.help.HelpTriggerEngine
 import com.bettertalker.app.domain.help.HelpTriggerId
+import com.bettertalker.app.domain.onboarding.OnboardingFlow
 import com.bettertalker.app.domain.onboarding.OnboardingV5State
+import com.bettertalker.app.domain.onboarding.UpgradeNoticeAction
 import com.bettertalker.app.ui.assistant.AssistantViewModel
 import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
@@ -214,9 +216,10 @@ private fun AppNav(
     }
 
     // ---------- v5.0: onboarding, ajuda local e gatilhos ----------
-    val onboardingState by settings.onboardingV5State.collectAsState(
-        initial = OnboardingV5State.NOT_STARTED
-    )
+    val onboardingState by settings.onboardingV5State.collectAsState(initial = null)
+    val upgradeDismissed by settings.upgradeV5Dismissed.collectAsState(initial = null)
+    val meaningfulNoteCount by db.noteDao().observeUserCount()
+        .collectAsState(initial = null)
     val activeNoteCount by db.noteDao().observeCount().collectAsState(initial = null)
     var onboardingDecisionDone by rememberSaveable { mutableStateOf(false) }
     var showUpgradeSheet by rememberSaveable { mutableStateOf(false) }
@@ -241,6 +244,16 @@ private fun AppNav(
     fun openHelp(context: AssistantHelpContext) {
         helpContext = context
         scope.launch { settings.incrementHelpMetric("help_opened") }
+    }
+
+    fun dismissUpgradeNotice() {
+        showUpgradeSheet = false
+        scope.launch { settings.markUpgradeV5Dismissed() }
+    }
+
+    fun openUpgradeNoticeManually() {
+        showUpgradeSheet = true
+        scope.launch { settings.incrementHelpMetric("upgrade_welcome_manual") }
     }
 
     fun handleHelpAction(action: HelpAction, context: AssistantHelpContext) {
@@ -278,30 +291,29 @@ private fun AppNav(
         }
     }
 
-    // Decisão de onboarding depois de o banco estar pronto. Só uma vez por
-    // processo; rotação não repete “Novidades”/tour.
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    // Decisão de onboarding/upgrade só depois de banco e DataStore prontos.
+    // O estado UPGRADE_SEEN sozinho não suprime: dismissed é a fonte de verdade.
+    androidx.compose.runtime.LaunchedEffect(
+        onboardingState, upgradeDismissed, meaningfulNoteCount,
+    ) {
         if (onboardingDecisionDone) return@LaunchedEffect
+        val state = onboardingState ?: return@LaunchedEffect
+        val dismissed = upgradeDismissed ?: return@LaunchedEffect
+        val meaningful = meaningfulNoteCount ?: return@LaunchedEffect
         onboardingDecisionDone = true
-        val state = settings.onboardingV5State.first()
-        // A nota demo criada no primeiro banco não conta como uso real; sem
-        // isso, uma instalação nova poderia cair no “Novidades” de upgrade.
-        val existing = db.noteDao().observe(null, "").first()
-        val meaningful = existing.count {
-            !com.bettertalker.app.domain.onboarding.OnboardingFlow.isSeedNote(it.title)
-        }
-        when (com.bettertalker.app.domain.onboarding.OnboardingFlow.launchFor(state, meaningful)) {
-            com.bettertalker.app.domain.onboarding.OnboardingLaunch.UpgradeNotice -> {
-                // Upgrade: o “Novidades” é marcado como visto ao ser exibido.
-                settings.setOnboardingV5State(OnboardingV5State.UPGRADE_SEEN)
+        when (OnboardingFlow.upgradeNoticeAction(state, meaningful, dismissed)) {
+            UpgradeNoticeAction.SHOW_UPGRADE -> {
+                // Não grava UPGRADE_SEEN aqui: se o processo morrer antes do
+                // dismiss, o sheet volta na próxima abertura.
+                settings.markUpgradeV5Seen()
                 settings.incrementHelpMetric("upgrade_welcome_seen")
                 showUpgradeSheet = true
             }
-            com.bettertalker.app.domain.onboarding.OnboardingLaunch.Full -> {
+            UpgradeNoticeAction.FULL_ONBOARDING -> {
                 settings.incrementHelpMetric("onboarding_started")
                 nav.navigate(Routes.onboarding(false)) { launchSingleTop = true }
             }
-            com.bettertalker.app.domain.onboarding.OnboardingLaunch.None -> Unit
+            UpgradeNoticeAction.NONE -> Unit
         }
     }
 
@@ -312,7 +324,7 @@ private fun AppNav(
         helpTriggerShownThisSession,
     ) {
         if (helpTriggerShownThisSession) return@LaunchedEffect
-        if (!onboardingState.settled) {
+        if (onboardingState?.settled != true) {
             helpTrigger = null
             return@LaunchedEffect
         }
@@ -1016,9 +1028,9 @@ private fun AppNav(
 
     if (showUpgradeSheet) {
         com.bettertalker.app.ui.onboarding.OnboardingUpgradeSheet(
-            onDismiss = { showUpgradeSheet = false },
+            onDismiss = { dismissUpgradeNotice() },
             onOpenHelp = {
-                showUpgradeSheet = false
+                dismissUpgradeNotice()
                 openHelp(
                     AssistantHelpContext(
                         route = currentRoute ?: Routes.ASSISTANT,
@@ -1051,6 +1063,10 @@ private fun AppNav(
                 helpContext = null
                 scope.launch { settings.incrementHelpMetric("help_reopened") }
                 nav.navigate(Routes.onboarding(true))
+            },
+            onOpenUpgradeNotice = {
+                helpContext = null
+                openUpgradeNoticeManually()
             },
             onTopicAction = {
                 scope.launch { settings.incrementHelpMetric("topic_opened") }

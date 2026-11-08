@@ -78,6 +78,7 @@ fun HelpSheet(
     onAction: (HelpAction) -> Unit,
     onAskBt: () -> Unit,
     onReplayOnboarding: () -> Unit,
+    onOpenUpgradeNotice: () -> Unit = {},
     onTopicAction: (HelpTopic) -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -128,6 +129,9 @@ fun HelpSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onAskBt) { Text("Perguntar ao BT") }
                 TextButton(onClick = onReplayOnboarding) { Text("Rever primeiros passos") }
+            }
+            TextButton(onClick = onOpenUpgradeNotice) {
+                Text("Novidades do 5.0")
             }
             if (topics.isEmpty()) {
                 Text(

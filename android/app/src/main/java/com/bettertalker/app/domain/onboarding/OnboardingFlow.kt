@@ -20,4 +20,36 @@ object OnboardingFlow {
         noteCount <= 0 -> OnboardingLaunch.Full
         else -> OnboardingLaunch.UpgradeNotice
     }
+
+    /**
+     * Decisão da 5.0.1: o sheet de upgrade só é suprimido por `dismissed`.
+     * `UPGRADE_SEEN` sem dismiss é resgatado na próxima abertura.
+     */
+    fun upgradeNoticeAction(
+        state: OnboardingV5State,
+        meaningfulNotes: Int,
+        dismissed: Boolean,
+    ): UpgradeNoticeAction {
+        if (state == OnboardingV5State.NOT_STARTED && meaningfulNotes == 0) {
+            return UpgradeNoticeAction.FULL_ONBOARDING
+        }
+        if (dismissed) return UpgradeNoticeAction.NONE
+        if (state == OnboardingV5State.DONE || state == OnboardingV5State.DISMISSED) {
+            return UpgradeNoticeAction.NONE
+        }
+        if (state == OnboardingV5State.NOT_STARTED && meaningfulNotes > 0) {
+            return UpgradeNoticeAction.SHOW_UPGRADE
+        }
+        if (state == OnboardingV5State.UPGRADE_SEEN) {
+            return UpgradeNoticeAction.SHOW_UPGRADE
+        }
+        return UpgradeNoticeAction.NONE
+    }
+}
+
+/** Ação da decisão de abertura para “Novidades do 5.0”. */
+enum class UpgradeNoticeAction {
+    NONE,
+    FULL_ONBOARDING,
+    SHOW_UPGRADE,
 }
