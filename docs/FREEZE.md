@@ -1,6 +1,23 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-07 · **Build de referência:** v4.1 (versionCode 55, tag `v4.1.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-07 · **Build de referência:** v4.2 (versionCode 57, tag `v4.2.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-07 — v4.2/57 (Tribuna 2.0 + imagens):** a Tribuna virou
+> **folha de cues** (10 tipos, `timeMinutes`/`keyTerms`, editor de cues/refs,
+> selo **Mapa completo/incompleto/antigo** e regeneração por seção), com
+> fallback para cápsulas antigas sem migração. Imagens são **anexos privados**
+> da nota/seção (`note_images`, DB **v23**, arquivos em
+> `filesDir/images/<noteId>/`), com legenda/tipo/ordem, chip e miniaturas no
+> editor, thumbnail 68dp no Treino e cue de imagem tocável no Palco. Geração
+> por seção (600–900 tokens) usa texto, subpontos, refs e legendas; DeepSeek
+> continua texto-only e as imagens não entram no HTML/RAG/provider. Palco com
+> Mapa/Foco e checkpoint de tempo acumulado; demo continua como roteiro.
+> Branch `feat/v4.2-tribuna-images` (`0f997ce`), CI `42428011627` verde,
+> **3.024 testes JVM / 0**. A34 validou migração v22→v23 com dados
+> preservados, editor de imagens, Treino/Palco com imagem e fallback antigo;
+> **TalkBack audível** fica como verificação de uso pós-release. Tag
+> `v4.2.0`; APK público assinado + SHA-256 no GitHub Release;
+> `4.2-syncbeta`/58 é artefato separado.
 
 > **2026-11-07 — v4.0/49 (fatias 2–5 + Walkie + scroll):** aba Assistente com
 > sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta
