@@ -1,6 +1,19 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-08 · **Build de referência:** v5.0 (versionCode 59, tag `v5.0.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-08 · **Build de referência:** v5.0.1 (versionCode 61, tag `v5.0.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-08 — v5.0.1/61 (resgate do “Novidades”):** o sheet de upgrade
+> não é mais consumido ao exibir; `upgrade_v5_dismissed` é a fonte de verdade.
+> Quem ficou em `UPGRADE_SEEN` sem dismiss recebe o “Novidades” na próxima
+> abertura. Processo morto antes do dismiss → reaparece; depois do dismiss →
+> não repete. “Novidades do 5.0” também abre pela **Ajuda** sem resetar
+> onboarding/replay. Sem schema novo; DB continua **v23**. Branch
+> `fix/v5.0.1-upgrade-notice` (`3e5e5d9`), CI `42521643171` verde,
+> **3.042 testes JVM / 0**. A34 debug partiu de `UPGRADE_SEEN` sem dismiss e
+> validou resgate, morte/relançamento, dismiss e abertura manual pela Ajuda.
+> Pendências de uso: **TalkBack audível** e tema claro/escuro (bug de tema vira
+> 5.0.2/5.1). Tag `v5.0.1`; APK público assinado + SHA-256 no GitHub Release;
+> `5.0.1-syncbeta`/62 é artefato separado.
 
 > **2026-11-08 — v5.0/59 (onboarding + ajuda contextual):** primeira abertura
 > guiada com quatro caminhos, skip/back, replay e “Novidades do 5.0” para
