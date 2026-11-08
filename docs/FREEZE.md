@@ -15,8 +15,12 @@
 > “Novidades”, ajuda, imagens e Tribuna 2.0; tablet validou instalação nova,
 > quatro caminhos, ajuda em todas as telas, gatilho, replay e rotação.
 > Pendências pós-release: **TalkBack audível** e tema claro/escuro no aparelho
-> (bug de tema vira 5.0.1). Tag `v5.0.0`; APK público assinado + SHA-256 no
-> GitHub Release; `5.0-syncbeta`/60 é artefato separado.
+> (bug de tema vira 5.0.1). Tag `v5.0.0` (`00031ae`); APK público assinado +
+> SHA-256 `de98aa1a0bc89fb13810337713b4836375ad7c816a47141c14d048b9d9d3096a`
+> no GitHub Release; `5.0-syncbeta`/60 é artefato separado (run
+> `42517805451`, SHA-256 `4f2beac6…`). Release 59 instalado por cima do
+> público 4.2/57 no A34: dados preservados, banco v23 e Tribuna 2.0/ajuda
+> funcionando.
 
 > **2026-11-07 — v4.2/57 (Tribuna 2.0 + imagens):** a Tribuna virou
 > **folha de cues** (10 tipos, `timeMinutes`/`keyTerms`, editor de cues/refs,

@@ -31,7 +31,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 - **Validação real no A34 (2026-10-26, APK final 2.8.0/25):** matriz C1 no aparelho — chat curto `budget=2048/stop`; seção 5 min `2048/stop` (748 palavras); 15 min `3125→6250` no retry por `length`, `stop` (2.311 palavras); 20 min `4100/stop` (2.327); 30 min `6050/stop` (3.491); 45 min dividido em 10 partes (seção de 45 min com 5 subpontos → 5 alvos + intro/conclusão); demo 4 min `2048/stop` com 10 réplicas; proposta `1500/stop` e “Sim” aplicado sem LLM. Ver [relatório do C1](docs/reports/validacao-2026-10-26-a34-c1.md).
 - **V&M:** colagem do texto da parte → nota com **INTRO + N BODY + CONCLUSÃO**. A parte “O que você diria?” (**consideração**) é **rejeitada com aviso** — não é suportada como discurso/demonstração.
 - **Testes:** **3.040 testes JVM verdes** na main (v5.0: onboarding + ajuda contextual + gatilhos, além de v4.2, v4.1, C2.5, M2a/M2b, 45 min, fontes/gate, C2, M1, card-first, Treino e Palco) · `lintRelease` 0 errors.
-- **Distribuição:** **v5.0/59 pública** (tag `v5.0.0`; APK assinado + SHA-256 no release, arm64). O sync beta é um APK separado (`5.0-syncbeta`, 60) e não entra no release público. Ver [v5.0.0](https://github.com/guilhermemellojw/better-talker/releases/tag/v5.0.0) e [RELEASE.md](docs/RELEASE.md).
+- **Distribuição:** **v5.0/59 pública** (tag `v5.0.0`; APK assinado + SHA-256 `de98aa1a…` no release, arm64). O sync beta é um APK separado (`5.0-syncbeta`, 60) e não entra no release público. Ver [v5.0.0](https://github.com/guilhermemellojw/better-talker/releases/tag/v5.0.0) e [RELEASE.md](docs/RELEASE.md).
 
 ## 🗂️ Histórico — novidades da v2.3 (2026-10-19)
 
