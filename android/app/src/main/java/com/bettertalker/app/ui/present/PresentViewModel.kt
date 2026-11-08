@@ -84,6 +84,12 @@ class PresentViewModel(
     private var timerJob: Job? = null
     private var demo = false
 
+    /**
+     * v4.2: checkpoint de tempo ACUMULADO por seção. Ao navegar/entrar em
+     * pausa, o tempo da seção atual é guardado e restaurado ao voltar.
+     */
+    private val sectionElapsedById = mutableMapOf<String, Long>()
+
     init {
         viewModelScope.launch {
             settings.stageFontSp.collect { _fontSp.value = it }
@@ -99,6 +105,7 @@ class PresentViewModel(
             _isDemonstration.value = demo
 
             val rows = db.speechSectionDao().forNote(noteId).sortedBy { it.order }
+            val images = db.noteImageDao().forNote(noteId)
             val cues = rows.mapIndexed { index, row ->
                 PresentCue(
                     sectionId = row.id,
@@ -107,6 +114,7 @@ class PresentViewModel(
                     minutes = row.minutes,
                     capsule = row.tribunaJson?.let { tribunaCapsuleFromJson(it) },
                     turns = if (demo) parseStageTurns(row.contentHtml) else emptyList(),
+                    images = images.filter { it.sectionId == row.id },
                 )
             }
             _cues.value = cues
@@ -160,6 +168,7 @@ class PresentViewModel(
             index
         }
         _totalElapsed.value = if (continuing) saved!!.elapsedSec else 0L
+        if (!continuing) sectionElapsedById.clear()
         _sectionElapsed.value = 0L
         _stageStarted.value = true
         _pausedByLifecycle.value = false
@@ -170,6 +179,7 @@ class PresentViewModel(
     fun next() {
         if (!_stageStarted.value) return
         val previousSection = _currentIndex.value
+        checkpointSectionElapsed()
         if (_prep.value.mode == PresentMode.SCRIPT) {
             val items = _scriptItems.value
             if (items.isEmpty() || _scriptIndex.value >= items.lastIndex) return
@@ -179,13 +189,14 @@ class PresentViewModel(
             if (_currentIndex.value >= _cues.value.lastIndex) return
             _currentIndex.value += 1
         }
-        if (_currentIndex.value != previousSection) _sectionElapsed.value = 0L
+        restoreSectionElapsed(previousSection)
         saveSessionSoon()
     }
 
     fun previous() {
         if (!_stageStarted.value) return
         val previousSection = _currentIndex.value
+        checkpointSectionElapsed()
         if (_prep.value.mode == PresentMode.SCRIPT) {
             val items = _scriptItems.value
             if (items.isEmpty() || _scriptIndex.value <= 0) return
@@ -195,13 +206,26 @@ class PresentViewModel(
             if (_currentIndex.value <= 0) return
             _currentIndex.value -= 1
         }
-        if (_currentIndex.value != previousSection) _sectionElapsed.value = 0L
+        restoreSectionElapsed(previousSection)
         saveSessionSoon()
+    }
+
+    /** v4.2: salva o tempo acumulado da seção atual (checkpoint manual). */
+    fun checkpointSectionElapsed() {
+        val id = _cues.value.getOrNull(_currentIndex.value)?.sectionId ?: return
+        sectionElapsedById[id] = _sectionElapsed.value
+    }
+
+    private fun restoreSectionElapsed(previousIndex: Int) {
+        if (_currentIndex.value == previousIndex) return
+        val id = _cues.value.getOrNull(_currentIndex.value)?.sectionId
+        _sectionElapsed.value = id?.let { sectionElapsedById[it] } ?: 0L
     }
 
     /** Pausa automática quando o app perde foco/chamada/tela. */
     fun pauseByLifecycle() {
         if (!_stageStarted.value) return
+        checkpointSectionElapsed()
         _running.value = false
         _pausedByLifecycle.value = true
         saveSessionSoon()

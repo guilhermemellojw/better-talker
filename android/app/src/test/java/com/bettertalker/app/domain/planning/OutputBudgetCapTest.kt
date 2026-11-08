@@ -52,6 +52,17 @@ class OutputBudgetCapTest {
     }
 
     @Test
+    fun tribunaPorSecaoSempreEntre600e900() {
+        assertEquals(600, OutputBudget.tribunaSection(minutes = null))
+        assertEquals(720, OutputBudget.tribunaSection(minutes = 5))
+        assertEquals(900, OutputBudget.tribunaSection(minutes = 30, imageCount = 3))
+        (0..60).forEach { minutes ->
+            val budget = OutputBudget.tribunaSection(minutes, imageCount = minutes % 4)
+            assertTrue("min=$minutes budget=$budget", budget in 600..900)
+        }
+    }
+
+    @Test
     fun nenhumCaminhoPassaDoTeto() {
         val samples = listOf(
             OutputBudget.chat(false),
@@ -64,6 +75,7 @@ class OutputBudgetCapTest {
             OutputBudget.outline(90, 20),
             OutputBudget.sectionDraft(90),
             OutputBudget.tribuna(500),
+            OutputBudget.tribunaSection(90, imageCount = 10),
         )
         samples.forEach { b ->
             assertTrue("budget=$b", b in 1..OutputBudget.MAX)

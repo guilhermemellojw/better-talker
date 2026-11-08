@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.ui.components.NoteImageStrip
 
 /**
  * Apresentar live — host do pré-voo e do palco. A rota é imersiva no palco;
@@ -131,6 +132,7 @@ private fun PresentPrepScreen(
         selectedSection > 0 -> "Seção ${selectedSection + 1}"
         else -> "Começo"
     }
+    val imageSections = cues.filter { it.images.isNotEmpty() }
 
     Scaffold(
         topBar = {
@@ -202,6 +204,27 @@ private fun PresentPrepScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+            }
+
+            // v4.2: imagens revisáveis antes de entrar no palco (por seção).
+            if (!demo && imageSections.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                PrepTitle("Imagens")
+                Text(
+                    "Toque em uma miniatura para revisar em tela cheia.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                imageSections.forEach { cue ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${cue.index + 1}. ${cue.title}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    NoteImageStrip(images = cue.images, thumbSizeDp = 68)
+                }
             }
 
             Spacer(Modifier.height(18.dp))

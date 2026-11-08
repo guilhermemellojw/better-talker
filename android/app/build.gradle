@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 55
-        versionName "4.1"
+        versionCode 57
+        versionName "4.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
@@ -49,8 +49,8 @@ android {
             buildConfigField "boolean", "SYNC_BETA", "true"
             // Beta 56 (4.1-syncbeta). Rebuild experimental após o público
             // 4.1/55; o público não tem Firebase/sync.
-            versionCode 56
-            versionName "4.1"
+            versionCode 58
+            versionName "4.2"
             versionNameSuffix "-syncbeta"
         }
     }
@@ -131,6 +131,8 @@ dependencies {
     implementation 'androidx.startup:startup-runtime:1.2.0'
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:${rootProject.ext.lifecycleVersion}"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:${rootProject.ext.lifecycleVersion}"
+    // v4.2: thumbnails/cache local das imagens da nota (sem upload).
+    implementation "io.coil-kt:coil-compose:2.7.0"
 
     // Room (notas + anexos)
     implementation "androidx.room:room-runtime:${rootProject.ext.roomVersion}"

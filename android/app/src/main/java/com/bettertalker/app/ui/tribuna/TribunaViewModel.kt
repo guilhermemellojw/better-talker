@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.SpeechSectionDao
+import com.bettertalker.app.data.db.NoteImageDao
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.voice.TextToSpeechManager
@@ -21,6 +23,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -59,6 +63,8 @@ class TribunaViewModel(
     private val noteTitleProvider: suspend () -> String = { "" },
     /** Bloco 2 (demos): nota MINISTRY_PART → a Tribuna vira roteiro (turnos). */
     private val isDemonstrationProvider: suspend () -> Boolean = { false },
+    /** v4.2: imagens por seção (null nos testes antigos; produção = Room). */
+    private val imageDao: NoteImageDao? = null,
 ) : ViewModel() {
 
     private val workScope: CoroutineScope get() = scope ?: viewModelScope
@@ -72,7 +78,20 @@ class TribunaViewModel(
         val capsule: TribunaCapsule?,
         /** Bloco 2 (demos): turnos do diálogo (vazio nos discursos). */
         val turns: List<StageTurn> = emptyList(),
-    )
+        /** v4.2: imagens da seção (thumbnails/legendas; nunca no HTML). */
+        val images: List<NoteImageEntity> = emptyList(),
+    ) {
+        /** v4.2: folha de cues completa? Cápsula antiga = layout legado. */
+        val mapComplete: Boolean
+            get() = capsule != null &&
+                capsule.cues.isNotEmpty() &&
+                capsule.anchorPhrase.isNotBlank() &&
+                capsule.cues.all { it.text.isNotBlank() }
+
+        /** v4.2: true = cápsula gerada antes do formato de cues. */
+        val legacyMap: Boolean
+            get() = capsule != null && capsule.cues.isEmpty()
+    }
 
     private val _cards = MutableStateFlow<List<TribunaCardUi>>(emptyList())
     val cards: StateFlow<List<TribunaCardUi>> = _cards.asStateFlow()
@@ -107,24 +126,25 @@ class TribunaViewModel(
             _noteTitle.value = noteTitleProvider().ifBlank { "" }
         }
         workScope.launch {
-            dao.observeForNote(noteId).collect { rows ->
+            val imagesFlow: Flow<List<NoteImageEntity>> =
+                imageDao?.observeForNote(noteId) ?: flowOf(emptyList())
+            combine(dao.observeForNote(noteId), imagesFlow) { rows, images ->
                 // Bloco 2 (demos): o tipo é relido a cada emissão — se a nota
                 // for demonstração, a tela renderiza como roteiro.
                 val demo = isDemonstrationProvider()
                 _isDemonstration.value = demo
-                _cards.value = rows
-                    .sortedBy { it.order }
-                    .map { e ->
-                        TribunaCardUi(
-                            sectionId = e.id,
-                            order = e.order,
-                            sectionTitle = e.title,
-                            minutes = e.minutes,
-                            capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
-                            turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
-                        )
-                    }
-            }
+                rows.sortedBy { it.order }.map { e ->
+                    TribunaCardUi(
+                        sectionId = e.id,
+                        order = e.order,
+                        sectionTitle = e.title,
+                        minutes = e.minutes,
+                        capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
+                        turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
+                        images = images.filter { it.sectionId == e.id },
+                    )
+                }
+            }.collect { cards -> _cards.value = cards }
         }
     }
 
@@ -139,6 +159,26 @@ class TribunaViewModel(
 
     fun updateTransition(sectionId: String, text: String) =
         edit(sectionId) { it.copy(transition = text.trim().ifBlank { null }) }
+
+    /** v4.2: edita o texto de uma cue da folha. */
+    fun updateCueText(sectionId: String, cueIndex: Int, text: String) =
+        edit(sectionId) { capsule ->
+            capsule.copy(
+                cues = capsule.cues.mapIndexed { index, cue ->
+                    if (index == cueIndex) cue.copy(text = text) else cue
+                },
+            )
+        }
+
+    /** v4.2: edita as refs de uma cue (lista já normalizada pela UI). */
+    fun updateCueRefs(sectionId: String, cueIndex: Int, refs: List<String>) =
+        edit(sectionId) { capsule ->
+            capsule.copy(
+                cues = capsule.cues.mapIndexed { index, cue ->
+                    if (index == cueIndex) cue.copy(refs = refs) else cue
+                },
+            )
+        }
 
     /** Update otimista + autosave debounced (400ms em produção). */
     private fun edit(sectionId: String, transform: (TribunaCapsule) -> TribunaCapsule) {
@@ -216,6 +256,7 @@ class TribunaViewModel(
                     type == com.bettertalker.app.domain.speech.DiscourseType.MINISTRY_PART.name ||
                         type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO.name
                 },
+                imageDao = db.noteImageDao(),
             ) as T
         }
     }

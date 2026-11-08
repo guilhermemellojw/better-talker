@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.tribuna
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +51,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.data.db.NoteImageEntity
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
+import com.bettertalker.app.ui.components.NoteImageFullScreen
+import com.bettertalker.app.ui.components.NoteImageStrip
+import com.bettertalker.app.ui.components.NoteImageThumb
 import com.bettertalker.app.ui.stage.StageTurn
 import com.bettertalker.app.ui.stage.stageSpeakerColor
+import kotlinx.coroutines.launch
 
 /**
  * #20-fix-b: a Tribuna — leitura do mapa de memória por seção. Cards
@@ -54,7 +67,12 @@ import com.bettertalker.app.ui.stage.stageSpeakerColor
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
+fun TribunaScreen(
+    vm: TribunaViewModel,
+    onBack: () -> Unit,
+    /** v4.2: regenera só uma seção; entrega a mensagem de erro (ou null). */
+    onRegenerateSection: (String, (String?) -> Unit) -> Unit = { _, done -> done(null) },
+) {
     val cards by vm.cards.collectAsState()
     val fontSp by vm.fontSp.collectAsState()
     val speakingId by vm.speakingId.collectAsState()
@@ -62,12 +80,17 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
     val isDemonstration by vm.isDemonstration.collectAsState()
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var regeneratingId by remember { mutableStateOf<String?>(null) }
+    var previewImage by remember { mutableStateOf<NoteImageEntity?>(null) }
 
     LaunchedEffect(Unit) { vm.load() }
     // #20-fix-b: sair da tela para a leitura em voz (o orador pode voltar).
     DisposableEffect(Unit) { onDispose { vm.stopSpeaking() } }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Tribuna") },
@@ -151,10 +174,25 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
                         fontSp = fontSp,
                         speaking = speakingId == card.sectionId,
                         isDemonstration = isDemonstration,
+                        regenerating = regeneratingId == card.sectionId,
                         onMainIdea = { vm.updateMainIdea(card.sectionId, it) },
                         onBibleRef = { vm.updateBibleRef(card.sectionId, it) },
                         onAnchor = { vm.updateAnchorPhrase(card.sectionId, it) },
                         onTransition = { vm.updateTransition(card.sectionId, it) },
+                        onCueText = { index, text -> vm.updateCueText(card.sectionId, index, text) },
+                        onCueRefs = { index, refs -> vm.updateCueRefs(card.sectionId, index, refs) },
+                        onPreviewImage = { previewImage = it },
+                        onRegenerate = {
+                            if (regeneratingId == null) {
+                                regeneratingId = card.sectionId
+                                onRegenerateSection(card.sectionId) { error ->
+                                    regeneratingId = null
+                                    if (error != null) {
+                                        scope.launch { snackbarHostState.showSnackbar(error) }
+                                    }
+                                }
+                            }
+                        },
                         onSpeak = {
                             if (speakingId == card.sectionId) vm.stopSpeaking()
                             else vm.speakAnchor(card.sectionId)
@@ -164,19 +202,32 @@ fun TribunaScreen(vm: TribunaViewModel, onBack: () -> Unit) {
             }
         }
     }
+
+    previewImage?.let { image ->
+        NoteImageFullScreen(
+            path = image.path,
+            caption = image.caption,
+            onDismiss = { previewImage = null },
+        )
+    }
 }
 
-/** Card de UMA seção: header + os 4 campos (ou o placeholder sem cápsula). */
+/** v4.2: card de UMA seção — folha de cues (ou layout antigo como fallback). */
 @Composable
 private fun TribunaCard(
     card: TribunaViewModel.TribunaCardUi,
     fontSp: Int,
     speaking: Boolean,
     isDemonstration: Boolean,
+    regenerating: Boolean,
     onMainIdea: (String) -> Unit,
     onBibleRef: (String) -> Unit,
     onAnchor: (String) -> Unit,
     onTransition: (String) -> Unit,
+    onCueText: (Int, String) -> Unit,
+    onCueRefs: (Int, List<String>) -> Unit,
+    onPreviewImage: (NoteImageEntity) -> Unit,
+    onRegenerate: () -> Unit,
     onSpeak: () -> Unit,
 ) {
     Card(
@@ -188,11 +239,21 @@ private fun TribunaCard(
             Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                "${card.order + 1}. ${card.sectionTitle} · ${card.minutes} min",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${card.order + 1}. ${card.sectionTitle} · ${card.minutes} min",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    modifier = Modifier.weight(1f),
+                )
+                MapBadge(card)
+            }
+            // v4.2: thumbnail + legenda no TOPO da seção; toque abre em tela
+            // cheia. A imagem nunca é exibida sozinha nem entra no texto.
+            if (card.images.isNotEmpty()) {
+                NoteImageStrip(images = card.images, thumbSizeDp = 68)
+            }
             val capsule = card.capsule
             if (isDemonstration) {
                 // Bloco 2 (demos): a Tribuna vira roteiro — turnos alternados;
@@ -204,17 +265,175 @@ private fun TribunaCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            } else {
+                RegenerateButton(regenerating, onRegenerate)
+            } else if (capsule.cues.isEmpty()) {
+                // Compatibilidade: cápsulas antigas (4 campos) continuam
+                // editáveis e exportáveis; o próximo "Regenerar" cria cues.
                 TribunaField("💡 IDEIA CENTRAL", capsule.mainIdea, fontSp, onMainIdea)
                 TribunaField("📖 TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp, onBibleRef)
                 TribunaField("🎯 FRASE-ÂNCORA", capsule.anchorPhrase, fontSp, onAnchor, bold = true)
-                Row {
-                    // TTS SÓ da âncora: o orador ouve a frase-chave e fala o resto.
-                    TextButton(onClick = onSpeak) {
-                        Text(if (speaking) "■ Parar" else "▶ Ouvir")
-                    }
-                }
                 TribunaField("➡ TRANSIÇÃO (opcional)", capsule.transition.orEmpty(), fontSp, onTransition)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onSpeak) {
+                        Text(if (speaking) "■ Parar" else "▶ Ouvir âncora")
+                    }
+                    RegenerateButton(regenerating, onRegenerate)
+                }
+            } else {
+                capsule.cues.forEachIndexed { index, cue ->
+                    TribunaCueEditor(
+                        cue = cue,
+                        cueIndex = index,
+                        fontSp = fontSp,
+                        image = cue.imageId?.let { id -> card.images.firstOrNull { it.id == id } }
+                            ?: card.images.firstOrNull().takeIf { cue.kind == TribunaCueKind.IMAGE },
+                        onText = { onCueText(index, it) },
+                        onRefs = { onCueRefs(index, it) },
+                        onPreviewImage = onPreviewImage,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // TTS continua só na âncora (não lê a folha inteira).
+                    TextButton(onClick = onSpeak) {
+                        Text(if (speaking) "■ Parar" else "▶ Ouvir âncora")
+                    }
+                    RegenerateButton(regenerating, onRegenerate)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapBadge(card: TribunaViewModel.TribunaCardUi) {
+    val badge = when {
+        card.capsule == null ->
+            Triple("Sem mapa", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+        card.legacyMap ->
+            Triple("Mapa antigo", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        card.mapComplete ->
+            Triple("Mapa completo", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        else ->
+            Triple("Mapa incompleto", MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+    }
+    Surface(shape = RoundedCornerShape(50), color = badge.second) {
+        Text(
+            badge.first,
+            style = MaterialTheme.typography.labelSmall,
+            color = badge.third,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun RegenerateButton(regenerating: Boolean, onRegenerate: () -> Unit) {
+    TextButton(onClick = onRegenerate, enabled = !regenerating) {
+        if (regenerating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Text("↻ Regenerar seção")
+        }
+    }
+}
+
+/** Rótulo curto da cue (o orador reconhece a função de relance). */
+private fun cueKindLabel(kind: TribunaCueKind): String = when (kind) {
+    TribunaCueKind.HOOK -> "GANCHO"
+    TribunaCueKind.REASONING -> "RACIOCÍNIO"
+    TribunaCueKind.SCRIPTURE -> "TEXTO"
+    TribunaCueKind.ILLUSTRATION -> "ILUSTRAÇÃO"
+    TribunaCueKind.APPLICATION -> "APLICAÇÃO"
+    TribunaCueKind.IMAGE -> "IMAGEM"
+    TribunaCueKind.TRANSITION -> "TRANSIÇÃO"
+    TribunaCueKind.INVITATION -> "CONVITE"
+    TribunaCueKind.RECAP -> "RECAPITULAÇÃO"
+    TribunaCueKind.APPEAL -> "APELO"
+}
+
+/** v4.2: parser de refs digitadas (vírgula ou ponto e vírgula). */
+private fun parseCueRefs(raw: String): List<String> =
+    raw.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+
+@Composable
+private fun TribunaCueEditor(
+    cue: TribunaCue,
+    cueIndex: Int,
+    fontSp: Int,
+    image: NoteImageEntity?,
+    onText: (String) -> Unit,
+    onRefs: (List<String>) -> Unit,
+    onPreviewImage: (NoteImageEntity) -> Unit,
+) {
+    // Texto local das refs: preserva vírgula/espaço em digitação (o parser do
+    // estado perderia a vírgula antes do usuário terminar a próxima ref).
+    var refsText by remember(cueIndex) {
+        mutableStateOf(cue.refs.joinToString(", "))
+    }
+    LaunchedEffect(cue.refs) {
+        if (parseCueRefs(refsText) != cue.refs) {
+            refsText = cue.refs.joinToString(", ")
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            Text(
+                cueKindLabel(cue.kind),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+        BasicTextField(
+            value = cue.text,
+            onValueChange = onText,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                fontSize = fontSp.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (cue.kind == TribunaCueKind.SCRIPTURE) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Normal
+                },
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.tertiary),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (cue.refs.isNotEmpty() || cue.kind == TribunaCueKind.SCRIPTURE) {
+            BasicTextField(
+                value = refsText,
+                onValueChange = { raw ->
+                    refsText = raw
+                    onRefs(parseCueRefs(raw))
+                },
+                textStyle = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.tertiary),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        // v4.2: a cue de imagem é TOCÁVEL; sem autoexibição.
+        if (cue.kind == TribunaCueKind.IMAGE && image != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                NoteImageThumb(
+                    path = image.path,
+                    caption = cue.imageCaption ?: image.caption,
+                    sizeDp = 64,
+                    modifier = Modifier.clickable { onPreviewImage(image) },
+                )
+                Text(
+                    cue.imageCaption ?: image.caption.ifBlank { "Imagem da seção" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
     }

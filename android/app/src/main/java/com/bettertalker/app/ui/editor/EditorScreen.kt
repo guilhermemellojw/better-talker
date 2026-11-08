@@ -162,6 +162,8 @@ fun EditorScreen(
     val attachments by vm.attachments.collectAsState(initial = emptyList())
     val notePinned by vm.pinned.collectAsState()
     val sections by vm.sections.collectAsState()
+    val noteImages by vm.noteImages.collectAsState()
+    val imagesBySection = remember(noteImages) { noteImages.groupBy { it.sectionId } }
     val isDemonstration by vm.isDemonstration.collectAsState()
     val noteSources by vm.noteSources.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
@@ -179,6 +181,13 @@ fun EditorScreen(
     var showAddSectionMenu by remember { mutableStateOf(false) }
     // #8a: "Anexar esboço" virou sheet com 2 caminhos (importar/colar).
     var showAttachSheet by remember { mutableStateOf(false) }
+    // v4.2: sheet de imagens (sectionId = null -> imagens da nota).
+    var imagesSheetOpen by remember { mutableStateOf(false) }
+    var imagesSheetSectionId by remember { mutableStateOf<String?>(null) }
+    val openImages: (String?) -> Unit = { sectionId ->
+        imagesSheetSectionId = sectionId
+        imagesSheetOpen = true
+    }
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -198,7 +207,7 @@ fun EditorScreen(
     BackHandler(
         enabled = draftState is DraftUiState.Idle &&
             !showAttachSheet && !showExport && !showPasteSheet &&
-            !showAttachmentsSheet && !showAddSectionMenu,
+            !showAttachmentsSheet && !showAddSectionMenu && !imagesSheetOpen,
     ) { requestBack() }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -484,6 +493,12 @@ fun EditorScreen(
                         DropdownMenuItem(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text("Imagens da nota (${imagesBySection[null].orEmpty().size})")
+                            },
+                            onClick = { showMenu = false; openImages(null) },
                         )
                         DropdownMenuItem(
                             text = { Text("Exportar nota") },
@@ -811,6 +826,8 @@ fun EditorScreen(
                                             onOpenChat()
                                         }
                                     },
+                                    images = imagesBySection[sectionState.section.id].orEmpty(),
+                                    onOpenImages = { openImages(sectionState.section.id) },
                                 )
                             }
                         }
@@ -849,6 +866,21 @@ fun EditorScreen(
             onUnlink = { id -> vm.unlinkAttachment(id) },
             onAttach = { showAttachmentsSheet = false; onAttach() },
             onDismiss = { showAttachmentsSheet = false },
+        )
+    }
+
+    // v4.2: imagens da nota/seção — anexo privado, fora do HTML e do RAG.
+    if (imagesSheetOpen) {
+        val sectionId = imagesSheetSectionId
+        NoteImagesSheet(
+            sectionId = sectionId,
+            images = noteImages.filter { it.sectionId == sectionId },
+            onAdd = { uri -> vm.addImage(sectionId, uri) },
+            onDelete = vm::deleteImage,
+            onCaption = vm::updateImageCaption,
+            onKind = vm::updateImageKind,
+            onMove = vm::moveImage,
+            onDismiss = { imagesSheetOpen = false },
         )
     }
 

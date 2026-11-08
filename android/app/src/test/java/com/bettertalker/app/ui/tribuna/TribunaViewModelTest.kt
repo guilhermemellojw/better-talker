@@ -3,6 +3,8 @@ package com.bettertalker.app.ui.tribuna
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.domain.speech.toJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -211,5 +213,64 @@ class TribunaViewModelTest {
         assertTrue(!vm.isDemonstration.value)
         assertTrue(vm.cards.value[0].turns.isEmpty())
         assertEquals("Âncora s1", vm.cards.value[0].capsule?.anchorPhrase)
+    }
+
+    // ---------- v4.2: cues, completude e fallback ----------
+
+    @Test
+    fun mapaCompletoSoComCuesPreenchidasEAncora() {
+        val full = TribunaCapsule(
+            sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+            cues = listOf(
+                TribunaCue(TribunaCueKind.HOOK, "Abertura"),
+                TribunaCue(TribunaCueKind.APPLICATION, "Aplicar"),
+            ),
+        )
+        val emptyCue = full.copy(cues = full.cues + TribunaCue(TribunaCueKind.RECAP, " "))
+        val cardFull = TribunaViewModel.TribunaCardUi(
+            sectionId = "s1", order = 0, sectionTitle = "T", minutes = 5, capsule = full,
+        )
+        val cardEmpty = cardFull.copy(capsule = emptyCue)
+        assertTrue(cardFull.mapComplete)
+        assertTrue(!cardEmpty.mapComplete)
+        assertTrue(cardFull.copy(capsule = capsule("s1")).legacyMap)
+    }
+
+    @Test
+    fun editarCuePersisteTextoERefs() = withVm(
+        FakeDao(
+            listOf(
+                entity(
+                    "s1", 0,
+                    TribunaCapsule(
+                        sectionId = "s1", mainIdea = "Ideia", anchorPhrase = "Âncora",
+                        cues = listOf(
+                            TribunaCue(TribunaCueKind.SCRIPTURE, "Texto", refs = listOf("Sal 1:1")),
+                        ),
+                    ).toJson(),
+                ),
+            )
+        )
+    ) { vm, _, dao ->
+        vm.load()
+        delay(30)
+        vm.updateCueText("s1", 0, "Texto novo")
+        vm.updateCueRefs("s1", 0, listOf("Sal 2:2", "Ef 1:1"))
+        // Autosave é assíncrono; no CI o debounce 0 ainda pode atrasar.
+        var parsed: com.bettertalker.app.domain.speech.TribunaCapsule? = null
+        val deadline = System.currentTimeMillis() + 2_000
+        while (System.currentTimeMillis() < deadline) {
+            parsed = dao.rows.value.first().tribunaJson?.let {
+                com.bettertalker.app.domain.speech.tribunaCapsuleFromJson(it)
+            }
+            if (parsed?.cues?.firstOrNull()?.text == "Texto novo" &&
+                parsed?.cues?.firstOrNull()?.refs == listOf("Sal 2:2", "Ef 1:1")
+            ) {
+                break
+            }
+            delay(10)
+        }
+        assertEquals("Texto novo", parsed?.cues?.first()?.text)
+        assertEquals(listOf("Sal 2:2", "Ef 1:1"), parsed?.cues?.first()?.refs)
     }
 }

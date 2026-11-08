@@ -287,8 +287,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class],
-    version = 22,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class],
+    version = 23,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -302,6 +302,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun s34Dao(): S34Dao
     abstract fun speechSectionDao(): SpeechSectionDao
     abstract fun subPointDao(): SubPointDao
+    abstract fun noteImageDao(): NoteImageDao
 }
 
 @Entity(
@@ -375,6 +376,43 @@ data class SubPointEntity(
     val developedHtml: String,
     val createdAt: Long,
     val updatedAt: Long,
+)
+
+/**
+ * Imagem anexada à nota (sectionId) ou à nota inteira (sectionId = null).
+ *
+ * Os bytes ficam em `filesDir/images/<noteId>/`; a tabela guarda só o caminho
+ * privado e os metadados. Nunca entra em contentHtml nem no índice/RAG.
+ */
+@Entity(
+    tableName = "note_images",
+    foreignKeys = [
+        ForeignKey(
+            entity = NoteEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["noteId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = SpeechSectionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sectionId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+    indices = [Index("noteId"), Index("sectionId")],
+)
+data class NoteImageEntity(
+    @PrimaryKey val id: String,
+    val noteId: String,
+    val sectionId: String? = null,
+    val path: String,
+    val mime: String,
+    val caption: String = "",
+    /** illustration|chart|photo|cover */
+    val kind: String = "illustration",
+    val order: Int = 0,
+    val addedAt: Long,
 )
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
@@ -656,4 +694,37 @@ interface S34Dao {
 
     @Query("DELETE FROM s34_outlines WHERE sourceAttachmentId = :sourceId")
     suspend fun deleteOutlineBySource(sourceId: String)
+}
+
+@Dao
+interface NoteImageDao {
+    @Query("SELECT * FROM note_images WHERE noteId = :noteId ORDER BY `order` ASC, addedAt ASC")
+    fun observeForNote(noteId: String): Flow<List<NoteImageEntity>>
+
+    @Query("SELECT * FROM note_images WHERE noteId = :noteId ORDER BY `order` ASC, addedAt ASC")
+    suspend fun forNote(noteId: String): List<NoteImageEntity>
+
+    @Query("SELECT * FROM note_images WHERE sectionId = :sectionId ORDER BY `order` ASC, addedAt ASC")
+    suspend fun forSection(sectionId: String): List<NoteImageEntity>
+
+    @Query("SELECT * FROM note_images WHERE sectionId IN (:sectionIds) ORDER BY `order` ASC, addedAt ASC")
+    suspend fun forSections(sectionIds: List<String>): List<NoteImageEntity>
+
+    @Query("SELECT * FROM note_images WHERE id = :id LIMIT 1")
+    suspend fun get(id: String): NoteImageEntity?
+
+    @Upsert
+    suspend fun upsert(image: NoteImageEntity)
+
+    @Query("DELETE FROM note_images WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("UPDATE note_images SET caption = :caption WHERE id = :id")
+    suspend fun updateCaption(id: String, caption: String)
+
+    @Query("UPDATE note_images SET kind = :kind WHERE id = :id")
+    suspend fun updateKind(id: String, kind: String)
+
+    @Query("UPDATE note_images SET `order` = :order WHERE id = :id")
+    suspend fun updateOrder(id: String, order: Int)
 }

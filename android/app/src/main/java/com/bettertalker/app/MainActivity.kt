@@ -651,7 +651,13 @@ private fun AppNav(
                 ),
             )
             com.bettertalker.app.ui.tribuna.TribunaScreen(
-                tribunaVm, onBack = { nav.popBackStack() }
+                tribunaVm,
+                onBack = { nav.popBackStack() },
+                onRegenerateSection = { sectionId, done ->
+                    sessionFor(noteId).copilotVm.regenerateTribunaSection(sectionId) { result ->
+                        done((result as? TribunaResult.Failure)?.message)
+                    }
+                },
             )
         }
         composable(

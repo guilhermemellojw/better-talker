@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.prefs.STAGE_FONT_MAX_SP
@@ -162,8 +163,16 @@ class StageViewModel(
 
     private var sections: List<SpeechSection> = emptyList()
     private var subPointsBySection: Map<String, List<SubPoint>> = emptyMap()
+    private var allImages: List<NoteImageEntity> = emptyList()
     private var discourseType: DiscourseType = DiscourseType.S34_DISCOURSE
     private var allTurns: List<StageTurn> = emptyList()
+
+    /**
+     * v4.2: imagens do escopo atual (nota inteira = imagens da nota; seção =
+     * imagens da seção). A tela mostra miniaturas; nunca abre sozinha.
+     */
+    private val _images = MutableStateFlow<List<NoteImageEntity>>(emptyList())
+    val images: StateFlow<List<NoteImageEntity>> = _images.asStateFlow()
 
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
@@ -234,6 +243,8 @@ class StageViewModel(
             subPointsBySection = sections.associate { s ->
                 s.id to db.subPointDao().forSection(s.id).map { it.toDomain() }
             }
+            allImages = db.noteImageDao().forNote(noteId)
+            _images.value = allImages.filter { it.sectionId == null }
             val note = db.noteDao().get(noteId)
             _title.value = note?.title.orEmpty()
             discourseType = DiscourseType.fromNameOrDefault(note?.discourseType)
@@ -326,6 +337,7 @@ class StageViewModel(
             scope = safe.scope,
         )
         _turns.value = turnsForScope(safe.scope)
+        _images.value = imagesForScope(safe.scope)
         speechText = stageSpeechText(_turns.value, _content.value)
         sectionTitles = scopedSectionTitles(safe.scope)
         _duoRole.value = null
@@ -356,6 +368,7 @@ class StageViewModel(
         pauseTimer()
         _elapsed.value = 0L
         _trainingStarted.value = false
+        _images.value = allImages.filter { it.sectionId == null }
     }
 
     private fun scopedSectionTitles(scope: TrainScope): List<String> {
@@ -378,6 +391,18 @@ class StageViewModel(
             discourseType,
         )
         TrainScopeKind.SUBPOINT -> emptyList()
+    }
+
+    /** v4.2: imagens do escopo — nunca mistura seções no treino de uma seção. */
+    private fun imagesForScope(scope: TrainScope): List<NoteImageEntity> = when (scope.kind) {
+        TrainScopeKind.WHOLE -> allImages.filter { it.sectionId == null }
+        TrainScopeKind.SECTION -> allImages.filter { it.sectionId == scope.sectionId }
+        TrainScopeKind.SUBPOINT -> {
+            val sectionId = sections.firstOrNull { s ->
+                subPointsBySection[s.id].orEmpty().any { it.id == scope.subPointId }
+            }?.id ?: return emptyList()
+            allImages.filter { it.sectionId == sectionId }
+        }
     }
 
     /** Demonstrações V&M com ≥2 papéis; os demais tipos leem texto corrido. */

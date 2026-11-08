@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.bettertalker.app.domain.coach.formatCoachDuration
+import com.bettertalker.app.ui.components.NoteImageStrip
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
@@ -118,6 +119,7 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
     val title by vm.title.collectAsState()
     val content by vm.content.collectAsState()
     val turns by vm.turns.collectAsState()
+    val images by vm.images.collectAsState()
     val duoRole by vm.duoRole.collectAsState()
     val totalMinutes by vm.totalMinutes.collectAsState()
     val elapsed by vm.elapsed.collectAsState()
@@ -240,6 +242,16 @@ fun StageScreen(vm: StageViewModel, onBack: () -> Unit) {
                 )
             }
             if (title.isNotBlank() || scopeLabel.isNotBlank()) {
+                Spacer(Modifier.height(18.dp))
+            }
+            // v4.2: imagens da seção/nota no TOPO; miniatura + legenda.
+            // Toque abre em tela cheia — nada aparece sozinho durante o treino.
+            if (images.isNotEmpty()) {
+                NoteImageStrip(
+                    images = images,
+                    thumbSizeDp = 68,
+                    captionColor = StageDim,
+                )
                 Spacer(Modifier.height(18.dp))
             }
             if (turns.isEmpty()) {
