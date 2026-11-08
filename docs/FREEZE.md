@@ -16,8 +16,12 @@
 > **3.024 testes JVM / 0**. A34 validou migração v22→v23 com dados
 > preservados, editor de imagens, Treino/Palco com imagem e fallback antigo;
 > **TalkBack audível** fica como verificação de uso pós-release. Tag
-> `v4.2.0`; APK público assinado + SHA-256 no GitHub Release;
-> `4.2-syncbeta`/58 é artefato separado.
+> `v4.2.0` (`9e8d78f`); APK público assinado + SHA-256
+> `5885cef1cfa4fbc575aa275ef8a8836d331bd2172a8cd837f68e6f67c3464a6e` no
+> GitHub Release; `4.2-syncbeta`/58 é artefato separado (run
+> `42433349964`, SHA-256 `b452e4da…`). Release 57 instalado por cima do
+> público 4.1/55 no A34: dados preservados, migração v22→v23 e Tribuna 2.0
+> gerada no aparelho.
 
 > **2026-11-07 — v4.0/49 (fatias 2–5 + Walkie + scroll):** aba Assistente com
 > sessão de nota compartilhada e **modo Walkie** (PTT grande, última resposta
