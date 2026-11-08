@@ -256,9 +256,19 @@ class TribunaViewModelTest {
         delay(30)
         vm.updateCueText("s1", 0, "Texto novo")
         vm.updateCueRefs("s1", 0, listOf("Sal 2:2", "Ef 1:1"))
-        delay(30)
-        val parsed = dao.rows.value.first().tribunaJson?.let {
-            com.bettertalker.app.domain.speech.tribunaCapsuleFromJson(it)
+        // Autosave é assíncrono; no CI o debounce 0 ainda pode atrasar.
+        var parsed: com.bettertalker.app.domain.speech.TribunaCapsule? = null
+        val deadline = System.currentTimeMillis() + 2_000
+        while (System.currentTimeMillis() < deadline) {
+            parsed = dao.rows.value.first().tribunaJson?.let {
+                com.bettertalker.app.domain.speech.tribunaCapsuleFromJson(it)
+            }
+            if (parsed?.cues?.firstOrNull()?.text == "Texto novo" &&
+                parsed?.cues?.firstOrNull()?.refs == listOf("Sal 2:2", "Ef 1:1")
+            ) {
+                break
+            }
+            delay(10)
         }
         assertEquals("Texto novo", parsed?.cues?.first()?.text)
         assertEquals(listOf("Sal 2:2", "Ef 1:1"), parsed?.cues?.first()?.refs)
