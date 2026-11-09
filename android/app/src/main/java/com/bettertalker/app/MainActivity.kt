@@ -946,11 +946,20 @@ private fun AppNav(
                 key = "present-$noteId",
                 factory = com.bettertalker.app.ui.present.PresentViewModel.Factory(db, settings, noteId),
             )
+            val presentBibleVm: com.bettertalker.app.ui.bible.BibleReaderViewModel =
+                viewModel(
+                    key = "bible-$noteId",
+                    factory = com.bettertalker.app.ui.bible.BibleReaderViewModel.Factory(
+                        db, voiceRouter,
+                    ),
+                )
             com.bettertalker.app.ui.present.PresentSessionScreen(
                 presentVm,
                 onBack = { nav.popBackStack() },
                 onOpenEditor = { nav.navigate(Routes.editor(noteId)) },
                 onOpenTribuna = { nav.navigate(Routes.tribuna(noteId)) },
+                bibleVm = presentBibleVm,
+                onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
             )
         }
         // #20-fix-b: Tribuna — leitura do mapa de memória.
@@ -970,6 +979,13 @@ private fun AppNav(
                     ctx, db, settings, noteId, voiceRouter
                 ),
             )
+            val tribunaBibleVm: com.bettertalker.app.ui.bible.BibleReaderViewModel =
+                viewModel(
+                    key = "bible-$noteId",
+                    factory = com.bettertalker.app.ui.bible.BibleReaderViewModel.Factory(
+                        db, voiceRouter,
+                    ),
+                )
             com.bettertalker.app.ui.tribuna.TribunaScreen(
                 tribunaVm,
                 onBack = { nav.popBackStack() },
@@ -987,6 +1003,8 @@ private fun AppNav(
                         done((result as? TribunaResult.Failure)?.message)
                     }
                 },
+                bibleVm = tribunaBibleVm,
+                onOpenLibrary = { nav.navigate(Routes.library(noteId)) },
             )
         }
         composable(

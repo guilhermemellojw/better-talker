@@ -1,9 +1,11 @@
 package com.bettertalker.app.data.repo
+import com.bettertalker.app.data.bible.canonicalBibleRefs
 
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,6 +31,10 @@ class BiblePassagesTest {
             rows.map { it.attachmentId }.distinct()
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
+        override suspend fun findByRefIn(attachmentId: String, ref: String): PassageEntity? =
+            rows.firstOrNull { it.attachmentId == attachmentId && it.ref == ref }
+        override suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.ref in refs }
         override suspend fun forAttachments(ids: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
@@ -122,5 +128,27 @@ class BiblePassagesTest {
     fun resolveBiblePassages_refAusente_naoInventa() = runBlocking {
         val dao = FakePassageDao(listOf(passage("p1", "Je 29:11", "texto")))
         assertTrue(resolveBiblePassages(dao, "Jó 33:24", 4).isEmpty())
+    }
+
+    @Test
+    fun findByRefIn_restritoAoAnexo() = runBlocking {
+        val tnm = passage("p1", "Je 29:11", "TNM")
+        val outra = passage("p2", "Je 29:11", "Outra").copy(attachmentId = "outra")
+        val dao = FakePassageDao(listOf(tnm, outra))
+
+        assertEquals("TNM", dao.findByRefIn("nwt", "Je 29:11")?.text)
+        assertEquals("Outra", dao.findByRefIn("outra", "Je 29:11")?.text)
+        assertNull(dao.findByRefIn("nwt", "Je 29:12"))
+    }
+
+    @Test
+    fun findByRefsIn_restritoAoAnexoEmLote() = runBlocking {
+        val dao = FakePassageDao(listOf(
+            passage("p1", "Je 29:11", "TNM 11"),
+            passage("p2", "Je 29:12", "TNM 12"),
+            passage("p3", "Je 29:11", "Outra").copy(attachmentId = "outra"),
+        ))
+        val out = dao.findByRefsIn("nwt", listOf("Je 29:11", "Je 29:12"))
+        assertEquals(listOf("TNM 11", "TNM 12"), out.map { it.text })
     }
 }

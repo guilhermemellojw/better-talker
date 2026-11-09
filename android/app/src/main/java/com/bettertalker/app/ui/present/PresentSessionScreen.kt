@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageStrip
 
 /**
@@ -65,6 +66,10 @@ fun PresentSessionScreen(
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
     onOpenTribuna: () -> Unit,
+    /** v5.2: leitor TNM compartilhado com a Tribuna. */
+    bibleVm: BibleReaderViewModel,
+    /** v5.2: abrir a Biblioteca quando a TNM não estiver no acervo. */
+    onOpenLibrary: () -> Unit = {},
 ) {
     val loadReady by vm.loadReady.collectAsState()
     val stageStarted by vm.stageStarted.collectAsState()
@@ -76,7 +81,12 @@ fun PresentSessionScreen(
         return
     }
     if (stageStarted) {
-        PresentStageScreen(vm = vm, onExit = onBack)
+        PresentStageScreen(
+            vm = vm,
+            onExit = onBack,
+            bibleVm = bibleVm,
+            onOpenLibrary = onOpenLibrary,
+        )
     } else {
         PresentPrepScreen(
             vm = vm,

@@ -9,7 +9,7 @@ import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.llm.GroundednessVerifier
 import com.bettertalker.app.data.planning.DefaultDossierPromptBuilder
 import com.bettertalker.app.data.repo.ScopedHit
-import com.bettertalker.app.data.repo.canonicalBibleRefs
+import com.bettertalker.app.data.bible.canonicalBibleRefs
 import com.bettertalker.app.data.repo.resolveBiblePassages
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.domain.planning.DefaultDossierBuilder
@@ -71,6 +71,10 @@ class BibleAccessFlowTest {
             rows.map { it.attachmentId }.distinct()
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
+        override suspend fun findByRefIn(attachmentId: String, ref: String): PassageEntity? =
+            rows.firstOrNull { it.attachmentId == attachmentId && it.ref == ref }
+        override suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.ref in refs }
         override suspend fun forAttachments(ids: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
