@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -94,22 +95,29 @@ fun BibleReaderOverlay(
 ) {
     val state by vm.state.collectAsState()
     if (!state.visible) return
-    BackHandler { vm.close() }
-    Surface(Modifier.fillMaxSize(), color = StageBg) {
-        BibleReaderContent(
-            state = state,
-            onSpeak = vm::toggleSpeak,
-            onClose = vm::close,
-            onOpenLibrary = onOpenLibrary,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            large = true,
-            background = StageBg,
-            foreground = StageFg,
-            accent = StageAccent,
-            dim = StageDim,
-        )
+    // Dialog full-screen: bloqueia qualquer toque/drag de atravessar para o
+    // Palco (Encerrar, Anterior/Próxima e swipe horizontal). Back fecha pelo
+    // onDismissRequest; o cronômetro do Palco continua.
+    Dialog(
+        onDismissRequest = vm::close,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = StageBg) {
+            BibleReaderContent(
+                state = state,
+                onSpeak = vm::toggleSpeak,
+                onClose = vm::close,
+                onOpenLibrary = onOpenLibrary,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                large = true,
+                background = StageBg,
+                foreground = StageFg,
+                accent = StageAccent,
+                dim = StageDim,
+            )
+        }
     }
 }
 
