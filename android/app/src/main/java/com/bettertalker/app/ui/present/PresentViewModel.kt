@@ -156,7 +156,8 @@ class PresentViewModel(
             _isDemonstration.value = demo
 
             val rows = data.sections.sortedBy { it.order }
-            val images = data.images
+            // v5.3: imagem é recurso de discurso; demo não carrega imagens.
+            val images = if (demo) emptyList() else data.images
             val cues = rows.mapIndexed { index, row ->
                 val script = if (demo) parseStageScript(row.contentHtml) else emptyList()
                 PresentCue(
@@ -225,12 +226,14 @@ class PresentViewModel(
 
     fun updatePrep(prep: PresentPrep) {
         val maxIndex = (_cues.value.size - 1).coerceAtLeast(0)
-        val mode = if (prep.mode == PresentMode.SCRIPT && !demo) PresentMode.CUES else prep.mode
+        // v5.3: demo só tem roteiro; discurso só tem lembretes.
+        val mode = if (demo) PresentMode.SCRIPT else PresentMode.CUES
         _prep.value = prep.copy(
             mode = mode,
             startIndex = prep.startIndex.coerceIn(0, maxIndex),
             roleIndex = if (_speakers.value.isEmpty()) 0
             else prep.roleIndex.coerceIn(0, _speakers.value.lastIndex),
+            scriptFocusOnly = if (demo) prep.scriptFocusOnly else false,
         )
     }
 

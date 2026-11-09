@@ -224,6 +224,7 @@ fun SectionCardEditor(
                     readOnly = readOnly,
                     isFirst = isFirstSection,
                     isLast = isLastSection,
+                    isDemonstration = isDemonstration,
                     showRoleChange = true,
                     onRoleChange = onRoleChange,
                     onMoveUp = onMoveSectionUp,
@@ -375,8 +376,9 @@ fun SectionCardEditor(
                             onDragEnd = onDragEnd,
                         )
                         // v4.2: as imagens são anexos da seção — o chip abre o
-                        // sheet; nada é inserido no HTML.
-                        if (!readOnly) {
+                        // sheet; nada é inserido no HTML. v5.3: demo não tem
+                        // imagens (recurso de discurso).
+                        if (!readOnly && !isDemonstration) {
                             Spacer(Modifier.width(4.dp))
                             AssistChip(
                                 onClick = onOpenImages,
@@ -889,6 +891,7 @@ private fun SectionMenuButton(
     readOnly: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
+    isDemonstration: Boolean = false,
     showRoleChange: Boolean = false,
     onRoleChange: (SectionRole) -> Unit = {},
     onMoveUp: () -> Unit,
@@ -946,10 +949,13 @@ private fun SectionMenuButton(
                     },
                 )
             }
-            DropdownMenuItem(
-                text = { Text("Imagens da seção") },
-                onClick = { onOpenImages(); menuOpen = false },
-            )
+            // v5.3: imagem é recurso de discurso; demo não abre imagens.
+            if (!isDemonstration) {
+                DropdownMenuItem(
+                    text = { Text("Imagens da seção") },
+                    onClick = { onOpenImages(); menuOpen = false },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("Excluir", color = MaterialTheme.colorScheme.error) },
                 onClick = { onRemove(); menuOpen = false },

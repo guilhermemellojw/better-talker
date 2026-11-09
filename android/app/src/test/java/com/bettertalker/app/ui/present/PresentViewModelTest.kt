@@ -290,7 +290,7 @@ class PresentViewModelTest {
     }
 
     @Test
-    fun demoCarregaRoteiroComNarracaoEImagensDaNota() = withVm(
+    fun demoCarregaRoteiroComNarracaoESemImagens() = withVm(
         FakeSource(
             discourseType = DiscourseType.MINISTRY_PART.name,
             sections = listOf(
@@ -319,10 +319,47 @@ class PresentViewModelTest {
         assertEquals(2, cue.allScript.size)
         assertEquals(StageTurnKind.NARRATION, cue.allScript[0].kind)
         assertEquals(StageTurnKind.SPEECH, cue.allScript[1].kind)
-        assertEquals(listOf("img-s1", "img-n"), cue.images.map { it.id })
+        // v5.3: imagem é recurso de discurso; demo não carrega imagens.
+        assertTrue(cue.images.isEmpty())
         assertEquals(PresentReadiness.READY, vm.readiness.value)
         assertEquals(listOf("Ana"), vm.speakers.value)
         assertEquals(2, vm.scriptItems.value.size)
         assertEquals(listOf(0, 1), vm.scriptItems.value.map { it.turnIndex })
+    }
+
+    @Test
+    fun modoEhForcadoPorTipoDeNota() = withVm(
+        FakeSource(
+            discourseType = DiscourseType.MINISTRY_PART.name,
+            sections = listOf(
+                section("s1", 0, cueCount = 0, mapped = false).copy(
+                    contentHtml = "<p><b>Ana:</b> Olá.</p>",
+                ),
+            ),
+        )
+    ) { vm, _ ->
+        vm.load()
+        awaitLoaded(vm)
+        assertEquals(PresentMode.SCRIPT, vm.prep.value.mode)
+        // Mesmo que uma chamada antiga peça Lembretes, a demo fica no roteiro.
+        vm.updatePrep(vm.prep.value.copy(mode = PresentMode.CUES))
+        assertEquals(PresentMode.SCRIPT, vm.prep.value.mode)
+        vm.updatePrep(vm.prep.value.copy(scriptFocusOnly = true))
+        assertTrue(vm.prep.value.scriptFocusOnly)
+    }
+
+    @Test
+    fun discursoNaoAceitaModoRoteiro() = withVm(
+        FakeSource(
+            discourseType = DiscourseType.S34_DISCOURSE.name,
+            sections = listOf(section("s1", 0, cueCount = 2)),
+        )
+    ) { vm, _ ->
+        vm.load()
+        awaitLoaded(vm)
+        assertEquals(PresentMode.CUES, vm.prep.value.mode)
+        vm.updatePrep(vm.prep.value.copy(mode = PresentMode.SCRIPT, scriptFocusOnly = true))
+        assertEquals(PresentMode.CUES, vm.prep.value.mode)
+        assertFalse(vm.prep.value.scriptFocusOnly)
     }
 }

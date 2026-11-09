@@ -45,16 +45,19 @@ Palco → Trocar esboço → picker → escolhe → volta.
 
 ## 5. Pré-voo
 
-- Cues | Roteiro (roteiro só para demonstrações).
-- Roteiro: completo da seção (padrão) | só o turno atual (teleprompter).
+- Discurso: modo **Lembretes** (cues).
+- Demonstração: modo **Roteiro** — completo da seção (padrão) | só o turno
+  atual (teleprompter). Não há “Lembretes” na demo.
 - Começar do início | Escolher seção.
 - Timer visível | Timer oculto.
 - Fonte A−/A+.
 - Orientação: Retrato (padrão) | Automática | Travar.
 - Entrar no palco.
-- Imagens: cues de imagem com legenda, arquivo local disponível e tira das
-  imagens da nota (a mesma fonte do editor). A imagem é só do orador; o app
-  não envia nada para a TV.
+- Imagens (somente discurso): cues de imagem com legenda, arquivo local
+  disponível e tira das imagens da nota (a mesma fonte do editor). A imagem é
+  só do orador; o app não envia nada para a TV.
+- Demonstração não tem imagens: nem no editor, nem na Tribuna, nem no pré-voo,
+  nem no Palco.
 - Checagem: tela acesa, bateria, notificações, orientação, fonte e offline.
 - Editar Tribuna/roteiro fica no pré-voo ou editor; nunca no palco.
 
@@ -112,6 +115,11 @@ Modo “Só turno atual” (opcional):
 
 Tribuna e Palco usam o mesmo renderizador de diálogo (`DemoScript`).
 
+A demonstração não tem imagens: o editor esconde “Imagens da nota”, o chip
+“Imagens (n)” e “Imagens da seção” no menu da seção; a Tribuna não mostra a
+tira; o pré-voo não mostra imagens nem “Imagens da nota”; o sheet de imagens
+não abre. A imagem é recurso de discurso; o Palco demo é só roteiro.
+
 ## 8. Orientação
 
 - Retrato é o padrão.
@@ -163,11 +171,12 @@ MVP:
 - timer total/seção;
 - anterior/próxima;
 - tela acesa, edição bloqueada, retomada;
-- modo roteiro completo para demo, com narração e turno atual;
+- modo roteiro completo para demo, com narração e turno atual; demo não tem
+  “Lembretes” nem imagens;
 - modo “turno atual” opcional;
-- cue de imagem com thumbnail e tela cheia local;
-- resolução do `imageId` em todas as imagens da nota;
-- pré-voo com checagem de imagens locais;
+- cue de imagem (discurso) com thumbnail e tela cheia local;
+- resolução do `imageId` em todas as imagens da nota (discurso);
+- pré-voo com checagem de imagens locais (discurso);
 - pausa em chamada/perda de foco;
 - sem TTS/STT/chat/gravação; sem TV/casting.
 
@@ -204,6 +213,8 @@ Futuro:
 - Rotação mantém estado; retrato é o padrão.
 - Demo mostra o roteiro completo da seção, com o turno atual destacado; o
   modo “só turno atual” é opcional.
+- Demo não mostra imagens em lugar nenhum (editor, Tribuna, pré-voo, Palco) e
+  não oferece “Lembretes”.
 - Narração/direções do roteiro não somem; fallback de texto corrido funciona.
 - Cue de imagem usa a mesma imagem do editor; toque abre em tela cheia e
   Voltar retorna ao Palco com o timer correndo.

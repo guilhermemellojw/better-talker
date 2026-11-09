@@ -143,12 +143,21 @@ private fun PresentPrepScreen(
         selectedSection > 0 -> "Seção ${selectedSection + 1}"
         else -> "Começo"
     }
-    val imageSections = cues.filter { it.sectionImages.isNotEmpty() }
-    val noteImages = cues.flatMap { it.noteImages }
-        .distinctBy { it.id }
-        .filter { it.sectionId == null }
-    val imageCheck = remember(cues) {
-        presentImageCheck(cues) { path -> File(path).exists() }
+    // v5.3: imagem é recurso de discurso; na demonstração nada de imagens.
+    val imageSections = if (demo) emptyList() else cues.filter { it.sectionImages.isNotEmpty() }
+    val noteImages = if (demo) {
+        emptyList()
+    } else {
+        cues.flatMap { it.noteImages }
+            .distinctBy { it.id }
+            .filter { it.sectionId == null }
+    }
+    val imageCheck = remember(cues, demo) {
+        if (demo) {
+            PresentImageCheck()
+        } else {
+            presentImageCheck(cues) { path -> File(path).exists() }
+        }
     }
 
     Scaffold(
@@ -287,28 +296,12 @@ private fun PresentPrepScreen(
 
             Spacer(Modifier.height(18.dp))
             PrepTitle("Modo")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = prep.mode == PresentMode.CUES,
-                    onClick = { vm.updatePrep(prep.copy(mode = PresentMode.CUES)) },
-                    label = { Text("Lembretes") },
-                )
-                if (demo) {
-                    FilterChip(
-                        selected = prep.mode == PresentMode.SCRIPT,
-                        onClick = { vm.updatePrep(prep.copy(mode = PresentMode.SCRIPT)) },
-                        label = { Text("Roteiro") },
-                    )
-                }
-            }
-            if (!demo) {
+            if (demo) {
+                // v5.3: demonstração só tem roteiro (completo ou turno atual).
                 Text(
-                    "Roteiro fica disponível só para demonstrações.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Roteiro da demonstração",
+                    style = MaterialTheme.typography.bodyLarge,
                 )
-            }
-            if (demo && prep.mode == PresentMode.SCRIPT) {
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -331,6 +324,19 @@ private fun PresentPrepScreen(
                         },
                     )
                 }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = true,
+                        onClick = { vm.updatePrep(prep.copy(mode = PresentMode.CUES)) },
+                        label = { Text("Lembretes") },
+                    )
+                }
+                Text(
+                    "Roteiro fica disponível só para demonstrações.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             Spacer(Modifier.height(18.dp))

@@ -404,7 +404,8 @@ private fun TribunaCard(
             }
             // v4.2: thumbnail + legenda no TOPO da seção; toque abre em tela
             // cheia. A imagem nunca é exibida sozinha nem entra no texto.
-            if (card.images.isNotEmpty()) {
+            // v5.3: imagem é recurso de discurso; demo não mostra imagens.
+            if (!isDemonstration && card.images.isNotEmpty()) {
                 NoteImageStrip(images = card.images, thumbSizeDp = 68)
             }
             if (isDemonstration) {

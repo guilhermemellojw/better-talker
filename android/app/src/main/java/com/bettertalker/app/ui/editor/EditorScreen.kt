@@ -187,8 +187,11 @@ fun EditorScreen(
     var imagesSheetOpen by remember { mutableStateOf(false) }
     var imagesSheetSectionId by remember { mutableStateOf<String?>(null) }
     val openImages: (String?) -> Unit = { sectionId ->
-        imagesSheetSectionId = sectionId
-        imagesSheetOpen = true
+        // v5.3: demonstração não abre o sheet de imagens, nem por atalho.
+        if (!isDemonstration) {
+            imagesSheetSectionId = sectionId
+            imagesSheetOpen = true
+        }
     }
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
@@ -508,12 +511,16 @@ fun EditorScreen(
                             text = { Text("Anexos (${attachments.size})") },
                             onClick = { showMenu = false; showAttachmentsSheet = true },
                         )
-                        DropdownMenuItem(
-                            text = {
-                                Text("Imagens da nota (${imagesBySection[null].orEmpty().size})")
-                            },
-                            onClick = { showMenu = false; openImages(null) },
-                        )
+                        // v5.3: imagem é recurso de discurso; demonstração não
+                        // tem imagens da nota nem sheet de imagens.
+                        if (!isDemonstration) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Imagens da nota (${imagesBySection[null].orEmpty().size})")
+                                },
+                                onClick = { showMenu = false; openImages(null) },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Exportar nota") },
                             onClick = { showMenu = false; showExport = true },
@@ -884,7 +891,8 @@ fun EditorScreen(
     }
 
     // v4.2: imagens da nota/seção — anexo privado, fora do HTML e do RAG.
-    if (imagesSheetOpen) {
+    // v5.3: nunca na demonstração.
+    if (imagesSheetOpen && !isDemonstration) {
         val sectionId = imagesSheetSectionId
         NoteImagesSheet(
             sectionId = sectionId,
