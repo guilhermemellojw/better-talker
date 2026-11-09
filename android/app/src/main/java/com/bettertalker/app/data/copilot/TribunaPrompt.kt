@@ -57,6 +57,8 @@ internal fun buildTribunaSectionPrompt(
         .append(rules.maxWords).append(" palavras.\n")
     sb.append("- Use entre ").append(rules.minKeyTerms).append(" e ")
         .append(rules.maxKeyTerms).append(" keyTerms.\n")
+    sb.append("- Se o texto não tiver material para o máximo, use menos lembretes; ")
+        .append("nunca invente conteúdo para completar a faixa.\n")
     sb.append("- Detalhe maior significa mais granularidade sobre o texto existente; ")
         .append("nunca preencha com conteúdo inventado.\n\n")
     sb.append("Tipos de lembrete e quando usar:\n")

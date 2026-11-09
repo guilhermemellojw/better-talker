@@ -38,6 +38,7 @@ fun AssistantGlobalRoute(
     onStartTrain: (String) -> Unit,
     onOpenPresent: (String) -> Unit,
     onOpenHelp: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     openChatRequest: Int = 0,
 ) {
     val ctx = LocalContext.current
@@ -165,18 +166,19 @@ fun AssistantGlobalRoute(
             focusComposer = false
             chatOpen = true
         },
-        onDigit = {
-            focusComposer = true
-            chatOpen = true
-        },
-        onPickNote = onPickNote,
-        onBindNote = { id ->
-            vm.bindNote(id)
+        onPickNote = {
             ptt.cancel()
+            vm.stopSpeaking()
+            onPickNote()
         },
-        onCreateFirst = { vm.send("Criar um esboço novo") },
+        onCreateNote = { vm.send("Criar um esboço novo") },
         onConfigureAi = onOpenModel,
         onHelp = onOpenHelp,
+        onOpenSettings = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            onOpenSettings()
+        },
         onRetry = { vm.retryLast() },
         onSendText = { text -> vm.send(text) },
     )

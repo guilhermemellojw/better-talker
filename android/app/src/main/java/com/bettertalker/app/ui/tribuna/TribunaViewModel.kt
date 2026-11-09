@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -55,6 +56,7 @@ interface TribunaDetailPrefs {
     fun sectionDetail(noteId: String, sectionId: String): Flow<TribunaDetail?>
     suspend fun setNoteDetail(noteId: String, detail: TribunaDetail)
     suspend fun setSectionDetail(noteId: String, sectionId: String, detail: TribunaDetail)
+    suspend fun clearSectionDetail(noteId: String, sectionId: String)
 }
 
 /**
@@ -100,6 +102,10 @@ class TribunaViewModel(
         val sectionHasRefs: Boolean = false,
         /** v5.1: última seção não exige transição. */
         val isLastSection: Boolean = true,
+        /** v5.1: override de detalhe desta seção; null = padrão da nota. */
+        val sectionDetail: TribunaDetail? = null,
+        /** v5.1: updatedAt da linha que originou o card (guarda anti-regressão). */
+        val dbUpdatedAt: Long = 0,
     ) {
         /** v5.1: qualidade com motivos (fonte única do badge). */
         val quality
@@ -153,10 +159,26 @@ class TribunaViewModel(
         workScope.launch { detailPrefs?.setSectionDetail(noteId, sectionId, detail) }
     }
 
+    /** v5.1: volta a seção ao detalhe padrão da nota. */
+    fun clearSectionDetail(sectionId: String) {
+        workScope.launch { detailPrefs?.clearSectionDetail(noteId, sectionId) }
+    }
+
     private val persistJobs = mutableMapOf<String, Job>()
 
     /** v5.1: seções com edição local ainda não confirmada pelo banco. */
     private val dirtySections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** v5.1: versão da última edição; evita limpar “dirty” de edição mais nova. */
+    private val editVersions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** v5.1: carimbo do último autosave local por seção. */
+    private val lastLocalSaveAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun markDirty(sectionId: String) {
+        dirtySections += sectionId
+        editVersions.merge(sectionId, 1L, Long::plus)
+    }
 
     private val _noteTitle = MutableStateFlow("")
     /** Título da nota (para o export); vazio até o load. */
@@ -170,7 +192,26 @@ class TribunaViewModel(
         workScope.launch {
             val imagesFlow: Flow<List<NoteImageEntity>> =
                 imageDao?.observeForNote(noteId) ?: flowOf(emptyList())
-            combine(dao.observeForNote(noteId), imagesFlow) { rows, images ->
+            val rowsFlow = dao.observeForNote(noteId)
+            val detailsFlow = rowsFlow.flatMapLatest { rows ->
+                if (detailPrefs == null) {
+                    flowOf(emptyMap<String, TribunaDetail>())
+                } else {
+                    val flows = rows.map { row ->
+                        detailPrefs.sectionDetail(noteId, row.id)
+                    }
+                    if (flows.isEmpty()) {
+                        flowOf(emptyMap<String, TribunaDetail>())
+                    } else {
+                        combine(flows) { values ->
+                            rows.mapIndexedNotNull { index, row ->
+                                values.getOrNull(index)?.let { row.id to it }
+                            }.toMap()
+                        }
+                    }
+                }
+            }
+            combine(rowsFlow, imagesFlow, detailsFlow) { rows, images, details ->
                 // Bloco 2 (demos): o tipo é relido a cada emissão — se a nota
                 // for demonstração, a tela renderiza como roteiro.
                 val demo = isDemonstrationProvider()
@@ -178,33 +219,43 @@ class TribunaViewModel(
                 val sorted = rows.sortedBy { it.order }
                 sorted.mapIndexed { index, e ->
                     val domain = runCatching { e.toDomain() }.getOrNull()
-                    val parsed = e.tribunaJson?.let { tribunaCapsuleFromJson(it) }
-                    // v5.1: uma emissão do banco (ex.: autosave anterior) não
-                    // pode regredir a edição otimista até o banco confirmar a
-                    // cápsula local.
-                    val local = _cards.value.firstOrNull { it.sectionId == e.id }?.capsule
-                    val dirty = dirtySections.contains(e.id)
-                    val capsule = if (dirty && local != null) {
-                        if (parsed == local) dirtySections.remove(e.id)
-                        local
-                    } else {
-                        parsed
-                    }
                     TribunaCardUi(
                         sectionId = e.id,
                         order = e.order,
                         sectionTitle = e.title,
                         minutes = e.minutes,
-                        capsule = capsule,
+                        capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
                         turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
                         images = images.filter { it.sectionId == e.id },
                         sectionHasRefs = domain?.let {
                             it.bibleRefs.isNotEmpty() || it.publicationRefs.isNotEmpty()
                         } ?: false,
                         isLastSection = index == sorted.lastIndex,
+                        sectionDetail = details[e.id],
+                        dbUpdatedAt = e.updatedAt,
                     )
                 }
-            }.collect { cards -> _cards.value = cards }
+            }.collect { computed ->
+                // Merge atômico: uma emissão do banco não regride a edição
+                // otimista; a cápsula local é lida no momento do update.
+                _cards.update { current ->
+                    computed.map { card ->
+                        val currentCard = current.firstOrNull { it.sectionId == card.sectionId }
+                        val lastSave = lastLocalSaveAt[card.sectionId] ?: 0L
+                        if (card.dbUpdatedAt < lastSave) {
+                            // Emissão atrasada de um autosave anterior: descarta.
+                            currentCard ?: card
+                        } else {
+                            val local = currentCard?.capsule
+                            if (dirtySections.contains(card.sectionId) && local != null) {
+                                card.copy(capsule = local)
+                            } else {
+                                card
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -315,6 +366,7 @@ class TribunaViewModel(
         sectionId: String,
         transform: (TribunaCapsule) -> TribunaCapsule,
     ) {
+        markDirty(sectionId)
         _cards.update { list ->
             list.map { card ->
                 if (card.sectionId != sectionId) return@map card
@@ -330,6 +382,7 @@ class TribunaViewModel(
     }
 
     private fun setCapsule(sectionId: String, capsule: TribunaCapsule) {
+        markDirty(sectionId)
         _cards.update { list ->
             list.map { card ->
                 if (card.sectionId == sectionId) card.copy(capsule = capsule) else card
@@ -342,21 +395,35 @@ class TribunaViewModel(
         val capsule = _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule
             ?: return
         dirtySections += sectionId
+        val version = editVersions[sectionId] ?: 0L
         persistJobs[sectionId]?.cancel()
         persistJobs[sectionId] = workScope.launch {
             delay(debounceMs)
             val entity = dao.get(sectionId) ?: return@launch
+            val stamp = maxOf(
+                System.currentTimeMillis(),
+                (lastLocalSaveAt[sectionId] ?: 0L) + 1,
+            )
+            lastLocalSaveAt[sectionId] = stamp
             dao.upsert(
                 entity.copy(
                     tribunaJson = capsule.toJson(),
-                    updatedAt = System.currentTimeMillis(),
+                    updatedAt = stamp,
                 )
             )
+            // Só libera a guarda quando o banco tem exatamente este snapshot;
+            // uma edição mais nova mantém a seção “dirty”.
+            if (editVersions[sectionId] == version &&
+                _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule == capsule
+            ) {
+                dirtySections.remove(sectionId)
+            }
         }
     }
 
     /** Update otimista + autosave debounced (400ms em produção). */
     private fun edit(sectionId: String, transform: (TribunaCapsule) -> TribunaCapsule) {
+        markDirty(sectionId)
         _cards.update { list ->
             list.map { c ->
                 if (c.sectionId == sectionId) c.copy(capsule = c.capsule?.let(transform)) else c
@@ -422,6 +489,8 @@ class TribunaViewModel(
                     sectionId: String,
                     detail: TribunaDetail,
                 ) = settings.setTribunaSectionDetail(noteId, sectionId, detail)
+                override suspend fun clearSectionDetail(noteId: String, sectionId: String) =
+                    settings.clearTribunaSectionDetail(noteId, sectionId)
             }
             return TribunaViewModel(
                 db.speechSectionDao(), noteId, speaker, prefs,

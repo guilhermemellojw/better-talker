@@ -94,6 +94,9 @@ class TribunaViewModelTest {
         ) {
             sections.getOrPut(sectionId) { MutableStateFlow(null) }.value = detail
         }
+        override suspend fun clearSectionDetail(noteId: String, sectionId: String) {
+            sections.getOrPut(sectionId) { MutableStateFlow(null) }.value = null
+        }
     }
 
     private fun entity(id: String, order: Int, tribuna: String? = null) = SpeechSectionEntity(
@@ -568,6 +571,39 @@ class TribunaViewModelTest {
             assertEquals(TribunaDetail.DETAILED, detailPrefs.note.value)
             assertEquals(TribunaDetail.COMPACT, detailPrefs.sections["s1"]?.value)
             assertEquals(TribunaDetail.DETAILED, vm.noteDetail.value)
+        }
+    }
+
+    @Test
+    fun overrideDaSecaoAparecNoCardEPodeVoltarAoPadrao() {
+        val detailPrefs = FakeDetailPrefs()
+        withVm(
+            FakeDao(listOf(entity("s1", 0, capsule("s1").toJson()))),
+            detailPrefs = detailPrefs,
+        ) { vm, _, _ ->
+            vm.load()
+            awaitCards(vm)
+            assertNull(vm.cards.value.first().sectionDetail)
+
+            vm.setSectionDetail("s1", TribunaDetail.COMPACT)
+            val setDeadline = System.currentTimeMillis() + 2_000
+            while (vm.cards.value.first().sectionDetail != TribunaDetail.COMPACT &&
+                System.currentTimeMillis() < setDeadline
+            ) {
+                delay(10)
+            }
+            assertEquals(TribunaDetail.COMPACT, vm.cards.value.first().sectionDetail)
+            assertEquals(TribunaDetail.COMPACT, detailPrefs.sections["s1"]?.value)
+
+            vm.clearSectionDetail("s1")
+            val clearDeadline = System.currentTimeMillis() + 2_000
+            while (vm.cards.value.first().sectionDetail != null &&
+                System.currentTimeMillis() < clearDeadline
+            ) {
+                delay(10)
+            }
+            assertNull(vm.cards.value.first().sectionDetail)
+            assertNull(detailPrefs.sections["s1"]?.value)
         }
     }
 }

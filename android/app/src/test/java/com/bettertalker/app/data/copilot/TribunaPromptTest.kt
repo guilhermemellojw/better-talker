@@ -114,6 +114,8 @@ class TribunaPromptTest {
         assertTrue(p.contains("entre 8 e 12 lembretes"))
         assertTrue(p.contains("no máximo 25 palavras"))
         assertTrue(p.contains("entre 5 e 8 keyTerms"))
+        assertTrue(p.contains("Se o texto não tiver material para o máximo"))
+        assertTrue(p.contains("nunca invente conteúdo para completar a faixa"))
     }
 
     @Test

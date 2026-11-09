@@ -409,6 +409,11 @@ class SettingsStore(
         ctx.store.edit { it[tribunaSectionDetailKey(noteId, sectionId)] = detail.name }
     }
 
+    /** v5.1: remove o override da seção; volta ao detalhe padrão da nota. */
+    suspend fun clearTribunaSectionDetail(noteId: String, sectionId: String) {
+        ctx.store.edit { it.remove(tribunaSectionDetailKey(noteId, sectionId)) }
+    }
+
     private fun presentMapModeKey(noteId: String) =
         stringPreferencesKey("present_map_mode_$noteId")
 

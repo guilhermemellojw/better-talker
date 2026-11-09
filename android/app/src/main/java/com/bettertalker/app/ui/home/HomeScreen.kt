@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
@@ -110,8 +109,6 @@ fun HomeScreen(
     onOpenNote: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenTrash: () -> Unit,
-    // #10b: Conta/Aparência/IA agora vivem na SettingsScreen (⚙).
-    onOpenSettings: () -> Unit,
     /** "Inserir material → Escolher arquivo": importa o arquivo numa nota nova. */
     onImportMaterial: (android.net.Uri) -> Unit = {},
     /** "Colar texto": nota criada + aviso opcional (estrutura aplicada). */
@@ -460,10 +457,6 @@ fun HomeScreen(
                     IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
                     // Modos de visualização (Grade / Lista compacta / Detalhada).
                     ViewModeMenu(viewMode = viewMode, onSelect = vm::setViewMode)
-                    // #10b: ⚙ abre a SettingsScreen (Conta/Aparência/IA).
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, "Configurações")
-                    }
                 }
             )
         },

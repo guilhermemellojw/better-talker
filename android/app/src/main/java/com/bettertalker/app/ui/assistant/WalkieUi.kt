@@ -1,6 +1,5 @@
 package com.bettertalker.app.ui.assistant
 
-import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.voice.PttState
@@ -17,6 +16,34 @@ enum class AssistantPresentation { WALKIE, FULL }
 /** Walkie só no Assistente embutido e com nota ativa. */
 fun startsInWalkie(embedded: Boolean, hasNote: Boolean): Boolean =
     embedded && hasNote
+
+/** Ações do menu do título (seletor de contexto, nunca um ⋮). */
+enum class AssistantMenuAction {
+    OPEN_NOTE, CHANGE_NOTE, GENERAL_CHAT, PICK_NOTE, CREATE_NOTE
+}
+
+/** Home global escolhe esboço/cria; walkie abre/troca/desvincula a nota. */
+fun assistantMenu(hasNote: Boolean): List<AssistantMenuAction> = if (hasNote) {
+    listOf(
+        AssistantMenuAction.OPEN_NOTE,
+        AssistantMenuAction.CHANGE_NOTE,
+        AssistantMenuAction.GENERAL_CHAT,
+    )
+} else {
+    listOf(AssistantMenuAction.PICK_NOTE, AssistantMenuAction.CREATE_NOTE)
+}
+
+fun assistantMenuLabel(action: AssistantMenuAction): String = when (action) {
+    AssistantMenuAction.OPEN_NOTE -> "Abrir nota"
+    AssistantMenuAction.CHANGE_NOTE -> "Trocar nota"
+    AssistantMenuAction.GENERAL_CHAT -> "Conversa geral (sem nota)"
+    AssistantMenuAction.PICK_NOTE -> "Escolher esboço"
+    AssistantMenuAction.CREATE_NOTE -> "Criar novo esboço"
+}
+
+/** Título da top bar: nome da nota no walkie; "Assistente" na home global. */
+fun assistantTitle(hasNote: Boolean, noteTitle: String): String =
+    if (hasNote) noteTitle.ifBlank { "Assistente" } else "Assistente"
 
 /** Rótulo do estado central do walkie. */
 fun walkieStatusLabel(
@@ -46,21 +73,9 @@ fun walkiePracticeLine(snapshot: PracticeSnapshot?): String? {
     return "Prática · $training · Palco: ${snapshot.presentLabel}$resume"
 }
 
-/** Pílula discreta de próximo passo; a ação fica no chat completo. */
-fun walkieNextStepLabel(suggestion: NextStepSuggestion?): String? =
-    suggestion?.let { "Próximo: ${it.label}" }
-
-/**
- * Prévia curta da última resposta: remove tags internas/markdown, colapsa
- * espaços e corta com reticências. Puro/testável.
- */
-fun walkiePreview(text: String, maxChars: Int = 240): String {
-    var t = text
-        .replace(Regex("<[^>]+>"), " ")
-        .replace(Regex("〈[^〉]*〉"), " ")
-        .replace(Regex("[#*_`>]"), "")
-        .replace(Regex("\\s+"), " ")
-        .trim()
-    if (t.length > maxChars) t = t.take(maxChars).trimEnd() + "…"
-    return t
+/** Chip "Configurar IA" só quando a última resposta bloqueia por falta de chave. */
+fun assistantNeedsKey(text: String?): Boolean {
+    if (text.isNullOrBlank()) return false
+    return text.contains("Configure a chave de IA") ||
+        text.contains("configure a chave do DeepSeek")
 }

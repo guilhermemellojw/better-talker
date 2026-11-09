@@ -425,7 +425,7 @@ private fun CueContent(
                 PresentCueLine(
                     cue = current,
                     fontSp = fontSp,
-                    image = cueImage(current, cue.images),
+                    image = presentCueImage(current, cue.images),
                     onPreviewImage = onPreviewImage,
                 )
             }
@@ -433,7 +433,7 @@ private fun CueContent(
             PresentCueLine(
                 cue = capsule.cues[focused],
                 fontSp = fontSp,
-                image = cueImage(capsule.cues[focused], cue.images),
+                image = presentCueImage(capsule.cues[focused], cue.images),
                 onPreviewImage = onPreviewImage,
             )
             Row(
@@ -516,11 +516,6 @@ private fun CueContent(
 }
 
 /** v4.2: resolve a imagem de uma cue; imagem só aparece se for cue IMAGE. */
-private fun cueImage(cue: TribunaCue, images: List<NoteImageEntity>): NoteImageEntity? {
-    if (cue.kind != TribunaCueKind.IMAGE) return null
-    return cue.imageId?.let { id -> images.firstOrNull { it.id == id } }
-        ?: images.firstOrNull()
-}
 
 private fun presentCueLabel(kind: TribunaCueKind): String = when (kind) {
     TribunaCueKind.HOOK -> "GANCHO"

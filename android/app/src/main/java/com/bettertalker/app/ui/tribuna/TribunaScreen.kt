@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -234,12 +235,21 @@ fun TribunaScreen(
                         onMoveCue = { index, direction -> vm.moveCue(card.sectionId, index, direction) },
                         onConvert = { vm.convertToCueSheet(card.sectionId) },
                         onSectionDetail = { detail ->
-                            vm.setSectionDetail(card.sectionId, detail)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    "Detalhe desta seção: ${detailLabel(detail)}. " +
-                                        "Vale ao regenerar.",
-                                )
+                            if (detail == null) {
+                                vm.clearSectionDetail(card.sectionId)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "Detalhe desta seção: padrão da nota.",
+                                    )
+                                }
+                            } else {
+                                vm.setSectionDetail(card.sectionId, detail)
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(
+                                        "Detalhe desta seção: ${detailLabel(detail)}. " +
+                                            "Vale ao regenerar.",
+                                    )
+                                }
                             }
                         },
                         onPreviewImage = { previewImage = it },
@@ -296,7 +306,7 @@ private fun TribunaCard(
     onRemoveCue: (Int) -> Unit,
     onMoveCue: (Int, Int) -> Unit,
     onConvert: () -> Unit,
-    onSectionDetail: (TribunaDetail) -> Unit,
+    onSectionDetail: (TribunaDetail?) -> Unit,
     onPreviewImage: (NoteImageEntity) -> Unit,
     onRegenerate: () -> Unit,
     onSpeak: () -> Unit,
@@ -341,14 +351,41 @@ private fun TribunaCard(
                         TribunaDetail.values().forEach { detail ->
                             DropdownMenuItem(
                                 text = { Text(detailLabel(detail)) },
+                                leadingIcon = if (card.sectionDetail == detail) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Detalhe ativo",
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
                                 onClick = {
                                     detailMenu = false
                                     onSectionDetail(detail)
                                 },
                             )
                         }
+                        if (card.sectionDetail != null) {
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Usar padrão da nota") },
+                                onClick = {
+                                    detailMenu = false
+                                    onSectionDetail(null)
+                                },
+                            )
+                        }
                     }
                 }
+            }
+            card.sectionDetail?.let { detail ->
+                Text(
+                    "Detalhe desta seção: ${detailLabel(detail)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             // v4.2: thumbnail + legenda no TOPO da seção; toque abre em tela
             // cheia. A imagem nunca é exibida sozinha nem entra no texto.
@@ -663,7 +700,6 @@ private fun TribunaCueEditor(
         }
     }
     val image = cue.imageId?.let { id -> images.firstOrNull { it.id == id } }
-        ?: images.firstOrNull().takeIf { cue.kind == TribunaCueKind.IMAGE }
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CueKindMenu(kind = cue.kind, onKind = onKind)
