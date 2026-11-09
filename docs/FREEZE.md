@@ -1,6 +1,22 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-08 · **Build de referência:** v5.0.1 (versionCode 61, tag `v5.0.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-09 · **Build de referência:** v5.1 (versionCode 63, tag `v5.1.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-09 — v5.1/63 (Assistente + Tribuna 2.1):** Assistente com top
+> bar de contexto (`Assistente ⌄` / `nota ⌄` + 💬 ❓ ⚙, sem ⋮), última fala
+> completa no topo, rodapé só com PTT e ⚙ movido de Esboços para o Assistente;
+> walkie com picker, Conversa geral e texto completo; Tribuna 2.1 com 15
+> lembretes, edição completa, `cueSheetVersion` 0/2, qualidade com motivos e
+> detalhe por nota/seção + “Usar padrão da nota”; Palco com Mapa/Foco e foco
+> por seção persistidos. Sem schema novo; DB continua **v23**. Branch
+> `feat/v5.1-tribuna-cues` (`45e15e6` + `f496d74` + `f096f3f`), CI
+> `42599933855` verde, **3.089 testes JVM / 0**, lint release 0 errors e 49
+> warnings pré-existentes. Smoke A34: home/walkie, menus, picker, Conversa
+> geral, candidatos/Sim-Não, chat, PTT, Tribuna com override/limpeza e Palco
+> persistente (Mapa/Foco, foco 3/6 e restauração após reinício).
+> Pendências: **TalkBack audível**, tema claro/escuro, PTT humano pt-BR e teste
+> real continuam; gate dos amigos segue fechado (faltam 5.2, 5.3 e 5.4).
+> Tag `v5.1.0`; SHA-256 e link do release registrados nos docs da main.
 
 > **2026-11-08 — v5.0.1/61 (resgate do “Novidades”):** o sheet de upgrade
 > não é mais consumido ao exibir; `upgrade_v5_dismissed` é a fonte de verdade.
