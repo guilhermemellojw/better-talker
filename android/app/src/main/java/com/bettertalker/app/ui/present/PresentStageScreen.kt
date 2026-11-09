@@ -176,144 +176,146 @@ fun PresentStageScreen(
     BackHandler(enabled = previewImage == null) { exitDialog = true }
 
     Box(Modifier.fillMaxSize().background(StageBg)) {
-        // Conteúdo (uma seção/turno por vez), com swipe horizontal.
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(scroll)
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(start = 24.dp, end = 24.dp, top = 96.dp, bottom = 100.dp)
-                .pointerInput(prep.mode, currentIndex, scriptIndex) {
-                    var dragTotal = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragTotal = 0f },
-                        onDragEnd = {
-                            if (dragTotal <= -70f) vm.next()
-                            else if (dragTotal >= 70f) vm.previous()
-                            dragTotal = 0f
-                        },
-                        onHorizontalDrag = { _, amount -> dragTotal += amount },
-                    )
-                },
-        ) {
-            if (scriptMode) {
-                ScriptContent(
-                    cue = currentCue,
-                    current = currentScript,
-                    next = nextScript,
-                    role = role,
-                    fontSp = fontSp,
-                    compact = prep.scriptFocusOnly,
-                )
-            } else {
-                CueContent(
-                    cue = currentCue,
-                    fontSp = fontSp,
-                    mapMode = mapMode,
-                    focusCueIndex = focusCueIndex,
-                    sectionElapsed = sectionElapsed,
-                    onFocusCue = { vm.setFocusCue(it) },
-                    onPreviewImage = { previewImage = it },
-                    onReadBible = { refs -> bibleVm.open(refs) },
-                )
-            }
-        }
-
-        // Cabeçalho fixo: seção + título + timer.
-        Surface(
-            color = Color(0xE6101724),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.displayCutout),
         ) {
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Cabeçalho fixo: seção + título + timer.
+            Surface(
+                color = Color(0xE6101724),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                IconButton(onClick = { exitDialog = true }) {
-                    Icon(Icons.Default.Close, "Encerrar apresentação", tint = StageFg)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${currentIndex + 1}/${cues.size.coerceAtLeast(1)}",
-                        color = StageAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        currentCue?.title?.ifBlank { "Seção ${currentIndex + 1}" }
-                            ?: "Palco",
-                        color = StageFg,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                }
-                if (prep.timerVisible) {
-                    Column(horizontalAlignment = Alignment.End) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { exitDialog = true }) {
+                        Icon(Icons.Default.Close, "Encerrar apresentação", tint = StageFg)
+                    }
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            formatClock(totalElapsed),
-                            color = if (running) StageFg else StageDim,
-                            fontSize = 24.sp,
+                            "${currentIndex + 1}/${cues.size.coerceAtLeast(1)}",
+                            color = StageAccent,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
                         )
                         Text(
-                            stageClockSubtitle(sectionElapsed, sectionMinutes, running),
-                            color = stageTimerColor(sectionState),
-                            fontSize = 10.sp,
+                            currentCue?.title?.ifBlank { "Seção ${currentIndex + 1}" }
+                                ?: "Palco",
+                            color = StageFg,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 1,
                         )
                     }
-                }
-            }
-        }
-
-        // Navegação manual fixa.
-        Surface(
-            color = Color(0xE6101724),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.displayCutout),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val canPrevious = if (scriptMode) scriptIndex > 0 else currentIndex > 0
-                val canNext = if (scriptMode) scriptIndex < scriptItems.lastIndex
-                else currentIndex < cues.lastIndex
-                TextButton(
-                    onClick = vm::previous,
-                    enabled = canPrevious,
-                ) { Text("‹ Anterior", color = if (canPrevious) StageFg else StageDim) }
-                Spacer(Modifier.weight(1f))
-                if (!scriptMode) {
-                    val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
-                    if (hasCueSheet) {
-                        TextButton(onClick = { vm.setMapMode(!mapMode) }) {
-                            Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
+                    if (prep.timerVisible) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                formatClock(totalElapsed),
+                                color = if (running) StageFg else StageDim,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            Text(
+                                stageClockSubtitle(sectionElapsed, sectionMinutes, running),
+                                color = stageTimerColor(sectionState),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }
-                Text(
-                    if (scriptMode) {
-                        val localTurn = (currentScript?.turnIndex ?: -1) + 1
-                        val totalTurns = currentCue?.allScript?.size ?: 0
-                        "Seção ${currentIndex + 1}/${cues.size} · $localTurn/$totalTurns"
-                    } else {
-                        "Seção ${currentIndex + 1}/${cues.size}"
+            }
+
+            // Conteúdo (uma seção/turno por vez), com swipe horizontal.
+            // A área de rolagem fica entre as barras: o turno atual nunca
+            // termina atrás da navegação inferior.
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 12.dp)
+                    .pointerInput(prep.mode, currentIndex, scriptIndex) {
+                        var dragTotal = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragTotal = 0f },
+                            onDragEnd = {
+                                if (dragTotal <= -70f) vm.next()
+                                else if (dragTotal >= 70f) vm.previous()
+                                dragTotal = 0f
+                            },
+                            onHorizontalDrag = { _, amount -> dragTotal += amount },
+                        )
                     },
-                    color = StageDim,
-                    fontSize = 11.sp,
-                )
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = vm::next,
-                    enabled = canNext,
-                ) { Text("Próxima ›", color = if (canNext) StageFg else StageDim) }
+            ) {
+                if (scriptMode) {
+                    ScriptContent(
+                        cue = currentCue,
+                        current = currentScript,
+                        next = nextScript,
+                        role = role,
+                        fontSp = fontSp,
+                        compact = prep.scriptFocusOnly,
+                    )
+                } else {
+                    CueContent(
+                        cue = currentCue,
+                        fontSp = fontSp,
+                        mapMode = mapMode,
+                        focusCueIndex = focusCueIndex,
+                        sectionElapsed = sectionElapsed,
+                        onFocusCue = { vm.setFocusCue(it) },
+                        onPreviewImage = { previewImage = it },
+                        onReadBible = { refs -> bibleVm.open(refs) },
+                    )
+                }
+            }
+
+            // Navegação manual fixa.
+            Surface(
+                color = Color(0xE6101724),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val canPrevious = if (scriptMode) scriptIndex > 0 else currentIndex > 0
+                    val canNext = if (scriptMode) scriptIndex < scriptItems.lastIndex
+                    else currentIndex < cues.lastIndex
+                    TextButton(
+                        onClick = vm::previous,
+                        enabled = canPrevious,
+                    ) { Text("‹ Anterior", color = if (canPrevious) StageFg else StageDim) }
+                    Spacer(Modifier.weight(1f))
+                    if (!scriptMode) {
+                        val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
+                        if (hasCueSheet) {
+                            TextButton(onClick = { vm.setMapMode(!mapMode) }) {
+                                Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
+                            }
+                        }
+                    }
+                    Text(
+                        if (scriptMode) {
+                            val localTurn = (currentScript?.turnIndex ?: -1) + 1
+                            val totalTurns = currentCue?.allScript?.size ?: 0
+                            "Seção ${currentIndex + 1}/${cues.size} · $localTurn/$totalTurns"
+                        } else {
+                            "Seção ${currentIndex + 1}/${cues.size}"
+                        },
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(
+                        onClick = vm::next,
+                        enabled = canNext,
+                    ) { Text("Próxima ›", color = if (canNext) StageFg else StageDim) }
+                }
             }
         }
 

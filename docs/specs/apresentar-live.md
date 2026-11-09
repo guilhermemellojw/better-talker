@@ -1,7 +1,7 @@
 # Spec — Palco (apresentar ao vivo)
 
 Status: implementado até a v5.3 (Palco do orador + roteiro completo de
-demonstração); aguardando validação no A34/tablet. Sem TV/casting.
+demonstração); tablet validado, A34 pendente. Sem TV/casting.
 Base: main; Tribuna atual serve como preparação/edição.
 
 ## 1. Objetivo
@@ -135,11 +135,11 @@ Tribuna e Palco usam o mesmo renderizador de diálogo (`DemoScript`).
 |----------|---------------|
 | Tribuna ausente | aba bloqueia e oferece gerar |
 | Tribuna incompleta | aviso por seção; permite começar |
-| Imagem removida/ausente | cue e Palco mostram “Sem imagem” |
 | Bateria baixa | aviso no pré-voo |
 | Tela bloqueou | volta na mesma seção/timer |
 | Chamada/notificação | pausa; retomar com confirmação |
 | Saiu sem querer | confirmação; retomar de onde parou |
+| Imagem removida/arquivo ausente | cue continua, com “Sem imagem” |
 | Rotação | mantém estado |
 
 ## 11. Fora de escopo
@@ -163,9 +163,13 @@ MVP:
 - timer total/seção;
 - anterior/próxima;
 - tela acesa, edição bloqueada, retomada;
-- modo roteiro para demo;
+- modo roteiro completo para demo, com narração e turno atual;
+- modo “turno atual” opcional;
+- cue de imagem com thumbnail e tela cheia local;
+- resolução do `imageId` em todas as imagens da nota;
+- pré-voo com checagem de imagens locais;
 - pausa em chamada/perda de foco;
-- sem TTS/STT/chat/gravação.
+- sem TTS/STT/chat/gravação; sem TV/casting.
 
 Futuro:
 

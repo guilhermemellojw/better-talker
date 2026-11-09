@@ -137,6 +137,15 @@ class StageTurnsTest {
     }
 
     @Test
+    fun parseStageScript_preservaTextoForaDosParagrafos() {
+        val script = parseStageScript("Abertura <p><b>Ana:</b> fala</p> Encerramento")
+        assertEquals(listOf("Abertura", "fala", "Encerramento"), script.map { it.text })
+        assertEquals(StageTurnKind.NARRATION, script[0].kind)
+        assertEquals(StageTurnKind.SPEECH, script[1].kind)
+        assertEquals(StageTurnKind.NARRATION, script[2].kind)
+    }
+
+    @Test
     fun parseStageTurns_continuaSoComFalas() {
         val html = "<p>Ana entra.</p><p><b>Ana:</b> Olá.</p>"
         val turns = parseStageTurns(html)
