@@ -14,8 +14,9 @@
 > teste `71688a0`, bloqueio `2bcd0eb`); CI `42657585498` verde; **3.111
 > testes JVM / 0**, lint 47 warnings pré-existentes. Smoke A34: Ezequiel
 > 1:16-18, Gênesis 1:26,31, Salmos 23:1-6, João 3:16, parcial, unresolved,
-> TTS/Copiar e overlay do Palco com timer/retorno. Sem TNM coberto por teste
-> unitário; TalkBack segue no gate dos amigos. `resolveBible` do dossiê
+> TTS/Copiar e overlay do Palco com timer/retorno. O bloqueio de toques/swipes
+> do overlay (Dialog full-screen) será validado no A34 antes do release. Sem
+> TNM coberto por teste unitário; TalkBack segue no gate dos amigos. `resolveBible` do dossiê
 > continua com a dívida do primeiro versículo.
 
 > **2026-11-09 — v5.1/63 (Assistente + Tribuna 2.1):** Assistente com top
