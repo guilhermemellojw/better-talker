@@ -17,6 +17,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +73,10 @@ fun AssistantWalkieScreen(
     val practiceLine = remember(practiceContext) {
         walkiePracticeLine(practiceContext)
     }
+    val bodyScroll = rememberScrollState()
+    LaunchedEffect(lastResponse) {
+        if (lastResponse != null) bodyScroll.scrollTo(0)
+    }
     val status = walkieStatusLabel(
         pttState = pttState,
         turnPhase = activeTurn?.phase,
@@ -113,7 +118,7 @@ fun AssistantWalkieScreen(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(bodyScroll),
         ) {
             ChatMessageText(lastResponse.orEmpty(), Modifier.fillMaxWidth())
         }

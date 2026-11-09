@@ -23,6 +23,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -73,6 +74,10 @@ fun AssistantGlobalScreen(
     }
     val content = lastResponse?.text
         ?: if (loading) "Carregando seus esboços…" else GLOBAL_GREETING
+    val bodyScroll = rememberScrollState()
+    LaunchedEffect(lastResponse?.text) {
+        if (lastResponse != null) bodyScroll.scrollTo(0)
+    }
     val status = when {
         busy -> "Pensando…"
         else -> walkieStatusLabel(pttState, null, ttsSpeaking)
@@ -103,7 +108,7 @@ fun AssistantGlobalScreen(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(bodyScroll),
         ) {
             if (lastResponse != null) {
                 ChatMessageText(lastResponse.text, Modifier.fillMaxWidth())
