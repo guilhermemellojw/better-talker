@@ -29,6 +29,8 @@ class BibleReaderViewModelTest {
         override suspend fun preferredSource(): BibleSource? = source
         override suspend fun texts(sourceId: String, canonicalRefs: List<String>) =
             texts.filterKeys { it in canonicalRefs }
+        override suspend fun chapterTexts(sourceId: String, prefix: String): Map<String, String> =
+            emptyMap()
     }
 
     private class FakeSpeaker : BibleSpeaker {

@@ -32,6 +32,15 @@ class RoomBiblePassageSource(
             .filter { it.ref.isNotBlank() && it.text.isNotBlank() }
             .associate { it.ref to it.text }
     }
+
+    override suspend fun chapterTexts(
+        sourceId: String,
+        prefix: String,
+    ): Map<String, String> {
+        return passageDao.findByRefPrefixIn(sourceId, prefix)
+            .filter { it.ref.isNotBlank() && it.text.isNotBlank() }
+            .associate { it.ref to it.text }
+    }
 }
 
 /** Pura/testável: TNM base primeiro; depois qualquer Bíblia indexada. */

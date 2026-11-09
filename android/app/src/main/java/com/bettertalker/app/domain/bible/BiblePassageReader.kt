@@ -1,16 +1,18 @@
 package com.bettertalker.app.domain.bible
 
+import com.bettertalker.app.data.bible.ExpandedBibleChapter
 import com.bettertalker.app.data.bible.ExpandedBibleRef
-import com.bettertalker.app.data.bible.displayBibleRefs
+import com.bettertalker.app.data.bible.displayBibleRequest
+import com.bettertalker.app.data.bible.expandBibleChapters
 import com.bettertalker.app.data.bible.expandBibleRefs
 
 /**
- * v5.2 — leitor TNM por referência livre.
+ * v5.2/v5.2.1 — leitor TNM por referência livre.
  *
- * O caminho é próprio: expande faixas/listas com `RefDetector`, canoniza para
- * a chave do índice TNM, escolhe a TNM base (ou uma Bíblia alternativa
- * indexada), busca os versículos em lote e devolve um resultado honesto.
- * Não altera o `resolveBible` do dossiê (dívida registrada).
+ * Aceita versículos/faixas/listas e capítulos inteiros/faixas de capítulos.
+ * Expande com `RefDetector`, canoniza para a chave do índice TNM, escolhe a
+ * TNM base (ou uma Bíblia alternativa indexada), busca os versículos em lote
+ * e devolve um resultado honesto. Não altera o `resolveBible` do dossiê.
  */
 class BiblePassageReader(
     private val source: BiblePassageSource,
@@ -22,8 +24,9 @@ class BiblePassageReader(
     suspend fun read(rawRefs: List<String>): BiblePassage {
         val cleaned = rawRefs.map { it.trim() }.filter { it.isNotEmpty() }
         val requested = cleaned.joinToString("; ")
-        val expanded = expandBibleRefs(cleaned)
-        if (expanded.isEmpty()) {
+        val verseRefs = expandBibleRefs(cleaned)
+        val chapterRefs = expandBibleChapters(cleaned)
+        if (verseRefs.isEmpty() && chapterRefs.isEmpty()) {
             return BiblePassage(
                 requested = requested,
                 displayRef = requested,
@@ -34,7 +37,9 @@ class BiblePassageReader(
             )
         }
 
-        val displayRef = displayBibleRefs(expanded)
+        val displayRef = displayBibleRequest(verseRefs, chapterRefs)
+        val totalRequests = verseRefs.size + chapterRefs.size
+        val chapterOnly = chapterRefs.isNotEmpty() && verseRefs.isEmpty()
         val bible = source.preferredSource()
             ?: return BiblePassage(
                 requested = requested,
@@ -43,35 +48,68 @@ class BiblePassageReader(
                 status = BiblePassageStatus.MISSING_CORPUS,
                 sourceLabel = "",
                 warning = "A TNM não está no acervo.",
-                totalVerses = expanded.size,
+                totalVerses = verseRefs.size,
                 needsLibrary = true,
+                chapterOnly = chapterOnly,
+                totalRequests = totalRequests,
+                foundRequests = 0,
             )
 
-        val limited = expanded.take(maxVerses.coerceAtLeast(1))
-        val texts = source.texts(bible.attachmentId, limited.map { it.canonical })
-        val verses = limited.mapNotNull { ref -> verseOf(ref, texts[ref.canonical]) }
-        val total = expanded.size
-        val truncated = total > limited.size
+        val verseTexts = if (verseRefs.isEmpty()) {
+            emptyMap()
+        } else {
+            source.texts(bible.attachmentId, verseRefs.map { it.canonical })
+        }
+        val verseModels = verseRefs.mapNotNull { ref -> verseOf(ref, verseTexts[ref.canonical]) }
+
+        val chapterModels = mutableListOf<BibleVerse>()
+        var foundChapters = 0
+        var totalChapterVerses = 0
+        chapterRefs.forEach { chapter ->
+            val prefix = "${chapter.canonicalPrefix}%"
+            val texts = source.chapterTexts(bible.attachmentId, prefix)
+            if (texts.isNotEmpty()) foundChapters++
+            totalChapterVerses += texts.size
+            texts.forEach { (ref, text) ->
+                chapterVerseOf(chapter, ref, text)?.let { chapterModels += it }
+            }
+        }
+
+        val all = LinkedHashMap<String, BibleVerse>()
+        verseModels.forEach { all.putIfAbsent(it.ref, it) }
+        chapterModels.forEach { all.putIfAbsent(it.ref, it) }
+        val ordered = all.values.toList()
+        val limited = ordered.take(maxVerses.coerceAtLeast(1))
+        val truncated = ordered.size > limited.size
+        val foundRequests = verseModels.size + foundChapters
         val status = when {
-            verses.isEmpty() -> BiblePassageStatus.UNRESOLVED
-            truncated || verses.size < limited.size -> BiblePassageStatus.PARTIAL
+            limited.isEmpty() -> BiblePassageStatus.UNRESOLVED
+            truncated || foundRequests < totalRequests -> BiblePassageStatus.PARTIAL
             else -> BiblePassageStatus.RESOLVED
         }
+        val totalVerses = verseRefs.size + totalChapterVerses
         return BiblePassage(
             requested = requested,
             displayRef = displayRef,
-            verses = verses,
+            verses = limited,
             status = status,
             sourceLabel = bible.label,
             warning = warningFor(
-                found = verses.size,
-                total = total,
-                limited = limited.size,
+                foundVerses = limited.size,
+                totalVerses = ordered.size,
+                foundRequests = foundRequests,
+                totalRequests = totalRequests,
+                foundChapters = foundChapters,
+                totalChapters = chapterRefs.size,
+                chapterOnly = chapterOnly,
                 truncated = truncated,
                 status = status,
             ),
-            totalVerses = total,
+            totalVerses = totalVerses,
             truncated = truncated,
+            chapterOnly = chapterOnly,
+            totalRequests = totalRequests,
+            foundRequests = foundRequests,
         )
     }
 
@@ -87,20 +125,44 @@ class BiblePassageReader(
         )
     }
 
+    private fun chapterVerseOf(
+        chapter: ExpandedBibleChapter,
+        ref: String,
+        text: String?,
+    ): BibleVerse? {
+        val clean = text?.trim().orEmpty()
+        if (clean.isEmpty()) return null
+        val verse = ref.substringAfterLast(':', "").toIntOrNull() ?: return null
+        return BibleVerse(
+            ref = ref,
+            book = chapter.bookLabel,
+            chapter = chapter.chapter,
+            verse = verse,
+            text = clean,
+        )
+    }
+
     private fun warningFor(
-        found: Int,
-        total: Int,
-        limited: Int,
+        foundVerses: Int,
+        totalVerses: Int,
+        foundRequests: Int,
+        totalRequests: Int,
+        foundChapters: Int,
+        totalChapters: Int,
+        chapterOnly: Boolean,
         truncated: Boolean,
         status: BiblePassageStatus,
     ): String? = when {
-        truncated && found < limited ->
-            "Mostrando os primeiros $limited de $total versículos; $found encontrados."
+        truncated && foundVerses < totalVerses ->
+            "Mostrando os primeiros $foundVerses de $totalVerses versículos."
         truncated ->
-            "Mostrando os primeiros $limited de $total versículos."
+            "Mostrando os primeiros $foundVerses de $totalVerses versículos."
         status == BiblePassageStatus.UNRESOLVED ->
             "Nenhum versículo encontrado no acervo."
-        found < total -> "$found de $total versículos encontrados."
+        chapterOnly && foundChapters < totalChapters ->
+            "$foundChapters de $totalChapters capítulos encontrados."
+        foundRequests < totalRequests ->
+            "$foundRequests de $totalRequests referências encontradas."
         else -> null
     }
 

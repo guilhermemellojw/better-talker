@@ -14,6 +14,9 @@ data class BibleSource(
 interface BiblePassageSource {
     suspend fun preferredSource(): BibleSource?
     suspend fun texts(sourceId: String, canonicalRefs: List<String>): Map<String, String>
+
+    /** v5.2.1: versículos de um capítulo inteiro, na ordem do índice. */
+    suspend fun chapterTexts(sourceId: String, prefix: String): Map<String, String>
 }
 
 enum class BiblePassageStatus { RESOLVED, PARTIAL, UNRESOLVED, MISSING_CORPUS }
@@ -44,6 +47,11 @@ data class BiblePassage(
     val truncated: Boolean = false,
     /** true = não há Bíblia no acervo; a UI oferece “Abrir Biblioteca”. */
     val needsLibrary: Boolean = false,
+    /** v5.2.1: pedido composto só por capítulos inteiros. */
+    val chapterOnly: Boolean = false,
+    /** Quantidade de capítulos/refs pedidos (para status parcial). */
+    val totalRequests: Int = totalVerses,
+    val foundRequests: Int = verses.size,
 ) {
     /** Versículos agrupados por livro/capítulo, na ordem de entrada. */
     val groups: List<BiblePassageGroup>
@@ -72,5 +80,9 @@ data class BiblePassage(
         }
 
     val foundLabel: String
-        get() = "${verses.size} de $totalVerses versículos encontrados"
+        get() = if (chapterOnly) {
+            "$foundRequests de $totalRequests capítulos encontrados"
+        } else {
+            "${verses.size} de $totalVerses versículos encontrados"
+        }
 }

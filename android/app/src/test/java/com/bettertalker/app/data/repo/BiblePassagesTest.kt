@@ -35,6 +35,14 @@ class BiblePassagesTest {
             rows.firstOrNull { it.attachmentId == attachmentId && it.ref == ref }
         override suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId == attachmentId && it.ref in refs }
+        override suspend fun findByRefPrefixIn(
+            attachmentId: String,
+            prefix: String,
+        ): List<PassageEntity> =
+            rows.filter {
+                it.attachmentId == attachmentId &&
+                    it.ref.startsWith(prefix.removeSuffix("%"))
+            }.sortedBy { it.ord }
         override suspend fun forAttachments(ids: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId in ids }.sortedWith(compareBy({ it.attachmentId }, { it.ord }))
         override suspend fun forAttachmentsLimited(ids: List<String>, limit: Int): List<PassageEntity> =
@@ -139,6 +147,20 @@ class BiblePassagesTest {
         assertEquals("TNM", dao.findByRefIn("nwt", "Je 29:11")?.text)
         assertEquals("Outra", dao.findByRefIn("outra", "Je 29:11")?.text)
         assertNull(dao.findByRefIn("nwt", "Je 29:12"))
+    }
+
+    @Test
+    fun findByRefPrefixIn_soOCapituloNaOrdemDoIndice() = runBlocking {
+        val dao = FakePassageDao(listOf(
+            passage("p2", "Je 52:2", "v2").copy(ord = 2),
+            passage("p1", "Je 52:1", "v1").copy(ord = 1),
+            passage("p3", "Je 52:3", "v3").copy(ord = 3),
+            passage("p4", "Je 51:1", "outro cap").copy(ord = 0),
+            passage("p5", "Je 52:1", "outra bíblia").copy(attachmentId = "outra", ord = 1),
+        ))
+        val out = dao.findByRefPrefixIn("nwt", "Je 52:%")
+        assertEquals(listOf("Je 52:1", "Je 52:2", "Je 52:3"), out.map { it.ref })
+        assertEquals(listOf("v1", "v2", "v3"), out.map { it.text })
     }
 
     @Test

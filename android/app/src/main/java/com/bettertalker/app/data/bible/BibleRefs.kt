@@ -103,3 +103,57 @@ private fun compressVerses(verses: List<Int>): String {
     parts += if (start == last) "$start" else "$start-$last"
     return parts.joinToString(", ")
 }
+
+/** Capítulo inteiro já canonizado para o índice (ex.: "Je 52"). */
+data class ExpandedBibleChapter(
+    val bookLabel: String,
+    val bookAbbrev: String,
+    val chapter: Int,
+) {
+    val canonicalPrefix: String get() = "$bookAbbrev $chapter:"
+    val display: String get() = "$bookLabel $chapter"
+}
+
+fun expandBibleChapters(raw: String): List<ExpandedBibleChapter> =
+    expandBibleChapters(listOf(raw))
+
+fun expandBibleChapters(rawRefs: List<String>): List<ExpandedBibleChapter> {
+    val out = mutableListOf<ExpandedBibleChapter>()
+    val seen = mutableSetOf<String>()
+    rawRefs.forEach { raw ->
+        RefDetector.detectBibleChapters(raw).forEach { chapter ->
+            val abbrev = normalizeBibleBookName(chapter.label) ?: return@forEach
+            val expanded = ExpandedBibleChapter(
+                bookLabel = chapter.label,
+                bookAbbrev = abbrev,
+                chapter = chapter.chapter,
+            )
+            if (seen.add("${expanded.bookAbbrev}|${expanded.chapter}")) out += expanded
+        }
+    }
+    return out
+}
+
+/** Ref legível de capítulos, compactando faixas ("Jeremias 51-52; Salmos 23"). */
+fun displayBibleChapters(chapters: List<ExpandedBibleChapter>): String {
+    if (chapters.isEmpty()) return ""
+    val byBook = LinkedHashMap<String, MutableList<Int>>()
+    chapters.forEach { chapter ->
+        byBook.getOrPut(chapter.bookLabel) { mutableListOf() }.add(chapter.chapter)
+    }
+    return byBook.entries.joinToString("; ") { (book, numbers) ->
+        "$book ${compressVerses(numbers)}"
+    }
+}
+
+fun displayBibleChaptersFor(raw: String): String =
+    displayBibleChapters(expandBibleChapters(raw))
+
+/** Junta a parte de versículos e a de capítulos de um pedido misto. */
+fun displayBibleRequest(
+    verses: List<ExpandedBibleRef>,
+    chapters: List<ExpandedBibleChapter>,
+): String = listOf(
+    displayBibleRefs(verses),
+    displayBibleChapters(chapters),
+).filter { it.isNotBlank() }.joinToString("; ")

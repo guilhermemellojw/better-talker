@@ -237,6 +237,15 @@ interface PassageDao {
     /** v5.2: lote de versículos restrito ao anexo; uma varredura por leitura. */
     @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND ref IN (:refs)")
     suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity>
+    /** v5.2.1: capítulo inteiro por prefixo ("Je 52:%"), na ordem do índice. */
+    @Query(
+        "SELECT * FROM passages WHERE attachmentId = :attachmentId AND ref LIKE :prefix " +
+            "ORDER BY ord ASC"
+    )
+    suspend fun findByRefPrefixIn(
+        attachmentId: String,
+        prefix: String,
+    ): List<PassageEntity>
     // Fase 8: carga restrita ao escopo (ordenada para determinismo).
     @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC")
     suspend fun forAttachments(ids: List<String>): List<PassageEntity>
