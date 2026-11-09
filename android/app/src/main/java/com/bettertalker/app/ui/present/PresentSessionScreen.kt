@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageStrip
+import java.io.File
 
 /**
  * Apresentar live — host do pré-voo e do palco. A rota é imersiva no palco;
@@ -142,7 +143,13 @@ private fun PresentPrepScreen(
         selectedSection > 0 -> "Seção ${selectedSection + 1}"
         else -> "Começo"
     }
-    val imageSections = cues.filter { it.images.isNotEmpty() }
+    val imageSections = cues.filter { it.sectionImages.isNotEmpty() }
+    val noteImages = cues.flatMap { it.noteImages }
+        .distinctBy { it.id }
+        .filter { it.sectionId == null }
+    val imageCheck = remember(cues) {
+        presentImageCheck(cues) { path -> File(path).exists() }
+    }
 
     Scaffold(
         topBar = {
@@ -216,12 +223,15 @@ private fun PresentPrepScreen(
                 )
             }
 
-            // v4.2: imagens revisáveis antes de entrar no palco (por seção).
+            // v5.3: imagens revisáveis antes de entrar no palco. A cue de
+            // imagem pode referenciar qualquer imagem da nota; a seção vem
+            // primeiro na UI.
             if (!demo && imageSections.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
-                PrepTitle("Imagens")
+                PrepTitle("Imagens por seção")
                 Text(
-                    "Toque em uma miniatura para revisar em tela cheia.",
+                    "Toque em uma miniatura para revisar em tela cheia. " +
+                        "A imagem é do orador; nada vai para a TV.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -233,7 +243,45 @@ private fun PresentPrepScreen(
                         fontWeight = FontWeight.Medium,
                     )
                     Spacer(Modifier.height(4.dp))
-                    NoteImageStrip(images = cue.images, thumbSizeDp = 68)
+                    NoteImageStrip(images = cue.sectionImages, thumbSizeDp = 68)
+                }
+            }
+            if (noteImages.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                PrepTitle("Imagens da nota")
+                Text(
+                    "Disponíveis para qualquer lembrete de imagem.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                NoteImageStrip(images = noteImages, thumbSizeDp = 68)
+            }
+            if (imageCheck.imageCues > 0) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Imagens: ${imageCheck.imageCues} lembrete(s) · " +
+                        "${imageCheck.withCaption} com legenda · " +
+                        "${imageCheck.resolved} pronta(s)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (imageCheck.allResolved) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                )
+                if (!imageCheck.allResolved) {
+                    Text(
+                        "Sem imagem: ${imageCheck.missing.joinToString("; ")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else if (imageCheck.withCaption < imageCheck.imageCues) {
+                    Text(
+                        "Alguns lembretes de imagem estão sem legenda.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
                 }
             }
 
@@ -259,6 +307,30 @@ private fun PresentPrepScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (demo && prep.mode == PresentMode.SCRIPT) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Mostrar só o turno atual",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Text(
+                            "O padrão é o roteiro completo da seção.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = prep.scriptFocusOnly,
+                        onCheckedChange = {
+                            vm.updatePrep(prep.copy(scriptFocusOnly = it))
+                        },
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -376,6 +448,12 @@ private fun PresentPrepScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "Offline: o Palco não usa internet e não envia imagens para a TV.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
             battery?.let {
                 Text(
                     if (presentBatteryLow(it.percent, it.charging)) {
@@ -443,7 +521,7 @@ private fun PresentPrepScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             ) {
                 items(cues, key = { it.sectionId }) { cue ->
-                    val enabled = prep.mode == PresentMode.CUES || cue.turns.isNotEmpty()
+                    val enabled = prep.mode == PresentMode.CUES || cue.allScript.isNotEmpty()
                     Surface(
                         color = if (prep.startIndex == cue.index) {
                             MaterialTheme.colorScheme.primaryContainer
@@ -478,7 +556,11 @@ private fun PresentPrepScreen(
                                 )
                                 Text(
                                     "${cue.minutes} min" +
-                                        if (!presentCueReady(cue, demo)) " · sem Tribuna" else "",
+                                        if (!presentCueReady(cue, demo)) {
+                                            if (demo) " · sem roteiro" else " · sem Tribuna"
+                                        } else {
+                                            ""
+                                        },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

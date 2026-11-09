@@ -13,7 +13,7 @@ import com.bettertalker.app.ui.present.decodePresentSession
 import com.bettertalker.app.ui.present.presentReadiness
 import com.bettertalker.app.ui.stage.formatClock
 import com.bettertalker.app.ui.stage.cleanStageText
-import com.bettertalker.app.ui.stage.parseStageTurns
+import com.bettertalker.app.ui.stage.parseStageScript
 import com.bettertalker.app.ui.stage.trainPrepSummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -114,7 +114,7 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
             val demo = note.discourseType == DiscourseType.MINISTRY_PART.name ||
                 note.discourseType == DiscourseType.FREE_DEMO.name
             val readySections = if (demo) {
-                sections.count { entity -> parseStageTurns(entity.contentHtml).isNotEmpty() }
+                sections.count { entity -> parseStageScript(entity.contentHtml).isNotEmpty() }
             } else {
                 sections.count { entity ->
                     entity.tribunaJson?.let { tribunaCapsuleFromJson(it) } != null

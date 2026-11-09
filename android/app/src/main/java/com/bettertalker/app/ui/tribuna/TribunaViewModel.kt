@@ -20,7 +20,7 @@ import com.bettertalker.app.domain.speech.toJson
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
 import com.bettertalker.app.domain.speech.tribunaMapQuality
 import com.bettertalker.app.ui.stage.StageTurn
-import com.bettertalker.app.ui.stage.parseStageTurns
+import com.bettertalker.app.ui.stage.parseStageScript
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -98,6 +98,8 @@ class TribunaViewModel(
         val turns: List<StageTurn> = emptyList(),
         /** v4.2: imagens da seção (thumbnails/legendas; nunca no HTML). */
         val images: List<NoteImageEntity> = emptyList(),
+        /** v5.3: todas as imagens da nota (seção primeiro) para resolver o cue. */
+        val allImages: List<NoteImageEntity> = emptyList(),
         /** v5.1: se a seção tem refs bíblicas/publicações. */
         val sectionHasRefs: Boolean = false,
         /** v5.1: última seção não exige transição. */
@@ -123,6 +125,10 @@ class TribunaViewModel(
         val emptyCueSheet: Boolean
             get() = capsule != null && capsule.cueSheetVersion >= 2 &&
                 capsule.cues.isEmpty()
+
+        /** v5.3: resolução do `imageId` em todas as imagens da nota. */
+        val cueImages: List<NoteImageEntity>
+            get() = allImages.ifEmpty { images }
     }
 
     private val _cards = MutableStateFlow<List<TribunaCardUi>>(emptyList())
@@ -219,14 +225,16 @@ class TribunaViewModel(
                 val sorted = rows.sortedBy { it.order }
                 sorted.mapIndexed { index, e ->
                     val domain = runCatching { e.toDomain() }.getOrNull()
+                    val sectionImages = images.filter { it.sectionId == e.id }
                     TribunaCardUi(
                         sectionId = e.id,
                         order = e.order,
                         sectionTitle = e.title,
                         minutes = e.minutes,
                         capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
-                        turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
-                        images = images.filter { it.sectionId == e.id },
+                        turns = if (demo) parseStageScript(e.contentHtml) else emptyList(),
+                        images = sectionImages,
+                        allImages = sectionImages + images.filter { it.sectionId != e.id },
                         sectionHasRefs = domain?.let {
                             it.bibleRefs.isNotEmpty() || it.publicationRefs.isNotEmpty()
                         } ?: false,

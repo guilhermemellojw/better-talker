@@ -11,8 +11,9 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
 import com.bettertalker.app.ui.stage.StageTurn
+import com.bettertalker.app.ui.stage.StageTurnKind
 import com.bettertalker.app.ui.stage.clampStageFontSp
-import com.bettertalker.app.ui.stage.parseStageTurns
+import com.bettertalker.app.ui.stage.parseStageScript
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -157,14 +158,17 @@ class PresentViewModel(
             val rows = data.sections.sortedBy { it.order }
             val images = data.images
             val cues = rows.mapIndexed { index, row ->
+                val script = if (demo) parseStageScript(row.contentHtml) else emptyList()
                 PresentCue(
                     sectionId = row.id,
                     index = index,
                     title = row.title.ifBlank { "Seção ${index + 1}" },
                     minutes = row.minutes,
                     capsule = row.tribunaJson?.let { tribunaCapsuleFromJson(it) },
-                    turns = if (demo) parseStageTurns(row.contentHtml) else emptyList(),
-                    images = images.filter { it.sectionId == row.id },
+                    turns = script.filter { it.kind == StageTurnKind.SPEECH },
+                    script = script,
+                    sectionImages = images.filter { it.sectionId == row.id },
+                    noteImages = images,
                 )
             }
             _cues.value = cues

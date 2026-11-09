@@ -13,7 +13,7 @@ import com.bettertalker.app.ui.present.decodePresentSession
 import com.bettertalker.app.ui.present.presentReadinessLabel
 import com.bettertalker.app.ui.present.presentReadinessOf
 import com.bettertalker.app.ui.stage.buildStageContent
-import com.bettertalker.app.ui.stage.parseStageTurns
+import com.bettertalker.app.ui.stage.parseStageScript
 import com.bettertalker.app.ui.stage.trainPrepSummary
 
 /**
@@ -51,7 +51,7 @@ fun buildPracticeSnapshot(
             title = section.title.ifBlank { "Seção ${index + 1}" },
             minutes = section.minutes,
             capsule = section.tribunaJson?.let { tribunaCapsuleFromJson(it) },
-            turns = if (demo) parseStageTurns(section.contentHtml) else emptyList(),
+            script = if (demo) parseStageScript(section.contentHtml) else emptyList(),
         )
     }
     val readiness = presentReadinessOf(cues, demo)
