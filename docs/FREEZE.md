@@ -16,7 +16,14 @@
 > persistente (Mapa/Foco, foco 3/6 e restauração após reinício).
 > Pendências: **TalkBack audível**, tema claro/escuro, PTT humano pt-BR e teste
 > real continuam; gate dos amigos segue fechado (faltam 5.2, 5.3 e 5.4).
-> Tag `v5.1.0`; SHA-256 e link do release registrados nos docs da main.
+> Tag `v5.1.0` (`8012d55`); release workflow `42611722691` verde; APK público
+> 63/5.1 com SHA-256
+> `31a4ca65709828026aa70dfd305a9cb206cfffe860efe59adf479aa1ee2a9686`.
+> Beta 64 via run `42613799443`, SHA-256
+> `26ce448d5dd6af24ae903d8657e2c4cf9e830b764bb1c960010d8c327ff77ba0`.
+> Link: https://github.com/guilhermemellojw/better-talker/releases/tag/v5.1.0.
+> Smoke final com o APK release no A34 pendente de reconexão antes da
+> divulgação.
 
 > **2026-11-08 — v5.0.1/61 (resgate do “Novidades”):** o sheet de upgrade
 > não é mais consumido ao exibir; `upgrade_v5_dismissed` é a fonte de verdade.
