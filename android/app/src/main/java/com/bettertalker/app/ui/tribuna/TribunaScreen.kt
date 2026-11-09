@@ -70,6 +70,9 @@ import com.bettertalker.app.domain.speech.TribunaDetail
 import com.bettertalker.app.domain.speech.TribunaMapStatus
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.tribunaMapQuality
+import com.bettertalker.app.data.bible.splitBibleRefsInput
+import com.bettertalker.app.ui.bible.BibleReaderSheet
+import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageFullScreen
 import com.bettertalker.app.ui.components.NoteImageStrip
 import com.bettertalker.app.ui.components.NoteImageThumb
@@ -90,6 +93,10 @@ fun TribunaScreen(
     onOpenHelp: () -> Unit = {},
     /** v4.2: regenera só uma seção; entrega a mensagem de erro (ou null). */
     onRegenerateSection: (String, (String?) -> Unit) -> Unit = { _, done -> done(null) },
+    /** v5.2: leitor TNM compartilhado com o Palco. */
+    bibleVm: BibleReaderViewModel,
+    /** v5.2: abrir a Biblioteca quando a TNM não estiver no acervo. */
+    onOpenLibrary: () -> Unit = {},
 ) {
     val cards by vm.cards.collectAsState()
     val fontSp by vm.fontSp.collectAsState()
@@ -233,6 +240,7 @@ fun TribunaScreen(
                             }
                         },
                         onMoveCue = { index, direction -> vm.moveCue(card.sectionId, index, direction) },
+                        onReadBible = { refs -> bibleVm.open(refs) },
                         onConvert = { vm.convertToCueSheet(card.sectionId) },
                         onSectionDetail = { detail ->
                             if (detail == null) {
@@ -281,6 +289,13 @@ fun TribunaScreen(
             onDismiss = { previewImage = null },
         )
     }
+    BibleReaderSheet(
+        vm = bibleVm,
+        onOpenLibrary = {
+            bibleVm.close()
+            onOpenLibrary()
+        },
+    )
 }
 
 /** v5.1: card de UMA seção — folha de lembretes ou fallback legado. */
@@ -300,6 +315,7 @@ private fun TribunaCard(
     onKeyTerms: (List<String>) -> Unit,
     onCueText: (Int, String) -> Unit,
     onCueRefs: (Int, List<String>) -> Unit,
+    onReadBible: (List<String>) -> Unit,
     onCueKind: (Int, TribunaCueKind) -> Unit,
     onCueImage: (Int, NoteImageEntity?) -> Unit,
     onAddCue: () -> Unit,
@@ -411,6 +427,7 @@ private fun TribunaCard(
                 // Compatibilidade: cápsulas antigas continuam editáveis.
                 TribunaField("💡 IDEIA CENTRAL", capsule.mainIdea, fontSp, onMainIdea)
                 TribunaField("📖 TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp, onBibleRef)
+                ReadTextButton(capsule.bibleRef, onReadBible)
                 TribunaField("🎯 FRASE-ÂNCORA", capsule.anchorPhrase, fontSp, onAnchor, bold = true)
                 TribunaField("➡ TRANSIÇÃO (opcional)", capsule.transition.orEmpty(), fontSp, onTransition)
                 TribunaTimeField(capsule.timeMinutes, onTimeMinutes)
@@ -433,6 +450,8 @@ private fun TribunaCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TribunaField("🎯 FRASE-ÂNCORA", capsule.anchorPhrase, fontSp, onAnchor, bold = true)
+                TribunaField("📖 TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp, onBibleRef)
+                ReadTextButton(capsule.bibleRef, onReadBible)
                 TribunaTimeField(capsule.timeMinutes, onTimeMinutes)
                 TribunaKeyTermsField(capsule.keyTerms, onKeyTerms)
                 FlowRow(
@@ -447,6 +466,8 @@ private fun TribunaCard(
                 }
             } else {
                 TribunaField("🎯 FRASE-ÂNCORA", capsule.anchorPhrase, fontSp, onAnchor, bold = true)
+                TribunaField("📖 TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp, onBibleRef)
+                ReadTextButton(capsule.bibleRef, onReadBible)
                 TribunaField("💡 IDEIA CENTRAL", capsule.mainIdea, fontSp, onMainIdea)
                 TribunaField("➡ TRANSIÇÃO (opcional)", capsule.transition.orEmpty(), fontSp, onTransition)
                 TribunaTimeField(capsule.timeMinutes, onTimeMinutes)
@@ -460,6 +481,16 @@ private fun TribunaCard(
                         images = card.images,
                         onText = { onCueText(index, it) },
                         onRefs = { onCueRefs(index, it) },
+                        onReadText = if (
+                            cue.kind in setOf(
+                                TribunaCueKind.SCRIPTURE,
+                                TribunaCueKind.READING,
+                            ) && cue.refs.isNotEmpty()
+                        ) {
+                            { onReadBible(cue.refs) }
+                        } else {
+                            null
+                        },
                         onKind = { onCueKind(index, it) },
                         onImage = { onCueImage(index, it) },
                         onMove = { direction -> onMoveCue(index, direction) },
@@ -527,6 +558,12 @@ private fun DetailChips(selected: TribunaDetail, onSelect: (TribunaDetail) -> Un
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun ReadTextButton(ref: String?, onRead: (List<String>) -> Unit) {
+    if (ref.isNullOrBlank()) return
+    TextButton(onClick = { onRead(listOf(ref)) }) { Text("Ler texto") }
 }
 
 @Composable
@@ -621,9 +658,9 @@ private val CUE_KIND_GROUPS: List<Pair<String, List<TribunaCueKind>>> = listOf(
     ),
 )
 
-/** v4.2: parser de refs digitadas (vírgula ou ponto e vírgula). */
+/** v4.2/v5.2: parser de refs digitadas; preserva listas "1:26,31". */
 private fun parseCueRefs(raw: String): List<String> =
-    raw.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }
+    splitBibleRefsInput(raw)
 
 @Composable
 private fun TribunaTimeField(minutes: Int?, onChange: (Int?) -> Unit) {
@@ -685,6 +722,7 @@ private fun TribunaCueEditor(
     images: List<NoteImageEntity>,
     onText: (String) -> Unit,
     onRefs: (List<String>) -> Unit,
+    onReadText: (() -> Unit)?,
     onKind: (TribunaCueKind) -> Unit,
     onImage: (NoteImageEntity?) -> Unit,
     onMove: (Int) -> Unit,
@@ -757,6 +795,9 @@ private fun TribunaCueEditor(
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.tertiary),
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+        onReadText?.let {
+            TextButton(onClick = it) { Text("Ler texto") }
         }
         if (cue.kind == TribunaCueKind.IMAGE) {
             if (images.isEmpty()) {

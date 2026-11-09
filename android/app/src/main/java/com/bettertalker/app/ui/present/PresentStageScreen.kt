@@ -62,6 +62,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
+import com.bettertalker.app.ui.bible.BibleReaderOverlay
+import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageFullScreen
 import com.bettertalker.app.ui.components.NoteImageStrip
 import com.bettertalker.app.ui.components.NoteImageThumb
@@ -84,6 +86,8 @@ private val PresentRed = Color(0xFFEF4444)
 fun PresentStageScreen(
     vm: PresentViewModel,
     onExit: () -> Unit,
+    bibleVm: BibleReaderViewModel,
+    onOpenLibrary: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val view = LocalView.current
@@ -207,6 +211,7 @@ fun PresentStageScreen(
                     sectionElapsed = sectionElapsed,
                     onFocusCue = { vm.setFocusCue(it) },
                     onPreviewImage = { previewImage = it },
+                    onReadBible = { refs -> bibleVm.open(refs) },
                 )
             }
         }
@@ -339,6 +344,14 @@ fun PresentStageScreen(
                 }
             }
         }
+
+        BibleReaderOverlay(
+            vm = bibleVm,
+            onOpenLibrary = {
+                bibleVm.close()
+                onOpenLibrary()
+            },
+        )
     }
 
     if (exitDialog) {
@@ -380,6 +393,7 @@ private fun CueContent(
     sectionElapsed: Long,
     onFocusCue: (Int) -> Unit,
     onPreviewImage: (NoteImageEntity) -> Unit,
+    onReadBible: (List<String>) -> Unit,
 ) {
     if (cue == null) {
         MissingCue("Nenhuma seção disponível.", title = "Sem seção")
@@ -428,6 +442,7 @@ private fun CueContent(
                     image = presentCueImage(current, cue.images),
                     onPreviewImage = onPreviewImage,
                 )
+                CueReadButton(current, onReadBible)
             }
         } else {
             PresentCueLine(
@@ -436,6 +451,7 @@ private fun CueContent(
                 image = presentCueImage(capsule.cues[focused], cue.images),
                 onPreviewImage = onPreviewImage,
             )
+            CueReadButton(capsule.cues[focused], onReadBible)
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -506,6 +522,11 @@ private fun CueContent(
     Spacer(Modifier.height(22.dp))
     CueBlock("IDEIA CENTRAL", capsule.mainIdea, fontSp)
     CueBlock("TEXTO-CHAVE", capsule.bibleRef.orEmpty(), fontSp)
+    if (!capsule.bibleRef.isNullOrBlank()) {
+        TextButton(onClick = { onReadBible(listOf(capsule.bibleRef)) }) {
+            Text("Ler texto", color = StageAccent)
+        }
+    }
     CueBlock("TRANSIÇÃO", capsule.transition.orEmpty(), fontSp, dim = true)
     Text(
         "CHECKPOINT · ${formatClock(sectionElapsed)} acumulado nesta seção · meta ${cue.targetMinutes} min",
@@ -604,6 +625,18 @@ private fun PresentCueLine(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CueReadButton(
+    cue: TribunaCue,
+    onReadBible: (List<String>) -> Unit,
+) {
+    if (cue.kind !in setOf(TribunaCueKind.SCRIPTURE, TribunaCueKind.READING)) return
+    if (cue.refs.isEmpty()) return
+    TextButton(onClick = { onReadBible(cue.refs) }) {
+        Text("Ler texto", color = StageAccent)
     }
 }
 

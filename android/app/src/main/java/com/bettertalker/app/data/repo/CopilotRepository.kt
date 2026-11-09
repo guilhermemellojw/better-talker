@@ -11,6 +11,7 @@ import com.bettertalker.app.data.planning.contextPassages
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
 import com.bettertalker.app.domain.planning.ResolvedReference
+import com.bettertalker.app.data.bible.canonicalBibleRefs
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.BibleSourceStatus
@@ -954,16 +955,6 @@ class CopilotRepository(private val db: AppDatabase) {
 
 /** Trechos de conteúdo (citadas), sem o guia be/th. Puro/testável. */
 fun contentHits(hits: List<ScopedHit>): List<ScopedHit> = partitionGuideHits(hits).second
-
-/**
- * T2 (acesso bíblico) — refs bíblicas canônicas TNM ("Je 29:11") de um texto
- * livre, na ordem de aparição; ranges/listas são expandidos pelo detector
- * ("Je 29:11-13" → 3; "Gên 1:26, 31" → 2). Puro/testável.
- */
-internal fun canonicalBibleRefs(raw: String): List<String> =
-    RefDetector.detectBible(raw)
-        .mapNotNull { b -> normalizeBibleBookName(b.label)?.let { "$it ${b.chapter}:${b.verse}" } }
-        .distinct()
 
 /**
  * T2 — versículos reais do índice, por REF EXATA (`findByRef`), na ordem

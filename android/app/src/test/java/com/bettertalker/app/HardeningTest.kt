@@ -58,6 +58,10 @@ class HardeningTest {
         }
         override suspend fun findByRef(ref: String): PassageEntity? =
             rows.firstOrNull { it.ref == ref }
+        override suspend fun findByRefIn(attachmentId: String, ref: String): PassageEntity? =
+            rows.firstOrNull { it.attachmentId == attachmentId && it.ref == ref }
+        override suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.ref in refs }
         override suspend fun byPageParagraph(
             attachmentId: String, page: Int, start: Int, end: Int,
         ): List<PassageEntity> = emptyList()

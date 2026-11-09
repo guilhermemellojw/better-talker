@@ -1,6 +1,25 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-09 · **Build de referência:** v5.1 (versionCode 63, tag `v5.1.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-09 · **Build de referência:** v5.2 (versionCode 65, tag `v5.2.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-09 — v5.2/65 (Leitor TNM):** `BiblePassageReader` próprio com
+> refs livres/faixas/listas, TNM base (`baseReady("nwt")`) e fallback para
+> Bíblia indexada; status RESOLVED/PARTIAL/UNRESOLVED/MISSING_CORPUS, ordem,
+> dedupe, grupos e teto de 200 com aviso. `PassageDao.findByRefIn`/
+> `findByRefsIn` sem schema novo; DB continua **v23**. Sheet na Tribuna e
+> Dialog full-screen no Palco para SCRIPTURE/READING e texto-chave, com
+> versículos numerados, seleção, TTS sem números, Copiar e Abrir Biblioteca
+> sem TNM. O overlay bloqueia toques/swipes do Palco; Back fecha e o timer
+> continua. Branch `feat/v5.2-tnm-reader` (`67bac8c`, bump `5d70f8e`, fix de
+> teste `71688a0`, bloqueio `2bcd0eb`); CI `42657585498` verde; **3.111
+> testes JVM / 0**, lint 47 warnings pré-existentes. Smoke A34: Ezequiel
+> 1:16-18, Gênesis 1:26,31, Salmos 23:1-6, João 3:16, parcial, unresolved,
+> TTS/Copiar e overlay do Palco com timer/retorno. O bloqueio de toques/swipes
+> do overlay (Dialog full-screen) foi validado no A34: cabeçalho/fundo/Anterior/
+> Mapa não fecharam nem trocaram seção, swipe não avançou, só Fechar/Back
+> fecharam; timer 06:11 → 07:13 e seção/foco 2/6 e 2/7 preservados. Sem TNM
+> coberto por teste unitário; TalkBack segue no gate dos amigos. `resolveBible` do dossiê
+> continua com a dívida do primeiro versículo.
 
 > **2026-11-09 — v5.1/63 (Assistente + Tribuna 2.1):** Assistente com top
 > bar de contexto (`Assistente ⌄` / `nota ⌄` + 💬 ❓ ⚙, sem ⋮), última fala

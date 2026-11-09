@@ -231,6 +231,12 @@ interface PassageDao {
     suspend fun indexedAttachmentIds(): List<String>
     @Query("SELECT * FROM passages WHERE ref = :ref LIMIT 1")
     suspend fun findByRef(ref: String): PassageEntity?
+    /** v5.2: leitura TNM restrita ao anexo (TNM base ou Bíblia alternativa). */
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND ref = :ref LIMIT 1")
+    suspend fun findByRefIn(attachmentId: String, ref: String): PassageEntity?
+    /** v5.2: lote de versículos restrito ao anexo; uma varredura por leitura. */
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND ref IN (:refs)")
+    suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity>
     // Fase 8: carga restrita ao escopo (ordenada para determinismo).
     @Query("SELECT * FROM passages WHERE attachmentId IN (:ids) ORDER BY attachmentId ASC, ord ASC")
     suspend fun forAttachments(ids: List<String>): List<PassageEntity>

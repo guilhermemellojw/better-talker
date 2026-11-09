@@ -1,4 +1,5 @@
 package com.bettertalker.app.data.repo
+import com.bettertalker.app.data.bible.canonicalBibleRefs
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
