@@ -16,16 +16,20 @@ class BiblePassageReaderTest {
     private class FakeSource(
         private val source: BibleSource? = BibleSource("nwt", "TNM", true),
         private val texts: Map<String, String> = emptyMap(),
+        private val chapterTexts: Map<String, String> = emptyMap(),
     ) : BiblePassageSource {
         override suspend fun preferredSource(): BibleSource? = source
         override suspend fun texts(sourceId: String, canonicalRefs: List<String>) =
             texts.filterKeys { it in canonicalRefs }
+        override suspend fun chapterTexts(sourceId: String, prefix: String) =
+            chapterTexts.filterKeys { it.startsWith(prefix.removeSuffix("%")) }
     }
 
     private fun reader(
         texts: Map<String, String>,
         source: BibleSource? = BibleSource("nwt", "TNM", true),
-    ) = BiblePassageReader(FakeSource(source, texts))
+        chapterTexts: Map<String, String> = emptyMap(),
+    ) = BiblePassageReader(FakeSource(source, texts, chapterTexts))
 
     private fun verses(vararg refs: String): Map<String, String> =
         refs.associateWith { "texto $it" }
@@ -130,6 +134,57 @@ class BiblePassageReaderTest {
         assertTrue(p.copyText.contains("Ezequiel 1"))
         assertTrue(p.copyText.contains("16 texto Ez 1:16"))
         assertTrue(p.copyText.contains("17 texto Ez 1:17"))
+    }
+
+    @Test
+    fun capituloInteiroResolve() = runBlocking {
+        val chapters = (1..5).associate { "Je 52:$it" to "texto 52:$it" }
+        val p = reader(emptyMap(), chapterTexts = chapters).read("Jeremias 52")
+        assertEquals("Jeremias 52", p.displayRef)
+        assertEquals(5, p.verses.size)
+        assertEquals(BiblePassageStatus.RESOLVED, p.status)
+        assertTrue(p.chapterOnly)
+        assertEquals("Je 52:1", p.verses.first().ref)
+        assertEquals(52, p.verses.first().chapter)
+        assertEquals(1, p.verses.first().verse)
+    }
+
+    @Test
+    fun faixaDeCapitulosExpandeEDeduplica() = runBlocking {
+        val chapters = buildMap {
+            (1..2).forEach { put("Je 51:$it", "51:$it") }
+            (1..3).forEach { put("Je 52:$it", "52:$it") }
+        }
+        val p = reader(emptyMap(), chapterTexts = chapters).read("Jeremias 51-52")
+        assertEquals("Jeremias 51-52", p.displayRef)
+        assertEquals(
+            listOf("Je 51:1", "Je 51:2", "Je 52:1", "Je 52:2", "Je 52:3"),
+            p.verses.map { it.ref },
+        )
+        assertEquals(BiblePassageStatus.RESOLVED, p.status)
+    }
+
+    @Test
+    fun capituloParcialContaCapitulos() = runBlocking {
+        val chapters = (1..2).associate { "Je 51:$it" to "51:$it" }
+        val p = reader(emptyMap(), chapterTexts = chapters).read("Jeremias 51-52")
+        assertEquals(BiblePassageStatus.PARTIAL, p.status)
+        assertEquals("1 de 2 capítulos encontrados", p.foundLabel)
+        assertTrue(p.warning!!.contains("1 de 2"))
+    }
+
+    @Test
+    fun versiculoNaoViraCapituloInteiro() = runBlocking {
+        val p = reader(verses("Je 52:2")).read("Jeremias 52:2")
+        assertEquals(listOf("Je 52:2"), p.verses.map { it.ref })
+        assertFalse(p.chapterOnly)
+    }
+
+    @Test
+    fun semTnmCapituloPedeBiblioteca() = runBlocking {
+        val p = BiblePassageReader(FakeSource(source = null)).read("Jeremias 52")
+        assertEquals(BiblePassageStatus.MISSING_CORPUS, p.status)
+        assertTrue(p.needsLibrary)
     }
 
     @Test

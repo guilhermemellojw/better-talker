@@ -1442,6 +1442,39 @@ object RefDetector {
         return out
     }
 
+    /** Capítulo bíblico inteiro (ex.: "Jeremias 52", "Salmo 23", "1 João 4"). */
+    data class BibleChapterRef(val bookNorm: String, val label: String, val chapter: Int)
+
+    /**
+     * v5.2.1: detecta capítulos inteiros e faixas de capítulos. A regex exige
+     * `Livro N` e rejeita `N:V` (o lookahead após `\b` impede o recuo de "52"
+     * para "5" em "Jeremias 52:2"). O livro é validado contra [BIBLE_BOOKS],
+     * então publicações como "w25.07" não entram. Jó × João usa o texto cru.
+     */
+    fun detectBibleChapters(text: String): List<BibleChapterRef> {
+        val out = mutableListOf<BibleChapterRef>()
+        val seen = mutableSetOf<String>()
+        val lower = text.lowercase()
+        val re = Regex(
+            """\b((?:[1-3]\s*)?[a-zà-ÿ]+)\.?\s+(\d{1,3})""" +
+                """(?:\s*[-–—]\s*(\d{1,3}))?\b(?!\s*:)"""
+        )
+        for (m in re.findAll(lower)) {
+            val rawKey = m.groupValues[1].trim()
+            val key = normalizeText(m.groupValues[1]).replace(" ", "")
+            val label = if (rawKey == "jó") "Jó" else (BIBLE_BOOKS[key] ?: continue)
+            val start = m.groupValues[2].toInt()
+            val end = m.groupValues[3].toIntOrNull() ?: start
+            if (start <= 0 || end < start || end - start > 50) continue
+            for (chapter in start..end) {
+                if (seen.add("$label|$chapter")) {
+                    out += BibleChapterRef(key, label, chapter)
+                }
+            }
+        }
+        return out
+    }
+
     /** Capítulo/lição/estudo citado na menção (ex: "lff cap. 5" -> ("cap", 5)). Puro/testável. */
     data class ChapterRef(val kind: String, val number: Int)
 

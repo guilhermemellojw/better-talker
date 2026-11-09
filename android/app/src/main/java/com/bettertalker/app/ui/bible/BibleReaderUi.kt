@@ -233,7 +233,8 @@ private fun BiblePassageBody(
 ) {
     Column(modifier.fillMaxWidth()) {
         val status = when (passage.status) {
-            BiblePassageStatus.RESOLVED -> "Texto completo"
+            BiblePassageStatus.RESOLVED ->
+                if (passage.chapterOnly) "Capítulo completo" else "Texto completo"
             BiblePassageStatus.PARTIAL -> passage.foundLabel
             BiblePassageStatus.UNRESOLVED -> "Nenhum versículo encontrado no acervo."
             BiblePassageStatus.MISSING_CORPUS ->
