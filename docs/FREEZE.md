@@ -19,7 +19,12 @@
 > Mapa não fecharam nem trocaram seção, swipe não avançou, só Fechar/Back
 > fecharam; timer 06:11 → 07:13 e seção/foco 2/6 e 2/7 preservados. Sem TNM
 > coberto por teste unitário; TalkBack segue no gate dos amigos. `resolveBible` do dossiê
-> continua com a dívida do primeiro versículo.
+> continua com a dívida do primeiro versículo. Tag `v5.2.0` (`ec4ef7d`);
+> release workflow `42669009800` verde; APK público 65/5.2 com SHA-256
+> `9bb4f9e28969c7e8a42d4869c572e2a813a08433b3aa3e1f103551afac1f82c2`
+> no GitHub Release: https://github.com/guilhermemellojw/better-talker/releases/tag/v5.2.0.
+> Beta 66/5.2-syncbeta é artifact separado, sem tag: run `42672619673`,
+> SHA-256 `2ff15f2e0368c0d5c67b63d17c6b2e3a6b30ba3b4e1c8d826f8d617b66797281`.
 
 > **2026-11-09 — v5.1/63 (Assistente + Tribuna 2.1):** Assistente com top
 > bar de contexto (`Assistente ⌄` / `nota ⌄` + 💬 ❓ ⚙, sem ⋮), última fala
