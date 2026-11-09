@@ -233,7 +233,7 @@ private fun PresentPrepScreen(
                 FilterChip(
                     selected = prep.mode == PresentMode.CUES,
                     onClick = { vm.updatePrep(prep.copy(mode = PresentMode.CUES)) },
-                    label = { Text("Cues") },
+                    label = { Text("Lembretes") },
                 )
                 if (demo) {
                     FilterChip(

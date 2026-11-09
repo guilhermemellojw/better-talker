@@ -1,9 +1,7 @@
 package com.bettertalker.app.ui.assistant
 
-import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.PracticePresentState
 import com.bettertalker.app.data.copilot.PracticeSnapshot
-import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.voice.PttState
 import org.junit.Assert.assertEquals
@@ -12,7 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** v4.0 Walkie — decisões puras de apresentação/estado/preview. */
+/** v4.0/v5.1 Walkie — decisões puras de apresentação/estado/menu. */
 class WalkieUiTest {
 
     @Test
@@ -43,17 +41,6 @@ class WalkieUiTest {
     }
 
     @Test
-    fun previewLimpaTagsMarkdownECorta() {
-        val text = "<texto-do-card>**Olá** 〈sugestão〉mundo〈/sugestão〉 " +
-            "com   espaços</texto-do-card>"
-        assertEquals("Olá mundo com espaços", walkiePreview(text))
-        val long = "a".repeat(300)
-        val cut = walkiePreview(long, maxChars = 10)
-        assertTrue(cut.endsWith("…"))
-        assertTrue(cut.length <= 11)
-    }
-
-    @Test
     fun linhaDePraticaResumeTreinoEPalco() {
         val snapshot = PracticeSnapshot(
             noteId = "note",
@@ -72,13 +59,49 @@ class WalkieUiTest {
     }
 
     @Test
-    fun pilulaDeProximoPasso() {
-        val s = NextStepSuggestion(
-            label = "Iniciar Treino",
-            detail = "Texto completo.",
-            action = ResolvedChatNav.StartTrain,
+    fun menuDoTituloMudaComOContexto() {
+        assertEquals(
+            listOf(AssistantMenuAction.PICK_NOTE, AssistantMenuAction.CREATE_NOTE),
+            assistantMenu(hasNote = false),
         )
-        assertEquals("Próximo: Iniciar Treino", walkieNextStepLabel(s))
-        assertNull(walkieNextStepLabel(null))
+        assertEquals(
+            listOf(
+                AssistantMenuAction.OPEN_NOTE,
+                AssistantMenuAction.CHANGE_NOTE,
+                AssistantMenuAction.GENERAL_CHAT,
+            ),
+            assistantMenu(hasNote = true),
+        )
+        assertEquals("Escolher esboço", assistantMenuLabel(AssistantMenuAction.PICK_NOTE))
+        assertEquals("Criar novo esboço", assistantMenuLabel(AssistantMenuAction.CREATE_NOTE))
+        assertEquals("Abrir nota", assistantMenuLabel(AssistantMenuAction.OPEN_NOTE))
+        assertEquals("Trocar nota", assistantMenuLabel(AssistantMenuAction.CHANGE_NOTE))
+        assertEquals(
+            "Conversa geral (sem nota)",
+            assistantMenuLabel(AssistantMenuAction.GENERAL_CHAT),
+        )
+    }
+
+    @Test
+    fun tituloUsaNotaQuandoExiste() {
+        assertEquals("Assistente", assistantTitle(hasNote = false, noteTitle = "Zedeque"))
+        assertEquals("Assistente", assistantTitle(hasNote = true, noteTitle = " "))
+        assertEquals("Zedeque", assistantTitle(hasNote = true, noteTitle = "Zedeque"))
+    }
+
+    @Test
+    fun chipDeChaveSoQuandoARespostaBloqueia() {
+        assertFalse(assistantNeedsKey(null))
+        assertFalse(assistantNeedsKey("Tudo certo."))
+        assertTrue(
+            assistantNeedsKey(
+                "Configure a chave de IA na tela Modelo IA para conversar sobre o esboço.",
+            )
+        )
+        assertTrue(
+            assistantNeedsKey(
+                "Para compor texto, configure a chave do DeepSeek na tela Modelo IA.",
+            )
+        )
     }
 }

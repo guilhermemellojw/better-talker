@@ -13,6 +13,7 @@ import com.bettertalker.app.domain.help.HelpTriggerCodec
 import com.bettertalker.app.domain.help.HelpTriggerId
 import com.bettertalker.app.domain.help.HelpTriggerState
 import com.bettertalker.app.domain.onboarding.OnboardingV5State
+import com.bettertalker.app.domain.speech.TribunaDetail
 import com.bettertalker.app.ui.theme.PaletteId
 import com.bettertalker.app.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
@@ -375,6 +376,67 @@ class SettingsStore(
                 key.name.removePrefix("help_metric_") to value
             }
         }.toMap()
+    }
+
+    // ---------- v5.1: detalhe da Tribuna e persistência do Palco ----------
+
+    private fun tribunaDetailKey(noteId: String) =
+        stringPreferencesKey("tribuna_detail_$noteId")
+
+    private fun tribunaSectionDetailKey(noteId: String, sectionId: String) =
+        stringPreferencesKey("tribuna_detail_${noteId}_$sectionId")
+
+    fun tribunaDetail(noteId: String): Flow<TribunaDetail> = ctx.store.data.map {
+        val raw = it[tribunaDetailKey(noteId)]
+        runCatching { TribunaDetail.valueOf(raw ?: "") }.getOrDefault(TribunaDetail.STANDARD)
+    }
+
+    fun tribunaSectionDetail(noteId: String, sectionId: String): Flow<TribunaDetail?> =
+        ctx.store.data.map {
+            it[tribunaSectionDetailKey(noteId, sectionId)]
+                ?.let { raw -> runCatching { TribunaDetail.valueOf(raw) }.getOrNull() }
+        }
+
+    suspend fun setTribunaDetail(noteId: String, detail: TribunaDetail) {
+        ctx.store.edit { it[tribunaDetailKey(noteId)] = detail.name }
+    }
+
+    suspend fun setTribunaSectionDetail(
+        noteId: String,
+        sectionId: String,
+        detail: TribunaDetail,
+    ) {
+        ctx.store.edit { it[tribunaSectionDetailKey(noteId, sectionId)] = detail.name }
+    }
+
+    /** v5.1: remove o override da seção; volta ao detalhe padrão da nota. */
+    suspend fun clearTribunaSectionDetail(noteId: String, sectionId: String) {
+        ctx.store.edit { it.remove(tribunaSectionDetailKey(noteId, sectionId)) }
+    }
+
+    private fun presentMapModeKey(noteId: String) =
+        stringPreferencesKey("present_map_mode_$noteId")
+
+    private fun presentFocusKey(noteId: String, sectionId: String) =
+        intPreferencesKey("present_focus_${noteId}_$sectionId")
+
+    /** true = mapa; false = foco. */
+    fun presentMapMode(noteId: String): Flow<Boolean> = ctx.store.data.map {
+        it[presentMapModeKey(noteId)] != "FOCUS"
+    }
+
+    suspend fun setPresentMapMode(noteId: String, map: Boolean) {
+        ctx.store.edit {
+            it[presentMapModeKey(noteId)] = if (map) "MAP" else "FOCUS"
+        }
+    }
+
+    fun presentFocusCue(noteId: String, sectionId: String): Flow<Int> = ctx.store.data.map {
+        it[presentFocusKey(noteId, sectionId)] ?: 0
+    }
+
+    suspend fun setPresentFocusCue(noteId: String, sectionId: String, index: Int) {
+        ctx.store.edit { it[presentFocusKey(noteId, sectionId)] = index.coerceAtLeast(0) }
     }
     suspend fun clearLastNoteId() { ctx.store.edit { it.remove(LAST_NOTE_ID) } }
 }

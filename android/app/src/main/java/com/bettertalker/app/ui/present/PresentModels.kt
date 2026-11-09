@@ -2,6 +2,8 @@ package com.bettertalker.app.ui.present
 
 import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.ui.stage.StageTurn
 
 /**
@@ -164,3 +166,12 @@ fun decodePresentSession(raw: String?, totalSections: Int): PresentSavedSession?
 /** Bateria baixa só vira aviso quando não está carregando. Puro. */
 fun presentBatteryLow(levelPercent: Int, charging: Boolean): Boolean =
     !charging && levelPercent in 0..20
+
+/**
+ * v5.1: imagem de uma cue no Palco. Só resolve pelo `imageId` atribuído;
+ * cue IMAGE sem imagem explícita não herda a primeira imagem da seção.
+ */
+fun presentCueImage(cue: TribunaCue, images: List<NoteImageEntity>): NoteImageEntity? {
+    if (cue.kind != TribunaCueKind.IMAGE) return null
+    return cue.imageId?.let { id -> images.firstOrNull { it.id == id } }
+}

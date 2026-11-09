@@ -7,12 +7,18 @@ import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.NoteImageDao
 import com.bettertalker.app.data.db.NoteImageEntity
+import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.voice.TextToSpeechManager
 import com.bettertalker.app.domain.speech.TribunaCapsule
+import com.bettertalker.app.domain.speech.TribunaDetail
+import com.bettertalker.app.domain.speech.TribunaMapStatus
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.domain.speech.toJson
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
+import com.bettertalker.app.domain.speech.tribunaMapQuality
 import com.bettertalker.app.ui.stage.StageTurn
 import com.bettertalker.app.ui.stage.parseStageTurns
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +30,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -41,6 +48,15 @@ interface TribunaSpeaker {
 interface TribunaFontPrefs {
     val fontSp: Flow<Int>
     suspend fun setFontSp(v: Int)
+}
+
+/** v5.1: seam do nível de detalhe (DataStore na produção). */
+interface TribunaDetailPrefs {
+    fun noteDetail(noteId: String): Flow<TribunaDetail>
+    fun sectionDetail(noteId: String, sectionId: String): Flow<TribunaDetail?>
+    suspend fun setNoteDetail(noteId: String, detail: TribunaDetail)
+    suspend fun setSectionDetail(noteId: String, sectionId: String, detail: TribunaDetail)
+    suspend fun clearSectionDetail(noteId: String, sectionId: String)
 }
 
 /**
@@ -65,6 +81,8 @@ class TribunaViewModel(
     private val isDemonstrationProvider: suspend () -> Boolean = { false },
     /** v4.2: imagens por seção (null nos testes antigos; produção = Room). */
     private val imageDao: NoteImageDao? = null,
+    /** v5.1: nível de detalhe (null nos testes antigos). */
+    private val detailPrefs: TribunaDetailPrefs? = null,
 ) : ViewModel() {
 
     private val workScope: CoroutineScope get() = scope ?: viewModelScope
@@ -80,17 +98,31 @@ class TribunaViewModel(
         val turns: List<StageTurn> = emptyList(),
         /** v4.2: imagens da seção (thumbnails/legendas; nunca no HTML). */
         val images: List<NoteImageEntity> = emptyList(),
+        /** v5.1: se a seção tem refs bíblicas/publicações. */
+        val sectionHasRefs: Boolean = false,
+        /** v5.1: última seção não exige transição. */
+        val isLastSection: Boolean = true,
+        /** v5.1: override de detalhe desta seção; null = padrão da nota. */
+        val sectionDetail: TribunaDetail? = null,
+        /** v5.1: updatedAt da linha que originou o card (guarda anti-regressão). */
+        val dbUpdatedAt: Long = 0,
     ) {
-        /** v4.2: folha de cues completa? Cápsula antiga = layout legado. */
+        /** v5.1: qualidade com motivos (fonte única do badge). */
+        val quality
+            get() = tribunaMapQuality(capsule, sectionHasRefs, isLastSection)
+
+        /** v4.2: compatibilidade com testes antigos. */
         val mapComplete: Boolean
-            get() = capsule != null &&
-                capsule.cues.isNotEmpty() &&
-                capsule.anchorPhrase.isNotBlank() &&
-                capsule.cues.all { it.text.isNotBlank() }
+            get() = quality.status == TribunaMapStatus.COMPLETE
 
         /** v4.2: true = cápsula gerada antes do formato de cues. */
         val legacyMap: Boolean
-            get() = capsule != null && capsule.cues.isEmpty()
+            get() = quality.status == TribunaMapStatus.LEGACY
+
+        /** v5.1: folha v2 intencionalmente vazia. */
+        val emptyCueSheet: Boolean
+            get() = capsule != null && capsule.cueSheetVersion >= 2 &&
+                capsule.cues.isEmpty()
     }
 
     private val _cards = MutableStateFlow<List<TribunaCardUi>>(emptyList())
@@ -114,7 +146,39 @@ class TribunaViewModel(
     val fontSp: StateFlow<Int> = fontPrefs.fontSp
         .stateIn(workScope, SharingStarted.Lazily, STAGE_FONT_DEFAULT_SP)
 
+    /** v5.1: detalhe efetivo da nota (override por seção fica no DataStore). */
+    val noteDetail: StateFlow<TribunaDetail> =
+        (detailPrefs?.noteDetail(noteId) ?: flowOf(TribunaDetail.STANDARD))
+            .stateIn(workScope, SharingStarted.Eagerly, TribunaDetail.STANDARD)
+
+    fun setNoteDetail(detail: TribunaDetail) {
+        workScope.launch { detailPrefs?.setNoteDetail(noteId, detail) }
+    }
+
+    fun setSectionDetail(sectionId: String, detail: TribunaDetail) {
+        workScope.launch { detailPrefs?.setSectionDetail(noteId, sectionId, detail) }
+    }
+
+    /** v5.1: volta a seção ao detalhe padrão da nota. */
+    fun clearSectionDetail(sectionId: String) {
+        workScope.launch { detailPrefs?.clearSectionDetail(noteId, sectionId) }
+    }
+
     private val persistJobs = mutableMapOf<String, Job>()
+
+    /** v5.1: seções com edição local ainda não confirmada pelo banco. */
+    private val dirtySections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** v5.1: versão da última edição; evita limpar “dirty” de edição mais nova. */
+    private val editVersions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** v5.1: carimbo do último autosave local por seção. */
+    private val lastLocalSaveAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun markDirty(sectionId: String) {
+        dirtySections += sectionId
+        editVersions.merge(sectionId, 1L, Long::plus)
+    }
 
     private val _noteTitle = MutableStateFlow("")
     /** Título da nota (para o export); vazio até o load. */
@@ -128,12 +192,33 @@ class TribunaViewModel(
         workScope.launch {
             val imagesFlow: Flow<List<NoteImageEntity>> =
                 imageDao?.observeForNote(noteId) ?: flowOf(emptyList())
-            combine(dao.observeForNote(noteId), imagesFlow) { rows, images ->
+            val rowsFlow = dao.observeForNote(noteId)
+            val detailsFlow = rowsFlow.flatMapLatest { rows ->
+                if (detailPrefs == null) {
+                    flowOf(emptyMap<String, TribunaDetail>())
+                } else {
+                    val flows = rows.map { row ->
+                        detailPrefs.sectionDetail(noteId, row.id)
+                    }
+                    if (flows.isEmpty()) {
+                        flowOf(emptyMap<String, TribunaDetail>())
+                    } else {
+                        combine(flows) { values ->
+                            rows.mapIndexedNotNull { index, row ->
+                                values.getOrNull(index)?.let { row.id to it }
+                            }.toMap()
+                        }
+                    }
+                }
+            }
+            combine(rowsFlow, imagesFlow, detailsFlow) { rows, images, details ->
                 // Bloco 2 (demos): o tipo é relido a cada emissão — se a nota
                 // for demonstração, a tela renderiza como roteiro.
                 val demo = isDemonstrationProvider()
                 _isDemonstration.value = demo
-                rows.sortedBy { it.order }.map { e ->
+                val sorted = rows.sortedBy { it.order }
+                sorted.mapIndexed { index, e ->
+                    val domain = runCatching { e.toDomain() }.getOrNull()
                     TribunaCardUi(
                         sectionId = e.id,
                         order = e.order,
@@ -142,9 +227,35 @@ class TribunaViewModel(
                         capsule = e.tribunaJson?.let { tribunaCapsuleFromJson(it) },
                         turns = if (demo) parseStageTurns(e.contentHtml) else emptyList(),
                         images = images.filter { it.sectionId == e.id },
+                        sectionHasRefs = domain?.let {
+                            it.bibleRefs.isNotEmpty() || it.publicationRefs.isNotEmpty()
+                        } ?: false,
+                        isLastSection = index == sorted.lastIndex,
+                        sectionDetail = details[e.id],
+                        dbUpdatedAt = e.updatedAt,
                     )
                 }
-            }.collect { cards -> _cards.value = cards }
+            }.collect { computed ->
+                // Merge atômico: uma emissão do banco não regride a edição
+                // otimista; a cápsula local é lida no momento do update.
+                _cards.update { current ->
+                    computed.map { card ->
+                        val currentCard = current.firstOrNull { it.sectionId == card.sectionId }
+                        val lastSave = lastLocalSaveAt[card.sectionId] ?: 0L
+                        if (card.dbUpdatedAt < lastSave) {
+                            // Emissão atrasada de um autosave anterior: descarta.
+                            currentCard ?: card
+                        } else {
+                            val local = currentCard?.capsule
+                            if (dirtySections.contains(card.sectionId) && local != null) {
+                                card.copy(capsule = local)
+                            } else {
+                                card
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -162,46 +273,163 @@ class TribunaViewModel(
 
     /** v4.2: edita o texto de uma cue da folha. */
     fun updateCueText(sectionId: String, cueIndex: Int, text: String) =
-        edit(sectionId) { capsule ->
-            capsule.copy(
-                cues = capsule.cues.mapIndexed { index, cue ->
-                    if (index == cueIndex) cue.copy(text = text) else cue
-                },
-            )
+        editCues(sectionId) { cues ->
+            cues.mapIndexed { index, cue ->
+                if (index == cueIndex) cue.copy(text = text) else cue
+            }
         }
 
     /** v4.2: edita as refs de uma cue (lista já normalizada pela UI). */
     fun updateCueRefs(sectionId: String, cueIndex: Int, refs: List<String>) =
-        edit(sectionId) { capsule ->
+        editCues(sectionId) { cues ->
+            cues.mapIndexed { index, cue ->
+                if (index == cueIndex) cue.copy(refs = refs) else cue
+            }
+        }
+
+    /** v5.1: adiciona um lembrete no fim (converte cápsula antiga). */
+    fun addCue(sectionId: String, kind: TribunaCueKind = TribunaCueKind.REASONING) {
+        editOrCreate(sectionId) { capsule ->
             capsule.copy(
-                cues = capsule.cues.mapIndexed { index, cue ->
-                    if (index == cueIndex) cue.copy(refs = refs) else cue
-                },
+                cues = capsule.cues + TribunaCue(kind = kind, text = ""),
+                cueSheetVersion = 2,
             )
         }
+    }
+
+    /** v5.1: remove só o lembrete; a cápsula/imagem da seção permanece. */
+    fun removeCue(sectionId: String, cueIndex: Int) =
+        editCues(sectionId) { cues -> cues.filterIndexed { index, _ -> index != cueIndex } }
+
+    /** v5.1: undo de remoção restaura a cápsula inteira. */
+    fun restoreCapsule(sectionId: String, capsule: TribunaCapsule) {
+        setCapsule(sectionId, capsule)
+    }
+
+    fun moveCue(sectionId: String, cueIndex: Int, direction: Int) =
+        editCues(sectionId) { cues ->
+            val target = cueIndex + direction
+            if (cueIndex !in cues.indices || target !in cues.indices) {
+                cues
+            } else {
+                cues.toMutableList().also {
+                    val tmp = it[cueIndex]
+                    it[cueIndex] = it[target]
+                    it[target] = tmp
+                }
+            }
+        }
+
+    fun updateCueKind(sectionId: String, cueIndex: Int, kind: TribunaCueKind) =
+        editCues(sectionId) { cues ->
+            cues.mapIndexed { index, cue ->
+                if (index == cueIndex) cue.copy(kind = kind) else cue
+            }
+        }
+
+    fun updateCueImage(
+        sectionId: String,
+        cueIndex: Int,
+        imageId: String?,
+        imageCaption: String?,
+    ) = editCues(sectionId) { cues ->
+        cues.mapIndexed { index, cue ->
+            if (index == cueIndex) {
+                cue.copy(imageId = imageId, imageCaption = imageCaption)
+            } else {
+                cue
+            }
+        }
+    }
+
+    fun updateKeyTerms(sectionId: String, keyTerms: List<String>) =
+        edit(sectionId) { it.copy(keyTerms = keyTerms.map { t -> t.trim() }.filter { it.isNotEmpty() }) }
+
+    fun updateTimeMinutes(sectionId: String, minutes: Int?) =
+        edit(sectionId) { it.copy(timeMinutes = minutes?.takeIf { m -> m > 0 }) }
+
+    /** v5.1: converte cápsula antiga em folha vazia, preservando o cabeçalho. */
+    fun convertToCueSheet(sectionId: String) =
+        edit(sectionId) { it.copy(cueSheetVersion = 2) }
+
+    private fun editCues(
+        sectionId: String,
+        transform: (List<TribunaCue>) -> List<TribunaCue>,
+    ) = editOrCreate(sectionId) { capsule ->
+        capsule.copy(
+            cues = transform(capsule.cues),
+            cueSheetVersion = 2,
+        )
+    }
+
+    private fun editOrCreate(
+        sectionId: String,
+        transform: (TribunaCapsule) -> TribunaCapsule,
+    ) {
+        markDirty(sectionId)
+        _cards.update { list ->
+            list.map { card ->
+                if (card.sectionId != sectionId) return@map card
+                val base = card.capsule ?: TribunaCapsule(
+                    sectionId = sectionId,
+                    mainIdea = "",
+                    anchorPhrase = "",
+                )
+                card.copy(capsule = transform(base))
+            }
+        }
+        persistSnapshot(sectionId)
+    }
+
+    private fun setCapsule(sectionId: String, capsule: TribunaCapsule) {
+        markDirty(sectionId)
+        _cards.update { list ->
+            list.map { card ->
+                if (card.sectionId == sectionId) card.copy(capsule = capsule) else card
+            }
+        }
+        persistSnapshot(sectionId)
+    }
+
+    private fun persistSnapshot(sectionId: String) {
+        val capsule = _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule
+            ?: return
+        dirtySections += sectionId
+        val version = editVersions[sectionId] ?: 0L
+        persistJobs[sectionId]?.cancel()
+        persistJobs[sectionId] = workScope.launch {
+            delay(debounceMs)
+            val entity = dao.get(sectionId) ?: return@launch
+            val stamp = maxOf(
+                System.currentTimeMillis(),
+                (lastLocalSaveAt[sectionId] ?: 0L) + 1,
+            )
+            lastLocalSaveAt[sectionId] = stamp
+            dao.upsert(
+                entity.copy(
+                    tribunaJson = capsule.toJson(),
+                    updatedAt = stamp,
+                )
+            )
+            // Só libera a guarda quando o banco tem exatamente este snapshot;
+            // uma edição mais nova mantém a seção “dirty”.
+            if (editVersions[sectionId] == version &&
+                _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule == capsule
+            ) {
+                dirtySections.remove(sectionId)
+            }
+        }
+    }
 
     /** Update otimista + autosave debounced (400ms em produção). */
     private fun edit(sectionId: String, transform: (TribunaCapsule) -> TribunaCapsule) {
+        markDirty(sectionId)
         _cards.update { list ->
             list.map { c ->
                 if (c.sectionId == sectionId) c.copy(capsule = c.capsule?.let(transform)) else c
             }
         }
-        // Captura o snapshot AQUI: uma emissão do banco (ex.: autosave anterior)
-        // não pode sobrescrever a edição otimista antes do debounce terminar.
-        val capsule = _cards.value.firstOrNull { it.sectionId == sectionId }?.capsule
-            ?: return
-        persistJobs[sectionId]?.cancel()
-        persistJobs[sectionId] = workScope.launch {
-            delay(debounceMs)
-            val entity = dao.get(sectionId) ?: return@launch
-            dao.upsert(
-                entity.copy(
-                    tribunaJson = capsule.toJson(),
-                    updatedAt = System.currentTimeMillis(),
-                )
-            )
-        }
+        persistSnapshot(sectionId)
     }
 
     /** TTS SÓ da frase-âncora. Sem cápsula/âncora → nada. */
@@ -250,6 +478,20 @@ class TribunaViewModel(
                 override val fontSp: Flow<Int> = settings.stageFontSp
                 override suspend fun setFontSp(v: Int) = settings.setStageFontSp(v)
             }
+            val detailPrefs = object : TribunaDetailPrefs {
+                override fun noteDetail(noteId: String) = settings.tribunaDetail(noteId)
+                override fun sectionDetail(noteId: String, sectionId: String) =
+                    settings.tribunaSectionDetail(noteId, sectionId)
+                override suspend fun setNoteDetail(noteId: String, detail: TribunaDetail) =
+                    settings.setTribunaDetail(noteId, detail)
+                override suspend fun setSectionDetail(
+                    noteId: String,
+                    sectionId: String,
+                    detail: TribunaDetail,
+                ) = settings.setTribunaSectionDetail(noteId, sectionId, detail)
+                override suspend fun clearSectionDetail(noteId: String, sectionId: String) =
+                    settings.clearTribunaSectionDetail(noteId, sectionId)
+            }
             return TribunaViewModel(
                 db.speechSectionDao(), noteId, speaker, prefs,
                 noteTitleProvider = { db.noteDao().get(noteId)?.title.orEmpty() },
@@ -259,6 +501,7 @@ class TribunaViewModel(
                         type == com.bettertalker.app.domain.speech.DiscourseType.FREE_DEMO.name
                 },
                 imageDao = db.noteImageDao(),
+                detailPrefs = detailPrefs,
             ) as T
         }
     }

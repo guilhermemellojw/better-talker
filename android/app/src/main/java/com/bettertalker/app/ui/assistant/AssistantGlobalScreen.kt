@@ -15,25 +15,17 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -43,11 +35,16 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.voice.PttState
+import com.bettertalker.app.ui.copilot.ChatMessageText
 import com.bettertalker.app.ui.copilot.PttMicButton
 
+private const val GLOBAL_GREETING =
+    "Oi! Eu sou o BT. Segure para falar. Posso abrir um esboço, " +
+        "tirar dúvidas sobre oratória ou ajudar a preparar sua parte."
+
 /**
- * Home global do Assistente (v4.1): PTT como ação principal, saudação local,
- * última resposta e chips de esboços recentes — sem exigir nota aberta.
+ * Home global do Assistente (v5.1): título/seletor de contexto, última fala
+ * completa do BT no topo e PTT como única ação do rodapé.
  */
 @Composable
 fun AssistantGlobalScreen(
@@ -63,22 +60,23 @@ fun AssistantGlobalScreen(
     onPttRelease: () -> Unit,
     onPttCancel: () -> Unit,
     onOpenChat: () -> Unit,
-    onDigit: () -> Unit,
     onPickNote: () -> Unit,
-    onBindNote: (String) -> Unit,
-    onCreateFirst: () -> Unit,
+    onCreateNote: () -> Unit,
     onConfigureAi: () -> Unit,
     onHelp: () -> Unit,
+    onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
     onSendText: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
     val lastResponse = remember(turns) {
         turns.lastOrNull { !it.fromMe && it.text.isNotBlank() }
     }
-    val preview = remember(lastResponse) {
-        lastResponse?.let { walkiePreview(it.text, maxChars = 280) }
+    val content = lastResponse?.text
+        ?: if (loading) "Carregando seus esboços…" else GLOBAL_GREETING
+    val bodyScroll = rememberScrollState()
+    LaunchedEffect(lastResponse?.text) {
+        if (lastResponse != null) bodyScroll.scrollTo(0)
     }
     val status = when {
         busy -> "Pensando…"
@@ -93,61 +91,39 @@ fun AssistantGlobalScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+        AssistantTopBar(
+            title = assistantTitle(hasNote = false, noteTitle = ""),
+            hasNote = false,
+            onOpenChat = onOpenChat,
+            onOpenHelp = onHelp,
+            onOpenSettings = onOpenSettings,
+            onPickNote = onPickNote,
+            onCreateNote = onCreateNote,
+            titleStyle = MaterialTheme.typography.headlineSmall,
+        )
+        Spacer(Modifier.height(10.dp))
+
+        // Texto completo da última fala: sem trim, selecionável e scrollável.
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(bodyScroll),
         ) {
-            Text(
-                "Assistente",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f),
-            )
-            com.bettertalker.app.ui.help.HelpTopBarButton(onHelp)
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Default.MoreVert, "Mais opções do Assistente")
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Escolher esboço") },
-                        onClick = { menuOpen = false; onPickNote() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Configurar IA") },
-                        onClick = { menuOpen = false; onConfigureAi() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Ajuda") },
-                        onClick = { menuOpen = false; onHelp() },
+            if (lastResponse != null) {
+                ChatMessageText(lastResponse.text, Modifier.fillMaxWidth())
+            } else {
+                SelectionContainer {
+                    Text(
+                        content,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
         }
 
-        Spacer(Modifier.height(10.dp))
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            val text = preview ?: if (loading) {
-                "Carregando seus esboços…"
-            } else {
-                "Oi! Eu sou o BT. Segure para falar. Posso abrir um esboço, " +
-                    "tirar dúvidas sobre oratória ou ajudar a preparar sua parte."
-            }
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        }
         lastResponse?.action?.let { action ->
             Spacer(Modifier.height(6.dp))
             when (action) {
@@ -189,7 +165,15 @@ fun AssistantGlobalScreen(
             }
         }
 
-        Spacer(Modifier.weight(1f))
+        // CTA único do primeiro uso; o menu do título também cria um esboço.
+        if (notes.isEmpty() && !loading) {
+            Spacer(Modifier.height(8.dp))
+            FilledTonalButton(onClick = onCreateNote) {
+                Text("Criar primeiro esboço")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
         Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
             if (status != "Segure para falar") {
                 Text(
@@ -227,37 +211,6 @@ fun AssistantGlobalScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-
-        Spacer(Modifier.height(16.dp))
-        if (notes.isEmpty() && !loading) {
-            FilledTonalButton(onClick = onCreateFirst) {
-                Text("Criar primeiro esboço")
-            }
-        } else if (notes.isNotEmpty()) {
-            LazyRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(notes.take(6), key = { it.id }) { note ->
-                    AssistChip(
-                        onClick = { onBindNote(note.id) },
-                        label = {
-                            Text(
-                                note.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = onOpenChat) { Text("Ver conversa") }
-            OutlinedButton(onClick = onDigit) { Text("Digitar") }
-        }
-        TextButton(onClick = onPickNote) { Text("Escolher esboço") }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
     }
 }

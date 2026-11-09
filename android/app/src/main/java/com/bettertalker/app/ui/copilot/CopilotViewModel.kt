@@ -5478,13 +5478,17 @@ class CopilotViewModel(
             val provider = ProviderFactory.createFor(
                 remote, app, thinkingEffortFor(_thinkingMode.value)
             )
+            val noteDetail = settings.tribunaDetail(nid).first()
             var saved = 0
             var failed = 0
             usable.forEachIndexed { index, section ->
+                val detail = settings.tribunaSectionDetail(nid, section.id).first()
+                    ?: noteDetail
                 val capsule = generateTribunaCapsule(
                     provider = provider,
                     section = section,
                     nextSectionTitle = usable.getOrNull(index + 1)?.title,
+                    detail = detail,
                 )
                 if (capsule == null) {
                     failed++
@@ -5552,7 +5556,9 @@ class CopilotViewModel(
             val provider = ProviderFactory.createFor(
                 remote, app, thinkingEffortFor(_thinkingMode.value)
             )
-            val capsule = generateTribunaCapsule(provider, section, nextTitle)
+            val detail = settings.tribunaSectionDetail(section.noteId, section.id).first()
+                ?: settings.tribunaDetail(section.noteId).first()
+            val capsule = generateTribunaCapsule(provider, section, nextTitle, detail)
             if (capsule == null) {
                 val failure = TribunaFailures.providerFailed()
                 onResult(failure)
@@ -5569,13 +5575,16 @@ class CopilotViewModel(
     }
 
     /**
-     * v4.2: uma seção = 1 chamada de 600–900 tokens. Recebe só legendas das
-     * imagens (texto); o provider é DeepSeek texto-only.
+     * v4.2/v5.1: uma seção = 1 chamada; o orçamento e as regras variam com o
+     * nível de detalhe. Recebe só legendas das imagens (texto); o provider é
+     * DeepSeek texto-only.
      */
     private suspend fun generateTribunaCapsule(
         provider: com.bettertalker.app.data.llm.LlmProvider,
         section: com.bettertalker.app.domain.speech.SpeechSection,
         nextSectionTitle: String?,
+        detail: com.bettertalker.app.domain.speech.TribunaDetail =
+            com.bettertalker.app.domain.speech.TribunaDetail.STANDARD,
     ): com.bettertalker.app.domain.speech.TribunaCapsule? {
         val images = runCatching { db.noteImageDao().forSection(section.id) }
             .getOrDefault(emptyList())
@@ -5593,6 +5602,7 @@ class CopilotViewModel(
             },
             nextSectionTitle = nextSectionTitle,
             subPoints = subPoints,
+            detail = detail,
         )
         val res = try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -5602,9 +5612,9 @@ class CopilotViewModel(
                         action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                         message = prompt,
                         maxOutputTokens = OutputBudget.tribunaSection(
-                            section.minutes, images.size,
+                            section.minutes, images.size, detail,
                         ),
-                        maxOutputTokensCap = OutputBudget.TRIBUNA_SECTION_MAX,
+                        maxOutputTokensCap = OutputBudget.TRIBUNA_DETAILED_MAX,
                     )
                 )
             }
@@ -5629,7 +5639,10 @@ class CopilotViewModel(
         if (res.meta.finishReason == "length") return null
         val json = com.bettertalker.app.data.edit.extractJsonFence(res.text) ?: res.text
         return com.bettertalker.app.domain.speech.tribunaCapsuleFromJson(json)
-            ?.copy(sectionId = section.id)
+            ?.copy(
+                sectionId = section.id,
+                cueSheetVersion = 2,
+            )
     }
 
     /**

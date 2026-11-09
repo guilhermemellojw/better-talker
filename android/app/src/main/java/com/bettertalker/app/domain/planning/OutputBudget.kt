@@ -1,5 +1,7 @@
 package com.bettertalker.app.domain.planning
 
+import com.bettertalker.app.domain.speech.TribunaDetail
+
 /**
  * C1 — orçamento de saída por caminho.
  *
@@ -62,6 +64,12 @@ object OutputBudget {
     /** v4.2: Tribuna 2.0 — uma chamada por seção (folha de cues). */
     const val TRIBUNA_SECTION_MIN = 600
     const val TRIBUNA_SECTION_MAX = 900
+
+    /** v5.1: faixas por nível de detalhe. */
+    const val TRIBUNA_COMPACT_MIN = 500
+    const val TRIBUNA_COMPACT_MAX = 700
+    const val TRIBUNA_DETAILED_MIN = 900
+    const val TRIBUNA_DETAILED_MAX = 1400
 
     /** Chat: mais espaço quando a resposta cita fontes resolvidas. */
     fun chat(hasResolvedRefs: Boolean): Int =
@@ -201,14 +209,27 @@ object OutputBudget {
         (TRIBUNA_MIN + sectionCount.coerceAtLeast(0) * 80).coerceIn(TRIBUNA_MIN, TRIBUNA_MAX)
 
     /**
-     * v4.2: orçamento de UMA seção da Tribuna 2.0 (folha de cues).
-     * Sempre entre 600 e 900 tokens; cresce com duração e imagens.
+     * v4.2/v5.1: orçamento de UMA seção da Tribuna.
+     * STANDARD mantém 600–900; COMPACT 500–700; DETAILED 900–1400.
      */
-    fun tribunaSection(minutes: Int?, imageCount: Int = 0): Int {
+    fun tribunaSection(
+        minutes: Int?,
+        imageCount: Int = 0,
+        detail: TribunaDetail = TribunaDetail.STANDARD,
+    ): Int {
         val byMinutes = minutes?.takeIf { it > 0 }?.let { it * 24 } ?: 0
         val byImages = imageCount.coerceAtLeast(0) * 30
-        return (TRIBUNA_SECTION_MIN + byMinutes + byImages)
-            .coerceIn(TRIBUNA_SECTION_MIN, TRIBUNA_SECTION_MAX)
+        return when (detail) {
+            TribunaDetail.COMPACT ->
+                (TRIBUNA_COMPACT_MIN + byMinutes + byImages)
+                    .coerceIn(TRIBUNA_COMPACT_MIN, TRIBUNA_COMPACT_MAX)
+            TribunaDetail.DETAILED ->
+                (TRIBUNA_DETAILED_MIN + byMinutes + byImages)
+                    .coerceIn(TRIBUNA_DETAILED_MIN, TRIBUNA_DETAILED_MAX)
+            TribunaDetail.STANDARD ->
+                (TRIBUNA_SECTION_MIN + byMinutes + byImages)
+                    .coerceIn(TRIBUNA_SECTION_MIN, TRIBUNA_SECTION_MAX)
+        }
     }
 
     /** Pedido longo: mesma fórmula já validada do texto longo. */

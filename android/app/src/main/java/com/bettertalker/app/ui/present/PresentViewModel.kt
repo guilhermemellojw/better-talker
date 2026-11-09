@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.NoteImageEntity
+import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.prefs.STAGE_FONT_DEFAULT_SP
 import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -11,12 +13,39 @@ import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
 import com.bettertalker.app.ui.stage.StageTurn
 import com.bettertalker.app.ui.stage.clampStageFontSp
 import com.bettertalker.app.ui.stage.parseStageTurns
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+/** v5.1: loader de uma nota para o Palco (Room na produção). */
+interface PresentSource {
+    suspend fun load(noteId: String): PresentSourceData
+}
+
+data class PresentSourceData(
+    val title: String = "",
+    val discourseType: String? = null,
+    val sections: List<SpeechSectionEntity> = emptyList(),
+    val images: List<NoteImageEntity> = emptyList(),
+)
+
+/** v5.1: seam das preferências do Palco (DataStore na produção). */
+interface PresentPrefs {
+    val fontSp: Flow<Int>
+    suspend fun setFontSp(v: Int)
+    fun mapMode(noteId: String): Flow<Boolean>
+    suspend fun setMapMode(noteId: String, map: Boolean)
+    fun focusCue(noteId: String, sectionId: String): Flow<Int>
+    suspend fun setFocusCue(noteId: String, sectionId: String, index: Int)
+    suspend fun savedSession(noteId: String): String?
+    suspend fun setSavedSession(noteId: String, raw: String)
+}
 
 /**
  * Apresentar live — carrega a Tribuna pronta e mantém o estado do palco:
@@ -24,10 +53,20 @@ import kotlinx.coroutines.launch
  * de vida. O palco é read-only; nada é editado/gravado aqui.
  */
 class PresentViewModel(
-    private val db: AppDatabase,
-    private val settings: SettingsStore,
+    private val source: PresentSource,
+    private val prefs: PresentPrefs,
     private val noteId: String,
+    /** Testes passam um escopo; produção usa o viewModelScope. */
+    private val scope: CoroutineScope? = null,
 ) : ViewModel() {
+
+    constructor(db: AppDatabase, settings: SettingsStore, noteId: String) : this(
+        source = roomPresentSource(db),
+        prefs = dataStorePresentPrefs(settings),
+        noteId = noteId,
+    )
+
+    private val workScope: CoroutineScope get() = scope ?: viewModelScope
 
     private val _title = MutableStateFlow("")
     val title: StateFlow<String> = _title.asStateFlow()
@@ -81,6 +120,14 @@ class PresentViewModel(
     private val _fontSp = MutableStateFlow(STAGE_FONT_DEFAULT_SP)
     val fontSp: StateFlow<Int> = _fontSp.asStateFlow()
 
+    /** v5.1: mapa (todas as cues) x foco (uma cue), por nota. */
+    private val _mapMode = MutableStateFlow(true)
+    val mapMode: StateFlow<Boolean> = _mapMode.asStateFlow()
+
+    /** v5.1: lembrete em foco por seção, persistido no DataStore. */
+    private val _focusCueIndex = MutableStateFlow(0)
+    val focusCueIndex: StateFlow<Int> = _focusCueIndex.asStateFlow()
+
     private var timerJob: Job? = null
     private var demo = false
 
@@ -91,21 +138,24 @@ class PresentViewModel(
     private val sectionElapsedById = mutableMapOf<String, Long>()
 
     init {
-        viewModelScope.launch {
-            settings.stageFontSp.collect { _fontSp.value = it }
+        workScope.launch {
+            prefs.fontSp.collect { _fontSp.value = it }
+        }
+        workScope.launch {
+            prefs.mapMode(noteId).collect { _mapMode.value = it }
         }
     }
 
     fun load() {
-        viewModelScope.launch {
-            val note = db.noteDao().get(noteId)
-            _title.value = note?.title.orEmpty()
-            demo = note?.discourseType == DiscourseType.MINISTRY_PART.name ||
-                note?.discourseType == DiscourseType.FREE_DEMO.name
+        workScope.launch {
+            val data = source.load(noteId)
+            _title.value = data.title
+            demo = data.discourseType == DiscourseType.MINISTRY_PART.name ||
+                data.discourseType == DiscourseType.FREE_DEMO.name
             _isDemonstration.value = demo
 
-            val rows = db.speechSectionDao().forNote(noteId).sortedBy { it.order }
-            val images = db.noteImageDao().forNote(noteId)
+            val rows = data.sections.sortedBy { it.order }
+            val images = data.images
             val cues = rows.mapIndexed { index, row ->
                 PresentCue(
                     sectionId = row.id,
@@ -123,7 +173,7 @@ class PresentViewModel(
             _scriptItems.value = if (demo) presentScriptItems(cues) else emptyList()
 
             val saved = decodePresentSession(
-                raw = settings.presentSession(noteId),
+                raw = prefs.savedSession(noteId),
                 totalSections = cues.size,
             )
             _savedSession.value = saved
@@ -137,7 +187,35 @@ class PresentViewModel(
             )
             _currentIndex.value = _prep.value.startIndex.coerceIn(0, (cues.size - 1).coerceAtLeast(0))
             _scriptIndex.value = presentScriptStartIndex(_scriptItems.value, _currentIndex.value)
+            restoreFocusForCurrentSection()
             _loadReady.value = true
+        }
+    }
+
+    fun setMapMode(map: Boolean) {
+        _mapMode.value = map
+        workScope.launch { prefs.setMapMode(noteId, map) }
+    }
+
+    fun setFocusCue(index: Int) {
+        val cue = _cues.value.getOrNull(_currentIndex.value) ?: return
+        val max = (cue.capsule?.cues?.size ?: 0) - 1
+        val safe = index.coerceIn(0, max.coerceAtLeast(0))
+        _focusCueIndex.value = safe
+        workScope.launch {
+            prefs.setFocusCue(noteId, cue.sectionId, safe)
+        }
+    }
+
+    private suspend fun restoreFocusForCurrentSection() {
+        val cue = _cues.value.getOrNull(_currentIndex.value) ?: return
+        val sectionId = cue.sectionId
+        val max = (cue.capsule?.cues?.size ?: 0) - 1
+        val saved = prefs.focusCue(noteId, sectionId).first()
+        // Navegação rápida: só aplica se a seção ainda é a atual.
+        val stillCurrent = _cues.value.getOrNull(_currentIndex.value)?.sectionId == sectionId
+        if (stillCurrent) {
+            _focusCueIndex.value = saved.coerceIn(0, max.coerceAtLeast(0))
         }
     }
 
@@ -173,6 +251,7 @@ class PresentViewModel(
         _stageStarted.value = true
         _pausedByLifecycle.value = false
         _running.value = true
+        workScope.launch { restoreFocusForCurrentSection() }
         startTimer()
     }
 
@@ -190,6 +269,7 @@ class PresentViewModel(
             _currentIndex.value += 1
         }
         restoreSectionElapsed(previousSection)
+        workScope.launch { restoreFocusForCurrentSection() }
         saveSessionSoon()
     }
 
@@ -207,6 +287,7 @@ class PresentViewModel(
             _currentIndex.value -= 1
         }
         restoreSectionElapsed(previousSection)
+        workScope.launch { restoreFocusForCurrentSection() }
         saveSessionSoon()
     }
 
@@ -246,24 +327,24 @@ class PresentViewModel(
         _stageStarted.value = false
         timerJob?.cancel()
         timerJob = null
-        viewModelScope.launch {
+        workScope.launch {
             persistSession()
             onDone?.invoke()
         }
     }
 
     fun saveSessionNow() {
-        viewModelScope.launch { persistSession() }
+        workScope.launch { persistSession() }
     }
 
     fun bumpFont(delta: Int) {
         val next = clampStageFontSp(_fontSp.value + delta)
         _fontSp.value = next
-        viewModelScope.launch { settings.setStageFontSp(next) }
+        workScope.launch { prefs.setFontSp(next) }
     }
 
     private fun saveSessionSoon() {
-        viewModelScope.launch { persistSession() }
+        workScope.launch { persistSession() }
     }
 
     private suspend fun persistSession() {
@@ -273,13 +354,13 @@ class PresentViewModel(
             elapsedSec = _totalElapsed.value,
             updatedAt = System.currentTimeMillis(),
         )
-        settings.setPresentSession(noteId, encodePresentSession(session))
+        prefs.setSavedSession(noteId, encodePresentSession(session))
         _savedSession.value = session
     }
 
     private fun startTimer() {
         if (timerJob?.isActive == true) return
-        timerJob = viewModelScope.launch {
+        timerJob = workScope.launch {
             while (true) {
                 delay(1_000)
                 if (_running.value) {
@@ -305,3 +386,33 @@ class PresentViewModel(
             PresentViewModel(db, settings, noteId) as T
     }
 }
+
+private fun roomPresentSource(db: AppDatabase): PresentSource = object : PresentSource {
+    override suspend fun load(noteId: String): PresentSourceData {
+        val note = db.noteDao().get(noteId)
+        return PresentSourceData(
+            title = note?.title.orEmpty(),
+            discourseType = note?.discourseType,
+            sections = db.speechSectionDao().forNote(noteId),
+            images = db.noteImageDao().forNote(noteId),
+        )
+    }
+}
+
+private fun dataStorePresentPrefs(settings: SettingsStore): PresentPrefs =
+    object : PresentPrefs {
+        override val fontSp: Flow<Int> = settings.stageFontSp
+        override suspend fun setFontSp(v: Int) = settings.setStageFontSp(v)
+        override fun mapMode(noteId: String): Flow<Boolean> =
+            settings.presentMapMode(noteId)
+        override suspend fun setMapMode(noteId: String, map: Boolean) =
+            settings.setPresentMapMode(noteId, map)
+        override fun focusCue(noteId: String, sectionId: String): Flow<Int> =
+            settings.presentFocusCue(noteId, sectionId)
+        override suspend fun setFocusCue(noteId: String, sectionId: String, index: Int) =
+            settings.setPresentFocusCue(noteId, sectionId, index)
+        override suspend fun savedSession(noteId: String): String? =
+            settings.presentSession(noteId)
+        override suspend fun setSavedSession(noteId: String, raw: String) =
+            settings.setPresentSession(noteId, raw)
+    }

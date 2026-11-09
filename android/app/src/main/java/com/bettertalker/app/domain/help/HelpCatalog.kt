@@ -111,15 +111,17 @@ object HelpCatalog {
         HelpTopic(
             id = "tribuna",
             question = "O que é a Tribuna 2.0?",
-            shortAnswer = "É o mapa de memória da seção, com cues curtas, " +
+            shortAnswer = "É o mapa de memória da seção, com lembretes curtos, " +
                 "âncora, referências e imagens. Serve para falar sem ler o texto.",
             steps = listOf(
                 "Gere a Tribuna pelo Palco.",
-                "Abra a Tribuna e edite as cues.",
+                "Abra a Tribuna e edite os lembretes.",
                 "Use Mapa/Foco no Palco durante a apresentação.",
             ),
             action = HelpAction.OPEN_TRIBUNA,
-            keywords = listOf("tribuna", "cues", "mapa", "memória", "palco", "apresentar"),
+            keywords = listOf(
+                "tribuna", "cues", "lembretes", "mapa", "memória", "palco", "apresentar",
+            ),
             routes = setOf(Routes.PRESENT_HOME, Routes.TRIBUNA, Routes.EDITOR, Routes.PRESENT),
             requiresNote = true,
         ),
@@ -155,7 +157,7 @@ object HelpCatalog {
         HelpTopic(
             id = "palco",
             question = "Como apresento no Palco?",
-            shortAnswer = "O Palco mostra uma seção por vez, com cues, timer, " +
+            shortAnswer = "O Palco mostra uma seção por vez, com lembretes, timer, " +
                 "imagens e checkpoint de tempo.",
             steps = listOf(
                 "Abra a aba Palco e escolha o esboço.",

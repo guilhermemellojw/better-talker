@@ -1,6 +1,8 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.domain.speech.SpeechSection
+import com.bettertalker.app.domain.speech.TribunaDetail
+import com.bettertalker.app.domain.speech.rules
 
 /**
  * v4.2: metadado de imagem que pode entrar no prompt.
@@ -15,10 +17,10 @@ data class TribunaImageHint(
 )
 
 /**
- * v4.2: prompt da Tribuna 2.0 — folha de cues de UMA seção.
+ * v4.2/v5.1: prompt da Tribuna 2.0 — folha de cues de UMA seção.
  *
- * Uma chamada por seção mantém o trabalho pequeno (600–900 tokens de saída),
- * permite salvar cada seção e regenerar só a que ficou incompleta.
+ * Uma chamada por seção mantém o trabalho pequeno (orçamento varia com o
+ * nível de detalhe), permite salvar cada seção e regenerar só a incompleta.
  * Puro/testável.
  */
 internal fun buildTribunaSectionPrompt(
@@ -26,8 +28,10 @@ internal fun buildTribunaSectionPrompt(
     images: List<TribunaImageHint> = emptyList(),
     nextSectionTitle: String? = null,
     subPoints: List<String> = emptyList(),
+    detail: TribunaDetail = TribunaDetail.STANDARD,
 ): String {
     val plain = com.bettertalker.app.data.edit.stripHtmlToText(section.contentHtml).trim()
+    val rules = detail.rules()
     val sb = StringBuilder()
     sb.append("Você vai criar o MAPA DE MEMÓRIA de UMA seção de um discurso (não um resumo).\n")
     sb.append("O orador usa as cues para falar de coração, sem ler o texto.\n\n")
@@ -39,29 +43,47 @@ internal fun buildTribunaSectionPrompt(
     sb.append("  \"anchorPhrase\": \"frase-chave para memorizar (máx 15 palavras)\",\n")
     sb.append("  \"transition\": \"como liga para a próxima seção (ou null)\",\n")
     sb.append("  \"timeMinutes\": ").append(section.minutes.coerceAtLeast(1)).append(",\n")
-    sb.append("  \"keyTerms\": [\"3 a 6 termos-chave\"],\n")
+    sb.append("  \"keyTerms\": [\"termos-chave do texto\"],\n")
     sb.append("  \"cues\": [\n")
     sb.append("    {\"kind\": \"HOOK\", \"text\": \"...\", \"refs\": []},\n")
     sb.append("    {\"kind\": \"REASONING\", \"text\": \"...\", \"refs\": []},\n")
     sb.append("    {\"kind\": \"SCRIPTURE\", \"text\": \"...\", \"refs\": [\"Sal 103:20\"]}\n")
     sb.append("  ]\n")
     sb.append("}\n\n")
-    sb.append("Tipos de cue e quando usar:\n")
+    sb.append("NÍVEL DE DETALHE: ").append(detail.name).append("\n")
+    sb.append("- Use entre ").append(rules.minCues).append(" e ")
+        .append(rules.maxCues).append(" lembretes.\n")
+    sb.append("- Cada texto de lembrete deve ter no máximo ")
+        .append(rules.maxWords).append(" palavras.\n")
+    sb.append("- Use entre ").append(rules.minKeyTerms).append(" e ")
+        .append(rules.maxKeyTerms).append(" keyTerms.\n")
+    sb.append("- Se o texto não tiver material para o máximo, use menos lembretes; ")
+        .append("nunca invente conteúdo para completar a faixa.\n")
+    sb.append("- Detalhe maior significa mais granularidade sobre o texto existente; ")
+        .append("nunca preencha com conteúdo inventado.\n\n")
+    sb.append("Tipos de lembrete e quando usar:\n")
     sb.append("- HOOK: abertura que prende a atenção (1 por seção, na primeira).\n")
-    sb.append("- REASONING: o argumento/linha de raciocínio, em 1–2 cues curtos.\n")
-    sb.append("- SCRIPTURE: texto bíblico já citado na seção; refs obrigatórias.\n")
-    sb.append("- ILLUSTRATION: exemplo/ilustração já presente ou implícita no texto.\n")
+    sb.append("- CONTEXT: situação, personagem ou pano de fundo já presente no texto.\n")
+    sb.append("- QUESTION: pergunta retórica ou de transição presente na seção.\n")
+    sb.append("- REASONING: o argumento/linha de raciocínio, em 1–2 lembretes curtos.\n")
+    sb.append("- SCRIPTURE: referência/prova bíblica já citada; refs obrigatórias.\n")
+    sb.append("- READING: trecho bíblico para ler em voz alta; só com ref bíblica.\n")
+    sb.append("- ILLUSTRATION: exemplo/ilustração já presente no texto.\n")
+    sb.append("- QUOTE: citação de publicação ou pessoa; só com ref existente.\n")
     sb.append("- APPLICATION: o que o ouvinte deve fazer.\n")
-    sb.append("- IMAGE: só quando houver imagem anexada; use o imageId e a legenda reais.\n")
+    sb.append("- IMAGE: só quando houver imagem anexada; use imageId e legenda reais.\n")
+    sb.append("- DELIVERY: pausa, ênfase, gesto ou tom; direção de cena, não conteúdo falado.\n")
     sb.append("- TRANSITION: ponte para a próxima seção.\n")
     sb.append("- INVITATION, RECAP, APPEAL: só em conclusão (convite, recapitulação, apelo).\n\n")
     sb.append("Regras:\n")
-    sb.append("- NÃO invente refs, fatos, números, citações nem legendas.\n")
+    sb.append("- NÃO invente refs, fatos, números, citações, ilustrações nem pausas.\n")
+    sb.append("- ENTREGA/DELIVERY só quando o texto já indicar uma deixa explícita; ")
+        .append("caso contrário, deixe para o usuário adicionar manualmente.\n")
+    sb.append("- CITAÇÃO/QUOTE só com publicação/ref existente.\n")
+    sb.append("- LEITURA/READING só com ref bíblica.\n")
     sb.append("- anchorPhrase deve vir do TEXTO da seção (não inventar outra ideia).\n")
-    sb.append("- mainIdea: 1 frase; keyTerms: 3 a 6 palavras/frases curtas do texto.\n")
-    sb.append("- timeMinutes deve ser a duração informada da seção.\n")
-    sb.append("- Use 4 a 8 cues, na ordem em que o orador deve falar.\n")
-    sb.append("- Se não houver imagem anexada, NÃO emita cue IMAGE.\n")
+    sb.append("- mainIdea: 1 frase; timeMinutes deve ser a duração informada.\n")
+    sb.append("- Se não houver imagem anexada, NÃO emita lembrete IMAGE.\n")
     sb.append("- Retorne APENAS JSON válido (um objeto, não array).\n\n")
     sb.append("--- SEÇÃO ---\n")
     sb.append("id: ").append(section.id).append("\n")

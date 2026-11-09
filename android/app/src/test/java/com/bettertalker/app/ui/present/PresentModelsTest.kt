@@ -1,6 +1,9 @@
 package com.bettertalker.app.ui.present
 
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
+import com.bettertalker.app.domain.speech.TribunaCue
+import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.ui.stage.StageTurn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -165,5 +168,29 @@ class PresentModelsTest {
         assertEquals(7, timed.targetMinutes)
         val zeroed = cue("s3", 2, capsule = capsule("s3").copy(timeMinutes = 0))
         assertEquals(5, zeroed.targetMinutes)
+    }
+
+    @Test
+    fun cueImagemSoUsaAImagemAtribuida() {
+        val first = NoteImageEntity(
+            id = "img-1", noteId = "n1", sectionId = "s1", path = "/a.jpg",
+            mime = "image/jpeg", caption = "Primeira", addedAt = 1,
+        )
+        val second = NoteImageEntity(
+            id = "img-2", noteId = "n1", sectionId = "s1", path = "/b.jpg",
+            mime = "image/jpeg", caption = "Segunda", addedAt = 2,
+        )
+        val images = listOf(first, second)
+        val semId = TribunaCue(TribunaCueKind.IMAGE, "Mostre a imagem.")
+        val comId = semId.copy(imageId = "img-2")
+
+        assertNull(presentCueImage(semId, images))
+        assertEquals(second, presentCueImage(comId, images))
+        assertNull(
+            presentCueImage(
+                TribunaCue(TribunaCueKind.REASONING, "Texto", imageId = "img-1"),
+                images,
+            )
+        )
     }
 }

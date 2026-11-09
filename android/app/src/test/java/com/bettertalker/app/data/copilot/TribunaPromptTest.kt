@@ -2,6 +2,8 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SpeechSection
+import com.bettertalker.app.domain.speech.TribunaCueKind
+import com.bettertalker.app.domain.speech.TribunaDetail
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,5 +79,54 @@ class TribunaPromptTest {
         assertTrue(p.contains("Subpontos:"))
         assertTrue(p.contains("1. Jeová é organizado"))
         assertTrue(p.contains("2. Os anjos o louvam"))
+    }
+
+    // ---------- v5.1: nível de detalhe e 15 tipos de lembrete ----------
+
+    @Test
+    fun promptPadraoContinuaNaFaixaDaV42() {
+        val p = buildTribunaSectionPrompt(section("s", "T", "<p>x</p>"))
+        assertTrue(p.contains("NÍVEL DE DETALHE: STANDARD"))
+        assertTrue(p.contains("entre 4 e 8 lembretes"))
+        assertTrue(p.contains("no máximo 20 palavras"))
+        assertTrue(p.contains("entre 3 e 6 keyTerms"))
+    }
+
+    @Test
+    fun promptCompactoPedeMenosLembretes() {
+        val p = buildTribunaSectionPrompt(
+            section = section("s", "T", "<p>x</p>"),
+            detail = TribunaDetail.COMPACT,
+        )
+        assertTrue(p.contains("NÍVEL DE DETALHE: COMPACT"))
+        assertTrue(p.contains("entre 3 e 5 lembretes"))
+        assertTrue(p.contains("no máximo 12 palavras"))
+        assertTrue(p.contains("entre 3 e 3 keyTerms"))
+    }
+
+    @Test
+    fun promptDetalhadoPedeMaisGranularidade() {
+        val p = buildTribunaSectionPrompt(
+            section = section("s", "T", "<p>x</p>"),
+            detail = TribunaDetail.DETAILED,
+        )
+        assertTrue(p.contains("NÍVEL DE DETALHE: DETAILED"))
+        assertTrue(p.contains("entre 8 e 12 lembretes"))
+        assertTrue(p.contains("no máximo 25 palavras"))
+        assertTrue(p.contains("entre 5 e 8 keyTerms"))
+        assertTrue(p.contains("Se o texto não tiver material para o máximo"))
+        assertTrue(p.contains("nunca invente conteúdo para completar a faixa"))
+    }
+
+    @Test
+    fun promptListaOsQuinzeTiposDeLembrete() {
+        val p = buildTribunaSectionPrompt(section("s", "T", "<p>x</p>"))
+        TribunaCueKind.values().forEach { kind ->
+            assertTrue("tipo ausente: $kind", p.contains(kind.name))
+        }
+        assertTrue(p.contains("só em conclusão"))
+        assertTrue(p.contains("ENTREGA/DELIVERY"))
+        assertTrue(p.contains("CITAÇÃO/QUOTE"))
+        assertTrue(p.contains("LEITURA/READING"))
     }
 }

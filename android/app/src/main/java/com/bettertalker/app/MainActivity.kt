@@ -505,13 +505,15 @@ private fun AppNav(
                     defaultWholeFocus = true,
                     practiceContext = practice?.takeIf { it.noteId == target.id },
                     walkieDefault = true,
-                    // v4.1: “Trocar nota” limpa o vínculo e volta à home global;
-                    // não navega para a Home/Esboços.
-                    onChangeNote = {
+                    // v5.1: “Trocar nota” abre o picker; escolher troca o contexto.
+                    onChangeNote = { nav.navigate(Routes.picker("assistant")) },
+                    // v5.1: “Conversa geral” limpa o vínculo e volta à home global.
+                    onGeneralChat = {
                         assistantVm.clearLastNoteId()
                         assistantVm.clearPracticeContext()
                         globalVm.clearBinding()
                     },
+                    onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
                     onOpenHelp = {
@@ -544,6 +546,7 @@ private fun AppNav(
                             )
                         )
                     },
+                    onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     openChatRequest = assistantChatRequest,
                 )
             }
@@ -556,8 +559,6 @@ private fun AppNav(
                 onOpenNote = { nav.navigate(Routes.editor(it)) },
                 onOpenLibrary = { nav.navigate(Routes.library()) },
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
-                // #10b: ⚙ → SettingsScreen (Conta/Aparência/IA).
-                onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenHelp = {
                     openHelp(
                         AssistantHelpContext(
@@ -1099,8 +1100,12 @@ private fun NoteChatHost(
     practiceContext: com.bettertalker.app.data.copilot.PracticeSnapshot? = null,
     /** v4.0 Walkie: o Assistente abre no modo PTT grande. */
     walkieDefault: Boolean = false,
-    /** v4.0 Walkie: “Trocar nota” leva ao seletor/Esboços. */
+    /** v4.0 Walkie: “Trocar nota” abre o seletor de contexto. */
     onChangeNote: () -> Unit = {},
+    /** v5.1 Walkie: “Conversa geral” desvincula a nota e volta à home global. */
+    onGeneralChat: () -> Unit = {},
+    /** v5.1: ⚙ da top bar do Assistente. */
+    onOpenSettings: () -> Unit = {},
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
     onOpenHelp: () -> Unit = {},
@@ -1149,7 +1154,6 @@ private fun NoteChatHost(
     }
     val walkieNoteTitle by copilotVm.noteTitle.collectAsState()
     val activeTurn by copilotVm.activeTurn.collectAsState()
-    val nextStep by copilotVm.nextStepSuggestion.collectAsState()
 
     // Fatia 5: snapshot de prática no prompt do chat (nunca resultado de treino).
     androidx.compose.runtime.LaunchedEffect(practiceContext?.promptBlock) {
@@ -1294,7 +1298,6 @@ private fun NoteChatHost(
             pttState = pttState,
             pttPartial = pttPartial,
             ttsSpeaking = ttsSpeaking,
-            nextStep = nextStep,
             onPttPress = pttPressChecked,
             onPttRelease = { ptt.release() },
             onPttCancel = { ptt.cancel() },
@@ -1302,13 +1305,29 @@ private fun NoteChatHost(
                 walkie = false
                 fullFocusRequest = false
             },
-            onDigit = {
-                walkie = false
-                fullFocusRequest = true
+            onOpenNote = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onOpenEditor()
             },
-            onOpenNote = onOpenEditor,
-            onChangeNote = onChangeNote,
+            onChangeNote = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onChangeNote()
+            },
+            onGeneralChat = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onGeneralChat()
+            },
+            onOpenSettings = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onOpenSettings()
+            },
             onOpenHelp = onOpenHelp,
+            onConfigureAi = { nav.navigate(Routes.MODEL) },
+            onRetry = { copilotVm.retry() },
         )
     } else {
     ChatScreen(

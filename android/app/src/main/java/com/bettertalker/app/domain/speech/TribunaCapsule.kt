@@ -23,11 +23,14 @@ data class TribunaCapsule(
     val cues: List<TribunaCue> = emptyList(),
     /** v4.2: termos-chave para memorização. */
     val keyTerms: List<String> = emptyList(),
+    /** v5.1: 0 = cápsula antiga; 2 = folha de lembretes. */
+    val cueSheetVersion: Int = 0,
 )
 
 enum class TribunaCueKind {
-    HOOK, REASONING, SCRIPTURE, ILLUSTRATION,
-    APPLICATION, IMAGE, TRANSITION, INVITATION, RECAP, APPEAL
+    HOOK, CONTEXT, QUESTION, REASONING, SCRIPTURE, READING,
+    ILLUSTRATION, QUOTE, APPLICATION, IMAGE, DELIVERY,
+    TRANSITION, INVITATION, RECAP, APPEAL
 }
 
 data class TribunaCue(
@@ -45,12 +48,15 @@ fun TribunaCapsule.toJson(): String = buildString {
     append("\"anchorPhrase\":\"").append(tjEsc(anchorPhrase)).append("\"")
     if (transition != null) append(",\"transition\":\"").append(tjEsc(transition)).append("\"")
     timeMinutes?.let { append(",\"timeMinutes\":").append(it) }
+    if (cueSheetVersion > 0) {
+        append(",\"cueSheetVersion\":").append(cueSheetVersion)
+    }
     if (keyTerms.isNotEmpty()) {
         append(",\"keyTerms\":[")
         append(keyTerms.joinToString(",") { "\"${tjEsc(it)}\"" })
         append("]")
     }
-    if (cues.isNotEmpty()) {
+    if (cues.isNotEmpty() || cueSheetVersion >= 2) {
         append(",\"cues\":[")
         append(cues.joinToString(",") { it.toJson() })
         append("]")
@@ -87,6 +93,7 @@ fun tribunaCapsuleFromJson(json: String): TribunaCapsule? {
         timeMinutes = tjInt(json, "timeMinutes"),
         cues = tjCueList(json),
         keyTerms = tjStringArray(json, "keyTerms"),
+        cueSheetVersion = tjInt(json, "cueSheetVersion") ?: 0,
     )
 }
 
@@ -184,10 +191,10 @@ private fun tjStringArray(obj: String, key: String): List<String> {
 private fun tjCueList(obj: String): List<TribunaCue> {
     val inner = tjArray(obj, "cues") ?: return emptyList()
     return tjSplitObjects(inner).mapNotNull { cueObj ->
+        val text = tjString(cueObj, "text") ?: return@mapNotNull null
         val kind = tjString(cueObj, "kind")
             ?.let { runCatching { TribunaCueKind.valueOf(it) }.getOrNull() }
-            ?: return@mapNotNull null
-        val text = tjString(cueObj, "text") ?: return@mapNotNull null
+            ?: TribunaCueKind.REASONING
         TribunaCue(
             kind = kind,
             text = text,

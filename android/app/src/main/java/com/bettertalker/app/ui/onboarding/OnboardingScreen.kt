@@ -215,7 +215,7 @@ private fun TourStep(onOpenLibrary: () -> Unit, onAskBt: () -> Unit) {
         )
         TourCard(
             title = "Treino e Palco",
-            text = "Treine com tempo e feedback. No Palco, apresente com cues, " +
+            text = "Treine com tempo e feedback. No Palco, apresente com lembretes, " +
                 "imagens e checkpoint.",
         )
         Spacer(Modifier.height(12.dp))
