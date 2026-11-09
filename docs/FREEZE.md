@@ -22,8 +22,12 @@
 > Beta 64 via run `42613799443`, SHA-256
 > `26ce448d5dd6af24ae903d8657e2c4cf9e830b764bb1c960010d8c327ff77ba0`.
 > Link: https://github.com/guilhermemellojw/better-talker/releases/tag/v5.1.0.
-> Smoke final com o APK release no A34 pendente de reconexão antes da
-> divulgação.
+> Smoke final no A34 com o APK release 63/5.1 instalado por cima do 5.0.1/61:
+> dados preservados; home/walkie, menus, picker, Conversa geral,
+> candidatos/Sim-Não, chat, PTT/TTS, Tribuna (override/limpar,
+> adicionar/remover/Desfazer, imagem com/sem `imageId`) e Palco
+> (Mapa/Foco, foco por seção, rotação, sair/voltar). A base pública não tinha
+> cápsula legada; legado → v2 validado no debug e em testes.
 
 > **2026-11-08 — v5.0.1/61 (resgate do “Novidades”):** o sheet de upgrade
 > não é mais consumido ao exibir; `upgrade_v5_dismissed` é a fonte de verdade.
