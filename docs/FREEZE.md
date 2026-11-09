@@ -12,7 +12,15 @@
 > (`c5b7c1c`), CI `42678698697` verde, **3.123 testes JVM / 0**, lint 47
 > warnings. Smoke tablet: Jeremias 52, 51-52 e 52:2 na Tribuna e no Palco.
 > Sem TNM coberto por unitário; A34 pendente para repetir (não bloqueia o
-> patch); TalkBack no gate. Tag `v5.2.0` não foi movida.
+> patch); TalkBack no gate. Tag `v5.2.0` não foi movida. Tag `v5.2.1`
+> (`a156793`); release workflow `42686889163` verde; APK público 67/5.2.1
+> com SHA-256
+> `265b0bb8e6df871eae0450218f3b55ca5607d059fa39fe8be0e38559020c2c8a`.
+> Beta 68 via run `42688815349`, SHA-256
+> `4a5e98d0e9d895de8b4ab129a46d4e6234f804f9ea5b28cf1b1de165bc27f6e6`.
+> Link: https://github.com/guilhermemellojw/better-talker/releases/tag/v5.2.1.
+> A34 ainda pendente para repetir Jeremias 52/51-52/52:2 e o overlay antes do
+> gate dos amigos.
 
 > **2026-11-09 — v5.2/65 (Leitor TNM):** `BiblePassageReader` próprio com
 > refs livres/faixas/listas, TNM base (`baseReady("nwt")`) e fallback para
