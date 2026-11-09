@@ -1,6 +1,18 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-09 · **Build de referência:** v5.2 (versionCode 65, tag `v5.2.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-09 · **Build de referência:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-09 — v5.2.1/67 (leitor de capítulo):** `detectBibleChapters`
+> reconhece capítulo/faixa (`Jeremias 52`, `Jeremias 51-52`, `Salmo 23`,
+> `1 João 4`), rejeita `Livro Cap:Versículo`, valida o livro e preserva Jó ×
+> João. `BiblePassageReader` aceita capítulos, busca por prefixo
+> (`findByRefPrefixIn`), ordena/deduplica, mantém teto de 200 e status
+> honesto; `Jeremias 52:2` continua versículo. Sheet/overlay inalterados;
+> `resolveBible` do dossiê intocado. Branch `fix/v5.2.1-chapter-reader`
+> (`c5b7c1c`), CI `42678698697` verde, **3.123 testes JVM / 0**, lint 47
+> warnings. Smoke tablet: Jeremias 52, 51-52 e 52:2 na Tribuna e no Palco.
+> Sem TNM coberto por unitário; A34 pendente para repetir (não bloqueia o
+> patch); TalkBack no gate. Tag `v5.2.0` não foi movida.
 
 > **2026-11-09 — v5.2/65 (Leitor TNM):** `BiblePassageReader` próprio com
 > refs livres/faixas/listas, TNM base (`baseReady("nwt")`) e fallback para
