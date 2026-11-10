@@ -1,7 +1,7 @@
 # Spec — Palco (apresentar ao vivo)
 
 Status: implementado até a v5.3 (Palco do orador + roteiro completo de
-demonstração); tablet validado, A34 pendente. Sem TV/casting.
+demonstração); tablet e A34 validados. Sem TV/casting.
 Base: main; Tribuna atual serve como preparação/edição.
 
 ## 1. Objetivo
