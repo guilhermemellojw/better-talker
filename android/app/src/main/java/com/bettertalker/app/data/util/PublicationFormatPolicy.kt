@@ -29,10 +29,18 @@ object PublicationFormatPolicy {
         return n.contains("s-34") || n.contains("s34")
     }
 
-    /** Motivo para bloquear o download antes de enfileirar (NWT não-EPUB). */
-    fun downloadBlockedReason(fileName: String): String? {
-        val kind = detectKind(fileName)
-        val slot = matchBaseSlot(fileName)
+    /**
+     * Motivo para bloquear o download antes de enfileirar (NWT não-EPUB).
+     *
+     * O WebView às vezes entrega um nome genérico, então o kind e o slot
+     * também podem vir da URL de origem. Sem isso, o EPUB da TNM era
+     * bloqueado pelo fallback antigo mesmo com `nwt_T.epub` na URL.
+     */
+    fun downloadBlockedReason(fileName: String, sourceUrl: String? = null): String? {
+        val url = sourceUrl?.substringBefore('?')
+        val kind = detectKind(fileName).takeIf { it != DocKind.UNSUPPORTED }
+            ?: detectKind(url.orEmpty())
+        val slot = matchBaseSlot(fileName) ?: matchBaseSlot(url.orEmpty())
         if (slot == "nwt" && isNwtBlocked(kind.ext)) {
             return nwtBlockedMessage(kind.ext)
         }
