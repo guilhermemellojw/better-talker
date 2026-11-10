@@ -10,6 +10,10 @@
 > em 800 MB/1 GB. Banco **v24** (`image_backups`), rules
 > `users/{uid}/images/...`, sem bump/tag/release. O restore local continua
 > **só notas** (imagens não entram no ZIP); o Palco segue offline.
+> **Smoke tablet 2026-11-10:** login Google, backfill de 2 imagens (171 kB)
+> em WebP, anexo novo subindo automático, GIF ≤ 2 MB mantido como
+> `image/gif`, remoção da imagem apagando o objeto remoto e acesso sem auth
+> retornando **403**. CI da branch `42858156134` verde; **3.182 testes JVM**.
 
 > **2026-11-10 — v5.3.0/69 (Palco do orador + imagens só em discurso):**
 > branch `feat/v5.3-stage-speaker` (`9805ff4`, `c42a9ce`, `f8f5d8b`,
