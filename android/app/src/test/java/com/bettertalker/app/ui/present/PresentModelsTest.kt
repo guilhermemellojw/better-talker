@@ -5,6 +5,7 @@ import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.ui.stage.StageTurn
+import com.bettertalker.app.ui.stage.StageTurnKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -192,5 +193,103 @@ class PresentModelsTest {
                 images,
             )
         )
+    }
+
+    // ---------- v5.3: roteiro completo, narração e imagens da nota ----------
+
+    @Test
+    fun narracaoContaComoRoteiroPronto() {
+        val demo = cue(
+            "s1", 0, capsule = null,
+            turns = emptyList(),
+        ).copy(
+            script = listOf(
+                StageTurn("", "Ana entra na sala.", StageTurnKind.NARRATION),
+            )
+        )
+        assertTrue(presentCueReady(demo, demo = true))
+        assertEquals(PresentReadiness.READY, presentReadinessOf(listOf(demo), demo = true))
+    }
+
+    @Test
+    fun roteiroAchatadoPreservaNarracaoEIndiceDoTurno() {
+        val cue = cue("s1", 0, capsule = null).copy(
+            script = listOf(
+                StageTurn("", "Cenário.", StageTurnKind.NARRATION),
+                StageTurn("Ana", "Olá."),
+                StageTurn("", "O morador responde.", StageTurnKind.NARRATION),
+                StageTurn("Morador", "Bom dia."),
+            ),
+        )
+        val items = presentScriptItems(listOf(cue))
+        assertEquals(listOf(0, 1, 2, 3), items.map { it.turnIndex })
+        assertEquals(listOf("", "Ana", "", "Morador"), items.map { it.turn.speaker })
+        assertEquals(listOf("Ana", "Morador"), presentSpeakers(listOf(cue)))
+    }
+
+    @Test
+    fun imagemDaCueResolveEmTodaANotaComSecaoPrimeiro() {
+        val sectionImage = NoteImageEntity(
+            id = "img-s1", noteId = "n1", sectionId = "s1", path = "/s1.jpg",
+            mime = "image/jpeg", caption = "Da seção", addedAt = 1,
+        )
+        val noteImage = NoteImageEntity(
+            id = "img-n", noteId = "n1", sectionId = null, path = "/n.jpg",
+            mime = "image/jpeg", caption = "Da nota", addedAt = 2,
+        )
+        val present = cue("s1", 0, capsule = null).copy(
+            sectionImages = listOf(sectionImage),
+            noteImages = listOf(sectionImage, noteImage),
+        )
+        val imageCue = TribunaCue(
+            TribunaCueKind.IMAGE,
+            "Mostre o mapa.",
+            imageId = "img-n",
+        )
+        assertEquals(listOf("img-s1", "img-n"), present.images.map { it.id })
+        assertEquals(noteImage, presentCueImage(imageCue, present.images))
+    }
+
+    @Test
+    fun preVooContaImagensComLegendaEArquivoAusente() {
+        val image = NoteImageEntity(
+            id = "img-1", noteId = "n1", sectionId = "s1", path = "/ok.jpg",
+            mime = "image/jpeg", caption = "Mapa", addedAt = 1,
+        )
+        val imageCue = TribunaCue(
+            TribunaCueKind.IMAGE,
+            "Mostre o mapa.",
+            imageId = "img-1",
+            imageCaption = "Mapa do território",
+        )
+        val present = cue("s1", 0, capsule = null).copy(
+            capsule = capsule("s1").copy(cues = listOf(imageCue)),
+            sectionImages = listOf(image),
+            noteImages = listOf(image),
+        )
+        val ok = presentImageCheck(listOf(present)) { true }
+        assertEquals(1, ok.imageCues)
+        assertEquals(1, ok.withCaption)
+        assertEquals(1, ok.resolved)
+        assertTrue(ok.allResolved)
+        assertTrue(ok.isComplete)
+
+        val missing = presentImageCheck(listOf(present)) { false }
+        assertEquals(1, missing.imageCues)
+        assertEquals(1, missing.missing.size)
+        assertFalse(missing.allResolved)
+        assertFalse(missing.isComplete)
+    }
+
+    @Test
+    fun imagemSemAtribuicaoApareceComoSemImagem() {
+        val imageCue = TribunaCue(TribunaCueKind.IMAGE, "Mostre a imagem.")
+        val present = cue("s1", 0, capsule = null).copy(
+            capsule = capsule("s1").copy(cues = listOf(imageCue)),
+        )
+        val check = presentImageCheck(listOf(present)) { true }
+        assertEquals(0, check.resolved)
+        assertEquals(1, check.missing.size)
+        assertFalse(check.isComplete)
     }
 }

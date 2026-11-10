@@ -2,10 +2,12 @@ package com.bettertalker.app.ui.present
 
 import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.domain.speech.toJson
+import com.bettertalker.app.ui.stage.StageTurnKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -285,5 +287,79 @@ class PresentViewModelTest {
         assertTrue(
             prefs.focus["s2"]?.value?.let { it == 0 } ?: true,
         )
+    }
+
+    @Test
+    fun demoCarregaRoteiroComNarracaoESemImagens() = withVm(
+        FakeSource(
+            discourseType = DiscourseType.MINISTRY_PART.name,
+            sections = listOf(
+                section("s1", 0, cueCount = 0, mapped = false).copy(
+                    contentHtml = "<p>Ana entra na sala.</p>" +
+                        "<p><b>Ana:</b> Olá, tudo bem?</p>",
+                ),
+            ),
+            images = listOf(
+                NoteImageEntity(
+                    id = "img-s1", noteId = "n1", sectionId = "s1",
+                    path = "/s1.jpg", mime = "image/jpeg",
+                    caption = "Da seção", addedAt = 1,
+                ),
+                NoteImageEntity(
+                    id = "img-n", noteId = "n1", sectionId = null,
+                    path = "/n.jpg", mime = "image/jpeg",
+                    caption = "Da nota", addedAt = 2,
+                ),
+            ),
+        )
+    ) { vm, _ ->
+        vm.load()
+        awaitLoaded(vm)
+        val cue = vm.cues.value.single()
+        assertEquals(2, cue.allScript.size)
+        assertEquals(StageTurnKind.NARRATION, cue.allScript[0].kind)
+        assertEquals(StageTurnKind.SPEECH, cue.allScript[1].kind)
+        // v5.3: imagem é recurso de discurso; demo não carrega imagens.
+        assertTrue(cue.images.isEmpty())
+        assertEquals(PresentReadiness.READY, vm.readiness.value)
+        assertEquals(listOf("Ana"), vm.speakers.value)
+        assertEquals(2, vm.scriptItems.value.size)
+        assertEquals(listOf(0, 1), vm.scriptItems.value.map { it.turnIndex })
+    }
+
+    @Test
+    fun modoEhForcadoPorTipoDeNota() = withVm(
+        FakeSource(
+            discourseType = DiscourseType.MINISTRY_PART.name,
+            sections = listOf(
+                section("s1", 0, cueCount = 0, mapped = false).copy(
+                    contentHtml = "<p><b>Ana:</b> Olá.</p>",
+                ),
+            ),
+        )
+    ) { vm, _ ->
+        vm.load()
+        awaitLoaded(vm)
+        assertEquals(PresentMode.SCRIPT, vm.prep.value.mode)
+        // Mesmo que uma chamada antiga peça Lembretes, a demo fica no roteiro.
+        vm.updatePrep(vm.prep.value.copy(mode = PresentMode.CUES))
+        assertEquals(PresentMode.SCRIPT, vm.prep.value.mode)
+        vm.updatePrep(vm.prep.value.copy(scriptFocusOnly = true))
+        assertTrue(vm.prep.value.scriptFocusOnly)
+    }
+
+    @Test
+    fun discursoNaoAceitaModoRoteiro() = withVm(
+        FakeSource(
+            discourseType = DiscourseType.S34_DISCOURSE.name,
+            sections = listOf(section("s1", 0, cueCount = 2)),
+        )
+    ) { vm, _ ->
+        vm.load()
+        awaitLoaded(vm)
+        assertEquals(PresentMode.CUES, vm.prep.value.mode)
+        vm.updatePrep(vm.prep.value.copy(mode = PresentMode.SCRIPT, scriptFocusOnly = true))
+        assertEquals(PresentMode.CUES, vm.prep.value.mode)
+        assertFalse(vm.prep.value.scriptFocusOnly)
     }
 }

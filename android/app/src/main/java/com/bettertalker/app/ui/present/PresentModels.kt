@@ -5,6 +5,7 @@ import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
 import com.bettertalker.app.ui.stage.StageTurn
+import com.bettertalker.app.ui.stage.StageTurnKind
 
 /**
  * Apresentar live — modelos puros do pré-voo e do palco (spec
@@ -80,9 +81,9 @@ fun presentOrientationLabel(orientation: PresentOrientation): String = when (ori
     PresentOrientation.LOCK_CURRENT -> "Travar"
 }
 
-/** Seção pronta para o palco: cápsula nos discursos; turnos na demo. */
+/** Seção pronta para o palco: cápsula nos discursos; roteiro/texto na demo. */
 fun presentCueReady(cue: PresentCue, demo: Boolean): Boolean =
-    if (demo) cue.turns.isNotEmpty() else cue.capsule != null
+    if (demo) cue.allScript.isNotEmpty() else cue.capsule != null
 
 fun presentReadinessOf(cues: List<PresentCue>, demo: Boolean): PresentReadiness =
     presentReadiness(cues.size, cues.count { presentCueReady(it, demo) })
@@ -94,21 +95,44 @@ data class PresentCue(
     val title: String,
     val minutes: Int,
     val capsule: TribunaCapsule?,
+    /** Turnos falados (compatibilidade com o Treino/TTS). */
     val turns: List<StageTurn> = emptyList(),
-    /** v4.2: imagens da seção (cue de imagem/tela cheia; nunca no HTML). */
-    val images: List<NoteImageEntity> = emptyList(),
+    /** v5.3: roteiro completo da seção (falas + narração). */
+    val script: List<StageTurn> = emptyList(),
+    /** Imagens vinculadas à seção (strip/pré-voo; nunca no HTML). */
+    val sectionImages: List<NoteImageEntity> = emptyList(),
+    /** v5.3: todas as imagens da nota; a cue pode referenciar qualquer uma. */
+    val noteImages: List<NoteImageEntity> = emptyList(),
 ) {
+    /** v5.3: usa o roteiro novo ou os turnos antigos, sem perder a demo. */
+    val allScript: List<StageTurn>
+        get() = script.ifEmpty { turns }
+
+    /**
+     * v5.3: imagens da seção primeiro; depois as demais da nota, sem duplicar.
+     * O `imageId` da cue é resolvido nesta lista completa, nunca em um órfão.
+     */
+    val images: List<NoteImageEntity>
+        get() = (sectionImages + noteImages).distinctBy { it.id }
+
     /** v4.2: meta de tempo da seção (cues mandam; fallback = minutos). */
     val targetMinutes: Int
         get() = capsule?.timeMinutes?.takeIf { it > 0 } ?: minutes
 }
 
 /** Turno achatado do roteiro para o modo demo. */
-data class PresentScriptItem(val cueIndex: Int, val turn: StageTurn)
+data class PresentScriptItem(
+    val cueIndex: Int,
+    /** Índice do turno dentro da seção (para destacar no roteiro completo). */
+    val turnIndex: Int,
+    val turn: StageTurn,
+)
 
 fun presentScriptItems(cues: List<PresentCue>): List<PresentScriptItem> =
     cues.flatMapIndexed { index, cue ->
-        cue.turns.map { PresentScriptItem(cueIndex = index, turn = it) }
+        cue.allScript.mapIndexed { turnIndex, turn ->
+            PresentScriptItem(cueIndex = index, turnIndex = turnIndex, turn = turn)
+        }
     }
 
 /** Primeiro turno de uma seção (ou o último item se a seção não tiver turnos). */
@@ -122,7 +146,11 @@ fun presentScriptStartIndex(
 }
 
 fun presentSpeakers(cues: List<PresentCue>): List<String> =
-    cues.flatMap { cue -> cue.turns.map { it.speaker } }
+    cues.flatMap { cue ->
+        cue.allScript
+            .filter { it.kind == StageTurnKind.SPEECH }
+            .map { it.speaker }
+    }
         .map { it.trim() }
         .filter { it.isNotBlank() }
         .distinct()
@@ -136,6 +164,8 @@ data class PresentPrep(
     val roleIndex: Int = 0,
     /** Retoma seção/tempo salvos ao sair do palco. */
     val continueSaved: Boolean = false,
+    /** v5.3: no roteiro, mostra só o turno atual (teleprompter) em vez do roteiro completo. */
+    val scriptFocusOnly: Boolean = false,
 )
 
 /** Sessão salva para "Continuar de onde parei". */
@@ -170,8 +200,56 @@ fun presentBatteryLow(levelPercent: Int, charging: Boolean): Boolean =
 /**
  * v5.1: imagem de uma cue no Palco. Só resolve pelo `imageId` atribuído;
  * cue IMAGE sem imagem explícita não herda a primeira imagem da seção.
+ * v5.3: `images` deve conter todas as imagens da nota (seção primeiro).
  */
 fun presentCueImage(cue: TribunaCue, images: List<NoteImageEntity>): NoteImageEntity? {
     if (cue.kind != TribunaCueKind.IMAGE) return null
     return cue.imageId?.let { id -> images.firstOrNull { it.id == id } }
+}
+
+/**
+ * v5.3: resumo do pré-voo das cues de imagem. `fileExists` é injetado para
+ * manter o cálculo puro/testável; a produção passa `File(path).exists()`.
+ */
+data class PresentImageCheck(
+    val imageCues: Int = 0,
+    val withCaption: Int = 0,
+    val resolved: Int = 0,
+    val missing: List<String> = emptyList(),
+) {
+    val allResolved: Boolean get() = missing.isEmpty()
+    val isComplete: Boolean get() = imageCues == 0 || (allResolved && withCaption == imageCues)
+}
+
+fun presentImageCheck(
+    cues: List<PresentCue>,
+    fileExists: (String) -> Boolean = { true },
+): PresentImageCheck {
+    var imageCues = 0
+    var withCaption = 0
+    var resolved = 0
+    val missing = mutableListOf<String>()
+    cues.forEach { cue ->
+        cue.capsule?.cues.orEmpty().forEach { tribunaCue ->
+            if (tribunaCue.kind == TribunaCueKind.IMAGE) {
+                imageCues++
+                val image = presentCueImage(tribunaCue, cue.images)
+                val caption = tribunaCue.imageCaption
+                    ?.takeIf { it.isNotBlank() }
+                    ?: image?.caption.orEmpty()
+                if (caption.isNotBlank()) withCaption++
+                if (image != null && fileExists(image.path)) {
+                    resolved++
+                } else {
+                    missing += caption.ifBlank { "Seção ${cue.index + 1}" }
+                }
+            }
+        }
+    }
+    return PresentImageCheck(
+        imageCues = imageCues,
+        withCaption = withCaption,
+        resolved = resolved,
+        missing = missing,
+    )
 }

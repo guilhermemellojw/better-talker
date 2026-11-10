@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.stage
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -94,6 +95,71 @@ class StageTurnsTest {
     @Test
     fun stageSpeechText_semTurnos_usaFallback() {
         assertEquals("texto corrido", stageSpeechText(emptyList(), "texto corrido"))
+    }
+
+    // ---------- v5.3: roteiro completo com narração ----------
+
+    @Test
+    fun parseStageScript_preservaNarracaoETurnos() {
+        val html = "<p>Ana entra na sala e cumprimenta o morador.</p>" +
+            "<p><b>Ana:</b> Olá, tudo bem?</p>" +
+            "<p>O morador abre a porta.</p>" +
+            "<p><b>Morador:</b> Bom dia.</p>"
+        val script = parseStageScript(html)
+        assertEquals(4, script.size)
+        assertEquals(StageTurnKind.NARRATION, script[0].kind)
+        assertEquals("Ana entra na sala e cumprimenta o morador.", script[0].text)
+        assertEquals(StageTurnKind.SPEECH, script[1].kind)
+        assertEquals("Ana", script[1].speaker)
+        assertEquals(StageTurnKind.NARRATION, script[2].kind)
+        assertEquals(StageTurnKind.SPEECH, script[3].kind)
+        assertEquals("Morador", script[3].speaker)
+    }
+
+    @Test
+    fun parseStageScript_fallbackDeTextoCorridoViraNarracao() {
+        val script = parseStageScript("Texto corrido sem papeis.")
+        assertEquals(1, script.size)
+        assertEquals(StageTurnKind.NARRATION, script[0].kind)
+        assertEquals("Texto corrido sem papeis.", script[0].text)
+    }
+
+    @Test
+    fun parseStageScript_preservaListasETitulos() {
+        val html = "<h2>Preparação</h2><ul><li>Abra a publicação</li>" +
+            "<li>Leia o parágrafo</li></ul>"
+        val script = parseStageScript(html)
+        assertEquals(
+            listOf("Preparação", "Abra a publicação", "Leia o parágrafo"),
+            script.map { it.text },
+        )
+        assertTrue(script.all { it.kind == StageTurnKind.NARRATION })
+    }
+
+    @Test
+    fun parseStageScript_preservaTextoForaDosParagrafos() {
+        val script = parseStageScript("Abertura <p><b>Ana:</b> fala</p> Encerramento")
+        assertEquals(listOf("Abertura", "fala", "Encerramento"), script.map { it.text })
+        assertEquals(StageTurnKind.NARRATION, script[0].kind)
+        assertEquals(StageTurnKind.SPEECH, script[1].kind)
+        assertEquals(StageTurnKind.NARRATION, script[2].kind)
+    }
+
+    @Test
+    fun parseStageTurns_continuaSoComFalas() {
+        val html = "<p>Ana entra.</p><p><b>Ana:</b> Olá.</p>"
+        val turns = parseStageTurns(html)
+        assertEquals(1, turns.size)
+        assertEquals("Ana", turns[0].speaker)
+        assertFalse(turns[0].isNarration)
+    }
+
+    @Test
+    fun stageSpeechText_ignoraNarracao() {
+        val script = parseStageScript(
+            "<p>Ana entra.</p><p><b>Ana:</b> Olá.</p>"
+        )
+        assertEquals("Olá.", stageSpeechText(script, "fallback"))
     }
 
     @Test

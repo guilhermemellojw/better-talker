@@ -67,6 +67,7 @@ import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageFullScreen
 import com.bettertalker.app.ui.components.NoteImageStrip
 import com.bettertalker.app.ui.components.NoteImageThumb
+import com.bettertalker.app.ui.stage.DemoScript
 import com.bettertalker.app.ui.stage.StageAccent
 import com.bettertalker.app.ui.stage.StageBg
 import com.bettertalker.app.ui.stage.StageDim
@@ -75,6 +76,7 @@ import com.bettertalker.app.ui.stage.formatClock
 import com.bettertalker.app.ui.stage.stageClockSubtitle
 import com.bettertalker.app.ui.stage.stageTimerColor
 import com.bettertalker.app.ui.stage.stageTimerState
+import java.io.File
 
 private val PresentRed = Color(0xFFEF4444)
 
@@ -170,142 +172,150 @@ fun PresentStageScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    BackHandler { exitDialog = true }
+    // Voltar fecha primeiro o preview de imagem (Dialog); senão, pede para sair.
+    BackHandler(enabled = previewImage == null) { exitDialog = true }
 
     Box(Modifier.fillMaxSize().background(StageBg)) {
-        // Conteúdo (uma seção/turno por vez), com swipe horizontal.
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(scroll)
-                .windowInsetsPadding(WindowInsets.displayCutout)
-                .padding(start = 24.dp, end = 24.dp, top = 96.dp, bottom = 100.dp)
-                .pointerInput(prep.mode, currentIndex, scriptIndex) {
-                    var dragTotal = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragTotal = 0f },
-                        onDragEnd = {
-                            if (dragTotal <= -70f) vm.next()
-                            else if (dragTotal >= 70f) vm.previous()
-                            dragTotal = 0f
-                        },
-                        onHorizontalDrag = { _, amount -> dragTotal += amount },
-                    )
-                },
-        ) {
-            if (scriptMode) {
-                ScriptContent(
-                    current = currentScript,
-                    next = nextScript,
-                    role = role,
-                    totalTurns = scriptItems.size,
-                    index = scriptIndex,
-                    fontSp = fontSp,
-                )
-            } else {
-                CueContent(
-                    cue = currentCue,
-                    fontSp = fontSp,
-                    mapMode = mapMode,
-                    focusCueIndex = focusCueIndex,
-                    sectionElapsed = sectionElapsed,
-                    onFocusCue = { vm.setFocusCue(it) },
-                    onPreviewImage = { previewImage = it },
-                    onReadBible = { refs -> bibleVm.open(refs) },
-                )
-            }
-        }
-
-        // Cabeçalho fixo: seção + título + timer.
-        Surface(
-            color = Color(0xE6101724),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.displayCutout),
         ) {
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Cabeçalho fixo: seção + título + timer.
+            Surface(
+                color = Color(0xE6101724),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                IconButton(onClick = { exitDialog = true }) {
-                    Icon(Icons.Default.Close, "Encerrar apresentação", tint = StageFg)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "${currentIndex + 1}/${cues.size.coerceAtLeast(1)}",
-                        color = StageAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        currentCue?.title?.ifBlank { "Seção ${currentIndex + 1}" }
-                            ?: "Palco",
-                        color = StageFg,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                }
-                if (prep.timerVisible) {
-                    Column(horizontalAlignment = Alignment.End) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { exitDialog = true }) {
+                        Icon(Icons.Default.Close, "Encerrar apresentação", tint = StageFg)
+                    }
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            formatClock(totalElapsed),
-                            color = if (running) StageFg else StageDim,
-                            fontSize = 24.sp,
+                            "${currentIndex + 1}/${cues.size.coerceAtLeast(1)}",
+                            color = StageAccent,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
                         )
                         Text(
-                            stageClockSubtitle(sectionElapsed, sectionMinutes, running),
-                            color = stageTimerColor(sectionState),
-                            fontSize = 10.sp,
+                            currentCue?.title?.ifBlank { "Seção ${currentIndex + 1}" }
+                                ?: "Palco",
+                            color = StageFg,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
                             maxLines = 1,
                         )
                     }
-                }
-            }
-        }
-
-        // Navegação manual fixa.
-        Surface(
-            color = Color(0xE6101724),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.displayCutout),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val canPrevious = if (scriptMode) scriptIndex > 0 else currentIndex > 0
-                val canNext = if (scriptMode) scriptIndex < scriptItems.lastIndex
-                else currentIndex < cues.lastIndex
-                TextButton(
-                    onClick = vm::previous,
-                    enabled = canPrevious,
-                ) { Text("‹ Anterior", color = if (canPrevious) StageFg else StageDim) }
-                Spacer(Modifier.weight(1f))
-                if (!scriptMode) {
-                    val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
-                    if (hasCueSheet) {
-                        TextButton(onClick = { vm.setMapMode(!mapMode) }) {
-                            Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
+                    if (prep.timerVisible) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                formatClock(totalElapsed),
+                                color = if (running) StageFg else StageDim,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                            Text(
+                                stageClockSubtitle(sectionElapsed, sectionMinutes, running),
+                                color = stageTimerColor(sectionState),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                            )
                         }
                     }
                 }
-                Text(
-                    if (scriptMode) "Turno ${scriptIndex + 1}/${scriptItems.size}"
-                    else "Seção ${currentIndex + 1}/${cues.size}",
-                    color = StageDim,
-                    fontSize = 11.sp,
-                )
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = vm::next,
-                    enabled = canNext,
-                ) { Text("Próxima ›", color = if (canNext) StageFg else StageDim) }
+            }
+
+            // Conteúdo (uma seção/turno por vez), com swipe horizontal.
+            // A área de rolagem fica entre as barras: o turno atual nunca
+            // termina atrás da navegação inferior.
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 12.dp)
+                    .pointerInput(prep.mode, currentIndex, scriptIndex) {
+                        var dragTotal = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragTotal = 0f },
+                            onDragEnd = {
+                                if (dragTotal <= -70f) vm.next()
+                                else if (dragTotal >= 70f) vm.previous()
+                                dragTotal = 0f
+                            },
+                            onHorizontalDrag = { _, amount -> dragTotal += amount },
+                        )
+                    },
+            ) {
+                if (scriptMode) {
+                    ScriptContent(
+                        cue = currentCue,
+                        current = currentScript,
+                        next = nextScript,
+                        role = role,
+                        fontSp = fontSp,
+                        compact = prep.scriptFocusOnly,
+                    )
+                } else {
+                    CueContent(
+                        cue = currentCue,
+                        fontSp = fontSp,
+                        mapMode = mapMode,
+                        focusCueIndex = focusCueIndex,
+                        sectionElapsed = sectionElapsed,
+                        onFocusCue = { vm.setFocusCue(it) },
+                        onPreviewImage = { previewImage = it },
+                        onReadBible = { refs -> bibleVm.open(refs) },
+                    )
+                }
+            }
+
+            // Navegação manual fixa.
+            Surface(
+                color = Color(0xE6101724),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val canPrevious = if (scriptMode) scriptIndex > 0 else currentIndex > 0
+                    val canNext = if (scriptMode) scriptIndex < scriptItems.lastIndex
+                    else currentIndex < cues.lastIndex
+                    TextButton(
+                        onClick = vm::previous,
+                        enabled = canPrevious,
+                    ) { Text("‹ Anterior", color = if (canPrevious) StageFg else StageDim) }
+                    Spacer(Modifier.weight(1f))
+                    if (!scriptMode) {
+                        val hasCueSheet = currentCue?.capsule?.cues?.isNotEmpty() == true
+                        if (hasCueSheet) {
+                            TextButton(onClick = { vm.setMapMode(!mapMode) }) {
+                                Text(if (mapMode) "Foco" else "Mapa", color = StageAccent)
+                            }
+                        }
+                    }
+                    Text(
+                        if (scriptMode) {
+                            val localTurn = (currentScript?.turnIndex ?: -1) + 1
+                            val totalTurns = currentCue?.allScript?.size ?: 0
+                            "Seção ${currentIndex + 1}/${cues.size} · $localTurn/$totalTurns"
+                        } else {
+                            "Seção ${currentIndex + 1}/${cues.size}"
+                        },
+                        color = StageDim,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(
+                        onClick = vm::next,
+                        enabled = canNext,
+                    ) { Text("Próxima ›", color = if (canNext) StageFg else StageDim) }
+                }
             }
         }
 
@@ -417,9 +427,11 @@ private fun CueContent(
     if (capsule.cues.isNotEmpty()) {
         // Se o modelo não criou cue IMAGE, as imagens da seção ainda ficam
         // acessíveis (toque abre tela cheia) sem entrar no texto.
-        if (cue.images.isNotEmpty() && capsule.cues.none { it.kind == TribunaCueKind.IMAGE }) {
+        if (cue.sectionImages.isNotEmpty() &&
+            capsule.cues.none { it.kind == TribunaCueKind.IMAGE }
+        ) {
             NoteImageStrip(
-                images = cue.images,
+                images = cue.sectionImages,
                 thumbSizeDp = 68,
                 captionColor = StageDim,
             )
@@ -435,9 +447,10 @@ private fun CueContent(
         )
         Spacer(Modifier.height(10.dp))
         if (mapMode) {
-            capsule.cues.forEach { current ->
+            capsule.cues.forEachIndexed { index, current ->
                 PresentCueLine(
                     cue = current,
+                    cueNumber = index + 1,
                     fontSp = fontSp,
                     image = presentCueImage(current, cue.images),
                     onPreviewImage = onPreviewImage,
@@ -447,6 +460,7 @@ private fun CueContent(
         } else {
             PresentCueLine(
                 cue = capsule.cues[focused],
+                cueNumber = focused + 1,
                 fontSp = fontSp,
                 image = presentCueImage(capsule.cues[focused], cue.images),
                 onPreviewImage = onPreviewImage,
@@ -467,6 +481,25 @@ private fun CueContent(
                     onClick = { onFocusCue((focused + 1).coerceAtMost(capsule.cues.lastIndex)) },
                     enabled = focused < capsule.cues.lastIndex,
                 ) { Text("Lembrete ›", color = if (focused < capsule.cues.lastIndex) StageFg else StageDim) }
+            }
+            val nextCue = capsule.cues.getOrNull(focused + 1)
+            if (nextCue != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "A SEGUIR",
+                    color = StageDim,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    nextCue.text,
+                    color = StageDim,
+                    fontSize = (fontSp * 0.7f).sp,
+                    lineHeight = (fontSp * 1.1f).sp,
+                    maxLines = 3,
+                )
             }
         }
         // v4.2: checkpoint explícito do tempo acumulado nesta seção.
@@ -489,9 +522,9 @@ private fun CueContent(
         return
     }
 
-    if (cue.images.isNotEmpty()) {
+    if (cue.sectionImages.isNotEmpty()) {
         NoteImageStrip(
-            images = cue.images,
+            images = cue.sectionImages,
             thumbSizeDp = 68,
             captionColor = StageDim,
         )
@@ -559,6 +592,7 @@ private fun presentCueLabel(kind: TribunaCueKind): String = when (kind) {
 @Composable
 private fun PresentCueLine(
     cue: TribunaCue,
+    cueNumber: Int,
     fontSp: Int,
     image: NoteImageEntity?,
     onPreviewImage: (NoteImageEntity) -> Unit,
@@ -573,7 +607,11 @@ private fun PresentCueLine(
             shape = RoundedCornerShape(50),
         ) {
             Text(
-                presentCueLabel(cue.kind),
+                if (cue.kind == TribunaCueKind.IMAGE) {
+                    "IMAGEM $cueNumber"
+                } else {
+                    presentCueLabel(cue.kind)
+                },
                 color = StageAccent,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
@@ -605,23 +643,52 @@ private fun PresentCueLine(
                 fontSize = (fontSp * 0.68f).sp,
             )
         }
-        // v4.2: cue de imagem TOCÁVEL (tela cheia); sem autoexibição.
-        if (cue.kind == TribunaCueKind.IMAGE && image != null) {
+        // v5.3: cue de imagem TOCÁVEL (tela cheia) com número/legenda; sem
+        // autoexibição. Imagem removida/arquivo ausente mostram "Sem imagem".
+        if (cue.kind == TribunaCueKind.IMAGE) {
             Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                NoteImageThumb(
-                    path = image.path,
-                    caption = cue.imageCaption ?: image.caption,
-                    sizeDp = 72,
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clickable { onPreviewImage(image) },
+            val caption = cue.imageCaption
+                ?.takeIf { it.isNotBlank() }
+                ?: image?.caption.orEmpty()
+            val available = image != null && File(image.path).exists()
+            if (image != null && available) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NoteImageThumb(
+                        path = image.path,
+                        caption = caption,
+                        sizeDp = 72,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clickable { onPreviewImage(image) },
+                    )
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text(
+                            caption.ifBlank { "Sem legenda" },
+                            color = StageDim,
+                            fontSize = (fontSp * 0.66f).sp,
+                        )
+                        Text(
+                            "Toque para ampliar",
+                            color = StageAccent,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    "Sem imagem",
+                    color = PresentRed,
+                    fontSize = (fontSp * 0.72f).sp,
+                    fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    cue.imageCaption ?: image.caption.ifBlank { "Imagem da seção" },
+                    if (image == null) {
+                        "Escolha uma imagem no editor."
+                    } else {
+                        "O arquivo local não foi encontrado."
+                    },
                     color = StageDim,
-                    fontSize = (fontSp * 0.66f).sp,
-                    modifier = Modifier.padding(start = 10.dp),
+                    fontSize = (fontSp * 0.62f).sp,
                 )
             }
         }
@@ -667,80 +734,93 @@ private fun CueBlock(
 
 @Composable
 private fun ScriptContent(
+    cue: PresentCue?,
     current: PresentScriptItem?,
     next: PresentScriptItem?,
     role: String?,
-    totalTurns: Int,
-    index: Int,
     fontSp: Int,
+    compact: Boolean,
 ) {
-    if (current == null) {
+    val script = cue?.allScript.orEmpty()
+    if (cue == null || script.isEmpty()) {
         MissingCue(
             "Roteiro ainda não escrito. Edite o diálogo no editor.",
             title = "Sem roteiro nesta seção",
         )
         return
     }
-    val isRole = role != null && current.turn.speaker.equals(role, ignoreCase = true)
     Text(
-        if (role != null) "SEU PAPEL: $role" else "ROTEIRO",
+        if (compact) "TURNO ATUAL" else "ROTEIRO COMPLETO",
         color = StageAccent,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 1.sp,
     )
-    Spacer(Modifier.height(10.dp))
-    Text(
-        current.turn.speaker + if (isRole) " · você" else "",
-        color = if (isRole) StageAccent else StageDim,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-    )
-    Spacer(Modifier.height(6.dp))
-    Surface(
-        color = if (isRole) StageAccent.copy(alpha = 0.16f) else Color(0xFF111827),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    Spacer(Modifier.height(8.dp))
+    if (role != null) {
         Text(
-            current.turn.text,
-            color = StageFg,
-            fontSize = fontSp.sp,
-            lineHeight = (fontSp * 1.5).sp,
-            fontWeight = if (isRole) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier.padding(18.dp),
-        )
-    }
-    Spacer(Modifier.height(22.dp))
-    if (next != null) {
-        Text(
-            "A SEGUIR",
-            color = StageDim,
-            fontSize = 10.sp,
+            "SEU PAPEL: $role",
+            color = StageAccent,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.sp,
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "${next.turn.speaker}: ${next.turn.text}",
-            color = StageDim,
-            fontSize = (fontSp * 0.72f).sp,
-            lineHeight = (fontSp * 1.2f).sp,
-            maxLines = 5,
+        Spacer(Modifier.height(10.dp))
+    }
+    if (compact) {
+        val turn = current?.turn
+        if (turn == null) {
+            MissingCue(
+                "Roteiro ainda não escrito. Edite o diálogo no editor.",
+                title = "Sem roteiro nesta seção",
+            )
+            return
+        }
+        DemoScript(
+            turns = listOf(turn),
+            fontSp = fontSp,
+            currentIndex = 0,
+            role = role,
+            stageStyle = true,
         )
+        Spacer(Modifier.height(18.dp))
+        if (next != null) {
+            Text(
+                "A SEGUIR",
+                color = StageDim,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (next.turn.isNarration) {
+                    next.turn.text
+                } else {
+                    "${next.turn.speaker}: ${next.turn.text}"
+                },
+                color = StageDim,
+                fontSize = (fontSp * 0.72f).sp,
+                lineHeight = (fontSp * 1.2f).sp,
+                maxLines = 5,
+            )
+        } else {
+            Text(
+                "Fim do roteiro.",
+                color = StageDim,
+                fontSize = 12.sp,
+            )
+        }
     } else {
-        Text(
-            "Fim do roteiro.",
-            color = StageDim,
-            fontSize = 12.sp,
+        DemoScript(
+            turns = script,
+            fontSp = fontSp,
+            currentIndex = current?.turnIndex ?: -1,
+            role = role,
+            autoScroll = true,
+            stageStyle = true,
         )
     }
-    Spacer(Modifier.height(12.dp))
-    Text(
-        "Turno ${index + 1}/$totalTurns",
-        color = StageDim.copy(alpha = 0.8f),
-        fontSize = 11.sp,
-    )
 }
 
 @Composable

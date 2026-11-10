@@ -2,6 +2,7 @@ package com.bettertalker.app.ui.tribuna
 
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.domain.speech.TribunaCapsule
 import com.bettertalker.app.domain.speech.TribunaCue
 import com.bettertalker.app.domain.speech.TribunaCueKind
@@ -9,6 +10,7 @@ import com.bettertalker.app.domain.speech.TribunaDetail
 import com.bettertalker.app.domain.speech.TribunaMapStatus
 import com.bettertalker.app.domain.speech.toJson
 import com.bettertalker.app.domain.speech.tribunaCapsuleFromJson
+import com.bettertalker.app.ui.stage.StageTurnKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -260,6 +262,47 @@ class TribunaViewModelTest {
         assertTrue(!vm.isDemonstration.value)
         assertTrue(vm.cards.value[0].turns.isEmpty())
         assertEquals("Âncora s1", vm.cards.value[0].capsule?.anchorPhrase)
+    }
+
+    @Test
+    fun demo_preservaNarracaoNoRoteiro() = withVm(
+        FakeDao(
+            listOf(
+                entity("s1", 0, null).copy(
+                    contentHtml = "<p>Ana entra na sala.</p>" +
+                        "<p><b>Ana:</b> Olá, tudo bem?</p>",
+                ),
+            )
+        ),
+        isDemonstration = true,
+    ) { vm, _, _ ->
+        vm.load()
+        delay(30)
+        val script = vm.cards.value[0].turns
+        assertEquals(2, script.size)
+        assertEquals(StageTurnKind.NARRATION, script[0].kind)
+        assertEquals("Ana entra na sala.", script[0].text)
+        assertEquals(StageTurnKind.SPEECH, script[1].kind)
+        assertEquals("Ana", script[1].speaker)
+    }
+
+    @Test
+    fun cardCueImagesUsaTodasAsImagensDaNotaComSecaoPrimeiro() {
+        val sectionImage = NoteImageEntity(
+            id = "img-s1", noteId = "n1", sectionId = "s1", path = "/s1.jpg",
+            mime = "image/jpeg", caption = "Da seção", addedAt = 1,
+        )
+        val noteImage = NoteImageEntity(
+            id = "img-n", noteId = "n1", sectionId = null, path = "/n.jpg",
+            mime = "image/jpeg", caption = "Da nota", addedAt = 2,
+        )
+        val card = TribunaViewModel.TribunaCardUi(
+            sectionId = "s1", order = 0, sectionTitle = "T", minutes = 5,
+            capsule = capsule("s1"),
+            images = listOf(sectionImage),
+            allImages = listOf(sectionImage, noteImage),
+        )
+        assertEquals(listOf("img-s1", "img-n"), card.cueImages.map { it.id })
     }
 
     // ---------- v4.2: cues, completude e fallback ----------

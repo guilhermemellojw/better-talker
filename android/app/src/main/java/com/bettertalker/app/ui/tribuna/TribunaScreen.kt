@@ -76,8 +76,7 @@ import com.bettertalker.app.ui.bible.BibleReaderViewModel
 import com.bettertalker.app.ui.components.NoteImageFullScreen
 import com.bettertalker.app.ui.components.NoteImageStrip
 import com.bettertalker.app.ui.components.NoteImageThumb
-import com.bettertalker.app.ui.stage.StageTurn
-import com.bettertalker.app.ui.stage.stageSpeakerColor
+import com.bettertalker.app.ui.stage.DemoScript
 import kotlinx.coroutines.launch
 
 /**
@@ -405,11 +404,12 @@ private fun TribunaCard(
             }
             // v4.2: thumbnail + legenda no TOPO da seção; toque abre em tela
             // cheia. A imagem nunca é exibida sozinha nem entra no texto.
-            if (card.images.isNotEmpty()) {
+            // v5.3: imagem é recurso de discurso; demo não mostra imagens.
+            if (!isDemonstration && card.images.isNotEmpty()) {
                 NoteImageStrip(images = card.images, thumbSizeDp = 68)
             }
             if (isDemonstration) {
-                DemoScript(card.turns, fontSp)
+                DemoScript(turns = card.turns, fontSp = fontSp)
             } else if (capsule == null) {
                 Text(
                     "Tribuna não gerada para esta seção.",
@@ -478,7 +478,7 @@ private fun TribunaCard(
                         cue = cue,
                         cueIndex = index,
                         fontSp = fontSp,
-                        images = card.images,
+                        images = card.cueImages,
                         onText = { onCueText(index, it) },
                         onRefs = { onCueRefs(index, it) },
                         onReadText = if (
@@ -800,17 +800,35 @@ private fun TribunaCueEditor(
             TextButton(onClick = it) { Text("Ler texto") }
         }
         if (cue.kind == TribunaCueKind.IMAGE) {
+            val orphan = cue.imageId != null && image == null
             if (images.isEmpty()) {
-                Text(
-                    "Anexe uma imagem no editor para usar este lembrete.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (orphan) {
+                    Text(
+                        "Sem imagem — a imagem atribuída não está mais na nota.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = { onImage(null) }) {
+                        Text("Limpar referência")
+                    }
+                } else {
+                    Text(
+                        "Anexe uma imagem no editor para usar este lembrete.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 var imageMenu by remember(cueIndex) { mutableStateOf(false) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { imageMenu = true }) {
-                        Text(if (image == null) "Escolher imagem" else "Trocar imagem")
+                        Text(
+                            when {
+                                image != null -> "Trocar imagem"
+                                orphan -> "Sem imagem"
+                                else -> "Escolher imagem"
+                            }
+                        )
                     }
                     DropdownMenu(
                         expanded = imageMenu,
@@ -851,6 +869,13 @@ private fun TribunaCueEditor(
                             modifier = Modifier.padding(start = 8.dp),
                         )
                     }
+                }
+                if (orphan) {
+                    Text(
+                        "Sem imagem — escolha outra ou limpe a referência.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
@@ -897,56 +922,10 @@ private fun CueKindMenu(kind: TribunaCueKind, onKind: (TribunaCueKind) -> Unit) 
 }
 
 /**
- * Bloco 2 (demos): roteiro com turnos alternados — 1º papel à direita, 2º à
- * esquerda (como um chat), com as cores de papel do Ensaio. Sem turnos
- * reconhecidos: placeholder discreto.
+ * Bloco 2 (demos): o roteiro completo é renderizado pelo componente
+ * compartilhado `DemoScript` (mesmo do Palco). A edição continua nos campos
+ * acima; aqui não há destaque de turno.
  */
-@Composable
-private fun DemoScript(turns: List<StageTurn>, fontSp: Int) {
-    if (turns.isEmpty()) {
-        Text(
-            "Diálogo ainda não escrito — edite no editor.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        return
-    }
-    val speakers = turns.map { it.speaker }.distinct()
-    // Block 2: no tema claro, os papéis usam as variantes escuras (contraste).
-    val darkTheme = com.bettertalker.app.ui.theme.relativeLuminance(
-        MaterialTheme.colorScheme.surface
-    ) < 0.5
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        turns.forEach { turn ->
-            val index = speakers.indexOf(turn.speaker).coerceAtLeast(0)
-            val alignRight = index % 2 == 0
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = if (alignRight) Arrangement.End else Arrangement.Start,
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth(0.86f),
-                ) {
-                    Column(Modifier.padding(10.dp)) {
-                        Text(
-                            turn.speaker,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = stageSpeakerColor(index, dark = darkTheme),
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            turn.text,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = fontSp.sp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun TribunaField(
