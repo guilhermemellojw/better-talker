@@ -51,6 +51,34 @@ class PublicationFormatPolicyTest {
         assertEquals(listOf("JWPUB", "EPUB", "PDF"), PublicationFormatPolicy.orderFor("w"))
         assertEquals(listOf("JWPUB", "DOCX", "PDF"), PublicationFormatPolicy.orderFor("s34"))
         assertEquals(listOf("EPUB"), PublicationFormatPolicy.orderFor("nwt"))
+        assertEquals(
+            listOf("JWPUB", "EPUB", "PDF"),
+            PublicationFormatPolicy.orderFor("s38"),
+        )
+    }
+
+    @Test
+    fun reparoPreservaBaseSlotDeBeThES38() {
+        assertEquals(
+            "be",
+            PublicationFormatPolicy.repairedBaseSlot("be", "be", null, "be"),
+        )
+        assertEquals(
+            "th",
+            PublicationFormatPolicy.repairedBaseSlot("th", "th", null, "th"),
+        )
+        assertEquals(
+            "s38",
+            PublicationFormatPolicy.repairedBaseSlot("s38", "s38", null, "s38"),
+        )
+        assertEquals(
+            "nwt",
+            PublicationFormatPolicy.repairedBaseSlot("nwt", "nwt", null, "nwt"),
+        )
+        assertEquals(
+            "be",
+            PublicationFormatPolicy.repairedBaseSlot("be", "be", null, null),
+        )
     }
 
     @Test

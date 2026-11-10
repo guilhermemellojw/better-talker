@@ -203,10 +203,12 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         }
         // v5.3.1: a TNM só troca por EPUB reconhecido como TNM. Não herdar
         // baseSlot nwt de um EPUB genérico (corromperia baseReady).
+        val currentPublication = cur.publicationKeyOrNull()
+        val candidatePublication = filePublicationKeyOrNull(name)
         com.bettertalker.app.data.util.PublicationFormatPolicy.nwtRepairBlockedReason(
-            currentPublicationKey = cur.publicationKeyOrNull(),
+            currentPublicationKey = currentPublication,
             candidateKind = kind.ext,
-            candidatePublicationKey = filePublicationKeyOrNull(name),
+            candidatePublicationKey = candidatePublication,
         )?.let {
             throw ImportException(ImportException.Reason.UNSUPPORTED, it)
         }
@@ -236,8 +238,19 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     indexed = false,
                     status = "indexing",
                     error = null,
-                    baseSlot = matchBaseSlot(name),
-                    symbol = matchBaseSlot(name) ?: detectSymbol(name),
+                    baseSlot = com.bettertalker.app.data.util.PublicationFormatPolicy
+                        .repairedBaseSlot(
+                            currentBaseSlot = cur.baseSlot,
+                            currentPublicationKey = currentPublication,
+                            candidateBaseSlot = matchBaseSlot(name),
+                            candidatePublicationKey = candidatePublication,
+                        ),
+                    symbol = when {
+                        currentPublication == "nwt" -> "nwt"
+                        matchBaseSlot(name) != null -> matchBaseSlot(name)
+                        candidatePublication != null -> candidatePublication
+                        else -> cur.symbol ?: detectSymbol(name)
+                    },
                     sha256 = hash,
                 )
             )

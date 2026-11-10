@@ -369,7 +369,7 @@ private fun AttachmentRow(
                 }
             }
             val policy = com.bettertalker.app.data.util.PublicationFormatPolicy
-            val showSwap = a.status != "downloading" &&
+            val showSwap = a.status != "downloading" && a.status != "missing" &&
                 (a.kind == "pdf" || (a.baseSlot == "nwt" && a.kind != "epub"))
             if (showSwap) {
                 TextButton(onClick = { onRestoreFile(a.id) }) {
