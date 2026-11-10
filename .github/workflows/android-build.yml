@@ -8,10 +8,16 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android-build.yml'
+      - 'storage-tests/**'
+      - 'storage.rules'
+      - 'firebase.json'
   pull_request:
     paths:
       - 'android/**'
       - '.github/workflows/android-build.yml'
+      - 'storage-tests/**'
+      - 'storage.rules'
+      - 'firebase.json'
 
 permissions:
   contents: read
@@ -97,6 +103,12 @@ jobs:
           name: better-talker-test-reports
           path: android/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
+
+      - name: Run Storage rules tests
+        working-directory: storage-tests
+        run: |
+          npm ci
+          npm test
 
       - name: Lint release
         id: lint_release

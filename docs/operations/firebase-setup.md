@@ -85,21 +85,25 @@ firebase use better-talker
 firebase deploy --only firestore:rules,storage
 ```
 
-`storage.rules` só permite `users/{uid}/images/...` para o próprio uid; não há
-URL pública. Testes locais do Firestore no Emulator:
+`storage.rules` só permite `users/{uid}/images/...` para o próprio uid, exige
+`contentType` de imagem e limita cada objeto a 10 MB; não há URL pública.
+Testes locais dos dois conjuntos de rules no Emulator:
 
 ```bash
 cd firestore-tests && npm ci && npm test
+cd storage-tests && npm ci && npm test
 ```
 
 ## 4. Orçamento e alerta
 
 No Google Cloud Console → **Billing → Budgets & alerts**:
 
-1. Crie um orçamento para o projeto `better-talker`.
-2. Defina o limite recomendado (ex.: **US$ 1**) e alertas em 50%, 80% e 100%.
-3. Envie para o e-mail da conta. O app também mostra um aviso local em
-   **Conta → Backup de imagens** a partir de 800 MB e 1 GB enviados.
+1. Crie um orçamento para o projeto `better-talker` (conta em BRL).
+2. Defina o limite recomendado (ex.: **R$ 5**, ≈ US$ 1) e alertas em
+   50%, 80% e 100%.
+3. Envie para o e-mail da conta. O app mostra o **uso real** no card
+   **Conta → Backup de imagens**; o alerta de faturamento fica no GCP.
+   O orçamento `Better Talker - alerta R$ 5` foi criado em 2026-11-10.
 
 O upload é opt-in e automático só depois do login; sem login, nenhuma imagem
 sai do aparelho. O limite por imagem é 10 MB; GIF até 2 MB mantém animação.
@@ -114,5 +118,11 @@ sai do aparelho. O limite por imagem é 10 MB; GIF até 2 MB mantém animação.
   `users/{uid}/images/{noteId}/{imageId}.webp` (ou `.gif`).
 - `adb logcat -s ImageBackupWorker` deve mostrar sucesso; falhas de rede
   viram retry e ficam visíveis no card.
+- Para testar o restore: apague os arquivos locais em
+  `files/images/<noteId>/` mantendo a nota; toque **Baixar imagens**. O card
+  mostra `N na nuvem`, `M sem nota local` e quantas foram restauradas.
+  Objetos antigos sem metadata usam caminho + defaults; os novos gravam
+  `noteId`, `sectionId`, `caption`, `kind`, `order`, `mime`, `addedAt` e
+  `sha256`.
 - Beta: ativar **Sincronização em nuvem**, fazer login e escolher o primeiro
   sync; `adb logcat -s SyncWorker` deve mostrar o sync rodando.

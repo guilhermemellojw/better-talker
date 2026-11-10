@@ -76,6 +76,12 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:testPublicAppDebugUnitTest --no-daemon --console=plain
 
+      - name: Run Storage rules tests
+        working-directory: storage-tests
+        run: |
+          npm ci
+          npm test
+
       - name: Lint release
         working-directory: android
         run: ./gradlew :app:lintPublicAppRelease --no-daemon --console=plain

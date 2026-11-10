@@ -4,27 +4,49 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * 5.4 — upload uid-scoped no Firebase Storage.
+ * 5.4.1 — Storage remoto uid-scoped.
  *
- * O caminho é montado por [ImageBackupPolicy.remotePath]; não há URL pública
- * e o Palco continua lendo o arquivo local. Objetos ficam em
- * `users/{uid}/images/...` e as rules exigem `request.auth.uid == uid`.
+ * Upload grava customMetadata (noteId, sectionId, caption, kind, order),
+ * list/download permitem restaurar em outro aparelho. Sem URL pública.
  */
-class FirebaseImageUploader : ImageUploader {
+class FirebaseImageUploader : ImageCloudRemote {
 
-    override suspend fun upload(path: String, bytes: ByteArray, contentType: String) {
+    override suspend fun upload(
+        path: String,
+        bytes: ByteArray,
+        contentType: String,
+        metadata: Map<String, String>,
+    ) {
         require(bytes.isNotEmpty()) { "imagem vazia" }
         val ref = FirebaseStorage.getInstance().reference.child(path)
-        val metadata = StorageMetadata.Builder()
-            .setContentType(contentType)
-            .build()
-        await(ref.putBytes(bytes, metadata))
+        val builder = StorageMetadata.Builder().setContentType(contentType)
+        metadata.forEach { (key, value) -> builder.setCustomMetadata(key, value) }
+        await(ref.putBytes(bytes, builder.build()))
     }
+
+    override suspend fun list(prefix: String): List<CloudImageObject> =
+        withContext(Dispatchers.IO) {
+            listTree(FirebaseStorage.getInstance().reference.child(prefix))
+        }
+
+    override suspend fun download(path: String): ByteArray? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                await(
+                    FirebaseStorage.getInstance().reference
+                        .child(path)
+                        .getBytes(MAX_DOWNLOAD_BYTES)
+                )
+            }.getOrNull()
+        }
 
     override suspend fun delete(path: String) {
         try {
@@ -37,6 +59,29 @@ class FirebaseImageUploader : ImageUploader {
         }
     }
 
+    private suspend fun listTree(ref: StorageReference): List<CloudImageObject> {
+        val list = await(ref.listAll())
+        val out = mutableListOf<CloudImageObject>()
+        for (item in list.items) {
+            val meta = runCatching { await(item.metadata) }.getOrNull()
+            out += CloudImageObject(
+                path = item.path.trimStart('/'),
+                sizeBytes = meta?.sizeBytes ?: 0L,
+                contentType = meta?.contentType,
+                metadata = customMetadata(meta),
+            )
+        }
+        for (child in list.prefixes) out += listTree(child)
+        return out
+    }
+
+    private fun customMetadata(meta: StorageMetadata?): Map<String, String> {
+        if (meta == null) return emptyMap()
+        return meta.customMetadataKeys.mapNotNull { key ->
+            meta.getCustomMetadata(key)?.let { key to it }
+        }.toMap()
+    }
+
     private suspend fun <T> await(task: Task<T>): T = suspendCancellableCoroutine { cont ->
         task.addOnCompleteListener { result ->
             if (result.isCanceled) cont.cancel()
@@ -47,5 +92,9 @@ class FirebaseImageUploader : ImageUploader {
                 cont.resumeWithException(result.exception ?: Exception("Firebase falhou"))
             }
         }
+    }
+
+    companion object {
+        private const val MAX_DOWNLOAD_BYTES = 10L * 1024 * 1024 + 1
     }
 }

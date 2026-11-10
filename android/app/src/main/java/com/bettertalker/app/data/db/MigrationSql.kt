@@ -236,4 +236,40 @@ object MigrationSql {
         "CREATE INDEX IF NOT EXISTS `index_image_backups_state` ON `image_backups`(`state`)",
         "CREATE INDEX IF NOT EXISTS `index_image_backups_updatedAt` ON `image_backups`(`updatedAt`)",
     )
+
+    /**
+     * v24 -> v25 (5.4.1): uid por backup e remoção da FK com note_images.
+     * Assim a linha `deleted` sobrevive à exclusão local até o objeto remoto
+     * ser apagado; linhas antigas ficam com uid NULL e são reenviadas com
+     * metadata no próximo backfill.
+     */
+    val MIGRATION_24_25: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `image_backups_new` (
+            `imageId` TEXT NOT NULL,
+            `state` TEXT NOT NULL,
+            `cloudPath` TEXT,
+            `sizeBytes` INTEGER NOT NULL,
+            `sha256` TEXT,
+            `uploadedAt` INTEGER,
+            `error` TEXT,
+            `attempts` INTEGER NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            `uid` TEXT,
+            PRIMARY KEY(`imageId`)
+        )
+        """.trimIndent(),
+        """
+        INSERT INTO `image_backups_new`
+            (`imageId`,`state`,`cloudPath`,`sizeBytes`,`sha256`,`uploadedAt`,
+             `error`,`attempts`,`updatedAt`,`uid`)
+        SELECT `imageId`,`state`,`cloudPath`,`sizeBytes`,`sha256`,`uploadedAt`,
+               `error`,`attempts`,`updatedAt`,NULL
+        FROM `image_backups`
+        """.trimIndent(),
+        "DROP TABLE `image_backups`",
+        "ALTER TABLE `image_backups_new` RENAME TO `image_backups`",
+        "CREATE INDEX IF NOT EXISTS `index_image_backups_state` ON `image_backups`(`state`)",
+        "CREATE INDEX IF NOT EXISTS `index_image_backups_updatedAt` ON `image_backups`(`updatedAt`)",
+    )
 }

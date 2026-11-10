@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.syncIndicatorText
 import com.bettertalker.app.data.images.ImageBackupStats
+import com.bettertalker.app.data.images.ImageRestoreReport
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +64,10 @@ fun AccountScreen(
     val syncState by vm.syncState.collectAsState()
     val imageBackupEnabled by vm.imageBackupEnabled.collectAsState()
     val imageStats by vm.imageStats.collectAsState()
+    val restoreBusy by vm.restoreBusy.collectAsState()
+    val restoreReport by vm.restoreReport.collectAsState()
+    val restoreError by vm.restoreError.collectAsState()
+    val pendingCloudDeletes by vm.pendingCloudDeletes.collectAsState()
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
     val message by vm.message.collectAsState()
@@ -83,7 +88,7 @@ fun AccountScreen(
         }
     }
 
-    if (showFirstSync) {
+    if (vm.syncBeta && showFirstSync) {
         AlertDialog(
             onDismissRequest = { /* escolha obrigatória */ },
             title = { Text("Primeiro sync") },
@@ -117,10 +122,17 @@ fun AccountScreen(
             title = { Text("Outra conta neste aparelho") },
             text = {
                 Text(
-                    "Este aparelho já está vinculado a outra conta. Para entrar " +
-                        "com a conta nova, é preciso apagar os dados locais " +
-                        "(notas, pastas, anexos e conversas). O que já foi " +
-                        "sincronizado continua na nuvem da conta anterior."
+                    if (vm.syncBeta) {
+                        "Este aparelho já está vinculado a outra conta. Para entrar " +
+                            "com a conta nova, é preciso apagar os dados locais " +
+                            "(notas, pastas, anexos, conversas e imagens). O que já foi " +
+                            "sincronizado continua na nuvem da conta anterior."
+                    } else {
+                        "Este aparelho já está vinculado a outra conta. Para entrar " +
+                            "com a conta nova, é preciso apagar os dados locais " +
+                            "(notas, pastas, anexos, conversas e imagens). O backup " +
+                            "de imagens da conta anterior continua no Storage."
+                    }
                 )
             },
             confirmButton = {
@@ -140,13 +152,18 @@ fun AccountScreen(
     if (confirmWipe) {
         AlertDialog(
             onDismissRequest = vm::cancelWipe,
-            title = { Text("Apagar nuvem?") },
+            title = { Text(if (vm.syncBeta) "Apagar nuvem?" else "Apagar backup de imagens?") },
             text = {
                 Text(
-                    "Apaga notas, pastas, metadados, seções e esboços no servidor. " +
-                        "O aparelho mantém tudo — e o próximo sync reenvia o que " +
-                        "ainda estiver no local. Para zerar de verdade, apague " +
-                        "também os dados locais."
+                    if (vm.syncBeta) {
+                        "Apaga notas, pastas, metadados, seções, esboços e imagens " +
+                            "no servidor. O aparelho mantém tudo — e o próximo sync " +
+                            "reenvia o que ainda estiver no local. Para zerar de " +
+                            "verdade, apague também os dados locais."
+                    } else {
+                        "Apaga as imagens da conta no Firebase Storage. Notas, " +
+                            "conversas e imagens locais não são tocadas."
+                    }
                 )
             },
             confirmButton = {
@@ -164,9 +181,17 @@ fun AccountScreen(
             title = { Text("Apagar dados deste aparelho?") },
             text = {
                 Text(
-                    "Notas, pastas, anexos e conversas locais serão apagados. " +
-                        "A conta continua conectada, então o próximo sync pode " +
-                        "baixar os dados da nuvem de volta. Exporte um backup antes."
+                    if (vm.syncBeta) {
+                        "Notas, pastas, anexos, conversas e imagens locais serão " +
+                            "apagados. A conta continua conectada, então o próximo " +
+                            "sync pode baixar os dados da nuvem de volta. Exporte " +
+                            "um backup antes."
+                    } else {
+                        "Notas, pastas, anexos, conversas e imagens locais serão " +
+                            "apagados. O backup de imagens no Storage não é apagado; " +
+                            "depois você pode usar “Baixar imagens”. Exporte um " +
+                            "backup local antes."
+                    }
                 )
             },
             confirmButton = {
@@ -309,10 +334,16 @@ fun AccountScreen(
                     enabled = imageBackupEnabled,
                     stats = imageStats,
                     busy = busy,
+                    restoreBusy = restoreBusy,
+                    restoreReport = restoreReport,
+                    restoreError = restoreError,
+                    pendingCloudDeletes = pendingCloudDeletes,
                     onSignIn = { vm.signInImages(uiContext) },
                     onSignOut = vm::signOutImages,
                     onToggle = vm::setImageBackupEnabled,
                     onBackup = vm::backupPendingImages,
+                    onRestore = vm::restoreImages,
+                    onRetryDeletes = vm::retryCloudDeletes,
                 )
             }
 
@@ -414,10 +445,16 @@ private fun ImageBackupCard(
     enabled: Boolean,
     stats: ImageBackupStats,
     busy: Boolean,
+    restoreBusy: Boolean,
+    restoreReport: ImageRestoreReport?,
+    restoreError: String,
+    pendingCloudDeletes: Int,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onBackup: () -> Unit,
+    onRestore: () -> Unit,
+    onRetryDeletes: () -> Unit,
 ) {
     val ctx = LocalContext.current
     Card(Modifier.fillMaxWidth()) {
@@ -496,12 +533,68 @@ private fun ImageBackupCard(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-                stats.budgetWarning?.let {
+                restoreReport?.let { report ->
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        it,
+                        report.summary,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        color = MaterialTheme.colorScheme.secondary,
                     )
+                    report.errors.firstOrNull()?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                if (restoreError.isNotBlank()) {
+                    Text(
+                        restoreError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (pendingCloudDeletes > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "$pendingCloudDeletes imagem(ns) aguardando remoção da nuvem.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    OutlinedButton(
+                        onClick = onRetryDeletes,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Tentar remover da nuvem")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onRestore,
+                    enabled = !busy && !restoreBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (restoreBusy) "Baixando imagens…" else "Baixar imagens")
+                }
+                if (restoreBusy) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Listando e baixando do Storage…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
                 }
                 if (stats.pending > 0) {
                     Spacer(Modifier.height(8.dp))
