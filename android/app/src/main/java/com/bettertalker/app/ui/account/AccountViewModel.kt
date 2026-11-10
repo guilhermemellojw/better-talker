@@ -331,7 +331,21 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun wipeCloud() = viewModelScope.launch {
         _confirmWipe.value = false
         _busy.value = true
-        _error.value = auth.wipeCloud() ?: ""
+        val err = auth.wipeCloud()
+        _error.value = err ?: ""
+        if (err == null) {
+            // O Storage sumiu: as linhas locais não podem continuar
+            // "uploaded" (o card mostraria backup que não existe).
+            db.imageBackupDao().clearAll()
+            settings.setImageBackupEnabled(false)
+            ImageBackupScheduler.cancelAll(app)
+            _restoreReport.value = null
+            _message.value = if (BuildConfig.SYNC_BETA) {
+                "Dados da nuvem apagados."
+            } else {
+                "Backup de imagens apagado. O envio automático foi pausado."
+            }
+        }
         _busy.value = false
     }
 

@@ -9,7 +9,7 @@ interface ImageBackupStore {
     suspend fun image(imageId: String): NoteImageEntity?
     suspend fun saveImage(image: NoteImageEntity)
     suspend fun noteExists(noteId: String): Boolean
-    suspend fun sectionExists(sectionId: String): Boolean
+    suspend fun sectionBelongsToNote(sectionId: String, noteId: String): Boolean
     suspend fun backup(imageId: String): ImageBackupEntity?
     suspend fun save(backup: ImageBackupEntity)
     suspend fun deleteBackup(imageId: String)
@@ -26,8 +26,8 @@ class RoomImageBackupStore(private val db: AppDatabase) : ImageBackupStore {
     override suspend fun noteExists(noteId: String): Boolean =
         db.noteDao().get(noteId) != null
 
-    override suspend fun sectionExists(sectionId: String): Boolean =
-        db.speechSectionDao().get(sectionId) != null
+    override suspend fun sectionBelongsToNote(sectionId: String, noteId: String): Boolean =
+        db.speechSectionDao().get(sectionId)?.noteId == noteId
 
     override suspend fun backup(imageId: String): ImageBackupEntity? =
         db.imageBackupDao().get(imageId)
