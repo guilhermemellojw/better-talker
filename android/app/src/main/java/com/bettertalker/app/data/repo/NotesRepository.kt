@@ -141,6 +141,13 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
 
     /** Exclusão definitiva: remove a nota + esboço + anexos e imagens vinculados. */
     suspend fun deleteForever(id: String) {
+        // 5.4: apaga a cópia remota antes da cascata local. Best effort:
+        // uma falha de rede não pode impedir a exclusão da nota.
+        runCatching {
+            com.bettertalker.app.data.images.ImageBackupRepository
+                .create(ctx.applicationContext, db)
+                .deleteCloudForNote(id)
+        }
         // v4.2: bytes privados das imagens (o registro cai pela FK em cascade).
         runCatching {
             com.bettertalker.app.data.images.NoteImageStore(

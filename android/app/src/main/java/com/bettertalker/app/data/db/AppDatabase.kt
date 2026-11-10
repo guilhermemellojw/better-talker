@@ -311,8 +311,8 @@ interface PassageDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class],
-    version = 23,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class],
+    version = 24,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -327,6 +327,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun speechSectionDao(): SpeechSectionDao
     abstract fun subPointDao(): SubPointDao
     abstract fun noteImageDao(): NoteImageDao
+    abstract fun imageBackupDao(): ImageBackupDao
 }
 
 @Entity(
@@ -437,6 +438,35 @@ data class NoteImageEntity(
     val kind: String = "illustration",
     val order: Int = 0,
     val addedAt: Long,
+)
+
+/**
+ * 5.4 — estado do backup da imagem no Firebase Storage.
+ *
+ * Só metadados; o binário original continua em `filesDir/images`. O upload
+ * automático é idempotente e o worker pode retomar `pending`/`failed`.
+ */
+@Entity(
+    tableName = "image_backups",
+    foreignKeys = [ForeignKey(
+        entity = NoteImageEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["imageId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [Index("state"), Index("updatedAt")],
+)
+data class ImageBackupEntity(
+    @PrimaryKey val imageId: String,
+    /** pending|uploading|uploaded|failed */
+    val state: String = "pending",
+    val cloudPath: String? = null,
+    val sizeBytes: Long = 0L,
+    val sha256: String? = null,
+    val uploadedAt: Long? = null,
+    val error: String? = null,
+    val attempts: Int = 0,
+    val updatedAt: Long = System.currentTimeMillis(),
 )
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
@@ -751,4 +781,49 @@ interface NoteImageDao {
 
     @Query("UPDATE note_images SET `order` = :order WHERE id = :id")
     suspend fun updateOrder(id: String, order: Int)
+
+    @Query("SELECT COUNT(*) FROM note_images")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT * FROM note_images ORDER BY addedAt ASC")
+    suspend fun all(): List<NoteImageEntity>
+
+    /** Imagens sem backup ou com falha/pendência (backfill manual/login). */
+    @Query(
+        "SELECT i.* FROM note_images i " +
+            "LEFT JOIN image_backups b ON b.imageId = i.id " +
+            "WHERE b.imageId IS NULL OR b.state IN ('pending','failed','uploading') " +
+            "ORDER BY i.addedAt ASC"
+    )
+    suspend fun pendingForBackup(): List<NoteImageEntity>
+}
+
+@Dao
+interface ImageBackupDao {
+    @Query("SELECT * FROM image_backups WHERE imageId = :imageId LIMIT 1")
+    suspend fun get(imageId: String): ImageBackupEntity?
+
+    @Upsert
+    suspend fun upsert(row: ImageBackupEntity)
+
+    @Query("DELETE FROM image_backups WHERE imageId = :imageId")
+    suspend fun delete(imageId: String)
+
+    @Query("SELECT COUNT(*) FROM image_backups WHERE state = 'uploaded'")
+    fun observeUploadedCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM image_backups WHERE state = 'failed'")
+    fun observeFailedCount(): Flow<Int>
+
+    @Query(
+        "SELECT COALESCE(SUM(sizeBytes), 0) FROM image_backups " +
+            "WHERE state = 'uploaded'"
+    )
+    fun observeUploadedBytes(): Flow<Long>
+
+    @Query(
+        "SELECT error FROM image_backups WHERE error IS NOT NULL " +
+            "ORDER BY updatedAt DESC LIMIT 1"
+    )
+    fun observeLastError(): Flow<String?>
 }

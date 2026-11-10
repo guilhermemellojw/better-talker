@@ -57,6 +57,19 @@ jobs:
           chmod 600 "$BT_KEYSTORE_FILE"
           test -s "$BT_KEYSTORE_FILE"
 
+      - name: Require public Firebase config
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          set -e
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "::error::Configure GOOGLE_SERVICES_JSON (publicApp Auth + Storage)."
+            exit 1
+          fi
+          mkdir -p android/app/src/publicApp
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/src/publicApp/google-services.json
+          grep -q 'com.bettertalker.app' android/app/src/publicApp/google-services.json
+
       - name: Run unit tests
         working-directory: android
         run: |

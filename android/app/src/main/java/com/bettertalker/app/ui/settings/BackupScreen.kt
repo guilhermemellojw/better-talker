@@ -117,9 +117,10 @@ fun BackupScreen(
                     Spacer(Modifier.height(4.dp))
                     Text("O que fica de fora", fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Arquivos das publicações, passagens indexadas, histórico " +
-                            "do Copilot e chave da API. Anexos voltam como metadados; " +
-                            "baixe o arquivo de novo na Biblioteca.",
+                        "Arquivos das publicações, passagens indexadas, imagens da " +
+                            "nota, histórico do Copilot e chave da API. Anexos voltam " +
+                            "como metadados; baixe o arquivo de novo na Biblioteca. " +
+                            "Imagens têm backup separado na Conta (opcional).",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

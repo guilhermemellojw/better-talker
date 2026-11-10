@@ -211,4 +211,29 @@ object MigrationSql {
         "CREATE INDEX IF NOT EXISTS `index_note_images_noteId` ON `note_images`(`noteId`)",
         "CREATE INDEX IF NOT EXISTS `index_note_images_sectionId` ON `note_images`(`sectionId`)",
     )
+
+    /**
+     * v23 -> v24: estado do backup de imagens no Storage (5.4).
+     * Aditiva; o binário local e a tabela note_images não mudam.
+     */
+    val MIGRATION_23_24: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `image_backups` (
+            `imageId` TEXT NOT NULL,
+            `state` TEXT NOT NULL,
+            `cloudPath` TEXT,
+            `sizeBytes` INTEGER NOT NULL,
+            `sha256` TEXT,
+            `uploadedAt` INTEGER,
+            `error` TEXT,
+            `attempts` INTEGER NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            PRIMARY KEY(`imageId`),
+            FOREIGN KEY(`imageId`) REFERENCES `note_images`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_image_backups_state` ON `image_backups`(`state`)",
+        "CREATE INDEX IF NOT EXISTS `index_image_backups_updatedAt` ON `image_backups`(`updatedAt`)",
+    )
 }

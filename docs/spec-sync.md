@@ -65,11 +65,13 @@ pull dos outros.
 **Decisão recomendada:** rules v2 com campos obrigatórios por coleção + limite
 de tamanho + `schemaVersion`; suíte de testes no Emulator no CI.
 
-### F6 (P2) — Release sem Firebase
-Intencional: sem `google-services.json`, `AuthRepository.isConfigured()=false`
+### F6 (P2) — Firebase opt-in por flavor
+Até o 5.3 o público era sem Firebase. No 5.4 o `publicApp` ganha Auth +
+Storage **apenas para imagens**; o Firestore e o sync de notas continuam no
+`syncBeta`. Sem `google-services.json`, `AuthRepository.isConfigured()=false`
 e o worker sai com sucesso. Para ligar: projeto Firebase, **dois apps Android**
 (`com.bettertalker.app` e `com.bettertalker.app.debug`), SHA-1/256 dos dois,
-Google Auth, json no build (CI secret ou arquivo local).
+Google Auth, Storage e json no flavor (CI secret ou arquivo local).
 
 ### F7 (P3) — Tombstones sem TTL
 Tombstones sobem e ficam para sempre (a remoção local só acontece quando o doc
@@ -110,7 +112,8 @@ diretório atual; inofensivo, mas convém guardar `appPath.isNotBlank()`.
 1. **Conflito:** LWW + cópia de conflito por nota. (recomendado)
 2. **Primeiro sync:** prompt Enviar/Baixar/Mesclar. (recomendado)
 3. **Troca de conta:** exportar backup antes do wipe. (recomendado)
-4. **Anexos:** só metadados + `sourceUrl`; sem Storage. (recomendado)
+4. **Anexos:** só metadados + `sourceUrl`; sem Storage. **Imagens da nota**
+   usam Storage a partir do 5.4 (backup opt-in, `users/{uid}/images/...`).
 5. **Release:** sync opt-in/experimental até E2E. (recomendado)
 6. **Firebase:** projeto criado pelo humano; build agent prepara rules/testes.
 
@@ -178,7 +181,8 @@ service cloud.firestore {
 ## 9. O que NÃO entra no MVP
 
 - Merge por campo / CRDT.
-- Firebase Storage para binários.
+- Firebase Storage para **anexos de publicação** (imagens da nota entram no
+  5.4 como backup separado, não como sync de notas).
 - Sync do chat do Copilot.
 - Sync de configurações/voz/API key.
 - Multi-conta no mesmo aparelho (continua 1 conta/aparelho).
@@ -337,16 +341,17 @@ M7 não é apenas ligar o Firebase; a ordem é:
    nota de teste sincronizada → wipe → local preservado → sync reenviou →
    wipe local + pull recuperou a nota. A conta ficou limpa depois do teste.
 3. **Firebase de produção**: apps `com.bettertalker.app` e `.debug`, SHA-1/
-   SHA-256 dos dois, Google Auth, rules v2. O JSON fica em
-   `android/app/src/syncBeta/google-services.json` (secret
-   `GOOGLE_SERVICES_JSON` no CI; ignorado pelo git). O flavor `publicApp` não
-   recebe Firebase, credenciais nem o JSON.
-4. **Opt-in**: os flavors são `publicApp` (100% local) e `syncBeta`
-   (`versionCode 43`, `versionNameSuffix "-syncbeta"`, mesmo applicationId no
-   release). No beta, sync desligado por padrão, rótulo “Experimental”,
-   first-sync Enviar/Baixar/Mesclar e status/conflitos visíveis. O workflow
-   manual `.github/workflows/android-syncbeta.yml` gera o APK beta assinado,
-   sem tag/release.
+   SHA-256 dos dois, Google Auth, Storage e rules v2. O JSON fica em
+   `android/app/src/syncBeta/google-services.json` e/ou
+   `android/app/src/publicApp/google-services.json` (secret
+   `GOOGLE_SERVICES_JSON` no CI; ignorado pelo git). O público recebe apenas
+   Auth + Storage de imagens; o Firestore continua no beta.
+4. **Opt-in**: os flavors são `publicApp` (notas locais + backup de imagens
+   opt-in) e `syncBeta` (`versionCode 70`, `versionNameSuffix "-syncbeta"`,
+   mesmo applicationId no release). No beta, sync desligado por padrão, rótulo
+   “Experimental”, first-sync Enviar/Baixar/Mesclar e status/conflitos
+   visíveis. O workflow manual `.github/workflows/android-syncbeta.yml` gera o
+   APK beta assinado, sem tag/release.
 5. **Beta pequeno**: monitorar cópias de conflito, wipe acidental, anexos
    `missing` e custo; critério de saída: nenhuma perda de texto.
 6. **Release**: decidir versão (3.3/4.0), notas e se Firebase entra no APK

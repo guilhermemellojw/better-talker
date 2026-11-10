@@ -65,6 +65,7 @@ class AuthRepository(private val ctx: Context) {
 
     fun currentUser(): CloudUser? = authOrNull()?.currentUser?.toCloudUser()
 
+    @android.annotation.SuppressLint("DiscouragedApi")
     private fun webClientId(): String? {
         val id = ctx.resources.getIdentifier("default_web_client_id", "string", ctx.packageName)
         if (id == 0) return null
@@ -177,7 +178,8 @@ class AuthRepository(private val ctx: Context) {
                     suspendTask<Void> { cb -> batch.commit().addOnCompleteListener(cb) }
                 }
             }
-            null
+            // 5.4: o Storage de imagens também pertence à conta.
+            com.bettertalker.app.data.images.ImageCloudWiper.wipe(uid)
         } catch (e: Exception) {
             e.message?.take(160) ?: "Falha ao apagar nuvem."
         }

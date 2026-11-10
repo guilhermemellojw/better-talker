@@ -1,7 +1,7 @@
 # Better Talker 🎙️
 
 > **Editor de discursos em blocos de tempo, com Copilot de oratória, Biblioteca local de publicações, Treino e métricas de fala.**
-> **Estágio: v5.3.0/69 publicado (tag v5.3.0) — Palco do orador com roteiro completo da demonstração, imagens somente em discursos e cue de imagem com thumbnail/tela cheia; baseline anterior 5.2.1/67; banco v23 preservado; sync beta em APK separado.**
+> **Estágio: v5.3.0/69 publicado (tag v5.3.0); 5.4 interno em andamento — backup opt-in de imagens no Firebase Storage (Auth + Storage no público, Firestore só no beta); banco v24; sync beta em APK separado.**
 
 Better Talker é um app Android nativo. O código ativo está em `android/`. Os resíduos do pacote web antigo (`public/`, `tools/e2e-*.cjs`, `vite.config.ts`, `tsconfig*.json`) são **legado congelado**: não fazem parte do build nem do produto.
 
@@ -12,6 +12,7 @@ O fluxo central é: importar ou escrever um esboço dividido em blocos de minuto
 ## 📌 Estado atual (2026-11-10)
 
 - **Versão:** 5.3.0 (versionCode 69), **público** (tag `v5.3.0`); baseline anterior **5.2.1/67**. **aba Assistente** como porta de entrada, agora com **assistente global por voz mesmo sem nota aberta** (saudação local, PTT grande, comandos locais de listar/abrir/criar esboços e ir para Treino/Palco, LLM com chave e fallback honesto sem chave, chat global efêmero) e **modo Walkie da nota** (PTT grande, última resposta em texto, chat completo a um toque), **PTT** com STT Sherpa local (fallback on-device), auto-TTS Piper e barge-in, **mentoria/navegação** (`abrir o Ponto 2`, `mostrar fontes`, `iniciar Treino`, `ir para o Palco`) e **contexto de Treino/Palco** no Assistente. Inclui o **Copilot conversa primeiro**, **cards sob demanda**, **fio único** com foco como lente, gate de fontes compacto, **JWPUB v10** e **refs de artigo sem duplicata**. No 4.0.1: ícone `interpreter_mode` no **Palco** e fontes da nota que devolvem a **página localizada** quando o § citado não está no índice. No 4.0.2: **Gerar Tribuna** no Palco com progresso e erro acionável, sem desviar para o editor. Validado no tablet e no A34 (debug e release local).
+- **5.4 interno (em andamento):** login Google opt-in no APK público **apenas** para backup de imagens no Firebase Storage, com envio automático ao anexar, WebP (GIF ≤ 2 MB mantém animação), limite de 10 MB, estado por imagem e retry. Notas, chat, anexos e Firestore continuam fora do público; sem login o app segue 100% local. Banco **v24** (`image_backups`); rules `users/{uid}/images/...`; sem bump/tag/release até o 6.0.
 - **Release 5.3.0/69 (2026-11-10):** Palco do orador com **roteiro completo da demonstração** (narração preservada, turno atual destacado, Anterior/Próximo e modo opcional “só turno atual”), Tribuna e Palco usando o mesmo `DemoScript`; **imagens somente em discursos** (editor, Tribuna, pré-voo e Palco escondem/bloqueiam imagens na demo) e cue de imagem com número/legenda, thumbnail, tela cheia, Back com timer contínuo e “Sem imagem”; TNM de capítulo/faixa continua e foi repetido no A34. Sem schema novo; DB v23; sem Firebase no público. **APK release 69/5.3 instalado por cima do público 5.2.1/67 no A34**, com dados preservados; smoke de demo/discurso/TNM aprovado. Tag `v5.3.0` em `e9550ad`; merge `6b3d45f`; SHA-256 público `c212a38763b72c572f6c1d1dceaad0e6316d7da05cadfeb22557dd050e3526cc`.
 - **Patch 5.2.1/67 (2026-11-09):** Leitor TNM aceita capítulo inteiro e faixa (`Jeremias 52`, `Jeremias 51-52`) além de versículos/faixas/listas, com consulta por prefixo, ordem/dedupe, status RESOLVED/PARTIAL/UNRESOLVED/MISSING_CORPUS e “Capítulo completo”; `Jeremias 52:2` continua versículo. Mesmo sheet/overlay da 5.2.0; `resolveBible` do dossiê intocado. Sem schema novo; DB v23. Tag `v5.2.0` não foi movida.
 - **Release 5.2/65 (2026-11-09):** Leitor TNM próprio na Tribuna e no Palco: refs livres/faixas/listas, TNM base com fallback para Bíblia indexada, status RESOLVED/PARTIAL/UNRESOLVED/MISSING_CORPUS, teto de 200 com aviso, sheet/overlay com versículos numerados, TTS sem números, Copiar e “Abrir Biblioteca” sem TNM. O overlay do Palco usa Dialog full-screen e não deixa toques/swipes atravessarem. Sem schema novo; DB v23; `resolveBible` do dossiê inalterado. **TalkBack** segue no gate dos amigos.
@@ -172,10 +173,12 @@ cd android
 ```
 ou abra `android/` no Android Studio.
 
-### Firebase (opcional — só metadados)
-1. Crie um projeto no [Firebase Console](https://console.firebase.google.com/) com um app **Android** (`com.bettertalker.app`).
-2. `google-services.json` → `android/app/google-services.json` (está no `.gitignore`).
-3. O sync do Android usa **Firestore** com regras escopadas por usuário (`users/{uid}/...`), configuradas no Console. Sem configuração de Firebase, o app roda 100% offline.
+### Firebase (opcional)
+1. Crie um projeto no [Firebase Console](https://console.firebase.google.com/) com os apps **Android** `com.bettertalker.app` (release) e `com.bettertalker.app.debug`.
+2. Salve o `google-services.json` em `android/app/src/publicApp/` (público) e/ou `android/app/src/syncBeta/` (beta). O arquivo é ignorado pelo git e o build gera os recursos do flavor correspondente.
+3. **Público:** Auth Google + Storage apenas para backup opt-in das imagens (`users/{uid}/images/...`). Notas, chat e anexos continuam locais; o Firestore não entra no APK público.
+4. **Beta:** além do Auth, usa **Firestore** para sync de notas/metadados (`users/{uid}/...`) e o mesmo Storage de imagens.
+5. Publique as regras com `firebase deploy --only firestore:rules,storage` (detalhes em [docs/operations/firebase-setup.md](docs/operations/firebase-setup.md)). Sem `google-services.json`, o app compila e roda 100% local.
 
 ---
 

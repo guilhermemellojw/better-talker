@@ -44,28 +44,30 @@ jobs:
           sdk.dir=/usr/local/lib/android/sdk
           EOF
 
-      - name: Write google-services.json (syncBeta only)
+      - name: Write google-services.json (per flavor)
         run: |
-          mkdir -p android/app/src/syncBeta
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            echo "$GOOGLE_SERVICES_JSON" > android/app/src/syncBeta/google-services.json
+            mkdir -p android/app/src/syncBeta android/app/src/publicApp
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/src/syncBeta/google-services.json
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/src/publicApp/google-services.json
           fi
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
       - name: Confirm Firebase config boundaries
         run: |
-          if [ -f android/app/src/syncBeta/google-services.json ]; then
-            echo "syncBeta google-services.json present"
-            grep -E "project_id|package_name" android/app/src/syncBeta/google-services.json
-          else
-            echo "syncBeta google-services.json MISSING -> beta compila sem sync"
-          fi
+          for flavor in syncBeta publicApp; do
+            if [ -f "android/app/src/$flavor/google-services.json" ]; then
+              echo "$flavor google-services.json present"
+              grep -E "project_id|package_name" "android/app/src/$flavor/google-services.json"
+            else
+              echo "$flavor google-services.json MISSING -> compila com Firebase inativo"
+            fi
+          done
           if [ -f android/app/google-services.json ]; then
-            echo "::error::google-services.json na raiz do app vazaria para o público."
+            echo "::error::google-services.json na raiz do app vazaria para os flavors."
             exit 1
           fi
-          echo "publicApp não recebe google-services.json"
 
       - name: Run unit tests
         id: unit_tests

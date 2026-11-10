@@ -1,0 +1,18 @@
+rules_version = '2';
+// Better Talker — 5.4: backup de imagens por usuário.
+//
+// Estrutura: users/{uid}/images/{noteId}/{imageId}.{ext}
+// - só o dono lê/escreve;
+// - nada é público;
+// - qualquer outro caminho é negado (fail-closed).
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/images/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
