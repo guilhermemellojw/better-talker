@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 67
-        versionName "5.2.1"
+        versionCode 69
+        versionName "5.3"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
@@ -47,10 +47,10 @@ android {
         syncBeta {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
-            // Beta 68 (5.2.1-syncbeta). Rebuild experimental depois do público
-            // 5.2.1/67; o público não tem Firebase/sync.
-            versionCode 68
-            versionName "5.2.1"
+            // Beta 70 (5.3-syncbeta). Rebuild experimental depois do público
+            // 5.3/69; o público não tem Firebase/sync.
+            versionCode 70
+            versionName "5.3"
             versionNameSuffix "-syncbeta"
         }
     }
