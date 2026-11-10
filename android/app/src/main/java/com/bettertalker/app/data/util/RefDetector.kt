@@ -198,10 +198,10 @@ object RefDetector {
     )
 
     /** Livros citados por página + § (não por estudo/capítulo). */
-    private val PAGE_RANGE_BOOKS = setOf("cl", "rr")
+    private val PAGE_RANGE_BOOKS = setOf("cl", "dn", "rr")
 
     /** Siglas curtas de livro aceitas mesmo sem parênteses ("jr 29"). */
-    private val BARE_BOOK_SYMBOLS = setOf("cl", "jr", "rr")
+    private val BARE_BOOK_SYMBOLS = setOf("cl", "dn", "jr", "rr")
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
     // Roda antes das rotas legadas; cobre "(it-1 813)", "(kj 264-5)",
     // "(it-2 1050)" e o volume unificado "(it 813)". O `it` nu vem DEPOIS
@@ -284,12 +284,6 @@ object RefDetector {
     // da publicação (matava o phantom "jr" em "Jeremias 45:3").
     // O matcher roda no texto NORMALIZADO: "45:3" chega como "45 3".
     private val BIBLE_CHAPVER_AFTER_RE = Regex("""^\s*\(?\d{1,3}\s*:?\s*\d{1,3}\b""")
-    // v5.3.1: capítulo/faixa bíblico após um título que também é livro
-    // ("Jeremias 52", "Jeremias 51-52"). Só vale para títulos de livro;
-    // não confunde "Beneficie-se 52" (publicação) com Bíblia.
-    private val BIBLE_CHAPTER_AFTER_RE = Regex(
-        """^\s*\(?\d{1,3}(?:\s*[-–—]\s*\d{1,3})?\b""",
-    )
 
     private val PT_MONTHS = listOf(
         "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -634,7 +628,7 @@ object RefDetector {
             // v5.3.1: símbolo que também é abreviação bíblica + capítulo
             // plausível ("Re 1", "Je 29") é Bíblia, não estudo/página.
             if (isBibleSymbol(sym) &&
-                isBibleChapterNumber(m.groupValues[2].toIntOrNull()) &&
+                isBibleChapterForSymbol(sym, m.groupValues[2].toIntOrNull()) &&
                 m.groupValues[3].isEmpty()
             ) {
                 return@forEach
@@ -936,7 +930,8 @@ object RefDetector {
         }
         // sigla + número avulsos: "lff 27", "(jy 15)", "jr 29" — fora códigos de revista
         // (lookahead final: \b impediria consumir o ")" e quebraria o balanceamento)
-        Regex("""\(?\b([a-z]{2,4}(?:-[12])?)\s+(\d{1,3})\)?(?![a-z0-9])""").findAll(text).forEach { m ->
+        Regex("""\(?\b([a-z]{2,4}(?:-[12])?)\s+(\d{1,3})\)?(?![a-z0-9])""",
+            RegexOption.IGNORE_CASE).findAll(text).forEach { m ->
             val matched = m.value.trim()
             // "(" só vale se o fechamento correspondente veio no match. Um
             // ")" solto pertence ao grupo externo: "(Jer. 52:1; jr 29)".
@@ -950,7 +945,7 @@ object RefDetector {
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
             // v5.3.1: "(Re 1:1)" e "(Je 29)" são Bíblia, não publicação.
             if (isBibleSymbol(sym) &&
-                isBibleChapterNumber(m.groupValues[2].toIntOrNull())
+                isBibleChapterForSymbol(sym, m.groupValues[2].toIntOrNull())
             ) {
                 return@forEach
             }
@@ -999,8 +994,14 @@ object RefDetector {
                 }
                 // v5.3.1: título que também é livro bíblico + capítulo/faixa
                 // ("Jeremias 52", "Jeremias 51-52") é Bíblia, não publicação.
-                if (bibleTitle && BIBLE_CHAPTER_AFTER_RE.containsMatchIn(after)) {
-                    return@firstOrNull false
+                // Usa o total real de capítulos do livro.
+                if (bibleTitle) {
+                    val chapter = Regex("""^\s*\(?(\d{1,3})""")
+                        .find(after)?.groupValues?.get(1)?.toIntOrNull()
+                    val book = BIBLE_TITLE_TO_BOOK[normTitle]
+                    if (isBibleChapterNumber(book, chapter)) {
+                        return@firstOrNull false
+                    }
                 }
                 Regex(
                     """(livro|brochura|publicacao|obra|revista|apostila|ver|veja|ler|leia|estud\w*|consult\w*)\s*$"""
@@ -1364,7 +1365,7 @@ object RefDetector {
         "jer" to "Jeremias",
         "lam" to "Lamentações", "la" to "Lamentações", "lamentacoes" to "Lamentações",
         "ez" to "Ezequiel", "ezequiel" to "Ezequiel",
-        "dn" to "Daniel", "da" to "Daniel", "daniel" to "Daniel",
+        "da" to "Daniel", "daniel" to "Daniel",
         "os" to "Oseias", "oseias" to "Oseias",
         "jl" to "Joel", "joel" to "Joel",
         "am" to "Amós", "amos" to "Amós",
@@ -1394,7 +1395,7 @@ object RefDetector {
         "gl" to "Gálatas", "gal" to "Gálatas", "galatas" to "Gálatas",
         "ef" to "Efésios", "efesios" to "Efésios",
         "fp" to "Filipenses", "fil" to "Filipenses", "filipenses" to "Filipenses",
-        "cl" to "Colossenses", "col" to "Colossenses", "colossenses" to "Colossenses",
+        "col" to "Colossenses", "colossenses" to "Colossenses",
         "1ts" to "1 Tessalonicenses", "1te" to "1 Tessalonicenses", "1tessalonicenses" to "1 Tessalonicenses",
         "2ts" to "2 Tessalonicenses", "2te" to "2 Tessalonicenses", "2tessalonicenses" to "2 Tessalonicenses",
         "1tm" to "1 Timóteo", "1ti" to "1 Timóteo", "1timoteo" to "1 Timóteo",
@@ -1415,9 +1416,40 @@ object RefDetector {
     )
 
     /** Títulos que são nomes de livros bíblicos (nunca são publicações). */
-    private val BIBLE_BOOK_TITLES: Set<String> by lazy {
-        BIBLE_BOOKS.values.map { normalizeText(it) }.toSet()
+    private val BIBLE_TITLE_TO_BOOK: Map<String, String> by lazy {
+        BIBLE_BOOKS.values.associateBy { normalizeText(it) }
     }
+
+    private val BIBLE_BOOK_TITLES: Set<String> by lazy {
+        BIBLE_TITLE_TO_BOOK.keys
+    }
+
+    /**
+     * v5.3.1: capítulos reais por livro (66). O guard de símbolo/título só
+     * trata como Bíblia quando o número cabe no livro; "Re 89" e "Cl 5" são
+     * páginas de publicação, não capítulos inexistentes.
+     */
+    private val BIBLE_CHAPTER_COUNTS: Map<String, Int> = mapOf(
+        "Gênesis" to 50, "Êxodo" to 40, "Levítico" to 27, "Números" to 36,
+        "Deuteronômio" to 34, "Josué" to 24, "Juízes" to 21, "Rute" to 4,
+        "1 Samuel" to 31, "2 Samuel" to 24, "1 Reis" to 22, "2 Reis" to 25,
+        "1 Crônicas" to 29, "2 Crônicas" to 36, "Esdras" to 10,
+        "Neemias" to 13, "Ester" to 10, "Jó" to 42, "Salmos" to 150,
+        "Provérbios" to 31, "Eclesiastes" to 12, "Cânticos" to 8,
+        "Isaías" to 66, "Jeremias" to 52, "Lamentações" to 5,
+        "Ezequiel" to 48, "Daniel" to 12, "Oseias" to 14, "Joel" to 3,
+        "Amós" to 9, "Obadias" to 1, "Jonas" to 4, "Miqueias" to 7,
+        "Naum" to 3, "Habacuque" to 3, "Sofonias" to 3, "Ageu" to 2,
+        "Zacarias" to 14, "Malaquias" to 4, "Mateus" to 28, "Marcos" to 16,
+        "Lucas" to 24, "João" to 21, "Atos" to 28, "Romanos" to 16,
+        "1 Coríntios" to 16, "2 Coríntios" to 13, "Gálatas" to 6,
+        "Efésios" to 6, "Filipenses" to 4, "Colossenses" to 4,
+        "1 Tessalonicenses" to 5, "2 Tessalonicenses" to 3,
+        "1 Timóteo" to 6, "2 Timóteo" to 4, "Tito" to 3, "Filemom" to 1,
+        "Hebreus" to 13, "Tiago" to 5, "1 Pedro" to 5, "2 Pedro" to 3,
+        "1 João" to 5, "2 João" to 1, "3 João" to 1, "Judas" to 1,
+        "Apocalipse" to 22,
+    )
 
     private fun isBibleBookTitle(normTitle: String): Boolean =
         normTitle in BIBLE_BOOK_TITLES
@@ -1426,9 +1458,19 @@ object RefDetector {
     private fun isBibleSymbol(symbol: String): Boolean =
         BIBLE_BOOKS.containsKey(symbol.lowercase())
 
-    /** Número que cabe como capítulo bíblico (1..150). */
-    private fun isBibleChapterNumber(number: Int?): Boolean =
-        number != null && number in 1..150
+    /** Número de capítulos do livro canônico (null = não é livro). */
+    private fun bibleChapterCount(book: String?): Int? =
+        book?.let { BIBLE_CHAPTER_COUNTS[it] }
+
+    /** O número cabe como capítulo do livro bíblico indicado. */
+    private fun isBibleChapterNumber(book: String?, number: Int?): Boolean {
+        val max = bibleChapterCount(book) ?: return false
+        return number != null && number in 1..max
+    }
+
+    /** O número cabe como capítulo do símbolo bíblico (re, cl, dn...). */
+    private fun isBibleChapterForSymbol(symbol: String, number: Int?): Boolean =
+        isBibleChapterNumber(BIBLE_BOOKS[symbol.lowercase()], number)
 
     /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
     data class BibleRef(val bookNorm: String, val label: String, val chapter: Int, val verse: Int)
@@ -1508,9 +1550,11 @@ object RefDetector {
             val rawKey = m.groupValues[1].trim()
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
             val label = if (rawKey == "jó") "Jó" else (BIBLE_BOOKS[key] ?: continue)
+            val maxChapter = bibleChapterCount(label) ?: continue
             val start = m.groupValues[2].toInt()
             val end = m.groupValues[3].toIntOrNull() ?: start
             if (start <= 0 || end < start || end - start > 50) continue
+            if (start > maxChapter || end > maxChapter) continue
             for (chapter in start..end) {
                 if (seen.add("$label|$chapter")) {
                     out += BibleChapterRef(key, label, chapter)

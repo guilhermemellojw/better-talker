@@ -70,6 +70,61 @@ class RefCollisionTest {
     }
 
     @Test
+    fun reForaDoTotalDeCapitulosViraPaginaDaPublicacao() {
+        assertEquals("re", pubs("Re 23").single().pubKey)
+        assertEquals(23, pubs("Re 23").single().page)
+        assertEquals("re", pubs("Re 89").single().pubKey)
+        assertEquals(89, pubs("Re 89").single().page)
+    }
+
+    @Test
+    fun reDentroDoTotalContinuaBiblia() {
+        assertTrue(pubs("Re 22").isEmpty())
+        assertEquals(
+            listOf("Apocalipse" to 22),
+            RefDetector.detectBibleChapters("Re 22").map { it.label to it.chapter },
+        )
+        // v5.3.1: capítulo válido, versículo inexistente continua Bíblia;
+        // o reader resolve como UNRESOLVED.
+        assertTrue(pubs("Re 22:21").isEmpty())
+        assertEquals(
+            listOf("Apocalipse" to 22 to 21),
+            RefDetector.detectBible("Re 22:21").map { it.label to it.chapter to it.verse },
+        )
+    }
+
+    @Test
+    fun clEDnSaoPublicacoesENaoAliasesDeBiblia() {
+        // cl = Achegue-se a Jeová; dn = Regência Divina. Col/Da são Bíblia.
+        assertEquals("cl", pubs("Cl 5").single().pubKey)
+        assertEquals(5, pubs("Cl 5").single().page)
+        assertEquals("cl", pubs("Cl 4").single().pubKey)
+        assertEquals(4, pubs("Cl 4").single().page)
+        assertEquals("dn", pubs("Dn 13").single().pubKey)
+        assertEquals(13, pubs("Dn 13").single().page)
+        assertEquals("dn", pubs("Dn 12").single().pubKey)
+        assertEquals(12, pubs("Dn 12").single().page)
+        assertTrue(pubs("Col 4").isEmpty())
+        assertTrue(pubs("Da 12").isEmpty())
+        assertEquals(
+            listOf("Colossenses" to 4),
+            RefDetector.detectBibleChapters("Col 4").map { it.label to it.chapter },
+        )
+        assertEquals(
+            listOf("Daniel" to 12),
+            RefDetector.detectBibleChapters("Da 12").map { it.label to it.chapter },
+        )
+        assertEquals(
+            listOf("Colossenses" to 1 to 1),
+            RefDetector.detectBible("Col 1:1").map { it.label to it.chapter to it.verse },
+        )
+        assertEquals(
+            listOf("Daniel" to 12 to 1),
+            RefDetector.detectBible("Da 12:1").map { it.label to it.chapter to it.verse },
+        )
+    }
+
+    @Test
     fun reComUnidadeExplicitaContinuaPublicacao() {
         assertEquals("re", pubs("re p. 10").single().pubKey)
         assertEquals("re", pubs("re cap. 1").single().pubKey)
