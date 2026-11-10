@@ -115,4 +115,32 @@ class PublicationFormatPolicyTest {
         assertNull(PublicationFormatPolicy.downloadBlockedReason("nwt_T.epub"))
         assertNull(PublicationFormatPolicy.downloadBlockedReason("w25.07.pdf"))
     }
+
+    @Test
+    fun downloadNwtUsaUrlQuandoNomeVemGenerico() {
+        assertNull(
+            PublicationFormatPolicy.downloadBlockedReason(
+                "nwt_T.epub",
+                sourceUrl = "https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.epub",
+            )
+        )
+        assertNull(
+            PublicationFormatPolicy.downloadBlockedReason(
+                "download.bin",
+                sourceUrl = "https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.epub?x=1",
+            )
+        )
+        assertTrue(
+            PublicationFormatPolicy.downloadBlockedReason(
+                "download.bin",
+                sourceUrl = "https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.pdf",
+            )!!.contains("EPUB")
+        )
+        assertTrue(
+            PublicationFormatPolicy.downloadBlockedReason(
+                "nwt_T.pdf",
+                sourceUrl = "https://cfp2.jw-cdn.org/a/40194f/3/o/nwt_T.pdf",
+            )!!.contains("EPUB")
+        )
+    }
 }
