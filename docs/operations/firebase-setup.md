@@ -1,9 +1,15 @@
 # Firebase — setup do projeto `better-talker`
 
 Projeto existente: **better-talker** (`project_number 338115469610`).
-O `google-services.json` **nunca é commitado** (`.gitignore`); ele fica em
-`android/app/src/syncBeta/google-services.json` na máquina de build/CI. O
-flavor público não lê esse arquivo.
+O `google-services.json` **nunca é commitado** (`.gitignore`). A partir do 5.4
+ele pode ficar em dois caminhos, um por flavor:
+
+| Flavor | Caminho | Firebase usado |
+|---|---|---|
+| `publicApp` | `android/app/src/publicApp/google-services.json` | Auth + Storage (imagens) |
+| `syncBeta` | `android/app/src/syncBeta/google-services.json` | Auth + Firestore + Storage |
+
+Sem o json do flavor, o app compila com Firebase inativo e continua 100% local.
 
 ## 1. Apps Android no Firebase
 
@@ -23,7 +29,7 @@ SHAs-256 (opcional, recomendado):
 
 > **Estado em 2026-11-04:** os dois apps têm SHA-1/SHA-256 de debug e de
 > release registrados. O login do APK `syncBetaRelease` foi validado no tablet
-> com a conta de teste.
+> com a conta de teste. O login do `publicApp` usa os mesmos clients.
 
 ### Passos no Console
 
@@ -34,55 +40,79 @@ SHAs-256 (opcional, recomendado):
    - Nome: `Better Talker Debug`.
    - SHA-1 `EF:02:BC:…:C2:5B` e SHA-256 do debug.
 3. **Authentication → Sign-in method → Google**: ativar.
-4. **Firestore Database**: criar (modo produção) se ainda não existir.
-5. Baixar o **novo** `google-services.json` (com os dois clients) e salvar em
-   `android/app/src/syncBeta/google-services.json`. No CI, o secret
-   `GOOGLE_SERVICES_JSON` é gravado nesse caminho.
+4. **Firestore Database**: criar (modo produção) se ainda não existir. Só o
+   flavor `syncBeta` usa Firestore; o público não inclui a dependência.
+5. **Storage**: abrir **Storage → Get Started** e criar o bucket
+   `better-talker.firebasestorage.app` (o mesmo do `google-services.json`).
+   O Storage exige o plano Blaze com orçamento/alertas configurados; o uso
+   típico de imagens fica dentro da cota gratuita.
+6. Baixar o **novo** `google-services.json` (com os dois clients) e salvar em
+   `android/app/src/publicApp/` e, se for buildar o beta,
+   `android/app/src/syncBeta/`. No CI, o secret `GOOGLE_SERVICES_JSON` é
+   gravado nos dois caminhos pelo workflow de build; o release público exige
+   o secret e grava só em `publicApp`.
 
 ## 2. Build
 
-O flavor `syncBeta` lê o json e gera os string resources manualmente (sem o
-plugin `google-services`, incompatível com AGP 8.13):
+O build gera os string resources manualmente (sem o plugin
+`google-services`, incompatível com AGP 8.13):
 
-- `syncBetaRelease` usa o client `com.bettertalker.app`;
-- `syncBetaDebug` usa o client `com.bettertalker.app.debug`;
-- `publicApp` não recebe Firebase, Credential Manager nem o json.
+- `publicAppRelease` e `publicAppDebug` usam o json de `src/publicApp`;
+- `syncBetaRelease` e `syncBetaDebug` usam o json de `src/syncBeta`;
+- o release público usa o client `com.bettertalker.app`; debug usa `.debug`.
 
 Confira no log do Gradle:
 
 ```
-[BetterTalker] Firebase do syncBeta (com.bettertalker.app) carregado.
+[BetterTalker] Firebase do publicApp (com.bettertalker.app.debug) carregado.
 ```
 
 Builds:
 
 ```bash
-./gradlew :app:assemblePublicAppDebug      # público, 100% local
+./gradlew :app:assemblePublicAppDebug      # público: Auth + Storage opt-in
 ./gradlew :app:assembleSyncBetaRelease     # beta assinado (mesmo applicationId)
 ```
 
 ## 3. Rules
 
-O repo versiona `firestore.rules` + `firebase.json`. Para publicar:
+O repo versiona `firestore.rules`, `storage.rules` e `firebase.json`. Para
+publicar:
 
 ```bash
 firebase login
 firebase use better-talker
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules,storage
 ```
 
-Testes locais no Emulator (sem tocar na nuvem):
+`storage.rules` só permite `users/{uid}/images/...` para o próprio uid; não há
+URL pública. Testes locais do Firestore no Emulator:
 
 ```bash
 cd firestore-tests && npm ci && npm test
 ```
 
-## 4. Verificação
+## 4. Orçamento e alerta
 
-- `./gradlew :app:assembleSyncBetaRelease` deve logar o client do beta.
-- Instalar o `syncBetaRelease` e ativar Configurações → Conta →
-  Sincronização em nuvem (Experimental). O sync começa **desligado**.
-- Fazer login Google com a conta de teste e escolher o primeiro sync.
-- `adb logcat -s SyncWorker` deve mostrar o sync rodando (sem erro de
-  permissão/rules).
-- No Console → Firestore, conferir `users/{uid}/notes`.
+No Google Cloud Console → **Billing → Budgets & alerts**:
+
+1. Crie um orçamento para o projeto `better-talker`.
+2. Defina o limite recomendado (ex.: **US$ 1**) e alertas em 50%, 80% e 100%.
+3. Envie para o e-mail da conta. O app também mostra um aviso local em
+   **Conta → Backup de imagens** a partir de 800 MB e 1 GB enviados.
+
+O upload é opt-in e automático só depois do login; sem login, nenhuma imagem
+sai do aparelho. O limite por imagem é 10 MB; GIF até 2 MB mantém animação.
+
+## 5. Verificação
+
+- `./gradlew :app:assemblePublicAppDebug` deve logar o client do público.
+- Instalar o debug e abrir **Configurações → Conta → Backup de imagens**.
+- Entrar com Google; o switch **Envio automático** deve ligar.
+- Anexar uma imagem numa nota de discurso; em alguns segundos o card deve
+  mostrar `1 de N imagens` e o objeto deve aparecer em
+  `users/{uid}/images/{noteId}/{imageId}.webp` (ou `.gif`).
+- `adb logcat -s ImageBackupWorker` deve mostrar sucesso; falhas de rede
+  viram retry e ficam visíveis no card.
+- Beta: ativar **Sincronização em nuvem**, fazer login e escolher o primeiro
+  sync; `adb logcat -s SyncWorker` deve mostrar o sync rodando.

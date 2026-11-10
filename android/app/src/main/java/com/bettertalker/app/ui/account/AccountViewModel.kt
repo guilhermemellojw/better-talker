@@ -9,6 +9,8 @@ import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.isConflictNoteTitle
 import com.bettertalker.app.data.db.NoteEntity
+import com.bettertalker.app.data.images.ImageBackupScheduler
+import com.bettertalker.app.data.images.ImageBackupStats
 import com.bettertalker.app.data.prefs.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,8 +37,27 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val syncBetaEnabled = settings.syncBetaEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    // 5.4: backup de imagens (login opt-in; notas continuam locais).
+    val imageBackupEnabled = settings.imageBackupEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     // M2: primeiro sync deste aparelho pede escolha (Enviar/Baixar/Mesclar).
     private val db = com.bettertalker.app.data.db.DbProvider.get(app)
+    val imageStats: StateFlow<ImageBackupStats> = combine(
+        db.noteImageDao().observeCount(),
+        db.imageBackupDao().observeUploadedCount(),
+        db.imageBackupDao().observeFailedCount(),
+        db.imageBackupDao().observeUploadedBytes(),
+        db.imageBackupDao().observeLastError(),
+    ) { total, uploaded, failed, bytes, lastError ->
+        ImageBackupStats(
+            total = total,
+            uploaded = uploaded,
+            failed = failed,
+            uploadedBytes = bytes,
+            lastError = lastError,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ImageBackupStats())
     private val _localNoteCount = MutableStateFlow(0)
     val showFirstSync: StateFlow<Boolean> = combine(
         user,
@@ -70,6 +91,12 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.SYNC_BETA && settings.syncBetaEnabledValue()) {
                 SyncScheduler.ensurePeriodic(app)
+            }
+        }
+        viewModelScope.launch {
+            // Recupera pendências de uma sessão anterior (app morto no meio).
+            if (settings.imageBackupEnabledValue()) {
+                ImageBackupScheduler.enqueueAllPending(app)
             }
         }
         viewModelScope.launch { refreshLocalNoteCountAndSkipFirstSyncIfEmpty() }
@@ -141,6 +168,62 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             return@launch
         }
         SyncScheduler.requestSync(app)
+    }
+
+    /**
+     * 5.4: login opt-in para o backup de imagens. Não liga o sincronização
+     * beta nem exige o flavor beta; notas/chat continuam locais.
+     */
+    fun signInImages(uiContext: android.content.Context? = null) = viewModelScope.launch {
+        if (!auth.isConfigured()) {
+            _error.value = "Firebase não configurado neste build."
+            return@launch
+        }
+        _busy.value = true
+        val err = auth.signIn(uiContext ?: app)
+        if (err == null && auth.accountConflict.value == null) {
+            settings.setImageBackupEnabled(true)
+            ImageBackupScheduler.enqueueAllPending(app)
+            _message.value = "Backup de imagens ativado."
+        } else {
+            _error.value = err ?: ""
+        }
+        _busy.value = false
+    }
+
+    fun signOutImages() = viewModelScope.launch {
+        auth.signOut()
+        settings.setImageBackupEnabled(false)
+        ImageBackupScheduler.cancelAll(app)
+        _message.value = "Saiu da conta. As notas e imagens continuam neste aparelho."
+    }
+
+    fun setImageBackupEnabled(enabled: Boolean) = viewModelScope.launch {
+        if (enabled && auth.currentUser() == null) {
+            _error.value = "Entre com Google para ativar o backup de imagens."
+            return@launch
+        }
+        settings.setImageBackupEnabled(enabled)
+        if (enabled) {
+            ImageBackupScheduler.enqueueAllPending(app)
+            _message.value = "Backup de imagens ativado."
+        } else {
+            ImageBackupScheduler.cancelAll(app)
+            _message.value = "Backup de imagens pausado."
+        }
+    }
+
+    fun backupPendingImages() = viewModelScope.launch {
+        if (auth.currentUser() == null) {
+            _error.value = "Entre com Google para enviar as imagens."
+            return@launch
+        }
+        if (!settings.imageBackupEnabledValue()) {
+            _error.value = "Ative o backup de imagens antes de enviar."
+            return@launch
+        }
+        ImageBackupScheduler.enqueueAllPending(app)
+        _message.value = "Imagens pendentes na fila de envio."
     }
     fun consumeError() { _error.value = "" }
     fun consumeMessage() { _message.value = "" }

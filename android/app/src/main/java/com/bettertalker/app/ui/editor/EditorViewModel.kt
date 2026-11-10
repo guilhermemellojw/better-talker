@@ -53,6 +53,9 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val imageStore = com.bettertalker.app.data.images.NoteImageStore(
         appCtx.applicationContext, db.noteImageDao(),
     )
+    private val imageBackup = com.bettertalker.app.data.images.ImageBackupRepository.create(
+        appCtx.applicationContext, db,
+    )
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
 
@@ -68,18 +71,26 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             } else {
                 db.noteImageDao().forSection(sectionId)
             }
-            imageStore.import(
+            val image = imageStore.import(
                 noteId = noteId,
                 sectionId = sectionId,
                 uri = uri,
                 order = (existing.maxOfOrNull { it.order } ?: -1) + 1,
-            )
+            ) ?: return@launch
+            // 5.4: sobe só se o usuário ativou o backup e está logado.
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueIfEnabled(appCtx.applicationContext, image.id)
         }
     }
 
     fun deleteImage(imageId: String) {
         viewModelScope.launch {
-            db.noteImageDao().get(imageId)?.let { imageStore.delete(it) }
+            db.noteImageDao().get(imageId)?.let {
+                com.bettertalker.app.data.images.ImageBackupScheduler
+                    .cancel(appCtx.applicationContext, imageId)
+                imageBackup.deleteCloud(imageId)
+                imageStore.delete(it)
+            }
         }
     }
 

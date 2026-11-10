@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.syncIndicatorText
+import com.bettertalker.app.data.images.ImageBackupStats
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +61,8 @@ fun AccountScreen(
     val lastSync by vm.lastSync.collectAsState()
     val syncBetaEnabled by vm.syncBetaEnabled.collectAsState()
     val syncState by vm.syncState.collectAsState()
+    val imageBackupEnabled by vm.imageBackupEnabled.collectAsState()
+    val imageStats by vm.imageStats.collectAsState()
     val busy by vm.busy.collectAsState()
     val error by vm.error.collectAsState()
     val message by vm.message.collectAsState()
@@ -207,8 +210,9 @@ fun AccountScreen(
                         Text("Neste aparelho", style = MaterialTheme.typography.titleSmall)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Este build é 100% local. A sincronização em nuvem " +
-                                "fica no build beta separado.",
+                            "Notas, chat e anexos ficam locais. O backup de imagens " +
+                                "é opcional e usa login Google; o Firestore de notas " +
+                                "continua no build beta separado.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )
@@ -297,6 +301,21 @@ fun AccountScreen(
                     }
                 }
             }
+            if (!vm.syncBeta) {
+                ImageBackupCard(
+                    configured = vm.configured,
+                    signedIn = user != null,
+                    email = user?.email,
+                    enabled = imageBackupEnabled,
+                    stats = imageStats,
+                    busy = busy,
+                    onSignIn = { vm.signInImages(uiContext) },
+                    onSignOut = vm::signOutImages,
+                    onToggle = vm::setImageBackupEnabled,
+                    onBackup = vm::backupPendingImages,
+                )
+            }
+
             if (vm.syncBeta && syncBetaEnabled && conflicts.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
@@ -379,6 +398,130 @@ fun AccountScreen(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
+        }
+    }
+}
+
+/**
+ * 5.4 — backup opcional das imagens. O login não liga o Firestore nem o
+ * sync beta; sem login, nenhuma imagem sai do aparelho.
+ */
+@Composable
+private fun ImageBackupCard(
+    configured: Boolean,
+    signedIn: Boolean,
+    email: String?,
+    enabled: Boolean,
+    stats: ImageBackupStats,
+    busy: Boolean,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onBackup: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Backup de imagens", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Opcional. Só as imagens vão para o Firebase Storage; notas, " +
+                    "chat e anexos ficam locais. O Palco continua offline.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            if (!configured) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Este build não tem google-services.json; o backup de " +
+                        "imagens fica indisponível.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                return@Column
+            }
+            Spacer(Modifier.height(8.dp))
+            if (!signedIn) {
+                Text("Não conectado", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Entre com Google para ativar o envio automático das " +
+                        "imagens anexadas às notas.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onSignIn, enabled = !busy) {
+                    Text(if (busy) "Entrando…" else "Entrar com Google")
+                }
+                Spacer(Modifier.height(12.dp))
+                Sha1Row()
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            email ?: "Conectado",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            if (enabled) "Envio automático ligado"
+                            else "Envio automático pausado",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                        )
+                    }
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onToggle,
+                        enabled = !busy,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${stats.uploaded} de ${stats.total} imagens · " +
+                        android.text.format.Formatter.formatFileSize(
+                            ctx, stats.uploadedBytes,
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                if (stats.failed > 0) {
+                    Text(
+                        "${stats.failed} imagem(ns) com falha no envio." +
+                            (stats.lastError?.let { " $it" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                stats.budgetWarning?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (stats.pending > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onBackup,
+                        enabled = !busy && enabled,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Enviar ${stats.pending} pendente(s)")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onSignOut,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sair")
+                }
+            }
         }
     }
 }

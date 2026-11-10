@@ -10,7 +10,7 @@
 | Backup | `android:allowBackup="false"` + `fullBackupContent="false"`. Notas e chave não entram em Auto Backup nem em transferência. Revisitar só quando existir export/import JSON. |
 | ABI | Só `arm64-v8a` (runtime sherpa-onnx/Piper). Aparelhos 32-bit exigem build separado no futuro. |
 | Distribuição | APK direto via **GitHub Releases**, com `app-release.apk.sha256`. |
-| Sync | Firebase/Firestore permanece opcional e desligado sem `google-services.json`. Não incluir no APK de release. |
+| Sync | Público: Firebase **Auth + Storage** opt-in apenas para imagens (5.4); Firestore/sync de notas continua só no beta. Sem `google-services.json`, o app roda 100% local. |
 | Rede | HTTPS only (`usesCleartextTraffic=false` + `network_security_config`). WebView sem acesso a arquivos/conteúdo local. |
 | Chave DeepSeek | AES/GCM com chave não exportável no Android Keystore; DataStore guarda só o envelope. Migração automática do texto claro legado. |
 

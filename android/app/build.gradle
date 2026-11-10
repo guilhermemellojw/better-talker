@@ -131,8 +131,10 @@ dependencies {
     implementation 'androidx.startup:startup-runtime:1.2.0'
     implementation "androidx.lifecycle:lifecycle-viewmodel-compose:${rootProject.ext.lifecycleVersion}"
     implementation "androidx.lifecycle:lifecycle-runtime-compose:${rootProject.ext.lifecycleVersion}"
-    // v4.2: thumbnails/cache local das imagens da nota (sem upload).
+    // v4.2: thumbnails/cache local das imagens da nota.
     implementation "io.coil-kt:coil-compose:2.7.0"
+    // 5.4: orientação EXIF antes de normalizar a imagem para WebP.
+    implementation "androidx.exifinterface:exifinterface:1.3.7"
 
     // Room (notas + anexos)
     implementation "androidx.room:room-runtime:${rootProject.ext.roomVersion}"
@@ -149,15 +151,16 @@ dependencies {
     // Leitura local PDF (BYOD, 100% offline). EPUB lido via java.util.zip (sem dep).
     implementation "com.tom-roush:pdfbox-android:${rootProject.ext.pdfBoxVersion}"
 
-    // M7: Firebase + login Google só existem no flavor syncBeta. O público
-    // não recebe estas dependências nem google-services.json.
-    syncBetaImplementation platform("com.google.firebase:firebase-bom:${rootProject.ext.firebaseBomVersion}")
-    syncBetaImplementation 'com.google.firebase:firebase-auth'
+    // 5.4: Auth + Storage existem nos dois flavors. O público usa apenas para
+    // backup opt-in de imagens; o Firestore continua exclusivo do syncBeta.
+    implementation platform("com.google.firebase:firebase-bom:${rootProject.ext.firebaseBomVersion}")
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'com.google.firebase:firebase-storage'
+    implementation "androidx.credentials:credentials:${rootProject.ext.credentialsVersion}"
+    implementation "androidx.credentials:credentials-play-services-auth:${rootProject.ext.credentialsVersion}"
+    implementation "com.google.android.gms:play-services-auth:${rootProject.ext.playAuthVersion}"
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
     syncBetaImplementation 'com.google.firebase:firebase-firestore'
-    syncBetaImplementation "androidx.credentials:credentials:${rootProject.ext.credentialsVersion}"
-    syncBetaImplementation "androidx.credentials:credentials-play-services-auth:${rootProject.ext.credentialsVersion}"
-    syncBetaImplementation "com.google.android.gms:play-services-auth:${rootProject.ext.playAuthVersion}"
-    syncBetaImplementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
     implementation "org.apache.commons:commons-compress:${rootProject.ext.commonsCompressVersion}"
     implementation "org.tukaani:xz:${rootProject.ext.xzVersion}"
 
@@ -173,53 +176,61 @@ dependencies {
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
 
-// M7 — Firebase SÓ no flavor syncBeta. O plugin google-services é
-// incompatível com AGP 8.13, então geramos os mesmos string resources lendo
-// `src/syncBeta/google-services.json` (ignorado pelo git). O flavor público
-// nunca recebe esses recursos e, sem config, não inicializa Firebase.
-def gsFile = file('src/syncBeta/google-services.json')
-if (gsFile.exists() && gsFile.text.contains('project_id')) {
-    def gs = new groovy.json.JsonSlurper().parse(gsFile)
-    def clients = gs.client
-    def pickClient = { String pkg ->
-        clients.find { it.client_info.android_client_info.package_name == pkg }
-    }
+// 5.4 — Firebase por flavor. O plugin google-services é incompatível com
+// AGP 8.13, então geramos os string resources lendo o json do flavor
+// (`src/publicApp` ou `src/syncBeta`, ambos ignorados pelo git). Sem json, o
+// flavor compila e o login/Storage ficam inativos.
+def firebaseConfigs = [
+    publicApp: file('src/publicApp/google-services.json'),
+    syncBeta : file('src/syncBeta/google-services.json'),
+]
 
-    androidComponents {
-        onVariants(selector().all()) { variant ->
-            if (variant.flavorName != 'syncBeta') return
-            // syncBeta debug usa o pacote .debug; o release usa o applicationId
-            // público. O json deve ter os dois clientes.
-            def pkg = variant.applicationId.get()
-            def client = pickClient(pkg) ?: pickClient('com.bettertalker.app')
-            if (client == null) {
-                logger.lifecycle("[BetterTalker] Firebase: cliente ${pkg} ausente no json do syncBeta.")
-                return
-            }
-            def releaseClient = pickClient('com.bettertalker.app') ?: client
-            def fallbackWeb = releaseClient.oauth_client?.find { it.client_type == 3 }
-            def webClient = client.oauth_client?.find { it.client_type == 3 } ?: fallbackWeb
-
-            def add = { String name, String value ->
-                if (value != null) {
-                    variant.resValues.put(
-                        variant.makeResValueKey('string', name),
-                        new com.android.build.api.variant.ResValue(value, null)
-                    )
-                }
-            }
-            add('google_app_id', client.client_info.mobilesdk_app_id)
-            add('gcm_defaultSenderId', gs.project_info.project_number)
-            add('google_api_key', client.api_key?.getAt(0)?.current_key)
-            add('project_id', gs.project_info.project_id)
-            add('firebase_database_url', gs.project_info.firebase_url)
-            add('google_storage_bucket', gs.project_info.storage_bucket)
-            add('default_web_client_id', webClient?.client_id)
-            logger.lifecycle("[BetterTalker] Firebase do syncBeta (${pkg}) carregado.")
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def gsFile = firebaseConfigs[variant.flavorName]
+        if (gsFile == null || !gsFile.exists() || !gsFile.text.contains('project_id')) {
+            logger.lifecycle(
+                "[BetterTalker] ${variant.flavorName} sem google-services.json: Firebase inativo."
+            )
+            return
         }
+        def gs = new groovy.json.JsonSlurper().parse(gsFile)
+        def clients = gs.client
+        def pickClient = { String pkg ->
+            clients.find { it.client_info.android_client_info.package_name == pkg }
+        }
+        // debug usa o pacote .debug; release usa o applicationId público.
+        def pkg = variant.applicationId.get()
+        def client = pickClient(pkg) ?: pickClient('com.bettertalker.app')
+        if (client == null) {
+            logger.lifecycle(
+                "[BetterTalker] Firebase: cliente ${pkg} ausente no json do ${variant.flavorName}."
+            )
+            return
+        }
+        def releaseClient = pickClient('com.bettertalker.app') ?: client
+        def fallbackWeb = releaseClient.oauth_client?.find { it.client_type == 3 }
+        def webClient = client.oauth_client?.find { it.client_type == 3 } ?: fallbackWeb
+
+        def add = { String name, String value ->
+            if (value != null) {
+                variant.resValues.put(
+                    variant.makeResValueKey('string', name),
+                    new com.android.build.api.variant.ResValue(value, null)
+                )
+            }
+        }
+        add('google_app_id', client.client_info.mobilesdk_app_id)
+        add('gcm_defaultSenderId', gs.project_info.project_number)
+        add('google_api_key', client.api_key?.getAt(0)?.current_key)
+        add('project_id', gs.project_info.project_id)
+        add('firebase_database_url', gs.project_info.firebase_url)
+        add('google_storage_bucket', gs.project_info.storage_bucket)
+        add('default_web_client_id', webClient?.client_id)
+        logger.lifecycle(
+            "[BetterTalker] Firebase do ${variant.flavorName} (${pkg}) carregado."
+        )
     }
-} else {
-    logger.lifecycle('[BetterTalker] syncBeta sem src/syncBeta/google-services.json: build compila, sync inativo.')
 }
 
 // F2: o AAR do LiteRT pede kotlin-stdlib 2.4.x, mas o Room 2.8.5 (kapt) só

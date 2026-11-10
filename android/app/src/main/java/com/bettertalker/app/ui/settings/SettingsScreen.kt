@@ -73,9 +73,9 @@ fun SettingsScreen(
                 icon = Icons.Default.AccountCircle,
                 title = "Conta",
                 subtitle = if (com.bettertalker.app.BuildConfig.SYNC_BETA) {
-                    "Login Google, sincronização (Experimental)"
+                    "Login Google e sincronização (Experimental)"
                 } else {
-                    "Dados locais"
+                    "Login opcional e backup de imagens"
                 },
                 onClick = onOpenAccount,
             )
