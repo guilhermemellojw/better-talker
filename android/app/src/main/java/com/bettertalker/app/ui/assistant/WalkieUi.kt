@@ -19,7 +19,7 @@ fun startsInWalkie(embedded: Boolean, hasNote: Boolean): Boolean =
 
 /** Ações do menu do título (seletor de contexto, nunca um ⋮). */
 enum class AssistantMenuAction {
-    OPEN_NOTE, CHANGE_NOTE, GENERAL_CHAT, PICK_NOTE, CREATE_NOTE
+    OPEN_NOTE, CHANGE_NOTE, GENERAL_CHAT, MY_OUTLINES, CREATE_NOTE
 }
 
 /** Home global escolhe esboço/cria; walkie abre/troca/desvincula a nota. */
@@ -27,17 +27,21 @@ fun assistantMenu(hasNote: Boolean): List<AssistantMenuAction> = if (hasNote) {
     listOf(
         AssistantMenuAction.OPEN_NOTE,
         AssistantMenuAction.CHANGE_NOTE,
+        AssistantMenuAction.CREATE_NOTE,
         AssistantMenuAction.GENERAL_CHAT,
     )
 } else {
-    listOf(AssistantMenuAction.PICK_NOTE, AssistantMenuAction.CREATE_NOTE)
+    listOf(
+        AssistantMenuAction.MY_OUTLINES,
+        AssistantMenuAction.CREATE_NOTE,
+    )
 }
 
 fun assistantMenuLabel(action: AssistantMenuAction): String = when (action) {
     AssistantMenuAction.OPEN_NOTE -> "Abrir nota"
-    AssistantMenuAction.CHANGE_NOTE -> "Trocar nota"
+    AssistantMenuAction.CHANGE_NOTE -> "Meus esboços"
     AssistantMenuAction.GENERAL_CHAT -> "Conversa geral (sem nota)"
-    AssistantMenuAction.PICK_NOTE -> "Escolher esboço"
+    AssistantMenuAction.MY_OUTLINES -> "Meus esboços"
     AssistantMenuAction.CREATE_NOTE -> "Criar novo esboço"
 }
 

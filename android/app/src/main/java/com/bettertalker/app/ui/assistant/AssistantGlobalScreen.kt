@@ -61,6 +61,7 @@ fun AssistantGlobalScreen(
     onPttCancel: () -> Unit,
     onOpenChat: () -> Unit,
     onPickNote: () -> Unit,
+    onOpenMyOutlines: () -> Unit,
     onCreateNote: () -> Unit,
     onConfigureAi: () -> Unit,
     onHelp: () -> Unit,
@@ -98,6 +99,7 @@ fun AssistantGlobalScreen(
             onOpenHelp = onHelp,
             onOpenSettings = onOpenSettings,
             onPickNote = onPickNote,
+            onOpenMyOutlines = onOpenMyOutlines,
             onCreateNote = onCreateNote,
             titleStyle = MaterialTheme.typography.headlineSmall,
         )

@@ -34,6 +34,8 @@ fun AssistantGlobalRoute(
     loading: Boolean,
     ptt: PttController,
     onPickNote: () -> Unit,
+    onOpenMyOutlines: () -> Unit,
+    onCreateNote: () -> Unit,
     onOpenModel: () -> Unit,
     onStartTrain: (String) -> Unit,
     onOpenPresent: (String) -> Unit,
@@ -64,6 +66,8 @@ fun AssistantGlobalRoute(
     val latestStartTrain by rememberUpdatedState(onStartTrain)
     val latestOpenPresent by rememberUpdatedState(onOpenPresent)
     val latestOpenModel by rememberUpdatedState(onOpenModel)
+    val latestOpenMyOutlines by rememberUpdatedState(onOpenMyOutlines)
+    val latestCreateNote by rememberUpdatedState(onCreateNote)
 
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -146,6 +150,7 @@ fun AssistantGlobalRoute(
                 is GlobalAssistantEvent.StartTrain -> latestStartTrain(event.noteId)
                 is GlobalAssistantEvent.OpenPresent -> latestOpenPresent(event.noteId)
                 GlobalAssistantEvent.ConfigureAi -> latestOpenModel()
+                GlobalAssistantEvent.OpenCreateSheet -> latestCreateNote()
             }
         }
     }
@@ -171,7 +176,16 @@ fun AssistantGlobalRoute(
             vm.stopSpeaking()
             onPickNote()
         },
-        onCreateNote = { vm.send("Criar um esboço novo") },
+        onOpenMyOutlines = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestOpenMyOutlines()
+        },
+        onCreateNote = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestCreateNote()
+        },
         onConfigureAi = onOpenModel,
         onHelp = onOpenHelp,
         onOpenSettings = {

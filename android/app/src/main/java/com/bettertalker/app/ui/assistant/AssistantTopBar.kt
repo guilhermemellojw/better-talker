@@ -41,6 +41,7 @@ internal fun AssistantTopBar(
     onChangeNote: () -> Unit = {},
     onGeneralChat: () -> Unit = {},
     onPickNote: () -> Unit = {},
+    onOpenMyOutlines: () -> Unit = {},
     onCreateNote: () -> Unit = {},
     titleStyle: TextStyle,
 ) {
@@ -79,7 +80,7 @@ internal fun AssistantTopBar(
                                 AssistantMenuAction.OPEN_NOTE -> onOpenNote()
                                 AssistantMenuAction.CHANGE_NOTE -> onChangeNote()
                                 AssistantMenuAction.GENERAL_CHAT -> onGeneralChat()
-                                AssistantMenuAction.PICK_NOTE -> onPickNote()
+                                AssistantMenuAction.MY_OUTLINES -> onOpenMyOutlines()
                                 AssistantMenuAction.CREATE_NOTE -> onCreateNote()
                             }
                         },

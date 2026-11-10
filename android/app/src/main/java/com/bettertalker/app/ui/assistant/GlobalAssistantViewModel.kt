@@ -50,6 +50,7 @@ sealed interface GlobalAssistantEvent {
     data class StartTrain(val noteId: String) : GlobalAssistantEvent
     data class OpenPresent(val noteId: String) : GlobalAssistantEvent
     data object ConfigureAi : GlobalAssistantEvent
+    data object OpenCreateSheet : GlobalAssistantEvent
 }
 
 /**
@@ -160,7 +161,10 @@ class GlobalAssistantViewModel(
                 reply(whichReply(route.candidates))
             }
             is GlobalRoute.NotFound -> reply(notFoundReply(route.recent))
-            GlobalRoute.CreateNote -> createNote()
+            GlobalRoute.CreateNote -> {
+                _events.tryEmit(GlobalAssistantEvent.OpenCreateSheet)
+                reply("Escolha o tipo de esboço para começar.")
+            }
             is GlobalRoute.StartTrain -> execute(GlobalPending.StartTrain(route.note))
             is GlobalRoute.OpenPresent -> execute(GlobalPending.OpenPresent(route.note))
             is GlobalRoute.AskNoteForAction -> reply(askNoteReply(route.action))

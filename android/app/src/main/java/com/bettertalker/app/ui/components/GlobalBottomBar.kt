@@ -6,7 +6,8 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.LibraryBooks
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -19,23 +20,21 @@ import com.bettertalker.app.navigation.BottomTab
 import com.bettertalker.app.navigation.activeTab
 
 /**
- * Navegação global (Assistente · Esboços · Treino · Palco). Visível no
- * Assistente, em Esboços, nos hubs e na Tribuna (o Treino é imersivo — a
- * barra some). Treino/Palco abrem o esboço atual do modo (com "Trocar
- * esboço" quando necessário).
+ * 5.5 — navegação global em 5 abas: Assistente · Biblioteca · Preparo ·
+ * Treino · Palco. Meus esboços, editor, mapa mental e ensaio/palco ao vivo
+ * são rotas sem barra.
  */
 @Composable
 fun GlobalBottomBar(
     currentRoute: String?,
     onAssistant: () -> Unit,
-    onHome: () -> Unit,
+    onLibrary: () -> Unit,
+    onPrepare: () -> Unit,
     onTrain: () -> Unit,
     onPresent: () -> Unit,
 ) {
     val tab = activeTab(currentRoute)
     NavigationBar(
-        // Barra compacta: 72dp de CONTEÚDO + a área de gestos do sistema por
-        // fora (o inset não infla a barra — nada de barra "gorda").
         modifier = Modifier
             .windowInsetsPadding(WindowInsets.navigationBars)
             .height(72.dp),
@@ -48,10 +47,16 @@ fun GlobalBottomBar(
             label = { Text("Assistente") },
         )
         NavigationBarItem(
-            selected = tab == BottomTab.HOME,
-            onClick = onHome,
-            icon = { Icon(Icons.Default.LibraryBooks, "Esboços") },
-            label = { Text("Esboços") },
+            selected = tab == BottomTab.LIBRARY,
+            onClick = onLibrary,
+            icon = { Icon(Icons.Default.Book, "Biblioteca") },
+            label = { Text("Biblioteca") },
+        )
+        NavigationBarItem(
+            selected = tab == BottomTab.PREPARE,
+            onClick = onPrepare,
+            icon = { Icon(Icons.Default.EditNote, "Preparo") },
+            label = { Text("Preparo") },
         )
         NavigationBarItem(
             selected = tab == BottomTab.TRAIN,
