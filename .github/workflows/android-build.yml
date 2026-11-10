@@ -8,10 +8,16 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android-build.yml'
+      - 'storage-tests/**'
+      - 'storage.rules'
+      - 'firebase.json'
   pull_request:
     paths:
       - 'android/**'
       - '.github/workflows/android-build.yml'
+      - 'storage-tests/**'
+      - 'storage.rules'
+      - 'firebase.json'
 
 permissions:
   contents: read
