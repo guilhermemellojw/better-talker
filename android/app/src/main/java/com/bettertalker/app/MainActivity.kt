@@ -635,9 +635,13 @@ private fun AppNav(
                     },
                     onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     onCreateNote = { showGlobalCreateSheet = true },
+                    onOpenLibrary = ::goLibrary,
+                    onOpenPrepare = { nav.navigate(Routes.PREPARE) },
+                    onOpenTrain = ::goTrain,
+                    onOpenPresent = ::goPresent,
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onBack = {},
-                    onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
+                    onOpenEditor = { nav.navigate(Routes.PREPARE) },
                     onOpenHelp = {
                         openHelp(
                             AssistantHelpContext(
@@ -659,6 +663,10 @@ private fun AppNav(
                     onPickNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     onCreateNote = { showGlobalCreateSheet = true },
+                    onOpenLibrary = ::goLibrary,
+                    onOpenPrepare = { nav.navigate(Routes.PREPARE) },
+                    onOpenTrain = ::goTrain,
+                    onOpenPresentRoot = ::goPresent,
                     onOpenModel = { nav.navigate(Routes.MODEL) },
                     onStartTrain = { id -> nav.navigate(Routes.stage(id)) },
                     onOpenPresent = { id -> nav.navigate(Routes.present(id)) },
@@ -927,7 +935,7 @@ private fun AppNav(
             com.bettertalker.app.ui.settings.DataStorageSettingsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenBackup = { nav.navigate(Routes.BACKUP) },
-                onOpenLibrary = { nav.navigate(Routes.LIBRARY) },
+                onOpenLibrary = { nav.navigate(Routes.library()) },
             )
         }
         composable(Routes.VOICE) {
@@ -1235,6 +1243,10 @@ private fun NoteChatHost(
     /** 5.5: Meus esboços e create sheet no menu do Assistente. */
     onOpenMyOutlines: () -> Unit = {},
     onCreateNote: () -> Unit = {},
+    onOpenLibrary: () -> Unit = {},
+    onOpenPrepare: () -> Unit = {},
+    onOpenTrain: () -> Unit = {},
+    onOpenPresent: () -> Unit = {},
     /** v5.1: ⚙ da top bar do Assistente. */
     onOpenSettings: () -> Unit = {},
     onBack: () -> Unit,
@@ -1481,7 +1493,7 @@ private fun NoteChatHost(
         onOpenLibrary = { nav.navigate(Routes.library(session.noteId)) },
         embedded = embedded,
         onOpenNote = if (embedded) ({
-            nav.navigate(Routes.editor(session.noteId))
+            nav.navigate(Routes.PREPARE)
         }) else null,
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,

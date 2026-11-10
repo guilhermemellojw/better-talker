@@ -43,6 +43,10 @@ internal fun AssistantTopBar(
     onPickNote: () -> Unit = {},
     onOpenMyOutlines: () -> Unit = {},
     onCreateNote: () -> Unit = {},
+    onOpenLibrary: () -> Unit = {},
+    onOpenPrepare: () -> Unit = {},
+    onOpenTrain: () -> Unit = {},
+    onOpenPresent: () -> Unit = {},
     titleStyle: TextStyle,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -82,6 +86,10 @@ internal fun AssistantTopBar(
                                 AssistantMenuAction.GENERAL_CHAT -> onGeneralChat()
                                 AssistantMenuAction.MY_OUTLINES -> onOpenMyOutlines()
                                 AssistantMenuAction.CREATE_NOTE -> onCreateNote()
+                                AssistantMenuAction.LIBRARY -> onOpenLibrary()
+                                AssistantMenuAction.PREPARE -> onOpenPrepare()
+                                AssistantMenuAction.TRAIN -> onOpenTrain()
+                                AssistantMenuAction.PRESENT -> onOpenPresent()
                             }
                         },
                     )

@@ -84,7 +84,7 @@ object HelpCatalog {
             id = "chave-ia",
             question = "Preciso de chave de IA?",
             shortAnswer = "Só para geração de texto com o DeepSeek. O editor, " +
-                "a ajuda, a Tribuna manual e o Treino funcionam sem chave.",
+                "a ajuda, o mapa mental manual e o Treino funcionam sem chave.",
             steps = listOf(
                 "Abra Modelo IA.",
                 "Cole sua chave pessoal do DeepSeek.",
@@ -110,12 +110,12 @@ object HelpCatalog {
         ),
         HelpTopic(
             id = "tribuna",
-            question = "O que é a Tribuna 2.0?",
+            question = "O que é o Mapa mental (antiga Tribuna)?",
             shortAnswer = "É o mapa de memória da seção, com lembretes curtos, " +
                 "âncora, referências e imagens. Serve para falar sem ler o texto.",
             steps = listOf(
-                "Gere a Tribuna pelo Palco.",
-                "Abra a Tribuna e edite os lembretes.",
+                "Gere o mapa mental pelo Palco.",
+                "Abra o mapa mental e edite os lembretes.",
                 "Use Mapa/Foco no Palco durante a apresentação.",
             ),
             action = HelpAction.OPEN_TRIBUNA,

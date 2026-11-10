@@ -50,6 +50,22 @@ class GlobalIntentRouterTest {
     }
 
     @Test
+    fun abrirBibliotecaPreparoEMeusEsbocos() {
+        assertEquals(
+            GlobalRoute.OpenLibrary,
+            GlobalIntentRouter.route("abrir biblioteca", notes),
+        )
+        assertEquals(
+            GlobalRoute.OpenMyOutlines,
+            GlobalIntentRouter.route("meus esboços", notes),
+        )
+        assertEquals(
+            GlobalRoute.OpenPrepare,
+            GlobalIntentRouter.route("preparar", notes),
+        )
+    }
+
+    @Test
     fun treinarComNotaVinculada() {
         val r = GlobalIntentRouter.route("iniciar treino", notes, boundNoteId = "n1")
         assertTrue(r is GlobalRoute.StartTrain)

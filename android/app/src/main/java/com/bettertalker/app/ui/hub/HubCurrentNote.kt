@@ -9,9 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -44,6 +48,8 @@ internal fun HubCurrentNoteCard(
     onSecondary: () -> Unit,
     tertiaryLabel: String? = null,
     onTertiary: (() -> Unit)? = null,
+    /** Palco: lápis de 48dp para editar o mapa mental. */
+    onEditMap: (() -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -52,13 +58,25 @@ internal fun HubCurrentNoteCard(
         ),
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onEditMap != null) {
+                    IconButton(onClick = onEditMap) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "Editar mapa mental",
+                            modifier = Modifier.height(24.dp),
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 buildString {

@@ -145,7 +145,7 @@ class PracticeContextTest {
         assertTrue(s.hasTrainingText)
         assertEquals(true, s.hasTextBySectionId["b1"])
         assertEquals(PracticePresentState.MISSING, s.presentState)
-        assertEquals("Falta gerar a Tribuna", s.presentLabel)
+        assertEquals("Falta gerar o mapa mental", s.presentLabel)
     }
 
     @Test
@@ -170,6 +170,6 @@ class PracticeContextTest {
             presentSessionRaw = null,
         )
         assertEquals(PracticePresentState.READY, s.presentState)
-        assertEquals("Tribuna pronta", s.presentLabel)
+        assertEquals("Mapa mental pronto", s.presentLabel)
     }
 }

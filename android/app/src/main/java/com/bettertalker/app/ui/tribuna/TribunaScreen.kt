@@ -118,7 +118,7 @@ fun TribunaScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Tribuna") },
+                title = { Text("Mapa mental") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
@@ -177,7 +177,7 @@ fun TribunaScreen(
                     modifier = Modifier.padding(24.dp),
                 ) {
                     Text(
-                        "Nenhuma Tribuna gerada ainda.",
+                        "Nenhum mapa mental gerado ainda.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -412,7 +412,7 @@ private fun TribunaCard(
                 DemoScript(turns = card.turns, fontSp = fontSp)
             } else if (capsule == null) {
                 Text(
-                    "Tribuna não gerada para esta seção.",
+                    "Mapa mental não gerado para esta seção.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

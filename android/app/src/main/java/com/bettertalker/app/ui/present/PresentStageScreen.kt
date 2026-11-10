@@ -411,12 +411,12 @@ private fun CueContent(
     }
     val capsule = cue.capsule
     if (capsule == null) {
-        MissingCue("Tribuna não gerada para esta seção. Avance ou abra a Tribuna no editor.")
+        MissingCue("Mapa mental não gerado para esta seção. Avance ou abra o mapa mental no editor.")
         return
     }
     if (capsule.cues.isEmpty() && capsule.cueSheetVersion >= 2) {
         MissingCue(
-            "Sem lembretes nesta seção. Abra a Tribuna para adicionar.",
+            "Sem lembretes nesta seção. Abra o mapa mental para adicionar.",
             title = "Mapa vazio",
         )
         return

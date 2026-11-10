@@ -63,6 +63,10 @@ fun AssistantGlobalScreen(
     onPickNote: () -> Unit,
     onOpenMyOutlines: () -> Unit,
     onCreateNote: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenPrepare: () -> Unit,
+    onOpenTrain: () -> Unit,
+    onOpenPresent: () -> Unit,
     onConfigureAi: () -> Unit,
     onHelp: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -101,6 +105,10 @@ fun AssistantGlobalScreen(
             onPickNote = onPickNote,
             onOpenMyOutlines = onOpenMyOutlines,
             onCreateNote = onCreateNote,
+            onOpenLibrary = onOpenLibrary,
+            onOpenPrepare = onOpenPrepare,
+            onOpenTrain = onOpenTrain,
+            onOpenPresent = onOpenPresent,
             titleStyle = MaterialTheme.typography.headlineSmall,
         )
         Spacer(Modifier.height(10.dp))

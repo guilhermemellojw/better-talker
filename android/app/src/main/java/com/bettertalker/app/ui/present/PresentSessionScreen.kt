@@ -173,7 +173,7 @@ private fun PresentPrepScreen(
                     TextButton(
                         onClick = if (demo) onOpenEditor else onOpenTribuna,
                     ) {
-                        Text(if (demo) "Editor" else "Tribuna")
+                        Text(if (demo) "Editor" else "Mapa mental")
                     }
                 },
             )
@@ -209,7 +209,7 @@ private fun PresentPrepScreen(
                         "$readySections de ${cues.size} seções com roteiro. " +
                             "O palco avisa onde faltar; você pode avançar."
                     } else {
-                        "$readySections de ${cues.size} seções com Tribuna. " +
+                        "$readySections de ${cues.size} seções com mapa mental. " +
                             "O palco avisa onde faltar; você pode avançar."
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -223,8 +223,8 @@ private fun PresentPrepScreen(
                         "Esta demonstração ainda não tem roteiro. " +
                             "Abra o editor e escreva o diálogo antes de apresentar."
                     } else {
-                        "Esta nota ainda não tem Tribuna. " +
-                            "Abra o editor e gere a Tribuna antes de apresentar."
+                        "Esta nota ainda não tem mapa mental. " +
+                            "Abra o editor e gere o mapa mental antes de apresentar."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
@@ -492,7 +492,7 @@ private fun PresentPrepScreen(
                 ) {
                     Text(
                         if (demo) "Abrir editor para completar o roteiro"
-                        else "Abrir Tribuna para completar",
+                        else "Abrir mapa mental para completar",
                     )
                 }
             }
@@ -503,7 +503,7 @@ private fun PresentPrepScreen(
                 ) {
                     Text(
                         if (demo) "Abrir editor para escrever o roteiro"
-                        else "Abrir editor para gerar Tribuna",
+                        else "Abrir editor para gerar mapa mental",
                     )
                 }
             }
@@ -563,7 +563,7 @@ private fun PresentPrepScreen(
                                 Text(
                                     "${cue.minutes} min" +
                                         if (!presentCueReady(cue, demo)) {
-                                            if (demo) " · sem roteiro" else " · sem Tribuna"
+                                            if (demo) " · sem roteiro" else " · sem mapa mental"
                                         } else {
                                             ""
                                         },
