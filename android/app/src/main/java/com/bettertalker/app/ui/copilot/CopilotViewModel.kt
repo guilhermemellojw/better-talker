@@ -689,8 +689,10 @@ class CopilotViewModel(
     private val _previewRefsJson = MutableStateFlow("[]")
     private val _outlineRefs = MutableStateFlow<List<RefDetector.RefStatus>?>(null)
     private val _dlError = MutableStateFlow("")
+    private val _importNotice = MutableStateFlow<String?>(null)
     val outlineRefs = _outlineRefs.asStateFlow()
     val dlError = _dlError.asStateFlow()
+    val importNotice = _importNotice.asStateFlow()
     val draftName = _draftName.asStateFlow()
     val draftTitle = _draftTitle.asStateFlow()
     val draftTotal = _draftTotal.asStateFlow()
@@ -6669,9 +6671,14 @@ class CopilotViewModel(
     fun importOutlineFile(uri: Uri, autoLink: Boolean = false) = viewModelScope.launch {
         try {
             val preview = outlines.previewFile(uri)
-            com.bettertalker.app.data.util.PublicationFormatPolicy
+            val importWarning = com.bettertalker.app.data.util.PublicationFormatPolicy
                 .s34Warning(detectKind(preview.fileName).ext)
-                ?.let { postText("_${it}_") }
+            if (importWarning != null) {
+                _importNotice.value = importWarning
+                // No caminho Home→editor o aviso aparece no editor; no chat,
+                // também fica registrado na conversa.
+                if (!autoLink) postText("_${importWarning}_")
+            }
             _draftName.value = preview.fileName
             _draftTitle.value = preview.parsed.title
             _draftTotal.value = preview.parsed.totalMinutes
@@ -7037,6 +7044,7 @@ class CopilotViewModel(
     }
 
     fun consumeDlError() { _dlError.value = "" }
+    fun consumeImportNotice() { _importNotice.value = null }
 
     /**
      * Baixa a edição em 1 toque via arquivo direto da API oficial.
@@ -7067,7 +7075,12 @@ class CopilotViewModel(
                     return@withContext true.also { _busy.value = false }
                 }
                 val ph = lib.insertPlaceholder(direct.fileName)
-                    ?: return@withContext false.also { _busy.value = false }
+                if (ph == null) {
+                    _dlError.value = com.bettertalker.app.data.util.PublicationFormatPolicy
+                        .downloadBlockedReason(direct.fileName)
+                        ?: "Não foi possível preparar o download."
+                    return@withContext false.also { _busy.value = false }
+                }
                 val dmId = com.bettertalker.app.ui.jw.DownloadHelper.enqueue(app, direct.url, direct.fileName)
                 if (dmId == null) {
                     _dlError.value = "Não foi possível iniciar o download."

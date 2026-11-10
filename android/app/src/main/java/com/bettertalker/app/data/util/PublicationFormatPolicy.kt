@@ -17,6 +17,28 @@ object PublicationFormatPolicy {
     val S34_ORDER: List<String> = listOf("JWPUB", "DOCX", "PDF")
     val NWT_ORDER: List<String> = listOf("EPUB")
 
+    /** Ordem por publicação; NWT nunca tenta JWPUB/PDF. */
+    fun orderFor(pub: String): List<String> = when (pub.lowercase()) {
+        "nwt" -> NWT_ORDER
+        "s34", "s-34", "s38", "s-38" -> S34_ORDER
+        else -> PUBLICATION_ORDER
+    }
+
+    fun isS34File(fileName: String): Boolean {
+        val n = fileName.lowercase()
+        return n.contains("s-34") || n.contains("s34")
+    }
+
+    /** Motivo para bloquear o download antes de enfileirar (NWT não-EPUB). */
+    fun downloadBlockedReason(fileName: String): String? {
+        val kind = detectKind(fileName)
+        val slot = matchBaseSlot(fileName)
+        if (slot == "nwt" && isNwtBlocked(kind.ext)) {
+            return nwtBlockedMessage(kind.ext)
+        }
+        return null
+    }
+
     fun publicationWarning(kind: String): String? =
         if (kind.equals("pdf", ignoreCase = true)) {
             "PDF limitado: não tem página/§ estruturados. Prefira JWPUB ou EPUB."
@@ -43,6 +65,20 @@ object PublicationFormatPolicy {
     /** Anexo é TNM e está pronto para versículo? */
     fun isNwtVerseReady(baseSlot: String?, kind: String, indexed: Boolean): Boolean =
         baseSlot == "nwt" && indexed && kind.equals("epub", ignoreCase = true)
+
+    /** v5.3.1: troca de arquivo da TNM não pode aceitar EPUB genérico. */
+    fun nwtRepairBlockedReason(
+        currentPublicationKey: String?,
+        candidateKind: String,
+        candidatePublicationKey: String?,
+    ): String? {
+        if (currentPublicationKey != "nwt") return null
+        if (candidateKind.equals("epub", ignoreCase = true) &&
+            candidatePublicationKey == "nwt"
+        ) return null
+        return "A TNM só pode ser substituída por um EPUB da TNM. " +
+            "Escolha o arquivo nwt_T.epub (ou o EPUB oficial da Tradução do Novo Mundo)."
+    }
 
     /** Rótulo curto para a UI da Biblioteca. */
     fun libraryBadge(kind: String): String? = publicationWarning(kind)

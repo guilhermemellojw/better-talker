@@ -201,6 +201,15 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                 com.bettertalker.app.data.util.PublicationFormatPolicy.nwtBlockedMessage(kind.ext),
             )
         }
+        // v5.3.1: a TNM só troca por EPUB reconhecido como TNM. Não herdar
+        // baseSlot nwt de um EPUB genérico (corromperia baseReady).
+        com.bettertalker.app.data.util.PublicationFormatPolicy.nwtRepairBlockedReason(
+            currentPublicationKey = cur.publicationKeyOrNull(),
+            candidateKind = kind.ext,
+            candidatePublicationKey = filePublicationKeyOrNull(name),
+        )?.let {
+            throw ImportException(ImportException.Reason.UNSUPPORTED, it)
+        }
         repairPublicationMismatch(cur, name)?.let { (expected, actual) ->
             throw ImportException(
                 ImportException.Reason.MISMATCH,
@@ -227,8 +236,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     indexed = false,
                     status = "indexing",
                     error = null,
-                    baseSlot = cur.baseSlot ?: matchBaseSlot(name),
-                    symbol = cur.symbol ?: matchBaseSlot(name),
+                    baseSlot = matchBaseSlot(name),
+                    symbol = matchBaseSlot(name) ?: detectSymbol(name),
                     sha256 = hash,
                 )
             )

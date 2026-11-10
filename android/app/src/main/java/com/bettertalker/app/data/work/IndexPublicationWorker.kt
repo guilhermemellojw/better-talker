@@ -65,18 +65,25 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
             // F19-B.6: S-34 importado vira estrutura persistida automaticamente.
             // Documento comum não muda de fluxo; S-34 insuficiente não vira
             // estrutura falsa (hook devolve o estado, nunca lança).
-            com.bettertalker.app.data.s34.S34ImportHook.onExtracted(db.s34Dao(), id, raw)
+            com.bettertalker.app.data.s34.S34ImportHook.onExtracted(db.s34Dao(), id, raw, fileName = att.fileName)
             // Fase 8: trilho via slot (legado ou recém-detectado); categoria
             // só para training (demais trilhos: null, sem inferência).
-            val slot = att.baseSlot ?: matchBaseSlot(att.fileName)
-            val sourceType = SourceType.fromBaseSlot(slot)
+            val sourceType = SourceType.fromBaseSlot(baseSlot)
             // buildPassages preserva filtro/caps/ord do fluxo anterior e popula
             // ref no formato web ("symbol section §n").
             val symbol = detectSymbol(att.fileName)
-            // TNM em EPUB: versículo-a-versículo com ref canônico (2.6b).
-            // Ordem preservada: DocExtractors.extract já rodou acima (S34Hook).
-            var passages = if (symbol == "nwt" && att.kind == "epub") {
-                NwtEpubParser.extractVerses(File(att.appPath)).mapIndexed { i, v ->
+            // TNM: SEMPRE pelo slot, não pelo símbolo do nome. Só EPUB chega
+            // aqui (o bloqueio acima); sem versículos, falha sem indexar.
+            var passages = if (baseSlot == "nwt") {
+                val verses = NwtEpubParser.extractVerses(File(att.appPath))
+                if (verses.isEmpty()) {
+                    db.attachmentDao().setStatus(
+                        id, false, "failed",
+                        "EPUB da TNM sem versículos indexáveis. Baixe novamente o EPUB oficial.",
+                    )
+                    return Result.success()
+                }
+                verses.mapIndexed { i, v ->
                     PassageEntity(
                         id = "$id-p$i",
                         attachmentId = id,
