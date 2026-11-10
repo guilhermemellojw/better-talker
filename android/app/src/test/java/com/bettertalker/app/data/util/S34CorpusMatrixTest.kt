@@ -68,7 +68,9 @@ class S34CorpusMatrixTest {
         println("C2_MATRIX files=${files().size} refs=$refs lostPage=$lostPage lostParagraph=$lostParagraph")
         lostSamples.take(20).forEach { println("C2_LOST $it") }
         // 391 antes de jr (estudo/página) e cl/rr por faixa entrarem.
-        assertEquals("refs detectadas", 393, refs)
+        // v5.3.1: +13 refs de ed/gl/hb/jd/lc/ml (aliases não oficiais
+        // agora aceitos como publicação quando o número é solto).
+        assertEquals("refs detectadas", 406, refs)
         assertEquals("página perdida", 0, lostPage)
         assertEquals("parágrafo perdido", 0, lostParagraph)
     }

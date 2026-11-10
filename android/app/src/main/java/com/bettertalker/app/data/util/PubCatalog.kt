@@ -61,7 +61,7 @@ object PubCatalog {
         "jd" to Entry("jd", "Dia de Jeová", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jd"),
         "je" to Entry("je", "Fazer Mundialmente a Vontade de Deus", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/fazer-mundialmente-a-vontade-de-deus-je"),
         "jl" to Entry("jl", "Vontade de Jeová", "brochure", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jl"),
-        "jr" to Entry("jr", "Jeremias", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jr"),
+        "jr" to Entry("jr", "Jeremias — Uma Mensagem de Deus para Nós", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jr"),
         "jt" to Entry("jt", "Testemunhas de Jeová — Quem São? Em Que Crêem?", "brochure", "https://wol.jw.org/pt/wol/library/r5/lp-t/todas-as-publicações/brochuras-e-livretos/testemunhas-de-jeová-quem-são-em-que-crêem-jt"),
         "jv" to Entry("jv", "Proclamadores", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jv"),
         "jy" to Entry("jy", "Jesus — o Caminho", "book", "https://wol.jw.org/pt/wol/publication/r5/lp-t/jy"),
