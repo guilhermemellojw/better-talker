@@ -301,18 +301,20 @@ fun AccountScreen(
                     }
                 }
             }
-            ImageBackupCard(
-                configured = vm.configured,
-                signedIn = user != null,
-                email = user?.email,
-                enabled = imageBackupEnabled,
-                stats = imageStats,
-                busy = busy,
-                onSignIn = { vm.signInImages(uiContext) },
-                onSignOut = vm::signOutImages,
-                onToggle = vm::setImageBackupEnabled,
-                onBackup = vm::backupPendingImages,
-            )
+            if (!vm.syncBeta) {
+                ImageBackupCard(
+                    configured = vm.configured,
+                    signedIn = user != null,
+                    email = user?.email,
+                    enabled = imageBackupEnabled,
+                    stats = imageStats,
+                    busy = busy,
+                    onSignIn = { vm.signInImages(uiContext) },
+                    onSignOut = vm::signOutImages,
+                    onToggle = vm::setImageBackupEnabled,
+                    onBackup = vm::backupPendingImages,
+                )
+            }
 
             if (vm.syncBeta && syncBetaEnabled && conflicts.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
