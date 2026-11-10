@@ -198,10 +198,12 @@ object RefDetector {
     )
 
     /** Livros citados por página + § (não por estudo/capítulo). */
-    private val PAGE_RANGE_BOOKS = setOf("cl", "dn", "rr")
+    private val PAGE_RANGE_BOOKS = setOf("cl", "dn", "ed", "gl", "hb", "jd", "lc", "ml", "rr")
 
     /** Siglas curtas de livro aceitas mesmo sem parênteses ("jr 29"). */
-    private val BARE_BOOK_SYMBOLS = setOf("cl", "dn", "jr", "rr")
+    private val BARE_BOOK_SYMBOLS = setOf(
+        "cl", "dn", "ed", "gl", "hb", "jd", "jr", "lc", "ml", "rr",
+    )
     // 3.2.3a-fix4: livros de estudo com página (1-4 dígitos) ou range.
     // Roda antes das rotas legadas; cobre "(it-1 813)", "(kj 264-5)",
     // "(it-2 1050)" e o volume unificado "(it 813)". O `it` nu vem DEPOIS
@@ -806,10 +808,15 @@ object RefDetector {
         }
         SYMBOL_REF_RE.findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
-            if (PubCatalog.isSymbol(sym)) {
+            val keyword = m.groupValues[2].lowercase()
+            val k = normalizeText(keyword)
+            // `na` é excluído do catálogo para não casar "na página/lição";
+            // com unidade abreviada explícita ("na p. 5", "na cap. 1") vale
+            // como a brochura Nome Divino.
+            val known = PubCatalog.isSymbol(sym) ||
+                (sym == "na" && (k == "p" || k.startsWith("cap")))
+            if (known) {
                 val canonical = PubCatalog.resolveSymbol(sym) ?: sym
-                val keyword = m.groupValues[2].lowercase()
-                val k = normalizeText(keyword)
                 val num = m.groupValues[3].toIntOrNull()
                 // #8a: § ou "ponto N" (lff lição 24 ponto 3).
                 val par = m.groupValues[4].toIntOrNull() ?: m.groupValues[5].toIntOrNull()
@@ -943,6 +950,10 @@ object RefDetector {
             }
             val sym = m.groupValues[1].lowercase()
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
+            val after = text.substring(m.range.last + 1).trimStart()
+            // v5.3.1: cap:vers explícito é Bíblia mesmo para alias não
+            // oficial ("Re 1:1", "Cl 1:1"); não cria publicação.
+            if (isBibleSymbol(sym) && after.startsWith(":")) return@forEach
             // v5.3.1: "(Re 1:1)" e "(Je 29)" são Bíblia, não publicação.
             if (isBibleSymbol(sym) &&
                 isBibleChapterForSymbol(sym, m.groupValues[2].toIntOrNull())
@@ -1365,7 +1376,7 @@ object RefDetector {
         "jer" to "Jeremias",
         "lam" to "Lamentações", "la" to "Lamentações", "lamentacoes" to "Lamentações",
         "ez" to "Ezequiel", "ezequiel" to "Ezequiel",
-        "da" to "Daniel", "daniel" to "Daniel",
+        "da" to "Daniel", "dn" to "Daniel", "daniel" to "Daniel",
         "os" to "Oseias", "oseias" to "Oseias",
         "jl" to "Joel", "joel" to "Joel",
         "am" to "Amós", "amos" to "Amós",
@@ -1380,7 +1391,7 @@ object RefDetector {
         "ml" to "Malaquias", "mal" to "Malaquias", "malaquias" to "Malaquias",
         "mt" to "Mateus", "mat" to "Mateus", "mateus" to "Mateus",
         "mc" to "Marcos", "mar" to "Marcos", "marcos" to "Marcos",
-        "lc" to "Lucas", "luc" to "Lucas", "lucas" to "Lucas",
+        "lc" to "Lucas", "lu" to "Lucas", "luc" to "Lucas", "lucas" to "Lucas",
         "at" to "Atos", "atos" to "Atos",
         "rm" to "Romanos", "rom" to "Romanos", "romanos" to "Romanos",
         // T2 (refs): formas TNM curtas usadas em esboços ("Ro 5:19", "Jui 6:1").
@@ -1396,6 +1407,7 @@ object RefDetector {
         "ef" to "Efésios", "efesios" to "Efésios",
         "fp" to "Filipenses", "fil" to "Filipenses", "filipenses" to "Filipenses",
         "col" to "Colossenses", "colossenses" to "Colossenses",
+        "cl" to "Colossenses",
         "1ts" to "1 Tessalonicenses", "1te" to "1 Tessalonicenses", "1tessalonicenses" to "1 Tessalonicenses",
         "2ts" to "2 Tessalonicenses", "2te" to "2 Tessalonicenses", "2tessalonicenses" to "2 Tessalonicenses",
         "1tm" to "1 Timóteo", "1ti" to "1 Timóteo", "1timoteo" to "1 Timóteo",
@@ -1458,6 +1470,23 @@ object RefDetector {
     private fun isBibleSymbol(symbol: String): Boolean =
         BIBLE_BOOKS.containsKey(symbol.lowercase())
 
+    /** Abreviações oficiais da TNM: capítulo solto é Bíblia. */
+    private val BIBLE_OFFICIAL_SYMBOLS = setOf(
+        "col", "da", "esd", "gal", "he", "ju", "je", "jl", "la",
+        "lu", "mal", "na", "pr", "ap",
+    )
+
+    /** Aliases não oficiais: capítulo solto é publicação; cap:vers é Bíblia. */
+    private val BIBLE_UNOFFICIAL_ALIASES = setOf(
+        "cl", "dn", "ed", "gl", "hb", "jd", "lc", "ml", "re",
+    )
+
+    private fun isOfficialBibleSymbol(symbol: String): Boolean =
+        symbol.lowercase() in BIBLE_OFFICIAL_SYMBOLS
+
+    private fun isUnofficialBibleAlias(symbol: String): Boolean =
+        symbol.lowercase() in BIBLE_UNOFFICIAL_ALIASES
+
     /** Número de capítulos do livro canônico (null = não é livro). */
     private fun bibleChapterCount(book: String?): Int? =
         book?.let { BIBLE_CHAPTER_COUNTS[it] }
@@ -1469,8 +1498,10 @@ object RefDetector {
     }
 
     /** O número cabe como capítulo do símbolo bíblico (re, cl, dn...). */
-    private fun isBibleChapterForSymbol(symbol: String, number: Int?): Boolean =
-        isBibleChapterNumber(BIBLE_BOOKS[symbol.lowercase()], number)
+    private fun isBibleChapterForSymbol(symbol: String, number: Int?): Boolean {
+        if (!isOfficialBibleSymbol(symbol)) return false
+        return isBibleChapterNumber(BIBLE_BOOKS[symbol.lowercase()], number)
+    }
 
     /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
     data class BibleRef(val bookNorm: String, val label: String, val chapter: Int, val verse: Int)
@@ -1550,6 +1581,9 @@ object RefDetector {
             val rawKey = m.groupValues[1].trim()
             val key = normalizeText(m.groupValues[1]).replace(" ", "")
             val label = if (rawKey == "jó") "Jó" else (BIBLE_BOOKS[key] ?: continue)
+            // v5.3.1: alias não oficial (re/cl/dn/...) só é Bíblia com
+            // cap:vers; capítulo solto prefere a publicação.
+            if (key in BIBLE_UNOFFICIAL_ALIASES) continue
             val maxChapter = bibleChapterCount(label) ?: continue
             val start = m.groupValues[2].toInt()
             val end = m.groupValues[3].toIntOrNull() ?: start

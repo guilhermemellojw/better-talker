@@ -56,8 +56,9 @@ class RefCollisionTest {
     fun reVersiculoEhBibliaSemPublicacao() {
         assertTrue(pubs("Re 1:1").isEmpty())
         assertTrue(pubs("(Re 1:1)").isEmpty())
-        assertTrue(pubs("Re 1").isEmpty())
-        assertTrue(pubs("re 1").isEmpty())
+        // Bare "Re 1" é alias não oficial: prefere a publicação.
+        assertEquals("re", pubs("Re 1").single().pubKey)
+        assertEquals("re", pubs("re 1").single().pubKey)
         val verses = RefDetector.detectBible("Re 1:1")
         assertEquals(listOf("Apocalipse" to 1 to 1), verses.map { it.label to it.chapter to it.verse })
     }
@@ -75,14 +76,21 @@ class RefCollisionTest {
         assertEquals(23, pubs("Re 23").single().page)
         assertEquals("re", pubs("Re 89").single().pubKey)
         assertEquals(89, pubs("Re 89").single().page)
+        val range = pubs("Re 89-99").single()
+        assertEquals("re", range.pubKey)
+        assertEquals(89, range.page)
+        assertEquals(99, range.pageEnd)
     }
 
     @Test
-    fun reDentroDoTotalContinuaBiblia() {
-        assertTrue(pubs("Re 22").isEmpty())
+    fun reCapituloSozinhoPreferePublicacaoMasAp22EhBiblia() {
+        // Alias não oficial (Re): capítulo solto prefere a publicação.
+        assertEquals("re", pubs("Re 22").single().pubKey)
+        assertEquals(22, pubs("Re 22").single().page)
+        assertTrue(pubs("Ap 22").isEmpty())
         assertEquals(
             listOf("Apocalipse" to 22),
-            RefDetector.detectBibleChapters("Re 22").map { it.label to it.chapter },
+            RefDetector.detectBibleChapters("Ap 22").map { it.label to it.chapter },
         )
         // v5.3.1: capítulo válido, versículo inexistente continua Bíblia;
         // o reader resolve como UNRESOLVED.
@@ -91,6 +99,61 @@ class RefCollisionTest {
             listOf("Apocalipse" to 22 to 21),
             RefDetector.detectBible("Re 22:21").map { it.label to it.chapter to it.verse },
         )
+    }
+
+    @Test
+    fun colisõesOficiaisBareSaoBibliaENaoPublicacao() {
+        for ((text, book) in listOf(
+            "Je 29" to "Jeremias",
+            "Jl 1" to "Joel",
+            "La 1" to "Lamentações",
+            "Na 1" to "Naum",
+            "Pr 1" to "Provérbios",
+        )) {
+            assertTrue("publication leak: $text", pubs(text).isEmpty())
+            assertEquals(
+                listOf(book),
+                RefDetector.detectBibleChapters(text).map { it.label },
+            )
+        }
+        // Publicação oficial exige unidade explícita.
+        assertEquals("je", pubs("je p. 5").single().pubKey)
+        assertEquals("jl", pubs("jl p. 5").single().pubKey)
+        assertEquals("la", pubs("la p. 5").single().pubKey)
+        assertEquals("na", pubs("na p. 5").single().pubKey)
+        assertEquals("pr", pubs("pr p. 5").single().pubKey)
+    }
+
+    @Test
+    fun aliasesNaoOficiaisSoSaoBibliaComCapVers() {
+        for ((text, pub) in listOf(
+            "Ed 10" to "ed",
+            "Gl 5" to "gl",
+            "Hb 13" to "hb",
+            "Jd 1" to "jd",
+            "Lc 5" to "lc",
+            "Ml 4" to "ml",
+            "Cl 5" to "cl",
+            "Dn 13" to "dn",
+        )) {
+            assertEquals("publication missing: $text", pub, pubs(text).single().pubKey)
+        }
+        for ((text, book) in listOf(
+            "Ed 1:1" to "Esdras",
+            "Gl 1:1" to "Gálatas",
+            "Hb 1:1" to "Hebreus",
+            "Jd 1:1" to "Judas",
+            "Lc 1:1" to "Lucas",
+            "Ml 1:1" to "Malaquias",
+            "Cl 1:1" to "Colossenses",
+            "Dn 1:1" to "Daniel",
+        )) {
+            assertEquals(
+                "Bible missing: $text",
+                listOf(book to 1 to 1),
+                RefDetector.detectBible(text).map { it.label to it.chapter to it.verse },
+            )
+        }
     }
 
     @Test
