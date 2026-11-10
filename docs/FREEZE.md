@@ -1,23 +1,33 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-10 · **Release preparado:** v5.3/69 (candidato, sem tag) · **Baseline público:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-10 · **Release público:** v5.3.0/69 (tag `v5.3.0`) · **Baseline anterior:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
-> **2026-11-10 — release preparado 5.3/69 (Palco do orador + imagens só
-> em discurso):** branch `feat/v5.3-stage-speaker` (`9805ff4`, `c42a9ce`,
-> `f8f5d8b`, `d281334`; bump 69/70 nesta preparação); **3.139 testes JVM /
-> 0**, lint 0 errors / 48 warnings idênticos ao baseline (o registro anterior
-> contava 47), DB **v23**, sem schema novo e
-> sem Firebase no público.
+> **2026-11-10 — v5.3.0/69 (Palco do orador + imagens só em discurso):**
+> branch `feat/v5.3-stage-speaker` (`9805ff4`, `c42a9ce`, `f8f5d8b`,
+> `d281334`, release `e9550ad`); merge `--no-ff` na main `6b3d45f`; tag
+> `v5.3.0` em `e9550ad`; release workflow `42788709525` verde; CI da main
+> `42788699498` verde. **3.139 testes JVM / 0**, lint 0 errors / 48 warnings
+> idênticos ao baseline (o registro anterior contava 47), DB **v23**, sem
+> schema novo e sem Firebase no público.
 > Palco: roteiro completo da demo com narração e turno atual,
 > `Anterior/Próximo`, modo “só turno atual” e `DemoScript` compartilhado com a
 > Tribuna. Imagens: só em discursos; demo esconde “Imagens da nota”, chip,
 > “Imagens da seção” e sheet no editor, a tira na Tribuna, as imagens/checagem
 > no pré-voo e no Palco; discurso mantém cue `IMAGE` com número/legenda,
-> thumbnail, tela cheia, Back com timer contínuo e “Sem imagem”. A34 validou
-> demo/discurso e TNM (`Jeremias 52`, `51-52`, `52:2` e overlay); tablet já
-> tinha coberto o comportamento. **Candidato, sem tag/release**; falta o smoke
-> do APK release por cima do público 5.2.1/67. As tags `v5.2.0`/`v5.2.1`
-> seguem preservadas. TalkBack e gate dos amigos continuam fora do 5.3.
+> thumbnail, tela cheia, Back com timer contínuo e “Sem imagem”.
+> **A34 validou o APK release 69/5.3 instalado por cima do público 5.2.1/67,
+> com dados preservados:** demo sem imagens/Lembretes, roteiro completo e
+> “só turno atual”; discurso com imagem no editor/Tribuna/pré-voo/Palco,
+> thumbnail, tela cheia e timer; TNM (`Jeremias 52`, `51-52`, `52:2` e
+> overlay). Para o smoke, o A34 público recebeu uma nota demo e uma
+> imagem/cue de teste; são dados de teste, não parte do release. APK público
+> SHA-256
+> `c212a38763b72c572f6c1d1dceaad0e6316d7da05cadfeb22557dd050e3526cc`.
+> Beta 70 via run `42791032717`, SHA-256
+> `221eea8120d04eb15014cf128d8f6adb5a7e329184dade62fa48be8986a445fe`
+> (artifact `13751599723`, sem tag). As tags `v5.2.0`/`v5.2.1` seguem
+> preservadas; o baseline anterior era 5.2.1/67. TalkBack e gate dos amigos
+> continuam fora do 5.3.
 
 > **2026-11-09 — v5.2.1/67 (leitor de capítulo):** `detectBibleChapters`
 > reconhece capítulo/faixa (`Jeremias 52`, `Jeremias 51-52`, `Salmo 23`,
