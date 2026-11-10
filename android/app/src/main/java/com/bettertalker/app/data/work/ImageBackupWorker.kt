@@ -11,6 +11,7 @@ import com.bettertalker.app.data.prefs.SettingsStore
 
 /**
  * 5.4 — sobe uma imagem para o Storage em segundo plano.
+ * 5.4.1 — também retenta a remoção de um objeto (`mode=delete`).
  *
  * Gates repetidos aqui (opt-in, Firebase e login) para neutralizar work
  * antigo/reenfileirado. Sem login o worker termina em sucesso e a imagem
@@ -24,14 +25,30 @@ class ImageBackupWorker(
     override suspend fun doWork(): Result {
         val imageId = inputData.getString(KEY_IMAGE_ID) ?: return Result.success()
         val app = applicationContext
+        val mode = inputData.getString(KEY_MODE) ?: MODE_UPLOAD
+        val db = DbProvider.get(app)
+        val repo = ImageBackupRepository.create(app, db)
+
+        if (mode == MODE_DELETE) {
+            val auth = AuthRepository(app)
+            if (!auth.isConfigured() || auth.currentUser() == null) {
+                return Result.success()
+            }
+            return if (repo.deleteCloud(imageId)) {
+                Result.success()
+            } else if (runAttemptCount < MAX_ATTEMPTS) {
+                Result.retry()
+            } else {
+                Result.failure()
+            }
+        }
+
         val settings = SettingsStore(app)
         if (!settings.imageBackupEnabledValue()) return Result.success()
 
         val auth = AuthRepository(app)
         if (!auth.isConfigured() || auth.currentUser() == null) return Result.success()
 
-        val db = DbProvider.get(app)
-        val repo = ImageBackupRepository.create(app, db)
         return when (val outcome = repo.upload(imageId)) {
             is ImageBackupOutcome.Uploaded,
             ImageBackupOutcome.Missing,
@@ -48,6 +65,9 @@ class ImageBackupWorker(
 
     companion object {
         const val KEY_IMAGE_ID = "imageId"
+        const val KEY_MODE = "mode"
+        const val MODE_UPLOAD = "upload"
+        const val MODE_DELETE = "delete"
         const val TAG = "image-backup"
         private const val MAX_ATTEMPTS = 3
     }

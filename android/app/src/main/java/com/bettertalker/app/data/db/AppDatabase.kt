@@ -312,7 +312,7 @@ interface PassageDao {
 
 @Database(
     entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class],
-    version = 24,
+    version = 25,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -445,20 +445,17 @@ data class NoteImageEntity(
  *
  * Só metadados; o binário original continua em `filesDir/images`. O upload
  * automático é idempotente e o worker pode retomar `pending`/`failed`.
+ *
+ * 5.4.1: sem FK para `note_images`. Assim uma linha `deleted` sobrevive à
+ * exclusão local até o objeto remoto ser apagado (retry/GC).
  */
 @Entity(
     tableName = "image_backups",
-    foreignKeys = [ForeignKey(
-        entity = NoteImageEntity::class,
-        parentColumns = ["id"],
-        childColumns = ["imageId"],
-        onDelete = ForeignKey.CASCADE,
-    )],
     indices = [Index("state"), Index("updatedAt")],
 )
 data class ImageBackupEntity(
     @PrimaryKey val imageId: String,
-    /** pending|uploading|uploaded|failed */
+    /** pending|uploading|uploaded|failed|deleted */
     val state: String = "pending",
     val cloudPath: String? = null,
     val sizeBytes: Long = 0L,
@@ -467,6 +464,8 @@ data class ImageBackupEntity(
     val error: String? = null,
     val attempts: Int = 0,
     val updatedAt: Long = System.currentTimeMillis(),
+    /** 5.4.1: conta dona do objeto; null em linhas antigas (backfill). */
+    val uid: String? = null,
 )
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
@@ -788,11 +787,16 @@ interface NoteImageDao {
     @Query("SELECT * FROM note_images ORDER BY addedAt ASC")
     suspend fun all(): List<NoteImageEntity>
 
-    /** Imagens sem backup ou com falha/pendência (backfill manual/login). */
+    /**
+     * Imagens sem backup, com falha/pendência ou sem uid (linhas antigas do
+     * 5.4). O backfill de login reenvia estas últimas com metadata.
+     */
     @Query(
         "SELECT i.* FROM note_images i " +
             "LEFT JOIN image_backups b ON b.imageId = i.id " +
-            "WHERE b.imageId IS NULL OR b.state IN ('pending','failed','uploading') " +
+            "WHERE b.imageId IS NULL " +
+            "OR b.state IN ('pending','failed','uploading') " +
+            "OR b.uid IS NULL " +
             "ORDER BY i.addedAt ASC"
     )
     suspend fun pendingForBackup(): List<NoteImageEntity>
@@ -826,4 +830,10 @@ interface ImageBackupDao {
             "ORDER BY updatedAt DESC LIMIT 1"
     )
     fun observeLastError(): Flow<String?>
+
+    @Query("SELECT COUNT(*) FROM image_backups WHERE state = 'deleted'")
+    fun observeDeletedCount(): Flow<Int>
+
+    @Query("SELECT * FROM image_backups WHERE state = 'deleted' ORDER BY updatedAt")
+    suspend fun pendingDeletes(): List<ImageBackupEntity>
 }

@@ -86,9 +86,13 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun deleteImage(imageId: String) {
         viewModelScope.launch {
             db.noteImageDao().get(imageId)?.let {
+                val app = appCtx.applicationContext
                 com.bettertalker.app.data.images.ImageBackupScheduler
-                    .cancel(appCtx.applicationContext, imageId)
-                imageBackup.deleteCloud(imageId)
+                    .cancel(app, imageId)
+                if (!imageBackup.deleteCloud(imageId)) {
+                    com.bettertalker.app.data.images.ImageBackupScheduler
+                        .enqueueDelete(app, imageId)
+                }
                 imageStore.delete(it)
             }
         }

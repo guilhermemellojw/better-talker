@@ -19,10 +19,6 @@ object ImageBackupPolicy {
 
     const val WEBP_QUALITY: Int = 80
 
-    /** Alerta de orçamento local (não bloqueia upload). */
-    const val BUDGET_WARN_BYTES: Long = 800L * 1024 * 1024
-    const val BUDGET_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
-
     fun isGif(mime: String): Boolean = mime.equals("image/gif", ignoreCase = true)
 
     fun isWebp(mime: String): Boolean = mime.equals("image/webp", ignoreCase = true)
@@ -49,14 +45,4 @@ object ImageBackupPolicy {
 
     fun remotePath(uid: String, noteId: String, imageId: String, ext: String): String =
         "users/$uid/images/$noteId/$imageId.$ext"
-
-    fun budgetWarning(totalBytes: Long): String? = when {
-        totalBytes >= BUDGET_LIMIT_BYTES ->
-            "Backup de imagens acima de 1 GB. Revise imagens antigas para " +
-                "manter o uso dentro do orçamento."
-        totalBytes >= BUDGET_WARN_BYTES ->
-            "Backup de imagens já passou de 800 MB. Considere remover imagens " +
-                "que não usa mais."
-        else -> null
-    }
 }

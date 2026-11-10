@@ -98,6 +98,12 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
 
+      - name: Run Storage rules tests
+        working-directory: storage-tests
+        run: |
+          npm ci
+          npm test
+
       - name: Lint release
         id: lint_release
         working-directory: android

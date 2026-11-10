@@ -2,7 +2,6 @@ package com.bettertalker.app.data.images
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -66,18 +65,7 @@ class ImageBackupPolicyTest {
     }
 
     @Test
-    fun orcamentoAvisaEmOitocentosMegabytes() {
-        assertNull(ImageBackupPolicy.budgetWarning(799L * 1024 * 1024))
-        assertTrue(
-            ImageBackupPolicy.budgetWarning(800L * 1024 * 1024)!!.contains("800 MB")
-        )
-        assertTrue(
-            ImageBackupPolicy.budgetWarning(1024L * 1024 * 1024)!!.contains("1 GB")
-        )
-    }
-
-    @Test
-    fun statsDerivamPendentesEOrcamento() {
+    fun statsDerivamPendentes() {
         val stats = ImageBackupStats(
             total = 10,
             uploaded = 7,
@@ -85,6 +73,5 @@ class ImageBackupPolicyTest {
             uploadedBytes = 900L * 1024 * 1024,
         )
         assertEquals(3, stats.pending)
-        assertTrue(stats.budgetWarning!!.contains("800 MB"))
     }
 }

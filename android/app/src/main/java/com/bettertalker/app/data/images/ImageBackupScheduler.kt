@@ -16,17 +16,60 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 5.4 — fila de upload automático das imagens.
- *
- * `enqueueIfEnabled` é chamado logo após o import da imagem; sem login ou
- * opt-in não cria trabalho nenhum. `enqueueAllPending` faz o backfill no
- * login ou no botão "Enviar pendentes".
+ * 5.4.1 — fila separada de remoção remota (retry/GC).
  */
 object ImageBackupScheduler {
 
     fun enqueue(ctx: Context, imageId: String) {
+        enqueueWork(ctx, imageId, ImageBackupWorker.MODE_UPLOAD)
+    }
+
+    fun enqueueDelete(ctx: Context, imageId: String) {
+        enqueueWork(ctx, imageId, ImageBackupWorker.MODE_DELETE)
+    }
+
+    suspend fun enqueueIfEnabled(ctx: Context, imageId: String) {
+        val app = ctx.applicationContext
+        if (!isEnabled(app)) return
+        enqueue(app, imageId)
+    }
+
+    suspend fun enqueueAllPending(ctx: Context) {
+        val app = ctx.applicationContext
+        if (!isEnabled(app)) return
+        val db = DbProvider.get(app)
+        db.noteImageDao().pendingForBackup().forEach { enqueue(app, it.id) }
+    }
+
+    suspend fun enqueuePendingDeletes(ctx: Context) {
+        val app = ctx.applicationContext
+        val db = DbProvider.get(app)
+        db.imageBackupDao().pendingDeletes().forEach { enqueueDelete(app, it.imageId) }
+    }
+
+    fun cancel(ctx: Context, imageId: String) {
+        runCatching {
+            WorkManager.getInstance(ctx.applicationContext)
+                .cancelUniqueWork("image-backup-$imageId")
+        }
+    }
+
+    fun cancelAll(ctx: Context) {
+        runCatching {
+            WorkManager.getInstance(ctx.applicationContext)
+                .cancelAllWorkByTag(ImageBackupWorker.TAG)
+        }
+    }
+
+    private fun enqueueWork(ctx: Context, imageId: String, mode: String) {
         val app = ctx.applicationContext
         val request = OneTimeWorkRequestBuilder<ImageBackupWorker>()
-            .setInputData(workDataOf(ImageBackupWorker.KEY_IMAGE_ID to imageId))
+            .setInputData(
+                workDataOf(
+                    ImageBackupWorker.KEY_IMAGE_ID to imageId,
+                    ImageBackupWorker.KEY_MODE to mode,
+                )
+            )
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -45,33 +88,6 @@ object ImageBackupScheduler {
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
-        }
-    }
-
-    suspend fun enqueueIfEnabled(ctx: Context, imageId: String) {
-        val app = ctx.applicationContext
-        if (!isEnabled(app)) return
-        enqueue(app, imageId)
-    }
-
-    suspend fun enqueueAllPending(ctx: Context) {
-        val app = ctx.applicationContext
-        if (!isEnabled(app)) return
-        val db = DbProvider.get(app)
-        db.noteImageDao().pendingForBackup().forEach { enqueue(app, it.id) }
-    }
-
-    fun cancel(ctx: Context, imageId: String) {
-        runCatching {
-            WorkManager.getInstance(ctx.applicationContext)
-                .cancelUniqueWork("image-backup-$imageId")
-        }
-    }
-
-    fun cancelAll(ctx: Context) {
-        runCatching {
-            WorkManager.getInstance(ctx.applicationContext)
-                .cancelAllWorkByTag(ImageBackupWorker.TAG)
         }
     }
 

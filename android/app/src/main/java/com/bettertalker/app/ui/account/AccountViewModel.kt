@@ -9,8 +9,10 @@ import com.bettertalker.app.data.cloud.SyncScheduler
 import com.bettertalker.app.data.cloud.SyncStatus
 import com.bettertalker.app.data.cloud.isConflictNoteTitle
 import com.bettertalker.app.data.db.NoteEntity
+import com.bettertalker.app.data.images.ImageBackupRepository
 import com.bettertalker.app.data.images.ImageBackupScheduler
 import com.bettertalker.app.data.images.ImageBackupStats
+import com.bettertalker.app.data.images.ImageRestoreReport
 import com.bettertalker.app.data.prefs.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,13 +60,26 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             lastError = lastError,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ImageBackupStats())
+
+    val pendingCloudDeletes = db.imageBackupDao().observeDeletedCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    private val _restoreBusy = MutableStateFlow(false)
+    val restoreBusy = _restoreBusy.asStateFlow()
+    private val _restoreReport = MutableStateFlow<ImageRestoreReport?>(null)
+    val restoreReport = _restoreReport.asStateFlow()
+    private val _restoreError = MutableStateFlow("")
+    val restoreError = _restoreError.asStateFlow()
+
     private val _localNoteCount = MutableStateFlow(0)
     val showFirstSync: StateFlow<Boolean> = combine(
         user,
         settings.syncFirstPending,
         _localNoteCount,
-    ) { u, pending, count -> u != null && pending && count > 0 }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    ) { u, pending, count ->
+        // Público nunca tem Firestore/sync; evita herdar flag de um beta antigo.
+        BuildConfig.SYNC_BETA && u != null && pending && count > 0
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** M5: cópias "(conflito)" criadas pelo worker, para revisão na conta. */
     val conflicts: StateFlow<List<NoteEntity>> = db.noteDao().observe(null, "")
@@ -98,6 +113,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             if (settings.imageBackupEnabledValue()) {
                 ImageBackupScheduler.enqueueAllPending(app)
             }
+            ImageBackupScheduler.enqueuePendingDeletes(app)
         }
         viewModelScope.launch { refreshLocalNoteCountAndSkipFirstSyncIfEmpty() }
     }
@@ -184,6 +200,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         if (err == null && auth.accountConflict.value == null) {
             settings.setImageBackupEnabled(true)
             ImageBackupScheduler.enqueueAllPending(app)
+            ImageBackupScheduler.enqueuePendingDeletes(app)
             _message.value = "Backup de imagens ativado."
         } else {
             _error.value = err ?: ""
@@ -225,6 +242,36 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         ImageBackupScheduler.enqueueAllPending(app)
         _message.value = "Imagens pendentes na fila de envio."
     }
+
+    /** 5.4.1: baixa da conta as imagens que faltam no aparelho. */
+    fun restoreImages() = viewModelScope.launch {
+        if (_restoreBusy.value) return@launch
+        val uid = auth.currentUser()?.uid
+        if (uid == null) {
+            _restoreError.value = "Entre com Google para baixar as imagens."
+            return@launch
+        }
+        _restoreBusy.value = true
+        _restoreError.value = ""
+        runCatching {
+            ImageBackupRepository.create(app, db).restore(uid)
+        }.onSuccess { report ->
+            _restoreReport.value = report
+            _message.value = "Imagens: ${report.summary}"
+            // Idempotente: reenvia qualquer arquivo restaurado sem metadata.
+            ImageBackupScheduler.enqueueAllPending(app)
+        }.onFailure {
+            _restoreError.value = it.message?.take(160)
+                ?: "Falha ao baixar as imagens."
+        }
+        _restoreBusy.value = false
+    }
+
+    fun retryCloudDeletes() = viewModelScope.launch {
+        ImageBackupScheduler.enqueuePendingDeletes(app)
+        _message.value = "Remoções da nuvem na fila."
+    }
+
     fun consumeError() { _error.value = "" }
     fun consumeMessage() { _message.value = "" }
 
@@ -271,6 +318,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             com.bettertalker.app.data.db.DbProvider.get(app).clearAllTables()
             java.io.File(app.filesDir, "publicacoes").deleteRecursively()
+            java.io.File(app.filesDir, "images").deleteRecursively()
             if (resetUid) settings.setLastUid(null)
             settings.setLastSync(0L)
             settings.clearLastNoteId()
