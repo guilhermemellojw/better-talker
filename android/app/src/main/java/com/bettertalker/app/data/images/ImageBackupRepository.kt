@@ -35,12 +35,14 @@ class ImageBackupRepository(
             return@withContext ImageBackupOutcome.Failed(msg, retryable = false)
         }
         val existing = store.backup(imageId)
+        val existingPath = existing?.cloudPath
         if (existing?.state == "uploaded" &&
             existing.uid == uid &&
-            existing.cloudPath?.startsWith("users/$uid/") == true
+            existingPath != null &&
+            existingPath.startsWith("users/$uid/")
         ) {
             return@withContext ImageBackupOutcome.Uploaded(
-                existing.cloudPath!!,
+                existingPath,
                 existing.sizeBytes,
             )
         }
@@ -141,14 +143,22 @@ class ImageBackupRepository(
                 missingNote++
                 continue
             }
+            val expectedSha = obj.metadata["sha256"]
             val existing = store.image(parsed.imageId)
-            val existingFile = existing?.let { File(it.path) }
+            val existingFile = existing?.path
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::File)
             if (existing != null && existingFile != null &&
-                existingFile.exists() && existingFile.length() > 0L
+                existingFile.isFile && existingFile.length() > 0L
             ) {
-                alreadyLocal++
-                saveUploadedRow(uid, obj, parsed.imageId, existingFile.length())
-                continue
+                val shaOk = expectedSha.isNullOrBlank() ||
+                    expectedSha.equals(sha256(existingFile), true)
+                if (shaOk) {
+                    alreadyLocal++
+                    saveUploadedRow(uid, obj, parsed.imageId, existingFile.length())
+                    continue
+                }
+                // Arquivo local corrompido: baixa de novo e substitui.
             }
 
             val bytes = runCatching { remote.download(obj.path) }.getOrNull()
@@ -162,7 +172,6 @@ class ImageBackupRepository(
                 errors += "Tamanho divergente em ${obj.path}"
                 continue
             }
-            val expectedSha = obj.metadata["sha256"]
             if (!expectedSha.isNullOrBlank() && !expectedSha.equals(sha256(bytes), true)) {
                 failed++
                 errors += "Hash divergente em ${obj.path}"
@@ -171,8 +180,23 @@ class ImageBackupRepository(
             val ext = parsed.extension.ifBlank { "webp" }
             val dir = File(imagesDir, parsed.noteId).apply { mkdirs() }
             val target = File(dir, "${parsed.imageId}.$ext")
-            val written = runCatching { target.writeBytes(bytes) }.isSuccess
-            if (!written) {
+            val part = File(dir, "${parsed.imageId}.$ext.part")
+            try {
+                target.delete()
+                part.writeBytes(bytes)
+                if (part.length() != bytes.size.toLong()) {
+                    throw IllegalStateException("gravação incompleta")
+                }
+                if (!expectedSha.isNullOrBlank() &&
+                    !expectedSha.equals(sha256(part), true)
+                ) {
+                    throw IllegalStateException("hash divergente após gravar")
+                }
+                if (!part.renameTo(target)) {
+                    throw IllegalStateException("rename falhou")
+                }
+            } catch (e: Exception) {
+                part.delete()
                 failed++
                 errors += "Não gravou ${target.name}"
                 continue
@@ -180,14 +204,18 @@ class ImageBackupRepository(
             val mime = obj.contentType?.takeIf { it.startsWith("image/") }
                 ?: obj.metadata["mime"]
                 ?: "image/webp"
+            val sectionId = obj.metadata["sectionId"]
+                ?.takeIf {
+                    it.isNotBlank() &&
+                        store.sectionBelongsToNote(it, parsed.noteId)
+                }
             val image = existing?.copy(
                 path = target.absolutePath,
                 mime = mime,
             ) ?: NoteImageEntity(
                 id = parsed.imageId,
                 noteId = parsed.noteId,
-                sectionId = obj.metadata["sectionId"]
-                    ?.takeIf { it.isNotBlank() && store.sectionExists(it) },
+                sectionId = sectionId,
                 path = target.absolutePath,
                 mime = mime,
                 caption = obj.metadata["caption"].orEmpty(),
@@ -195,6 +223,9 @@ class ImageBackupRepository(
                 order = obj.metadata["order"]?.toIntOrNull() ?: 0,
                 addedAt = obj.metadata["addedAt"]?.toLongOrNull() ?: clock(),
             )
+            if (existing != null && existing.path != target.absolutePath) {
+                runCatching { File(existing.path).delete() }
+            }
             store.saveImage(image)
             saveUploadedRow(uid, obj, image.id, bytes.size.toLong())
             restored++
@@ -317,6 +348,19 @@ class ImageBackupRepository(
         MessageDigest.getInstance("SHA-256")
             .digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val n = input.read(buffer)
+                if (n <= 0) break
+                digest.update(buffer, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
 
     private data class ParsedCloudPath(
         val noteId: String,

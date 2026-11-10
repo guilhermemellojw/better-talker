@@ -11,6 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 
 class ImageBackupRepositoryTest {
 
@@ -45,6 +46,11 @@ class ImageBackupRepositoryTest {
 
     private fun imagesDir(): File =
         java.nio.file.Files.createTempDirectory("bt-images").toFile().also { dirs += it }
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun repo(
         store: FakeStore,
@@ -172,7 +178,7 @@ class ImageBackupRepositoryTest {
     fun restoreBaixaImagemQueFalta() = runBlocking {
         val store = FakeStore()
         store.noteIds += "note-1"
-        store.sectionIds += "sec-1"
+        store.sectionNotes += "sec-1|note-1"
         val remote = FakeRemote()
         val bytes = byteArrayOf(4, 5, 6)
         val path = "users/uid-1/images/note-1/img-nova.webp"
@@ -221,6 +227,66 @@ class ImageBackupRepositoryTest {
         remote.downloads[path] = byteArrayOf(1, 2, 3)
         val report = repo(store, remote).restore("uid-1")
         assertEquals(1, report.restored)
+        assertNull(store.images["img-1"]!!.sectionId)
+    }
+
+    @Test
+    fun restoreCorrigeArquivoLocalComShaDivergente() = runBlocking {
+        val store = FakeStore()
+        store.noteIds += "note-1"
+        val local = image(bytes = byteArrayOf(9, 9, 9))
+        store.images[local.id] = local
+        val remote = FakeRemote()
+        val bytes = byteArrayOf(1, 2, 3)
+        val path = "users/uid-1/images/note-1/${local.id}.webp"
+        remote.objects[path] = CloudImageObject(
+            path = path,
+            sizeBytes = bytes.size.toLong(),
+            contentType = "image/webp",
+            metadata = mapOf("sha256" to sha256(bytes)),
+        )
+        remote.downloads[path] = bytes
+        val report = repo(store, remote).restore("uid-1")
+        assertEquals(1, report.restored)
+        assertEquals(0, report.alreadyLocal)
+        val restored = File(store.images[local.id]!!.path)
+        assertTrue(restored.readBytes().contentEquals(bytes))
+        assertTrue(
+            restored.parentFile!!.listFiles()!!.none { it.name.endsWith(".part") }
+        )
+    }
+
+    @Test
+    fun restoreComPathVazioBaixaNovamente() = runBlocking {
+        val store = FakeStore()
+        store.noteIds += "note-1"
+        val local = image().copy(path = "")
+        store.images[local.id] = local
+        val remote = FakeRemote()
+        val bytes = byteArrayOf(4, 5)
+        val path = "users/uid-1/images/note-1/${local.id}.webp"
+        remote.objects[path] = CloudImageObject(path, bytes.size.toLong(), "image/webp")
+        remote.downloads[path] = bytes
+        val report = repo(store, remote).restore("uid-1")
+        assertEquals(1, report.restored)
+        assertTrue(File(store.images[local.id]!!.path).isFile)
+    }
+
+    @Test
+    fun restoreNaoAceitaSecaoDeOutraNota() = runBlocking {
+        val store = FakeStore()
+        store.noteIds += "note-1"
+        store.sectionNotes += "sec-1|note-2"
+        val remote = FakeRemote()
+        val path = "users/uid-1/images/note-1/img-1.webp"
+        remote.objects[path] = CloudImageObject(
+            path = path,
+            sizeBytes = 3,
+            contentType = "image/webp",
+            metadata = mapOf("sectionId" to "sec-1"),
+        )
+        remote.downloads[path] = byteArrayOf(1, 2, 3)
+        repo(store, remote).restore("uid-1")
         assertNull(store.images["img-1"]!!.sectionId)
     }
 
@@ -298,12 +364,13 @@ class ImageBackupRepositoryTest {
         val images = mutableMapOf<String, NoteImageEntity>()
         val backups = mutableMapOf<String, ImageBackupEntity>()
         val noteIds = mutableSetOf<String>()
-        val sectionIds = mutableSetOf<String>()
+        val sectionNotes = mutableSetOf<String>()
 
         override suspend fun image(imageId: String): NoteImageEntity? = images[imageId]
         override suspend fun saveImage(image: NoteImageEntity) { images[image.id] = image }
         override suspend fun noteExists(noteId: String): Boolean = noteId in noteIds
-        override suspend fun sectionExists(sectionId: String): Boolean = sectionId in sectionIds
+        override suspend fun sectionBelongsToNote(sectionId: String, noteId: String): Boolean =
+            "$sectionId|$noteId" in sectionNotes
         override suspend fun backup(imageId: String): ImageBackupEntity? = backups[imageId]
         override suspend fun save(backup: ImageBackupEntity) { backups[backup.imageId] = backup }
         override suspend fun deleteBackup(imageId: String) { backups.remove(imageId) }

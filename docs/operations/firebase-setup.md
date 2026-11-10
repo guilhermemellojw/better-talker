@@ -123,6 +123,8 @@ sai do aparelho. O limite por imagem é 10 MB; GIF até 2 MB mantém animação.
   mostra `N na nuvem`, `M sem nota local` e quantas foram restauradas.
   Objetos antigos sem metadata usam caminho + defaults; os novos gravam
   `noteId`, `sectionId`, `caption`, `kind`, `order`, `mime`, `addedAt` e
-  `sha256`.
+  `sha256`. O download usa `.part`, confere tamanho/sha e só então renomeia.
+- **Apagar backup de imagens** remove os objetos da conta, limpa o estado
+  local de backup e pausa o envio automático; as imagens locais continuam.
 - Beta: ativar **Sincronização em nuvem**, fazer login e escolher o primeiro
   sync; `adb logcat -s SyncWorker` deve mostrar o sync rodando.

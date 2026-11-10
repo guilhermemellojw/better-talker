@@ -344,6 +344,7 @@ fun AccountScreen(
                     onBackup = vm::backupPendingImages,
                     onRestore = vm::restoreImages,
                     onRetryDeletes = vm::retryCloudDeletes,
+                    onWipeCloud = vm::askWipe,
                 )
             }
 
@@ -455,6 +456,7 @@ private fun ImageBackupCard(
     onBackup: () -> Unit,
     onRestore: () -> Unit,
     onRetryDeletes: () -> Unit,
+    onWipeCloud: () -> Unit,
 ) {
     val ctx = LocalContext.current
     Card(Modifier.fillMaxWidth()) {
@@ -613,6 +615,17 @@ private fun ImageBackupCard(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Sair")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onWipeCloud,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Apagar backup de imagens",
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }

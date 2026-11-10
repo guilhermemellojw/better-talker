@@ -2,7 +2,7 @@
 
 **Atualizado:** 2026-11-10 · **Release público:** v5.3.0/69 (tag `v5.3.0`) · **Baseline anterior:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
-> **2026-11-10 — 5.4/5.4.1 interno (backup e restore de imagens opt-in):**
+> **2026-11-10 — 5.4/5.4.1/5.4.2 interno (backup e restore de imagens opt-in):**
 > o APK público passa a incluir Firebase **Auth + Storage** apenas para
 > imagens; Firestore/sync de notas continua exclusivo do `syncBeta`. Login é
 > opt-in: sem conta, nada sobe. Envio automático ao anexar, WebP (GIF ≤ 2 MB
@@ -15,7 +15,10 @@
 > **Smoke A34 2026-11-10:** login Google, 2 imagens WebP, anexo novo
 > automático, GIF ≤ 2 MB como `image/gif`, remoção remota, **403 sem auth**,
 > restore de 2 imagens após apagar os arquivos locais e S-34 PDF/DOCX pela
-> Home. **3.191 testes JVM** + 7 testes de rules Storage.
+> Home. 5.4.2: botão público **Apagar backup de imagens** (limpa
+> `image_backups` e pausa o envio), restore atômico com `.part`/sha/tamanho
+> e A/B no A34 (B viu 0; wipe de B não tocou no A). **3.194 testes JVM** +
+> 7 testes de rules Storage.
 
 > **2026-11-10 — v5.3.0/69 (Palco do orador + imagens só em discurso):**
 > branch `feat/v5.3-stage-speaker` (`9805ff4`, `c42a9ce`, `f8f5d8b`,

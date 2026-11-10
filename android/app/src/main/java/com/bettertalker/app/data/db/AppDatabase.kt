@@ -836,4 +836,7 @@ interface ImageBackupDao {
 
     @Query("SELECT * FROM image_backups WHERE state = 'deleted' ORDER BY updatedAt")
     suspend fun pendingDeletes(): List<ImageBackupEntity>
+
+    @Query("DELETE FROM image_backups")
+    suspend fun clearAll()
 }
