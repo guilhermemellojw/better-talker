@@ -191,7 +191,7 @@ object RefDetector {
     // T2: captura o número da unidade (cap./lição/estudo/pág./parág./n.°) e o
     // § que o segue ("lmd lição 3 § 4") ou "ponto N" ("lff lição 24 ponto 3").
     private val SYMBOL_REF_RE = Regex(
-        """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap[íi]tulo|cap\.?|li[cç][aã]o|p[áa]gina|p[áa]g\.?|""" +
+        """\b([A-Za-z]{2,4}(?:-[1-3])?)\s+(cap[íi]tulo|cap\.?|li[cç][aã]o|p[áa]gina|p[áa]g\.?|p\.?|""" +
             """par[áa]grafo|par[áa]g\.?|estudo|n[úu]mero|n\.?(?:º|o|°)?)\s*(\d{1,3})?""" +
             """(?:\s*(?:§\s*(\d{1,3})|ponto\s+(\d{1,3})))?""",
         RegexOption.IGNORE_CASE
@@ -284,6 +284,12 @@ object RefDetector {
     // da publicação (matava o phantom "jr" em "Jeremias 45:3").
     // O matcher roda no texto NORMALIZADO: "45:3" chega como "45 3".
     private val BIBLE_CHAPVER_AFTER_RE = Regex("""^\s*\(?\d{1,3}\s*:?\s*\d{1,3}\b""")
+    // v5.3.1: capítulo/faixa bíblico após um título que também é livro
+    // ("Jeremias 52", "Jeremias 51-52"). Só vale para títulos de livro;
+    // não confunde "Beneficie-se 52" (publicação) com Bíblia.
+    private val BIBLE_CHAPTER_AFTER_RE = Regex(
+        """^\s*\(?\d{1,3}(?:\s*[-–—]\s*\d{1,3})?\b""",
+    )
 
     private val PT_MONTHS = listOf(
         "janeiro", "fevereiro", "março", "abril", "maio", "junho",
@@ -625,6 +631,14 @@ object RefDetector {
         // o arquivo unificado `it`; o matching resolve via PubCatalog.unifiedOf).
         STUDY_BOOK_RE.findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
+            // v5.3.1: símbolo que também é abreviação bíblica + capítulo
+            // plausível ("Re 1", "Je 29") é Bíblia, não estudo/página.
+            if (isBibleSymbol(sym) &&
+                isBibleChapterNumber(m.groupValues[2].toIntOrNull()) &&
+                m.groupValues[3].isEmpty()
+            ) {
+                return@forEach
+            }
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
             val page = m.groupValues[2]
             val end = m.groupValues[3]
@@ -810,26 +824,29 @@ object RefDetector {
                 // `cl` (Achegue-se a Jeová) cita página + §, não "estudo N":
                 // "cl 225 §15" é a página 225, não o estudo 225.
                 val pageBook = canonical == "cl"
-                val chapter = if (!pageBook && num != null &&
+                val pageUnit = pageBook || k.startsWith("pag") || k == "p"
+                val chapter = if (!pageUnit && num != null &&
                     (k.startsWith("cap") || k.startsWith("li") || k.startsWith("est"))
                 ) {
                     "$keyword $num"
                 } else {
                     null
                 }
-                val page = if (num != null && (k.startsWith("pag") || pageBook)) num else null
+                val page = if (num != null && pageUnit) num else null
                 val paragraph = par ?: if (num != null && (k.startsWith("par") ||
                         k.startsWith("n"))) num else null
                 bookKeys += canonical
+                val title = PubCatalog.titleOf(canonical) ?: canonical
+                val label = when {
+                    pageBook && num != null -> "$title (pág. $num)"
+                    page != null -> "$title — p. $page"
+                    else -> title
+                }
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
                         "book|$canonical",
-                        if (pageBook && num != null) {
-                            "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $num)"
-                        } else {
-                            PubCatalog.titleOf(canonical) ?: canonical
-                        },
+                        label,
                         chapter = chapter, page = page, paragraph = paragraph,
                     )
                 )
@@ -931,6 +948,12 @@ object RefDetector {
             }
             val sym = m.groupValues[1].lowercase()
             if (sym in setOf("w", "g", "wp", "gn")) return@forEach
+            // v5.3.1: "(Re 1:1)" e "(Je 29)" são Bíblia, não publicação.
+            if (isBibleSymbol(sym) &&
+                isBibleChapterNumber(m.groupValues[2].toIntOrNull())
+            ) {
+                return@forEach
+            }
             // Já há uma ref específica dessa publicação (ex.: "re 292" por
             // página); o número avulso não é uma segunda unidade.
             if (sym in bookKeys) return@forEach
@@ -961,6 +984,7 @@ object RefDetector {
         // sozinhas não viram citação; "(5 min)" é duração, não estudo.
         for ((normTitle, sym) in PubCatalog.titleIndex()) {
             if (sym in bookKeys) continue
+            val bibleTitle = isBibleBookTitle(normTitle)
             // qualquer ocorrência guiada/estudada vale
             val titleMatch = Regex("""\b$normTitle\b""").findAll(norm).firstOrNull { m ->
                 val before = norm.substring((m.range.first - 20).coerceAtLeast(0), m.range.first)
@@ -971,6 +995,11 @@ object RefDetector {
                 // #24-fix B4: "Jeremias 45:3" é citação bíblica (livro + cap:vers),
                 // não menção a título de publicação — não vira ref "jr".
                 if (BIBLE_CHAPVER_AFTER_RE.containsMatchIn(after)) {
+                    return@firstOrNull false
+                }
+                // v5.3.1: título que também é livro bíblico + capítulo/faixa
+                // ("Jeremias 52", "Jeremias 51-52") é Bíblia, não publicação.
+                if (bibleTitle && BIBLE_CHAPTER_AFTER_RE.containsMatchIn(after)) {
                     return@firstOrNull false
                 }
                 Regex(
@@ -1330,7 +1359,7 @@ object RefDetector {
         "ecl" to "Eclesiastes", "ec" to "Eclesiastes", "eclesiastes" to "Eclesiastes",
         "cant" to "Cânticos", "can" to "Cânticos", "cantares" to "Cânticos",
         "is" to "Isaías", "isa" to "Isaías", "isaias" to "Isaías",
-        "jr" to "Jeremias", "je" to "Jeremias", "jeremias" to "Jeremias",
+        "je" to "Jeremias", "jeremias" to "Jeremias",
         // T1 (refs): abreviações comuns de esboços antigos ("Jer.", "1 Cor.").
         "jer" to "Jeremias",
         "lam" to "Lamentações", "la" to "Lamentações", "lamentacoes" to "Lamentações",
@@ -1384,6 +1413,22 @@ object RefDetector {
         // 3.2.3a-fix4c: esboços antigos usam "Re" (abreviação de Apocalipse)
         "re" to "Apocalipse"
     )
+
+    /** Títulos que são nomes de livros bíblicos (nunca são publicações). */
+    private val BIBLE_BOOK_TITLES: Set<String> by lazy {
+        BIBLE_BOOKS.values.map { normalizeText(it) }.toSet()
+    }
+
+    private fun isBibleBookTitle(normTitle: String): Boolean =
+        normTitle in BIBLE_BOOK_TITLES
+
+    /** Símbolo que também é abreviação bíblica (ex.: re, je, cl, dn). */
+    private fun isBibleSymbol(symbol: String): Boolean =
+        BIBLE_BOOKS.containsKey(symbol.lowercase())
+
+    /** Número que cabe como capítulo bíblico (1..150). */
+    private fun isBibleChapterNumber(number: Int?): Boolean =
+        number != null && number in 1..150
 
     /** Menção a versículo bíblico (ex: "Gên 1:26"). Textos bíblicos não viram publicação. */
     data class BibleRef(val bookNorm: String, val label: String, val chapter: Int, val verse: Int)
