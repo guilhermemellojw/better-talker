@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -88,6 +89,7 @@ import com.bettertalker.app.data.util.PasteDoor
 import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.domain.help.HelpTriggerDecision
+import com.bettertalker.app.ui.components.CreateNoteSheet
 import com.bettertalker.app.ui.components.NoteCard
 import com.bettertalker.app.ui.components.NoteItem
 import com.bettertalker.app.ui.components.PasteDestination
@@ -109,6 +111,12 @@ fun HomeScreen(
     onOpenNote: (String) -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenTrash: () -> Unit,
+    /** 5.5: Meus esboços tem back (não é aba). */
+    onBack: () -> Unit = {},
+    /** 5.5: intenção única da tela (gerenciar ou escolher para um destino). */
+    intent: com.bettertalker.app.navigation.HomeIntent =
+        com.bettertalker.app.navigation.HomeIntent.MANAGE,
+    onSelectNote: (String) -> Unit = onOpenNote,
     /** "Inserir material → Escolher arquivo": importa o arquivo numa nota nova. */
     onImportMaterial: (android.net.Uri) -> Unit = {},
     /** "Colar texto": nota criada + aviso opcional (estrutura aplicada). */
@@ -122,6 +130,7 @@ fun HomeScreen(
     /** v5.0: intenção vinda do onboarding/ajuda. */
     startCreateSheet: Boolean = false,
     startPasteSheet: Boolean = false,
+    startScratchSheet: Boolean = false,
     onLaunchConsumed: () -> Unit = {},
     helpTrigger: HelpTriggerDecision? = null,
     onHelpTriggerAction: () -> Unit = {},
@@ -150,7 +159,11 @@ fun HomeScreen(
     // Fase B: porta única de colar material (prévia antes de criar).
     var showPasteSheet by remember { mutableStateOf(false) }
     var showScratchDialog by remember { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(startCreateSheet, startPasteSheet) {
+    androidx.compose.runtime.LaunchedEffect(
+        startCreateSheet,
+        startPasteSheet,
+        startScratchSheet,
+    ) {
         when {
             startCreateSheet -> {
                 showCreateSheet = true
@@ -158,6 +171,10 @@ fun HomeScreen(
             }
             startPasteSheet -> {
                 showPasteSheet = true
+                onLaunchConsumed()
+            }
+            startScratchSheet -> {
+                showScratchDialog = true
                 onLaunchConsumed()
             }
         }
@@ -175,6 +192,30 @@ fun HomeScreen(
     ) { uri -> if (uri != null) onImportMaterial(uri) }
     val snack = remember { SnackbarHostState() }
     val selectedFolder = folders.firstOrNull { it.id == folderId }
+    var manageMode by remember(intent) {
+        mutableStateOf(intent == com.bettertalker.app.navigation.HomeIntent.MANAGE)
+    }
+    val selectionMode = !manageMode
+    val openNote: (String) -> Unit = {
+        when (intent.tapAction(manageMode)) {
+            com.bettertalker.app.navigation.HomeTapAction.OPEN_PREPARE -> onOpenNote(it)
+            com.bettertalker.app.navigation.HomeTapAction.SELECT -> onSelectNote(it)
+        }
+    }
+    @Composable
+    fun NoteRow(n: com.bettertalker.app.data.db.NoteEntity, mode: HomeViewMode) {
+        NoteItem(
+            note = n,
+            mode = mode,
+            attachCount = counts[n.id] ?: 0,
+            onClick = { openNote(n.id) },
+            onTogglePin = if (selectionMode) null else { { vm.togglePin(n.id) } },
+            onMove = if (selectionMode) null else { { moveTarget = n } },
+            onDelete = if (selectionMode) null else { { confirmDelete = n } },
+            onTrain = if (selectionMode) null else { { onTrainNote(n.id) } },
+            onPresent = if (selectionMode) null else { { onPresentNote(n.id) } },
+        )
+    }
 
     if (showRename && selectedFolder != null) {
         var name by remember(selectedFolder.id) { mutableStateOf(selectedFolder.name) }
@@ -419,50 +460,54 @@ fun HomeScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                    }
+                },
                 title = {
-                    // Marca: logo mini (quadrado navy + arte, 2 linhas de altura)
-                    // com "BETTER TALKER" em 2 linhas ao lado.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(percent = 26),
-                            color = colorResource(R.color.ic_launcher_background),
-                            modifier = Modifier.size(32.dp),
-                        ) {
-                            Image(
-                                painter = painterResource(R.drawable.ic_launcher_foreground),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Column {
+                    Column {
+                        Text(
+                            "Meus esboços",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (selectionMode) {
                             Text(
-                                "BETTER",
+                                intent.selectionLabel().orEmpty(),
                                 style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = 12.sp,
-                            )
-                            Text(
-                                "TALKER",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }
                 },
                 actions = {
                     HelpTopBarButton(onOpenHelp)
-                    IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
-                    IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
-                    // Modos de visualização (Grade / Lista compacta / Detalhada).
-                    ViewModeMenu(viewMode = viewMode, onSelect = vm::setViewMode)
+                    if (manageMode) {
+                        IconButton(onClick = onOpenLibrary) { Icon(Icons.Default.Book, "Biblioteca") }
+                        IconButton(onClick = onOpenTrash) { Icon(Icons.Default.Delete, "Lixeira") }
+                        ViewModeMenu(viewMode = viewMode, onSelect = vm::setViewMode)
+                    }
+                    if (intent.isSelection) {
+                        TextButton(onClick = {
+                            if (manageMode) {
+                                manageMode = false
+                                vm.setFolder(null)
+                            } else {
+                                manageMode = true
+                            }
+                        }) {
+                            Text(if (manageMode) "Escolher" else "Gerenciar")
+                        }
+                    }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showCreateSheet = true }) {
-                Icon(Icons.Default.Add, "Novo esboço")
+            if (!selectionMode) {
+                FloatingActionButton(onClick = { showCreateSheet = true }) {
+                    Icon(Icons.Default.Add, "Novo esboço")
+                }
             }
         },
         snackbarHost = { SnackbarHost(snack) }
@@ -486,6 +531,7 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
             Spacer(Modifier.height(8.dp))
+            if (!selectionMode) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -529,6 +575,7 @@ fun HomeScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
+            }
             }
             if (notes.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -608,13 +655,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(notes, key = { it.id }) { n ->
-                                NoteItem(
-                                    n, HomeViewMode.GRID, counts[n.id] ?: 0,
-                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
-                                    { moveTarget = n }, { confirmDelete = n },
-                                    onTrain = { onTrainNote(n.id) },
-                                    onPresent = { onPresentNote(n.id) },
-                                )
+                                NoteRow(n, HomeViewMode.GRID)
                             }
                         }
                         HomeViewMode.LIST_COMPACT -> androidx.compose.foundation.lazy.LazyColumn(
@@ -623,13 +664,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(notes, key = { it.id }) { n ->
-                                NoteItem(
-                                    n, HomeViewMode.LIST_COMPACT, counts[n.id] ?: 0,
-                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
-                                    { moveTarget = n }, { confirmDelete = n },
-                                    onTrain = { onTrainNote(n.id) },
-                                    onPresent = { onPresentNote(n.id) },
-                                )
+                                NoteRow(n, HomeViewMode.LIST_COMPACT)
                             }
                         }
                         HomeViewMode.LIST_DETAILED -> androidx.compose.foundation.lazy.LazyColumn(
@@ -638,13 +673,7 @@ fun HomeScreen(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(notes, key = { it.id }) { n ->
-                                NoteItem(
-                                    n, HomeViewMode.LIST_DETAILED, counts[n.id] ?: 0,
-                                    { onOpenNote(n.id) }, { vm.togglePin(n.id) },
-                                    { moveTarget = n }, { confirmDelete = n },
-                                    onTrain = { onTrainNote(n.id) },
-                                    onPresent = { onPresentNote(n.id) },
-                                )
+                                NoteRow(n, HomeViewMode.LIST_DETAILED)
                             }
                         }
                     }
@@ -655,84 +684,7 @@ fun HomeScreen(
     }
 }
 
-/**
- * Fase 1a — 3 portas explícitas: S-34 (arquivo), V&M (texto) e esboço do
- * zero. "Nota rápida" permanece como ação secundária discreta para não
- * remover o fluxo de nota em branco.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CreateNoteSheet(
-    onDismiss: () -> Unit,
-    onImportS34: () -> Unit,
-    onPasteVm: () -> Unit,
-    onStartFromScratch: () -> Unit,
-    onQuickNote: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-            Text(
-                "Criar esboço",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-            )
-            CreateNoteOption(
-                icon = Icons.Default.UploadFile,
-                title = "Importar esboço S-34",
-                subtitle = "JWPUB ou DOCX (PDF como fallback)",
-                onClick = onImportS34,
-            )
-            CreateNoteOption(
-                icon = Icons.Default.ContentPaste,
-                title = "Colar parte da reunião V&M",
-                subtitle = "Texto da parte (S-38)",
-                onClick = onPasteVm,
-            )
-            CreateNoteOption(
-                icon = Icons.Default.Create,
-                title = "Criar esboço do zero",
-                subtitle = "Discurso ou demonstração",
-                onClick = onStartFromScratch,
-            )
-            // Ação secundária: discreta, alinhada à direita.
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(onClick = onQuickNote) { Text("Nota rápida") }
-            }
-        }
-    }
-}
-
 private val FOLDER_COLOR_NAMES = listOf("Amarelo", "Azul", "Verde", "Rosa", "Cinza")
-
-@Composable
-private fun CreateNoteOption(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.width(16.dp))
-        Column {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
 
 /** Linha de escolha de pasta (dialog "Mover para pasta"). */
 @Composable

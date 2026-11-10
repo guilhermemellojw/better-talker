@@ -67,7 +67,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Ação pendente ao cair na Home vinda do onboarding/ajuda. */
-private enum class HomeLaunchAction { CREATE, PASTE }
+private enum class HomeLaunchAction { CREATE, PASTE, SCRATCH }
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -199,7 +199,9 @@ private fun AppNav(
         }
     }
     fun goAssistant() = goTab(Routes.ASSISTANT)
-    fun goHome() = goTab(Routes.HOME)
+    fun goLibrary() = goTab(Routes.library())
+    fun goPrepare() = goTab(Routes.PREPARE)
+    fun goHome() = nav.navigate(Routes.home())
     fun goTrain() = goTab(Routes.TRAIN_HOME)
     fun goPresent() = goTab(Routes.PRESENT_HOME)
 
@@ -207,6 +209,10 @@ private fun AppNav(
     // consome o uri pendente ao abrir (importa o esboço).
     var pendingImport by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<Pair<String, android.net.Uri>?>(null)
+    }
+    // 5.5: create sheet compartilhado do Assistente/Preparo.
+    var showGlobalCreateSheet by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
     }
     // "Colar e Pronto" v3: aviso de estrutura (esboço/template de discurso)
     // exibido no editor recém-aberto — par nota→aviso, como o pendingImport.
@@ -237,6 +243,20 @@ private fun AppNav(
         if (uri != null) {
             scope.launch {
                 val id = notesRepo.newNote(null)
+                settings.setLastNoteId(id)
+                pendingImport = id to uri
+                nav.navigate(Routes.editor(id))
+            }
+        }
+    }
+    // 5.5: create sheet compartilhado (Assistente/Preparo) → importar S-34.
+    val assistantImportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val id = notesRepo.newNote(null)
+                settings.setLastNoteId(id)
                 pendingImport = id to uri
                 nav.navigate(Routes.editor(id))
             }
@@ -264,15 +284,15 @@ private fun AppNav(
             HelpAction.OPEN_IMPORT -> helpImportPicker.launch(arrayOf("*/*"))
             HelpAction.OPEN_PASTE -> {
                 homeLaunchAction = HomeLaunchAction.PASTE
-                if (currentRoute != Routes.HOME) nav.navigate(Routes.HOME)
+                if (currentRoute != Routes.HOME) nav.navigate(Routes.home())
             }
             HelpAction.OPEN_CREATE -> {
                 homeLaunchAction = HomeLaunchAction.CREATE
-                if (currentRoute != Routes.HOME) nav.navigate(Routes.HOME)
+                if (currentRoute != Routes.HOME) nav.navigate(Routes.home())
             }
             HelpAction.OPEN_EDITOR -> context.noteId
                 ?.let { nav.navigate(Routes.editor(it)) }
-                ?: nav.navigate(Routes.HOME)
+                ?: nav.navigate(Routes.home())
             HelpAction.OPEN_LIBRARY -> nav.navigate(Routes.library(context.noteId))
             HelpAction.OPEN_MODEL -> nav.navigate(Routes.MODEL)
             HelpAction.OPEN_TRAIN -> nav.navigate(Routes.TRAIN_HOME)
@@ -361,6 +381,103 @@ private fun AppNav(
         factory = PttHostViewModel.Factory(ctx),
     )
 
+    // 5.5a: corpo único do editor para a rota normal (com back) e para a
+    // aba Preparo (root, sem back, com "Trocar esboço").
+    @Composable
+    fun EditorDestination(
+        noteId: String,
+        rootTab: Boolean,
+        onBack: () -> Unit,
+        onSwitchNote: (() -> Unit)?,
+    ) {
+        androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
+        val session = remember(noteId) { sessionFor(noteId) }
+        val vm: EditorViewModel = session.editorVm
+        val copilotVm: CopilotViewModel = session.copilotVm
+        val pending = pendingImport
+        androidx.compose.runtime.LaunchedEffect(noteId, pending) {
+            if (pending != null && pending.first == noteId) {
+                pendingImport = null
+                copilotVm.importOutlineFile(pending.second, autoLink = true)
+            }
+        }
+        androidx.compose.runtime.LaunchedEffect(vm) {
+            val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
+            val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
+            val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
+            val generator: com.bettertalker.app.domain.planning.SectionGenerator =
+                com.bettertalker.app.data.planning.SectionGeneratorImpl(
+                    com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
+                )
+            vm.setSectionGenerator(generator, canGenerate)
+            copilotVm.setDraftQueueStarter { targets -> vm.startDraftQueue(targets) }
+        }
+        val titleEv by copilotVm.titleEvent.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(titleEv) {
+            val t = titleEv
+            if (!t.isNullOrBlank()) {
+                vm.onTitle(t)
+                copilotVm.consumeTitle()
+            }
+        }
+        val importNotice by copilotVm.importNotice.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(importNotice) {
+            importNotice?.let {
+                editorNotice = noteId to it
+                copilotVm.consumeImportNotice()
+            }
+        }
+        val activeSectionTitle by vm.activeSectionTitle.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(activeSectionTitle) {
+            copilotVm.setActiveBlock(activeSectionTitle)
+        }
+        val liveSelection by vm.selection.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(liveSelection) {
+            val sel = liveSelection
+            copilotVm.setSelection(
+                text = sel?.selectedText.orEmpty(),
+                sectionId = sel?.sectionId,
+                subPointId = sel?.subPointId,
+            )
+        }
+        EditorScreen(
+            vm,
+            onBack = onBack,
+            onAttach = { nav.navigate(Routes.library(noteId)) },
+            onOpenChat = { nav.navigate(Routes.chat(noteId)) },
+            copilotVm = copilotVm,
+            onOpenHelp = { sectionId, sectionTitle ->
+                openHelp(
+                    AssistantHelpContext(
+                        route = if (rootTab) Routes.PREPARE else Routes.EDITOR,
+                        noteId = noteId,
+                        sectionId = sectionId,
+                        sectionTitle = sectionTitle,
+                        source = HelpSource.HELP_BUTTON,
+                    )
+                )
+            },
+            onGenerateTribuna = {
+                copilotVm.generateTribuna { result ->
+                    if (result is TribunaResult.Success) {
+                        nav.navigate(Routes.tribuna(noteId))
+                    } else {
+                        val reason = (result as? TribunaResult.Failure)?.message
+                        editorNotice = noteId to (reason
+                            ?: "Não consegui gerar o mapa mental. " +
+                            "Tente novamente pelo menu ⋮ → Mapa mental.")
+                    }
+                }
+            },
+            onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
+            onPasteOutline = { text -> copilotVm.pasteOutline(text) },
+            notice = editorNotice?.takeIf { it.first == noteId }?.second,
+            onNoticeShown = { editorNotice = null },
+            rootTab = rootTab,
+            onSwitchNote = onSwitchNote,
+        )
+    }
+
     androidx.compose.material3.Scaffold(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -375,7 +492,8 @@ private fun AppNav(
                 com.bettertalker.app.ui.components.GlobalBottomBar(
                     currentRoute = currentRoute,
                     onAssistant = ::goAssistant,
-                    onHome = ::goHome,
+                    onLibrary = ::goLibrary,
+                    onPrepare = ::goPrepare,
                     onTrain = ::goTrain,
                     onPresent = ::goPresent,
                 )
@@ -439,7 +557,7 @@ private fun AppNav(
                         route = null,
                     )
                     homeLaunchAction = HomeLaunchAction.PASTE
-                    nav.navigate(Routes.HOME)
+                    nav.navigate(Routes.home())
                 },
                 onCreate = {
                     leaveOnboarding(
@@ -448,7 +566,7 @@ private fun AppNav(
                         route = null,
                     )
                     homeLaunchAction = HomeLaunchAction.CREATE
-                    nav.navigate(Routes.HOME)
+                    nav.navigate(Routes.home())
                 },
                 onExplore = {
                     if (!replay) {
@@ -460,7 +578,7 @@ private fun AppNav(
                     leaveOnboarding(
                         state = if (replay) null else OnboardingV5State.DONE,
                         metric = if (replay) null else "onboarding_completed",
-                        route = if (openLibrary) Routes.HOME else null,
+                        route = if (openLibrary) Routes.home() else null,
                     )
                 },
             )
@@ -507,14 +625,16 @@ private fun AppNav(
                     defaultWholeFocus = true,
                     practiceContext = practice?.takeIf { it.noteId == target.id },
                     walkieDefault = true,
-                    // v5.1: “Trocar nota” abre o picker; escolher troca o contexto.
-                    onChangeNote = { nav.navigate(Routes.picker("assistant")) },
+                    // 5.5: “Trocar nota” abre Meus esboços em seleção.
+                    onChangeNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     // v5.1: “Conversa geral” limpa o vínculo e volta à home global.
                     onGeneralChat = {
                         assistantVm.clearLastNoteId()
                         assistantVm.clearPracticeContext()
                         globalVm.clearBinding()
                     },
+                    onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
+                    onCreateNote = { showGlobalCreateSheet = true },
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onBack = {},
                     onOpenEditor = { nav.navigate(Routes.editor(target.id)) },
@@ -536,7 +656,9 @@ private fun AppNav(
                     notes = globalNotes,
                     loading = notes == null,
                     ptt = pttHost.controller,
-                    onPickNote = { nav.navigate(Routes.picker("assistant")) },
+                    onPickNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
+                    onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
+                    onCreateNote = { showGlobalCreateSheet = true },
                     onOpenModel = { nav.navigate(Routes.MODEL) },
                     onStartTrain = { id -> nav.navigate(Routes.stage(id)) },
                     onOpenPresent = { id -> nav.navigate(Routes.present(id)) },
@@ -553,24 +675,66 @@ private fun AppNav(
                 )
             }
         }
-        composable(Routes.HOME) {
+        composable(
+            Routes.HOME,
+            arguments = listOf(
+                navArgument("intent") {
+                    type = NavType.StringType
+                    defaultValue = "manage"
+                },
+            ),
+        ) { back ->
+            val intent = com.bettertalker.app.navigation.homeIntentFromRoute(
+                back.arguments?.getString("intent"),
+            )
             val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(ctx, db, settings))
-            // compartilha o mesmo VM com a Lixeira (mesmo ciclo da Home)
             HomeScreen(
                 vm,
-                onOpenNote = { nav.navigate(Routes.editor(it)) },
+                intent = intent,
+                onOpenNote = { id ->
+                    scope.launch { settings.setLastNoteId(id) }
+                    nav.navigate(Routes.PREPARE)
+                },
+                onSelectNote = { id ->
+                    scope.launch {
+                        when (intent) {
+                            com.bettertalker.app.navigation.HomeIntent.ASSISTANT,
+                            com.bettertalker.app.navigation.HomeIntent.PREPARE ->
+                                settings.setLastNoteId(id)
+                            com.bettertalker.app.navigation.HomeIntent.TRAIN ->
+                                settings.setTrainNoteId(id)
+                            com.bettertalker.app.navigation.HomeIntent.PRESENT ->
+                                settings.setPresentNoteId(id)
+                            com.bettertalker.app.navigation.HomeIntent.MANAGE -> Unit
+                        }
+                    }
+                    nav.popBackStack()
+                },
+                onBack = { nav.popBackStack() },
                 onOpenLibrary = { nav.navigate(Routes.library()) },
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 onOpenHelp = {
                     openHelp(
                         AssistantHelpContext(
-                            route = Routes.HOME,
+                            route = when (intent) {
+                                com.bettertalker.app.navigation.HomeIntent.ASSISTANT ->
+                                    Routes.ASSISTANT
+                                com.bettertalker.app.navigation.HomeIntent.PREPARE ->
+                                    Routes.PREPARE
+                                com.bettertalker.app.navigation.HomeIntent.TRAIN ->
+                                    Routes.TRAIN_HOME
+                                com.bettertalker.app.navigation.HomeIntent.PRESENT ->
+                                    Routes.PRESENT_HOME
+                                com.bettertalker.app.navigation.HomeIntent.MANAGE ->
+                                    Routes.HOME
+                            },
                             source = HelpSource.HELP_BUTTON,
                         )
                     )
                 },
                 startCreateSheet = homeLaunchAction == HomeLaunchAction.CREATE,
                 startPasteSheet = homeLaunchAction == HomeLaunchAction.PASTE,
+                startScratchSheet = homeLaunchAction == HomeLaunchAction.SCRATCH,
                 onLaunchConsumed = { homeLaunchAction = null },
                 helpTrigger = helpTrigger,
                 onHelpTriggerAction = {
@@ -597,12 +761,11 @@ private fun AppNav(
                 onImportMaterial = { uri ->
                     scope.launch {
                         val id = notesRepo.newNote(null)
+                        settings.setLastNoteId(id)
                         pendingImport = id to uri
                         nav.navigate(Routes.editor(id))
                     }
                 },
-                // "Colar texto": abre o editor já estruturado + aviso quando a
-                // estrutura foi aplicada (esboço S-34 ou template de discurso).
                 onPasteCreated = { id, notice ->
                     if (notice != null) editorNotice = id to notice
                     nav.navigate(Routes.editor(id))
@@ -635,8 +798,8 @@ private fun AppNav(
                 hubVm,
                 onOpenStage = { nav.navigate(Routes.stage(it)) },
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
-                onPickNote = { nav.navigate(Routes.picker("train")) },
-                onGoToLibrary = ::goHome,
+                onPickNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.TRAIN)) },
+                onGoToLibrary = ::goLibrary,
                 onOpenHelp = {
                     openHelp(
                         AssistantHelpContext(
@@ -688,8 +851,8 @@ private fun AppNav(
                 onOpenTribuna = { nav.navigate(Routes.tribuna(it)) },
                 onGenerateTribuna = startTribuna,
                 onOpenEditor = { nav.navigate(Routes.editor(it)) },
-                onPickNote = { nav.navigate(Routes.picker("present")) },
-                onGoToLibrary = ::goHome,
+                onPickNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.PRESENT)) },
+                onGoToLibrary = ::goLibrary,
                 onOpenHelp = {
                     openHelp(
                         AssistantHelpContext(
@@ -737,20 +900,6 @@ private fun AppNav(
                     onDismiss = { tribunaFailure = null },
                 )
             }
-        }
-        composable(
-            Routes.PICKER,
-            arguments = listOf(navArgument("mode") { type = NavType.StringType }),
-        ) { entry ->
-            val mode = entry.arguments?.getString("mode") ?: "train"
-            val hubVm: com.bettertalker.app.ui.hub.HubViewModel = viewModel(
-                factory = com.bettertalker.app.ui.hub.HubViewModel.Factory(ctx, db)
-            )
-            com.bettertalker.app.ui.hub.HubPickerScreen(
-                vm = hubVm,
-                mode = mode,
-                onBack = { nav.popBackStack() },
-            )
         }
         composable(Routes.TRASH) { back ->
             val parent = remember(back) { nav.getBackStackEntry(Routes.HOME) }
@@ -810,112 +959,35 @@ private fun AppNav(
             )
         ) { back ->
             val noteId = back.arguments?.getString("noteId") ?: return@composable
-            // Navegação global: memoriza a última nota aberta (Treinar/Apresentar).
-            androidx.compose.runtime.LaunchedEffect(noteId) { settings.setLastNoteId(noteId) }
-            // v4.0: mesma sessão usada pela aba Assistente e pelo chat antigo.
-            val session = remember(noteId) { sessionFor(noteId) }
-            val vm: EditorViewModel = session.editorVm
-            val copilotVm: CopilotViewModel = session.copilotVm
-            // "Escolher arquivo" da Home: importa o esboço na nota recém-criada.
-            val pending = pendingImport
-            androidx.compose.runtime.LaunchedEffect(noteId, pending) {
-                if (pending != null && pending.first == noteId) {
-                    pendingImport = null
-                    // autoLink: a Home importa e a nota já abre com as seções
-                    // (Introdução + corpos + Conclusão) em vez de só o draft.
-                    copilotVm.importOutlineFile(pending.second, autoLink = true)
-                }
-            }
-            // 3.5e.2/3.5e.3: injeta o gerador de draft (provider do diálogo LLM).
-            androidx.compose.runtime.LaunchedEffect(vm) {
-                val settings = com.bettertalker.app.data.prefs.SettingsStore(ctx)
-                val remote = com.bettertalker.app.data.llm.ProviderFactory.resolveRemote(settings, ctx)
-                val canGenerate = com.bettertalker.app.data.llm.ProviderFactory.useRemoteRoute(remote)
-                val generator: com.bettertalker.app.domain.planning.SectionGenerator =
-                    com.bettertalker.app.data.planning.SectionGeneratorImpl(
-                        com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, ctx)
-                    )
-                vm.setSectionGenerator(generator, canGenerate)
-                // "Texto total" no chat: fila de drafts seção a seção.
-                copilotVm.setDraftQueueStarter { targets -> vm.startDraftQueue(targets) }
-            }
-            // tema do esboço vira título da nota
-            val titleEv by copilotVm.titleEvent.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(titleEv) {
-                val t = titleEv
-                if (!t.isNullOrBlank()) {
-                    vm.onTitle(t)
-                    copilotVm.consumeTitle()
-                }
-            }
-            // v5.3.1: aviso do import S-34 (PDF fallback) chega ao editor.
-            val importNotice by copilotVm.importNotice.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(importNotice) {
-                importNotice?.let {
-                    editorNotice = noteId to it
-                    copilotVm.consumeImportNotice()
-                }
-            }
-            // T2 (Bug #10): seção ativa do editor vira foco do Copilot
-            // (fonte de "Criar proposta"; antes o foco nunca era setado).
-            val activeSectionTitle by vm.activeSectionTitle.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(activeSectionTitle) {
-                copilotVm.setActiveBlock(activeSectionTitle)
-            }
-            // Card-first: captura a seleção ENQUANTO o editor está na tela
-            // (a rota do chat não vê mudanças de seleção do editor).
-            val liveSelection by vm.selection.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(liveSelection) {
-                val sel = liveSelection
-                copilotVm.setSelection(
-                    text = sel?.selectedText.orEmpty(),
-                    sectionId = sel?.sectionId,
-                    subPointId = sel?.subPointId,
-                )
-            }
-            EditorScreen(
-                vm,
-                // v4.0: o editor é imersivo e volta para a porta de entrada.
+            EditorDestination(
+                noteId = noteId,
+                rootTab = false,
                 onBack = {
                     if (!nav.popBackStack(Routes.ASSISTANT, inclusive = false)) {
                         nav.popBackStack()
                     }
                 },
-                onAttach = { nav.navigate(Routes.library(noteId)) },
-                onOpenChat = { nav.navigate(Routes.chat(noteId)) },
-                copilotVm = copilotVm,
-                onOpenHelp = { sectionId, sectionTitle ->
-                    openHelp(
-                        AssistantHelpContext(
-                            route = Routes.EDITOR,
-                            noteId = noteId,
-                            sectionId = sectionId,
-                            sectionTitle = sectionTitle,
-                            source = HelpSource.HELP_BUTTON,
-                        )
-                    )
-                },
-                onGenerateTribuna = {
-                    // Só abre a Tribuna se a geração salvou ao menos uma
-                    // cápsula; falha permanece no editor com erro/retry.
-                    copilotVm.generateTribuna { result ->
-                        if (result is TribunaResult.Success) {
-                            nav.navigate(Routes.tribuna(noteId))
-                        } else {
-                            val reason = (result as? TribunaResult.Failure)?.message
-                            editorNotice = noteId to (reason
-                                ?: "Não consegui gerar a Tribuna. " +
-                                "Tente novamente pelo menu ⋮ → Gerar Tribuna.")
-                        }
-                    }
-                },
-                // #7e2: empty state reusa o pipeline do chat (mesmo VM por nota).
-                onImportOutline = { uri -> copilotVm.importOutlineFile(uri) },
-                onPasteOutline = { text -> copilotVm.pasteOutline(text) },
-                // "Colar e Pronto" v3: aviso de estrutura aplicada (uma vez).
-                notice = editorNotice?.takeIf { it.first == noteId }?.second,
-                onNoticeShown = { editorNotice = null },
+                onSwitchNote = null,
             )
+        }
+        composable(Routes.PREPARE) {
+            val lastId by settings.lastNoteId.collectAsState(initial = null)
+            val notes by db.noteDao().observe(null, "")
+                .collectAsState(initial = emptyList())
+            val note = notes.firstOrNull { it.id == lastId }
+            if (note == null) {
+                com.bettertalker.app.ui.prepare.PrepareEmptyScreen(
+                    onPickNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.PREPARE)) },
+                    onCreateNote = { showGlobalCreateSheet = true },
+                )
+            } else {
+                EditorDestination(
+                    noteId = note.id,
+                    rootTab = true,
+                    onBack = {},
+                    onSwitchNote = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.PREPARE)) },
+                )
+            }
         }
         composable(
             Routes.STAGE,
@@ -1046,6 +1118,7 @@ private fun AppNav(
                 onBack = { nav.popBackStack() },
                 linkNoteId = linkNote,
                 onOpenModel = { nav.navigate(Routes.MODEL) },
+                showBack = linkNote != null,
             )
         }
         composable(Routes.MODEL) { _ ->
@@ -1053,6 +1126,33 @@ private fun AppNav(
                 viewModel(factory = com.bettertalker.app.ui.aimodel.ModelViewModel.Factory(ctx))
             com.bettertalker.app.ui.aimodel.ModelScreen(vm, onBack = { nav.popBackStack() })
         }
+    }
+
+    if (showGlobalCreateSheet) {
+        com.bettertalker.app.ui.components.CreateNoteSheet(
+            onDismiss = { showGlobalCreateSheet = false },
+            onImportS34 = {
+                showGlobalCreateSheet = false
+                assistantImportPicker.launch(arrayOf("*/*"))
+            },
+            onPasteVm = {
+                showGlobalCreateSheet = false
+                homeLaunchAction = HomeLaunchAction.PASTE
+                nav.navigate(Routes.home())
+            },
+            onStartFromScratch = {
+                showGlobalCreateSheet = false
+                homeLaunchAction = HomeLaunchAction.SCRATCH
+                nav.navigate(Routes.home())
+            },
+            onQuickNote = {
+                showGlobalCreateSheet = false
+                scope.launch {
+                    val id = notesRepo.newNote(null)
+                    settings.setLastNoteId(id)
+                }
+            },
+        )
     }
 
     if (showUpgradeSheet) {
@@ -1132,6 +1232,9 @@ private fun NoteChatHost(
     onChangeNote: () -> Unit = {},
     /** v5.1 Walkie: “Conversa geral” desvincula a nota e volta à home global. */
     onGeneralChat: () -> Unit = {},
+    /** 5.5: Meus esboços e create sheet no menu do Assistente. */
+    onOpenMyOutlines: () -> Unit = {},
+    onCreateNote: () -> Unit = {},
     /** v5.1: ⚙ da top bar do Assistente. */
     onOpenSettings: () -> Unit = {},
     onBack: () -> Unit,
@@ -1347,6 +1450,16 @@ private fun NoteChatHost(
                 ptt.cancel()
                 copilotVm.stopSpeaking()
                 onGeneralChat()
+            },
+            onOpenMyOutlines = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onOpenMyOutlines()
+            },
+            onCreateNote = {
+                ptt.cancel()
+                copilotVm.stopSpeaking()
+                onCreateNote()
             },
             onOpenSettings = {
                 ptt.cancel()

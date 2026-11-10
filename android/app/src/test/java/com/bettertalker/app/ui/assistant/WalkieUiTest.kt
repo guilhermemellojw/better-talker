@@ -61,21 +61,25 @@ class WalkieUiTest {
     @Test
     fun menuDoTituloMudaComOContexto() {
         assertEquals(
-            listOf(AssistantMenuAction.PICK_NOTE, AssistantMenuAction.CREATE_NOTE),
+            listOf(
+                AssistantMenuAction.MY_OUTLINES,
+                AssistantMenuAction.CREATE_NOTE,
+            ),
             assistantMenu(hasNote = false),
         )
         assertEquals(
             listOf(
                 AssistantMenuAction.OPEN_NOTE,
                 AssistantMenuAction.CHANGE_NOTE,
+                AssistantMenuAction.CREATE_NOTE,
                 AssistantMenuAction.GENERAL_CHAT,
             ),
             assistantMenu(hasNote = true),
         )
-        assertEquals("Escolher esboço", assistantMenuLabel(AssistantMenuAction.PICK_NOTE))
+        assertEquals("Meus esboços", assistantMenuLabel(AssistantMenuAction.MY_OUTLINES))
         assertEquals("Criar novo esboço", assistantMenuLabel(AssistantMenuAction.CREATE_NOTE))
         assertEquals("Abrir nota", assistantMenuLabel(AssistantMenuAction.OPEN_NOTE))
-        assertEquals("Trocar nota", assistantMenuLabel(AssistantMenuAction.CHANGE_NOTE))
+        assertEquals("Meus esboços", assistantMenuLabel(AssistantMenuAction.CHANGE_NOTE))
         assertEquals(
             "Conversa geral (sem nota)",
             assistantMenuLabel(AssistantMenuAction.GENERAL_CHAT),

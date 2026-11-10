@@ -70,6 +70,8 @@ fun LibraryScreen(
     onBack: () -> Unit,
     linkNoteId: String? = null,
     onOpenModel: () -> Unit = {},
+    /** 5.5: raiz de aba não tem back; linkNote mantém. */
+    showBack: Boolean = true,
 ) {
     val items by vm.items.collectAsState(initial = emptyList())
     val cited by vm.cited.collectAsState()
@@ -116,7 +118,13 @@ fun LibraryScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar") } },
+                navigationIcon = {
+                    if (showBack) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, "Voltar")
+                        }
+                    }
+                },
                 title = { Text("Biblioteca (local)") }
             )
         },

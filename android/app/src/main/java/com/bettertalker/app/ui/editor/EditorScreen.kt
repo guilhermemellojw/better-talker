@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -153,6 +154,10 @@ fun EditorScreen(
     onGenerateTribuna: () -> Unit = {},
     /** v5.0: abre a ajuda contextual com a seção ativa (se houver). */
     onOpenHelp: (sectionId: String?, sectionTitle: String?) -> Unit = { _, _ -> },
+    /** 5.5: editor como raiz da aba Preparo (sem back arrow). */
+    rootTab: Boolean = false,
+    /** 5.5: troca o esboço da aba Preparo; null = não mostra a ação. */
+    onSwitchNote: (() -> Unit)? = null,
 ) {
     // Guarda de foco: ao abrir o chat, o editor solta o foco para que o
     // teclado/IME não continue entregando texto ao campo errado.
@@ -210,7 +215,8 @@ fun EditorScreen(
         }
     }
     BackHandler(
-        enabled = draftState is DraftUiState.Idle &&
+        enabled = !rootTab &&
+            draftState is DraftUiState.Idle &&
             !showAttachSheet && !showExport && !showPasteSheet &&
             !showAttachmentsSheet && !showAddSectionMenu && !imagesSheetOpen,
     ) { requestBack() }
@@ -373,8 +379,10 @@ fun EditorScreen(
                 ),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = requestBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                    if (!rootTab) {
+                        IconButton(onClick = requestBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
+                        }
                     }
                 },
                 title = {
@@ -484,6 +492,11 @@ fun EditorScreen(
                     }
                 },
                 actions = {
+                    if (rootTab && onSwitchNote != null) {
+                        IconButton(onClick = onSwitchNote) {
+                            Icon(Icons.Default.SwapHoriz, "Trocar esboço")
+                        }
+                    }
                     IconButton(onClick = { preview = !preview }) {
                         Icon(
                             if (preview) Icons.Default.Edit else Icons.Default.Visibility,
@@ -495,6 +508,13 @@ fun EditorScreen(
                         // UX refactor: o Editor é focado em escrita/exportação —
                         // gerenciamento de arquivo (cor/mover/fixar/excluir) e os
                         // atalhos de Ensaio/Tribuna (agora na barra global) saíram.
+                        DropdownMenuItem(
+                            text = { Text("Mapa mental") },
+                            onClick = {
+                                showMenu = false
+                                onGenerateTribuna()
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text("Ajuda") },
                             onClick = {

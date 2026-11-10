@@ -54,6 +54,8 @@ fun AssistantWalkieScreen(
     onOpenNote: () -> Unit,
     onChangeNote: () -> Unit,
     onGeneralChat: () -> Unit,
+    onOpenMyOutlines: () -> Unit = {},
+    onCreateNote: () -> Unit = {},
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenHelp: () -> Unit = {},
@@ -100,6 +102,8 @@ fun AssistantWalkieScreen(
             onOpenNote = onOpenNote,
             onChangeNote = onChangeNote,
             onGeneralChat = onGeneralChat,
+            onOpenMyOutlines = onOpenMyOutlines,
+            onCreateNote = onCreateNote,
             titleStyle = MaterialTheme.typography.titleMedium,
         )
         practiceLine?.let {
