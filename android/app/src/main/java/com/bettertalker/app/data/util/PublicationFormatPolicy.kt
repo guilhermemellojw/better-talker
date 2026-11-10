@@ -20,7 +20,7 @@ object PublicationFormatPolicy {
     /** Ordem por publicação; NWT nunca tenta JWPUB/PDF. */
     fun orderFor(pub: String): List<String> = when (pub.lowercase()) {
         "nwt" -> NWT_ORDER
-        "s34", "s-34", "s38", "s-38" -> S34_ORDER
+        "s34", "s-34" -> S34_ORDER
         else -> PUBLICATION_ORDER
     }
 
@@ -78,6 +78,22 @@ object PublicationFormatPolicy {
         ) return null
         return "A TNM só pode ser substituída por um EPUB da TNM. " +
             "Escolha o arquivo nwt_T.epub (ou o EPUB oficial da Tradução do Novo Mundo)."
+    }
+
+    /**
+     * v5.3.1: mantém o slot de be/th/s38 quando o arquivo substituto tem nome
+     * genérico; a TNM continua nwt (o guard exige candidato nwt).
+     */
+    fun repairedBaseSlot(
+        currentBaseSlot: String?,
+        currentPublicationKey: String?,
+        candidateBaseSlot: String?,
+        candidatePublicationKey: String?,
+    ): String? = when {
+        currentPublicationKey == "nwt" ->
+            if (candidatePublicationKey == "nwt") "nwt" else currentBaseSlot
+        candidateBaseSlot != null -> candidateBaseSlot
+        else -> currentBaseSlot
     }
 
     /** Rótulo curto para a UI da Biblioteca. */
