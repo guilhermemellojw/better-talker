@@ -16,6 +16,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.DialogFragment
 import com.bettertalker.app.R
+import com.bettertalker.app.data.util.PublicationFormatPolicy
+import com.bettertalker.app.data.util.detectKind
+import com.bettertalker.app.data.util.matchBaseSlot
 
 /**
  * BYOD: abre o site oficial numa WebView interna com topbar
@@ -111,6 +114,18 @@ class JwDownloadDialog : DialogFragment() {
                     val fileName = DownloadHelper.ensureExtension(
                         URLUtil.guessFileName(dlUrl, disposition, mime), mime
                     )
+                    val blocked = PublicationFormatPolicy.downloadBlockedReason(fileName)
+                        ?: if (matchBaseSlot(dlUrl) == "nwt") {
+                            PublicationFormatPolicy.nwtBlockedMessage(
+                                detectKind(fileName).ext,
+                            )
+                        } else {
+                            null
+                        }
+                    if (blocked != null) {
+                        Toast.makeText(context, blocked, Toast.LENGTH_LONG).show()
+                        return@DownloadListener
+                    }
                     val reference = DownloadHelper.enqueue(context, dlUrl, fileName)
                     if (reference == null) {
                         Toast.makeText(context, "Não foi possível iniciar o download.", Toast.LENGTH_LONG).show()

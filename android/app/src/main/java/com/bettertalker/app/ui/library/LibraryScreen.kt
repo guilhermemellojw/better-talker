@@ -146,7 +146,7 @@ fun LibraryScreen(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "PDF, EPUB, DOCX, RTF, ZIP de RTFs, TXT e JWPUB.",
+                "Publicações: JWPUB > EPUB > PDF (PDF limitado). TNM: só EPUB. Esboço: JWPUB > DOCX (PDF fallback).",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
@@ -340,11 +340,45 @@ private fun AttachmentRow(
                     color = MaterialTheme.colorScheme.secondary,
                 )
                 LibraryStatusPill(LibraryStatus.fromAttachment(a))
+                val policy = com.bettertalker.app.data.util.PublicationFormatPolicy
+                val isNwt = a.baseSlot == "nwt"
+                val isS34 = policy.isS34File(a.fileName)
+                val formatWarning = when {
+                    isNwt && a.kind != "epub" ->
+                        "TNM só EPUB — reimporte no formato correto."
+                    isS34 -> policy.s34Warning(a.kind)
+                    else -> policy.publicationWarning(a.kind)
+                }
+                if (formatWarning != null) {
+                    Text(
+                        formatWarning,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isNwt && a.kind != "epub") {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.tertiary
+                        },
+                    )
+                }
                 if (slotTitle != null) {
                     Text(
                         "Base: $slotTitle",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            val policy = com.bettertalker.app.data.util.PublicationFormatPolicy
+            val showSwap = a.status != "downloading" &&
+                (a.kind == "pdf" || (a.baseSlot == "nwt" && a.kind != "epub"))
+            if (showSwap) {
+                TextButton(onClick = { onRestoreFile(a.id) }) {
+                    Text(
+                        when {
+                            a.baseSlot == "nwt" -> "Trocar por EPUB da TNM"
+                            policy.isS34File(a.fileName) -> "Trocar arquivo do esboço"
+                            else -> "Trocar por formato melhor"
+                        }
                     )
                 }
             }

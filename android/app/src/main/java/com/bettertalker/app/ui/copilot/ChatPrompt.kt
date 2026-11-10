@@ -97,7 +97,7 @@ import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.ByodNotice
 import com.bettertalker.app.ui.components.parseBlocks
 
-/** MIMEs aceitos para importar esboço (DOCX, PDF, RTF, JWPUB genérico). */
+/** MIMEs aceitos para importar esboço (JWPUB, DOCX, PDF fallback, RTF legado). */
 val OUTLINE_MIMES = arrayOf(
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/pdf",
@@ -688,7 +688,7 @@ fun AttachSheet(
             AttachOption(
                 icon = Icons.Default.UploadFile,
                 title = "Importar esboço",
-                desc = "DOCX, PDF ou JWPUB",
+                desc = "JWPUB ou DOCX (PDF como fallback)",
                 onClick = onImport
             )
             AttachOption(

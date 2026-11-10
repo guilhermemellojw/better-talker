@@ -203,7 +203,12 @@ interface AttachmentDao {
     suspend fun setSourceMeta(id: String, sourceType: String, symbol: String?)
     @Query("UPDATE attachments SET noteId = :noteId WHERE id = :id")
     suspend fun setNote(id: String, noteId: String?)
-    @Query("SELECT * FROM attachments WHERE baseSlot = :slot AND indexed = 1 LIMIT 1")
+    @Query(
+        "SELECT * FROM attachments a WHERE a.baseSlot = :slot AND a.indexed = 1 " +
+            "AND (a.baseSlot <> 'nwt' OR (a.kind = 'epub' AND EXISTS (" +
+            "SELECT 1 FROM passages p WHERE p.attachmentId = a.id AND p.ref LIKE '%:%'))) " +
+            "LIMIT 1"
+    )
     suspend fun baseReady(slot: String): AttachmentEntity?
     @Query("DELETE FROM attachments WHERE id = :id")
     suspend fun delete(id: String)

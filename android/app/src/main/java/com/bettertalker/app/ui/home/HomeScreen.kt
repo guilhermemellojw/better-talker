@@ -679,7 +679,7 @@ private fun CreateNoteSheet(
             CreateNoteOption(
                 icon = Icons.Default.UploadFile,
                 title = "Importar esboço S-34",
-                subtitle = "Arquivo DOCX, PDF ou JWPUB",
+                subtitle = "JWPUB ou DOCX (PDF como fallback)",
                 onClick = onImportS34,
             )
             CreateNoteOption(

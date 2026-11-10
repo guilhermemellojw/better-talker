@@ -20,7 +20,7 @@ object JwMediaApi {
     /** Ordem de preferência: texto limpo e comprovado primeiro. */
     // v2.7.3: JWPUB/EPUB têm parágrafos estruturados; o PDF do jw.org vem
     // fatiado por linha (sem page/paragraph) e não casa "§§ 8-9".
-    private val FORMATS = listOf("JWPUB", "EPUB", "PDF", "RTF")
+    // v5.3.1: ordem por publicação (NWT só EPUB; S-34 JWPUB/DOCX/PDF).
 
     /**
      * Mapeia editionKey -> (pub, issue?) da API. Null = sem arquivo direto.
@@ -49,7 +49,7 @@ object JwMediaApi {
 
     /** Tenta resolver o arquivo direto (rede, chamar fora da main thread). */
     fun resolveFile(pub: String, issue: String?): DirectFile? {
-        for (fmt in FORMATS) {
+        for (fmt in PublicationFormatPolicy.orderFor(pub)) {
             queryFormat(pub, issue, fmt, TIMEOUT)?.let { return it }
         }
         return null
@@ -106,7 +106,7 @@ object JwMediaApi {
         var found: DirectFile? = null
         for (m in order) {
             val issue = "$year${m.toString().padStart(2, '0')}"
-            for (fmt in FORMATS) {
+            for (fmt in PublicationFormatPolicy.orderFor(pub)) {
                 found = queryFormat(pub, issue, fmt, PROBE_TIMEOUT)
                 if (found != null) break
             }

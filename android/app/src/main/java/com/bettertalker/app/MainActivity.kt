@@ -158,7 +158,9 @@ private fun AppNav(
                             "Download iniciado — acompanhe na Biblioteca"
                         } else {
                             // antes: descarte silencioso ("baixada e nunca indexada")
-                            "Formato não reconhecido ($name). Toque Importar na Biblioteca e escolha o arquivo."
+                            com.bettertalker.app.data.util.PublicationFormatPolicy
+                                .downloadBlockedReason(name)
+                                ?: "Formato não reconhecido ($name). Toque Importar na Biblioteca e escolha o arquivo."
                         }
                     }
                     android.widget.Toast.makeText(
@@ -844,6 +846,14 @@ private fun AppNav(
                 if (!t.isNullOrBlank()) {
                     vm.onTitle(t)
                     copilotVm.consumeTitle()
+                }
+            }
+            // v5.3.1: aviso do import S-34 (PDF fallback) chega ao editor.
+            val importNotice by copilotVm.importNotice.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(importNotice) {
+                importNotice?.let {
+                    editorNotice = noteId to it
+                    copilotVm.consumeImportNotice()
                 }
             }
             // T2 (Bug #10): seção ativa do editor vira foco do Copilot

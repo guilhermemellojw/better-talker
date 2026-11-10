@@ -167,7 +167,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         val name = displayNameOf(uri)
         val kind = detectKind(name)
         if (kind == DocKind.UNSUPPORTED) {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
+            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use JWPUB, EPUB, DOCX ou PDF (TNM: só EPUB).")
         }
         val tmp = copyUriToTemp(uri, name)
         try {
@@ -191,7 +191,24 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         val name = displayNameOf(uri)
         val kind = detectKind(name)
         if (kind == DocKind.UNSUPPORTED) {
-            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB.")
+            throw ImportException(ImportException.Reason.UNSUPPORTED, "Formato não suportado: $name. Use JWPUB, EPUB, DOCX ou PDF (TNM: só EPUB).")
+        }
+        if (matchBaseSlot(name) == "nwt" &&
+            com.bettertalker.app.data.util.PublicationFormatPolicy.isNwtBlocked(kind.ext)
+        ) {
+            throw ImportException(
+                ImportException.Reason.UNSUPPORTED,
+                com.bettertalker.app.data.util.PublicationFormatPolicy.nwtBlockedMessage(kind.ext),
+            )
+        }
+        // v5.3.1: a TNM só troca por EPUB reconhecido como TNM. Não herdar
+        // baseSlot nwt de um EPUB genérico (corromperia baseReady).
+        com.bettertalker.app.data.util.PublicationFormatPolicy.nwtRepairBlockedReason(
+            currentPublicationKey = cur.publicationKeyOrNull(),
+            candidateKind = kind.ext,
+            candidatePublicationKey = filePublicationKeyOrNull(name),
+        )?.let {
+            throw ImportException(ImportException.Reason.UNSUPPORTED, it)
         }
         repairPublicationMismatch(cur, name)?.let { (expected, actual) ->
             throw ImportException(
@@ -219,8 +236,8 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                     indexed = false,
                     status = "indexing",
                     error = null,
-                    baseSlot = cur.baseSlot ?: matchBaseSlot(name),
-                    symbol = cur.symbol ?: matchBaseSlot(name),
+                    baseSlot = matchBaseSlot(name),
+                    symbol = matchBaseSlot(name) ?: detectSymbol(name),
                     sha256 = hash,
                 )
             )
@@ -248,6 +265,14 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             val kind = detectKind(displayName, src)
             if (kind == DocKind.UNSUPPORTED) {
                 throw ImportException(ImportException.Reason.UNSUPPORTED, explicitMessage(displayName))
+            }
+            if (matchBaseSlot(displayName) == "nwt" &&
+                com.bettertalker.app.data.util.PublicationFormatPolicy.isNwtBlocked(kind.ext)
+            ) {
+                throw ImportException(
+                    ImportException.Reason.UNSUPPORTED,
+                    com.bettertalker.app.data.util.PublicationFormatPolicy.nwtBlockedMessage(kind.ext),
+                )
             }
             com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let {
                 throw ImportException(ImportException.Reason.UNSUPPORTED, it)
@@ -317,7 +342,7 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
                 "Tente reindexar; se persistir, baixe o EPUB."
             "brl", "bes" -> "Formato $ext ainda não suportado — baixe EPUB ou PDF no site."
             "mp3", "aac", "m4a" -> "Áudio não é indexado — baixe o texto (PDF/EPUB) no site."
-            else -> "Formato não suportado: $fileName. Use PDF, EPUB, DOCX, RTF, ZIP, TXT ou JWPUB."
+            else -> "Formato não suportado: $fileName. Use JWPUB, EPUB, DOCX ou PDF (TNM: só EPUB)."
         }
     }
 
@@ -328,11 +353,15 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         downloadId: Long = -1L,
         sourceUrl: String? = null
     ): String? {
-        if (detectKind(fileName) == DocKind.UNSUPPORTED) return null
+        val kind = detectKind(fileName)
+        if (kind == DocKind.UNSUPPORTED) return null
+        if (matchBaseSlot(fileName) == "nwt" &&
+            com.bettertalker.app.data.util.PublicationFormatPolicy.isNwtBlocked(kind.ext)
+        ) return null
         val id = newId("att")
         db.attachmentDao().upsert(
             AttachmentEntity(
-                id, noteId, fileName, detectKind(fileName).ext, 0L, "",
+                id, noteId, fileName, kind.ext, 0L, "",
                 false, System.currentTimeMillis(), matchBaseSlot(fileName),
                 "downloading", null, downloadId, sourceUrl
             )
@@ -354,6 +383,18 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
         val kind = detectKind(displayName, src)
         if (kind == DocKind.UNSUPPORTED) {
             db.attachmentDao().update(cur.copy(status = "failed", error = explicitMessage(displayName)))
+            return
+        }
+        if (matchBaseSlot(displayName) == "nwt" &&
+            com.bettertalker.app.data.util.PublicationFormatPolicy.isNwtBlocked(kind.ext)
+        ) {
+            db.attachmentDao().update(
+                cur.copy(
+                    status = "failed",
+                    error = com.bettertalker.app.data.util.PublicationFormatPolicy
+                        .nwtBlockedMessage(kind.ext),
+                )
+            )
             return
         }
         com.bettertalker.app.data.util.ImportValidation.invalidReason(src, kind)?.let { reason ->

@@ -545,7 +545,7 @@ object NoteSourcesResolver {
         SourceStatus.INDEX_FAILED ->
             "Indexação falhou — reimporte ou tente outra cópia do arquivo."
         SourceStatus.UNSUPPORTED ->
-            "Formato não suportado para indexação — use PDF, EPUB, DOCX, RTF, TXT ou JWPUB."
+            "Formato não suportado para indexação — use JWPUB, EPUB, DOCX ou PDF (TNM: só EPUB)."
         else -> ""
     }
 }
