@@ -24,6 +24,18 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
         val id = inputData.getString(KEY_ID) ?: return Result.failure()
         val db = DbProvider.get(applicationContext)
         val att = db.attachmentDao().get(id) ?: return Result.failure()
+        val fileNameKind = detectKind(att.fileName)
+        val baseSlot = att.baseSlot ?: matchBaseSlot(att.fileName)
+        if (baseSlot == "nwt" &&
+            com.bettertalker.app.data.util.PublicationFormatPolicy.isNwtBlocked(fileNameKind.ext)
+        ) {
+            db.attachmentDao().setStatus(
+                id, false, "failed",
+                com.bettertalker.app.data.util.PublicationFormatPolicy
+                    .nwtBlockedMessage(fileNameKind.ext),
+            )
+            return Result.success()
+        }
         return try {
             val raw = try {
                 DocExtractors.extract(

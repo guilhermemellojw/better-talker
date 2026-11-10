@@ -456,7 +456,12 @@ class CopilotRepository(private val db: AppDatabase) {
         }.toMap()
 
         val nwtAll = attachments.filter { it.baseSlot == "nwt" }
-        val nwtReady = nwtAll.firstOrNull { it.indexed }
+        // v5.3.1: só EPUB da TNM é indexado por versículo; JWPUB/PDF não
+        // habilitam a base bíblica.
+        val nwtReady = nwtAll.firstOrNull {
+            com.bettertalker.app.data.util.PublicationFormatPolicy
+                .isNwtVerseReady(it.baseSlot ?: it.symbol, it.kind, it.indexed)
+        }
         val nwtPending = if (nwtReady == null) {
             nwtAll.firstOrNull {
                 !it.indexed && it.status in setOf("downloading", "indexing", "failed")

@@ -146,7 +146,7 @@ fun LibraryScreen(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "PDF, EPUB, DOCX, RTF, ZIP de RTFs, TXT e JWPUB.",
+                "Publicações: JWPUB > EPUB > PDF (PDF limitado). TNM: só EPUB. Esboço: JWPUB > DOCX (PDF fallback).",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary
             )
@@ -340,12 +340,33 @@ private fun AttachmentRow(
                     color = MaterialTheme.colorScheme.secondary,
                 )
                 LibraryStatusPill(LibraryStatus.fromAttachment(a))
+                val formatWarning = com.bettertalker.app.data.util.PublicationFormatPolicy
+                    .publicationWarning(a.kind)
+                if (formatWarning != null) {
+                    Text(
+                        formatWarning,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+                if (a.baseSlot == "nwt" && a.kind != "epub") {
+                    Text(
+                        "TNM só EPUB — reimporte no formato correto.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (slotTitle != null) {
                     Text(
                         "Base: $slotTitle",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+            if (a.kind == "pdf" && a.status != "missing") {
+                TextButton(onClick = { onRestoreFile(a.id) }) {
+                    Text("Trocar por formato melhor")
                 }
             }
             if (a.status == "missing") {

@@ -109,7 +109,7 @@ val BASE_PUBS = listOf(
         title = "Tradução do Novo Mundo da Bíblia Sagrada",
         code = "nwt_",
         landingUrl = "https://www.jw.org/pt/biblioteca/biblia/nwt/",
-        downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=nwt&fileformat=EPUB%2CPDF&alllangs=0&langwritten=T&txtCMSLang=T",
+        downloadsUrl = "https://b.jw-cdn.org/apis/pub-media/GETPUBMEDIALINKS?output=html&pub=nwt&fileformat=EPUB&alllangs=0&langwritten=T&txtCMSLang=T",
         synonyms = listOf("traducao do novo mundo", "biblia sagrada")
     ),
     // 3.3: S-38 é orientação de reunião, não técnica de oratória nem prova factual.

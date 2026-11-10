@@ -40,7 +40,7 @@ class OutlineRepository(private val ctx: Context, private val db: AppDatabase) {
         if (!DocExtractors.supports(kind)) {
             throw ImportException(
                 ImportException.Reason.UNSUPPORTED,
-                "Formato não suportado. Use DOCX, PDF, RTF ou JWPUB."
+                "Formato não suportado. Use JWPUB ou DOCX (PDF como fallback)."
             )
         }
         val tmp = File(ctx.cacheDir, "out-${System.currentTimeMillis()}-$name")

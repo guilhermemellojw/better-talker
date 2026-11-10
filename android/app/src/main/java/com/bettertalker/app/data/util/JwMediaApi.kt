@@ -20,7 +20,8 @@ object JwMediaApi {
     /** Ordem de preferência: texto limpo e comprovado primeiro. */
     // v2.7.3: JWPUB/EPUB têm parágrafos estruturados; o PDF do jw.org vem
     // fatiado por linha (sem page/paragraph) e não casa "§§ 8-9".
-    private val FORMATS = listOf("JWPUB", "EPUB", "PDF", "RTF")
+    // v5.3.1: política única em [PublicationFormatPolicy].
+    private val FORMATS = PublicationFormatPolicy.PUBLICATION_ORDER
 
     /**
      * Mapeia editionKey -> (pub, issue?) da API. Null = sem arquivo direto.

@@ -27,7 +27,7 @@ object HelpCatalog {
         HelpTopic(
             id = "importar-s34",
             question = "Como importo um esboço S-34?",
-            shortAnswer = "Use o arquivo DOCX, PDF ou JWPUB do esboço. O BT " +
+            shortAnswer = "Use o arquivo JWPUB ou DOCX do esboço (PDF como fallback). O BT " +
                 "extrai seções, tempos e referências automaticamente.",
             steps = listOf(
                 "Abra Esboços e toque no botão de criar.",

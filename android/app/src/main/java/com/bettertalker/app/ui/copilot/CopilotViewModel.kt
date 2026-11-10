@@ -6669,6 +6669,9 @@ class CopilotViewModel(
     fun importOutlineFile(uri: Uri, autoLink: Boolean = false) = viewModelScope.launch {
         try {
             val preview = outlines.previewFile(uri)
+            com.bettertalker.app.data.util.PublicationFormatPolicy
+                .s34Warning(detectKind(preview.fileName).ext)
+                ?.let { postText("_${it}_") }
             _draftName.value = preview.fileName
             _draftTitle.value = preview.parsed.title
             _draftTotal.value = preview.parsed.totalMinutes
@@ -7645,7 +7648,7 @@ internal fun structuralHint(
 internal fun importFailureMessage(e: Throwable): String =
     (e as? com.bettertalker.app.data.repo.ImportException)
         ?.message?.takeIf { it.isNotBlank() }
-        ?: "Não consegui importar o esboço. Tente converter para DOCX, PDF ou RTF."
+        ?: "Não consegui importar o esboço. Use JWPUB ou DOCX (PDF como fallback)."
 
 /** T2 — S-34 detectado, mas sem estrutura extraível (parser não achou seções). */
 internal const val S34_PARSE_FAILURE_MESSAGE =
