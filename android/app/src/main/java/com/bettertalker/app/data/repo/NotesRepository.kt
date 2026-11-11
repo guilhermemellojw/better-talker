@@ -141,19 +141,26 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
 
     /** Exclusão definitiva: remove a nota + esboço + anexos e imagens vinculados. */
     suspend fun deleteForever(id: String) {
-        // 5.4.1: apaga a cópia remota antes da cascata local. Se a rede falhar,
-        // a linha `deleted` sobrevive (sem FK) e o worker tenta de novo.
-        runCatching {
-            val failed = com.bettertalker.app.data.images.ImageBackupRepository
-                .create(ctx.applicationContext, db)
-                .deleteCloudForNote(id)
-            failed.forEach {
-                com.bettertalker.app.data.images.ImageBackupScheduler
-                    .enqueueDelete(ctx.applicationContext, it)
+        // 5.4.1/5.8: a cascata local é imediata; o Storage pode estar
+        // offline. A linha `deleted`+cloudPath sobrevive (sem FK) para o
+        // ImageBackupWorker apagar o objeto depois.
+        val noteImages = db.noteImageDao().forNote(id)
+        val now = System.currentTimeMillis()
+        for (image in noteImages) {
+            val row = db.imageBackupDao().get(image.id)
+            if (row != null && row.state != "deleted") {
+                db.imageBackupDao().upsert(
+                    row.copy(
+                        state = "deleted",
+                        error = "Remoção remota pendente.",
+                        updatedAt = now,
+                    )
+                )
             }
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueDelete(ctx.applicationContext, image.id)
         }
         // v4.2: bytes privados das imagens (o registro cai pela FK em cascade).
-        val noteImages = db.noteImageDao().forNote(id)
         runCatching {
             com.bettertalker.app.data.images.NoteImageStore(
                 ctx.applicationContext, db.noteImageDao(),

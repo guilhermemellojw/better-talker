@@ -53,9 +53,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val imageStore = com.bettertalker.app.data.images.NoteImageStore(
         appCtx.applicationContext, db.noteImageDao(),
     )
-    private val imageBackup = com.bettertalker.app.data.images.ImageBackupRepository.create(
-        appCtx.applicationContext, db,
-    )
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
 
@@ -85,24 +82,29 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     fun deleteImage(imageId: String) {
         viewModelScope.launch {
-            db.noteImageDao().get(imageId)?.let {
-                val app = appCtx.applicationContext
-                com.bettertalker.app.data.images.ImageBackupScheduler
-                    .cancel(app, imageId)
-                if (!imageBackup.deleteCloud(imageId)) {
-                    com.bettertalker.app.data.images.ImageBackupScheduler
-                        .enqueueDelete(app, imageId)
-                }
-                db.tombstoneDao().put(
-                    com.bettertalker.app.data.db.TombstoneEntity(
-                        imageId,
-                        "noteImage",
-                        System.currentTimeMillis(),
+            val image = db.noteImageDao().get(imageId) ?: return@launch
+            val app = appCtx.applicationContext
+            val now = System.currentTimeMillis()
+            com.bettertalker.app.data.images.ImageBackupScheduler.cancel(app, imageId)
+            db.tombstoneDao().put(
+                com.bettertalker.app.data.db.TombstoneEntity(imageId, "noteImage", now)
+            )
+            // A exclusão local é imediata. O Storage pode estar offline; o
+            // worker usa esta linha deleted+cloudPath para apagar depois.
+            val backup = db.imageBackupDao().get(imageId)
+            if (backup != null && backup.state != "deleted") {
+                db.imageBackupDao().upsert(
+                    backup.copy(
+                        state = "deleted",
+                        error = "Remoção remota pendente.",
+                        updatedAt = now,
                     )
                 )
-                com.bettertalker.app.data.cloud.SyncScheduler.requestSync(app)
-                imageStore.delete(it)
             }
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueDelete(app, imageId)
+            com.bettertalker.app.data.cloud.SyncScheduler.requestSync(app)
+            imageStore.delete(image)
         }
     }
 
