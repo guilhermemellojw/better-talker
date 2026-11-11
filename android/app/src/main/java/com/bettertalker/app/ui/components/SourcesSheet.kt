@@ -464,7 +464,8 @@ private fun SourceDetailLine(
     val label = source.refStatus?.ref
         ?.let { refDisplayLabel(it) }
         ?: source.ref
-    val canOpen = onOpenSource != null && source.kind == SourceKind.PUBLICATION
+    val canOpen = onOpenSource != null &&
+        (source.kind == SourceKind.PUBLICATION || source.kind == SourceKind.BIBLE)
     Column(
         Modifier
             .fillMaxWidth()
