@@ -4,9 +4,15 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.data.copilot.CitationContract
 import com.bettertalker.app.data.copilot.GlobalAssistantPrompt
 import com.bettertalker.app.data.copilot.GlobalPromptTurn
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.library.GlobalLibraryReaderContent
+import com.bettertalker.app.data.library.GlobalLibraryResult
+import com.bettertalker.app.data.library.GlobalLibrarySource
+import com.bettertalker.app.data.library.GlobalLibraryStatus
+import com.bettertalker.app.data.library.GlobalLibraryTool
 import com.bettertalker.app.data.llm.DeepSeekProvider
 import com.bettertalker.app.data.llm.LlmAction
 import com.bettertalker.app.data.llm.LlmRequest
@@ -33,7 +39,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Ação visual de um turno (chip/botão no chat global). */
-enum class GlobalTurnAction { CONFIGURE_AI, RETRY }
+enum class GlobalTurnAction { CONFIGURE_AI, RETRY, OPEN_LIBRARY }
 
 /** Turno efêmero do assistente global (sem Room, sem áudio). */
 data class GlobalTurn(
@@ -43,7 +49,22 @@ data class GlobalTurn(
     val local: Boolean = false,
     val action: GlobalTurnAction? = null,
     val error: Boolean = false,
+    val sources: List<GlobalLibrarySource> = emptyList(),
 )
+
+/** Estado do reader de fonte aberto a partir do chip “Fontes”. */
+sealed interface GlobalReaderState {
+    data class Loading(val source: GlobalLibrarySource) : GlobalReaderState
+    data class Content(
+        val source: GlobalLibrarySource,
+        val content: GlobalLibraryReaderContent,
+    ) : GlobalReaderState
+
+    data class Error(
+        val source: GlobalLibrarySource,
+        val message: String,
+    ) : GlobalReaderState
+}
 
 /** Eventos de navegação que a rota do Assistente executa. */
 sealed interface GlobalAssistantEvent {
@@ -71,6 +92,7 @@ class GlobalAssistantViewModel(
     private val settings: SettingsStore,
     private val notesRepo: NotesRepository,
     private val voiceRouter: VoiceRouter,
+    private val libraryTool: GlobalLibraryTool = GlobalLibraryTool.from(db),
 ) : ViewModel() {
 
     private val _turns = MutableStateFlow<List<GlobalTurn>>(emptyList())
@@ -84,6 +106,9 @@ class GlobalAssistantViewModel(
 
     private val _events = MutableSharedFlow<GlobalAssistantEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<GlobalAssistantEvent> = _events.asSharedFlow()
+
+    private val _reader = MutableStateFlow<GlobalReaderState?>(null)
+    val reader: StateFlow<GlobalReaderState?> = _reader.asStateFlow()
 
     val notes: StateFlow<List<GlobalNote>> = db.noteDao().observe(null, "")
         .map { rows ->
@@ -100,6 +125,7 @@ class GlobalAssistantViewModel(
     val ttsReady: StateFlow<Boolean> = voiceRouter.ready
 
     private var generationJob: Job? = null
+    private var readerJob: Job? = null
 
     fun send(text: String, fromVoice: Boolean = false) {
         val clean = text.trim()
@@ -145,6 +171,29 @@ class GlobalAssistantViewModel(
     }
 
     fun stopSpeaking() = voiceRouter.stop()
+
+    fun openSource(source: GlobalLibrarySource) {
+        readerJob?.cancel()
+        _reader.value = GlobalReaderState.Loading(source)
+        readerJob = viewModelScope.launch {
+            _reader.value = try {
+                GlobalReaderState.Content(source, libraryTool.read(source))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                GlobalReaderState.Error(
+                    source,
+                    e.message?.take(160) ?: "Não consegui abrir esta fonte.",
+                )
+            }
+        }
+    }
+
+    fun closeReader() {
+        readerJob?.cancel()
+        readerJob = null
+        _reader.value = null
+    }
 
     /** Erro de voz vira um turno local (sem derrubar o composer). */
     fun onVoiceError(message: String) {
@@ -237,9 +286,24 @@ class GlobalAssistantViewModel(
         _busy.value = true
         generationJob = viewModelScope.launch {
             try {
+                val library = withContext(Dispatchers.IO) { libraryTool.search(text) }
+                val local = localLibraryReply(library)
+                if (local != null) {
+                    reply(
+                        message = local,
+                        action = localLibraryAction(library),
+                        sources = emptyList(),
+                    )
+                    return@launch
+                }
+
                 val remote = ProviderFactory.resolveRemote(settings, app)
                 if (!ProviderFactory.useRemoteRoute(remote)) {
-                    reply(NO_KEY_REPLY, GlobalTurnAction.CONFIGURE_AI)
+                    reply(
+                        message = localNoKeyReply(library),
+                        action = GlobalTurnAction.CONFIGURE_AI,
+                        sources = library.sources,
+                    )
                     return@launch
                 }
                 val provider = ProviderFactory.createFor(
@@ -254,9 +318,11 @@ class GlobalAssistantViewModel(
                 val prompt = GlobalAssistantPrompt.build(
                     userText = text,
                     recentTitles = notes.value.take(6).map { it.title },
+                    sources = library.sources,
+                    libraryNote = library.message,
                     history = history,
                 )
-                val response = withContext(Dispatchers.IO) {
+                var answer = withContext(Dispatchers.IO) {
                     provider.generate(
                         LlmRequest(
                             text = prompt,
@@ -267,13 +333,62 @@ class GlobalAssistantViewModel(
                             maxOutputTokensCap = 512,
                         )
                     )
-                }
-                val answer = response.text.trim()
+                }.text.trim()
                 if (answer.isBlank()) {
                     reply(ERROR_REPLY, GlobalTurnAction.RETRY, error = true)
-                } else {
-                    reply(answer)
+                    return@launch
                 }
+                if (library.sources.isNotEmpty()) {
+                    val firstCheck = CitationContract.check(
+                        answer = answer,
+                        sourceCount = library.sources.size,
+                        requireCitation = true,
+                        sourceAvailable = true,
+                    )
+                    if (!firstCheck.ok) {
+                        val retryPrompt = buildString {
+                            append(prompt)
+                            appendLine()
+                            appendLine()
+                            appendLine("CORRIJA A RESPOSTA ANTERIOR.")
+                            appendLine(
+                                "Violações: ${firstCheck.violations.joinToString("; ")}."
+                            )
+                            append(
+                                "Responda de novo em 4 ou 5 frases, cite [Fonte N] " +
+                                    "válida e não diga que não tem acesso."
+                            )
+                        }
+                        val retry = withContext(Dispatchers.IO) {
+                            provider.generate(
+                                LlmRequest(
+                                    text = retryPrompt,
+                                    action = LlmAction.CHAT,
+                                    message = retryPrompt,
+                                    generationProfile = GenerationProfile.GLOBAL_ASSISTANT,
+                                    maxOutputTokens = 512,
+                                    maxOutputTokensCap = 512,
+                                )
+                            )
+                        }.text.trim()
+                        val retryCheck = CitationContract.check(
+                            answer = retry,
+                            sourceCount = library.sources.size,
+                            requireCitation = true,
+                            sourceAvailable = true,
+                        )
+                        if (retryCheck.ok) {
+                            answer = retry
+                        } else {
+                            reply(
+                                message = localSourceFallback(library.sources),
+                                sources = library.sources,
+                            )
+                            return@launch
+                        }
+                    }
+                }
+                reply(answer, sources = library.sources)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -284,10 +399,64 @@ class GlobalAssistantViewModel(
         }
     }
 
+    private fun localLibraryReply(result: GlobalLibraryResult): String? = when (result.status) {
+        GlobalLibraryStatus.MISSING -> result.message
+        GlobalLibraryStatus.INDEXING -> result.message
+        GlobalLibraryStatus.AMBIGUOUS -> ambiguousReply(result)
+        GlobalLibraryStatus.NO_MATCH ->
+            if (result.libraryIntent) result.message else null
+        else -> null
+    }
+
+    private fun localLibraryAction(result: GlobalLibraryResult): GlobalTurnAction? =
+        when (result.status) {
+            GlobalLibraryStatus.MISSING,
+            GlobalLibraryStatus.INDEXING,
+            -> GlobalTurnAction.OPEN_LIBRARY
+            else -> null
+        }
+
+    private fun ambiguousReply(result: GlobalLibraryResult): String = buildString {
+        append(result.message ?: "Qual edição?")
+        result.candidates.take(4).forEachIndexed { index, candidate ->
+            appendLine()
+            append("${index + 1}) ${candidate.title}")
+        }
+        if (result.candidates.isNotEmpty()) {
+            appendLine()
+            append("Qual delas? Diga a edição (por exemplo, “Sentinela de julho de 2025”).")
+        }
+    }
+
+    private fun localNoKeyReply(result: GlobalLibraryResult): String =
+        if (result.sources.isEmpty()) {
+            NO_KEY_REPLY
+        } else {
+            val n = result.sources.size
+            "Encontrei $n fonte${if (n == 1) "" else "s"} no acervo. " +
+                "Abra “Fontes ($n)” para ler. Para conversar sobre o conteúdo, " +
+                "configure a chave em Modelo IA."
+        }
+
+    private fun localSourceFallback(sources: List<GlobalLibrarySource>): String {
+        val first = sources.first()
+        val unit = first.unitLabel?.let { " · $it" }.orEmpty()
+        val location = first.locationLabel.takeIf { it.isNotBlank() }
+            ?.let { " · $it" }.orEmpty()
+        val more = if (sources.size > 1) {
+            " Há mais ${sources.size - 1} fonte(s) em “Fontes”."
+        } else {
+            ""
+        }
+        return "Segundo [Fonte 1] (${first.publicationTitle}$unit$location): " +
+            "“${first.snippet.take(240)}”.$more"
+    }
+
     private fun reply(
         message: String,
         action: GlobalTurnAction? = null,
         error: Boolean = false,
+        sources: List<GlobalLibrarySource> = emptyList(),
     ) {
         _turns.value = _turns.value + GlobalTurn(
             id = newId("gt"),
@@ -296,6 +465,7 @@ class GlobalAssistantViewModel(
             local = true,
             action = action,
             error = error,
+            sources = sources,
         )
     }
 
@@ -334,6 +504,7 @@ class GlobalAssistantViewModel(
 
     override fun onCleared() {
         generationJob?.cancel()
+        readerJob?.cancel()
         voiceRouter.stop()
         super.onCleared()
     }

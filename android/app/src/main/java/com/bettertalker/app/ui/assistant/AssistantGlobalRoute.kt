@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.bettertalker.app.data.library.GlobalLibrarySource
 import com.bettertalker.app.data.voice.PttController
 import kotlinx.coroutines.delay
 
@@ -58,6 +59,9 @@ fun AssistantGlobalRoute(
 
     var chatOpen by rememberSaveable { mutableStateOf(false) }
     var focusComposer by rememberSaveable { mutableStateOf(false) }
+    var sourcesSheet by remember { mutableStateOf<List<GlobalLibrarySource>?>(null) }
+    var readerOpen by remember { mutableStateOf(false) }
+    val readerState by vm.reader.collectAsState()
     androidx.compose.runtime.LaunchedEffect(openChatRequest) {
         if (openChatRequest > 0) {
             focusComposer = true
@@ -228,6 +232,7 @@ fun AssistantGlobalRoute(
         },
         onRetry = { vm.retryLast() },
         onSendText = { text -> vm.send(text) },
+        onOpenSources = { sources -> sourcesSheet = sources },
     )
 
     if (chatOpen) {
@@ -240,11 +245,47 @@ fun AssistantGlobalRoute(
                 onOpenModel()
             },
             onRetry = { vm.retryLast() },
+            onOpenLibrary = {
+                chatOpen = false
+                latestOpenLibrary()
+            },
+            onOpenSources = { sources ->
+                chatOpen = false
+                sourcesSheet = sources
+            },
             onDismiss = {
                 chatOpen = false
                 focusComposer = false
             },
             focusComposer = focusComposer,
+        )
+    }
+
+    sourcesSheet?.let { sources ->
+        GlobalSourcesSheet(
+            sources = sources,
+            onSelect = { source ->
+                sourcesSheet = null
+                readerOpen = true
+                vm.openSource(source)
+            },
+            onDismiss = { sourcesSheet = null },
+        )
+    }
+
+    if (readerOpen) {
+        SourceReaderSheet(
+            state = readerState,
+            onDismiss = {
+                readerOpen = false
+                vm.closeReader()
+            },
+            onSpeak = { content -> vm.speak(content.body) },
+            onOpenLibrary = {
+                readerOpen = false
+                vm.closeReader()
+                latestOpenLibrary()
+            },
         )
     }
 }
