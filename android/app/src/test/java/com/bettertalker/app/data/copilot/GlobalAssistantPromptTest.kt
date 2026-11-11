@@ -86,4 +86,58 @@ class GlobalAssistantPromptTest {
         assertTrue(system.contains("não consigo acessar"))
         assertTrue(system.contains("orientação de oratória"))
     }
+
+    @Test
+    fun usaTextoCompletoDaUnidadeENaoApenasOSnippet() {
+        val full = "A".repeat(1_000) + " Eze. 17:11-15, 17, 18."
+        val prompt = GlobalAssistantPrompt.build(
+            userText = "Leia a faixa.",
+            sources = listOf(
+                GlobalLibrarySource(
+                    index = 1,
+                    attachmentId = "w1710",
+                    publicationTitle = "A Sentinela — outubro de 2017",
+                    unitLabel = "Página 23",
+                    unitTitle = null,
+                    page = 23,
+                    pageEnd = 23,
+                    paragraph = 9,
+                    snippet = "snippet curto",
+                    promptText = full,
+                    startOrd = 0,
+                    endOrd = 1,
+                )
+            ),
+        )
+        assertTrue(prompt.contains("Eze. 17:11-15, 17, 18."))
+        assertFalse(prompt.contains("\"snippet curto\""))
+        assertFalse(prompt.contains("truncada"))
+    }
+
+    @Test
+    fun fonteLongaMarcaOTamanhoVisto() {
+        val full = "x".repeat(7_000)
+        val prompt = GlobalAssistantPrompt.build(
+            userText = "Leia o capítulo.",
+            sources = listOf(
+                GlobalLibrarySource(
+                    index = 1,
+                    attachmentId = "cl",
+                    publicationTitle = "Achegue-se a Jeová",
+                    unitLabel = "Capítulo 2",
+                    unitTitle = null,
+                    page = 10,
+                    pageEnd = 10,
+                    paragraph = null,
+                    snippet = "curto",
+                    promptText = full,
+                    startOrd = 0,
+                    endOrd = 1,
+                )
+            ),
+        )
+        assertTrue(prompt.contains("fonte 1 truncada"))
+        assertTrue(prompt.contains("7.000") || prompt.contains("7000"))
+    }
+
 }

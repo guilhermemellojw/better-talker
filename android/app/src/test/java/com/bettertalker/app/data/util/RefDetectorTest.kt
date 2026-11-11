@@ -260,7 +260,8 @@ class RefDetectorTest {
         assertEquals(2, rr.paragraph)
 
         val jr = RefDetector.detect("(jr 27 § 22)").single()
-        assertEquals("estudo 27", jr.chapter)
+        assertEquals(27, jr.page)
+        assertEquals(null, jr.chapter)
         assertEquals(22, jr.paragraph)
     }
 

@@ -48,7 +48,10 @@ class RoomReferenceResolver(
         // 4. Busca exata (LIMIT 1).
         val passage = passageDao.findByRef(canonical)
         return if (passage != null) {
-            ResolvedReference(ref, canonical, passage.text, passage.id, ReferenceStatus.RESOLVED)
+            ResolvedReference(
+                ref, canonical, passage.text, passage.id, ReferenceStatus.RESOLVED,
+                fullText = passage.text,
+            )
         } else {
             ResolvedReference(ref, canonical, null, null, ReferenceStatus.UNRESOLVED)
         }
@@ -347,10 +350,11 @@ class RoomReferenceResolver(
         status: ReferenceStatus,
         headTail: Boolean = false,
     ): ResolvedReference {
+        val fullText = rows.joinToString(" ") { it.text }.trim()
         val text = if (headTail) {
             headTailText(rows)
         } else {
-            rows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
+            fullText.take(MAX_UNIT_CHARS)
         }
         if (text.isBlank()) {
             return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
@@ -361,6 +365,7 @@ class RoomReferenceResolver(
             text = text,
             passageId = rows.first().id,
             status = status,
+            fullText = fullText,
         )
     }
 

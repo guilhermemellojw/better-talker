@@ -123,6 +123,7 @@ import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.components.PasteDestination
 import com.bettertalker.app.ui.components.PastePreviewSheet
+import com.bettertalker.app.ui.components.NoteSourceReaderSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.SourcesSheet
 import com.bettertalker.app.ui.copilot.DownloadCtl
@@ -173,6 +174,7 @@ fun EditorScreen(
     val imagesBySection = remember(noteImages) { noteImages.groupBy { it.sectionId } }
     val isDemonstration by vm.isDemonstration.collectAsState()
     val noteSources by vm.noteSources.collectAsState()
+    val sourceReader by vm.sourceReader.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
     val draftState by vm.draftState.collectAsState()
     var preview by remember { mutableStateOf(false) }
@@ -947,8 +949,24 @@ fun EditorScreen(
                     copilotVm?.refreshOutlineRefs()
                     scope.launch { copilotVm?.refreshReadiness() }
                 },
+                onOpenSource = { source ->
+                    showSources = false
+                    vm.openSourceReader(source)
+                },
             )
         }
+    }
+
+    // 6.0a/P0: reader da faixa completa (texto integral do índice).
+    sourceReader?.let { reader ->
+        NoteSourceReaderSheet(
+            state = reader,
+            onDismiss = vm::closeSourceReader,
+            onOpenLibrary = {
+                vm.closeSourceReader()
+                onAttach()
+            },
+        )
     }
 
     // Exportação (T2/T3): Compartilhar HTML, Salvar PDF e Copiar texto.

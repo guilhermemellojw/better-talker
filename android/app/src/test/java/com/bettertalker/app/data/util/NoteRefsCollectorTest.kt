@@ -275,4 +275,13 @@ class NoteRefsCollectorTest {
         )
         assertEquals(1, refs.publications.size)
     }
+
+    @Test
+    fun sourceKeyDeJr29UsaPaginaNaoEstudo() {
+        val ref = RefDetector.detect("jr 29").single()
+        assertEquals(29, ref.page)
+        assertEquals(null, ref.chapter)
+        assertEquals("book|jr|||29|-1|-1", NoteRefsCollector.sourceKey(ref))
+    }
+
 }

@@ -30,7 +30,11 @@ fun refUnitLabel(ref: RefDetector.DetectedRef): String {
                 if (end != null && end != paragraph) append("-").append(end)
             }
         } else {
-            if (ref.page != null) append("pág. ").append(ref.page)
+            // Livro cita página impressa ("p. 29"); revista mantém "pág.".
+            if (ref.page != null) {
+                append(if (ref.kind == RefDetector.Kind.BOOK) "p. " else "pág. ")
+                    .append(ref.page)
+            }
             if (paragraph != null) {
                 if (isNotEmpty()) append(", ")
                 append(if (end != null && end != paragraph) "§§ " else "§")
@@ -47,13 +51,39 @@ fun refDisplayLabel(ref: RefDetector.DetectedRef): String {
     val unit = refUnitLabel(ref)
     if (unit.isBlank()) return base
     if (normalizeText(base).contains(normalizeText(unit))) return base
+
+    // 6.0a: o label do detector pode já trazer "p. 29" (jr 29) ou
+    // "p. 27 § 22". Remove da unidade só o que o label já mostra, para não
+    // duplicar página/§ na linha do SourcesSheet.
+    var remaining = unit
+    val page = ref.page
+    if (page != null && Regex(
+            """(?i)p(?:ág|ag)?\.?\s*$page(?:\s*[-–]\s*\d+)?"""
+        ).containsMatchIn(base)
+    ) {
+        remaining = remaining.replaceFirst(
+            Regex("""(?i)p(?:ág|ag)?\.?\s*\d+(?:\s*[-–]\s*\d+)?,?\s*"""),
+            "",
+        ).trim()
+    }
+    val par = ref.paragraph
+    if (par != null && Regex("""§{1,2}\s*$par(?:\s*[-–]\s*\d+)?""")
+            .containsMatchIn(base)
+    ) {
+        remaining = remaining.replaceFirst(
+            Regex("""§{1,2}\s*\d+(?:\s*[-–]\s*\d+)?,?\s*"""),
+            "",
+        ).trim()
+    }
+    if (remaining.isBlank()) return base
+
     // O label pode já conter o capítulo/artigo, mas não o ponto.
-    val head = unit.substringBefore(',').trim()
+    val head = remaining.substringBefore(',').trim()
     if (head.isNotBlank() && normalizeText(base).contains(normalizeText(head))) {
-        val tail = unit.substringAfter(',', "").trim()
+        val tail = remaining.substringAfter(',', "").trim()
         if (tail.isBlank() || normalizeText(base).contains(normalizeText(tail))) return base
     }
-    return "$base — $unit"
+    return if (remaining.startsWith("§")) "$base $remaining" else "$base — $remaining"
 }
 
 /** Chave de agrupamento: edição para revistas, publicação para livros. */

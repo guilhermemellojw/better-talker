@@ -34,11 +34,20 @@ class RefCollisionTest {
         val bare = pubs("jr 29").single()
         assertEquals("jr", bare.pubKey)
         assertEquals("book|jr", bare.editionKey)
-        assertTrue(bare.label.contains("Jeremias — Uma Mensagem de Deus para Nós"))
+        assertEquals(29, bare.page)
+        assertEquals(null, bare.chapter)
+        assertTrue(bare.label.contains("Jeremias — Uma Mensagem de Deus para Nós — p. 29"))
         val page = pubs("jr p. 29").single()
         assertEquals("jr", page.pubKey)
+        assertEquals(29, page.page)
         assertTrue(page.label.contains("Jeremias — Uma Mensagem de Deus para Nós — p. 29"))
-        assertEquals("jr", pubs("jr cap. 1").single().pubKey)
+        val chapter = pubs("jr cap. 1").single()
+        assertEquals("jr", chapter.pubKey)
+        assertEquals("cap. 1", chapter.chapter)
+        assertEquals(null, chapter.page)
+        val study = pubs("jr estudo 29").single()
+        assertEquals("estudo 29", study.chapter)
+        assertEquals(null, study.page)
     }
 
     @Test

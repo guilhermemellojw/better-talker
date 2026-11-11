@@ -88,4 +88,24 @@ class RefDisplayTest {
         )
         assertEquals("Despertai! 8/2013 — pág. 8, §§ 1-2", refDisplayLabel(r))
     }
+
+    @Test
+    fun jr29MostraPaginaENaoEstudo() {
+        val ref = RefDetector.detect("jr 29").single()
+        assertEquals(
+            "Jeremias — Uma Mensagem de Deus para Nós — p. 29",
+            refDisplayLabel(ref),
+        )
+        assertEquals("p. 29", refUnitLabel(ref))
+    }
+
+    @Test
+    fun jr27ComParagraphMostraPaginaEParagraph() {
+        val ref = RefDetector.detect("jr 27 § 22").single()
+        assertEquals(
+            "Jeremias — Uma Mensagem de Deus para Nós — p. 27 §22",
+            refDisplayLabel(ref),
+        )
+    }
+
 }

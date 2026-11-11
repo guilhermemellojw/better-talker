@@ -456,4 +456,34 @@ Testar a varredura do título.
             s2.references.any { it.normalizedReference.contains("103|20") },
         )
     }
+
+    @Test
+    fun jr29EhPaginaEJrEstudoEhCapitulo() {
+        val raw = """S-34 — TESTE JR
+Tema: Jeremias
+
+Objetivo:
+Verificar a política de jr.
+
+1. Ponto (4 min)
+   Consulte jr 29.
+   Consulte jr estudo 29.
+   Leia Je 29:11.
+"""
+        val parsed = S34Parser.parseS34(raw)
+        val pubs = parsed.references.filter { it.type == S34RefType.PUBLICATION }
+            .mapNotNull { it.publication }
+            .filter { it.pubKey == "jr" }
+        assertEquals(2, pubs.size)
+        val page = pubs.first { it.chapter == null }
+        assertEquals(29, page.page)
+        val study = pubs.first { it.chapter != null }
+        assertEquals("estudo 29", study.chapter)
+        assertNull(study.page)
+        assertTrue(parsed.references.any {
+            it.type == S34RefType.BIBLE && it.bible?.label == "Jeremias" &&
+                it.bible?.chapter == 29
+        })
+    }
+
 }

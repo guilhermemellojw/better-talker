@@ -69,7 +69,13 @@ data class EvidenceSource(
     val trainingCategory: TrainingCategory = TrainingCategory.UNKNOWN,
     val score: Double = 0.0,
     val matchedTerms: List<String> = emptyList(),
-    val foundBy: List<String> = emptyList()
+    val foundBy: List<String> = emptyList(),
+    /** 6.0a: texto completo da fonte (pode ser maior que [text]). */
+    val fullText: String = text,
+    /** 6.0a: texto efetivamente enviado no prompt. */
+    val sentText: String = text,
+    val truncated: Boolean = false,
+    val seenChars: Int = sentText.length,
 )
 
 data class RetrievalScope(

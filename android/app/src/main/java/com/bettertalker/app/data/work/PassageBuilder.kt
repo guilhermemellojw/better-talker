@@ -13,7 +13,8 @@ import com.bettertalker.app.data.util.splitWithSectionsAndParagraphs
  * Preserva o comportamento do IndexPublicationWorker:
  * - cap de [maxSentences] frases
  * - filtro de frases com normalizado <= [minNormalizedLength]
- * - cap de texto/normalizado em [maxTextLength] chars
+ * - `text` guarda o trecho INTEGRAL; [maxTextLength] limita só o
+ *   `normalized` usado na busca
  * - `ord` contado DEPOIS do filtro (sequencial de zero)
  *
  * @param attachmentId id do attachment pai
@@ -23,7 +24,8 @@ import com.bettertalker.app.data.util.splitWithSectionsAndParagraphs
  *   refina por frase para o trilho training — ver IndexPublicationWorker)
  * @param maxSentences cap de frases (default 2500, igual ao worker)
  * @param minNormalizedLength comprimento mínimo do normalizado (default 5)
- * @param maxTextLength cap de texto/normalizado (default 500)
+ * @param maxTextLength cap do normalizado (default 500); o texto visível
+ *   ao usuário NÃO é truncado
  */
 /** Piso do teto de frases (publicações pequenas). */
 internal const val MIN_PASSAGE_CAP = 2500
@@ -48,14 +50,20 @@ internal fun buildPassages(
     minNormalizedLength: Int = 5,
     maxTextLength: Int = 500,
 ): List<PassageEntity> {
-    val chunks = splitWithSectionsAndParagraphs(raw).take(maxSentences)
+    // §N do JWPUB vira um chunk com o parágrafo inteiro; demais textos
+    // continuam divididos por frase.
+    val chunks = splitWithSectionsAndParagraphs(raw, keepParagraphs = true)
+        .take(maxSentences)
     val result = mutableListOf<PassageEntity>()
     var ord = 0
     for (chunk in chunks) {
         val s = chunk.text
         val norm = normalizeText(s)
         if (norm.length <= minNormalizedLength) continue
-        val text = s.replace(Regex("\\s+"), " ").trim().take(maxTextLength)
+        // 6.0a/P0: o índice guarda a faixa inteira. O reader precisa do
+        // texto completo para o usuário conferir o que o Copilot leu; só o
+        // `normalized` é limitado (busca/índice invertido).
+        val text = s.replace(Regex("\\s+"), " ").trim()
         result.add(
             PassageEntity(
                 id = "$attachmentId-p$ord",

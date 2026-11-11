@@ -200,4 +200,14 @@ class NoteRefsInventoryTest {
         val text = buildNoteRefsInventory(NoteSources(emptyList(), 0, 0))
         assertTrue(text.isEmpty())
     }
+
+    @Test
+    fun inventarioMantemJr29ComoPagina() {
+        val text = buildNoteRefsInventory(
+            sources(pub("jr 29", pubKey = "jr", editionKey = "book|jr")),
+        )
+        assertTrue(text.contains("- jr 29 — edição no acervo; trecho resolvido"))
+        assertFalse(text.contains("estudo 29"))
+    }
+
 }

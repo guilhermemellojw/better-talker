@@ -342,7 +342,16 @@ data class ExtractedChunk(
  * seguintes até o próximo marcador ou nova seção (artigo/lição). O marcador
  * "=== PAGE: N ===" (RC1-pages) atualiza a página corrente. Puro.
  */
-fun splitWithSectionsAndParagraphs(raw: String): List<ExtractedChunk> {
+fun splitWithSectionsAndParagraphs(
+    raw: String,
+    /**
+     * 6.0a: quando true, uma linha `§N ...` vira UM chunk com o parágrafo
+     * inteiro (sem quebrar em frases). O índice/reader precisa do texto
+     * completo do parágrafo; o split por frase continua valendo para PDF/
+     * EPUB sem marcador §.
+     */
+    keepParagraphs: Boolean = false,
+): List<ExtractedChunk> {
     val out = mutableListOf<ExtractedChunk>()
     var section = ""
     var paragraph: Int? = null
@@ -390,6 +399,13 @@ fun splitWithSectionsAndParagraphs(raw: String): List<ExtractedChunk> {
         if (isLesson || isShortTitle) {
             section = canonicalSectionLine(line).take(120)
             if (!markedHere) paragraph = null
+            return@forEachIndexed
+        }
+        if (keepParagraphs && markedHere) {
+            val text = line.trim()
+            if (text.length > 5) {
+                out += ExtractedChunk(text, section, paragraph, currentPage)
+            }
             return@forEachIndexed
         }
         line.split(Regex("[.!?]+"))

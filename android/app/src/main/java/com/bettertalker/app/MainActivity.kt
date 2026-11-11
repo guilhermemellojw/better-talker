@@ -171,10 +171,11 @@ private fun AppNav(
             }
         }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            // v10: JWPUB antigo sem data-pnum ganha §N no início do <p>
-            // (label/índice do DocumentParagraph; `it` por data-pid).
-            // Reindexar uma vez após atualizar o extrator.
-            if (settings.needsIndexFormat(10)) libRepo.reindexAll()
+            // v11 (6.0a): o índice passa a guardar o texto INTEGRAL do
+            // trecho (antes `text` era cortado em 500 chars). Reindexar uma
+            // vez após atualizar o PassageBuilder; publicações já indexadas
+            // ficam com o texto antigo até este reindex.
+            if (settings.needsIndexFormat(11)) libRepo.reindexAll()
         }
     }
 
