@@ -2,6 +2,7 @@ package com.bettertalker.app.data.publication
 
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.db.PublicationUnitEntity
+import com.bettertalker.app.data.util.PubCatalog
 import com.bettertalker.app.data.util.normalizeText
 
 /** Tipo estrutural de uma unidade de publicação. */
@@ -278,7 +279,8 @@ object PublicationUnitBuilder {
 
     private fun fallbackKind(symbol: String, pubKind: String?): PublicationUnitKind {
         val sym = symbol.trim().lowercase()
-        val kind = pubKind?.trim()?.lowercase()
+        val kind = pubKind?.trim()?.lowercase()?.takeIf { it != "jwpub" }
+            ?: PubCatalog.entryOf(sym)?.kind
         return when {
             kind == "magazine" ||
                 sym in setOf("w", "wp", "g", "gn") ||
