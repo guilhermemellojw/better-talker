@@ -34,6 +34,9 @@ sealed interface GlobalRoute {
     ) : GlobalRoute
     data class NotFound(val recent: List<GlobalNote>) : GlobalRoute
     data object CreateNote : GlobalRoute
+    data object OpenLibrary : GlobalRoute
+    data object OpenPrepare : GlobalRoute
+    data object OpenMyOutlines : GlobalRoute
     data class StartTrain(val note: GlobalNote) : GlobalRoute
     data class OpenPresent(val note: GlobalNote) : GlobalRoute
     data class AskNoteForAction(val action: GlobalNoteAction) : GlobalRoute
@@ -82,6 +85,15 @@ object GlobalIntentRouter {
         "criar um esboco", "criar esboco", "novo esboco", "criar nota",
         "criar uma nota", "nova nota",
     )
+    private val LIBRARY_HINTS = listOf(
+        "abrir biblioteca", "ir para biblioteca", "quero biblioteca",
+    )
+    private val MY_OUTLINES_HINTS = listOf(
+        "meus esbocos", "meus esboços", "abrir meus esbocos",
+    )
+    private val PREPARE_HINTS = listOf(
+        "abrir preparo", "ir para preparo", "quero preparar", "preparar",
+    )
     private val TRAIN_HINTS = listOf(
         "iniciar treino", "ir para treino", "abrir treino", "comecar treino",
         "treinar", "quero treinar",
@@ -116,6 +128,9 @@ object GlobalIntentRouter {
         if (HELP_HINTS.any { norm.contains(it) }) return GlobalRoute.Help
         if (LIST_HINTS.any { norm.contains(it) }) return GlobalRoute.ListNotes
         if (CONFIG_AI_HINTS.any { norm.contains(it) }) return GlobalRoute.ConfigureAi
+        if (LIBRARY_HINTS.any { norm.contains(it) }) return GlobalRoute.OpenLibrary
+        if (MY_OUTLINES_HINTS.any { norm.contains(it) }) return GlobalRoute.OpenMyOutlines
+        if (PREPARE_HINTS.any { norm.contains(it) }) return GlobalRoute.OpenPrepare
         if (CREATE_HINTS.any { norm.contains(it) }) return GlobalRoute.CreateNote
 
         val wantsTrain = TRAIN_HINTS.any { norm.contains(it) }

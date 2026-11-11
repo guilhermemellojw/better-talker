@@ -52,7 +52,7 @@ class TribunaHtmlBuilderTest {
     @Test
     fun todosVaziosTemMensagem() {
         val html = buildTribunaHtml("T", listOf(card(0, "A", null)))
-        assertTrue(html.contains("Nenhuma Tribuna gerada"))
+        assertTrue(html.contains("Nenhum mapa mental gerado"))
     }
 
     @Test

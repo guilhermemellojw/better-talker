@@ -201,7 +201,7 @@ class ChatNavigationTest {
             hasTrainingText = true,
             hasTextBySectionId = sections.associate { it.id to true },
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
         )
         val s = nextStepSuggestion(sections, focusedSectionId = "b1", practice = practice)!!
         assertEquals("Apresentar", s.label)
@@ -221,7 +221,7 @@ class ChatNavigationTest {
             hasTrainingText = true,
             hasTextBySectionId = sections.associate { it.id to true },
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
             savedSectionIndex = 1,
             savedSectionTitle = "Ponto 1",
             savedElapsedSec = 312,
@@ -247,7 +247,7 @@ class ChatNavigationTest {
             hasTrainingText = true,
             hasTextBySectionId = mapOf("i" to true, "b1" to true, "c" to true),
             presentState = PracticePresentState.MISSING,
-            presentLabel = "Falta gerar a Tribuna",
+            presentLabel = "Falta gerar o mapa mental",
         )
         val s = nextStepSuggestion(sections, focusedSectionId = null, practice = practice)!!
         assertEquals("Iniciar Treino", s.label)

@@ -46,14 +46,14 @@ class WalkieUiTest {
             noteId = "note",
             hasTrainingText = true,
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
             savedSectionIndex = 1,
             savedSectionTitle = "Ponto 1",
             savedElapsedSec = 65,
         )
         val line = walkiePracticeLine(snapshot)!!
         assertTrue(line, line.contains("Treino pronto"))
-        assertTrue(line, line.contains("Palco: Tribuna pronta"))
+        assertTrue(line, line.contains("Palco: Mapa mental pronto"))
         assertTrue(line, line.contains("continuar da seção 2"))
         assertNull(walkiePracticeLine(null))
     }
@@ -63,6 +63,10 @@ class WalkieUiTest {
         assertEquals(
             listOf(
                 AssistantMenuAction.MY_OUTLINES,
+                AssistantMenuAction.LIBRARY,
+                AssistantMenuAction.PREPARE,
+                AssistantMenuAction.TRAIN,
+                AssistantMenuAction.PRESENT,
                 AssistantMenuAction.CREATE_NOTE,
             ),
             assistantMenu(hasNote = false),
@@ -70,7 +74,11 @@ class WalkieUiTest {
         assertEquals(
             listOf(
                 AssistantMenuAction.OPEN_NOTE,
-                AssistantMenuAction.CHANGE_NOTE,
+                AssistantMenuAction.MY_OUTLINES,
+                AssistantMenuAction.LIBRARY,
+                AssistantMenuAction.PREPARE,
+                AssistantMenuAction.TRAIN,
+                AssistantMenuAction.PRESENT,
                 AssistantMenuAction.CREATE_NOTE,
                 AssistantMenuAction.GENERAL_CHAT,
             ),
@@ -80,6 +88,10 @@ class WalkieUiTest {
         assertEquals("Criar novo esboço", assistantMenuLabel(AssistantMenuAction.CREATE_NOTE))
         assertEquals("Abrir nota", assistantMenuLabel(AssistantMenuAction.OPEN_NOTE))
         assertEquals("Meus esboços", assistantMenuLabel(AssistantMenuAction.CHANGE_NOTE))
+        assertEquals("Biblioteca", assistantMenuLabel(AssistantMenuAction.LIBRARY))
+        assertEquals("Preparo", assistantMenuLabel(AssistantMenuAction.PREPARE))
+        assertEquals("Treino", assistantMenuLabel(AssistantMenuAction.TRAIN))
+        assertEquals("Palco", assistantMenuLabel(AssistantMenuAction.PRESENT))
         assertEquals(
             "Conversa geral (sem nota)",
             assistantMenuLabel(AssistantMenuAction.GENERAL_CHAT),

@@ -22,9 +22,9 @@ fun presentReadinessLabel(readiness: PresentReadiness, demo: Boolean = false): S
         PresentReadiness.PARTIAL -> "Roteiro incompleto"
         PresentReadiness.MISSING -> "Falta o roteiro"
     } else when (readiness) {
-        PresentReadiness.READY -> "Tribuna pronta"
-        PresentReadiness.PARTIAL -> "Tribuna incompleta"
-        PresentReadiness.MISSING -> "Falta gerar a Tribuna"
+        PresentReadiness.READY -> "Mapa mental pronto"
+        PresentReadiness.PARTIAL -> "Mapa mental incompleto"
+        PresentReadiness.MISSING -> "Falta gerar o mapa mental"
     }
 
 /** Ação/ações do cartão do Palco (primária + terciária). */
@@ -42,7 +42,8 @@ data class PresentCardActions(
 fun presentCardActions(readiness: PresentReadiness, demo: Boolean): PresentCardActions = when {
     readiness == PresentReadiness.READY -> PresentCardActions(
         primary = PresentAction.PRESENT,
-        tertiary = if (demo) null else PresentAction.OPEN_TRIBUNA,
+        // O lápis no card abre o mapa; não duplicar com texto.
+        tertiary = null,
     )
     demo && readiness == PresentReadiness.PARTIAL -> PresentCardActions(
         primary = PresentAction.OPEN_SCRIPT,
@@ -57,9 +58,9 @@ fun presentCardActions(readiness: PresentReadiness, demo: Boolean): PresentCardA
 
 fun presentActionLabel(action: PresentAction): String = when (action) {
     PresentAction.PRESENT -> "Apresentar"
-    PresentAction.OPEN_TRIBUNA -> "Abrir Tribuna"
+    PresentAction.OPEN_TRIBUNA -> "Completar mapa mental"
     PresentAction.OPEN_SCRIPT -> "Abrir Roteiro"
-    PresentAction.GENERATE_TRIBUNA -> "Gerar Tribuna"
+    PresentAction.GENERATE_TRIBUNA -> "Gerar mapa mental"
     PresentAction.OPEN_EDITOR -> "Abrir editor"
 }
 

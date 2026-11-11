@@ -51,6 +51,11 @@ sealed interface GlobalAssistantEvent {
     data class OpenPresent(val noteId: String) : GlobalAssistantEvent
     data object ConfigureAi : GlobalAssistantEvent
     data object OpenCreateSheet : GlobalAssistantEvent
+    data object OpenLibrary : GlobalAssistantEvent
+    data object OpenPrepare : GlobalAssistantEvent
+    data object OpenMyOutlines : GlobalAssistantEvent
+    data object OpenTrain : GlobalAssistantEvent
+    data object OpenPresentRoot : GlobalAssistantEvent
 }
 
 /**
@@ -161,6 +166,18 @@ class GlobalAssistantViewModel(
                 reply(whichReply(route.candidates))
             }
             is GlobalRoute.NotFound -> reply(notFoundReply(route.recent))
+            GlobalRoute.OpenLibrary -> {
+                _events.tryEmit(GlobalAssistantEvent.OpenLibrary)
+                reply("Abrindo a Biblioteca.")
+            }
+            GlobalRoute.OpenPrepare -> {
+                _events.tryEmit(GlobalAssistantEvent.OpenPrepare)
+                reply("Abrindo o Preparo.")
+            }
+            GlobalRoute.OpenMyOutlines -> {
+                _events.tryEmit(GlobalAssistantEvent.OpenMyOutlines)
+                reply("Abrindo Meus esboços.")
+            }
             GlobalRoute.CreateNote -> {
                 _events.tryEmit(GlobalAssistantEvent.OpenCreateSheet)
                 reply("Escolha o tipo de esboço para começar.")
@@ -183,7 +200,8 @@ class GlobalAssistantViewModel(
         when (pending) {
             is GlobalPending.OpenNote -> {
                 bindNote(pending.note.id)
-                reply("Abrindo “${pending.note.title}”.")
+                _events.tryEmit(GlobalAssistantEvent.OpenPrepare)
+                reply("Abrindo “${pending.note.title}” no Preparo.")
             }
             is GlobalPending.StartTrain -> {
                 viewModelScope.launch {

@@ -84,14 +84,14 @@ class PracticeContextTest {
             hasTrainingText = true,
             trainPrepSummary = "inteiro · análise · cronômetro",
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
             savedSectionIndex = 1,
             savedSectionTitle = "Ponto 1",
             savedElapsedSec = 312,
         )
         assertTrue(s.contextLine, s.contextLine.contains("Treino: pronto"))
         assertTrue(s.contextLine, s.contextLine.contains("preparação: inteiro"))
-        assertTrue(s.contextLine, s.contextLine.contains("Palco: Tribuna pronta"))
+        assertTrue(s.contextLine, s.contextLine.contains("Palco: Mapa mental pronto"))
         assertTrue(s.contextLine, s.contextLine.contains("continuar da seção 2 · 5:12 (Ponto 1)"))
         assertTrue(s.promptBlock, s.promptBlock.contains("não é resultado de treino"))
         assertTrue(s.promptBlock, s.promptBlock.contains("sessão salva"))
@@ -145,7 +145,7 @@ class PracticeContextTest {
         assertTrue(s.hasTrainingText)
         assertEquals(true, s.hasTextBySectionId["b1"])
         assertEquals(PracticePresentState.MISSING, s.presentState)
-        assertEquals("Falta gerar a Tribuna", s.presentLabel)
+        assertEquals("Falta gerar o mapa mental", s.presentLabel)
     }
 
     @Test
@@ -170,6 +170,6 @@ class PracticeContextTest {
             presentSessionRaw = null,
         )
         assertEquals(PracticePresentState.READY, s.presentState)
-        assertEquals("Tribuna pronta", s.presentLabel)
+        assertEquals("Mapa mental pronto", s.presentLabel)
     }
 }

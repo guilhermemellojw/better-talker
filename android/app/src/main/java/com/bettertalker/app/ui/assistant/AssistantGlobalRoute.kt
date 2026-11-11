@@ -36,6 +36,10 @@ fun AssistantGlobalRoute(
     onPickNote: () -> Unit,
     onOpenMyOutlines: () -> Unit,
     onCreateNote: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenPrepare: () -> Unit,
+    onOpenTrain: () -> Unit,
+    onOpenPresentRoot: () -> Unit,
     onOpenModel: () -> Unit,
     onStartTrain: (String) -> Unit,
     onOpenPresent: (String) -> Unit,
@@ -68,6 +72,10 @@ fun AssistantGlobalRoute(
     val latestOpenModel by rememberUpdatedState(onOpenModel)
     val latestOpenMyOutlines by rememberUpdatedState(onOpenMyOutlines)
     val latestCreateNote by rememberUpdatedState(onCreateNote)
+    val latestOpenLibrary by rememberUpdatedState(onOpenLibrary)
+    val latestOpenPrepare by rememberUpdatedState(onOpenPrepare)
+    val latestOpenTrain by rememberUpdatedState(onOpenTrain)
+    val latestOpenPresentRoot by rememberUpdatedState(onOpenPresentRoot)
 
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -151,6 +159,11 @@ fun AssistantGlobalRoute(
                 is GlobalAssistantEvent.OpenPresent -> latestOpenPresent(event.noteId)
                 GlobalAssistantEvent.ConfigureAi -> latestOpenModel()
                 GlobalAssistantEvent.OpenCreateSheet -> latestCreateNote()
+                GlobalAssistantEvent.OpenMyOutlines -> latestOpenMyOutlines()
+                GlobalAssistantEvent.OpenLibrary -> latestOpenLibrary()
+                GlobalAssistantEvent.OpenPrepare -> latestOpenPrepare()
+                GlobalAssistantEvent.OpenTrain -> latestOpenTrain()
+                GlobalAssistantEvent.OpenPresentRoot -> latestOpenPresentRoot()
             }
         }
     }
@@ -185,6 +198,26 @@ fun AssistantGlobalRoute(
             ptt.cancel()
             vm.stopSpeaking()
             latestCreateNote()
+        },
+        onOpenLibrary = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestOpenLibrary()
+        },
+        onOpenPrepare = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestOpenPrepare()
+        },
+        onOpenTrain = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestOpenTrain()
+        },
+        onOpenPresent = {
+            ptt.cancel()
+            vm.stopSpeaking()
+            latestOpenPresentRoot()
         },
         onConfigureAi = onOpenModel,
         onHelp = onOpenHelp,

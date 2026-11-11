@@ -26,7 +26,7 @@ fun TribunaProgressDialog() {
             dismissOnBackPress = false,
             dismissOnClickOutside = false,
         ),
-        title = { Text("Gerando Tribuna…") },
+        title = { Text("Gerando mapa mental…") },
         text = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(
@@ -62,7 +62,7 @@ fun TribunaErrorDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Não foi possível gerar a Tribuna") },
+        title = { Text("Não foi possível gerar o mapa mental") },
         text = {
             Text(message, style = MaterialTheme.typography.bodyMedium)
         },

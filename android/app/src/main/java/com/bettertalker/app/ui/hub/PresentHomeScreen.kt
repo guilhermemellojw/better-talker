@@ -97,6 +97,7 @@ fun PresentHomeScreen(
                         onSecondary = onPickNote,
                         tertiaryLabel = actions.tertiary?.let(::presentActionLabel),
                         onTertiary = actions.tertiary?.let(onAction),
+                        onEditMap = if (demo) null else ({ onOpenTribuna(current.id) }),
                     )
                 }
             }

@@ -118,7 +118,7 @@ fun TribunaScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Tribuna") },
+                title = { Text("Mapa mental") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar")
@@ -177,7 +177,7 @@ fun TribunaScreen(
                     modifier = Modifier.padding(24.dp),
                 ) {
                     Text(
-                        "Nenhuma Tribuna gerada ainda.",
+                        "Nenhum mapa mental gerado ainda.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -412,7 +412,7 @@ private fun TribunaCard(
                 DemoScript(turns = card.turns, fontSp = fontSp)
             } else if (capsule == null) {
                 Text(
-                    "Tribuna não gerada para esta seção.",
+                    "Mapa mental não gerado para esta seção.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -969,7 +969,7 @@ private fun tribunaCardsData(
 }
 
 private fun exportTitle(noteTitle: String): String =
-    "Tribuna " + noteTitle.ifBlank { "" }
+    "Mapa mental " + noteTitle.ifBlank { "" }
 
 /** PDF via PrintManager (mesmo caminho do Ensaio/export do editor). */
 private fun exportTribunaPdf(
@@ -998,11 +998,11 @@ private fun shareTribunaHtml(
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
         type = "text/html"
         putExtra(android.content.Intent.EXTRA_STREAM, uri)
-        putExtra(android.content.Intent.EXTRA_SUBJECT, "Tribuna")
+        putExtra(android.content.Intent.EXTRA_SUBJECT, "Mapa mental")
         putExtra(android.content.Intent.EXTRA_TITLE, exportTitle(noteTitle))
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    ctx.startActivity(android.content.Intent.createChooser(send, "Compartilhar Tribuna"))
+    ctx.startActivity(android.content.Intent.createChooser(send, "Compartilhar mapa mental"))
 }
 
 /** Texto puro da Tribuna (só cards com cápsula). */
@@ -1023,6 +1023,6 @@ private fun copyTribunaText(
     }.trim()
     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
         as android.content.ClipboardManager
-    cm.setPrimaryClip(android.content.ClipData.newPlainText("Tribuna", text))
-    android.widget.Toast.makeText(ctx, "Tribuna copiada", android.widget.Toast.LENGTH_SHORT).show()
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("Mapa mental", text))
+    android.widget.Toast.makeText(ctx, "Mapa mental copiado", android.widget.Toast.LENGTH_SHORT).show()
 }

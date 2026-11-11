@@ -19,20 +19,29 @@ fun startsInWalkie(embedded: Boolean, hasNote: Boolean): Boolean =
 
 /** Ações do menu do título (seletor de contexto, nunca um ⋮). */
 enum class AssistantMenuAction {
-    OPEN_NOTE, CHANGE_NOTE, GENERAL_CHAT, MY_OUTLINES, CREATE_NOTE
+    OPEN_NOTE, CHANGE_NOTE, GENERAL_CHAT, MY_OUTLINES, CREATE_NOTE,
+    LIBRARY, PREPARE, TRAIN, PRESENT
 }
 
 /** Home global escolhe esboço/cria; walkie abre/troca/desvincula a nota. */
 fun assistantMenu(hasNote: Boolean): List<AssistantMenuAction> = if (hasNote) {
     listOf(
         AssistantMenuAction.OPEN_NOTE,
-        AssistantMenuAction.CHANGE_NOTE,
+        AssistantMenuAction.MY_OUTLINES,
+        AssistantMenuAction.LIBRARY,
+        AssistantMenuAction.PREPARE,
+        AssistantMenuAction.TRAIN,
+        AssistantMenuAction.PRESENT,
         AssistantMenuAction.CREATE_NOTE,
         AssistantMenuAction.GENERAL_CHAT,
     )
 } else {
     listOf(
         AssistantMenuAction.MY_OUTLINES,
+        AssistantMenuAction.LIBRARY,
+        AssistantMenuAction.PREPARE,
+        AssistantMenuAction.TRAIN,
+        AssistantMenuAction.PRESENT,
         AssistantMenuAction.CREATE_NOTE,
     )
 }
@@ -43,6 +52,10 @@ fun assistantMenuLabel(action: AssistantMenuAction): String = when (action) {
     AssistantMenuAction.GENERAL_CHAT -> "Conversa geral (sem nota)"
     AssistantMenuAction.MY_OUTLINES -> "Meus esboços"
     AssistantMenuAction.CREATE_NOTE -> "Criar novo esboço"
+    AssistantMenuAction.LIBRARY -> "Biblioteca"
+    AssistantMenuAction.PREPARE -> "Preparo"
+    AssistantMenuAction.TRAIN -> "Treino"
+    AssistantMenuAction.PRESENT -> "Palco"
 }
 
 /** Título da top bar: nome da nota no walkie; "Assistente" na home global. */

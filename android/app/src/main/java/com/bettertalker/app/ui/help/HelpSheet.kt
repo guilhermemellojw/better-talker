@@ -59,7 +59,7 @@ fun helpActionLabel(action: HelpAction): String = when (action) {
     HelpAction.OPEN_MODEL -> "Abrir Modelo IA"
     HelpAction.OPEN_TRAIN -> "Abrir Treino"
     HelpAction.OPEN_PRESENT -> "Abrir Palco"
-    HelpAction.OPEN_TRIBUNA -> "Abrir Tribuna"
+    HelpAction.OPEN_TRIBUNA -> "Abrir mapa mental"
     HelpAction.OPEN_VOICE -> "Abrir Voz"
     HelpAction.OPEN_ASSISTANT -> "Abrir Assistente"
     HelpAction.OPEN_HELP_TOPIC -> "Ver primeiros passos"

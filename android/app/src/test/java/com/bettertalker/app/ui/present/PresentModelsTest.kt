@@ -47,9 +47,9 @@ class PresentModelsTest {
 
     @Test
     fun rotulosDeProntidaoFlexionamPorTipo() {
-        assertEquals("Tribuna pronta", presentReadinessLabel(PresentReadiness.READY))
-        assertEquals("Tribuna incompleta", presentReadinessLabel(PresentReadiness.PARTIAL))
-        assertEquals("Falta gerar a Tribuna", presentReadinessLabel(PresentReadiness.MISSING))
+        assertEquals("Mapa mental pronto", presentReadinessLabel(PresentReadiness.READY))
+        assertEquals("Mapa mental incompleto", presentReadinessLabel(PresentReadiness.PARTIAL))
+        assertEquals("Falta gerar o mapa mental", presentReadinessLabel(PresentReadiness.MISSING))
 
         assertEquals(
             "Roteiro pronto",
@@ -68,7 +68,7 @@ class PresentModelsTest {
     @Test
     fun acoesDoCartaoNuncaMandamGerarTribunaNaDemo() {
         assertEquals(
-            PresentCardActions(PresentAction.PRESENT, PresentAction.OPEN_TRIBUNA),
+            PresentCardActions(PresentAction.PRESENT, null),
             presentCardActions(PresentReadiness.READY, demo = false),
         )
         assertEquals(
@@ -96,9 +96,9 @@ class PresentModelsTest {
     @Test
     fun rotulosDasAcoes() {
         assertEquals("Apresentar", presentActionLabel(PresentAction.PRESENT))
-        assertEquals("Abrir Tribuna", presentActionLabel(PresentAction.OPEN_TRIBUNA))
+        assertEquals("Completar mapa mental", presentActionLabel(PresentAction.OPEN_TRIBUNA))
         assertEquals("Abrir Roteiro", presentActionLabel(PresentAction.OPEN_SCRIPT))
-        assertEquals("Gerar Tribuna", presentActionLabel(PresentAction.GENERATE_TRIBUNA))
+        assertEquals("Gerar mapa mental", presentActionLabel(PresentAction.GENERATE_TRIBUNA))
         assertEquals("Abrir editor", presentActionLabel(PresentAction.OPEN_EDITOR))
     }
 
