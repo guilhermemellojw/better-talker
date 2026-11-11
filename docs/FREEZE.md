@@ -12,7 +12,8 @@
 > limite); be/th como TRAINING e “Orientação de oratória”. JWPUB de livro sem
 > CAPÍTULO explícito cai em CHAPTER pelo catálogo. **3.246 testes JVM**; smoke
 > no tablet com artigo 1 da Sentinela N.º 5/2017, reader/TTS, missing,
-> ambíguo, be/th e NoMatch. Sem schema, bump, tag ou release.
+> ambíguo, be/th e NoMatch. CI da branch `43007000859` e da main
+> `43008718647` verdes; merge `94ca24b`. Sem schema, bump, tag ou release.
 
 > **2026-11-11 — 5.6a interno (PublicationUnitIndex):** DB **v26** com
 > `publication_units` e migração aditiva v25→v26. Builder puro agrupa
