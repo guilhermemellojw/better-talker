@@ -4,6 +4,11 @@ import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.util.BibleSourceStatus
+import com.bettertalker.app.data.util.CitationStatus
+import com.bettertalker.app.data.util.EditionStatus
+import com.bettertalker.app.data.util.NoteSource
+import com.bettertalker.app.data.util.SourceKind
+import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSources
@@ -252,4 +257,42 @@ class FocusSourcesAssemblerTest {
         assertEquals(FocusDestination.PACK, packEntry.destination)
         assertFalse(out.block.contains("texto do pack externo"))
     }
+
+    @Test
+    fun assemblerUsaFullTextDoRefStatusNoBloco() {
+        val refText = "w25.07 22 §§ 8-9"
+        val refs = NoteRefsCollector.collect(plainText = refText)
+        val ref = refs.publications.first()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val full = "F".repeat(700) + " fim."
+        val source = NoteSource(
+            ref = refText,
+            kind = SourceKind.PUBLICATION,
+            citation = CitationStatus(EditionStatus.READY, TextStatus.RESOLVED),
+            refStatus = RefDetector.RefStatus(
+                ref = ref,
+                resolved = true,
+                contentResolved = true,
+                promptText = "trecho curto do prompt",
+                fullText = full,
+            ),
+            editionKey = ref.editionKey,
+            publicationKey = "w25.07",
+            publicationLabel = "A Sentinela — julho de 2025",
+        )
+        val out = FocusSourcesAssembler.assemble(
+            refs = refs,
+            noteSources = NoteSources(listOf(source), resolved = 1, total = 1),
+            citedSources = emptyList(),
+            pack = pack(),
+            dossier = dossier(currentSection = section(content = refText)),
+            question = "",
+            structural = null,
+        )
+        val entry = out.entries.single { it.key == key }
+        assertEquals(full, entry.text)
+        assertTrue(out.block.contains("fim."))
+        assertTrue(out.block.length > 500)
+    }
+
 }
