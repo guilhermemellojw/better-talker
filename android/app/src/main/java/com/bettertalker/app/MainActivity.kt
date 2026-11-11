@@ -293,13 +293,19 @@ private fun AppNav(
             HelpAction.OPEN_EDITOR -> context.noteId
                 ?.let { nav.navigate(Routes.editor(it)) }
                 ?: nav.navigate(Routes.home())
-            HelpAction.OPEN_LIBRARY -> nav.navigate(Routes.library(context.noteId))
+            HelpAction.OPEN_LIBRARY -> {
+                if (context.noteId != null) {
+                    nav.navigate(Routes.library(context.noteId))
+                } else {
+                    goLibrary()
+                }
+            }
             HelpAction.OPEN_MODEL -> nav.navigate(Routes.MODEL)
-            HelpAction.OPEN_TRAIN -> nav.navigate(Routes.TRAIN_HOME)
-            HelpAction.OPEN_PRESENT -> nav.navigate(Routes.PRESENT_HOME)
+            HelpAction.OPEN_TRAIN -> goTrain()
+            HelpAction.OPEN_PRESENT -> goPresent()
             HelpAction.OPEN_TRIBUNA -> context.noteId
                 ?.let { nav.navigate(Routes.tribuna(it)) }
-                ?: nav.navigate(Routes.PRESENT_HOME)
+                ?: goPresent()
             HelpAction.OPEN_VOICE -> nav.navigate(Routes.VOICE)
             HelpAction.OPEN_ASSISTANT -> {
                 assistantChatRequest++
@@ -636,12 +642,12 @@ private fun AppNav(
                     onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     onCreateNote = { showGlobalCreateSheet = true },
                     onOpenLibrary = ::goLibrary,
-                    onOpenPrepare = { nav.navigate(Routes.PREPARE) },
+                    onOpenPrepare = ::goPrepare,
                     onOpenTrain = ::goTrain,
                     onOpenPresent = ::goPresent,
                     onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                     onBack = {},
-                    onOpenEditor = { nav.navigate(Routes.PREPARE) },
+                    onOpenEditor = ::goPrepare,
                     onOpenHelp = {
                         openHelp(
                             AssistantHelpContext(
@@ -664,7 +670,7 @@ private fun AppNav(
                     onOpenMyOutlines = { nav.navigate(Routes.home(com.bettertalker.app.navigation.HomeIntent.ASSISTANT)) },
                     onCreateNote = { showGlobalCreateSheet = true },
                     onOpenLibrary = ::goLibrary,
-                    onOpenPrepare = { nav.navigate(Routes.PREPARE) },
+                    onOpenPrepare = ::goPrepare,
                     onOpenTrain = ::goTrain,
                     onOpenPresentRoot = ::goPresent,
                     onOpenModel = { nav.navigate(Routes.MODEL) },
@@ -701,7 +707,7 @@ private fun AppNav(
                 intent = intent,
                 onOpenNote = { id ->
                     scope.launch { settings.setLastNoteId(id) }
-                    nav.navigate(Routes.PREPARE)
+                    goPrepare()
                 },
                 onSelectNote = { id ->
                     scope.launch {
@@ -719,7 +725,7 @@ private fun AppNav(
                     nav.popBackStack()
                 },
                 onBack = { nav.popBackStack() },
-                onOpenLibrary = { nav.navigate(Routes.library()) },
+                onOpenLibrary = ::goLibrary,
                 onOpenTrash = { nav.navigate(Routes.TRASH) },
                 onOpenHelp = {
                     openHelp(
@@ -935,7 +941,7 @@ private fun AppNav(
             com.bettertalker.app.ui.settings.DataStorageSettingsScreen(
                 onBack = { nav.popBackStack() },
                 onOpenBackup = { nav.navigate(Routes.BACKUP) },
-                onOpenLibrary = { nav.navigate(Routes.library()) },
+                onOpenLibrary = ::goLibrary,
             )
         }
         composable(Routes.VOICE) {
@@ -1493,7 +1499,7 @@ private fun NoteChatHost(
         onOpenLibrary = { nav.navigate(Routes.library(session.noteId)) },
         embedded = embedded,
         onOpenNote = if (embedded) ({
-            nav.navigate(Routes.PREPARE)
+            onOpenPrepare()
         }) else null,
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
