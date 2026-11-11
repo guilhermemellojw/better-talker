@@ -16,7 +16,7 @@ data class PracticeSnapshot(
     val hasTextBySectionId: Map<String, Boolean> = emptyMap(),
     val trainPrepSummary: String? = null,
     val presentState: PracticePresentState = PracticePresentState.MISSING,
-    val presentLabel: String = "Falta gerar a Tribuna",
+    val presentLabel: String = "Falta gerar o mapa mental",
     val savedSectionIndex: Int? = null,
     val savedSectionTitle: String? = null,
     val savedElapsedSec: Long? = null,

@@ -5514,7 +5514,7 @@ class CopilotViewModel(
                     false,
                     "text",
                     ChatCodec.escMap(mapOf(
-                        "text" to "— Tribuna gerada para $saved seções$extra —",
+                        "text" to "— Mapa mental gerado para $saved seções$extra —",
                     )),
                 )
                 onResult(TribunaResult.Success)

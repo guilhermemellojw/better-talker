@@ -84,14 +84,14 @@ class PracticeContextTest {
             hasTrainingText = true,
             trainPrepSummary = "inteiro · análise · cronômetro",
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
             savedSectionIndex = 1,
             savedSectionTitle = "Ponto 1",
             savedElapsedSec = 312,
         )
         assertTrue(s.contextLine, s.contextLine.contains("Treino: pronto"))
         assertTrue(s.contextLine, s.contextLine.contains("preparação: inteiro"))
-        assertTrue(s.contextLine, s.contextLine.contains("Palco: Tribuna pronta"))
+        assertTrue(s.contextLine, s.contextLine.contains("Palco: Mapa mental pronto"))
         assertTrue(s.contextLine, s.contextLine.contains("continuar da seção 2 · 5:12 (Ponto 1)"))
         assertTrue(s.promptBlock, s.promptBlock.contains("não é resultado de treino"))
         assertTrue(s.promptBlock, s.promptBlock.contains("sessão salva"))

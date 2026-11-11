@@ -824,7 +824,7 @@ private fun ScriptContent(
 }
 
 @Composable
-private fun MissingCue(message: String, title: String = "Sem Tribuna nesta seção") {
+private fun MissingCue(message: String, title: String = "Sem mapa mental nesta seção") {
     Surface(
         color = Color(0xFF111827),
         shape = RoundedCornerShape(14.dp),

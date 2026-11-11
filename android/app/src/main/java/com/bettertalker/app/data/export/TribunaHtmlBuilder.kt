@@ -27,16 +27,16 @@ fun buildTribunaHtml(
     sb.append("<html lang=\"pt-BR\">\n<head>\n")
     sb.append("<meta charset=\"utf-8\">\n")
     sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
-    sb.append("<title>Tribuna — ").append(escapeTribuna(noteTitle)).append("</title>\n")
+    sb.append("<title>Mapa mental — ").append(escapeTribuna(noteTitle)).append("</title>\n")
     sb.append("<style>\n").append(TRIBUNA_CSS).append("</style>\n")
     sb.append("</head>\n<body>\n")
     sb.append("<header class=\"doc-header\">\n")
-    sb.append("<h1>Tribuna</h1>\n")
+    sb.append("<h1>Mapa mental</h1>\n")
     sb.append("<p class=\"sub\">").append(escapeTribuna(noteTitle)).append(" · ")
         .append(date).append("</p>\n")
     sb.append("</header>\n")
     if (usable.isEmpty()) {
-        sb.append("<p class=\"empty\">Nenhuma Tribuna gerada.</p>\n")
+        sb.append("<p class=\"empty\">Nenhum mapa mental gerado.</p>\n")
     } else {
         usable.forEach { c ->
             val cap = c.capsule!!

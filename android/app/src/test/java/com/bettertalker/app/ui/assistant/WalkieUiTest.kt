@@ -46,14 +46,14 @@ class WalkieUiTest {
             noteId = "note",
             hasTrainingText = true,
             presentState = PracticePresentState.READY,
-            presentLabel = "Tribuna pronta",
+            presentLabel = "Mapa mental pronto",
             savedSectionIndex = 1,
             savedSectionTitle = "Ponto 1",
             savedElapsedSec = 65,
         )
         val line = walkiePracticeLine(snapshot)!!
         assertTrue(line, line.contains("Treino pronto"))
-        assertTrue(line, line.contains("Palco: Tribuna pronta"))
+        assertTrue(line, line.contains("Palco: Mapa mental pronto"))
         assertTrue(line, line.contains("continuar da seção 2"))
         assertNull(walkiePracticeLine(null))
     }

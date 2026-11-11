@@ -969,7 +969,7 @@ private fun tribunaCardsData(
 }
 
 private fun exportTitle(noteTitle: String): String =
-    "Tribuna " + noteTitle.ifBlank { "" }
+    "Mapa mental " + noteTitle.ifBlank { "" }
 
 /** PDF via PrintManager (mesmo caminho do Ensaio/export do editor). */
 private fun exportTribunaPdf(
@@ -998,11 +998,11 @@ private fun shareTribunaHtml(
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
         type = "text/html"
         putExtra(android.content.Intent.EXTRA_STREAM, uri)
-        putExtra(android.content.Intent.EXTRA_SUBJECT, "Tribuna")
+        putExtra(android.content.Intent.EXTRA_SUBJECT, "Mapa mental")
         putExtra(android.content.Intent.EXTRA_TITLE, exportTitle(noteTitle))
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
-    ctx.startActivity(android.content.Intent.createChooser(send, "Compartilhar Tribuna"))
+    ctx.startActivity(android.content.Intent.createChooser(send, "Compartilhar mapa mental"))
 }
 
 /** Texto puro da Tribuna (só cards com cápsula). */
@@ -1023,6 +1023,6 @@ private fun copyTribunaText(
     }.trim()
     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
         as android.content.ClipboardManager
-    cm.setPrimaryClip(android.content.ClipData.newPlainText("Tribuna", text))
-    android.widget.Toast.makeText(ctx, "Tribuna copiada", android.widget.Toast.LENGTH_SHORT).show()
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("Mapa mental", text))
+    android.widget.Toast.makeText(ctx, "Mapa mental copiado", android.widget.Toast.LENGTH_SHORT).show()
 }
