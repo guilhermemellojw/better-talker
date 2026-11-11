@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -304,6 +305,36 @@ class SyncNoteImagesRemoteTest {
 
         assertEquals(99L, backups.get("img1")!!.updatedAt)
         assertEquals(99L, backups.get("img2")!!.updatedAt)
+    }
+
+    @Test
+    fun tombstoneLocalOfflinePreservaBackupParaRetryDoStorage() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("noteImages", "img1", mapOf(
+            "noteId" to "n1", "state" to "uploaded", "updatedAt" to 20L,
+            "cloudPath" to "users/u/images/n1/img1.webp",
+        ))
+        val images = FakeNoteImageDao(listOf(noteImage(path = "/tmp/nao-existe-bt.webp")))
+        val backups = FakeImageBackupDao(
+            listOf(backup(state = "deleted", updatedAt = 30L))
+        )
+        val tombs = FakeTombstoneDao(
+            listOf(TombstoneEntity("img1", "noteImage", 30L))
+        )
+
+        tool(
+            remote = remote,
+            images = images,
+            backups = backups,
+            tombs = tombs,
+        )
+
+        assertNull(images.get("img1"))
+        assertNull(remote.doc("noteImages", "img1"))
+        val kept = backups.get("img1")
+        assertNotNull("linha deleted deve sobreviver para o retry", kept)
+        assertEquals("deleted", kept!!.state)
+        assertEquals("users/u/images/n1/img1.webp", kept.cloudPath)
     }
 
     @Test

@@ -200,6 +200,8 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 com.bettertalker.app.data.images.ImageBackupScheduler
                     .enqueueRestore(applicationContext)
             }
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueuePendingDeletes(applicationContext)
             syncOutlines(
                 remote, db.outlineDao(), db.tombstoneDao(), remoteTombs,
                 pushEnabled = pushEnabled,
@@ -1136,7 +1138,16 @@ private suspend fun deleteLocalImage(
         ?.takeIf { it.isNotBlank() }
         ?.let { java.io.File(it).delete() }
     noteImageDao.delete(imageId)
-    imageBackupDao.delete(imageId)
+
+    // Offline: deleteCloud falhou e deixou state=deleted + cloudPath. A linha
+    // precisa sobreviver até o ImageBackupWorker apagar o objeto do Storage;
+    // apagá-la aqui perderia o único caminho para o retry (objeto órfão).
+    val backup = imageBackupDao.get(imageId)
+    val keepForStorageRetry = backup?.state == "deleted" &&
+        !backup.cloudPath.isNullOrBlank()
+    if (!keepForStorageRetry) {
+        imageBackupDao.delete(imageId)
+    }
 }
 
 private fun backupFromManifest(
