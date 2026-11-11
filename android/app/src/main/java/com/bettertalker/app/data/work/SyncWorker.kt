@@ -13,11 +13,19 @@ import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.FolderDao
 import com.bettertalker.app.data.db.FolderEntity
+import com.bettertalker.app.data.db.ImageBackupDao
+import com.bettertalker.app.data.db.ImageBackupEntity
 import com.bettertalker.app.data.db.NoteDao
+import com.bettertalker.app.data.db.NoteImageDao
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.OutlineDao
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.S34Dao
+import com.bettertalker.app.data.db.S34OutlineEntity
+import com.bettertalker.app.data.db.S34ReferenceEntity
+import com.bettertalker.app.data.db.S34SectionEntity
+import com.bettertalker.app.data.db.S34SubsectionEntity
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointDao
@@ -46,7 +54,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     override suspend fun doWork(): Result {
         // Defesa em profundidade: work periódico antigo/reenfileirado não
         // pode sincronizar se o build é público ou o opt-in está desligado.
-        if (!BuildConfig.SYNC_BETA) {
+        if (!BuildConfig.CLOUD_SYNC) {
             Log.d("SyncWorker", "Sync ignorado: build público (sem beta de sync).")
             return Result.success()
         }
@@ -103,6 +111,11 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         if (firstMode == MODE_UPLOAD) {
             // "Enviar": o estado local vence o LWW — carimba tudo com now.
             bumpLocalForUpload(db, System.currentTimeMillis())
+            // Uploads grandes continuam no WorkManager de imagens.
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueAllPending(applicationContext)
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueuePendingDeletes(applicationContext)
         }
         return try {
             // F5g: o estado permanece Running durante TODAS as etapas abaixo.
@@ -160,10 +173,35 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 remote, db.folderDao(), db.tombstoneDao(),
                 db.noteDao(), remoteTombs, pushEnabled = pushEnabled,
             )
+            val attachmentTombIds = db.tombstoneDao().all()
+                .filter { it.type == "attachment" }
+                .map { it.id }
+                .toSet()
             syncAttachments(
                 remote, db.attachmentDao(), db.tombstoneDao(),
                 remoteTombs, db.passageDao(), db.s34Dao(), pushEnabled = pushEnabled,
             )
+            syncS34(
+                remote, db.s34Dao(), remoteTombs, attachmentTombIds,
+                pushEnabled = pushEnabled,
+            )
+            val needsImageRestore = syncNoteImages(
+                remote = remote,
+                noteImageDao = db.noteImageDao(),
+                imageBackupDao = db.imageBackupDao(),
+                noteDao = db.noteDao(),
+                sectionDao = db.speechSectionDao(),
+                tombstoneDao = db.tombstoneDao(),
+                remoteTombs = remoteTombs,
+                pushEnabled = pushEnabled,
+                uid = user.uid,
+            )
+            if (needsImageRestore) {
+                com.bettertalker.app.data.images.ImageBackupScheduler
+                    .enqueueRestore(applicationContext)
+            }
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueuePendingDeletes(applicationContext)
             syncOutlines(
                 remote, db.outlineDao(), db.tombstoneDao(), remoteTombs,
                 pushEnabled = pushEnabled,
@@ -206,6 +244,20 @@ private suspend fun bumpLocalForUpload(db: AppDatabase, now: Long) {
     }
     for (o in db.outlineDao().all()) {
         db.outlineDao().upsert(o.copy(updatedAt = now))
+    }
+    for (o in db.s34Dao().allOutlines()) {
+        db.s34Dao().putOutline(o.copy(updatedAt = now))
+    }
+    bumpImageBackupsForUpload(db.imageBackupDao(), now)
+}
+
+/** 5.8: "Enviar" faz o manifesto local de imagens vencer o LWW. */
+internal suspend fun bumpImageBackupsForUpload(
+    imageBackupDao: ImageBackupDao,
+    now: Long,
+) {
+    for (row in imageBackupDao.all()) {
+        imageBackupDao.upsert(row.copy(updatedAt = now))
     }
 }
 
@@ -637,6 +689,505 @@ internal suspend fun syncAttachments(
         }
     }
 }
+
+// ---------- S-34 (estrutura flat, sem binário) ----------
+
+private data class RemoteS34OutlineDoc(
+    val id: String,
+    val source: String,
+    val updatedAt: Long,
+    val data: Map<String, Any?>,
+)
+
+/**
+ * 5.8/2a — sincroniza a estrutura S-34. O outline é o documento cabeça
+ * (LWW por updatedAt); seções/subseções/referências são filhos imutáveis e
+ * acompanham a versão do outline.
+ *
+ * Exclusão: usamos os tombstones de attachment já existentes e a
+ * reconciliação por `sourceAttachmentId` (sem coleção/tipo de tombstone
+ * próprio). Ao substituir um S-34 da mesma fonte, o id antigo é removido
+ * local e remotamente. Um S-34 remoto é puxado mesmo sem o anexo no
+ * aparelho; a estrutura serve à nota e o arquivo pode ser rebaixado depois.
+ */
+internal suspend fun syncS34(
+    remote: SyncRemote,
+    s34Dao: S34Dao,
+    remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    attachmentTombIds: Set<String> = emptySet(),
+    pushEnabled: Boolean = true,
+    now: () -> Long = { System.currentTimeMillis() },
+) {
+    val deletedSources = buildSet {
+        addAll(attachmentTombIds)
+        addAll(
+            remoteTombs
+                .filterValues { it["type"] == "attachment" }
+                .keys
+        )
+    }
+
+    val remoteOutlineDocs = remote.getAll("s34Outlines")
+    val remoteSectionDocs = remote.getAll("s34Sections")
+    val remoteSubDocs = remote.getAll("s34Subsections")
+    val remoteRefDocs = remote.getAll("s34References")
+
+    val remoteBySource = remoteOutlineDocs.entries.mapNotNull { (id, data) ->
+        val source = data["sourceAttachmentId"] as? String ?: return@mapNotNull null
+        RemoteS34OutlineDoc(
+            id = id,
+            source = source,
+            updatedAt = cloudTimestampMillis(data["updatedAt"]) ?: 0L,
+            data = data,
+        )
+    }.groupBy { it.source }
+
+    // 1. Fonte apagada no outro aparelho (ou localmente): derruba os dois lados.
+    for (source in deletedSources) {
+        remoteBySource[source].orEmpty().forEach {
+            deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+        }
+        s34Dao.allOutlines()
+            .filter { it.sourceAttachmentId == source }
+            .forEach { deleteLocalS34(s34Dao, it.id) }
+    }
+
+    var localOutlines = s34Dao.allOutlines()
+    val localBySource = localOutlines.groupBy { it.sourceAttachmentId }
+    val sources = (localBySource.keys + remoteBySource.keys) - deletedSources
+
+    for (source in sources) {
+        if (source.isBlank()) continue
+        val locals = localBySource[source].orEmpty().sortedByDescending { it.updatedAt }
+        val local = locals.firstOrNull()
+        val remotes = remoteBySource[source].orEmpty().sortedByDescending { it.updatedAt }
+        val remoteOutline = remotes.firstOrNull()
+
+        // Duplicatas locais de uma fonte: mantém a mais nova.
+        locals.drop(1).forEach { deleteLocalS34(s34Dao, it.id) }
+
+        if (local == null) {
+            if (remoteOutline == null) continue
+            remotes.drop(1).forEach {
+                deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+            pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+            continue
+        }
+        if (remoteOutline == null) {
+            if (pushEnabled) {
+                pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+            continue
+        }
+
+        remotes.drop(1).forEach {
+            deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+        }
+
+        if (local.id == remoteOutline.id) {
+            when {
+                remoteOutline.updatedAt > local.updatedAt ->
+                    pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+                local.updatedAt > remoteOutline.updatedAt && pushEnabled ->
+                    pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+                // empate = mesma revisão; não reescreve a cada sync.
+            }
+        } else {
+            // Reimportação/substituição: id novo na mesma fonte.
+            if (remoteOutline.updatedAt > local.updatedAt) {
+                deleteLocalS34(s34Dao, local.id)
+                pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+            } else if (pushEnabled) {
+                deleteRemoteS34(remote, remoteOutline.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+                pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+        }
+    }
+}
+
+private suspend fun deleteRemoteS34(
+    remote: SyncRemote,
+    outlineId: String,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+) {
+    val sectionIds = remoteSections.entries
+        .filter { it.value["outlineId"] == outlineId }
+        .map { (id, data) -> data["id"] as? String ?: id }
+    val subIds = remoteSubs.entries
+        .filter { it.value["sectionId"] in sectionIds }
+        .map { it.key }
+    val refIds = remoteRefs.entries
+        .filter { it.value["outlineId"] == outlineId }
+        .map { it.key }
+    for (id in subIds) remote.delete("s34Subsections", id)
+    for (id in refIds) remote.delete("s34References", id)
+    for (id in sectionIds) remote.delete("s34Sections", id)
+    remote.delete("s34Outlines", outlineId)
+}
+
+private suspend fun deleteLocalS34(s34Dao: S34Dao, outlineId: String) {
+    val sectionIds = s34Dao.sectionsOf(outlineId).map { it.id }
+    s34Dao.deleteRefsOf(outlineId)
+    if (sectionIds.isNotEmpty()) s34Dao.deleteSubsOf(sectionIds)
+    s34Dao.deleteSectionsOf(outlineId)
+    s34Dao.deleteOutline(outlineId)
+}
+
+private suspend fun pushS34(
+    remote: SyncRemote,
+    outline: S34OutlineEntity,
+    s34Dao: S34Dao,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+) {
+    // Remove a versão remota anterior (inclui filhos que sumiram).
+    deleteRemoteS34(remote, outline.id, remoteSections, remoteSubs, remoteRefs)
+    remote.set(
+        "s34Outlines", outline.id,
+        mapOf(
+            "id" to outline.id,
+            "sourceAttachmentId" to outline.sourceAttachmentId,
+            "symbol" to outline.symbol,
+            "title" to outline.title,
+            "objective" to outline.objective,
+            "headerLinesJson" to outline.headerLinesJson,
+            "createdAt" to outline.createdAt,
+            "updatedAt" to outline.updatedAt,
+            "parserVersion" to outline.parserVersion,
+        ).filterValues { it != null }
+    )
+    val sections = s34Dao.sectionsOf(outline.id)
+    for (section in sections) {
+        remote.set(
+            "s34Sections", section.id,
+            mapOf(
+                "id" to section.id,
+                "outlineId" to section.outlineId,
+                "order" to section.order,
+                "title" to section.title,
+                "content" to section.content,
+                "minutes" to section.minutes,
+                "sourceLine" to section.sourceLine,
+            ).filterValues { it != null }
+        )
+    }
+    val sectionIds = sections.map { it.id }
+    for (sub in s34Dao.subsectionsOf(sectionIds)) {
+        remote.set(
+            "s34Subsections", sub.id,
+            mapOf(
+                "id" to sub.id,
+                "sectionId" to sub.sectionId,
+                "order" to sub.order,
+                "content" to sub.content,
+                "sourceLine" to sub.sourceLine,
+            )
+        )
+    }
+    for (ref in s34Dao.referencesOf(outline.id)) {
+        remote.set(
+            "s34References", ref.id,
+            mapOf(
+                "id" to ref.id,
+                "outlineId" to ref.outlineId,
+                "sectionId" to ref.sectionId,
+                "subsectionId" to ref.subsectionId,
+                "order" to ref.order,
+                "type" to ref.type,
+                "rawText" to ref.rawText,
+                "normalizedReference" to ref.normalizedReference,
+                "sourceLine" to ref.sourceLine,
+                "book" to ref.book,
+                "bookNorm" to ref.bookNorm,
+                "chapter" to ref.chapter,
+                "verse" to ref.verse,
+                "pubKind" to ref.pubKind,
+                "pubKey" to ref.pubKey,
+                "pubLabel" to ref.pubLabel,
+                "editionKey" to ref.editionKey,
+            ).filterValues { it != null }
+        )
+    }
+}
+
+private suspend fun pullS34(
+    remote: RemoteS34OutlineDoc,
+    s34Dao: S34Dao,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+    now: () -> Long,
+) {
+    val outline = S34OutlineEntity(
+        id = remote.id,
+        sourceAttachmentId = remote.source,
+        symbol = remote.data["symbol"] as? String ?: "",
+        title = remote.data["title"] as? String ?: "S-34",
+        objective = remote.data["objective"] as? String,
+        headerLinesJson = remote.data["headerLinesJson"] as? String ?: "[]",
+        createdAt = cloudTimestampMillis(remote.data["createdAt"]) ?: now(),
+        updatedAt = cloudTimestampMillis(remote.data["updatedAt"]) ?: now(),
+        parserVersion = (remote.data["parserVersion"] as? Number)?.toInt() ?: 2,
+    )
+    deleteLocalS34(s34Dao, outline.id)
+    s34Dao.putOutline(outline)
+
+    val sections = remoteSections.entries.mapNotNull { (id, data) ->
+        if (data["outlineId"] != outline.id) return@mapNotNull null
+        S34SectionEntity(
+            id = data["id"] as? String ?: id,
+            outlineId = outline.id,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            title = data["title"] as? String ?: "",
+            content = data["content"] as? String ?: "",
+            minutes = (data["minutes"] as? Number)?.toInt(),
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+        )
+    }
+    s34Dao.putSections(sections)
+    val sectionIds = sections.map { it.id }
+    val subs = remoteSubs.entries.mapNotNull { (id, data) ->
+        if (data["sectionId"] !in sectionIds) return@mapNotNull null
+        S34SubsectionEntity(
+            id = data["id"] as? String ?: id,
+            sectionId = data["sectionId"] as? String ?: return@mapNotNull null,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            content = data["content"] as? String ?: "",
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+        )
+    }
+    s34Dao.putSubsections(subs)
+    val refs = remoteRefs.entries.mapNotNull { (id, data) ->
+        if (data["outlineId"] != outline.id) return@mapNotNull null
+        S34ReferenceEntity(
+            id = data["id"] as? String ?: id,
+            outlineId = outline.id,
+            sectionId = data["sectionId"] as? String,
+            subsectionId = data["subsectionId"] as? String,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            type = data["type"] as? String ?: "BIBLE",
+            rawText = data["rawText"] as? String ?: "",
+            normalizedReference = data["normalizedReference"] as? String ?: "",
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+            book = data["book"] as? String,
+            bookNorm = data["bookNorm"] as? String,
+            chapter = (data["chapter"] as? Number)?.toInt(),
+            verse = (data["verse"] as? Number)?.toInt(),
+            pubKind = data["pubKind"] as? String,
+            pubKey = data["pubKey"] as? String,
+            pubLabel = data["pubLabel"] as? String,
+            editionKey = data["editionKey"] as? String,
+        )
+    }
+    s34Dao.putReferences(refs)
+}
+
+// ---------- imagens (manifesto Firestore + bytes no Storage) ----------
+
+/**
+ * 5.8/2b — manifesto `noteImages` no Firestore. Bytes continuam no Storage;
+ * `path` local nunca sobe. O pull cria placeholder (`path=""`) + linha
+ * `image_backups` e devolve true para o worker enfileirar o restore.
+ */
+internal suspend fun syncNoteImages(
+    remote: SyncRemote,
+    noteImageDao: NoteImageDao,
+    imageBackupDao: ImageBackupDao,
+    noteDao: NoteDao,
+    sectionDao: SpeechSectionDao,
+    tombstoneDao: TombstoneDao,
+    remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
+    uid: String,
+    now: () -> Long = { System.currentTimeMillis() },
+): Boolean {
+    var needsRestore = false
+    val remoteImageTombs = remoteTombs
+        .filterValues { it["type"] == "noteImage" }
+        .keys
+    for (id in remoteImageTombs) {
+        deleteLocalImage(noteImageDao, imageBackupDao, id)
+        remote.delete("noteImages", id)
+    }
+
+    val cloud = remote.getAll("noteImages")
+    val localTombs = tombstoneDao.all().filter { it.type == "noteImage" }
+    val tombIds = (localTombs.map { it.id } + remoteImageTombs).toSet()
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("noteImage", t.deletedAt))
+            remote.delete("noteImages", t.id)
+            deleteLocalImage(noteImageDao, imageBackupDao, t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+        }
+    }
+
+    for ((id, data) in cloud) {
+        if (id in tombIds) continue
+        val state = data["state"] as? String ?: "uploaded"
+        val remoteUpdated = cloudUpdatedAt(data)
+        if (state == "deleted") {
+            remote.set("tombstones", id, tombstoneMap("noteImage", remoteUpdated))
+            remote.delete("noteImages", id)
+            deleteLocalImage(noteImageDao, imageBackupDao, id)
+            continue
+        }
+        val noteId = data["noteId"] as? String ?: continue
+        if (noteDao.get(noteId) == null) continue
+        val sectionId = (data["sectionId"] as? String)
+            ?.takeIf { sectionDao.get(it)?.noteId == noteId }
+        val local = noteImageDao.get(id)
+        val localBackup = imageBackupDao.get(id)
+        val localUpdated = localBackup?.updatedAt ?: 0L
+        val localFile = local?.path
+            ?.takeIf { it.isNotBlank() }
+            ?.let { path -> java.io.File(path) }
+        val fileMissing = local != null &&
+            (local.path.isBlank() || localFile?.isFile != true)
+
+        if (local == null) {
+            noteImageDao.upsert(
+                NoteImageEntity(
+                    id = id,
+                    noteId = noteId,
+                    sectionId = sectionId,
+                    path = "",
+                    mime = data["mime"] as? String ?: "image/webp",
+                    caption = data["caption"] as? String ?: "",
+                    kind = data["kind"] as? String ?: "illustration",
+                    order = (data["order"] as? Number)?.toInt() ?: 0,
+                    addedAt = (data["addedAt"] as? Number)?.toLong() ?: now(),
+                )
+            )
+            imageBackupDao.upsert(backupFromManifest(id, data, remoteUpdated, uid, now))
+            needsRestore = true
+        } else if (fileMissing) {
+            if (remoteUpdated >= localUpdated) {
+                noteImageDao.upsert(
+                    local.copy(
+                        noteId = noteId,
+                        sectionId = sectionId,
+                        path = "",
+                        mime = data["mime"] as? String ?: local.mime,
+                        caption = data["caption"] as? String ?: local.caption,
+                        kind = data["kind"] as? String ?: local.kind,
+                        order = (data["order"] as? Number)?.toInt() ?: local.order,
+                    )
+                )
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            }
+            needsRestore = true
+        } else {
+            if (remoteUpdated > localUpdated) {
+                noteImageDao.upsert(
+                    local.copy(
+                        noteId = noteId,
+                        sectionId = sectionId,
+                        mime = data["mime"] as? String ?: local.mime,
+                        caption = data["caption"] as? String ?: local.caption,
+                        kind = data["kind"] as? String ?: local.kind,
+                        order = (data["order"] as? Number)?.toInt() ?: local.order,
+                    )
+                )
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            } else if (localBackup == null) {
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            }
+        }
+    }
+
+    if (pushEnabled) {
+        for (image in noteImageDao.all()) {
+            if (noteDao.get(image.noteId) == null) continue
+            val localFile = image.path.takeIf { it.isNotBlank() }?.let { path -> java.io.File(path) }
+            if (localFile == null || !localFile.isFile) continue
+            val backup = imageBackupDao.get(image.id) ?: continue
+            if (backup.state != "uploaded" || backup.cloudPath.isNullOrBlank()) continue
+            val remoteData = cloud[image.id]
+            val remoteUpdated = remoteData?.let(::cloudUpdatedAt) ?: -1L
+            if (remoteData == null || backup.updatedAt > remoteUpdated) {
+                remote.set(
+                    "noteImages", image.id,
+                    noteImageManifest(image, backup, backup.updatedAt),
+                )
+            }
+        }
+    }
+    return needsRestore
+}
+
+private suspend fun deleteLocalImage(
+    noteImageDao: NoteImageDao,
+    imageBackupDao: ImageBackupDao,
+    imageId: String,
+) {
+    noteImageDao.get(imageId)?.path
+        ?.takeIf { it.isNotBlank() }
+        ?.let { java.io.File(it).delete() }
+    noteImageDao.delete(imageId)
+
+    // Offline: deleteCloud falhou e deixou state=deleted + cloudPath. A linha
+    // precisa sobreviver até o ImageBackupWorker apagar o objeto do Storage;
+    // apagá-la aqui perderia o único caminho para o retry (objeto órfão).
+    val backup = imageBackupDao.get(imageId)
+    val keepForStorageRetry = backup?.state == "deleted" &&
+        !backup.cloudPath.isNullOrBlank()
+    if (!keepForStorageRetry) {
+        imageBackupDao.delete(imageId)
+    }
+}
+
+private fun backupFromManifest(
+    imageId: String,
+    data: Map<String, Any?>,
+    updatedAt: Long,
+    uid: String,
+    now: () -> Long,
+): ImageBackupEntity = ImageBackupEntity(
+    imageId = imageId,
+    state = "uploaded",
+    cloudPath = data["cloudPath"] as? String,
+    sizeBytes = (data["sizeBytes"] as? Number)?.toLong() ?: 0L,
+    sha256 = data["sha256"] as? String,
+    uploadedAt = updatedAt.takeIf { it > 0 } ?: now(),
+    error = null,
+    attempts = 0,
+    updatedAt = updatedAt.takeIf { it > 0 } ?: now(),
+    uid = uid,
+)
+
+private fun noteImageManifest(
+    image: NoteImageEntity,
+    backup: ImageBackupEntity,
+    updatedAt: Long,
+): Map<String, Any?> = mapOf(
+    "imageId" to image.id,
+    "noteId" to image.noteId,
+    "sectionId" to image.sectionId,
+    "caption" to image.caption,
+    "kind" to image.kind,
+    "order" to image.order,
+    "mime" to image.mime,
+    "cloudPath" to backup.cloudPath,
+    "sha256" to backup.sha256,
+    "sizeBytes" to backup.sizeBytes,
+    "state" to "uploaded",
+    "updatedAt" to updatedAt,
+    "addedAt" to image.addedAt,
+).filterValues { it != null }
 
 // ---------- outlines (união por id determinístico out-<noteId>) ----------
 

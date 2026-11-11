@@ -1,5 +1,6 @@
 package com.bettertalker.app.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,22 @@ fun NoteImageThumb(
     sizeDp: Int = 48,
 ) {
     val ctx = LocalContext.current
+    if (path.isBlank()) {
+        Box(
+            modifier = modifier
+                .size(sizeDp.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Baixando…",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
     val request = remember(path) {
         ImageRequest.Builder(ctx)
             .data(File(path))
@@ -91,12 +108,25 @@ fun NoteImageFullScreen(
     ) {
         Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = request,
-                    contentDescription = caption.ifBlank { "Imagem da seção" },
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                if (path.isBlank()) {
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "Imagem ainda não baixada",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = request,
+                        contentDescription = caption.ifBlank { "Imagem da seção" },
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 Row(
                     Modifier
                         .align(Alignment.TopEnd)

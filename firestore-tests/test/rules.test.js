@@ -63,6 +63,59 @@ const validOutline = () => ({
   updatedAt: 1,
 });
 
+const validS34Outline = () => ({
+  sourceAttachmentId: 'a1',
+  symbol: 's34',
+  title: 'S-34',
+  headerLinesJson: '[]',
+  createdAt: 1,
+  updatedAt: 1,
+  parserVersion: 2,
+});
+
+const validS34Section = () => ({
+  outlineId: 'o1',
+  order: 0,
+  title: 'Ponto',
+  content: 'conteúdo',
+  minutes: 4,
+  sourceLine: 1,
+});
+
+const validS34Subsection = () => ({
+  sectionId: 's1',
+  order: 0,
+  content: 'subconteúdo',
+  sourceLine: 1,
+});
+
+const validS34Reference = () => ({
+  outlineId: 'o1',
+  order: 0,
+  type: 'BIBLE',
+  rawText: 'João 3:16',
+  normalizedReference: 'joao 3 16',
+  sourceLine: 1,
+  chapter: 3,
+  verse: 16,
+});
+
+const validNoteImage = () => ({
+  imageId: 'img1',
+  noteId: 'n1',
+  sectionId: 's1',
+  caption: 'Legenda',
+  kind: 'illustration',
+  order: 0,
+  mime: 'image/webp',
+  cloudPath: `users/${OWNER}/images/n1/img1.webp`,
+  sha256: 'abc',
+  sizeBytes: 123,
+  state: 'uploaded',
+  updatedAt: 1,
+  addedAt: 1,
+});
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -202,6 +255,109 @@ describe('folders/sections/subPoints/attachments/outlines', () => {
   it('outline válido', async () => {
     await assertSucceeds(
       setDoc(doc(ownerDb(), `users/${OWNER}/outlines/o1`), validOutline()),
+    );
+  });
+});
+
+describe('S-34 flat', () => {
+  it('dono grava outline/seção/sub/ref válidos', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Outlines/o1`), validS34Outline()),
+    );
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Sections/s1`), validS34Section()),
+    );
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Subsections/sub1`), validS34Subsection()),
+    );
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34References/r1`), validS34Reference()),
+    );
+  });
+
+  it('outro usuário não lê nem grava S-34', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Outlines/o1`), validS34Outline()),
+    );
+    await assertFails(getDoc(doc(otherDb(), `users/${OWNER}/s34Outlines/o1`)));
+    await assertFails(
+      setDoc(doc(otherDb(), `users/${OWNER}/s34Outlines/o1`), validS34Outline()),
+    );
+  });
+
+  it('anônimo é negado', async () => {
+    await assertFails(
+      setDoc(doc(anonDb(), `users/${OWNER}/s34Outlines/o1`), validS34Outline()),
+    );
+  });
+
+  it('outline sem fonte é negado', async () => {
+    const o = validS34Outline();
+    delete o.sourceAttachmentId;
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Outlines/o1`), o),
+    );
+  });
+
+  it('referência com capítulo string é negada', async () => {
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34References/r1`), {
+        ...validS34Reference(),
+        chapter: '3',
+      }),
+    );
+  });
+
+  it('conteúdo acima do limite é negado', async () => {
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/s34Sections/s1`), {
+        ...validS34Section(),
+        content: 'x'.repeat(900001),
+      }),
+    );
+  });
+});
+
+describe('noteImages', () => {
+  it('dono grava manifesto válido', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+  });
+
+  it('outro usuário não acessa', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+    await assertFails(getDoc(doc(otherDb(), `users/${OWNER}/noteImages/img1`)));
+    await assertFails(
+      setDoc(doc(otherDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+  });
+
+  it('sem noteId é negado', async () => {
+    const img = validNoteImage();
+    delete img.noteId;
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), img),
+    );
+  });
+
+  it('state inválido é negado', async () => {
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), {
+        ...validNoteImage(),
+        state: 'pending',
+      }),
+    );
+  });
+
+  it('tombstone noteImage é aceito', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/tombstones/img1`), {
+        type: 'noteImage',
+        deletedAt: 1,
+      }),
     );
   });
 });

@@ -53,9 +53,6 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val imageStore = com.bettertalker.app.data.images.NoteImageStore(
         appCtx.applicationContext, db.noteImageDao(),
     )
-    private val imageBackup = com.bettertalker.app.data.images.ImageBackupRepository.create(
-        appCtx.applicationContext, db,
-    )
     private val _title = MutableStateFlow("")
     private val _html = MutableStateFlow("")
 
@@ -85,25 +82,44 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     fun deleteImage(imageId: String) {
         viewModelScope.launch {
-            db.noteImageDao().get(imageId)?.let {
-                val app = appCtx.applicationContext
-                com.bettertalker.app.data.images.ImageBackupScheduler
-                    .cancel(app, imageId)
-                if (!imageBackup.deleteCloud(imageId)) {
-                    com.bettertalker.app.data.images.ImageBackupScheduler
-                        .enqueueDelete(app, imageId)
-                }
-                imageStore.delete(it)
+            val image = db.noteImageDao().get(imageId) ?: return@launch
+            val app = appCtx.applicationContext
+            val now = System.currentTimeMillis()
+            com.bettertalker.app.data.images.ImageBackupScheduler.cancel(app, imageId)
+            db.tombstoneDao().put(
+                com.bettertalker.app.data.db.TombstoneEntity(imageId, "noteImage", now)
+            )
+            // A exclusão local é imediata. O Storage pode estar offline; o
+            // worker usa esta linha deleted+cloudPath para apagar depois.
+            val backup = db.imageBackupDao().get(imageId)
+            if (backup != null && backup.state != "deleted") {
+                db.imageBackupDao().upsert(
+                    backup.copy(
+                        state = "deleted",
+                        error = "Remoção remota pendente.",
+                        updatedAt = now,
+                    )
+                )
             }
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueDelete(app, imageId)
+            com.bettertalker.app.data.cloud.SyncScheduler.requestSync(app)
+            imageStore.delete(image)
         }
     }
 
     fun updateImageCaption(imageId: String, caption: String) {
-        viewModelScope.launch { db.noteImageDao().updateCaption(imageId, caption.trim()) }
+        viewModelScope.launch {
+            db.noteImageDao().updateCaption(imageId, caption.trim())
+            touchImageManifest(imageId)
+        }
     }
 
     fun updateImageKind(imageId: String, kind: String) {
-        viewModelScope.launch { db.noteImageDao().updateKind(imageId, kind) }
+        viewModelScope.launch {
+            db.noteImageDao().updateKind(imageId, kind)
+            touchImageManifest(imageId)
+        }
     }
 
     fun moveImage(imageId: String, direction: Int) {
@@ -122,6 +138,23 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             }
             db.noteImageDao().updateOrder(list[index].id, swap)
             db.noteImageDao().updateOrder(list[swap].id, index)
+            touchImageManifest(*list.map { it.id }.toTypedArray())
+        }
+    }
+
+    /** 5.8: edição de metadado da imagem bumpa o relógio do manifesto. */
+    private suspend fun touchImageManifest(vararg imageIds: String) {
+        var uploaded = false
+        for (id in imageIds) {
+            val row = db.imageBackupDao().get(id) ?: continue
+            db.imageBackupDao().upsert(
+                row.copy(updatedAt = System.currentTimeMillis())
+            )
+            if (row.state == "uploaded") uploaded = true
+        }
+        if (uploaded) {
+            com.bettertalker.app.data.cloud.SyncScheduler
+                .requestSync(appCtx.applicationContext)
         }
     }
 

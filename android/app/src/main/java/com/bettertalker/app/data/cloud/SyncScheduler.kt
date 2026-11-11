@@ -37,7 +37,7 @@ object SyncScheduler {
 
     /** Sync imediata (debounce via REPLACE) após cada alteração local. */
     fun requestSync(ctx: Context) {
-        if (!BuildConfig.SYNC_BETA) return
+        if (!BuildConfig.CLOUD_SYNC) return
         val app = ctx.applicationContext
         scope.launch {
             if (!enabled(app)) return@launch
@@ -47,7 +47,7 @@ object SyncScheduler {
 
     /** M2: primeiro sync com a escolha do usuário (upload/download/merge). */
     fun requestFirstSync(ctx: Context, mode: String) {
-        if (!BuildConfig.SYNC_BETA) return
+        if (!BuildConfig.CLOUD_SYNC) return
         val app = ctx.applicationContext
         scope.launch {
             if (!enabled(app, allowPendingFirstSync = true)) return@launch
@@ -56,7 +56,7 @@ object SyncScheduler {
     }
 
     /**
-     * Sync só existe no flavor syncBeta, com opt-in explícito, Firebase
+     * Sync existe nos dois flavors (CLOUD_SYNC), com opt-in explícito, Firebase
      * configurado e sessão ativa. O worker repete os três primeiros checks
      * para neutralizar work antigo/reenfileirado.
      */
@@ -64,7 +64,7 @@ object SyncScheduler {
         ctx: Context,
         allowPendingFirstSync: Boolean = false,
     ): Boolean {
-        if (!BuildConfig.SYNC_BETA) return false
+        if (!BuildConfig.CLOUD_SYNC) return false
         val settings = SettingsStore(ctx)
         val optedIn = runCatching { settings.syncBetaEnabledValue() }.getOrDefault(false)
         if (!optedIn) return false
@@ -112,7 +112,7 @@ object SyncScheduler {
      * de PROCESSO (compartilhado por todos os repositórios).
      */
     fun requestSyncDebounced(ctx: Context, delayMs: Long = 2_000) {
-        if (!BuildConfig.SYNC_BETA) return
+        if (!BuildConfig.CLOUD_SYNC) return
         debounceJob?.cancel()
         debounceJob = debounceScope.launch {
             delay(delayMs)
@@ -122,7 +122,7 @@ object SyncScheduler {
 
     /** Sync periódica de fundo (6h, só com rede). */
     fun ensurePeriodic(ctx: Context) {
-        if (!BuildConfig.SYNC_BETA) return
+        if (!BuildConfig.CLOUD_SYNC) return
         val app = ctx.applicationContext
         scope.launch {
             if (!enabled(app)) return@launch

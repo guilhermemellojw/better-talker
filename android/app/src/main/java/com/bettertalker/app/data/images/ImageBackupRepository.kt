@@ -223,7 +223,10 @@ class ImageBackupRepository(
                 order = obj.metadata["order"]?.toIntOrNull() ?: 0,
                 addedAt = obj.metadata["addedAt"]?.toLongOrNull() ?: clock(),
             )
-            if (existing != null && existing.path != target.absolutePath) {
+            if (existing != null &&
+                existing.path.isNotBlank() &&
+                existing.path != target.absolutePath
+            ) {
                 runCatching { File(existing.path).delete() }
             }
             store.saveImage(image)

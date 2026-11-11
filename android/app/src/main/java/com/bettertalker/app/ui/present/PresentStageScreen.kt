@@ -650,7 +650,7 @@ private fun PresentCueLine(
             val caption = cue.imageCaption
                 ?.takeIf { it.isNotBlank() }
                 ?: image?.caption.orEmpty()
-            val available = image != null && File(image.path).exists()
+            val available = image != null && image.path.isNotBlank() && File(image.path).exists()
             if (image != null && available) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     NoteImageThumb(

@@ -3,7 +3,7 @@ package com.bettertalker.app.data.work
 import android.content.Context
 import com.google.firebase.firestore.FirebaseFirestore
 
-/** Cria a porta remota só no flavor syncBeta. */
+/** 5.8: cria a porta remota Firestore nos dois flavors. */
 internal fun createSyncRemote(
     @Suppress("UNUSED_PARAMETER") ctx: Context,
     uid: String,

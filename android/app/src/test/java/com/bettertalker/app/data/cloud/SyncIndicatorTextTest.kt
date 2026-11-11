@@ -23,6 +23,14 @@ class SyncIndicatorTextTest {
     }
 
     @Test
+    fun imagens() {
+        assertEquals(
+            "Sincronizando imagens…",
+            syncIndicatorText(SyncStatus.State.SyncingImages, now),
+        )
+    }
+
+    @Test
     fun success_agoraMesmo() {
         assertEquals(
             "Sincronizado agora mesmo",

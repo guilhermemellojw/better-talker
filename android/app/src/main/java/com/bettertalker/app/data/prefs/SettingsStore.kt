@@ -225,22 +225,12 @@ class SettingsStore(
 
     /**
      * M7: opt-in explícito do beta de sincronização. Desligado por padrão,
-     * inclusive no flavor syncBeta; sem ele nenhum worker é agendado.
+     * inclusive no público; sem ele nenhum worker é agendado.
      */
     private val SYNC_BETA_ENABLED = booleanPreferencesKey("sync_beta_enabled")
     val syncBetaEnabled: Flow<Boolean> = ctx.store.data.map { it[SYNC_BETA_ENABLED] ?: false }
     suspend fun syncBetaEnabledValue(): Boolean = syncBetaEnabled.first()
     suspend fun setSyncBetaEnabled(v: Boolean) { ctx.store.edit { it[SYNC_BETA_ENABLED] = v } }
-
-    /**
-     * 5.4: backup automático das imagens no Storage. Desligado por padrão;
-     * liga junto com o login opt-in e não afeta notas/chat locais.
-     */
-    private val IMAGE_BACKUP_ENABLED = booleanPreferencesKey("image_backup_enabled")
-    val imageBackupEnabled: Flow<Boolean> =
-        ctx.store.data.map { it[IMAGE_BACKUP_ENABLED] ?: false }
-    suspend fun imageBackupEnabledValue(): Boolean = imageBackupEnabled.first()
-    suspend fun setImageBackupEnabled(v: Boolean) { ctx.store.edit { it[IMAGE_BACKUP_ENABLED] = v } }
 
     /** Sync (M2): primeiro sync aguardando escolha (Enviar/Baixar/Mesclar). */
     private val SYNC_FIRST_PENDING = booleanPreferencesKey("sync_first_pending")

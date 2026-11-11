@@ -791,6 +791,18 @@ interface S34Dao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putReferences(list: List<S34ReferenceEntity>)
 
+    @Query("SELECT * FROM s34_outlines")
+    suspend fun allOutlines(): List<S34OutlineEntity>
+
+    @Query("SELECT * FROM s34_sections")
+    suspend fun allSections(): List<S34SectionEntity>
+
+    @Query("SELECT * FROM s34_subsections")
+    suspend fun allSubsections(): List<S34SubsectionEntity>
+
+    @Query("SELECT * FROM s34_references")
+    suspend fun allReferences(): List<S34ReferenceEntity>
+
     @Query("SELECT * FROM s34_outlines WHERE id = :id LIMIT 1")
     suspend fun outlineById(id: String): S34OutlineEntity?
 
@@ -877,6 +889,9 @@ interface NoteImageDao {
 
 @Dao
 interface ImageBackupDao {
+    @Query("SELECT * FROM image_backups")
+    suspend fun all(): List<ImageBackupEntity>
+
     @Query("SELECT * FROM image_backups WHERE imageId = :imageId LIMIT 1")
     suspend fun get(imageId: String): ImageBackupEntity?
 

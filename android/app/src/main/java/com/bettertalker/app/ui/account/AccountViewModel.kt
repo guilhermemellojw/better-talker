@@ -34,13 +34,10 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val user = auth.user
     val accountConflict = auth.accountConflict
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-    /** M7: flavor com sync beta + opt-in explícito (default desligado). */
+    /** 5.8: sync disponível nos dois flavors; o beta mantém o rótulo Experimental. */
+    val cloudSync = BuildConfig.CLOUD_SYNC
     val syncBeta = BuildConfig.SYNC_BETA
     val syncBetaEnabled = settings.syncBetaEnabled
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    // 5.4: backup de imagens (login opt-in; notas continuam locais).
-    val imageBackupEnabled = settings.imageBackupEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     // M2: primeiro sync deste aparelho pede escolha (Enviar/Baixar/Mesclar).
@@ -76,9 +73,10 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         user,
         settings.syncFirstPending,
         _localNoteCount,
-    ) { u, pending, count ->
-        // Público nunca tem Firestore/sync; evita herdar flag de um beta antigo.
-        BuildConfig.SYNC_BETA && u != null && pending && count > 0
+        settings.syncBetaEnabled,
+    ) { u, pending, count, optedIn ->
+        // 5.8: o primeiro sync só aparece com CLOUD_SYNC e opt-in.
+        BuildConfig.CLOUD_SYNC && u != null && optedIn && pending && count > 0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** M5: cópias "(conflito)" criadas pelo worker, para revisão na conta. */
@@ -104,13 +102,13 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     init {
         auth.start()
         viewModelScope.launch {
-            if (BuildConfig.SYNC_BETA && settings.syncBetaEnabledValue()) {
+            if (BuildConfig.CLOUD_SYNC && settings.syncBetaEnabledValue()) {
                 SyncScheduler.ensurePeriodic(app)
             }
         }
         viewModelScope.launch {
             // Recupera pendências de uma sessão anterior (app morto no meio).
-            if (settings.imageBackupEnabledValue()) {
+            if (settings.syncBetaEnabledValue()) {
                 ImageBackupScheduler.enqueueAllPending(app)
             }
             ImageBackupScheduler.enqueuePendingDeletes(app)
@@ -139,7 +137,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     fun signIn(uiContext: android.content.Context? = null) = viewModelScope.launch {
         if (!settings.syncBetaEnabledValue()) {
-            _error.value = "Ative a sincronização beta antes de entrar."
+            _error.value = "Ative a sincronização em nuvem antes de entrar."
             return@launch
         }
         _busy.value = true
@@ -167,67 +165,28 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun setSyncBetaEnabled(enabled: Boolean) = viewModelScope.launch {
         settings.setSyncBetaEnabled(enabled)
         if (enabled) {
-            _message.value = "Sincronização beta ativada."
+            _message.value = "Sincronização em nuvem ativada."
             SyncScheduler.ensurePeriodic(app)
+            ImageBackupScheduler.enqueueAllPending(app)
+            ImageBackupScheduler.enqueuePendingDeletes(app)
             if (!settings.syncFirstPendingValue()) SyncScheduler.requestSync(app)
         } else {
             auth.signOut()
             SyncScheduler.cancelAll(app)
+            ImageBackupScheduler.cancelAll(app)
             SyncStatus.set(SyncStatus.State.Idle)
-            _message.value = "Sincronização beta desativada. As notas continuam neste aparelho."
+            _message.value = "Sincronização em nuvem desativada. As notas continuam neste aparelho."
         }
     }
 
     fun syncNow() = viewModelScope.launch {
         if (!settings.syncBetaEnabledValue()) {
-            _message.value = "Ative a sincronização beta para sincronizar."
+            _message.value = "Ative a sincronização em nuvem para sincronizar."
             return@launch
         }
+        ImageBackupScheduler.enqueueAllPending(app)
+        ImageBackupScheduler.enqueuePendingDeletes(app)
         SyncScheduler.requestSync(app)
-    }
-
-    /**
-     * 5.4: login opt-in para o backup de imagens. Não liga o sincronização
-     * beta nem exige o flavor beta; notas/chat continuam locais.
-     */
-    fun signInImages(uiContext: android.content.Context? = null) = viewModelScope.launch {
-        if (!auth.isConfigured()) {
-            _error.value = "Firebase não configurado neste build."
-            return@launch
-        }
-        _busy.value = true
-        val err = auth.signIn(uiContext ?: app)
-        if (err == null && auth.accountConflict.value == null) {
-            settings.setImageBackupEnabled(true)
-            ImageBackupScheduler.enqueueAllPending(app)
-            ImageBackupScheduler.enqueuePendingDeletes(app)
-            _message.value = "Backup de imagens ativado."
-        } else {
-            _error.value = err ?: ""
-        }
-        _busy.value = false
-    }
-
-    fun signOutImages() = viewModelScope.launch {
-        auth.signOut()
-        settings.setImageBackupEnabled(false)
-        ImageBackupScheduler.cancelAll(app)
-        _message.value = "Saiu da conta. As notas e imagens continuam neste aparelho."
-    }
-
-    fun setImageBackupEnabled(enabled: Boolean) = viewModelScope.launch {
-        if (enabled && auth.currentUser() == null) {
-            _error.value = "Entre com Google para ativar o backup de imagens."
-            return@launch
-        }
-        settings.setImageBackupEnabled(enabled)
-        if (enabled) {
-            ImageBackupScheduler.enqueueAllPending(app)
-            _message.value = "Backup de imagens ativado."
-        } else {
-            ImageBackupScheduler.cancelAll(app)
-            _message.value = "Backup de imagens pausado."
-        }
     }
 
     fun backupPendingImages() = viewModelScope.launch {
@@ -235,8 +194,8 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             _error.value = "Entre com Google para enviar as imagens."
             return@launch
         }
-        if (!settings.imageBackupEnabledValue()) {
-            _error.value = "Ative o backup de imagens antes de enviar."
+        if (!settings.syncBetaEnabledValue()) {
+            _error.value = "Ative a sincronização em nuvem antes de enviar imagens."
             return@launch
         }
         ImageBackupScheduler.enqueueAllPending(app)
@@ -337,10 +296,9 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             // O Storage sumiu: as linhas locais não podem continuar
             // "uploaded" (o card mostraria backup que não existe).
             db.imageBackupDao().clearAll()
-            settings.setImageBackupEnabled(false)
             ImageBackupScheduler.cancelAll(app)
             _restoreReport.value = null
-            _message.value = if (BuildConfig.SYNC_BETA) {
+            _message.value = if (BuildConfig.CLOUD_SYNC) {
                 "Dados da nuvem apagados."
             } else {
                 "Backup de imagens apagado. O envio automático foi pausado."

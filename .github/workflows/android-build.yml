@@ -9,14 +9,18 @@ on:
       - 'android/**'
       - '.github/workflows/android-build.yml'
       - 'storage-tests/**'
+      - 'firestore-tests/**'
       - 'storage.rules'
+      - 'firestore.rules'
       - 'firebase.json'
   pull_request:
     paths:
       - 'android/**'
       - '.github/workflows/android-build.yml'
       - 'storage-tests/**'
+      - 'firestore-tests/**'
       - 'storage.rules'
+      - 'firestore.rules'
       - 'firebase.json'
 
 permissions:
@@ -103,6 +107,12 @@ jobs:
           name: better-talker-test-reports
           path: android/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
+
+      - name: Run Firestore rules tests
+        working-directory: firestore-tests
+        run: |
+          npm ci
+          npm test
 
       - name: Run Storage rules tests
         working-directory: storage-tests

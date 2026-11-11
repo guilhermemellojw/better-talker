@@ -43,10 +43,12 @@ android {
         publicApp {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "false"
+            buildConfigField "boolean", "CLOUD_SYNC", "true"
         }
         syncBeta {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
+            buildConfigField "boolean", "CLOUD_SYNC", "true"
             // Beta 70 (5.3-syncbeta). Rebuild experimental depois do público
             // 5.3/69; o público não tem Firebase/sync.
             versionCode 70
@@ -151,16 +153,16 @@ dependencies {
     // Leitura local PDF (BYOD, 100% offline). EPUB lido via java.util.zip (sem dep).
     implementation "com.tom-roush:pdfbox-android:${rootProject.ext.pdfBoxVersion}"
 
-    // 5.4: Auth + Storage existem nos dois flavors. O público usa apenas para
-    // backup opt-in de imagens; o Firestore continua exclusivo do syncBeta.
+    // 5.8: Auth + Storage + Firestore existem nos dois flavors. O sync de
+    // notas/estrutura é opt-in; o beta mantém o rótulo “Experimental”.
     implementation platform("com.google.firebase:firebase-bom:${rootProject.ext.firebaseBomVersion}")
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-storage'
+    implementation 'com.google.firebase:firebase-firestore'
     implementation "androidx.credentials:credentials:${rootProject.ext.credentialsVersion}"
     implementation "androidx.credentials:credentials-play-services-auth:${rootProject.ext.credentialsVersion}"
     implementation "com.google.android.gms:play-services-auth:${rootProject.ext.playAuthVersion}"
     implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
-    syncBetaImplementation 'com.google.firebase:firebase-firestore'
     implementation "org.apache.commons:commons-compress:${rootProject.ext.commonsCompressVersion}"
     implementation "org.tukaani:xz:${rootProject.ext.xzVersion}"
 

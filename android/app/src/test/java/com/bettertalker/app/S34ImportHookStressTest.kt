@@ -25,6 +25,10 @@ class S34ImportHookStressTest {
         override suspend fun putSections(list: List<S34SectionEntity>) { list.forEach { sections[it.id] = it } }
         override suspend fun putSubsections(list: List<S34SubsectionEntity>) { list.forEach { subs[it.id] = it } }
         override suspend fun putReferences(list: List<S34ReferenceEntity>) { list.forEach { refs[it.id] = it } }
+        override suspend fun allOutlines(): List<S34OutlineEntity> = outlines.values.toList()
+        override suspend fun allSections(): List<S34SectionEntity> = sections.values.toList()
+        override suspend fun allSubsections(): List<S34SubsectionEntity> = subs.values.toList()
+        override suspend fun allReferences(): List<S34ReferenceEntity> = refs.values.toList()
         override suspend fun outlineById(id: String) = outlines[id]
         override suspend fun outlineBySource(sourceId: String) = outlines.values.firstOrNull { it.sourceAttachmentId == sourceId }
         override suspend fun sectionsOf(outlineId: String) = sections.values.filter { it.outlineId == outlineId }.sortedBy { it.order }
