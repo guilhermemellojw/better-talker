@@ -246,6 +246,17 @@ private suspend fun bumpLocalForUpload(db: AppDatabase, now: Long) {
     for (o in db.s34Dao().allOutlines()) {
         db.s34Dao().putOutline(o.copy(updatedAt = now))
     }
+    bumpImageBackupsForUpload(db.imageBackupDao(), now)
+}
+
+/** 5.8: "Enviar" faz o manifesto local de imagens vencer o LWW. */
+internal suspend fun bumpImageBackupsForUpload(
+    imageBackupDao: ImageBackupDao,
+    now: Long,
+) {
+    for (row in imageBackupDao.all()) {
+        imageBackupDao.upsert(row.copy(updatedAt = now))
+    }
 }
 
 // ---------- notes ----------
@@ -1006,6 +1017,7 @@ internal suspend fun syncNoteImages(
 
     val cloud = remote.getAll("noteImages")
     val localTombs = tombstoneDao.all().filter { it.type == "noteImage" }
+    val tombIds = (localTombs.map { it.id } + remoteImageTombs).toSet()
     if (pushEnabled) {
         for (t in localTombs) {
             remote.set("tombstones", t.id, tombstoneMap("noteImage", t.deletedAt))
@@ -1016,7 +1028,7 @@ internal suspend fun syncNoteImages(
     }
 
     for ((id, data) in cloud) {
-        if (id in remoteImageTombs) continue
+        if (id in tombIds) continue
         val state = data["state"] as? String ?: "uploaded"
         val remoteUpdated = cloudUpdatedAt(data)
         if (state == "deleted") {

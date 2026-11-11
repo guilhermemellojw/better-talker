@@ -889,6 +889,9 @@ interface NoteImageDao {
 
 @Dao
 interface ImageBackupDao {
+    @Query("SELECT * FROM image_backups")
+    suspend fun all(): List<ImageBackupEntity>
+
     @Query("SELECT * FROM image_backups WHERE imageId = :imageId LIMIT 1")
     suspend fun get(imageId: String): ImageBackupEntity?
 

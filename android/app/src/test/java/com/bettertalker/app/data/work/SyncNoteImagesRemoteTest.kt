@@ -4,6 +4,7 @@ import com.bettertalker.app.data.db.ImageBackupDao
 import com.bettertalker.app.data.db.ImageBackupEntity
 import com.bettertalker.app.data.db.NoteImageDao
 import com.bettertalker.app.data.db.NoteImageEntity
+import com.bettertalker.app.data.db.TombstoneEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -58,6 +59,7 @@ class SyncNoteImagesRemoteTest {
 
     private class FakeImageBackupDao(rows: List<ImageBackupEntity> = emptyList()) : ImageBackupDao {
         var rows = rows.toMutableList()
+        override suspend fun all(): List<ImageBackupEntity> = rows.toList()
         override suspend fun get(imageId: String): ImageBackupEntity? =
             rows.firstOrNull { it.imageId == imageId }
 
@@ -265,6 +267,43 @@ class SyncNoteImagesRemoteTest {
 
         assertTrue(needsRestore)
         assertEquals("", images.get("img1")!!.path)
+    }
+
+    @Test
+    fun tombstoneLocalNaoRessuscitaImagemDoMapaVelho() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("noteImages", "img1", mapOf(
+            "noteId" to "n1", "state" to "uploaded", "updatedAt" to 20L,
+            "cloudPath" to "users/u/images/n1/img1.webp",
+        ))
+        val images = FakeNoteImageDao()
+        val backups = FakeImageBackupDao()
+        val tombs = FakeTombstoneDao(
+            listOf(TombstoneEntity("img1", "noteImage", 30L))
+        )
+
+        val needsRestore = tool(
+            remote = remote,
+            images = images,
+            backups = backups,
+            tombs = tombs,
+        )
+
+        assertFalse(needsRestore)
+        assertNull(images.get("img1"))
+        assertNull(remote.doc("noteImages", "img1"))
+    }
+
+    @Test
+    fun enviarCarimbaManifestoDeImagens() = runBlocking {
+        val backups = FakeImageBackupDao(
+            listOf(backup(updatedAt = 10L), backup(imageId = "img2", updatedAt = 10L))
+        )
+
+        bumpImageBackupsForUpload(backups, 99L)
+
+        assertEquals(99L, backups.get("img1")!!.updatedAt)
+        assertEquals(99L, backups.get("img2")!!.updatedAt)
     }
 
     @Test
