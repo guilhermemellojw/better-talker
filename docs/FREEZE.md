@@ -9,8 +9,10 @@
 > mapa mental”; demo sem mapa/lápis. Assistente: menu Biblioteca/Preparo/
 > Treino/Palco e intenções locais (“abrir biblioteca”, “meus esboços”,
 > “preparar”, “treinar”, “apresentar”); “Abrir nota” vai ao Preparo. Sem
-> schema, bump, tag ou release; **3.196 testes JVM**; smoke UI pendente de
-> reconexão do tablet (permissão USB).
+> schema, bump, tag ou release; **3.196 testes JVM**; smoke final no tablet
+> (lápis/status do mapa, menu e intenções locais na Conversa geral, create
+> sheet nos quatro caminhos e TTS). Branch CI `42931869191` verde; merge
+> `c434b33` na main.
 
 > **2026-11-10 — 5.5a interno (navegação em 5 abas + Meus esboços + Preparo):**
 > barra global Assistente · Biblioteca · Preparo · Treino · Palco. Meus
