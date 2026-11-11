@@ -2,6 +2,18 @@
 
 **Atualizado:** 2026-11-10 · **Release público:** v5.3.0/69 (tag `v5.3.0`) · **Baseline anterior:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
+> **2026-11-11 — 5.6b interno (GlobalLibraryTool + citação + reader):**
+> Biblioteca sob demanda no Assistente, sem pré-carregar o acervo. Resolve
+> publicação/edição + unidade, status READY/INDEXING/MISSING/AMBIGUOUS/
+> NO_MATCH/TRAINING_ONLY, retrieval restrito à publicação (4 fontes) com
+> fallback para o conteúdo geral. Prompt com FONTES DA BIBLIOTECA e [Fonte N];
+> contrato pós-geração valida citações/recusa falsa, faz retry e fallback
+> local. Chip “Fontes (N)”, lista de fontes e reader da unidade (TTS, copiar,
+> limite); be/th como TRAINING e “Orientação de oratória”. JWPUB de livro sem
+> CAPÍTULO explícito cai em CHAPTER pelo catálogo. **3.246 testes JVM**; smoke
+> no tablet com artigo 1 da Sentinela N.º 5/2017, reader/TTS, missing,
+> ambíguo, be/th e NoMatch. Sem schema, bump, tag ou release.
+
 > **2026-11-11 — 5.6a interno (PublicationUnitIndex):** DB **v26** com
 > `publication_units` e migração aditiva v25→v26. Builder puro agrupa
 > `PassageEntity.section` em runs contíguos, reconhece PARTE/CAPÍTULO/

@@ -34,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bettertalker.app.data.library.GlobalLibrarySource
 import com.bettertalker.app.data.voice.PttState
 import com.bettertalker.app.ui.copilot.ChatMessageText
 import com.bettertalker.app.ui.copilot.PttMicButton
@@ -72,6 +73,7 @@ fun AssistantGlobalScreen(
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
     onSendText: (String) -> Unit,
+    onOpenSources: (List<GlobalLibrarySource>) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val lastResponse = remember(turns) {
@@ -145,7 +147,18 @@ fun AssistantGlobalScreen(
                     onClick = onRetry,
                     label = { Text("Tentar novamente") },
                 )
+                GlobalTurnAction.OPEN_LIBRARY -> AssistChip(
+                    onClick = onOpenLibrary,
+                    label = { Text("Abrir Biblioteca") },
+                )
             }
+        }
+        if (lastResponse?.sources?.isNotEmpty() == true) {
+            Spacer(Modifier.height(6.dp))
+            AssistChip(
+                onClick = { onOpenSources(lastResponse.sources) },
+                label = { Text("Fontes (${lastResponse.sources.size})") },
+            )
         }
         if (pending != null) {
             Spacer(Modifier.height(6.dp))

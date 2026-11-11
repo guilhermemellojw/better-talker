@@ -7,7 +7,6 @@ import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.db.PublicationUnitDao
 import com.bettertalker.app.data.db.PublicationUnitEntity
-import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.detectSymbol
 
@@ -60,7 +59,7 @@ object PublicationUnitBackfill {
         if (passages.isEmpty()) return emptyList()
 
         val fileKind = detectKind(attachment.fileName)
-        val pubKind = if (fileKind == DocKind.JWPUB) "jwpub" else fileKind.ext
+        val pubKind = publicationKindFor(detectSymbol(attachment.fileName), fileKind)
         return PublicationUnitBuilder.build(
             attachmentId = attachment.id,
             symbol = detectSymbol(attachment.fileName),

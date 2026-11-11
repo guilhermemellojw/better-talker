@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import com.bettertalker.app.data.library.GlobalLibrarySource
 import com.bettertalker.app.ui.copilot.ChatMessageText
 
 /** Chat completo do assistente global (efêmero, sem cards/fontes de nota). */
@@ -54,6 +55,8 @@ fun AssistantGlobalChatSheet(
     onSend: (String) -> Unit,
     onConfigureAi: () -> Unit,
     onRetry: () -> Unit,
+    onOpenLibrary: () -> Unit,
+    onOpenSources: (List<GlobalLibrarySource>) -> Unit,
     onDismiss: () -> Unit,
     focusComposer: Boolean = false,
 ) {
@@ -62,6 +65,7 @@ fun AssistantGlobalChatSheet(
     var input by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val lastAssistantId = turns.lastOrNull { !it.fromMe }?.id
 
     // Chat sempre na mensagem mais recente (o histórico é efêmero e curto).
     LaunchedEffect(turns.size) {
@@ -140,7 +144,17 @@ fun AssistantGlobalChatSheet(
                                         onClick = onRetry,
                                         label = { Text("Tentar novamente") },
                                     )
+                                    GlobalTurnAction.OPEN_LIBRARY -> AssistChip(
+                                        onClick = onOpenLibrary,
+                                        label = { Text("Abrir Biblioteca") },
+                                    )
                                 }
+                            }
+                            if (turn.id == lastAssistantId && turn.sources.isNotEmpty()) {
+                                AssistChip(
+                                    onClick = { onOpenSources(turn.sources) },
+                                    label = { Text("Fontes (${turn.sources.size})") },
+                                )
                             }
                         }
                     }

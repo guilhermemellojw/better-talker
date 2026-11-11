@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.library.GlobalLibrarySource
+
 /** Turno mínimo para o prompt global (sem depender da UI). */
 data class GlobalPromptTurn(
     val fromMe: Boolean,
@@ -9,9 +11,9 @@ data class GlobalPromptTurn(
 /**
  * Prompt do assistente global.
  *
- * Envia só os TÍTULOS recentes e uma janela curta da conversa — nunca o
- * dossiê/HTML de uma nota. O system prompt fica em
- * [GenerationPrompts.GLOBAL_ASSISTANT] (profile GLOBAL_ASSISTANT).
+ * Envia títulos recentes, fontes da Biblioteca sob demanda e uma janela
+ * curta da conversa — nunca o dossiê/HTML de uma nota. O system prompt fica
+ * em [GenerationPrompts.GLOBAL_ASSISTANT] (profile GLOBAL_ASSISTANT).
  * Puro/testável.
  */
 object GlobalAssistantPrompt {
@@ -19,8 +21,36 @@ object GlobalAssistantPrompt {
     fun build(
         userText: String,
         recentTitles: List<String> = emptyList(),
+        sources: List<GlobalLibrarySource> = emptyList(),
+        libraryNote: String? = null,
         history: List<GlobalPromptTurn> = emptyList(),
     ): String = buildString {
+        if (sources.isNotEmpty()) {
+            appendLine(
+                "FONTES DA BIBLIOTECA (base factual; use só estas fontes e cite [Fonte N]):"
+            )
+            sources.take(4).forEach { source ->
+                append("[Fonte ${source.index}] ")
+                append(source.publicationTitle)
+                source.unitLabel?.let { append(" · $it") }
+                source.unitTitle?.let { append(" — $it") }
+                source.locationLabel.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+                if (source.training) append(" · ORIENTAÇÃO DE ORATÓRIA (não é doutrina)")
+                appendLine()
+                appendLine("\"${source.snippet}\"")
+                appendLine()
+            }
+            appendLine("REGRAS DAS FONTES:")
+            appendLine("- Fatos só podem vir das fontes acima; cite [Fonte N] na frase.")
+            appendLine("- Não invente página, unidade ou trecho; não diga que não tem acesso.")
+            appendLine("- Se as fontes não sustentarem a resposta, diga o que faltou.")
+            appendLine("- be/th são orientação de oratória, nunca prova doutrinal.")
+            appendLine()
+        }
+        libraryNote?.takeIf { it.isNotBlank() }?.let {
+            appendLine("NOTA DE BUSCA: $it")
+            appendLine()
+        }
         if (recentTitles.isNotEmpty()) {
             appendLine("TÍTULOS RECENTES (só títulos; você não leu o conteúdo):")
             recentTitles.take(6).forEach { appendLine("- $it") }

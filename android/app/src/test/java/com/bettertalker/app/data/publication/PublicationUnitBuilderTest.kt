@@ -213,6 +213,63 @@ class PublicationUnitBuilderTest {
     }
 
     @Test
+    fun jwpubDeLivroSemCapituloExplicitoUsaChapter() {
+        val units = build(
+            listOf(
+                p(0, "1. Título"),
+                p(1, "1. Título"),
+                p(2, "2. Outro título"),
+            ),
+            symbol = "be",
+            pubKind = "jwpub",
+        )
+        assertEquals(listOf("CHAPTER", "CHAPTER"), units.map { it.kind })
+    }
+
+    @Test
+    fun jwpubDeLivroClSemHeadingExplicitoUsaChapter() {
+        val units = build(
+            listOf(
+                p(0, "Introdução"),
+                p(1, "Introdução"),
+                p(2, "Parte prática"),
+            ),
+            symbol = "cl",
+            pubKind = "jwpub",
+        )
+        assertEquals(listOf("CHAPTER", "CHAPTER"), units.map { it.kind })
+    }
+
+    @Test
+    fun jwpubDeRevistaSemHeadingExplicitoUsaArticle() {
+        val units = build(
+            listOf(
+                p(0, "Primeiro artigo"),
+                p(1, "Primeiro artigo"),
+                p(2, "Segundo artigo"),
+            ),
+            symbol = "wp17.09",
+            pubKind = "jwpub",
+        )
+        assertEquals(listOf("ARTICLE", "ARTICLE"), units.map { it.kind })
+    }
+
+    @Test
+    fun fallbackJwpubPreservaTiposEspeciais() {
+        fun kindOf(symbol: String) = build(
+            listOf(p(0, "Título genérico"), p(1, "Título genérico")),
+            symbol = symbol,
+            pubKind = "jwpub",
+        ).single().kind
+
+        assertEquals("LESSON", kindOf("lmd"))
+        assertEquals("LESSON", kindOf("th"))
+        assertEquals("ARTICLE", kindOf("it"))
+        assertEquals("ARTICLE", kindOf("rsg"))
+        assertEquals("SECTION", kindOf("s38"))
+    }
+
+    @Test
     fun paginasUsamPrimeiroEUltimoPageDaUnidade() {
         val units = build(
             listOf(

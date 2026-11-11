@@ -35,6 +35,12 @@ class SpeechTextTest {
     }
 
     @Test
+    fun prepareForSpeech_removeMarcadoresDeFonte() {
+        val out = prepareForSpeech("Os anjos servem a Deus [Fonte 1]. Veja [Fonte 2].")
+        assertEquals("Os anjos servem a Deus. Veja.", out)
+    }
+
+    @Test
     fun prepareForSpeech_vazioPermaneceVazio() {
         assertEquals("", prepareForSpeech(""))
         assertEquals("", prepareForSpeech("   \n  "))

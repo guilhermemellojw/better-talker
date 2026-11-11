@@ -51,8 +51,9 @@ internal fun prepareForSpeech(raw: String): String {
     t = t.replace("💡", "")
     t = t.replace(Regex("""⚠️\s*Revise:?"""), "Atenção: revise. ")
     t = t.replace("⚠️", "")
-    // 3. Cards de proveniência não são conteúdo.
+    // 3. Cards de proveniência e marcadores [Fonte N] não são conteúdo.
     t = t.lines().filterNot { it.trimStart().startsWith("📖") }.joinToString("\n")
+    t = t.replace(Regex("""\s*\[Fonte\s+\d+]""", RegexOption.IGNORE_CASE), "")
     // 4. Markdown → fala.
     t = t.replace(Regex("""\[([^\]]+)]\([^)]*\)"""), "$1") // links
     t = t.replace(Regex("""`{1,3}([^`]*)`{1,3}"""), "$1") // código
