@@ -73,6 +73,7 @@ fun AccountScreen(
     val message by vm.message.collectAsState()
     val confirmWipe by vm.confirmWipe.collectAsState()
     val confirmLocalWipe by vm.confirmLocalWipe.collectAsState()
+    val confirmImageWipe by vm.confirmImageWipe.collectAsState()
     val accountConflict by vm.accountConflict.collectAsState()
     val showFirstSync by vm.showFirstSync.collectAsState()
     val conflicts by vm.conflicts.collectAsState()
@@ -88,7 +89,7 @@ fun AccountScreen(
         }
     }
 
-    if (vm.syncBeta && showFirstSync) {
+    if (vm.cloudSync && showFirstSync) {
         AlertDialog(
             onDismissRequest = { /* escolha obrigatória */ },
             title = { Text("Primeiro sync") },
@@ -122,7 +123,7 @@ fun AccountScreen(
             title = { Text("Outra conta neste aparelho") },
             text = {
                 Text(
-                    if (vm.syncBeta) {
+                    if (vm.cloudSync) {
                         "Este aparelho já está vinculado a outra conta. Para entrar " +
                             "com a conta nova, é preciso apagar os dados locais " +
                             "(notas, pastas, anexos, conversas e imagens). O que já foi " +
@@ -152,10 +153,10 @@ fun AccountScreen(
     if (confirmWipe) {
         AlertDialog(
             onDismissRequest = vm::cancelWipe,
-            title = { Text(if (vm.syncBeta) "Apagar nuvem?" else "Apagar backup de imagens?") },
+            title = { Text(if (vm.cloudSync) "Apagar nuvem?" else "Apagar backup de imagens?") },
             text = {
                 Text(
-                    if (vm.syncBeta) {
+                    if (vm.cloudSync) {
                         "Apaga notas, pastas, metadados, seções, esboços e imagens " +
                             "no servidor. O aparelho mantém tudo — e o próximo sync " +
                             "reenvia o que ainda estiver no local. Para zerar de " +
@@ -175,13 +176,32 @@ fun AccountScreen(
         )
     }
 
+    if (confirmImageWipe) {
+        AlertDialog(
+            onDismissRequest = vm::cancelImageWipe,
+            title = { Text("Apagar backup de imagens?") },
+            text = {
+                Text(
+                    "Apaga apenas as imagens da conta no Firebase Storage. " +
+                        "Notas, pastas, metadados e sincronização não são tocados."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::wipeImageCloud) {
+                    Text("Apagar", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelImageWipe) { Text("Cancelar") } }
+        )
+    }
+
     if (confirmLocalWipe) {
         AlertDialog(
             onDismissRequest = vm::cancelLocalWipe,
             title = { Text("Apagar dados deste aparelho?") },
             text = {
                 Text(
-                    if (vm.syncBeta) {
+                    if (vm.cloudSync) {
                         "Notas, pastas, anexos, conversas e imagens locais serão " +
                             "apagados. A conta continua conectada, então o próximo " +
                             "sync pode baixar os dados da nuvem de volta. Exporte " +
@@ -229,21 +249,7 @@ fun AccountScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (!vm.syncBeta) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text("Neste aparelho", style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Notas, chat e anexos ficam locais. O backup de imagens " +
-                                "é opcional e usa login Google; o Firestore de notas " +
-                                "continua no build beta separado.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                        )
-                    }
-                }
-            } else {
+            if (vm.cloudSync) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Row(
@@ -255,17 +261,19 @@ fun AccountScreen(
                                     "Sincronização em nuvem",
                                     style = MaterialTheme.typography.titleMedium,
                                 )
-                                Spacer(Modifier.height(4.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    shape = RoundedCornerShape(50),
-                                ) {
-                                    Text(
-                                        "Experimental",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                    )
+                                if (vm.syncBeta) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        shape = RoundedCornerShape(50),
+                                    ) {
+                                        Text(
+                                            "Experimental",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        )
+                                    }
                                 }
                             }
                             Switch(
@@ -278,7 +286,7 @@ fun AccountScreen(
                         Text(
                             when {
                                 !vm.configured ->
-                                    "Este build beta não tem google-services.json. " +
+                                    "Este build não tem google-services.json. " +
                                         "A sincronização fica inativa."
                                 syncBetaEnabled ->
                                     "Ligada. Entre com sua conta Google; notas e " +
@@ -344,11 +352,11 @@ fun AccountScreen(
                     onBackup = vm::backupPendingImages,
                     onRestore = vm::restoreImages,
                     onRetryDeletes = vm::retryCloudDeletes,
-                    onWipeCloud = vm::askWipe,
+                    onWipeCloud = vm::askImageWipe,
                 )
             }
 
-            if (vm.syncBeta && syncBetaEnabled && conflicts.isNotEmpty()) {
+            if (vm.cloudSync && syncBetaEnabled && conflicts.isNotEmpty()) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text(
@@ -408,7 +416,7 @@ fun AccountScreen(
                     }
                 }
             }
-            if (vm.syncBeta && syncBetaEnabled && user != null) {
+            if (vm.cloudSync && syncBetaEnabled && user != null) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp)) {
                         Text("Zona de perigo da conta", style = MaterialTheme.typography.titleSmall)
@@ -465,7 +473,8 @@ private fun ImageBackupCard(
             Spacer(Modifier.height(4.dp))
             Text(
                 "Opcional. Só as imagens vão para o Firebase Storage; notas, " +
-                    "chat e anexos ficam locais. O Palco continua offline.",
+                    "chat e anexos seguem a opção de sincronização acima. O Palco " +
+                    "continua offline.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary,
             )

@@ -46,7 +46,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
     override suspend fun doWork(): Result {
         // Defesa em profundidade: work periódico antigo/reenfileirado não
         // pode sincronizar se o build é público ou o opt-in está desligado.
-        if (!BuildConfig.SYNC_BETA) {
+        if (!BuildConfig.CLOUD_SYNC) {
             Log.d("SyncWorker", "Sync ignorado: build público (sem beta de sync).")
             return Result.success()
         }

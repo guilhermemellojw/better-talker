@@ -225,7 +225,7 @@ class SettingsStore(
 
     /**
      * M7: opt-in explícito do beta de sincronização. Desligado por padrão,
-     * inclusive no flavor syncBeta; sem ele nenhum worker é agendado.
+     * inclusive no público; sem ele nenhum worker é agendado.
      */
     private val SYNC_BETA_ENABLED = booleanPreferencesKey("sync_beta_enabled")
     val syncBetaEnabled: Flow<Boolean> = ctx.store.data.map { it[SYNC_BETA_ENABLED] ?: false }

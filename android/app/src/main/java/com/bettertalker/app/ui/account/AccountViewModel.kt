@@ -34,7 +34,8 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val user = auth.user
     val accountConflict = auth.accountConflict
     val lastSync = settings.lastSync.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-    /** M7: flavor com sync beta + opt-in explícito (default desligado). */
+    /** 5.8: sync disponível nos dois flavors; o beta mantém o rótulo Experimental. */
+    val cloudSync = BuildConfig.CLOUD_SYNC
     val syncBeta = BuildConfig.SYNC_BETA
     val syncBetaEnabled = settings.syncBetaEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -76,9 +77,10 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
         user,
         settings.syncFirstPending,
         _localNoteCount,
-    ) { u, pending, count ->
-        // Público nunca tem Firestore/sync; evita herdar flag de um beta antigo.
-        BuildConfig.SYNC_BETA && u != null && pending && count > 0
+        settings.syncBetaEnabled,
+    ) { u, pending, count, optedIn ->
+        // 5.8: o primeiro sync só aparece com CLOUD_SYNC e opt-in.
+        BuildConfig.CLOUD_SYNC && u != null && optedIn && pending && count > 0
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** M5: cópias "(conflito)" criadas pelo worker, para revisão na conta. */
@@ -100,11 +102,13 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     val confirmWipe = _confirmWipe.asStateFlow()
     private val _confirmLocalWipe = MutableStateFlow(false)
     val confirmLocalWipe = _confirmLocalWipe.asStateFlow()
+    private val _confirmImageWipe = MutableStateFlow(false)
+    val confirmImageWipe = _confirmImageWipe.asStateFlow()
 
     init {
         auth.start()
         viewModelScope.launch {
-            if (BuildConfig.SYNC_BETA && settings.syncBetaEnabledValue()) {
+            if (BuildConfig.CLOUD_SYNC && settings.syncBetaEnabledValue()) {
                 SyncScheduler.ensurePeriodic(app)
             }
         }
@@ -139,7 +143,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
 
     fun signIn(uiContext: android.content.Context? = null) = viewModelScope.launch {
         if (!settings.syncBetaEnabledValue()) {
-            _error.value = "Ative a sincronização beta antes de entrar."
+            _error.value = "Ative a sincronização em nuvem antes de entrar."
             return@launch
         }
         _busy.value = true
@@ -167,28 +171,28 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun setSyncBetaEnabled(enabled: Boolean) = viewModelScope.launch {
         settings.setSyncBetaEnabled(enabled)
         if (enabled) {
-            _message.value = "Sincronização beta ativada."
+            _message.value = "Sincronização em nuvem ativada."
             SyncScheduler.ensurePeriodic(app)
             if (!settings.syncFirstPendingValue()) SyncScheduler.requestSync(app)
         } else {
             auth.signOut()
             SyncScheduler.cancelAll(app)
             SyncStatus.set(SyncStatus.State.Idle)
-            _message.value = "Sincronização beta desativada. As notas continuam neste aparelho."
+            _message.value = "Sincronização em nuvem desativada. As notas continuam neste aparelho."
         }
     }
 
     fun syncNow() = viewModelScope.launch {
         if (!settings.syncBetaEnabledValue()) {
-            _message.value = "Ative a sincronização beta para sincronizar."
+            _message.value = "Ative a sincronização em nuvem para sincronizar."
             return@launch
         }
         SyncScheduler.requestSync(app)
     }
 
     /**
-     * 5.4: login opt-in para o backup de imagens. Não liga o sincronização
-     * beta nem exige o flavor beta; notas/chat continuam locais.
+     * 5.4/5.8: login opt-in para o backup de imagens. Não liga o sync
+     * de notas; os controles separados serão absorvidos na Fase 3.
      */
     fun signInImages(uiContext: android.content.Context? = null) = viewModelScope.launch {
         if (!auth.isConfigured()) {
@@ -327,6 +331,25 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
     fun askWipe() { _confirmWipe.value = true }
     fun cancelWipe() { _confirmWipe.value = false }
 
+    fun askImageWipe() { _confirmImageWipe.value = true }
+    fun cancelImageWipe() { _confirmImageWipe.value = false }
+
+    /** 5.8: o card de imagens apaga só Storage; notas no Firestore ficam. */
+    fun wipeImageCloud() = viewModelScope.launch {
+        _confirmImageWipe.value = false
+        _busy.value = true
+        val err = auth.wipeImageBackups()
+        _error.value = err ?: ""
+        if (err == null) {
+            db.imageBackupDao().clearAll()
+            settings.setImageBackupEnabled(false)
+            ImageBackupScheduler.cancelAll(app)
+            _restoreReport.value = null
+            _message.value = "Backup de imagens apagado. O envio automático foi pausado."
+        }
+        _busy.value = false
+    }
+
     /** Apaga TODOS os dados do usuário na nuvem (local preservado). */
     fun wipeCloud() = viewModelScope.launch {
         _confirmWipe.value = false
@@ -340,7 +363,7 @@ class AccountViewModel(ctx: android.content.Context) : ViewModel() {
             settings.setImageBackupEnabled(false)
             ImageBackupScheduler.cancelAll(app)
             _restoreReport.value = null
-            _message.value = if (BuildConfig.SYNC_BETA) {
+            _message.value = if (BuildConfig.CLOUD_SYNC) {
                 "Dados da nuvem apagados."
             } else {
                 "Backup de imagens apagado. O envio automático foi pausado."

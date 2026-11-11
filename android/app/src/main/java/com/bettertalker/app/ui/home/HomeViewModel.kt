@@ -57,7 +57,7 @@ class HomeViewModel(
      */
     fun syncNow() = viewModelScope.launch {
         // Público/opt-out: o gesto de puxar não deve prometer sync.
-        if (!BuildConfig.SYNC_BETA || !settings.syncBetaEnabledValue()) {
+        if (!BuildConfig.CLOUD_SYNC || !settings.syncBetaEnabledValue()) {
             _syncState.value = com.bettertalker.app.ui.components.SyncUiState.Idle
             return@launch
         }
