@@ -13,7 +13,11 @@ import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.FolderDao
 import com.bettertalker.app.data.db.FolderEntity
+import com.bettertalker.app.data.db.ImageBackupDao
+import com.bettertalker.app.data.db.ImageBackupEntity
 import com.bettertalker.app.data.db.NoteDao
+import com.bettertalker.app.data.db.NoteImageDao
+import com.bettertalker.app.data.db.NoteImageEntity
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.OutlineDao
 import com.bettertalker.app.data.db.PassageDao
@@ -107,6 +111,11 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         if (firstMode == MODE_UPLOAD) {
             // "Enviar": o estado local vence o LWW — carimba tudo com now.
             bumpLocalForUpload(db, System.currentTimeMillis())
+            // Uploads grandes continuam no WorkManager de imagens.
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueueAllPending(applicationContext)
+            com.bettertalker.app.data.images.ImageBackupScheduler
+                .enqueuePendingDeletes(applicationContext)
         }
         return try {
             // F5g: o estado permanece Running durante TODAS as etapas abaixo.
@@ -176,6 +185,21 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 remote, db.s34Dao(), remoteTombs, attachmentTombIds,
                 pushEnabled = pushEnabled,
             )
+            val needsImageRestore = syncNoteImages(
+                remote = remote,
+                noteImageDao = db.noteImageDao(),
+                imageBackupDao = db.imageBackupDao(),
+                noteDao = db.noteDao(),
+                sectionDao = db.speechSectionDao(),
+                tombstoneDao = db.tombstoneDao(),
+                remoteTombs = remoteTombs,
+                pushEnabled = pushEnabled,
+                uid = user.uid,
+            )
+            if (needsImageRestore) {
+                com.bettertalker.app.data.images.ImageBackupScheduler
+                    .enqueueRestore(applicationContext)
+            }
             syncOutlines(
                 remote, db.outlineDao(), db.tombstoneDao(), remoteTombs,
                 pushEnabled = pushEnabled,
@@ -951,6 +975,196 @@ private suspend fun pullS34(
     }
     s34Dao.putReferences(refs)
 }
+
+// ---------- imagens (manifesto Firestore + bytes no Storage) ----------
+
+/**
+ * 5.8/2b — manifesto `noteImages` no Firestore. Bytes continuam no Storage;
+ * `path` local nunca sobe. O pull cria placeholder (`path=""`) + linha
+ * `image_backups` e devolve true para o worker enfileirar o restore.
+ */
+internal suspend fun syncNoteImages(
+    remote: SyncRemote,
+    noteImageDao: NoteImageDao,
+    imageBackupDao: ImageBackupDao,
+    noteDao: NoteDao,
+    sectionDao: SpeechSectionDao,
+    tombstoneDao: TombstoneDao,
+    remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    pushEnabled: Boolean = true,
+    uid: String,
+    now: () -> Long = { System.currentTimeMillis() },
+): Boolean {
+    var needsRestore = false
+    val remoteImageTombs = remoteTombs
+        .filterValues { it["type"] == "noteImage" }
+        .keys
+    for (id in remoteImageTombs) {
+        deleteLocalImage(noteImageDao, imageBackupDao, id)
+        remote.delete("noteImages", id)
+    }
+
+    val cloud = remote.getAll("noteImages")
+    val localTombs = tombstoneDao.all().filter { it.type == "noteImage" }
+    if (pushEnabled) {
+        for (t in localTombs) {
+            remote.set("tombstones", t.id, tombstoneMap("noteImage", t.deletedAt))
+            remote.delete("noteImages", t.id)
+            deleteLocalImage(noteImageDao, imageBackupDao, t.id)
+            if (!cloud.containsKey(t.id)) tombstoneDao.remove(t.id)
+        }
+    }
+
+    for ((id, data) in cloud) {
+        if (id in remoteImageTombs) continue
+        val state = data["state"] as? String ?: "uploaded"
+        val remoteUpdated = cloudUpdatedAt(data)
+        if (state == "deleted") {
+            remote.set("tombstones", id, tombstoneMap("noteImage", remoteUpdated))
+            remote.delete("noteImages", id)
+            deleteLocalImage(noteImageDao, imageBackupDao, id)
+            continue
+        }
+        val noteId = data["noteId"] as? String ?: continue
+        if (noteDao.get(noteId) == null) continue
+        val sectionId = (data["sectionId"] as? String)
+            ?.takeIf { sectionDao.get(it)?.noteId == noteId }
+        val local = noteImageDao.get(id)
+        val localBackup = imageBackupDao.get(id)
+        val localUpdated = localBackup?.updatedAt ?: 0L
+        val localFile = local?.path
+            ?.takeIf { it.isNotBlank() }
+            ?.let { path -> java.io.File(path) }
+        val fileMissing = local != null &&
+            (local.path.isBlank() || localFile?.isFile != true)
+
+        if (local == null) {
+            noteImageDao.upsert(
+                NoteImageEntity(
+                    id = id,
+                    noteId = noteId,
+                    sectionId = sectionId,
+                    path = "",
+                    mime = data["mime"] as? String ?: "image/webp",
+                    caption = data["caption"] as? String ?: "",
+                    kind = data["kind"] as? String ?: "illustration",
+                    order = (data["order"] as? Number)?.toInt() ?: 0,
+                    addedAt = (data["addedAt"] as? Number)?.toLong() ?: now(),
+                )
+            )
+            imageBackupDao.upsert(backupFromManifest(id, data, remoteUpdated, uid, now))
+            needsRestore = true
+        } else if (fileMissing) {
+            if (remoteUpdated >= localUpdated) {
+                noteImageDao.upsert(
+                    local.copy(
+                        noteId = noteId,
+                        sectionId = sectionId,
+                        path = "",
+                        mime = data["mime"] as? String ?: local.mime,
+                        caption = data["caption"] as? String ?: local.caption,
+                        kind = data["kind"] as? String ?: local.kind,
+                        order = (data["order"] as? Number)?.toInt() ?: local.order,
+                    )
+                )
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            }
+            needsRestore = true
+        } else {
+            if (remoteUpdated > localUpdated) {
+                noteImageDao.upsert(
+                    local.copy(
+                        noteId = noteId,
+                        sectionId = sectionId,
+                        mime = data["mime"] as? String ?: local.mime,
+                        caption = data["caption"] as? String ?: local.caption,
+                        kind = data["kind"] as? String ?: local.kind,
+                        order = (data["order"] as? Number)?.toInt() ?: local.order,
+                    )
+                )
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            } else if (localBackup == null) {
+                imageBackupDao.upsert(
+                    backupFromManifest(id, data, remoteUpdated, uid, now)
+                )
+            }
+        }
+    }
+
+    if (pushEnabled) {
+        for (image in noteImageDao.all()) {
+            if (noteDao.get(image.noteId) == null) continue
+            val localFile = image.path.takeIf { it.isNotBlank() }?.let { path -> java.io.File(path) }
+            if (localFile == null || !localFile.isFile) continue
+            val backup = imageBackupDao.get(image.id) ?: continue
+            if (backup.state != "uploaded" || backup.cloudPath.isNullOrBlank()) continue
+            val remoteData = cloud[image.id]
+            val remoteUpdated = remoteData?.let(::cloudUpdatedAt) ?: -1L
+            if (remoteData == null || backup.updatedAt > remoteUpdated) {
+                remote.set(
+                    "noteImages", image.id,
+                    noteImageManifest(image, backup, backup.updatedAt),
+                )
+            }
+        }
+    }
+    return needsRestore
+}
+
+private suspend fun deleteLocalImage(
+    noteImageDao: NoteImageDao,
+    imageBackupDao: ImageBackupDao,
+    imageId: String,
+) {
+    noteImageDao.get(imageId)?.path
+        ?.takeIf { it.isNotBlank() }
+        ?.let { java.io.File(it).delete() }
+    noteImageDao.delete(imageId)
+    imageBackupDao.delete(imageId)
+}
+
+private fun backupFromManifest(
+    imageId: String,
+    data: Map<String, Any?>,
+    updatedAt: Long,
+    uid: String,
+    now: () -> Long,
+): ImageBackupEntity = ImageBackupEntity(
+    imageId = imageId,
+    state = "uploaded",
+    cloudPath = data["cloudPath"] as? String,
+    sizeBytes = (data["sizeBytes"] as? Number)?.toLong() ?: 0L,
+    sha256 = data["sha256"] as? String,
+    uploadedAt = updatedAt.takeIf { it > 0 } ?: now(),
+    error = null,
+    attempts = 0,
+    updatedAt = updatedAt.takeIf { it > 0 } ?: now(),
+    uid = uid,
+)
+
+private fun noteImageManifest(
+    image: NoteImageEntity,
+    backup: ImageBackupEntity,
+    updatedAt: Long,
+): Map<String, Any?> = mapOf(
+    "imageId" to image.id,
+    "noteId" to image.noteId,
+    "sectionId" to image.sectionId,
+    "caption" to image.caption,
+    "kind" to image.kind,
+    "order" to image.order,
+    "mime" to image.mime,
+    "cloudPath" to backup.cloudPath,
+    "sha256" to backup.sha256,
+    "sizeBytes" to backup.sizeBytes,
+    "state" to "uploaded",
+    "updatedAt" to updatedAt,
+    "addedAt" to image.addedAt,
+).filterValues { it != null }
 
 // ---------- outlines (união por id determinístico out-<noteId>) ----------
 

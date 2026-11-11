@@ -93,17 +93,31 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                     com.bettertalker.app.data.images.ImageBackupScheduler
                         .enqueueDelete(app, imageId)
                 }
+                db.tombstoneDao().put(
+                    com.bettertalker.app.data.db.TombstoneEntity(
+                        imageId,
+                        "noteImage",
+                        System.currentTimeMillis(),
+                    )
+                )
+                com.bettertalker.app.data.cloud.SyncScheduler.requestSync(app)
                 imageStore.delete(it)
             }
         }
     }
 
     fun updateImageCaption(imageId: String, caption: String) {
-        viewModelScope.launch { db.noteImageDao().updateCaption(imageId, caption.trim()) }
+        viewModelScope.launch {
+            db.noteImageDao().updateCaption(imageId, caption.trim())
+            touchImageManifest(imageId)
+        }
     }
 
     fun updateImageKind(imageId: String, kind: String) {
-        viewModelScope.launch { db.noteImageDao().updateKind(imageId, kind) }
+        viewModelScope.launch {
+            db.noteImageDao().updateKind(imageId, kind)
+            touchImageManifest(imageId)
+        }
     }
 
     fun moveImage(imageId: String, direction: Int) {
@@ -122,6 +136,23 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             }
             db.noteImageDao().updateOrder(list[index].id, swap)
             db.noteImageDao().updateOrder(list[swap].id, index)
+            touchImageManifest(*list.map { it.id }.toTypedArray())
+        }
+    }
+
+    /** 5.8: edição de metadado da imagem bumpa o relógio do manifesto. */
+    private suspend fun touchImageManifest(vararg imageIds: String) {
+        var uploaded = false
+        for (id in imageIds) {
+            val row = db.imageBackupDao().get(id) ?: continue
+            db.imageBackupDao().upsert(
+                row.copy(updatedAt = System.currentTimeMillis())
+            )
+            if (row.state == "uploaded") uploaded = true
+        }
+        if (uploaded) {
+            com.bettertalker.app.data.cloud.SyncScheduler
+                .requestSync(appCtx.applicationContext)
         }
     }
 

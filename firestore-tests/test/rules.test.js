@@ -100,6 +100,22 @@ const validS34Reference = () => ({
   verse: 16,
 });
 
+const validNoteImage = () => ({
+  imageId: 'img1',
+  noteId: 'n1',
+  sectionId: 's1',
+  caption: 'Legenda',
+  kind: 'illustration',
+  order: 0,
+  mime: 'image/webp',
+  cloudPath: `users/${OWNER}/images/n1/img1.webp`,
+  sha256: 'abc',
+  sizeBytes: 123,
+  state: 'uploaded',
+  updatedAt: 1,
+  addedAt: 1,
+});
+
 before(async () => {
   testEnv = await initializeTestEnvironment({
     projectId: PROJECT_ID,
@@ -297,6 +313,50 @@ describe('S-34 flat', () => {
       setDoc(doc(ownerDb(), `users/${OWNER}/s34Sections/s1`), {
         ...validS34Section(),
         content: 'x'.repeat(900001),
+      }),
+    );
+  });
+});
+
+describe('noteImages', () => {
+  it('dono grava manifesto válido', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+  });
+
+  it('outro usuário não acessa', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+    await assertFails(getDoc(doc(otherDb(), `users/${OWNER}/noteImages/img1`)));
+    await assertFails(
+      setDoc(doc(otherDb(), `users/${OWNER}/noteImages/img1`), validNoteImage()),
+    );
+  });
+
+  it('sem noteId é negado', async () => {
+    const img = validNoteImage();
+    delete img.noteId;
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), img),
+    );
+  });
+
+  it('state inválido é negado', async () => {
+    await assertFails(
+      setDoc(doc(ownerDb(), `users/${OWNER}/noteImages/img1`), {
+        ...validNoteImage(),
+        state: 'pending',
+      }),
+    );
+  });
+
+  it('tombstone noteImage é aceito', async () => {
+    await assertSucceeds(
+      setDoc(doc(ownerDb(), `users/${OWNER}/tombstones/img1`), {
+        type: 'noteImage',
+        deletedAt: 1,
       }),
     );
   });

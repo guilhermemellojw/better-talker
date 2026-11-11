@@ -16,6 +16,7 @@ object SyncStatus {
     sealed interface State {
         data object Idle : State
         data object Running : State
+        data object SyncingImages : State
         data class Success(val time: Long) : State
         data class Error(val message: String, val time: Long) : State
     }
@@ -34,6 +35,7 @@ object SyncStatus {
 fun syncIndicatorText(state: SyncStatus.State, now: Long): String = when (state) {
     is SyncStatus.State.Idle -> "Nunca sincronizado"
     is SyncStatus.State.Running -> "Sincronizando…"
+    is SyncStatus.State.SyncingImages -> "Sincronizando imagens…"
     is SyncStatus.State.Success -> "Sincronizado " + relativeAgo(now - state.time)
     is SyncStatus.State.Error -> "Erro no sync: ${state.message}"
 }

@@ -156,7 +156,7 @@ private fun PresentPrepScreen(
         if (demo) {
             PresentImageCheck()
         } else {
-            presentImageCheck(cues) { path -> File(path).exists() }
+            presentImageCheck(cues) { path -> path.isNotBlank() && File(path).exists() }
         }
     }
 

@@ -41,6 +41,28 @@ object ImageBackupScheduler {
         db.noteImageDao().pendingForBackup().forEach { enqueue(app, it.id) }
     }
 
+    /** 5.8: baixa manifestos/imagens que chegaram de outro aparelho. */
+    fun enqueueRestore(ctx: Context) {
+        val app = ctx.applicationContext
+        val request = OneTimeWorkRequestBuilder<ImageBackupWorker>()
+            .setInputData(workDataOf(ImageBackupWorker.KEY_MODE to ImageBackupWorker.MODE_RESTORE))
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag(ImageBackupWorker.TAG)
+            .build()
+        runCatching {
+            WorkManager.getInstance(app).enqueueUniqueWork(
+                "image-restore",
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
+        }
+    }
+
     suspend fun enqueuePendingDeletes(ctx: Context) {
         val app = ctx.applicationContext
         val db = DbProvider.get(app)
@@ -93,7 +115,8 @@ object ImageBackupScheduler {
 
     private suspend fun isEnabled(ctx: Context): Boolean {
         val settings = SettingsStore(ctx)
-        if (!settings.imageBackupEnabledValue()) return false
+        // 5.8/3: o opt-in de sincronização é o único gate das imagens.
+        if (!settings.syncBetaEnabledValue()) return false
         val auth = AuthRepository(ctx)
         return auth.isConfigured() && auth.currentUser() != null
     }

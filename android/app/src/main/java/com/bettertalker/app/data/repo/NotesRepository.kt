@@ -153,10 +153,16 @@ class NotesRepository(private val ctx: Context, private val db: AppDatabase) {
             }
         }
         // v4.2: bytes privados das imagens (o registro cai pela FK em cascade).
+        val noteImages = db.noteImageDao().forNote(id)
         runCatching {
             com.bettertalker.app.data.images.NoteImageStore(
                 ctx.applicationContext, db.noteImageDao(),
             ).deleteFilesForNote(id)
+        }
+        noteImages.forEach {
+            db.tombstoneDao().put(
+                TombstoneEntity(it.id, "noteImage", System.currentTimeMillis())
+            )
         }
         for (a in db.attachmentDao().all().filter { it.noteId == id }) {
             runCatching { File(a.appPath).delete() }

@@ -62,7 +62,9 @@ class NoteImageStore(
     }
 
     suspend fun delete(image: NoteImageEntity) = withContext(Dispatchers.IO) {
-        runCatching { File(image.path).delete() }
+        if (image.path.isNotBlank()) {
+            runCatching { File(image.path).delete() }
+        }
         dao.delete(image.id)
     }
 
@@ -74,7 +76,9 @@ class NoteImageStore(
     suspend fun deleteFilesForNote(noteId: String) {
         val paths = dao.forNote(noteId).map { it.path }
         withContext(Dispatchers.IO) {
-            paths.forEach { runCatching { File(it).delete() } }
+            paths.filter { it.isNotBlank() }.forEach {
+                runCatching { File(it).delete() }
+            }
             runCatching { File(context.filesDir, "images/$noteId").deleteRecursively() }
         }
     }

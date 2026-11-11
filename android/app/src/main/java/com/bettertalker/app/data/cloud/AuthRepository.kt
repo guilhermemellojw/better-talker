@@ -160,12 +160,6 @@ class AuthRepository(private val ctx: Context) {
         lastUidHint = null
     }
 
-    /** 5.8: apaga só o backup de imagens, sem tocar no Firestore de notas. */
-    suspend fun wipeImageBackups(): String? {
-        val uid = currentUser()?.uid ?: return "Sem login"
-        return com.bettertalker.app.data.images.ImageCloudWiper.wipe(uid)
-    }
-
     /** Apaga TODOS os dados do usuário na nuvem (local preservado). */
     suspend fun wipeCloud(): String? {
         val uid = currentUser()?.uid ?: return "Sem login"
@@ -174,6 +168,8 @@ class AuthRepository(private val ctx: Context) {
             for (col in listOf(
                 "notes", "folders", "attachments", "outlines",
                 "sections", "subPoints", "tombstones",
+                "s34Outlines", "s34Sections", "s34Subsections", "s34References",
+                "noteImages",
             )) {
                 val snap: QuerySnapshot = suspendTask { cb ->
                     root.collection(col).get().addOnCompleteListener(cb)

@@ -20,7 +20,8 @@ service cloud.firestore {
 
     function onlyKnownTombstoneTypes() {
       return request.resource.data.type in [
-        'note', 'folder', 'attachment', 'outline', 'section', 'subPoint'
+        'note', 'folder', 'attachment', 'outline', 'section', 'subPoint',
+        'noteImage'
       ];
     }
 
@@ -224,6 +225,41 @@ service cloud.firestore {
             !('verse' in request.resource.data) ||
             request.resource.data.verse == null ||
             request.resource.data.verse is int
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      // ----- imagens (manifesto; bytes no Storage) -----
+      match /noteImages/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.noteId is string
+          && request.resource.data.order is int
+          && request.resource.data.mime is string
+          && request.resource.data.caption is string
+          && request.resource.data.kind is string
+          && request.resource.data.state in ['uploaded', 'deleted']
+          && request.resource.data.sizeBytes is int
+          && request.resource.data.updatedAt is int
+          && request.resource.data.addedAt is int
+          && (
+            !('imageId' in request.resource.data) ||
+            request.resource.data.imageId is string
+          )
+          && (
+            !('sectionId' in request.resource.data) ||
+            request.resource.data.sectionId == null ||
+            request.resource.data.sectionId is string
+          )
+          && (
+            !('cloudPath' in request.resource.data) ||
+            request.resource.data.cloudPath == null ||
+            request.resource.data.cloudPath is string
+          )
+          && (
+            !('sha256' in request.resource.data) ||
+            request.resource.data.sha256 == null ||
+            request.resource.data.sha256 is string
           );
         allow delete: if isOwner(uid);
       }
