@@ -6779,6 +6779,9 @@ class CopilotViewModel(
         }
         val outcome = S34ImportHook.onExtracted(db.s34Dao(), attId, raw, fileName = fileName)
         android.util.Log.i("S34Import", "chat import outcome=$outcome attachment=$attId")
+        if (outcome is S34ImportHook.Outcome.Saved) {
+            com.bettertalker.app.data.cloud.SyncScheduler.requestSync(app)
+        }
         if (outcome is S34ImportHook.Outcome.ParseFailed) {
             // T2: detectado como S-34 mas sem estrutura extraível — visível.
             postText(S34_PARSE_FAILURE_MESSAGE)

@@ -18,6 +18,10 @@ import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.OutlineDao
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.S34Dao
+import com.bettertalker.app.data.db.S34OutlineEntity
+import com.bettertalker.app.data.db.S34ReferenceEntity
+import com.bettertalker.app.data.db.S34SectionEntity
+import com.bettertalker.app.data.db.S34SubsectionEntity
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointDao
@@ -160,9 +164,17 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 remote, db.folderDao(), db.tombstoneDao(),
                 db.noteDao(), remoteTombs, pushEnabled = pushEnabled,
             )
+            val attachmentTombIds = db.tombstoneDao().all()
+                .filter { it.type == "attachment" }
+                .map { it.id }
+                .toSet()
             syncAttachments(
                 remote, db.attachmentDao(), db.tombstoneDao(),
                 remoteTombs, db.passageDao(), db.s34Dao(), pushEnabled = pushEnabled,
+            )
+            syncS34(
+                remote, db.s34Dao(), remoteTombs, attachmentTombIds,
+                pushEnabled = pushEnabled,
             )
             syncOutlines(
                 remote, db.outlineDao(), db.tombstoneDao(), remoteTombs,
@@ -206,6 +218,9 @@ private suspend fun bumpLocalForUpload(db: AppDatabase, now: Long) {
     }
     for (o in db.outlineDao().all()) {
         db.outlineDao().upsert(o.copy(updatedAt = now))
+    }
+    for (o in db.s34Dao().allOutlines()) {
+        db.s34Dao().putOutline(o.copy(updatedAt = now))
     }
 }
 
@@ -636,6 +651,305 @@ internal suspend fun syncAttachments(
             if (patch.isNotEmpty()) remote.set("attachments", a.id, patch)
         }
     }
+}
+
+// ---------- S-34 (estrutura flat, sem binário) ----------
+
+private data class RemoteS34OutlineDoc(
+    val id: String,
+    val source: String,
+    val updatedAt: Long,
+    val data: Map<String, Any?>,
+)
+
+/**
+ * 5.8/2a — sincroniza a estrutura S-34. O outline é o documento cabeça
+ * (LWW por updatedAt); seções/subseções/referências são filhos imutáveis e
+ * acompanham a versão do outline.
+ *
+ * Exclusão: usamos os tombstones de attachment já existentes e a
+ * reconciliação por `sourceAttachmentId` (sem coleção/tipo de tombstone
+ * próprio). Ao substituir um S-34 da mesma fonte, o id antigo é removido
+ * local e remotamente. Um S-34 remoto é puxado mesmo sem o anexo no
+ * aparelho; a estrutura serve à nota e o arquivo pode ser rebaixado depois.
+ */
+internal suspend fun syncS34(
+    remote: SyncRemote,
+    s34Dao: S34Dao,
+    remoteTombs: Map<String, Map<String, Any?>> = emptyMap(),
+    attachmentTombIds: Set<String> = emptySet(),
+    pushEnabled: Boolean = true,
+    now: () -> Long = { System.currentTimeMillis() },
+) {
+    val deletedSources = buildSet {
+        addAll(attachmentTombIds)
+        addAll(
+            remoteTombs
+                .filterValues { it["type"] == "attachment" }
+                .keys
+        )
+    }
+
+    val remoteOutlineDocs = remote.getAll("s34Outlines")
+    val remoteSectionDocs = remote.getAll("s34Sections")
+    val remoteSubDocs = remote.getAll("s34Subsections")
+    val remoteRefDocs = remote.getAll("s34References")
+
+    val remoteBySource = remoteOutlineDocs.entries.mapNotNull { (id, data) ->
+        val source = data["sourceAttachmentId"] as? String ?: return@mapNotNull null
+        RemoteS34OutlineDoc(
+            id = id,
+            source = source,
+            updatedAt = cloudTimestampMillis(data["updatedAt"]) ?: 0L,
+            data = data,
+        )
+    }.groupBy { it.source }
+
+    // 1. Fonte apagada no outro aparelho (ou localmente): derruba os dois lados.
+    for (source in deletedSources) {
+        remoteBySource[source].orEmpty().forEach {
+            deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+        }
+        s34Dao.allOutlines()
+            .filter { it.sourceAttachmentId == source }
+            .forEach { deleteLocalS34(s34Dao, it.id) }
+    }
+
+    var localOutlines = s34Dao.allOutlines()
+    val localBySource = localOutlines.groupBy { it.sourceAttachmentId }
+    val sources = (localBySource.keys + remoteBySource.keys) - deletedSources
+
+    for (source in sources) {
+        if (source.isBlank()) continue
+        val locals = localBySource[source].orEmpty().sortedByDescending { it.updatedAt }
+        val local = locals.firstOrNull()
+        val remotes = remoteBySource[source].orEmpty().sortedByDescending { it.updatedAt }
+        val remoteOutline = remotes.firstOrNull()
+
+        // Duplicatas locais de uma fonte: mantém a mais nova.
+        locals.drop(1).forEach { deleteLocalS34(s34Dao, it.id) }
+
+        if (local == null) {
+            if (remoteOutline == null) continue
+            remotes.drop(1).forEach {
+                deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+            pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+            continue
+        }
+        if (remoteOutline == null) {
+            if (pushEnabled) {
+                pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+            continue
+        }
+
+        remotes.drop(1).forEach {
+            deleteRemoteS34(remote, it.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+        }
+
+        if (local.id == remoteOutline.id) {
+            when {
+                remoteOutline.updatedAt > local.updatedAt ->
+                    pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+                local.updatedAt > remoteOutline.updatedAt && pushEnabled ->
+                    pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+                // empate = mesma revisão; não reescreve a cada sync.
+            }
+        } else {
+            // Reimportação/substituição: id novo na mesma fonte.
+            if (remoteOutline.updatedAt > local.updatedAt) {
+                deleteLocalS34(s34Dao, local.id)
+                pullS34(remoteOutline, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs, now)
+            } else if (pushEnabled) {
+                deleteRemoteS34(remote, remoteOutline.id, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+                pushS34(remote, local, s34Dao, remoteSectionDocs, remoteSubDocs, remoteRefDocs)
+            }
+        }
+    }
+}
+
+private suspend fun deleteRemoteS34(
+    remote: SyncRemote,
+    outlineId: String,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+) {
+    val sectionIds = remoteSections.entries
+        .filter { it.value["outlineId"] == outlineId }
+        .map { (id, data) -> data["id"] as? String ?: id }
+    val subIds = remoteSubs.entries
+        .filter { it.value["sectionId"] in sectionIds }
+        .map { it.key }
+    val refIds = remoteRefs.entries
+        .filter { it.value["outlineId"] == outlineId }
+        .map { it.key }
+    for (id in subIds) remote.delete("s34Subsections", id)
+    for (id in refIds) remote.delete("s34References", id)
+    for (id in sectionIds) remote.delete("s34Sections", id)
+    remote.delete("s34Outlines", outlineId)
+}
+
+private suspend fun deleteLocalS34(s34Dao: S34Dao, outlineId: String) {
+    val sectionIds = s34Dao.sectionsOf(outlineId).map { it.id }
+    s34Dao.deleteRefsOf(outlineId)
+    if (sectionIds.isNotEmpty()) s34Dao.deleteSubsOf(sectionIds)
+    s34Dao.deleteSectionsOf(outlineId)
+    s34Dao.deleteOutline(outlineId)
+}
+
+private suspend fun pushS34(
+    remote: SyncRemote,
+    outline: S34OutlineEntity,
+    s34Dao: S34Dao,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+) {
+    // Remove a versão remota anterior (inclui filhos que sumiram).
+    deleteRemoteS34(remote, outline.id, remoteSections, remoteSubs, remoteRefs)
+    remote.set(
+        "s34Outlines", outline.id,
+        mapOf(
+            "id" to outline.id,
+            "sourceAttachmentId" to outline.sourceAttachmentId,
+            "symbol" to outline.symbol,
+            "title" to outline.title,
+            "objective" to outline.objective,
+            "headerLinesJson" to outline.headerLinesJson,
+            "createdAt" to outline.createdAt,
+            "updatedAt" to outline.updatedAt,
+            "parserVersion" to outline.parserVersion,
+        ).filterValues { it != null }
+    )
+    val sections = s34Dao.sectionsOf(outline.id)
+    for (section in sections) {
+        remote.set(
+            "s34Sections", section.id,
+            mapOf(
+                "id" to section.id,
+                "outlineId" to section.outlineId,
+                "order" to section.order,
+                "title" to section.title,
+                "content" to section.content,
+                "minutes" to section.minutes,
+                "sourceLine" to section.sourceLine,
+            ).filterValues { it != null }
+        )
+    }
+    val sectionIds = sections.map { it.id }
+    for (sub in s34Dao.subsectionsOf(sectionIds)) {
+        remote.set(
+            "s34Subsections", sub.id,
+            mapOf(
+                "id" to sub.id,
+                "sectionId" to sub.sectionId,
+                "order" to sub.order,
+                "content" to sub.content,
+                "sourceLine" to sub.sourceLine,
+            )
+        )
+    }
+    for (ref in s34Dao.referencesOf(outline.id)) {
+        remote.set(
+            "s34References", ref.id,
+            mapOf(
+                "id" to ref.id,
+                "outlineId" to ref.outlineId,
+                "sectionId" to ref.sectionId,
+                "subsectionId" to ref.subsectionId,
+                "order" to ref.order,
+                "type" to ref.type,
+                "rawText" to ref.rawText,
+                "normalizedReference" to ref.normalizedReference,
+                "sourceLine" to ref.sourceLine,
+                "book" to ref.book,
+                "bookNorm" to ref.bookNorm,
+                "chapter" to ref.chapter,
+                "verse" to ref.verse,
+                "pubKind" to ref.pubKind,
+                "pubKey" to ref.pubKey,
+                "pubLabel" to ref.pubLabel,
+                "editionKey" to ref.editionKey,
+            ).filterValues { it != null }
+        )
+    }
+}
+
+private suspend fun pullS34(
+    remote: RemoteS34OutlineDoc,
+    s34Dao: S34Dao,
+    remoteSections: Map<String, Map<String, Any?>>,
+    remoteSubs: Map<String, Map<String, Any?>>,
+    remoteRefs: Map<String, Map<String, Any?>>,
+    now: () -> Long,
+) {
+    val outline = S34OutlineEntity(
+        id = remote.id,
+        sourceAttachmentId = remote.source,
+        symbol = remote.data["symbol"] as? String ?: "",
+        title = remote.data["title"] as? String ?: "S-34",
+        objective = remote.data["objective"] as? String,
+        headerLinesJson = remote.data["headerLinesJson"] as? String ?: "[]",
+        createdAt = cloudTimestampMillis(remote.data["createdAt"]) ?: now(),
+        updatedAt = cloudTimestampMillis(remote.data["updatedAt"]) ?: now(),
+        parserVersion = (remote.data["parserVersion"] as? Number)?.toInt() ?: 2,
+    )
+    deleteLocalS34(s34Dao, outline.id)
+    s34Dao.putOutline(outline)
+
+    val sections = remoteSections.entries.mapNotNull { (id, data) ->
+        if (data["outlineId"] != outline.id) return@mapNotNull null
+        S34SectionEntity(
+            id = data["id"] as? String ?: id,
+            outlineId = outline.id,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            title = data["title"] as? String ?: "",
+            content = data["content"] as? String ?: "",
+            minutes = (data["minutes"] as? Number)?.toInt(),
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+        )
+    }
+    s34Dao.putSections(sections)
+    val sectionIds = sections.map { it.id }
+    val subs = remoteSubs.entries.mapNotNull { (id, data) ->
+        if (data["sectionId"] !in sectionIds) return@mapNotNull null
+        S34SubsectionEntity(
+            id = data["id"] as? String ?: id,
+            sectionId = data["sectionId"] as? String ?: return@mapNotNull null,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            content = data["content"] as? String ?: "",
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+        )
+    }
+    s34Dao.putSubsections(subs)
+    val refs = remoteRefs.entries.mapNotNull { (id, data) ->
+        if (data["outlineId"] != outline.id) return@mapNotNull null
+        S34ReferenceEntity(
+            id = data["id"] as? String ?: id,
+            outlineId = outline.id,
+            sectionId = data["sectionId"] as? String,
+            subsectionId = data["subsectionId"] as? String,
+            order = (data["order"] as? Number)?.toInt()
+                ?: (data["position"] as? Number)?.toInt() ?: 0,
+            type = data["type"] as? String ?: "BIBLE",
+            rawText = data["rawText"] as? String ?: "",
+            normalizedReference = data["normalizedReference"] as? String ?: "",
+            sourceLine = (data["sourceLine"] as? Number)?.toInt() ?: 0,
+            book = data["book"] as? String,
+            bookNorm = data["bookNorm"] as? String,
+            chapter = (data["chapter"] as? Number)?.toInt(),
+            verse = (data["verse"] as? Number)?.toInt(),
+            pubKind = data["pubKind"] as? String,
+            pubKey = data["pubKey"] as? String,
+            pubLabel = data["pubLabel"] as? String,
+            editionKey = data["editionKey"] as? String,
+        )
+    }
+    s34Dao.putReferences(refs)
 }
 
 // ---------- outlines (união por id determinístico out-<noteId>) ----------

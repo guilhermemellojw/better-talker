@@ -147,6 +147,87 @@ service cloud.firestore {
         allow delete: if isOwner(uid);
       }
 
+      // ----- S-34 (estrutura flat; sem binário) -----
+      match /s34Outlines/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.sourceAttachmentId is string
+          && request.resource.data.symbol is string
+          && request.resource.data.title is string
+          && request.resource.data.headerLinesJson is string
+          && request.resource.data.headerLinesJson.size() < 900000
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && request.resource.data.parserVersion is int
+          && (
+            !('objective' in request.resource.data) ||
+            request.resource.data.objective == null ||
+            request.resource.data.objective is string
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      match /s34Sections/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.outlineId is string
+          && request.resource.data.order is int
+          && request.resource.data.title is string
+          && request.resource.data.content is string
+          && request.resource.data.content.size() < 900000
+          && request.resource.data.sourceLine is int
+          && (
+            !('minutes' in request.resource.data) ||
+            request.resource.data.minutes == null ||
+            request.resource.data.minutes is int
+          );
+        allow delete: if isOwner(uid);
+      }
+
+      match /s34Subsections/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.sectionId is string
+          && request.resource.data.order is int
+          && request.resource.data.content is string
+          && request.resource.data.content.size() < 900000
+          && request.resource.data.sourceLine is int;
+        allow delete: if isOwner(uid);
+      }
+
+      match /s34References/{id} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.outlineId is string
+          && request.resource.data.order is int
+          && request.resource.data.type is string
+          && request.resource.data.rawText is string
+          && request.resource.data.rawText.size() < 4000
+          && request.resource.data.normalizedReference is string
+          && request.resource.data.sourceLine is int
+          && (
+            !('sectionId' in request.resource.data) ||
+            request.resource.data.sectionId == null ||
+            request.resource.data.sectionId is string
+          )
+          && (
+            !('subsectionId' in request.resource.data) ||
+            request.resource.data.subsectionId == null ||
+            request.resource.data.subsectionId is string
+          )
+          && (
+            !('chapter' in request.resource.data) ||
+            request.resource.data.chapter == null ||
+            request.resource.data.chapter is int
+          )
+          && (
+            !('verse' in request.resource.data) ||
+            request.resource.data.verse == null ||
+            request.resource.data.verse is int
+          );
+        allow delete: if isOwner(uid);
+      }
+
       // ----- tombstones -----
       match /tombstones/{id} {
         allow read: if isOwner(uid);

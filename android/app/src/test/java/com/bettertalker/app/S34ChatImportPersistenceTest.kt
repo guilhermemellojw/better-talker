@@ -32,6 +32,10 @@ class S34ChatImportPersistenceTest {
         override suspend fun putReferences(list: List<S34ReferenceEntity>) {
             list.forEach { refs[it.id] = it }
         }
+        override suspend fun allOutlines(): List<S34OutlineEntity> = outlines.values.toList()
+        override suspend fun allSections(): List<S34SectionEntity> = sections.values.toList()
+        override suspend fun allSubsections(): List<S34SubsectionEntity> = subs.values.toList()
+        override suspend fun allReferences(): List<S34ReferenceEntity> = refs.values.toList()
         override suspend fun outlineById(id: String) = outlines[id]
         override suspend fun outlineBySource(sourceId: String) =
             outlines.values.firstOrNull { it.sourceAttachmentId == sourceId }
