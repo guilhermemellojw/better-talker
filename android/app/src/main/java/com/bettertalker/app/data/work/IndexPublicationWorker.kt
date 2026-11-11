@@ -7,8 +7,10 @@ import com.bettertalker.app.data.db.DbProvider
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.domain.TrainingClassifier
+import com.bettertalker.app.data.publication.PublicationUnitBuilder
 import com.bettertalker.app.data.s34.NwtEpubParser
 import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.detectKind
 import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.matchBaseSlot
@@ -109,8 +111,16 @@ class IndexPublicationWorker(ctx: Context, params: WorkerParameters) : Coroutine
                 db.attachmentDao().setStatus(id, false, "failed", "Texto sem trechos aproveitáveis.")
                 return Result.success()
             }
+            // 5.6a: índice estrutural derivado; calculado antes de trocar as
+            // passages para não deixar unidades apontando para ord antigo.
+            val pubKind = if (fileNameKind == DocKind.JWPUB) "jwpub" else fileNameKind.ext
+            val units = PublicationUnitBuilder.build(id, symbol, pubKind, passages)
+            // Limpa unidades antes das passages: se o processo morrer no meio,
+            // o próximo backfill reconstrói em vez de manter faixas órfãs.
+            db.publicationUnitDao().deleteForAttachment(id)
             db.passageDao().deleteForAttachment(id)
             db.passageDao().insertAll(passages)
+            db.publicationUnitDao().replaceForAttachment(id, units)
             // Fase 8: persiste trilho/símbolo do anexo (símbolo = slot quando conhecido).
             val finalSlot = att.baseSlot ?: matchBaseSlot(att.fileName)
             db.attachmentDao().setSourceMeta(id, SourceType.fromBaseSlot(finalSlot).serial, finalSlot)

@@ -11,6 +11,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
 import com.bettertalker.app.domain.speech.DiscourseType
@@ -89,6 +90,46 @@ data class PassageEntity(
     val ord: Int = 0,
     /** Fase 8: categoria serial minúscula; null = classificar on-the-fly. */
     val trainingCategory: String? = null
+)
+
+/**
+ * 5.6a: unidade estrutural de uma publicação indexada (parte, capítulo,
+ * artigo, lição, apêndice ou seção).
+ *
+ * `startOrd`/`endOrd` são os `ord` dos passages cobertos pela unidade;
+ * `ord` é a posição da própria unidade no índice da publicação.
+ */
+@Entity(
+    tableName = "publication_units",
+    foreignKeys = [ForeignKey(
+        entity = AttachmentEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["attachmentId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [
+        Index("attachmentId"),
+        Index("parentId"),
+        Index(value = ["attachmentId", "ord"]),
+        Index(value = ["attachmentId", "canonicalKey"], unique = true),
+    ],
+)
+data class PublicationUnitEntity(
+    @PrimaryKey val id: String,
+    val attachmentId: String,
+    val parentId: String? = null,
+    /** PART | CHAPTER | ARTICLE | LESSON | APPENDIX | SECTION | DOCUMENT. */
+    val kind: String,
+    /** Número editorial ("1", "A"); null em títulos genéricos/documento. */
+    val number: String? = null,
+    val title: String,
+    /** Chave estável para dedupe/citação; única por attachment. */
+    val canonicalKey: String,
+    val ord: Int,
+    val startOrd: Int,
+    val endOrd: Int,
+    val startPage: Int? = null,
+    val endPage: Int? = null,
 )
 
 /** Exclusões a propagar para a nuvem (tombstones). */
@@ -310,9 +351,40 @@ interface PassageDao {
     ): List<PassageEntity>
 }
 
+@Dao
+interface PublicationUnitDao {
+    @Query("SELECT * FROM publication_units WHERE attachmentId = :attachmentId ORDER BY ord ASC")
+    suspend fun forAttachment(attachmentId: String): List<PublicationUnitEntity>
+
+    /** Unidade que cobre o passage `ord` (faixa contígua). */
+    @Query(
+        "SELECT * FROM publication_units WHERE attachmentId = :attachmentId " +
+            "AND startOrd <= :ord AND endOrd >= :ord ORDER BY ord ASC LIMIT 1"
+    )
+    suspend fun unitAt(attachmentId: String, ord: Int): PublicationUnitEntity?
+
+    @Query("SELECT * FROM publication_units WHERE attachmentId = :attachmentId AND kind = :kind ORDER BY ord ASC")
+    suspend fun unitsByKind(attachmentId: String, kind: String): List<PublicationUnitEntity>
+
+    @Query("SELECT COUNT(*) FROM publication_units WHERE attachmentId = :attachmentId")
+    suspend fun countForAttachment(attachmentId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<PublicationUnitEntity>)
+
+    @Query("DELETE FROM publication_units WHERE attachmentId = :attachmentId")
+    suspend fun deleteForAttachment(attachmentId: String)
+
+    @Transaction
+    suspend fun replaceForAttachment(attachmentId: String, items: List<PublicationUnitEntity>) {
+        deleteForAttachment(attachmentId)
+        if (items.isNotEmpty()) insertAll(items)
+    }
+}
+
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class],
-    version = 25,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, PublicationUnitEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class],
+    version = 26,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -320,6 +392,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun passageDao(): PassageDao
+    abstract fun publicationUnitDao(): PublicationUnitDao
     abstract fun tombstoneDao(): TombstoneDao
     abstract fun outlineDao(): OutlineDao
     abstract fun chatDao(): ChatDao

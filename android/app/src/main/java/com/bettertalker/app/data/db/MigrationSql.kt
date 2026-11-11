@@ -272,4 +272,35 @@ object MigrationSql {
         "CREATE INDEX IF NOT EXISTS `index_image_backups_state` ON `image_backups`(`state`)",
         "CREATE INDEX IF NOT EXISTS `index_image_backups_updatedAt` ON `image_backups`(`updatedAt`)",
     )
+
+    /**
+     * v25 -> v26 (5.6a): índice estrutural derivado das passages.
+     * Aditiva; nenhum passage/anexo existente é alterado. `startOrd`/`endOrd`
+     * apontam para os `ord` cobertos pela unidade.
+     */
+    val MIGRATION_25_26: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `publication_units` (
+            `id` TEXT NOT NULL,
+            `attachmentId` TEXT NOT NULL,
+            `parentId` TEXT,
+            `kind` TEXT NOT NULL,
+            `number` TEXT,
+            `title` TEXT NOT NULL,
+            `canonicalKey` TEXT NOT NULL,
+            `ord` INTEGER NOT NULL,
+            `startOrd` INTEGER NOT NULL,
+            `endOrd` INTEGER NOT NULL,
+            `startPage` INTEGER,
+            `endPage` INTEGER,
+            PRIMARY KEY(`id`),
+            FOREIGN KEY(`attachmentId`) REFERENCES `attachments`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_publication_units_attachmentId` ON `publication_units`(`attachmentId`)",
+        "CREATE INDEX IF NOT EXISTS `index_publication_units_parentId` ON `publication_units`(`parentId`)",
+        "CREATE INDEX IF NOT EXISTS `index_publication_units_attachmentId_ord` ON `publication_units`(`attachmentId`, `ord`)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_publication_units_attachmentId_canonicalKey` ON `publication_units`(`attachmentId`, `canonicalKey`)",
+    )
 }
