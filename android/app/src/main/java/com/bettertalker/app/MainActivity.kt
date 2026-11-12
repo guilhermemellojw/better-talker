@@ -1441,7 +1441,11 @@ private fun NoteChatHost(
             { request ->
                 when (request) {
                     is ResolvedChatNav.OpenSection -> {
-                        editorVm.scrollToSection(request.sectionId)
+                        // 6.0b/foco: o botão da sugestão não pode só rolar.
+                        // Atualiza o chat AGORA e ativa a seção no editor
+                        // (destaque + título persistido) antes de abrir.
+                        copilotVm.selectFocusSection(request.sectionId)
+                        editorVm.focusSection(request.sectionId, request.title)
                         onOpenEditor()
                     }
                     is ResolvedChatNav.DevelopCurrent -> {
@@ -1667,7 +1671,7 @@ private fun NoteChatHost(
     }
     // Modo guiado seção-a-seção: foco do chat -> rolagem no editor.
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-        copilotVm.focusRequests.collect { editorVm.scrollToSection(it) }
+        copilotVm.focusRequests.collect { editorVm.focusSection(it) }
     }
     // Assistente restaurado sem foco do editor: lente = discurso inteiro.
     if (defaultWholeFocus) {

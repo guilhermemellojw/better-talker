@@ -1027,9 +1027,18 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     private val _scrollRequests = MutableStateFlow<String?>(null)
     val scrollRequests: StateFlow<String?> = _scrollRequests.asStateFlow()
 
-    /** Chat pediu foco visual nesta seção (navegação "próximo"/"anterior"). */
-    fun scrollToSection(sectionId: String) {
-        _scrollRequests.value = sectionId
+    /**
+     * Chat pediu foco visual nesta seção (navegação "próximo"/"anterior",
+     * botão da sugestão e comando digitado). Ativa a seção no editor —
+     * destaque, título persistido e rolagem — num único caminho.
+     */
+    fun focusSection(sectionId: String, title: String? = null) {
+        val id = sectionId.takeIf { it.isNotBlank() } ?: return
+        setActiveSectionId(id)
+        val resolved = title?.trim()?.takeIf { it.isNotBlank() }
+            ?: _sections.value.firstOrNull { it.section.id == id }?.section?.title
+        setActiveSectionTitle(resolved)
+        _scrollRequests.value = id
     }
 
     /** Marca o pedido como aplicado (a EditorScreen consome depois de rolar). */
