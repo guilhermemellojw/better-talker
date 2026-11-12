@@ -38,6 +38,8 @@ import com.bettertalker.app.data.copilot.FOLLOW_UP_SUGGESTIONS
 import com.bettertalker.app.data.copilot.FocusDestination
 import com.bettertalker.app.data.copilot.FocusOrigin
 import com.bettertalker.app.data.copilot.FocusSources
+import com.bettertalker.app.data.copilot.isNewChatEntrySession
+import com.bettertalker.app.data.copilot.resolveChatEntryFocus
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.data.copilot.TurnUiState
 import com.bettertalker.app.data.copilot.cancelledPayload
@@ -1729,6 +1731,11 @@ class CopilotViewModel(
      */
     private var _pushedContext: ChatContext? = null
 
+    /** 6.0a/foco: push novo consumido uma vez na entrada do chat. */
+    private var _pushAppliedThisOpen = false
+    /** 6.0a/foco: sessão de chat aberta (rotação não reaplica a entrada). */
+    private var _openSessionKey: String? = null
+
     /**
      * #10c: último tópico focado — alvo do retorno quando o escopo volta de
      * "Discurso inteiro" para "Tópico".
@@ -1900,13 +1907,19 @@ class CopilotViewModel(
 
     fun setPushedContext(ctx: ChatContext?) {
         _pushedContext = ctx
+        _pushAppliedThisOpen = ctx != null
         // F2.3: a conversa segue o foco (tópico vs. global).
         _chatScope.value = ctx?.sectionId
         // #10c: entrada com tópico redefine o escopo para SECTION e memoriza
-        // o último foco (alvo do toggle de volta).
+        // o último foco (alvo do toggle de volta). Push genérico (sem seção)
+        // é discurso inteiro — não herda o SECTION da conversa anterior.
         if (ctx?.sectionId != null) {
             _lastFocusedSectionId = ctx.sectionId
             _focusMode.value = FocusMode.SECTION
+        } else if (ctx != null) {
+            _lastFocusedSectionId = null
+            _focusMode.value = FocusMode.WHOLE
+            _activeBlockTitle.value = null
         }
         _readiness.value = ctx?.readiness
         // Nova entrada no chat → banner volta (se ainda incompleto).
@@ -1924,6 +1937,56 @@ class CopilotViewModel(
                 _topicName.value = currentTopicName()
             }
         }
+    }
+
+    /**
+     * 6.0a/foco — chamado uma vez quando o chat entra na tela.
+     *
+     * - push novo do FAB/✨: mantém (one-shot);
+     * - sem push e aberto a partir do editor: usa a seção ativa;
+     * - menu/Assistente, nota trocada ou sessão diferente: discurso inteiro.
+     */
+    fun onChatOpened(
+        sessionKey: String,
+        activeSectionId: String?,
+        openedFromEditor: Boolean,
+    ) {
+        if (!isNewChatEntrySession(_openSessionKey, sessionKey)) return
+        _openSessionKey = sessionKey
+        val focus = resolveChatEntryFocus(
+            hasPendingPush = _pushAppliedThisOpen,
+            activeSectionId = activeSectionId,
+            guideSectionIds = _guideSections.value.map { it.id }.toSet(),
+            openedFromEditor = openedFromEditor,
+        )
+        _pushAppliedThisOpen = false
+        if (focus.keepPushed) return
+        if (focus.sectionId != null) {
+            viewModelScope.launch {
+                applySectionFocus(focus.sectionId, emitScroll = false)
+            }
+        } else {
+            _chatScope.value = null
+            _pushedContext = null
+            _focusMode.value = FocusMode.WHOLE
+            _lastFocusedSectionId = null
+            _activeBlockTitle.value = null
+            _conversationLabel.value = null
+            _topicName.value = null
+        }
+    }
+
+    /** 6.0a/foco — ao sair do chat, nada de foco persistido para o próximo. */
+    fun onChatClosed() {
+        _openSessionKey = null
+        _pushAppliedThisOpen = false
+        _pushedContext = null
+        _chatScope.value = null
+        _lastFocusedSectionId = null
+        _focusMode.value = FocusMode.WHOLE
+        _activeBlockTitle.value = null
+        _conversationLabel.value = null
+        _topicName.value = null
     }
 
     /** Rótulo do alvo empurrado ("Conversando sobre: …"). Null = sem header. */
@@ -1983,7 +2046,10 @@ class CopilotViewModel(
      * próximo `send()`) e rótulo acompanham. Não cria mensagem, não limpa a
      * lista e não interrompe geração. Emite o pedido de rolagem ao editor.
      */
-    private suspend fun focusSection(sectionId: String) {
+    private suspend fun focusSection(sectionId: String) =
+        applySectionFocus(sectionId, emitScroll = true)
+
+    private suspend fun applySectionFocus(sectionId: String, emitScroll: Boolean) {
         val sections = _guideSections.value
         val idx = sections.indexOfFirst { it.id == sectionId }
         if (idx < 0) return
@@ -2007,7 +2073,7 @@ class CopilotViewModel(
         _topicName.value = null
         _conversationLabel.value = resolveConversationLabel(ctx)
         _topicName.value = currentTopicName()
-        _focusRequests.emit(sectionId)
+        if (emitScroll) _focusRequests.emit(sectionId)
     }
 
     /**

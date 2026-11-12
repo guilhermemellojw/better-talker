@@ -198,6 +198,13 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     fun setActiveSectionTitle(title: String?) {
         _activeSectionTitle.value = title?.trim()?.takeIf { it.isNotBlank() }
     }
+
+    /** 6.0a/foco: seção ativa do editor (para o chat abrir nela). */
+    private val _activeSectionId = MutableStateFlow<String?>(null)
+    val activeSectionId: StateFlow<String?> = _activeSectionId.asStateFlow()
+    fun setActiveSectionId(id: String?) {
+        _activeSectionId.value = id?.takeIf { it.isNotBlank() }
+    }
     val attachments = repo.attachmentsFor(noteId)
     val folders = db.folderDao().observe()
 
@@ -1047,6 +1054,11 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * emissões iniciais dos editores (sem `.drop(1)`, última seção vence
      * a corrida). Fonte é o editor focado (FAB) ou o target explícito (⋮).
      */
+    /** 6.0a/foco: o push do FAB é one-shot; o chat consome ao entrar. */
+    fun consumePushedContext() {
+        _pushedContext.value = null
+    }
+
     suspend fun pushContextForChat(target: DraftTarget?) {
         val (sectionId, subPointId) = when (target) {
             is DraftTarget.SubPoint -> target.sectionId to target.subPointId

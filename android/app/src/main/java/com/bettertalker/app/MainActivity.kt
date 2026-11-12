@@ -63,6 +63,7 @@ import com.bettertalker.app.ui.theme.BetterTalkerTheme
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -1289,6 +1290,43 @@ private fun NoteChatHost(
     val draftState by editorVm.draftState.collectAsState()
     val editorSections by editorVm.sections.collectAsState()
     val mdText by editorVm.mdText.collectAsState()
+    val activeEditorSectionId by editorVm.activeSectionId.collectAsState()
+
+    // 6.0a/foco: o push do FAB/✨ é one-shot. Consome o pendente ao entrar,
+    // decide a lente (push > seção ativa do editor > discurso inteiro) e só
+    // reaplica quando a sessão do chat muda — rotação não reseta o foco.
+    val previousRoute = nav.previousBackStackEntry?.destination?.route
+    val openedFromEditor = !embedded &&
+        (previousRoute == Routes.EDITOR || previousRoute == Routes.PREPARE)
+    androidx.compose.runtime.LaunchedEffect(
+        session.noteId,
+        embedded,
+        openedFromEditor,
+    ) {
+        val pending = editorVm.pushedContext.value
+        if (pending != null) {
+            copilotVm.setPushedContext(pending)
+            editorVm.consumePushedContext()
+        }
+        copilotVm.onChatOpened(
+            sessionKey = (if (embedded) "assistant" else "chat") + "|" + session.noteId,
+            activeSectionId = if (openedFromEditor) activeEditorSectionId else null,
+            openedFromEditor = openedFromEditor,
+        )
+        // Push que chegue com o chat já aberto (ex.: split/tablet).
+        editorVm.pushedContext.filterNotNull().collect { ctx ->
+            copilotVm.setPushedContext(ctx)
+            editorVm.consumePushedContext()
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            val route = nav.currentDestination?.route
+            if (route != Routes.CHAT && route != Routes.ASSISTANT) {
+                copilotVm.onChatClosed()
+            }
+        }
+    }
 
     // v4.0 Walkie: apresentação local da sessão; o chat completo é um toque.
     var walkie by androidx.compose.runtime.saveable.rememberSaveable(
@@ -1492,7 +1530,10 @@ private fun NoteChatHost(
     } else {
     ChatScreen(
         copilotVm,
-        onBack = onBack,
+        onBack = {
+            copilotVm.onChatClosed()
+            onBack()
+        },
         onInsert = { text, heading ->
             // F2.3: insere no tópico em foco; sem foco, comportamento legado.
             editorVm.queueInsertForTarget(copilotVm.currentTarget(), text, heading)
@@ -1536,10 +1577,6 @@ private fun NoteChatHost(
     // Fase 3.5b.3: dossiê da seção ativa sob demanda (F2b: com alvo explícito).
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
         copilotVm.setDossierProvider { target -> editorVm.buildDossierFor(target) }
-    }
-    // Onboarding F2a: contexto empurrado pelo FAB (seleção + prontidão).
-    androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
-        editorVm.pushedContext.collect { copilotVm.setPushedContext(it) }
     }
     // Modo guiado seção-a-seção: seções reais do editor -> chat.
     androidx.compose.runtime.LaunchedEffect(editorSections) {

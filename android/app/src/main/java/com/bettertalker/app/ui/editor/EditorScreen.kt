@@ -783,6 +783,7 @@ fun EditorScreen(
                                     isDemonstration = isDemonstration,
                                     onActivate = {
                                         activeSectionId = sectionState.section.id
+                                        vm.setActiveSectionId(sectionState.section.id)
                                         vm.setActiveSectionTitle(sectionState.section.title)
                                     },
                                     onTitleChange = { vm.onSectionTitle(sectionState.section.id, it) },
@@ -797,6 +798,7 @@ fun EditorScreen(
                                         // quando o editor consumia o toque.
                                         if (key != null) {
                                             activeSectionId = sectionState.section.id
+                                            vm.setActiveSectionId(sectionState.section.id)
                                             vm.setActiveSectionTitle(sectionState.section.title)
                                         }
                                     },
@@ -871,6 +873,7 @@ fun EditorScreen(
                                         // toca no editor quando quiser.
                                         focusManager.clearFocus()
                                         activeSectionId = sectionState.section.id
+                                        vm.setActiveSectionId(sectionState.section.id)
                                         vm.setActiveSectionTitle(sectionState.section.title)
                                         scope.launch {
                                             vm.pushContextForChat(
