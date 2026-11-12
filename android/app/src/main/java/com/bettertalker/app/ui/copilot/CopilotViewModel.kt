@@ -2056,6 +2056,9 @@ class CopilotViewModel(
         _chatScope.value = sectionId
         _lastFocusedSectionId = sectionId
         _focusMode.value = FocusMode.SECTION
+        // 6.0b/foco: o TÍTULO também acompanha a seção. Sem isto, o chip
+        // mudava mas "Contexto:"/prompt continuavam no bloco anterior.
+        _activeBlockTitle.value = normalizeActiveBlockTitle(sections[idx].title)
         val nid = noteId
         val readiness = _pushedContext?.readiness
             ?: nid?.let {

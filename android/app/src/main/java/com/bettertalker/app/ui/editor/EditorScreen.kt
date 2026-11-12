@@ -322,6 +322,14 @@ fun EditorScreen(
     // sozinho não diz a qual seção/sub-ponto pertence.
     var activeEditorKey by remember { mutableStateOf<String?>(null) }
 
+    // 6.0b/foco: o chat ativa a seção no VM. Espelha no estado local para o
+    // card destacado e o menu de Ajuda acompanharem sem novo toque.
+    val vmActiveSectionId by vm.activeSectionId.collectAsState()
+    LaunchedEffect(vmActiveSectionId) {
+        val id = vmActiveSectionId ?: return@LaunchedEffect
+        if (id != activeSectionId) activeSectionId = id
+    }
+
     // #7e2: o menu do empty state não pode ressurgir depois do preview.
     LaunchedEffect(preview) {
         if (preview) {
