@@ -337,6 +337,28 @@ class SettingsStore(
         incrementHelpMetric("upgrade_welcome_dismissed")
     }
 
+    // ---------- v6.0: novidades do 6.0 ----------
+
+    private val UPGRADE_V6_SEEN = booleanPreferencesKey("upgrade_v6_seen")
+    private val UPGRADE_V6_DISMISSED = booleanPreferencesKey("upgrade_v6_dismissed")
+
+    val upgradeV6Seen: Flow<Boolean> = ctx.store.data.map { it[UPGRADE_V6_SEEN] ?: false }
+    val upgradeV6Dismissed: Flow<Boolean> =
+        ctx.store.data.map { it[UPGRADE_V6_DISMISSED] ?: false }
+
+    /** Mostrado uma vez no primeiro build 71/72; o manual não depende da flag. */
+    suspend fun markUpgradeV6Seen() {
+        ctx.store.edit { it[UPGRADE_V6_SEEN] = true }
+    }
+
+    suspend fun markUpgradeV6Dismissed() {
+        ctx.store.edit {
+            it[UPGRADE_V6_SEEN] = true
+            it[UPGRADE_V6_DISMISSED] = true
+        }
+        incrementHelpMetric("upgrade_v6_dismissed")
+    }
+
     private val HELP_TRIGGERS = stringPreferencesKey("help_triggers_v5")
 
     suspend fun helpTriggerStates(): Map<HelpTriggerId, HelpTriggerState> =

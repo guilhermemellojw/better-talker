@@ -19,6 +19,8 @@ enum class HelpAction {
     OPEN_TRIBUNA,
     OPEN_VOICE,
     OPEN_ASSISTANT,
+    OPEN_ACCOUNT,
+    OPEN_DATA_STORAGE,
     OPEN_HELP_TOPIC,
     NONE,
 }

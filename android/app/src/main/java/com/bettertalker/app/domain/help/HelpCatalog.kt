@@ -5,8 +5,8 @@ import java.text.Normalizer
 import java.util.Locale
 
 /**
- * Catálogo local da ajuda do 5.0. Não depende de rede, chave, banco ou
- * conteúdo da nota. As ações são resolvidas pela camada de navegação.
+ * Catálogo local da ajuda (5.0+, atualizado no 6.0). Não depende de rede,
+ * chave, banco ou conteúdo da nota. As ações são resolvidas pela navegação.
  */
 object HelpCatalog {
 
@@ -19,7 +19,7 @@ object HelpCatalog {
             steps = listOf(
                 "Toque em “Começar” na abertura guiada.",
                 "Escolha importar, colar, criar ou explorar.",
-                "Ao terminar, você cai direto no editor ou nos Esboços.",
+                "Ao terminar, você cai direto no editor ou em Meus esboços.",
             ),
             action = HelpAction.OPEN_HELP_TOPIC,
             keywords = listOf("começar", "início", "primeira", "nota", "onboarding", "caminhos"),
@@ -30,7 +30,7 @@ object HelpCatalog {
             shortAnswer = "Use o arquivo JWPUB ou DOCX do esboço (PDF como fallback). O BT " +
                 "extrai seções, tempos e referências automaticamente.",
             steps = listOf(
-                "Abra Esboços e toque no botão de criar.",
+                "Abra Meus esboços e toque no botão de criar.",
                 "Escolha “Importar esboço S-34”.",
                 "Selecione o arquivo e confira as seções no editor.",
             ),
@@ -44,7 +44,7 @@ object HelpCatalog {
             shortAnswer = "Copie o texto da parte e cole no BT. Ele reconhece " +
                 "a estrutura (Introdução, pontos e Conclusão) e cria os blocos.",
             steps = listOf(
-                "Abra Esboços e toque em criar.",
+                "Abra Meus esboços e toque em criar.",
                 "Escolha “Colar parte da reunião V&M”.",
                 "Confira a prévia e aplique na nota.",
             ),
@@ -58,7 +58,7 @@ object HelpCatalog {
             shortAnswer = "O BT monta a estrutura com Introdução, pontos e " +
                 "Conclusão a partir do tipo e da duração que você escolher.",
             steps = listOf(
-                "Abra Esboços e toque em criar.",
+                "Abra Meus esboços e toque em criar.",
                 "Escolha “Criar esboço do zero”.",
                 "Informe título, tipo, duração e pontos.",
             ),
@@ -96,16 +96,20 @@ object HelpCatalog {
         ),
         HelpTopic(
             id = "fontes",
-            question = "Como funcionam as fontes e a Biblioteca?",
+            question = "Como funcionam as fontes, a Biblioteca e o leitor?",
             shortAnswer = "O BT usa as publicações indexadas no aparelho para " +
-                "mostrar o texto das referências citadas no esboço.",
+                "abrir o texto integral das referências — no editor, no Copilot e no leitor.",
             steps = listOf(
-                "Abra Biblioteca para importar publicações.",
-                "No editor, toque no chip “Fontes”.",
-                "Resolva ou baixe o que estiver faltando.",
+                "Abra Biblioteca e importe as publicações que você usa.",
+                "No editor, toque em “Fontes” e depois na referência para ler o texto integral.",
+                "w17.10 23 §§9-10 abre os dois parágrafos; jr 29 abre a página 29.",
+                "O selo “o Copilot viu X de Y” mostra quanto entrou no prompt.",
             ),
             action = HelpAction.OPEN_LIBRARY,
-            keywords = listOf("fontes", "biblioteca", "referências", "publicações", "download"),
+            keywords = listOf(
+                "fontes", "biblioteca", "referências", "publicações", "download",
+                "leitor", "texto integral", "faixa", "página", "trecho",
+            ),
             routes = setOf(Routes.HOME, Routes.EDITOR),
         ),
         HelpTopic(
@@ -180,6 +184,40 @@ object HelpCatalog {
             ),
             action = HelpAction.OPEN_VOICE,
             keywords = listOf("voz", "tts", "stt", "privacidade", "offline", "áudio", "dados"),
+        ),
+        HelpTopic(
+            id = "sincronizacao-privacidade",
+            question = "O que sincroniza? Meus dados sobem?",
+            shortAnswer = "A sincronização é opcional e usa sua conta. Notas, " +
+                "esboços S-34 e imagens podem subir; chat, histórico do Copilot, " +
+                "chave de IA e arquivos de publicações nunca sobem.",
+            steps = listOf(
+                "Abra Configurações → Conta e entre, se quiser sincronizar.",
+                "Ative a sincronização e escolha o que manter na nuvem.",
+                "Use as opções da conta para apagar a nuvem ou só este aparelho.",
+            ),
+            action = HelpAction.OPEN_ACCOUNT,
+            keywords = listOf(
+                "sincronização", "sync", "nuvem", "conta", "privacidade",
+                "dados", "apagar", "opt-in", "login",
+            ),
+        ),
+        HelpTopic(
+            id = "backup-restauracao",
+            question = "Como faço backup e restauro meus dados?",
+            shortAnswer = "O backup é um ZIP local com pastas, notas, esboços, " +
+                "seções/subpontos, S-34, metadados de anexos e tombstones. Arquivos " +
+                "das publicações, índice, histórico do Copilot e chave da API ficam de fora.",
+            steps = listOf(
+                "Abra Configurações → Dados e armazenamento → Backup.",
+                "Toque em Exportar backup e salve o ZIP.",
+                "Para restaurar, toque em Importar backup e escolha o arquivo.",
+            ),
+            action = HelpAction.OPEN_DATA_STORAGE,
+            keywords = listOf(
+                "backup", "restaurar", "exportar", "importar", "zip",
+                "dados", "anexos", "tombstones",
+            ),
         ),
     )
 

@@ -45,6 +45,31 @@ object OnboardingFlow {
         }
         return UpgradeNoticeAction.NONE
     }
+
+    /** Primeiro versionCode em que as novidades do 6.0 aparecem sozinhas. */
+    const val V6_UPGRADE_MIN_VERSION_CODE = 71
+
+    /**
+     * “Novidades do 6.0” só no primeiro build 71/72, para quem já tem notas.
+     * `seen` garante o uma vez só; `dismissed` nunca reabre sozinho.
+     */
+    fun upgradeV6Action(
+        seen: Boolean,
+        dismissed: Boolean,
+        versionCode: Int,
+        meaningfulNotes: Int,
+    ): UpgradeV6Action = when {
+        versionCode < V6_UPGRADE_MIN_VERSION_CODE -> UpgradeV6Action.NONE
+        meaningfulNotes <= 0 -> UpgradeV6Action.NONE
+        dismissed || seen -> UpgradeV6Action.NONE
+        else -> UpgradeV6Action.SHOW
+    }
+}
+
+/** Ação da decisão de abertura para “Novidades do 6.0”. */
+enum class UpgradeV6Action {
+    NONE,
+    SHOW,
 }
 
 /** Ação da decisão de abertura para “Novidades do 5.0”. */
