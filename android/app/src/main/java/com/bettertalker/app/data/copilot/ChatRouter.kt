@@ -601,6 +601,14 @@ object ChatRouter {
     private val NAV_SECTION_NUMBER = Regex("\\b(ponto|topico|secao)\\s+(\\d{1,2})\\b")
     /** "ponto 1" sozinho também é comando — mesmo foco do botão da sugestão. */
     private val NAV_BARE_SECTION = Regex("^(ponto|topico|secao)\\s+(\\d{1,2})$")
+    /**
+     * Voz costuma engolir o substantivo ("Abrir ponto 1" → "Abrir 1").
+     * Verbo + número, sozinho, ainda é navegação de seção.
+     */
+    private val NAV_VERB_SECTION = Regex(
+        "^(abrir|abre|abra|ir para|vai para|va para|mostrar|mostra|mostre|" +
+            "exibir|exibe|exiba|ver|veja|navegar para|navegue para)\\s+(?:o\\s+|a\\s+)?(\\d{1,2})$"
+    )
     private val NAV_SOURCES = Regex("\\b(fontes|referencias)\\b")
     private val NAV_TRAIN = Regex("\\b(treino|treinar)\\b")
     private val NAV_PRESENT = Regex("\\b(palco|apresentar|apresentacao)\\b")
@@ -636,6 +644,11 @@ object ChatRouter {
                 number = n,
                 byTopic = m.groupValues[1] != "ponto",
             )
+        }
+        // Variação de voz: "abrir 1" / "mostrar 2" (sem o substantivo).
+        NAV_VERB_SECTION.matchEntire(t)?.let { m ->
+            val n = m.groupValues[2].toIntOrNull() ?: return@let
+            return ChatNavAction.Section(number = n, byTopic = false)
         }
 
         if (NAV_TRAIN.containsMatchIn(padded)) {
