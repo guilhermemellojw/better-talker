@@ -31,6 +31,21 @@ class ChatNavigationTest {
     }
 
     @Test
+    fun pontoSozinhoTambemNavega() {
+        assertEquals(
+            ChatNavAction.Section(number = 1, byTopic = false),
+            ChatRouter.navigationCommand("ponto 1"),
+        )
+        assertEquals(
+            ChatNavAction.Section(number = 2, byTopic = true),
+            ChatRouter.navigationCommand("tópico 2"),
+        )
+        assertNull(
+            ChatRouter.navigationCommand("o ponto 1 está fraco"),
+        )
+    }
+
+    @Test
     fun abrirTopicoContaTodasAsSecoes() {
         assertEquals(
             ChatNavAction.Section(number = 2, byTopic = true),
