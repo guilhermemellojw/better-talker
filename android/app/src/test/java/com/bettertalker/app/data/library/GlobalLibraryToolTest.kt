@@ -476,5 +476,44 @@ class GlobalLibraryToolTest {
         assertTrue(content.body.contains("Terceiro parágrafo"))
         assertFalse(content.truncated)
         assertEquals("pág. 10-11", content.locationLabel)
+        assertEquals("Trecho inicial.", content.usedText)
     }
+
+    @Test
+    fun readerNaoTruncaFaixaLonga() = runBlocking {
+        val long1 = "A".repeat(7000) + " fim1"
+        val long2 = "B".repeat(7000) + " fim2"
+        val source = GlobalLibrarySource(
+            index = 1,
+            attachmentId = "cl",
+            publicationTitle = "Achegue-se a Jeová",
+            unitLabel = "Capítulo 2",
+            unitTitle = null,
+            page = 10,
+            pageEnd = 10,
+            paragraph = null,
+            snippet = "Trecho do prompt.",
+            startOrd = 0,
+            endOrd = 1,
+            unitId = "cl-u1",
+        )
+        val content = tool(
+            attachments = emptyList(),
+            retrieval = FakeRetrieval { emptyList() },
+            units = FakeUnits(
+                passagesById = mapOf(
+                    "cl" to listOf(
+                        passage("cl", 0, long1, page = 10),
+                        passage("cl", 1, long2, page = 10),
+                    )
+                )
+            ),
+        ).read(source)
+
+        assertTrue(content.body.contains("fim1"))
+        assertTrue(content.body.contains("fim2"))
+        assertFalse(content.truncated)
+        assertEquals("Trecho do prompt.", content.usedText)
+    }
+
 }

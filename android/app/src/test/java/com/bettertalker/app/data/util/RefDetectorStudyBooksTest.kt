@@ -51,11 +51,46 @@ class RefDetectorStudyBooksTest {
     }
 
     @Test
-    fun detect_jr29_semParenteses_viraEstudo29() {
+    fun detect_jr29_semParenteses_viraPagina29() {
         val ref = single("Zedequias não fez o que era certo. (Jer. 52:1, 2; jr 29)")
+        assertEquals("jr", ref.pubKey)
+        assertEquals(29, ref.page)
+        assertEquals(null, ref.chapter)
+        assertTrue(ref.label.contains("— p. 29"))
+    }
+
+    @Test
+    fun detect_jr_estudo29_continuaEstudo() {
+        val ref = single("Consulte jr estudo 29 sobre o tema.")
         assertEquals("jr", ref.pubKey)
         assertEquals("estudo 29", ref.chapter)
         assertEquals(null, ref.page)
+    }
+
+    @Test
+    fun detect_jr_cap1_continuaCapitulo() {
+        val ref = single("Consulte jr cap. 1 sobre o tema.")
+        assertEquals("jr", ref.pubKey)
+        assertEquals("cap. 1", ref.chapter)
+        assertEquals(null, ref.page)
+    }
+
+    @Test
+    fun detect_jr_p29_ePagina() {
+        val ref = single("Consulte jr p. 29 sobre o tema.")
+        assertEquals("jr", ref.pubKey)
+        assertEquals(29, ref.page)
+        assertEquals(null, ref.chapter)
+        assertTrue(ref.label.contains("— p. 29"))
+    }
+
+    @Test
+    fun detect_jr27_comParagrafo_ePagina() {
+        val ref = single("Consulte jr 27 § 22 sobre o tema.")
+        assertEquals("jr", ref.pubKey)
+        assertEquals(27, ref.page)
+        assertEquals(null, ref.chapter)
+        assertEquals(22, ref.paragraph)
     }
 
     @Test
@@ -238,4 +273,18 @@ class RefDetectorStudyBooksTest {
             RefDetector.chapterOf("pág. 22 parág. 8-9")
         )
     }
+
+    @Test
+    fun detect_doisJrNaMesmaFrase_paginaEEstudo() {
+        val refs = RefDetector.detect("Consulte jr 29 e jr estudo 29.")
+        val jr = refs.filter { it.pubKey == "jr" }
+        assertEquals(2, jr.size)
+        assertTrue(jr.any { it.page == 29 && it.chapter == null })
+        assertTrue(jr.any { it.chapter == "estudo 29" && it.page == null })
+    }
+
+
+
+
+
 }

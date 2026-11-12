@@ -123,6 +123,9 @@ import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.ui.components.PasteDestination
 import com.bettertalker.app.ui.components.PastePreviewSheet
+import com.bettertalker.app.ui.bible.BibleReaderSheet
+import com.bettertalker.app.ui.bible.BibleReaderViewModel
+import com.bettertalker.app.ui.components.NoteSourceReaderSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.SourcesSheet
 import com.bettertalker.app.ui.copilot.DownloadCtl
@@ -173,6 +176,7 @@ fun EditorScreen(
     val imagesBySection = remember(noteImages) { noteImages.groupBy { it.sectionId } }
     val isDemonstration by vm.isDemonstration.collectAsState()
     val noteSources by vm.noteSources.collectAsState()
+    val sourceReader by vm.sourceReader.collectAsState()
     val sectionPendingInserts by vm.sectionPendingInserts.collectAsState()
     val draftState by vm.draftState.collectAsState()
     var preview by remember { mutableStateOf(false) }
@@ -201,6 +205,14 @@ fun EditorScreen(
     // Onboarding F2a: empurra seleção + prontidão sem travar a navegação.
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
+    // 6.0a: leitor TNM compartilhado com a Tribuna/Palco, aberto pela fonte
+    // bíblica do SourcesSheet.
+    val bibleVm: BibleReaderViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = BibleReaderViewModel.Factory(
+            com.bettertalker.app.data.db.DbProvider.get(ctx),
+            com.bettertalker.app.data.voice.TtsLifecycle.router(ctx),
+        ),
+    )
 
     // Fase 0: flush antes de sair. O autosave tem debounce de 400 ms; sem
     // esperar, o pop cancela o viewModelScope e perde a última edição.
@@ -947,9 +959,41 @@ fun EditorScreen(
                     copilotVm?.refreshOutlineRefs()
                     scope.launch { copilotVm?.refreshReadiness() }
                 },
+                onOpenSource = { source ->
+                    showSources = false
+                    if (source.kind == com.bettertalker.app.data.util.SourceKind.BIBLE &&
+                        !source.book.isNullOrBlank() && source.chapter != null
+                    ) {
+                        bibleVm.open(
+                            listOf("${source.book} ${source.chapter}:${source.verse ?: 1}")
+                        )
+                    } else {
+                        vm.openSourceReader(source)
+                    }
+                },
             )
         }
     }
+
+    // 6.0a/P0: reader da faixa completa (texto integral do índice).
+    sourceReader?.let { reader ->
+        NoteSourceReaderSheet(
+            state = reader,
+            onDismiss = vm::closeSourceReader,
+            onOpenLibrary = {
+                vm.closeSourceReader()
+                onAttach()
+            },
+        )
+    }
+
+    BibleReaderSheet(
+        vm = bibleVm,
+        onOpenLibrary = {
+            bibleVm.close()
+            onAttach()
+        },
+    )
 
     // Exportação (T2/T3): Compartilhar HTML, Salvar PDF e Copiar texto.
     if (showExport) {

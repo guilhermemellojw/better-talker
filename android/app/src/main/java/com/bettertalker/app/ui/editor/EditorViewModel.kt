@@ -207,6 +207,26 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
 
     /** A2 (confiança): checklist de fontes da nota (null = carregando). */
     private val _noteSources = MutableStateFlow<com.bettertalker.app.data.util.NoteSources?>(null)
+    private val _sourceReader =
+        MutableStateFlow<com.bettertalker.app.ui.components.NoteSourceReaderState?>(null)
+    val sourceReader: StateFlow<com.bettertalker.app.ui.components.NoteSourceReaderState?> =
+        _sourceReader.asStateFlow()
+
+    private val sourceReaderLoader =
+        com.bettertalker.app.data.planning.SourceReaderLoader(
+            attachments = { db.attachmentDao().all() },
+            byPageParagraph = { id, page, start, end ->
+                db.passageDao().byPageParagraph(id, page, start, end)
+            },
+            byPage = { id, start, end, limit ->
+                db.passageDao().byPage(id, start, end, limit)
+            },
+            unitSlice = { id, needle, raw ->
+                com.bettertalker.app.data.planning.unitSliceOf(
+                    db.passageDao(), id, needle, raw,
+                )
+            },
+        )
     val noteSources = _noteSources.asStateFlow()
 
     /** Hotfix P0: aviso estrutural auto-contido (evita NPE de ordem). */
@@ -953,6 +973,28 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
     /** A2: recarrega o checklist de fontes (botão "Atualizar" do sheet). */
     fun refreshNoteSources() {
         viewModelScope.launch { loadNoteSources() }
+    }
+
+    /** 6.0a: abre o texto completo da fonte citada (reader da faixa). */
+    fun openSourceReader(source: com.bettertalker.app.data.util.NoteSource) {
+        _sourceReader.value = com.bettertalker.app.ui.components.NoteSourceReaderState.Loading(source)
+        viewModelScope.launch {
+            _sourceReader.value = try {
+                com.bettertalker.app.ui.components.NoteSourceReaderState.Content(
+                    source = source,
+                    content = sourceReaderLoader.load(source),
+                )
+            } catch (e: Exception) {
+                com.bettertalker.app.ui.components.NoteSourceReaderState.Error(
+                    source = source,
+                    message = e.message?.take(160) ?: "Falha ao abrir a fonte.",
+                )
+            }
+        }
+    }
+
+    fun closeSourceReader() {
+        _sourceReader.value = null
     }
 
     private suspend fun loadNoteSources() {

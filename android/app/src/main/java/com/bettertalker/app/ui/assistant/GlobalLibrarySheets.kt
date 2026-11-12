@@ -252,18 +252,51 @@ fun SourceReaderSheet(
                             .weight(1f)
                             .verticalScroll(rememberScrollState()),
                     ) {
+                        state.content.usedText?.takeIf { it.isNotBlank() }?.let { used ->
+                            Text(
+                                "Trecho usado na resposta",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            SelectionContainer {
+                                Text(
+                                    used,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        Text(
+                            "Texto completo da referência",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         SelectionContainer {
                             Text(
                                 state.content.body,
                                 style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        if (!state.content.usedText.isNullOrBlank() &&
+                            state.content.usedText.length < state.content.body.length
+                        ) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "O Copilot viu ${state.content.usedText.length} de " +
+                                    "${state.content.body.length} caracteres.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.tertiary,
                             )
                         }
                         if (state.content.truncated) {
-                            Spacer(Modifier.height(8.dp))
+                            Spacer(Modifier.height(10.dp))
                             Text(
-                                "Leitura limitada ao trecho desta unidade.",
+                                "Unidade muito extensa: o reader mostra o limite de segurança. " +
+                                    "Use a Biblioteca para consultar a edição completa.",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.tertiary,
                             )
                         }
                     }

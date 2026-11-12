@@ -243,7 +243,10 @@ class FocusSourceResolverTest {
         assertEquals(FocusStatus.PARTIAL, entry.status)
         assertEquals(FocusDestination.FOCUS_BLOCK, entry.destination)
         assertEquals(600, entry.originalChars)
+        assertEquals(600, entry.text.length)
         assertTrue(entry.truncatedChars in 1 until 600)
+        assertEquals(entry.truncatedChars, entry.usedText.length)
+        assertTrue(entry.seenChars < entry.originalChars)
         assertTrue(entry.isTruncated)
         assertTrue(out.block.contains("texto truncado"))
         assertTrue(out.block.length <= 360)
@@ -476,4 +479,34 @@ class FocusSourceResolverTest {
         assertEquals(FocusStatus.RESOLVED, entry.status)
         assertEquals("Baruque não estava satisfeito.", entry.text)
     }
+
+    @Test
+    fun faixaW1710EntraInteiraNoPrompt() {
+        val refText = "w17.10 23 §§ 9-10"
+        val refs = NoteRefsCollector.collect(plainText = refText)
+        val ref = RefDetector.detect(refText).first()
+        val key = NoteRefsCollector.sourceKey(ref)
+        val p9 = "9 Jurar em nome de Deus não é leviano. " + "x".repeat(600) +
+            " Eze. 17:16."
+        val p10 = "10 Ele desprezou o juramento. 2 Crô. 36:13; Eze. 17:11-15, 17, 18."
+        val full = "$p9\n\n$p10"
+        val out = FocusSourceResolver.resolve(
+            FocusSourcesInput(
+                noteRefs = refs,
+                noteSources = noteSourcesOf(
+                    refs,
+                    pubStatuses = mapOf(key to refStatus(ref)),
+                ),
+                resolvedTexts = mapOf(key to FocusText(refText, full)),
+                subPointKeys = setOf(refText),
+                maxChars = 5_000,
+            ),
+        )
+        val entry = out.entries.single { it.key == key }
+        assertFalse(entry.isTruncated)
+        assertTrue(out.block.contains("Eze. 17:16."))
+        assertTrue(out.block.contains("2 Crô. 36:13; Eze. 17:11-15, 17, 18."))
+        assertTrue(out.block.length > 500)
+    }
+
 }

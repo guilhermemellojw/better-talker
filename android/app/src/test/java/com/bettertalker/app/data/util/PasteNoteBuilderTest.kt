@@ -305,4 +305,17 @@ class PasteNoteBuilderTest {
         assertEquals("", s.contentHtml)
         assertEquals(4, s.minutes)
     }
+
+    @Test
+    fun jr29ViraPaginaEJrEstudoViraCapitulo() {
+        val built = buildPastedNote(
+            "Consulte jr 29 e jr estudo 29. Leia Je 29:11."
+        )
+        val jr = built.publicationRefs.filter { it.symbol == "jr" }
+        assertEquals(2, jr.size)
+        assertTrue(jr.any { it.page == 29 && it.chapter == null })
+        assertTrue(jr.any { it.chapter == "estudo 29" && it.page == null })
+        assertTrue(built.bibleRefs.any { it.contains("29:11") })
+    }
+
 }

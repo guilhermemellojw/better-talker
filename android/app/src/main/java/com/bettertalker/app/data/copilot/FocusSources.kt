@@ -65,6 +65,8 @@ data class FocusSource(
     val unit: String? = null,
     /** Texto integral resolvido (pode ser maior que o usado no bloco). */
     val text: String = "",
+    /** Texto efetivamente enviado no bloco (pode ser [text] truncado). */
+    val sentText: String = "",
     /** Tamanho do texto original antes do recorte do bloco. */
     val originalChars: Int = text.length,
     /** Tamanho do texto efetivamente enviado no bloco. */
@@ -85,7 +87,11 @@ data class FocusSource(
 
     /** Texto que o prompt realmente recebe neste bloco. */
     val usedText: String
-        get() = if (destination == FocusDestination.FOCUS_BLOCK) text else ""
+        get() = if (destination == FocusDestination.FOCUS_BLOCK) sentText else ""
+
+    /** Quantos caracteres do texto integral o Copilot viu neste bloco. */
+    val seenChars: Int
+        get() = if (destination == FocusDestination.FOCUS_BLOCK) sentText.length else 0
 
     val isTruncated: Boolean
         get() = destination == FocusDestination.FOCUS_BLOCK && truncatedChars < originalChars
@@ -550,7 +556,8 @@ object FocusSourceResolver {
             }
             result[index] = source.copy(
                 status = if (truncated) FocusStatus.PARTIAL else source.status,
-                text = usedText,
+                // `text` permanece INTEGRAL; `sentText` é o que o prompt viu.
+                sentText = usedText,
                 originalChars = text.length,
                 truncatedChars = usedText.length,
                 destination = FocusDestination.FOCUS_BLOCK,
@@ -580,7 +587,7 @@ object FocusSourceResolver {
                 val source = result[index]
                 append("- ").append(source.reference).append(" — ")
                     .append(statusLabel(source)).append('\n')
-                append(source.text).append('\n')
+                append(source.sentText).append('\n')
                 if (source.isTruncated) {
                     append("  (texto truncado: ").append(source.truncatedChars)
                         .append(" de ").append(source.originalChars)

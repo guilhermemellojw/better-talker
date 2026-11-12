@@ -203,6 +203,8 @@ class GlobalLibraryTool(
                 body = body.toString().ifBlank { source.snippet },
                 training = source.training,
                 truncated = truncated,
+                usedText = (source.promptText ?: source.snippet)
+                    .takeIf { it.isNotBlank() },
             )
         }
 
@@ -505,8 +507,11 @@ class GlobalLibraryTool(
         const val MAX_SOURCES = 4
         private const val MAX_SNIPPET = 320
         private const val MAX_UNIT_SCAN = 600
-        private const val MAX_READER_PASSAGES = 80
-        private const val MAX_READER_CHARS = 12_000
+        // 6.0a/P0: o reader não usa o orçamento do prompt. O limite é só
+        // uma proteção para unidades gigantes (capítulo inteiro); a UI
+        // mostra o aviso quando ele é atingido.
+        private const val MAX_READER_PASSAGES = 400
+        private const val MAX_READER_CHARS = 200_000
         private const val MAX_TOC_SCAN = 200
         private val TOC_TITLES = setOf("artigos", "sumario", "conteudo", "indice")
 

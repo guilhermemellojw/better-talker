@@ -54,14 +54,15 @@ object FocusSourcesAssembler {
         val resolvedTexts = buildMap {
             citedSources.forEach { source ->
                 val key = FocusSourceResolver.keyOf(source.reference) ?: return@forEach
-                put(key, FocusText(source.reference, source.text))
+                put(key, FocusText(source.reference, source.fullText))
             }
             // C2.8: o checklist já resolveu o texto com a chave canônica.
             // Usa essa mesma chave quando a citação explícita não casar por
             // diferença de página/range na origem — evita TEXT_NOT_FOUND falso.
             noteSources.sources.forEach { source ->
                 val ref = source.refStatus?.ref ?: return@forEach
-                val text = source.refStatus.promptText?.takeIf { it.isNotBlank() }
+                val text = source.refStatus.fullText?.takeIf { it.isNotBlank() }
+                    ?: source.refStatus.promptText?.takeIf { it.isNotBlank() }
                     ?: source.refStatus.snippet?.takeIf { it.isNotBlank() }
                     ?: return@forEach
                 putIfAbsent(
@@ -85,7 +86,7 @@ object FocusSourcesAssembler {
             }
             pack.contentSources.forEach { source ->
                 val key = FocusSourceResolver.keyOf(source.reference) ?: return@forEach
-                putIfAbsent(key, FocusText(source.reference, source.text))
+                putIfAbsent(key, FocusText(source.reference, source.fullText))
             }
         }
         val dossierRefs = buildSet {

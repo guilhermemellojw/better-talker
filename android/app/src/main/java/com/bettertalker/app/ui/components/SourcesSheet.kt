@@ -83,6 +83,8 @@ fun SourcesSheet(
     downloadCtl: DownloadCtl? = null,
     scope: CoroutineScope? = null,
     onDownloaded: () -> Unit = {},
+    /** 6.0a: abre o reader da faixa completa ao tocar na fonte. */
+    onOpenSource: ((NoteSource) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -172,6 +174,7 @@ fun SourcesSheet(
                                 onDownloaded = onDownloaded,
                                 onOpenLibrary = onOpenLibrary,
                                 onRefresh = onRefresh,
+                                onOpenSource = onOpenSource,
                             )
                         }
                         if (index < groups.lastIndex) {
@@ -215,6 +218,7 @@ private fun PublicationRow(
     onDownloaded: () -> Unit,
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenSource: ((NoteSource) -> Unit)?,
 ) {
     val pending = group.pendingCount > 0
     val scope = rememberCoroutineScope()
@@ -377,13 +381,19 @@ private fun PublicationRow(
                         )
                         if (expandedBooks[book.book] == true) {
                             book.sources.forEach { source ->
-                                SourceDetailLine(source = source)
+                                SourceDetailLine(
+                                    source = source,
+                                    onOpenSource = onOpenSource,
+                                )
                             }
                         }
                     }
                 } else {
                     group.sources.forEach { source ->
-                        SourceDetailLine(source = source)
+                        SourceDetailLine(
+                            source = source,
+                            onOpenSource = onOpenSource,
+                        )
                     }
                 }
                 // Secondary actions
@@ -447,12 +457,27 @@ private fun BookDetailRow(
 }
 
 @Composable
-private fun SourceDetailLine(source: NoteSource) {
+private fun SourceDetailLine(
+    source: NoteSource,
+    onOpenSource: ((NoteSource) -> Unit)?,
+) {
     val label = source.refStatus?.ref
-        ?.takeIf { it.kind == RefDetector.Kind.MAGAZINE }
         ?.let { refDisplayLabel(it) }
         ?: source.ref
-    Column(Modifier.padding(vertical = 2.dp)) {
+    val canOpen = onOpenSource != null &&
+        (source.kind == SourceKind.PUBLICATION || source.kind == SourceKind.BIBLE)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (canOpen) {
+                    Modifier.clickable { onOpenSource?.invoke(source) }
+                } else {
+                    Modifier
+                }
+            )
+            .padding(vertical = 2.dp),
+    ) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
@@ -470,6 +495,13 @@ private fun SourceDetailLine(source: NoteSource) {
                 "Arquivo: $it",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+        if (canOpen) {
+            Text(
+                "Toque para ler o texto completo",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }

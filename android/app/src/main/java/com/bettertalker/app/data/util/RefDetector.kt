@@ -93,6 +93,11 @@ object RefDetector {
          * Preenchido pelo MESMO resolvedor que define o status da UI.
          */
         val promptText: String? = null,
+        /**
+         * 6.0a: texto integral da faixa (o prompt pode usar [promptText],
+         * limitado pelo orçamento; o reader usa este campo/DB).
+         */
+        val fullText: String? = null,
         /** Aviso quando a citação não tem fonte no acervo pesquisado. */
         val contentWarning: String? = null
     )
@@ -197,8 +202,14 @@ object RefDetector {
         RegexOption.IGNORE_CASE
     )
 
-    /** Livros citados por página + § (não por estudo/capítulo). */
-    private val PAGE_RANGE_BOOKS = setOf("cl", "dn", "ed", "gl", "hb", "jd", "lc", "ml", "rr")
+    /**
+     * Livros citados por PÁGINA + § (não por estudo/capítulo).
+     * `jr` entrou no 6.0a: "jr 29" é a página 29 do livro Jeremias — Uma
+     * Mensagem de Deus para Nós; "jr estudo 29" continua estudo (rota com
+     * palavra-guia explícita). `Je 29` continua Bíblia.
+     */
+    private val PAGE_RANGE_BOOKS =
+        setOf("cl", "dn", "ed", "gl", "hb", "jd", "jr", "lc", "ml", "rr")
 
     /** Siglas curtas de livro aceitas mesmo sem parênteses ("jr 29"). */
     private val BARE_BOOK_SYMBOLS = setOf(
@@ -853,25 +864,26 @@ object RefDetector {
                 )
             }
         }
-        // livro + estudo + parágrafo: "jr 27 § 22" (validado no catálogo).
-        // `cl` é a exceção: "cl 225 §15" é página + §, não "estudo 225".
+        // livro + número + §: "jr 27 § 22" (validado no catálogo).
+        // Livros de página (cl, jr, dn, ed...) citam página + §; os demais
+        // continuam "estudo N" + §.
         Regex("""\b([a-z]{2,4})\s+(\d{1,3})\s*§\s*(\d{1,3})\b""").findAll(text).forEach { m ->
             val sym = m.groupValues[1].lowercase()
             if (PubCatalog.isSymbol(sym)) {
                 val canonical = PubCatalog.resolveSymbol(sym) ?: sym
                 val num = m.groupValues[2].toIntOrNull()
                 val par = m.groupValues[3].toIntOrNull()
-                val pageBook = canonical == "cl"
+                val pageBook = canonical in PAGE_RANGE_BOOKS
+                val title = PubCatalog.titleOf(canonical) ?: canonical
                 bookKeys += canonical
                 add(
                     DetectedRef(
                         m.value.trim(), Kind.BOOK, canonical,
                         "book|$canonical",
                         if (pageBook && num != null) {
-                            "${PubCatalog.titleOf(canonical) ?: canonical} (pág. $num)"
+                            "$title — p. $num" + (par?.let { " §$it" } ?: "")
                         } else {
-                            "${PubCatalog.titleOf(canonical) ?: canonical} " +
-                                "(estudo ${m.groupValues[2]})"
+                            "$title (estudo ${m.groupValues[2]})"
                         },
                         chapter = if (pageBook) null else "estudo ${m.groupValues[2]}",
                         page = if (pageBook) num else null,
@@ -909,8 +921,8 @@ object RefDetector {
             )
         }
         // jr por faixa de PÁGINAS: "jr 140-142" (o mesmo jr 29 sem faixa é
-        // estudo/capítulo, tratado abaixo). Faixa de 3-4 dígitos evita
-        // confundir "jr 27-28" (estudos) com páginas.
+        // página, tratado na rota de número avulso). Faixa de 3-4 dígitos
+        // evita confundir "jr 27-28" (estudos) com páginas.
         Regex(
             """\b(jr)\s+(\d{3,4})\s*[-–]\s*(\d{1,4})""" +
                 """(?:\s*§{1,2}\s*(\d{1,3})(?:\s*[-–]\s*(\d{1,3}))?)?"""
@@ -960,9 +972,6 @@ object RefDetector {
             ) {
                 return@forEach
             }
-            // Já há uma ref específica dessa publicação (ex.: "re 292" por
-            // página); o número avulso não é uma segunda unidade.
-            if (sym in bookKeys) return@forEach
             if (sym.length < 3 && !raw.startsWith("(") &&
                 sym !in BARE_BOOK_SYMBOLS
             ) {
@@ -972,13 +981,27 @@ object RefDetector {
             val canonical = PubCatalog.resolveSymbol(sym) ?: sym
             val num = m.groupValues[2].toIntOrNull()
             val pageBook = canonical in PAGE_RANGE_BOOKS
-            val unit = if (pageBook) "pág. $num" else "estudo $num"
+            val unitPage = if (pageBook) num else null
+            val unitChapter = if (pageBook) null else "estudo $num"
+            // Já existe uma ref desta publicação com a MESMA unidade (ex.:
+            // "cl 225 §15" antes de "cl 225"; "jr 27 §22" antes de "jr 27").
+            // Unidades diferentes continuam válidas: "jr 29" (página) e
+            // "jr estudo 29" (capítulo) são duas citações.
+            if (out.any {
+                    it.pubKey == canonical &&
+                        ((unitPage != null && it.page == unitPage) ||
+                            (unitChapter != null && it.chapter == unitChapter))
+                }
+            ) {
+                return@forEach
+            }
+            val title = PubCatalog.titleOf(canonical) ?: canonical
             bookKeys += canonical
             add(
                 DetectedRef(
                     raw, Kind.BOOK, canonical,
                     "book|$canonical",
-                    "${PubCatalog.titleOf(canonical) ?: canonical} ($unit)",
+                    if (pageBook) "$title — p. $num" else "$title (estudo $num)",
                     page = if (pageBook) num else null,
                     chapter = if (pageBook) null else "estudo $num",
                 )
@@ -1083,11 +1106,21 @@ object RefDetector {
         return refs.filter { ref ->
             // "lvs 194 §18" também casava o fallback "estudo 194 §18":
             // quando existe a ref por página, a variante de estudo é ruído.
-            val studyNoise = ref.chapter?.startsWith("estudo ") == true &&
-                ref.page == null &&
-                ref.chapter.substringAfter("estudo ").toIntOrNull()?.let { n ->
-                    pageStudies.contains(Triple(ref.editionKey, n, ref.paragraph))
-                } == true
+            // MAS "jr estudo 29" é uma citação explícita: o usuário escreveu
+            // "estudo", então não pode ser engolida pelo "jr 29" da mesma
+            // frase. Só remove a variante quando o raw NÃO diz "estudo".
+            val explicitStudy = normalizeText(ref.raw).contains("estudo")
+            val studyNumber = ref.chapter
+                ?.takeIf { it.startsWith("estudo ") }
+                ?.substringAfter("estudo ")
+                ?.toIntOrNull()
+            // Qualquer ref por PÁGINA da mesma edição/número já cobre o
+            // número; a variante "estudo N" sintetizada pelo matcher avulso
+            // é ruído (ex.: "lvs 8-9 §§ 8-9" + "lvs 8"). Um "jr estudo 29"
+            // EXPLÍCITO (raw contém "estudo") nunca é removido.
+            val studyNoise = !explicitStudy && ref.page == null &&
+                studyNumber != null &&
+                pageStudies.any { it.first == ref.editionKey && it.second == studyNumber }
             !studyNoise && (ref.hasUnit() || ref.editionKey !in editionsWithSpecific)
         }
     }

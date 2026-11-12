@@ -123,4 +123,39 @@ class PassageBuilderTest {
         val result = buildPassages("att1", "w", rawSimple, null)
         assertTrue(result.all { it.page == null })
     }
+
+    // ---------- 6.0a/P0: texto integral no índice ----------
+
+    @Test
+    fun textoNaoEhTruncadoNoIndice_normalizadoContinuaLimitado() {
+        val long = "# Artigo\n=== PAGE: 23 ===\n§9 " +
+            "palavra ".repeat(300) + "Eze. 17:16 fim."
+        val rows = buildPassages(
+            "att1", "w", long, null, maxTextLength = 500,
+        )
+        val rows9 = rows.filter { it.paragraph == 9 }
+        val joined = rows9.joinToString(" ") { it.text }
+        assertTrue(joined.endsWith("Eze. 17:16 fim."))
+        assertTrue("texto integral deve passar de 500 chars", joined.length > 500)
+        assertEquals(500, rows9.first().normalized.length)
+    }
+
+    @Test
+    fun faixaDaPaginaMantemParagrafosInteiros() {
+        val raw = """
+            # Artigo
+            === PAGE: 23 ===
+            §9 Jurar em nome de Deus não é algo que se faça de forma leviana. Eze. 17:16.
+            §10 Ele desprezou o juramento. 2 Crô. 36:13; Eze. 17:11-15, 17, 18.
+        """.trimIndent()
+        val rows = buildPassages("att1", "w", raw, null, maxTextLength = 500)
+
+        assertEquals(23, rows.first().page)
+        val p9 = rows.filter { it.paragraph == 9 }.joinToString(" ") { it.text }
+        val p10 = rows.filter { it.paragraph == 10 }.joinToString(" ") { it.text }
+        assertTrue(p9.startsWith("Jurar em nome de Deus"))
+        assertTrue(p9.endsWith("Eze. 17:16."))
+        assertTrue(p10.endsWith("Eze. 17:11-15, 17, 18."))
+    }
+
 }

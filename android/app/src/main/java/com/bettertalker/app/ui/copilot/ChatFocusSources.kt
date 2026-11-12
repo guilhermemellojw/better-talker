@@ -138,7 +138,14 @@ fun FocusSourcesSection(
                         Text(if (verifyKey == source.key) "Ocultar" else "Verificar")
                     }
                     if (verifyKey == source.key) {
-                        Text(source.text, style = MaterialTheme.typography.bodySmall)
+                        Text(source.usedText, style = MaterialTheme.typography.bodySmall)
+                    if (source.isTruncated) {
+                        Text(
+                            "O Copilot viu ${source.seenChars} de ${source.originalChars} caracteres.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
                     }
                 }
             }

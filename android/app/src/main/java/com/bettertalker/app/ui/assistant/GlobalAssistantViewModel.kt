@@ -287,6 +287,18 @@ class GlobalAssistantViewModel(
         generationJob = viewModelScope.launch {
             try {
                 val library = withContext(Dispatchers.IO) { libraryTool.search(text) }
+                // 6.0a/P0: o prompt recebe o texto da unidade, não só o
+                // snippet de retrieval. O reader continua mostrando o texto
+                // integral do índice.
+                val sourcesWithText = withContext(Dispatchers.IO) {
+                    library.sources.map { source ->
+                        val full = runCatching { libraryTool.read(source).body }
+                            .getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: source.snippet
+                        source.copy(promptText = full)
+                    }
+                }
                 val local = localLibraryReply(library)
                 if (local != null) {
                     reply(
@@ -302,7 +314,7 @@ class GlobalAssistantViewModel(
                     reply(
                         message = localNoKeyReply(library),
                         action = GlobalTurnAction.CONFIGURE_AI,
-                        sources = library.sources,
+                        sources = sourcesWithText,
                     )
                     return@launch
                 }
@@ -318,7 +330,7 @@ class GlobalAssistantViewModel(
                 val prompt = GlobalAssistantPrompt.build(
                     userText = text,
                     recentTitles = notes.value.take(6).map { it.title },
-                    sources = library.sources,
+                    sources = sourcesWithText,
                     libraryNote = library.message,
                     history = history,
                 )
@@ -338,10 +350,10 @@ class GlobalAssistantViewModel(
                     reply(ERROR_REPLY, GlobalTurnAction.RETRY, error = true)
                     return@launch
                 }
-                if (library.sources.isNotEmpty()) {
+                if (sourcesWithText.isNotEmpty()) {
                     val firstCheck = CitationContract.check(
                         answer = answer,
-                        sourceCount = library.sources.size,
+                        sourceCount = sourcesWithText.size,
                         requireCitation = true,
                         sourceAvailable = true,
                     )
@@ -373,7 +385,7 @@ class GlobalAssistantViewModel(
                         }.text.trim()
                         val retryCheck = CitationContract.check(
                             answer = retry,
-                            sourceCount = library.sources.size,
+                            sourceCount = sourcesWithText.size,
                             requireCitation = true,
                             sourceAvailable = true,
                         )
@@ -381,14 +393,14 @@ class GlobalAssistantViewModel(
                             answer = retry
                         } else {
                             reply(
-                                message = localSourceFallback(library.sources),
-                                sources = library.sources,
+                                message = localSourceFallback(sourcesWithText),
+                                sources = sourcesWithText,
                             )
                             return@launch
                         }
                     }
                 }
-                reply(answer, sources = library.sources)
+                reply(answer, sources = sourcesWithText)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

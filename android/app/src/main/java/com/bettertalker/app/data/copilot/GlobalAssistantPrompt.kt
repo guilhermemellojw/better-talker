@@ -18,6 +18,9 @@ data class GlobalPromptTurn(
  */
 object GlobalAssistantPrompt {
 
+    /** Orçamento por fonte no prompt global; o reader não usa este limite. */
+    private const val MAX_SOURCE_CHARS = 6_000
+
     fun build(
         userText: String,
         recentTitles: List<String> = emptyList(),
@@ -37,7 +40,19 @@ object GlobalAssistantPrompt {
                 source.locationLabel.takeIf { it.isNotBlank() }?.let { append(" · $it") }
                 if (source.training) append(" · ORIENTAÇÃO DE ORATÓRIA (não é doutrina)")
                 appendLine()
-                appendLine("\"${source.snippet}\"")
+                val full = (source.promptText ?: source.snippet).trim()
+                val sent = if (full.length > MAX_SOURCE_CHARS) {
+                    full.take(MAX_SOURCE_CHARS).trimEnd() + "…"
+                } else {
+                    full
+                }
+                appendLine("\"$sent\"")
+                if (sent.length < full.length) {
+                    appendLine(
+                        "(fonte ${source.index} truncada: ${sent.length} de " +
+                            "${full.length} caracteres; o reader mostra o texto completo)"
+                    )
+                }
                 appendLine()
             }
             appendLine("REGRAS DAS FONTES:")

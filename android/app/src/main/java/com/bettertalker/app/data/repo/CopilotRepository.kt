@@ -516,6 +516,9 @@ class CopilotRepository(private val db: AppDatabase) {
         return statuses.map { st ->
             val resolved = resolver.resolvePublication(publicationRefOf(st.ref))
             val resolvedText = resolved.text?.trim().orEmpty()
+            val resolvedFull = resolved.fullText?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: resolvedText
             if (isCitedSourceUsable(resolved.status) && resolvedText.isNotBlank()) {
                 st.copy(
                     contentResolved = true,
@@ -532,6 +535,7 @@ class CopilotRepository(private val db: AppDatabase) {
                     promptText = resolvedText.take(
                         com.bettertalker.app.data.planning.MAX_UNIT_CHARS
                     ),
+                    fullText = resolvedFull,
                     contentWarning = null,
                 )
             } else {
@@ -551,6 +555,7 @@ class CopilotRepository(private val db: AppDatabase) {
                     promptText = fallbackText.takeIf { it.isNotBlank() }?.take(
                         com.bettertalker.app.data.planning.MAX_UNIT_CHARS
                     ),
+                    fullText = fallbackText.takeIf { it.isNotBlank() },
                     // A edição pode estar no acervo e só o trecho faltar. Nesse
                     // caso o aviso não pode dizer "sem fonte no acervo" — o
                     // arquivo está lá; o que falta é o § citado.
@@ -740,6 +745,9 @@ class CopilotRepository(private val db: AppDatabase) {
             // MESMO texto. Não re-resolve e não descarta uma fonte que o
             // checklist mostra como "No acervo".
             val promptText = citedPromptText(source)
+            val fullText = source.refStatus?.fullText?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: promptText
             if (source.kind == SourceKind.PUBLICATION &&
                 source.citation.edition == com.bettertalker.app.data.util.EditionStatus.READY &&
                 promptText.isNotBlank()
@@ -748,6 +756,10 @@ class CopilotRepository(private val db: AppDatabase) {
                     id = "cite-" + source.ref.hashCode() + "-" + promptText.hashCode(),
                     reference = source.ref,
                     text = promptText,
+                    fullText = fullText,
+                    sentText = promptText,
+                    truncated = fullText.length > promptText.length,
+                    seenChars = promptText.length,
                     sourceType = SourceType.CONTENT,
                     publication = source.publicationLabel ?: source.publicationKey,
                     section = source.refStatus?.ref?.article ?: source.refStatus?.ref?.chapter,
@@ -772,6 +784,9 @@ class CopilotRepository(private val db: AppDatabase) {
                     resolver.resolveBible(source.ref)
             }
             val body = resolved?.text?.trim().orEmpty()
+            val fullBody = resolved?.fullText?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: body
             if (resolved != null && isCitedSourceUsable(resolved.status) && body.isNotBlank()) {
                 val publication = when (source.kind) {
                     SourceKind.BIBLE -> baseTitle("nwt")
@@ -785,6 +800,10 @@ class CopilotRepository(private val db: AppDatabase) {
                         "-" + (resolved.canonicalRef ?: source.ref).hashCode(),
                     reference = resolved.canonicalRef ?: source.ref,
                     text = body,
+                    fullText = fullBody,
+                    sentText = body,
+                    truncated = fullBody.length > body.length,
+                    seenChars = body.length,
                     sourceType = SourceType.CONTENT,
                     publication = publication,
                     section = source.refStatus?.ref?.article

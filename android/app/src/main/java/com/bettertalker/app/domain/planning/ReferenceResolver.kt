@@ -29,6 +29,8 @@ data class ResolvedReference(
     val text: String?,
     val passageId: String?,
     val status: ReferenceStatus,
+    /** 6.0a: texto integral da faixa (sem o teto de [text], que é o prompt). */
+    val fullText: String? = null,
 )
 
 enum class ReferenceStatus {

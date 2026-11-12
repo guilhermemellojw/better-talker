@@ -24,6 +24,8 @@ data class GlobalLibrarySource(
     val pageEnd: Int?,
     val paragraph: Int?,
     val snippet: String,
+    /** 6.0a: texto integral da unidade que o prompt pode enviar. */
+    val promptText: String? = null,
     val startOrd: Int,
     val endOrd: Int,
     val unitId: String? = null,
@@ -76,4 +78,6 @@ data class GlobalLibraryReaderContent(
     val body: String,
     val training: Boolean,
     val truncated: Boolean,
+    /** 6.0a: trecho que entrou no prompt (pode ser menor que [body]). */
+    val usedText: String? = null,
 )
