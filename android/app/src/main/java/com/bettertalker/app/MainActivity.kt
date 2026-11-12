@@ -362,7 +362,6 @@ private fun AppNav(
         val state = onboardingState ?: return@LaunchedEffect
         val dismissed = upgradeDismissed ?: return@LaunchedEffect
         val meaningful = meaningfulNoteCount ?: return@LaunchedEffect
-        onboardingDecisionDone = true
         when (OnboardingFlow.upgradeNoticeAction(state, meaningful, dismissed)) {
             UpgradeNoticeAction.SHOW_UPGRADE -> {
                 // Não grava UPGRADE_SEEN aqui: se o processo morrer antes do
@@ -377,6 +376,9 @@ private fun AppNav(
             }
             UpgradeNoticeAction.NONE -> Unit
         }
+        // Só depois de decidir o 5.0: o gate do 6.0 lê showUpgradeSheet e
+        // não pode ser cancelado no meio por uma mudança de chave.
+        onboardingDecisionDone = true
     }
 
     // “Novidades do 6.0”: automático só no primeiro build 71/72 e com notas.
@@ -398,10 +400,13 @@ private fun AppNav(
             meaningfulNotes = meaningful,
         )
         if (action == UpgradeV6Action.SHOW) {
+            // PRIMEIRO mostra; depois grava seen/métrica. As flags são chaves
+            // deste efeito: gravá-las antes cancelaria a coroutine antes de
+            // showV6UpgradeSheet=true e o sheet automático nunca apareceria.
+            showV6UpgradeSheet = true
             // seen é só métrica; dismissed é o “não mostrar mais”.
             settings.markUpgradeV6Seen()
             settings.incrementHelpMetric("upgrade_v6_seen")
-            showV6UpgradeSheet = true
         }
     }
 
