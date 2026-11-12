@@ -50,7 +50,7 @@ android {
             buildConfigField "boolean", "SYNC_BETA", "true"
             buildConfigField "boolean", "CLOUD_SYNC", "true"
             // Beta 72 (6.0-syncbeta). APK separado do público 71/6.0; o
-            // público continua 100% local no flavor.
+            // público mantém o sync opt-in e o beta é o flavor experimental.
             versionCode 72
             versionName "6.0"
             versionNameSuffix "-syncbeta"
