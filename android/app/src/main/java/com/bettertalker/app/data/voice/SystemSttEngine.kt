@@ -29,16 +29,26 @@ class SystemSttEngine(
     private var errorCb: ((String) -> Unit)? = null
     private var doneCb: (() -> Unit)? = null
 
+    /**
+     * O reconhecedor pode entregar o resultado antes de o usuário soltar o
+     * botão (fim do áudio). Nesse caso `doneCb` ainda é null; guardamos que
+     * terminou para o `stop()` posterior não ficar esperando um callback que
+     * já passou (PTT preso em "Transcrevendo").
+     */
+    private var completed = false
+
     init {
         scope.launch {
             manager.state.collect { state ->
                 when (state) {
                     VoiceInputState.Listening -> readyCb?.invoke()
                     is VoiceInputState.Result -> {
+                        completed = true
                         finalCb?.invoke(state.text)
                         finish()
                     }
                     is VoiceInputState.Error -> {
+                        completed = true
                         errorCb?.invoke(state.message)
                         finish()
                     }
@@ -67,6 +77,7 @@ class SystemSttEngine(
         finalCb = onFinal
         errorCb = onError
         doneCb = null
+        completed = false
         manager.start(preferOnDevice = preferOnDevice)
     }
 
@@ -80,11 +91,18 @@ class SystemSttEngine(
     }
 
     override fun stop(onDone: (() -> Unit)?) {
+        if (completed) {
+            // Resultado já chegou enquanto o botão ainda estava pressionado.
+            completed = false
+            onDone?.invoke()
+            return
+        }
         doneCb = onDone
         manager.finish()
     }
 
     override fun cancel() {
+        completed = false
         doneCb = null
         manager.cancel()
     }
@@ -94,6 +112,7 @@ class SystemSttEngine(
         finalCb = null
         errorCb = null
         doneCb = null
+        completed = false
         scope.cancel()
         manager.destroy()
     }

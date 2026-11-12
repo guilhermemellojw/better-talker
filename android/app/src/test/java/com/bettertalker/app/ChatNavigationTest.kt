@@ -40,8 +40,15 @@ class ChatNavigationTest {
             ChatNavAction.Section(number = 2, byTopic = true),
             ChatRouter.navigationCommand("tópico 2"),
         )
+        assertEquals(
+            ChatNavAction.Section(number = 1, byTopic = false),
+            ChatRouter.navigationCommand("Abrir 1"),
+        )
         assertNull(
             ChatRouter.navigationCommand("o ponto 1 está fraco"),
+        )
+        assertNull(
+            ChatRouter.navigationCommand("abrir 1 coríntios"),
         )
     }
 
