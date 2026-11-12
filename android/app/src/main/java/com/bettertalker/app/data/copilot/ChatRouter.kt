@@ -599,6 +599,8 @@ object ChatRouter {
             "iniciar|inicia|inicie|comecar|comeca|comece|entrar|entre|treinar|apresentar)\\b"
     )
     private val NAV_SECTION_NUMBER = Regex("\\b(ponto|topico|secao)\\s+(\\d{1,2})\\b")
+    /** "ponto 1" sozinho também é comando — mesmo foco do botão da sugestão. */
+    private val NAV_BARE_SECTION = Regex("^(ponto|topico|secao)\\s+(\\d{1,2})$")
     private val NAV_SOURCES = Regex("\\b(fontes|referencias)\\b")
     private val NAV_TRAIN = Regex("\\b(treino|treinar)\\b")
     private val NAV_PRESENT = Regex("\\b(palco|apresentar|apresentacao)\\b")
@@ -626,6 +628,15 @@ object ChatRouter {
         if (NAV_NEXT_STEP.containsMatchIn(padded)) return ChatNavAction.NextStep
         // Pergunta de instrução ("como abrir o ponto 2?") não é comando.
         if (Regex("\\bcomo\\b").containsMatchIn(t)) return null
+
+        // Referência curta e isolada ("ponto 1", "tópico 2") também navega.
+        NAV_BARE_SECTION.matchEntire(t)?.let { m ->
+            val n = m.groupValues[2].toIntOrNull() ?: return@let
+            return ChatNavAction.Section(
+                number = n,
+                byTopic = m.groupValues[1] != "ponto",
+            )
+        }
 
         if (NAV_TRAIN.containsMatchIn(padded)) {
             val bare = t in setOf("treino", "treinar", "iniciar treino", "comecar treino")
