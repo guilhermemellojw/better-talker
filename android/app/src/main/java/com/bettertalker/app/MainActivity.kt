@@ -187,6 +187,22 @@ private fun AppNav(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeOpen = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
     val showGlobalBar = com.bettertalker.app.navigation.shouldShowGlobalBar(currentRoute) && !imeOpen
+    // 6.0a/foco: a aba Assistente aberta a partir do editor usa a seção
+    // ativa; aberta da Home/menu começa no discurso inteiro. Sobrevive à
+    // rotação para não resetar o foco no meio da conversa.
+    var chatOpenedFromEditor by androidx.compose.runtime.saveable.rememberSaveable {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
+    // 6.0a/foco: ao passar por Home/Biblioteca/hubs, a próxima abertura do
+    // Assistente é "menu", não "editor" — não herda a seção ativa antiga.
+    androidx.compose.runtime.LaunchedEffect(currentRoute) {
+        if (currentRoute == Routes.HOME || currentRoute == Routes.LIBRARY ||
+            currentRoute == Routes.TRAIN_HOME || currentRoute == Routes.PRESENT_HOME
+        ) {
+            chatOpenedFromEditor = false
+        }
+    }
     // Textura de fundo global (Aparência): pintada atrás de TODO o conteúdo.
     val textureName by settings.homeTexture.collectAsState(initial = "NONE")
     val homeTexture = com.bettertalker.app.ui.theme.TextureId.fromNameOrDefault(textureName)
@@ -200,7 +216,11 @@ private fun AppNav(
             restoreState = true
         }
     }
-    fun goAssistant() = goTab(Routes.ASSISTANT)
+    fun goAssistant() {
+        chatOpenedFromEditor =
+            currentRoute == Routes.PREPARE || currentRoute == Routes.EDITOR
+        goTab(Routes.ASSISTANT)
+    }
     fun goLibrary() = goTab(Routes.library())
     fun goPrepare() = goTab(Routes.PREPARE)
     fun goHome() = nav.navigate(Routes.home())
@@ -452,7 +472,10 @@ private fun AppNav(
             vm,
             onBack = onBack,
             onAttach = { nav.navigate(Routes.library(noteId)) },
-            onOpenChat = { nav.navigate(Routes.chat(noteId)) },
+            onOpenChat = {
+                chatOpenedFromEditor = true
+                nav.navigate(Routes.chat(noteId))
+            },
             copilotVm = copilotVm,
             onOpenHelp = { sectionId, sectionTitle ->
                 openHelp(
@@ -630,7 +653,8 @@ private fun AppNav(
                     embedded = true,
                     // Sem foco vindo do editor, o assistente começa no
                     // discurso inteiro (não num "Tópico" sem número).
-                    defaultWholeFocus = true,
+                    defaultWholeFocus = !chatOpenedFromEditor,
+                    chatOpenedFromEditor = chatOpenedFromEditor,
                     practiceContext = practice?.takeIf { it.noteId == target.id },
                     walkieDefault = true,
                     // 5.5: “Trocar nota” abre Meus esboços em seleção.
@@ -1115,6 +1139,7 @@ private fun AppNav(
                 nav = nav,
                 ptt = pttHost.controller,
                 embedded = false,
+                chatOpenedFromEditor = chatOpenedFromEditor,
                 onBack = { nav.popBackStack() },
                 onOpenEditor = { nav.popBackStack() },
             )
@@ -1198,6 +1223,7 @@ private fun AppNav(
                 helpContext = null
                 val note = context.noteId
                 if (note != null) {
+                    chatOpenedFromEditor = false
                     nav.navigate(Routes.chat(note))
                 } else {
                     assistantChatRequest++
@@ -1260,6 +1286,8 @@ private fun NoteChatHost(
     onBack: () -> Unit,
     onOpenEditor: () -> Unit,
     onOpenHelp: () -> Unit = {},
+    /** 6.0a/foco: veio do editor/Preparo nesta abertura. */
+    chatOpenedFromEditor: Boolean = false,
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val editorVm = session.editorVm
@@ -1296,8 +1324,10 @@ private fun NoteChatHost(
     // decide a lente (push > seção ativa do editor > discurso inteiro) e só
     // reaplica quando a sessão do chat muda — rotação não reseta o foco.
     val previousRoute = nav.previousBackStackEntry?.destination?.route
-    val openedFromEditor = !embedded &&
-        (previousRoute == Routes.EDITOR || previousRoute == Routes.PREPARE)
+    // "Aberto do editor" = veio do editor/Preparo, inclusive quando o chat
+    // é a aba Assistente. Menu/Home/Assistente sem editor => discurso inteiro.
+    val openedFromEditor = chatOpenedFromEditor ||
+        previousRoute == Routes.EDITOR || previousRoute == Routes.PREPARE
     androidx.compose.runtime.LaunchedEffect(
         session.noteId,
         embedded,
