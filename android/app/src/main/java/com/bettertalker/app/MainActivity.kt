@@ -34,6 +34,7 @@ import com.bettertalker.app.domain.help.HelpTriggerId
 import com.bettertalker.app.domain.onboarding.OnboardingFlow
 import com.bettertalker.app.domain.onboarding.OnboardingV5State
 import com.bettertalker.app.domain.onboarding.UpgradeNoticeAction
+import com.bettertalker.app.domain.onboarding.UpgradeV6Action
 import com.bettertalker.app.ui.assistant.AssistantViewModel
 import com.bettertalker.app.ui.session.NoteSession
 import com.bettertalker.app.ui.session.NoteSessionHostViewModel
@@ -248,11 +249,15 @@ private fun AppNav(
     // ---------- v5.0: onboarding, ajuda local e gatilhos ----------
     val onboardingState by settings.onboardingV5State.collectAsState(initial = null)
     val upgradeDismissed by settings.upgradeV5Dismissed.collectAsState(initial = null)
+    val upgradeV6Seen by settings.upgradeV6Seen.collectAsState(initial = null)
+    val upgradeV6Dismissed by settings.upgradeV6Dismissed.collectAsState(initial = null)
     val meaningfulNoteCount by db.noteDao().observeUserCount()
         .collectAsState(initial = null)
     val activeNoteCount by db.noteDao().observeCount().collectAsState(initial = null)
     var onboardingDecisionDone by rememberSaveable { mutableStateOf(false) }
     var showUpgradeSheet by rememberSaveable { mutableStateOf(false) }
+    var upgradeV6DecisionDone by rememberSaveable { mutableStateOf(false) }
+    var showV6UpgradeSheet by rememberSaveable { mutableStateOf(false) }
     var helpContext by remember { mutableStateOf<AssistantHelpContext?>(null) }
     var homeLaunchAction by remember { mutableStateOf<HomeLaunchAction?>(null) }
     var helpTrigger by remember { mutableStateOf<HelpTriggerDecision?>(null) }
@@ -295,9 +300,14 @@ private fun AppNav(
         scope.launch { settings.markUpgradeV5Dismissed() }
     }
 
-    fun openUpgradeNoticeManually() {
-        showUpgradeSheet = true
-        scope.launch { settings.incrementHelpMetric("upgrade_welcome_manual") }
+    fun dismissUpgradeV6Notice() {
+        showV6UpgradeSheet = false
+        scope.launch { settings.markUpgradeV6Dismissed() }
+    }
+
+    fun openUpgradeV6NoticeManually() {
+        showV6UpgradeSheet = true
+        scope.launch { settings.incrementHelpMetric("upgrade_v6_manual") }
     }
 
     fun handleHelpAction(action: HelpAction, context: AssistantHelpContext) {
@@ -329,6 +339,8 @@ private fun AppNav(
                 ?.let { nav.navigate(Routes.tribuna(it)) }
                 ?: goPresent()
             HelpAction.OPEN_VOICE -> nav.navigate(Routes.VOICE)
+            HelpAction.OPEN_ACCOUNT -> nav.navigate(Routes.ACCOUNT)
+            HelpAction.OPEN_DATA_STORAGE -> nav.navigate(Routes.DATA_STORAGE)
             HelpAction.OPEN_ASSISTANT -> {
                 assistantChatRequest++
                 nav.navigate(Routes.ASSISTANT)
@@ -364,6 +376,32 @@ private fun AppNav(
                 nav.navigate(Routes.onboarding(false)) { launchSingleTop = true }
             }
             UpgradeNoticeAction.NONE -> Unit
+        }
+    }
+
+    // “Novidades do 6.0”: automático só no primeiro build 71/72 e com notas.
+    // Se o aviso 5.0 estiver aberto, espera fechar para não empilhar sheets.
+    androidx.compose.runtime.LaunchedEffect(
+        upgradeV6Seen, upgradeV6Dismissed, meaningfulNoteCount,
+        showUpgradeSheet, onboardingDecisionDone,
+    ) {
+        if (upgradeV6DecisionDone) return@LaunchedEffect
+        if (!onboardingDecisionDone || showUpgradeSheet) return@LaunchedEffect
+        val seen = upgradeV6Seen ?: return@LaunchedEffect
+        val dismissed = upgradeV6Dismissed ?: return@LaunchedEffect
+        val meaningful = meaningfulNoteCount ?: return@LaunchedEffect
+        upgradeV6DecisionDone = true
+        val action = OnboardingFlow.upgradeV6Action(
+            seen = seen,
+            dismissed = dismissed,
+            versionCode = com.bettertalker.app.BuildConfig.VERSION_CODE,
+            meaningfulNotes = meaningful,
+        )
+        if (action == UpgradeV6Action.SHOW) {
+            // seen é só métrica; dismissed é o “não mostrar mais”.
+            settings.markUpgradeV6Seen()
+            settings.incrementHelpMetric("upgrade_v6_seen")
+            showV6UpgradeSheet = true
         }
     }
 
@@ -1211,6 +1249,21 @@ private fun AppNav(
         )
     }
 
+    if (showV6UpgradeSheet) {
+        com.bettertalker.app.ui.onboarding.OnboardingV6UpgradeSheet(
+            onDismiss = { dismissUpgradeV6Notice() },
+            onOpenHelp = {
+                dismissUpgradeV6Notice()
+                openHelp(
+                    AssistantHelpContext(
+                        route = currentRoute ?: Routes.ASSISTANT,
+                        source = HelpSource.HELP_REOPEN,
+                    )
+                )
+            },
+        )
+    }
+
     helpContext?.let { context ->
         com.bettertalker.app.ui.help.HelpSheet(
             context = context,
@@ -1235,9 +1288,9 @@ private fun AppNav(
                 scope.launch { settings.incrementHelpMetric("help_reopened") }
                 nav.navigate(Routes.onboarding(true))
             },
-            onOpenUpgradeNotice = {
+            onOpenV6UpgradeNotice = {
                 helpContext = null
-                openUpgradeNoticeManually()
+                openUpgradeV6NoticeManually()
             },
             onTopicAction = {
                 scope.launch { settings.incrementHelpMetric("topic_opened") }

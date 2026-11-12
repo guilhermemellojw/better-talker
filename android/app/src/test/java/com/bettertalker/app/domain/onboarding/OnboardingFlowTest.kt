@@ -94,6 +94,68 @@ class OnboardingFlowTest {
     }
 
     @Test
+    fun novidadesDoSeisSoNoPrimeiroBuild71ComNotas() {
+        assertEquals(
+            UpgradeV6Action.SHOW,
+            OnboardingFlow.upgradeV6Action(
+                seen = false,
+                dismissed = false,
+                versionCode = 71,
+                meaningfulNotes = 2,
+            ),
+        )
+        assertEquals(
+            UpgradeV6Action.SHOW,
+            OnboardingFlow.upgradeV6Action(
+                seen = false,
+                dismissed = false,
+                versionCode = 72,
+                meaningfulNotes = 2,
+            ),
+        )
+        assertEquals(
+            UpgradeV6Action.NONE,
+            OnboardingFlow.upgradeV6Action(
+                seen = false,
+                dismissed = false,
+                versionCode = 70,
+                meaningfulNotes = 2,
+            ),
+        )
+        assertEquals(
+            UpgradeV6Action.NONE,
+            OnboardingFlow.upgradeV6Action(
+                seen = false,
+                dismissed = false,
+                versionCode = 71,
+                meaningfulNotes = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun novidadesDoSeisNaoReabremSozinhas() {
+        assertEquals(
+            UpgradeV6Action.NONE,
+            OnboardingFlow.upgradeV6Action(
+                seen = true,
+                dismissed = false,
+                versionCode = 71,
+                meaningfulNotes = 2,
+            ),
+        )
+        assertEquals(
+            UpgradeV6Action.NONE,
+            OnboardingFlow.upgradeV6Action(
+                seen = false,
+                dismissed = true,
+                versionCode = 71,
+                meaningfulNotes = 2,
+            ),
+        )
+    }
+
+    @Test
     fun notaDemoNaoContaComoUsoReal() {
         assertTrue(OnboardingFlow.isSeedNote("Meu primeiro discurso"))
         assertTrue(OnboardingFlow.isSeedNote("  Meu primeiro discurso  "))

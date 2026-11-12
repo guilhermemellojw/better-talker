@@ -8,9 +8,9 @@ import org.junit.Test
 class HelpCatalogTest {
 
     @Test
-    fun catalogoTemDozeTopicosComAcoes() {
-        assertEquals(12, HelpCatalog.topics.size)
-        assertEquals(12, HelpCatalog.topics.map { it.id }.distinct().size)
+    fun catalogoTemQuatorzeTopicosComAcoes() {
+        assertEquals(14, HelpCatalog.topics.size)
+        assertEquals(14, HelpCatalog.topics.map { it.id }.distinct().size)
         assertTrue(HelpCatalog.topics.all { it.question.isNotBlank() })
         assertTrue(HelpCatalog.topics.all { it.shortAnswer.isNotBlank() })
         assertTrue(HelpCatalog.topics.all { it.steps.size in 2..4 })
@@ -49,6 +49,28 @@ class HelpCatalogTest {
         assertTrue(HelpCatalog.topic("imagens")?.requiresNote == true)
         assertTrue(HelpCatalog.topic("tribuna")?.requiresNote == true)
         assertTrue(HelpCatalog.topic("primeira-nota")?.requiresNote == false)
+    }
+
+    @Test
+    fun topicosNovosDoSeisApontamParaContaEDados() {
+        assertEquals(
+            HelpAction.OPEN_ACCOUNT,
+            HelpCatalog.topic("sincronizacao-privacidade")?.action,
+        )
+        assertEquals(
+            HelpAction.OPEN_DATA_STORAGE,
+            HelpCatalog.topic("backup-restauracao")?.action,
+        )
+        assertTrue(HelpCatalog.topic("fontes")?.keywords?.contains("leitor") == true)
+    }
+
+    @Test
+    fun buscaPorLeitorEncontraTopicosDeFontes() {
+        val found = HelpEngine.topicsFor(
+            AssistantHelpContext(route = Routes.EDITOR, source = HelpSource.HELP_BUTTON),
+            query = "leitor",
+        )
+        assertTrue(found.any { it.id == "fontes" })
     }
 
     @Test

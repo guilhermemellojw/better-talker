@@ -62,6 +62,8 @@ fun helpActionLabel(action: HelpAction): String = when (action) {
     HelpAction.OPEN_TRIBUNA -> "Abrir mapa mental"
     HelpAction.OPEN_VOICE -> "Abrir Voz"
     HelpAction.OPEN_ASSISTANT -> "Abrir Assistente"
+    HelpAction.OPEN_ACCOUNT -> "Abrir Conta"
+    HelpAction.OPEN_DATA_STORAGE -> "Abrir dados e armazenamento"
     HelpAction.OPEN_HELP_TOPIC -> "Ver primeiros passos"
     HelpAction.NONE -> "Fechar"
 }
@@ -78,7 +80,7 @@ fun HelpSheet(
     onAction: (HelpAction) -> Unit,
     onAskBt: () -> Unit,
     onReplayOnboarding: () -> Unit,
-    onOpenUpgradeNotice: () -> Unit = {},
+    onOpenV6UpgradeNotice: () -> Unit = {},
     onTopicAction: (HelpTopic) -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -130,8 +132,8 @@ fun HelpSheet(
                 TextButton(onClick = onAskBt) { Text("Perguntar ao BT") }
                 TextButton(onClick = onReplayOnboarding) { Text("Rever primeiros passos") }
             }
-            TextButton(onClick = onOpenUpgradeNotice) {
-                Text("Novidades do 5.0")
+            TextButton(onClick = onOpenV6UpgradeNotice) {
+                Text("Novidades do 6.0")
             }
             if (topics.isEmpty()) {
                 Text(
