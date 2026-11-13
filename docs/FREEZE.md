@@ -16,9 +16,9 @@
 > A34 público 77 instalado por cima da 75; DB v26; o sync estava ligado na
 > mesma conta dos debug e puxou 23 notas (todas na lixeira); sync desligado
 > e backup pré-6.0.3 importado (6 notas/22 seções; 4 ativas restauradas).
-> Tablet público: smoke pendente (adb sem fio recusando conexão). Beta
-> **6.0.2-syncbeta/76** permanece como artifact anterior. P3
-> (reconciliar ids por conteúdo no sync) fica para o 6.1.
+> Tablet público 77 instalado; DB v26; 12 notas/15 anexos/54 seções
+> preservados. Beta **6.0.2-syncbeta/76** permanece como artifact anterior.
+> P3 (reconciliar ids por conteúdo no sync) fica para o 6.1.
 
 > **2026-11-13 — v6.0.2/75 (integridade S-34 → seção da nota):**
 > tag `v6.0.2` em `88369ba`; main `88369ba`; CI main `43421170661`;
