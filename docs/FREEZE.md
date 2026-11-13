@@ -1,6 +1,26 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-10 · **Release público:** v5.3.0/69 (tag `v5.3.0`) · **Baseline anterior:** v5.2.1 (versionCode 67, tag `v5.2.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-12 · **Release público:** v6.0.1/73 (tag `v6.0.1`) · **Baseline anterior:** v5.3.0/69 (tag `v5.3.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-12 — v6.0.1/73 (gate 6.0b; 6.0.0 substituída):**
+> tag `v6.0.1` em `4d0d1e5`; main `990c8d3`; release workflow `43281592957`;
+> CI da branch `43277964309` e da main `43281540579` verdes; **3.298 testes
+> JVM / 0**, lint 0 errors / 52 warnings de baseline.
+> A 6.0.1 corrige o sheet automático do 6.0: `upgrade_v6_seen` era gravado
+> antes de `showV6UpgradeSheet=true`; como `seen` é chave do próprio
+> `LaunchedEffect`, a coroutine era cancelada e o sheet não abria. Agora mostra
+> primeiro e grava depois; a decisão do 5.0 fecha antes do gate do 6.0.
+> **A34:** 6.0.1/73 instalado por cima do 71; primeiro lançamento 5.0→6.0;
+> “Agora não” não reabre; Ajuda manual OK; backup pós DB v26 com as mesmas
+> contagens e o mesmo `dataSha256` `9be615a2…99e4be`.
+> APK público SHA-256
+> `e4b72c9b92456fee4eed40fb45147a5134a1ebb3919c4671d61c8563f04ed60a`
+> no GitHub Release. A **6.0.0/71** fica no histórico, marcada como
+> substituída.
+> O beta **6.0.1-syncbeta/74** é **artifact da run `43285272570`**, sem tag e
+> sem página de release; SHA-256
+> `b9e79e2f737ca81522072f15ed9c344f8a8929bf6d02f1976de0f4b56c4a8f5e`.
+> Não abrir 6.0.2 por cosmética; backlog 6.1: 5.7 opcional e sync de chat.
 
 > **2026-11-11 — 5.6b interno (GlobalLibraryTool + citação + reader):**
 > Biblioteca sob demanda no Assistente, sem pré-carregar o acervo. Resolve
