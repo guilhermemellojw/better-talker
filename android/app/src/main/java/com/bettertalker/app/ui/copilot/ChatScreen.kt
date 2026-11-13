@@ -1840,95 +1840,95 @@ private fun TurnLiveItem(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
         ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            // M2a: cabeçalho estável — não é recriado a cada fase.
-            // Crossfade só quando o GRUPO visual muda; o texto do streaming
-            // cresce dentro do mesmo slot, sem animar altura por token.
-            AnimatedContent(
-                targetState = turn.phase,
-                transitionSpec = {
-                    if (motion == 0) {
-                        ContentTransform(
-                            EnterTransition.None,
-                            ExitTransition.None,
-                            0f,
-                            null,
-                        )
-                    } else {
-                        // Sem sizeTransform: a altura não é animada entre fases
-                        // (o texto já cresce no mesmo slot).
-                        ContentTransform(
-                            fadeIn(tween(motion)),
-                            fadeOut(tween(motion)),
-                            0f,
-                            null,
-                        )
-                    }
-                },
-                contentKey = { it.visualGroup() },
-                label = "turn-phase",
-            ) { phase ->
-                when (phase) {
-                    TurnPhase.WAITING, TurnPhase.REASONING -> {
-                        if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                // M2a: cabeçalho estável — não é recriado a cada fase.
+                // Crossfade só quando o GRUPO visual muda; o texto do streaming
+                // cresce dentro do mesmo slot, sem animar altura por token.
+                AnimatedContent(
+                    targetState = turn.phase,
+                    transitionSpec = {
+                        if (motion == 0) {
+                            ContentTransform(
+                                EnterTransition.None,
+                                ExitTransition.None,
+                                0f,
+                                null,
+                            )
                         } else {
-                            when {
-                                localRetry != null -> Text(
-                                    localRetry,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                )
-                                localPhase == LocalPhase.LoadingModel -> Text(
-                                    "Carregando modelo…",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                )
-                                localPhase == LocalPhase.ReadingSources -> Text(
-                                    "Lendo as fontes…",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                )
-                                else -> TypingIndicator()
+                            // Sem sizeTransform: a altura não é animada entre fases
+                            // (o texto já cresce no mesmo slot).
+                            ContentTransform(
+                                fadeIn(tween(motion)),
+                                fadeOut(tween(motion)),
+                                0f,
+                                null,
+                            )
+                        }
+                    },
+                    contentKey = { it.visualGroup() },
+                    label = "turn-phase",
+                ) { phase ->
+                    when (phase) {
+                        TurnPhase.WAITING, TurnPhase.REASONING -> {
+                            if (partial.isNotBlank()) {
+                                StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                            } else {
+                                when {
+                                    localRetry != null -> Text(
+                                        localRetry,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                    )
+                                    localPhase == LocalPhase.LoadingModel -> Text(
+                                        "Carregando modelo…",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                    )
+                                    localPhase == LocalPhase.ReadingSources -> Text(
+                                        "Lendo as fontes…",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                    )
+                                    else -> TypingIndicator()
+                                }
                             }
                         }
-                    }
-                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
-                    TurnPhase.DONE -> {
-                        if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                        TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                        TurnPhase.DONE -> {
+                            if (partial.isNotBlank()) {
+                                StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                            }
                         }
-                    }
-                    TurnPhase.CANCELLED -> Column {
-                        if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                        TurnPhase.CANCELLED -> Column {
+                            if (partial.isNotBlank()) {
+                                StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                            }
+                            ChatErrorRow(
+                                "Geração parada.",
+                                onDismiss = onDismiss,
+                                onRetry = onRetry,
+                                // “Interrompido” já é o anúncio live desta fase.
+                                announce = false,
+                            )
                         }
-                        ChatErrorRow(
-                            "Geração parada.",
-                            onDismiss = onDismiss,
-                            onRetry = onRetry,
-                            // “Interrompido” já é o anúncio live desta fase.
-                            announce = false,
-                        )
-                    }
-                    TurnPhase.ERROR -> Column {
-                        if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                        TurnPhase.ERROR -> Column {
+                            if (partial.isNotBlank()) {
+                                StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
+                            }
+                            ChatErrorRow(
+                                turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
+                                onDismiss = onDismiss,
+                                onRetry = onRetry,
+                            )
                         }
-                        ChatErrorRow(
-                            turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
-                            onDismiss = onDismiss,
-                            onRetry = onRetry,
-                        )
                     }
                 }
             }
         }
-    }
     }
 }
 
