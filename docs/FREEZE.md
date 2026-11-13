@@ -1,6 +1,20 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-12 · **Release público:** v6.0.1/73 (tag `v6.0.1`) · **Baseline anterior:** v5.3.0/69 (tag `v5.3.0`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-13 · **Release público:** v6.0.2/75 (tag `v6.0.2`) · **Baseline anterior:** v6.0.1/73 (tag `v6.0.1`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-13 — v6.0.2/75 (integridade S-34 → seção da nota):**
+> tag `v6.0.2` em `88369ba`; main `88369ba`; CI main `43421170661`;
+> release workflow `43421213768`; **3.304 testes JVM / 0**, lint 0/52.
+> `generateOratory` resolvia `sec-N` como UUID e caía no foco antigo; agora
+> um resolvedor puro mapeia role/id/título/ordem e o foco explícito do ponto
+> é aplicado antes do turno. Smoke A34 (debug 75): “Desenvolva o ponto 2”
+> → Tópico 3/7 e `cardTargetLabel="COMO A VIDA ETERNA FOI PERDIDA"`
+> (order 2); conclusão → `cardTargetLabel="Conclusão"`; “ponto 9” honesto
+> sem card. APK público **75/6.0.2** SHA-256
+> `73b30523e02d73de02a9140e58f9ff2f6c1d190a848271d71fe79624ba35d9a4`.
+> A **6.0.1/73** fica no histórico, substituída. Beta **6.0.2-syncbeta/76**
+> é artifact separado (`workflow_dispatch`), sem tag/página de release.
+> Instalação final do público 75 na A34 e beta 76 pendentes (ADB/gh).
 
 > **2026-11-12 — v6.0.1/73 (gate 6.0b; 6.0.0 substituída):**
 > tag `v6.0.1` em `4d0d1e5`; main `990c8d3`; release workflow `43281592957`;
