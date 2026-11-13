@@ -13,6 +13,10 @@ import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.nextStepSuggestion
+import com.bettertalker.app.data.copilot.NoteSectionRef
+import com.bettertalker.app.data.copilot.S34SectionRef
+import com.bettertalker.app.data.copilot.resolveOratoryNoteSection
+import com.bettertalker.app.data.copilot.explicitSectionNumber
 import com.bettertalker.app.data.copilot.buildNoteLensBlock
 import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
@@ -2046,6 +2050,22 @@ class CopilotViewModel(
      * próximo `send()`) e rótulo acompanham. Não cria mensagem, não limpa a
      * lista e não interrompe geração. Emite o pedido de rolagem ao editor.
      */
+    /**
+     * 6.0.2: pedido explícito por número (“desenvolva o ponto 2”) troca o
+     * foco ANTES do turno. Só vale com o substantivo (ponto/tópico/seção);
+     * “2 minutos” não muda o foco. Regenerar/continuar não passam por aqui.
+     */
+    private suspend fun focusExplicitPoint(message: String) {
+        val number = explicitSectionNumber(message) ?: return
+        val target = _guideSections.value
+            .filter { it.role == SectionRole.BODY }
+            .sortedBy { it.order }
+            .getOrNull(number - 1) ?: return
+        if (target.id != _chatScope.value) {
+            applySectionFocus(target.id, emitScroll = true)
+        }
+    }
+
     private suspend fun focusSection(sectionId: String) =
         applySectionFocus(sectionId, emitScroll = true)
 
@@ -3111,9 +3131,12 @@ class CopilotViewModel(
         lastUserMessage = text
         // Fatia 4: uma nova fala invalida a sugestão de próximo passo.
         if (postUserMessage) _nextStepSuggestion.value = null
-        // #23-fix-c (G1): captura o escopo do turno ANTES de gerar.
-        turnScope = _chatScope.value
         currentGenerationJob = viewModelScope.launch {
+            // 6.0.2: pedido explícito (“desenvolva o ponto 2”) nasce no ponto
+            // 2 — o chip, o Contexto, o histórico e o card usam o mesmo escopo.
+            if (postUserMessage) focusExplicitPoint(text)
+            // #23-fix-c (G1): captura o escopo do turno DEPOIS do foco.
+            turnScope = _chatScope.value
             // T2: qualquer envio conta como primeiro uso (banner some depois).
             settings.setChatSetupSeen()
             // #streaming-fix: zera o parcial do turno anterior ANTES de mostrar
@@ -3812,48 +3835,112 @@ class CopilotViewModel(
         }
         val ready = (spec as com.bettertalker.app.data.copilot.OratoryGeneration.Result.Ready).spec
         val focus = currentFocusText()
-        // T2 (Bug #14): foco por título de seção → proposta aplica na seção.
-        val section = route.sectionId?.let { db.speechSectionDao().get(it) }
-            ?: sectionForFocus(focus)
+        // T2 (Bug #14) + 6.0.2: o S-34 usa ids próprios (sec-N) e a nota usa
+        // UUIDs. Resolve a seção da NOTA antes de montar bloco/alvo; se um id
+        // explícito não casar, não caia no foco antigo (isso aplicava o texto
+        // do ponto 2 no ponto 1).
+        val noteSections = noteId?.let { db.speechSectionDao().forNote(it) }.orEmpty()
+        val noteRefs = noteSections.map {
+            NoteSectionRef(
+                id = it.id,
+                order = it.order,
+                role = runCatching { SectionRole.valueOf(it.role) }
+                    .getOrDefault(SectionRole.BODY),
+                title = it.title,
+            )
+        }
+        val s34Refs = doc.sections.map { S34SectionRef(it.id, it.order, it.title) }
+        val focusRef = _chatScope.value?.let { id -> noteRefs.firstOrNull { it.id == id } }
+            ?: sectionForFocus(focus)?.let { entity ->
+                noteRefs.firstOrNull { it.id == entity.id }
+            }
+        val sectionRef = when {
+            ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.INTRODUCTION ->
+                resolveOratoryNoteSection("", ready.mode, noteRefs)
+            ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.CONCLUSION ->
+                resolveOratoryNoteSection("", ready.mode, noteRefs)
+            route.sectionId != null ->
+                resolveOratoryNoteSection(
+                    sectionId = route.sectionId,
+                    mode = ready.mode,
+                    noteSections = noteRefs,
+                    s34Sections = s34Refs,
+                )
+            else -> focusRef
+        }
+        val section = sectionRef?.let { ref ->
+            noteSections.firstOrNull { it.id == ref.id }
+        }
+        if (section == null) {
+            val requested = doc.sections
+                .firstOrNull { it.id == route.sectionId }
+                ?.title
+                ?.takeIf { it.isNotBlank() }
+            postText(
+                if (requested != null) {
+                    "Não identifiquei “$requested” nesta nota. " +
+                        "Confira a estrutura no editor e tente de novo."
+                } else {
+                    "Não identifiquei essa seção nesta nota. " +
+                        "Confira a estrutura no editor e tente de novo."
+                }
+            )
+            return
+        }
         // #16-fix-b: o LLM precisa ver a PROSA da seção (não só o título via
         // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
         // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
-        // a invariante do aceite (`block.contains(focus)`). Sem seção, o foco
-        // resolvido é mantido.
+        // a invariante do aceite (`block.contains(focus)`).
         val block = oratoryFocusBlock(
-            sectionTitle = section?.title,
-            sectionContentHtml = section?.contentHtml,
+            sectionTitle = section.title,
+            sectionContentHtml = section.contentHtml,
             fallbackFocus = focus,
         )
-        // Transição aponta para a PRÓXIMA seção; os demais modos, para a
-        // seção em foco. O alvo é capturado antes da chamada.
-        val targetSectionId = if (ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION) {
-            ready.nextSectionId
-        } else {
-            section?.id
-        }
-        val targetSection = if (ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION) {
-            // O S-34 usa ids próprios (s34-...:sec-N); a nota usa UUIDs.
-            // Casa o próximo ponto pelo título antes de cair no foco atual.
-            val nextTitle = ready.orderedSections
-                .firstOrNull { it.sectionId == ready.nextSectionId }
-                ?.title
-            val noteSections = noteId?.let { db.speechSectionDao().forNote(it) }.orEmpty()
-            noteSections.firstOrNull { sec ->
-                nextTitle != null && sec.title.trim().equals(nextTitle.trim(), ignoreCase = true)
-            } ?: targetSectionId?.let { db.speechSectionDao().get(it) } ?: section
-        } else {
-            targetSectionId?.let { db.speechSectionDao().get(it) } ?: section
-        }
-        val cardTarget = targetSection?.let {
-            cardTargetForSection(
-                sectionId = it.id,
-                label = it.title,
-                contentHtml = it.contentHtml,
-                capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
-                capturedAt = System.currentTimeMillis(),
+        // Transição: o bloco é do ponto atual, mas o card aponta para o PRÓXIMO
+        // ponto. Resolve o nextSectionId (sec-N) pela mesma tabela, nunca pelo
+        // foco antigo.
+        val targetRef = if (
+            ready.mode == com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION
+        ) {
+            val nextId = ready.nextSectionId
+            if (nextId == null) {
+                postText(
+                    "Não identifiquei o próximo ponto desta transição nesta nota. " +
+                        "Confira a estrutura no editor."
+                )
+                return
+            }
+            resolveOratoryNoteSection(
+                sectionId = nextId,
+                mode = com.bettertalker.app.data.copilot.OratoryGeneration.Mode.DEVELOPMENT,
+                noteSections = noteRefs,
+                s34Sections = s34Refs,
+            ) ?: resolveOratoryNoteSection(
+                sectionId = nextId,
+                mode = com.bettertalker.app.data.copilot.OratoryGeneration.Mode.CONCLUSION,
+                noteSections = noteRefs,
+                s34Sections = s34Refs,
             )
+        } else {
+            sectionRef
         }
+        val targetSection = targetRef?.let { ref ->
+            noteSections.firstOrNull { it.id == ref.id }
+        }
+        if (targetSection == null) {
+            postText(
+                "Não identifiquei o alvo desta geração nesta nota. " +
+                    "Confira a estrutura no editor e tente de novo."
+            )
+            return
+        }
+        val cardTarget = cardTargetForSection(
+            sectionId = targetSection.id,
+            label = targetSection.title,
+            contentHtml = targetSection.contentHtml,
+            capturedFrom = CardCapturedFrom.ACTIVE_BLOCK,
+            capturedAt = System.currentTimeMillis(),
+        )
         val suggestedAction = if (
             route.action == com.bettertalker.app.data.copilot.OratoryGeneration.Action.REPLACE
         ) {
@@ -3884,7 +3971,7 @@ class CopilotViewModel(
                         contextBlock = contextBlock,
                         structural = turnContext.structural,
                         oratory = turnContext.oratory,
-                        blockTitle = section?.title,
+                        blockTitle = section.title,
                         blockMinutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
                     )
                 )
