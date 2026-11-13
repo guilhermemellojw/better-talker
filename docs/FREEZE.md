@@ -20,6 +20,17 @@
 > preservados. Beta **6.0.2-syncbeta/76** permanece como artifact anterior.
 > P3 (reconciliar ids por conteúdo no sync) fica para o 6.1.
 
+> **2026-11-13 — política de contas (ops):** a conta pública
+> (`daniellesalgadodeaguiar`) fica separada da conta de debug
+> (`guigomelo9`/teste); **nunca logar um aparelho público na conta de
+> debug**. A A34 pública fica **local-only** por enquanto (sync desligado).
+> Migrar a A34 para a conta pública só como migração planejada: backup da
+> A34 e do tablet → wipe local exigido pela troca → login público → primeiro
+> sync em **Baixar** (traz o tablet, não envia a A34) → restaurar só notas
+> que não existem no tablet e resolver conflitos. A limpeza da conta de
+> debug é feita pelos aparelhos debug. O tablet público é a referência
+> sincronizada (12 notas/15 anexos/54 seções).
+
 > **2026-11-13 — v6.0.2/75 (integridade S-34 → seção da nota):**
 > tag `v6.0.2` em `88369ba`; main `88369ba`; CI main `43421170661`;
 > release workflow `43421213768`; **3.304 testes JVM / 0**, lint 0/52.
