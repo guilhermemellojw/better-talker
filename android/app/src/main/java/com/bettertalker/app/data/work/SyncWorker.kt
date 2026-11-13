@@ -624,6 +624,7 @@ internal suspend fun syncAttachments(
                     // M4: metadados que organizam o acervo no 2º aparelho.
                     sourceType = data["sourceType"] as? String ?: "content",
                     symbol = data["symbol"] as? String,
+                    sha256 = (data["sha256"] as? String)?.takeIf { it.isNotBlank() },
                     error = "Arquivo neste aparelho: use Importar da fonte."
                 )
             )
@@ -646,6 +647,12 @@ internal suspend fun syncAttachments(
             if (merged.symbol == null && remoteSymbol != null) {
                 merged = merged.copy(symbol = remoteSymbol)
             }
+            // P2: placeholder antigo ganha o hash que veio do outro aparelho
+            // e passa a ser encontrado pelo import por conteúdo.
+            val remoteSha = (data["sha256"] as? String)?.takeIf { it.isNotBlank() }
+            if (merged.sha256.isNullOrBlank() && remoteSha != null) {
+                merged = merged.copy(sha256 = remoteSha)
+            }
             if (merged != cur) attachmentDao.update(merged)
         }
     }
@@ -666,6 +673,9 @@ internal suspend fun syncAttachments(
                         // M4: trilho/símbolo para o 2º aparelho organizar
                         // o acervo mesmo sem o binário.
                         "sourceType" to a.sourceType, "symbol" to a.symbol,
+                        // P2: permite o import do 2º aparelho achar o
+                        // placeholder por conteúdo, não só por nome.
+                        "sha256" to a.sha256,
                     ).filterValues { it != null }
                 )
             }
@@ -684,6 +694,12 @@ internal suspend fun syncAttachments(
             }
             if (a.symbol != null && remoteData["symbol"] != a.symbol) {
                 patch["symbol"] = a.symbol
+            }
+            // P2: backfill de docs antigos que subiram sem hash. Um hash
+            // remoto diferente não é sobrescrito (reconciliação fica no 6.1).
+            val remoteSha = (remoteData["sha256"] as? String)?.takeIf { it.isNotBlank() }
+            if (!a.sha256.isNullOrBlank() && remoteSha == null) {
+                patch["sha256"] = a.sha256
             }
             if (patch.isNotEmpty()) remote.set("attachments", a.id, patch)
         }
