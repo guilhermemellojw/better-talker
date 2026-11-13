@@ -13,7 +13,11 @@
 > atenção” caiu de **275 para 247** e `w_T_20080615.jwpub` (edição sem
 > arquivo pronto) continuou visível. APK público **77/6.0.3** SHA-256
 > `82d598928f5cfc0d559f6f027e8879ca8f13fbbff330440dc47b708cc03e3636`.
-> Beta **6.0.2-syncbeta/76** permanece como artifact anterior. P3
+> A34 público 77 instalado por cima da 75; DB v26; o sync estava ligado na
+> mesma conta dos debug e puxou 23 notas (todas na lixeira); sync desligado
+> e backup pré-6.0.3 importado (6 notas/22 seções; 4 ativas restauradas).
+> Tablet público: smoke pendente (adb sem fio recusando conexão). Beta
+> **6.0.2-syncbeta/76** permanece como artifact anterior. P3
 > (reconciliar ids por conteúdo no sync) fica para o 6.1.
 
 > **2026-11-13 — v6.0.2/75 (integridade S-34 → seção da nota):**
