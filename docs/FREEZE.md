@@ -13,8 +13,9 @@
 > sem card. APK público **75/6.0.2** SHA-256
 > `73b30523e02d73de02a9140e58f9ff2f6c1d190a848271d71fe79624ba35d9a4`.
 > A **6.0.1/73** fica no histórico, substituída. Beta **6.0.2-syncbeta/76**
-> é artifact separado (`workflow_dispatch`), sem tag/página de release.
-> Instalação final do público 75 na A34 e beta 76 pendentes (ADB/gh).
+> é artifact separado (`workflow_dispatch`, run `43427168035`, SHA-256
+> `54cc85be…d428`), sem tag/página de release. A34 e tablet no público 75
+> validados; reader/sync do tablet OK.
 
 > **2026-11-12 — v6.0.1/73 (gate 6.0b; 6.0.0 substituída):**
 > tag `v6.0.1` em `4d0d1e5`; main `990c8d3`; release workflow `43281592957`;
