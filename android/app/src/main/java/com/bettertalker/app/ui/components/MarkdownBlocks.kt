@@ -258,9 +258,29 @@ fun buildInline(
                     buf.append(text[i]); i += 1
                 }
             }
-            text.startsWith("**", i) -> { emit(); bold = !bold; i += 2 }
-            text[i] == '*' || text[i] == '_' -> { emit(); italic = !italic; i += 1 }
-            text[i] == '`' -> { emit(); mono = !mono; i += 1 }
+            text.startsWith("**", i) -> {
+                // Parcial: só abre negrito quando o fechamento já chegou.
+                // Se já está aberto, este é o fechamento e sempre fecha.
+                if (bold || text.indexOf("**", i + 2) >= 0) {
+                    emit()
+                    bold = !bold
+                }
+                i += 2
+            }
+            text[i] == '*' || text[i] == '_' -> {
+                if (italic || text.indexOf(text[i], i + 1) >= 0) {
+                    emit()
+                    italic = !italic
+                }
+                i += 1
+            }
+            text[i] == '`' -> {
+                if (mono || text.indexOf('`', i + 1) >= 0) {
+                    emit()
+                    mono = !mono
+                }
+                i += 1
+            }
             else -> { buf.append(text[i]); i += 1 }
         }
     }

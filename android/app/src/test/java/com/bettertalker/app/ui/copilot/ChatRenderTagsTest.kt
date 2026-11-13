@@ -42,6 +42,12 @@ class ChatRenderTagsTest {
     }
 
     @Test
+    fun tagDoCardParcial_noTextoFinalSome() {
+        val r = cleanedForRender("abc <texto-do-")
+        assertEquals("abc", r.text)
+    }
+
+    @Test
     fun sugestaoMaisDecisao_ambasTratadas() {
         val r = cleanedForRender("〈sugestão〉criação〈/sugestão〉 〈decisão〉fechar assim〈/decisão〉")
         assertTrue(r.hasSuggestion)

@@ -132,6 +132,30 @@ class MarkdownBlocksTest {
     }
 
     @Test
+    fun negritoIncompletoNaoDeixaRestoEmNegrito() {
+        val a = buildInline("**negrito sem fechar")
+        assertEquals("negrito sem fechar", a.text)
+        assertNull(
+            "marcador aberto não pode estilizar o resto",
+            a.spanStyles.firstOrNull { it.item.fontWeight == FontWeight.Bold },
+        )
+    }
+
+    @Test
+    fun italicoIncompletoNaoDeixaRestoEmItalico() {
+        val a = buildInline("*itálico sem fechar")
+        assertEquals("itálico sem fechar", a.text)
+        assertNull(a.spanStyles.firstOrNull { it.item.fontStyle == FontStyle.Italic })
+    }
+
+    @Test
+    fun codeIncompletoNaoDeixaRestoMonoespacado() {
+        val a = buildInline("`code sem fechar")
+        assertEquals("code sem fechar", a.text)
+        assertNull(a.spanStyles.firstOrNull { it.item.fontFamily == FontFamily.Monospace })
+    }
+
+    @Test
     fun parcialComTituloPelaMetadeNaoQuebra() {
         val blocks = parseBlocks("## ")
         assertTrue(blocks.first() is MdBlock.Title)
