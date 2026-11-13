@@ -16,6 +16,13 @@
 > é artifact separado (`workflow_dispatch`, run `43427168035`, SHA-256
 > `54cc85be…d428`), sem tag/página de release. A34 e tablet no público 75
 > validados; reader/sync do tablet OK.
+> **Smoke dedicado nos dois debug 75 (mesma conta):** nota temporária (#35)
+> com 7 seções, S-34 (1 outline/40 refs) e imagem; a edição do título no
+> tablet voltou para a A34 com o mesmo `updatedAt`; a exclusão definitiva
+> gerou 2 tombstones e removeu nota, seções, imagem, anexo e S-34 nos dois
+> aparelhos. Tablet público (outra conta) intacto: **12 notas, 15 anexos,
+> 54 seções** no backup. Sync da A34 debug desligado ao final
+> (`sync_beta_enabled=false`, persistido após reiniciar).
 
 > **2026-11-12 — v6.0.1/73 (gate 6.0b; 6.0.0 substituída):**
 > tag `v6.0.1` em `4d0d1e5`; main `990c8d3`; release workflow `43281592957`;
