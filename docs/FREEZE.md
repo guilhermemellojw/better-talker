@@ -2,6 +2,22 @@
 
 **Atualizado:** 2026-11-13 · **Release público:** v6.0.4/78 (tag `v6.0.4`) · **Baseline anterior:** v6.0.3/77 (tag `v6.0.3`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
 
+> **2026-11-13 — v6.0.4/78 (streaming do Copilot):**
+> tag `v6.0.4` em `828c32f`; branch `fix/v6.0.4-copilot-streaming`
+> (`69f959c`, `f80c445`, `86f806e`, `9d55982`); CI branch `43501251781`,
+> main `43524333930` e release `43526134239` verdes; **3.337 testes JVM /
+> 0**, lint 0/52. O throttle virou loop periódico (não debounce); o card
+> `<texto-do-card>` nasce aberto; tags internas parciais são removidas;
+> handoff sem crossfade/altura animada, `BT ·`/foco desde o início;
+> auto-scroll para no `DragInteraction.Start`; markdown inline não abre
+> estilo sem fechamento. Smoke A34 debug 78: card novo aberto, 110 palavras
+> visíveis, sem tag crua. A34 público 78 preservou as 4 notas ativas;
+> tablet público 78 abriu nota existente (código-only, 12/15/54 do 6.0.3).
+> APK público **78/6.0.4** SHA-256
+> `df3e3d6b74e7763866e639b95ddd47143865585bb51bb28b0b3072f156af0f9a`.
+> Beta **6.0.2-syncbeta/76** permanece como artifact anterior. O respiro de
+> 18 dp do cursor e a UX da cópia de conflito ficam para o 6.1.
+
 > **2026-11-13 — v6.0.3/77 (placeholders duplicados de anexos):**
 > tag `v6.0.3` em `2e3cbf7`; branch `fix/attachment-placeholder-dedupe`
 > (`d8c307e`, `0b5455c`); CI branch `43469124918` e main `43473386376`
