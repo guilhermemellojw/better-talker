@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
@@ -104,6 +105,7 @@ import com.bettertalker.app.data.util.PasteKind
 import com.bettertalker.app.data.util.decodeHtmlEntities
 import com.bettertalker.app.data.util.pasteApplyFeedback
 import com.bettertalker.app.data.util.stripInternalTags
+import com.bettertalker.app.data.util.stripIncompleteInternalTagSuffix
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -537,6 +539,9 @@ fun ChatScreen(
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { i ->
             when (i) {
+                // O dedo encostou: para de puxar o fim IMEDIATAMENTE. Antes
+                // só parava no Stop, então o parcial brigava com o arrasto.
+                is DragInteraction.Start -> followEnd = false
                 is DragInteraction.Stop, is DragInteraction.Cancel ->
                     followEnd = !listState.canScrollForward
                 else -> Unit
@@ -1295,67 +1300,55 @@ fun ChatScreen(
                                         },
                                 )
                             }
-                            // M2a: parcial → final no MESMO slot, com crossfade.
-                            AnimatedContent(
-                                targetState = showFinal,
-                                transitionSpec = {
-                                    if (streamFade == 0) {
-                                        EnterTransition.None togetherWith ExitTransition.None
-                                    } else {
-                                        fadeIn(tween(streamFade)) togetherWith
-                                            fadeOut(tween(streamFade))
-                                    }
-                                },
-                                label = "turn-final",
-                            ) { isFinal ->
-                                if (isFinal && finalId != null) {
-                                    // Handoff sem buraco: o synthetic usa o mesmo
-                                    // messageId/turnId que a linha do Room terá.
-                                    val synthetic = CopilotViewModel.ChatItem(
-                                        id = finalId,
-                                        fromMe = false,
-                                        kind = "text",
-                                        text = turn.finalText,
-                                        sectionId = chatScope,
-                                        createdAt = turn.startedAt,
-                                        turnId = turn.turnId,
-                                    )
-                                    Column {
-                                        val syntheticIndex = synthetic.sectionId?.let { id ->
-                                            guideSections.indexOfFirst { it.id == id }
-                                        } ?: -1
-                                        MessageFocusTag(
-                                            label = when {
-                                                synthetic.sectionId == null -> "Discurso inteiro"
-                                                syntheticIndex >= 0 -> "Tópico ${syntheticIndex + 1}"
-                                                else -> "Tópico"
-                                            },
-                                            fromMe = false,
-                                        )
-                                        TurnReasoningHeader(turn)
-                                        MessageBubble(
-                                            item = synthetic,
-                                            vm = vm,
-                                            dl = dl,
-                                            ctx = ctx,
-                                            scope = scope,
-                                            destinations = destinations,
-                                            sectionBusy = sectionBusy,
-                                            liveSections = outlineSections,
-                                            merges = merges,
-                                            draft = draft,
-                                            onOpenLibrary = onOpenLibrary,
-                                        )
-                                    }
-                                } else {
-                                    TurnLiveItem(
-                                        turn = turn,
-                                        localPhase = localPhase,
-                                        localRetry = localRetry,
-                                        onRetry = vm::retry,
-                                        onDismiss = vm::dismissError,
+                            val focusLabel = when {
+                                chatScope == null -> "Discurso inteiro"
+                                else -> {
+                                    val idx = guideSections.indexOfFirst { it.id == chatScope }
+                                    if (idx >= 0) "Tópico ${idx + 1}" else "Tópico"
+                                }
+                            }
+                            // Handoff direto: sem crossfade/size animation entre
+                            // o turno vivo e a mensagem final. O texto já está
+                            // completo no DONE; animar a altura fazia a primeira
+                            // linha pular quando BT/foco/card entravam.
+                            if (showFinal && finalId != null) {
+                                // Handoff sem buraco: o synthetic usa o mesmo
+                                // messageId/turnId que a linha do Room terá.
+                                val synthetic = CopilotViewModel.ChatItem(
+                                    id = finalId,
+                                    fromMe = false,
+                                    kind = "text",
+                                    text = turn.finalText,
+                                    sectionId = chatScope,
+                                    createdAt = turn.startedAt,
+                                    turnId = turn.turnId,
+                                )
+                                Column {
+                                    MessageFocusTag(label = focusLabel, fromMe = false)
+                                    TurnReasoningHeader(turn)
+                                    MessageBubble(
+                                        item = synthetic,
+                                        vm = vm,
+                                        dl = dl,
+                                        ctx = ctx,
+                                        scope = scope,
+                                        destinations = destinations,
+                                        sectionBusy = sectionBusy,
+                                        liveSections = outlineSections,
+                                        merges = merges,
+                                        draft = draft,
+                                        onOpenLibrary = onOpenLibrary,
                                     )
                                 }
+                            } else {
+                                TurnLiveItem(
+                                    turn = turn,
+                                    localPhase = localPhase,
+                                    localRetry = localRetry,
+                                    focusLabel = focusLabel,
+                                    onRetry = vm::retry,
+                                    onDismiss = vm::dismissError,
+                                )
                             }
                         }
                     }
@@ -1824,36 +1817,56 @@ private fun TurnLiveItem(
     turn: TurnUiState,
     localPhase: LocalPhase,
     localRetry: String?,
+    focusLabel: String?,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val partial = remember(turn.partialText) { stripInternalTags(turn.partialText) }
+    val inlineMark = assistantInlineMark()
     val motion = motionMillis(TURN_CROSSFADE_MS, rememberMotionScale())
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-    ) {
+    Column(Modifier.fillMaxWidth()) {
+        // Mesmo foco do handoff final: o cabeçalho já entra no streaming, então
+        // o texto não desce quando a mensagem final aparece.
+        focusLabel?.let { MessageFocusTag(label = it, fromMe = false) }
+        // O raciocínio fica FORA da superfície, como no handoff final; assim
+        // o bloco não muda de lugar quando a mensagem persistida aparece.
+        if (turn.reasoningText.isNotBlank()) {
+            TurnReasoningHeader(turn)
+        }
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             // M2a: cabeçalho estável — não é recriado a cada fase.
-            if (turn.reasoningText.isNotBlank()) {
-                TurnReasoningHeader(turn)
-            }
             // Crossfade só quando o GRUPO visual muda; o texto do streaming
             // cresce dentro do mesmo slot, sem animar altura por token.
             AnimatedContent(
                 targetState = turn.phase,
                 transitionSpec = {
                     if (motion == 0) {
-                        EnterTransition.None togetherWith ExitTransition.None
+                        ContentTransform(
+                            EnterTransition.None,
+                            ExitTransition.None,
+                            0f,
+                            null,
+                        )
                     } else {
-                        fadeIn(tween(motion)) togetherWith fadeOut(tween(motion))
+                        // Sem sizeTransform: a altura não é animada entre fases
+                        // (o texto já cresce no mesmo slot).
+                        ContentTransform(
+                            fadeIn(tween(motion)),
+                            fadeOut(tween(motion)),
+                            0f,
+                            null,
+                        )
                     }
                 },
                 contentKey = { it.visualGroup() },
@@ -1862,7 +1875,7 @@ private fun TurnLiveItem(
                 when (phase) {
                     TurnPhase.WAITING, TurnPhase.REASONING -> {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
                         } else {
                             when {
                                 localRetry != null -> Text(
@@ -1884,15 +1897,15 @@ private fun TurnLiveItem(
                             }
                         }
                     }
-                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase))
+                    TurnPhase.STREAMING -> StreamingMarkdown(partial, showCursor = true, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
                     TurnPhase.DONE -> {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
                         }
                     }
                     TurnPhase.CANCELLED -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
                         }
                         ChatErrorRow(
                             "Geração parada.",
@@ -1904,7 +1917,7 @@ private fun TurnLiveItem(
                     }
                     TurnPhase.ERROR -> Column {
                         if (partial.isNotBlank()) {
-                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase))
+                            StreamingMarkdown(partial, showCursor = false, throttleMs = streamThrottleFor(phase), leadingMark = inlineMark)
                         }
                         ChatErrorRow(
                             turn.error ?: "Não consegui gerar a resposta agora. Tente novamente.",
@@ -1915,6 +1928,7 @@ private fun TurnLiveItem(
                 }
             }
         }
+    }
     }
 }
 
@@ -1958,7 +1972,11 @@ private fun LegacyStreamingItem(
                     )
                 }
                 if (partial.isNotBlank()) {
-                    StreamingMarkdown(partial, showCursor = true)
+                    StreamingMarkdown(
+                        partial,
+                        showCursor = true,
+                        leadingMark = assistantInlineMark(),
+                    )
                 }
             }
         }
@@ -2631,7 +2649,9 @@ internal fun cleanedForRender(md: String): SuggestionText {
         // antes a tag aparecia CRUA na conversa. Converte para markdown/texto
         // (e a cor inline some: o chat não tem paleta de destaque).
         text = com.bettertalker.app.data.util.HtmlInlineSanitizer.htmlInlineToMarkdown(
-            com.bettertalker.app.data.util.stripPromptTags(suggested.text)
+            stripIncompleteInternalTagSuffix(
+                com.bettertalker.app.data.util.stripPromptTags(suggested.text)
+            )
         )
     )
 }
@@ -2854,6 +2874,10 @@ private fun RenderTextForCard(
         title = "Texto para o card",
         summary = summary,
         stateKey = block.text,
+        // O texto do card é a própria resposta do Copilot: nasce aberto para
+        // não desaparecer no handoff do streaming. O usuário ainda pode
+        // recolher manualmente.
+        initiallyExpanded = true,
     ) {
         Column(Modifier.fillMaxWidth()) {
             innerBlocks.forEach { inner ->

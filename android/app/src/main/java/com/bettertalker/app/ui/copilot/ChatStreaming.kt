@@ -21,8 +21,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.copilot.TurnPhase
 import com.bettertalker.app.ui.components.MdBlock
@@ -83,8 +85,10 @@ internal fun unseenAnnouncement(count: Int): String =
     if (count == 1) "1 nova mensagem" else "$count novas mensagens"
 
 /**
- * Atualiza o texto renderizado no máximo a cada [throttleMs]. Mudanças rápidas
- * cancelam o efeito anterior (coalesce), sem animar altura por token.
+ * Atualiza o texto renderizado no máximo a cada [throttleMs]. O relógio é
+ * periódico e NÃO reinicia a cada token: o loop lê o último texto via
+ * [rememberUpdatedState] e publica a próxima revisão na janela seguinte.
+ * Terminal ([throttleMs] == 0) publica o texto final imediatamente.
  */
 @Composable
 internal fun rememberThrottledStreamingText(
@@ -93,16 +97,25 @@ internal fun rememberThrottledStreamingText(
 ): String {
     // Inicializa com o texto atual: recriação de fase não pisca vazio.
     var rendered by remember { mutableStateOf(text) }
-    // A chave inclui throttleMs: ao virar terminal (0), o efeito cancela a
-    // espera pendente e mostra o parcial imediatamente.
+    val latest by rememberUpdatedState(text)
+    // Terminal: qualquer texto que chegue depois do DONE/CANCELLED entra
+    // imediatamente, sem esperar a janela.
     LaunchedEffect(text, throttleMs) {
-        if (text == rendered) return@LaunchedEffect
-        // Primeiro token entra imediatamente; updates rápidos esperam a
-        // janela para não parsear markdown a cada emissão.
-        if (throttleMs > 0 && rendered.isNotEmpty() && text.length > rendered.length) {
-            delay(throttleMs)
+        if (throttleMs <= 0 && text != rendered) rendered = text
+    }
+    LaunchedEffect(throttleMs) {
+        if (throttleMs <= 0) {
+            rendered = latest
+            return@LaunchedEffect
         }
-        rendered = text
+        // Throttle real: a cada janela, mostra o último texto disponível.
+        // Se o stream parar, o valor final já está em `latest`; no DONE o
+        // efeito acima roda com 0 e publica sem esperar.
+        while (true) {
+            delay(throttleMs)
+            val next = latest
+            if (next != rendered) rendered = next
+        }
     }
     return rendered
 }
@@ -113,6 +126,7 @@ internal fun StreamingMarkdown(
     text: String,
     showCursor: Boolean,
     throttleMs: Long = STREAM_THROTTLE_MS,
+    leadingMark: AnnotatedString? = null,
     modifier: Modifier = Modifier,
 ) {
     val throttled = rememberThrottledStreamingText(text, throttleMs)
@@ -122,10 +136,17 @@ internal fun StreamingMarkdown(
         modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        var markPending = leadingMark
         blocks.forEach { block ->
+            // Mesmo selo do ChatMessageText final: o primeiro bloco de texto
+            // recebe o "BT ·", então a primeira linha não muda no handoff.
+            val isTextBlock = block is MdBlock.Title || block is MdBlock.Quote ||
+                block is MdBlock.Bullet || block is MdBlock.Check || block is MdBlock.Para
+            val mark = if (isTextBlock) markPending else null
+            if (isTextBlock) markPending = null
             // TextForCard já renderiza o shell (“Texto para o card”) com o
             // parcial dentro; as ações só aparecem no card final.
-            RenderBlock(block, mark = null, onUseInCard = null)
+            RenderBlock(block, mark = mark, onUseInCard = null)
         }
         // Slot fixo: o texto não reflowa quando o cursor some no DONE/erro.
         Column(Modifier.height(18.dp)) {

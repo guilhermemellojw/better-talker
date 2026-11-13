@@ -35,4 +35,35 @@ class ParcialStripTest {
     fun tagDoCardIncompletaNaoCortaOConteudo() {
         assertEquals("abc def", stripInternalTags("abc <texto-do-card>def"))
     }
+
+    @Test
+    fun todosOsPrefixosDaTagDoCardNoFimSomem() {
+        val full = "<texto-do-card>"
+        for (len in 1..full.length) {
+            val prefix = full.substring(0, len)
+            assertEquals("abc", stripInternalTags("abc $prefix"))
+        }
+        val closing = "</texto-do-card>"
+        for (len in 1..closing.length) {
+            val prefix = closing.substring(0, len)
+            assertEquals("abc", stripInternalTags("abc $prefix"))
+        }
+    }
+
+    @Test
+    fun todosOsPrefixosDaTagCjkNoFimSomem() {
+        val full = "〈sugestão〉"
+        for (len in 1..full.length) {
+            val prefix = full.substring(0, len)
+            assertEquals("abc", stripInternalTags("abc $prefix"))
+        }
+    }
+
+    @Test
+    fun prefixoNoMeioNaoEhRemovido() {
+        assertEquals(
+            "abc <texto-do- def",
+            stripInternalTags("abc <texto-do- def"),
+        )
+    }
 }

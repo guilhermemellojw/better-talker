@@ -518,9 +518,49 @@ fun stripInternalTags(s: String): String {
         out = next
         guard++
     }
-    return PROMPT_TAG_STRAY_CJK.replace(
-        PROMPT_TAG_STRAY_INTERNAL.replace(out, ""), ""
+    return stripIncompleteInternalTagSuffix(
+        PROMPT_TAG_STRAY_CJK.replace(
+            PROMPT_TAG_STRAY_INTERNAL.replace(out, ""), ""
+        )
     ).trim()
+}
+
+private val INTERNAL_TAG_NAMES = listOf(
+    "sugestão", "sugestao", "decisão", "decisao", "texto-do-card",
+)
+
+/**
+ * #stream-fix: remove um sufixo que é prefixo de uma tag interna incompleta
+ * no fim do parcial (ex.: `<texto-do-`, `</texto-do-ca`, `〈sugest`).
+ *
+ * Só age no fim do texto — o meio continua intacto. O stream pode cortar a
+ * tag em qualquer posição; sem isso, o prefixo aparece cru até o `>` chegar.
+ * Também cobre o texto final truncado por limite de tokens.
+ */
+internal fun stripIncompleteInternalTagSuffix(s: String): String {
+    if (s.isEmpty()) return s
+    val candidates = buildList {
+        for (name in INTERNAL_TAG_NAMES) {
+            for ((open, close) in listOf(
+                "<" to ">",
+                "</" to ">",
+                "〈" to "〉",
+                "〈/" to "〉",
+            )) {
+                val full = "$open$name$close"
+                // A tag completa é tratada pelos regex de órfãs; aqui só os
+                // prefixos (do delimitador até antes do fechamento).
+                for (len in full.length - 1 downTo open.length) {
+                    add(full.substring(0, len))
+                }
+            }
+        }
+    }
+    val match = candidates
+        .asSequence()
+        .filter { s.endsWith(it, ignoreCase = true) }
+        .maxByOrNull { it.length }
+    return if (match != null) s.dropLast(match.length) else s
 }
 
 // Marcadores internos na forma ASCII (o modelo às vezes troca os CJK):
