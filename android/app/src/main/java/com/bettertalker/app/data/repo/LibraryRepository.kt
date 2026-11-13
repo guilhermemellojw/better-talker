@@ -72,6 +72,31 @@ internal fun repairPublicationMismatch(
     return if (expected == actual) null else expected to actual
 }
 
+/**
+ * P1: preenche um placeholder/registro falho com o arquivo importado,
+ * preservando o id (e o vínculo vindo do sync) em vez de criar outro anexo.
+ */
+internal fun fillAttachmentFromImport(
+    existing: AttachmentEntity,
+    displayName: String,
+    kind: String,
+    appPath: String,
+    sizeBytes: Long,
+    sha256: String,
+    noteId: String?,
+): AttachmentEntity = existing.copy(
+    fileName = displayName,
+    kind = kind,
+    appPath = appPath,
+    sizeBytes = sizeBytes,
+    indexed = false,
+    status = "indexing",
+    error = null,
+    baseSlot = existing.baseSlot ?: matchBaseSlot(displayName),
+    sha256 = sha256,
+    noteId = existing.noteId ?: noteId,
+)
+
 class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
     companion object {
         // Tetos vivem em [com.bettertalker.app.data.util.ImportLimits].
@@ -296,32 +321,46 @@ class LibraryRepository(private val ctx: Context, private val db: AppDatabase) {
             var dst: File? = null
             try {
                 val hash = sha256Of(src)
-                // P1: mesmo arquivo não vira segundo anexo. Se o registro
-                // antigo perdeu o binário, reusa o caminho e reindexa.
-                val existing = findByHash(hash)
-                if (existing != null) {
-                    val existingFile = File(existing.appPath)
-                    if (existingFile.isFile) {
-                        linkIfUnlinked(existing, noteId)
-                        return@withContext existing.id
+                // P1/P2: mesmo hash ou placeholder da mesma edição preenche
+                // a linha existente; não cria um segundo anexo.
+                val byHash = findByHash(hash)
+                val reusable = byHash
+                    ?: chooseImportPlaceholder(db.attachmentDao().all(), displayName, kind.ext)
+                if (reusable != null) {
+                    val reusableFile = File(reusable.appPath)
+                    if (byHash != null &&
+                        reusableFile.isFile &&
+                        reusable.indexed &&
+                        reusable.status.equals("ready", ignoreCase = true)
+                    ) {
+                        linkIfUnlinked(reusable, noteId)
+                        return@withContext reusable.id
                     }
-                    val target = PublicationStorage.internalFile(ctx, existing.id, existing.fileName)
-                    dst = target
-                    src.copyTo(target, overwrite = true)
+                    val target = if (reusableFile.isFile) {
+                        reusableFile
+                    } else {
+                        PublicationStorage.internalFile(ctx, reusable.id, displayName)
+                            .also { dst = it }
+                    }
+                    // Placeholder sem binário (ou falho) é preenchido com o
+                    // arquivo atual; o id vindo do sync é preservado.
+                    if (src.absolutePath != target.absolutePath) {
+                        src.copyTo(target, overwrite = true)
+                    }
                     db.attachmentDao().upsert(
-                        existing.copy(
+                        fillAttachmentFromImport(
+                            existing = reusable,
+                            displayName = displayName,
+                            kind = kind.ext,
                             appPath = target.absolutePath,
                             sizeBytes = target.length(),
-                            indexed = false,
-                            status = "indexing",
-                            error = null,
                             sha256 = hash,
-                            noteId = existing.noteId ?: noteId,
+                            noteId = noteId,
                         )
                     )
-                    enqueueIndex(existing.id)
+                    enqueueIndex(reusable.id)
                     SyncScheduler.requestSync(ctx)
-                    return@withContext existing.id
+                    return@withContext reusable.id
                 }
                 val id = newId("att")
                 val target = PublicationStorage.internalFile(ctx, id, displayName)

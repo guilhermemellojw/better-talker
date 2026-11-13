@@ -42,6 +42,7 @@ class SyncAttachmentsRemoteTest {
         sourceUrl: String?,
         sourceType: String = "content",
         symbol: String? = null,
+        sha256: String? = null,
     ) = AttachmentEntity(
         id = id,
         noteId = null,
@@ -55,6 +56,7 @@ class SyncAttachmentsRemoteTest {
         sourceUrl = sourceUrl,
         sourceType = sourceType,
         symbol = symbol,
+        sha256 = sha256,
     )
 
     @Test
@@ -175,6 +177,70 @@ class SyncAttachmentsRemoteTest {
         val doc = remote.doc("attachments", "a1")!!
         assertEquals("training", doc["sourceType"])
         assertEquals("be", doc["symbol"])
+    }
+
+    @Test
+    fun sha256_sobeEmAEchegaEmB_comStatusMissing() = runBlocking {
+        val remote = FakeSyncRemote()
+        val sha = "abc123def456"
+        syncAttachments(
+            remote,
+            FakeAttachmentDao(listOf(attachment("a1", null, sha256 = sha))),
+            FakeTombstoneDao(),
+        )
+
+        assertEquals(sha, remote.doc("attachments", "a1")!!["sha256"])
+
+        val deviceB = FakeAttachmentDao()
+        syncAttachments(remote, deviceB, FakeTombstoneDao())
+
+        val pulled = deviceB.get("a1")!!
+        assertEquals(sha, pulled.sha256)
+        assertEquals("missing", pulled.status)
+        assertTrue(pulled.appPath.isBlank())
+    }
+
+    @Test
+    fun sha256_completaPlaceholderAntigoLocal() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf", "sha256" to "abc123",
+        ))
+        val oldLocal = FakeAttachmentDao(listOf(
+            attachment("a1", null).copy(
+                appPath = "", indexed = false, status = "missing", sha256 = null,
+            ),
+        ))
+
+        syncAttachments(remote, oldLocal, FakeTombstoneDao())
+
+        assertEquals("abc123", oldLocal.get("a1")!!.sha256)
+    }
+
+    @Test
+    fun sha256_backfillDocAntigoSemCampo() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf",
+        ))
+        val local = FakeAttachmentDao(listOf(attachment("a1", null, sha256 = "abc123")))
+
+        syncAttachments(remote, local, FakeTombstoneDao())
+
+        assertEquals("abc123", remote.doc("attachments", "a1")!!["sha256"])
+    }
+
+    @Test
+    fun sha256_naoSobrescreveHashRemotoDiferente() = runBlocking {
+        val remote = FakeSyncRemote()
+        remote.set("attachments", "a1", mapOf(
+            "fileName" to "w25.01.pdf", "kind" to "pdf", "sha256" to "remoto",
+        ))
+        val local = FakeAttachmentDao(listOf(attachment("a1", null, sha256 = "local")))
+
+        syncAttachments(remote, local, FakeTombstoneDao())
+
+        assertEquals("remoto", remote.doc("attachments", "a1")!!["sha256"])
     }
 
     @Test

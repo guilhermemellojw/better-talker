@@ -54,6 +54,7 @@ import com.bettertalker.app.data.catalog.RecommendedPublications
 import com.bettertalker.app.data.catalog.findInLibrary
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.catalog.CitedPublication
+import com.bettertalker.app.data.repo.attentionAttachments
 import com.bettertalker.app.data.util.BASE_PUBS
 import com.bettertalker.app.data.util.detectSymbol
 import com.bettertalker.app.data.util.JW_FINDER_HOME
@@ -168,7 +169,7 @@ fun LibraryScreen(
             val otherPubs = RecommendedPublications.ALL.filter { it.symbol !in requiredSymbols }
             val requiredReady = requiredPubs.count { findInLibrary(it.symbol, items) != null }
             val active = items.filter { it.status == "downloading" || it.status == "indexing" }
-            val attention = items.filter { it.status == "missing" || it.status == "failed" }
+            val attention = attentionAttachments(items)
             val catalogSymbols = RecommendedPublications.ALL.map { it.symbol }.toSet()
             val myFiles = items.filter { a ->
                 val symbol = a.symbol ?: detectSymbol(a.fileName)
