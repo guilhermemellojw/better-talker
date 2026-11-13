@@ -27,8 +27,8 @@ android {
         applicationId "com.bettertalker.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 73
-        versionName "6.0.1"
+        versionCode 75
+        versionName "6.0.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary true }
         // #23-bench: runtime sherpa-onnx (Kokoro) — só arm64 (A34).
@@ -49,10 +49,10 @@ android {
             dimension "channel"
             buildConfigField "boolean", "SYNC_BETA", "true"
             buildConfigField "boolean", "CLOUD_SYNC", "true"
-            // Beta 74 (6.0.1-syncbeta). APK separado do público 73/6.0.1; o
+            // Beta 76 (6.0.2-syncbeta). APK separado do público 75/6.0.2; o
             // público mantém o sync opt-in e o beta é o flavor experimental.
-            versionCode 74
-            versionName "6.0.1"
+            versionCode 76
+            versionName "6.0.2"
             versionNameSuffix "-syncbeta"
         }
     }
