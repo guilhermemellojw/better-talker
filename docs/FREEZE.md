@@ -5,7 +5,8 @@
 > **2026-11-15 — v6.0.5/79 (fonte citada × capítulo bíblico):**
 > tag `v6.0.5` no merge da branch
 > `fix/v6.0.5-copilot-source-answers` na `main`; código `9a3c049`; CI
-> `43761024538` verde; **3.351 testes JVM / 0**, lint 0/50. O Copilot
+> `43761024538` verde; release `43765645820` verde; **3.351 testes JVM /
+> 0**, lint 0/50. O Copilot
 > deixou de sequestrar `w17.10`/`w99.01` como consulta estrutural; `§§9-10`
 > não vira “ponto 10”; pergunta sobre fonte recebe bloco prioritário sem
 > S-34/dossiê/histórico, com `jr 29` = livro/p. 29 e `Je 29` = capítulo 29,
@@ -14,7 +15,7 @@
 > caso 1 com card e sem aviso falso; `w17.10` honesto sobre Zedequias;
 > `jr 29` livro/página; `Je 29` capítulo; `w99.01` recusa honesta. Tablet:
 > os quatro casos de fonte passaram. APK público **79/6.0.5** SHA-256
-> `SHA256_PENDENTE`. Beta **80/6.0.5-syncbeta** acompanha o versionCode,
+> `7c3512f7da7e123a5117b93ffa8d6028444b1bb59951779a4cfa0dce2769cc08`. Beta **80/6.0.5-syncbeta** acompanha o versionCode,
 > mas não é republicado; 5.7/sync do chat ficam para o 6.1.
 
 > **2026-11-13 — v6.0.4/78 (streaming do Copilot):**
