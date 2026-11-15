@@ -222,9 +222,10 @@ Ainda faltam os casos 1–5, 9–10 e 12–15 na A34 (que está desligada). O ta
 1. backup da A34;
 2. instalar o build local assinado (mesma assinatura/versionCode 78) por cima do 6.0.4 público;
 3. abrir a nota #35, chat, foco no ponto 2;
-4. pedir `w17.10 23 §§9-10`, `jr 29` e `Je 29`;
-5. conferir: resposta usa a fonte, não o S-34; `jr` = livro/p. 29; `Je` = capítulo; `w17.10` não sustenta “esperança” se o texto for sobre Zedequias;
-6. se passar, bump **6.0.5/79** e release único.
+4. pedir **“Desenvolva o ponto 2”** e conferir o card no ponto 2 **sem** o aviso falso de `Gênesis 5:5` (ref do dossiê);
+5. pedir `w17.10 23 §§9-10`, `jr 29` e `Je 29`;
+6. conferir: resposta usa a fonte, não o S-34; `jr` = livro/p. 29; `Je` = capítulo; `w17.10` não sustenta “esperança” se o texto for sobre Zedequias;
+7. se passar, bump **6.0.5/79** e release único.
 
 ## Saída da auditoria
 
