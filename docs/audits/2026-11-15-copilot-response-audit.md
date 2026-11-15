@@ -217,6 +217,15 @@ Ainda faltam os casos 1–5, 9–10 e 12–15 na A34 (que está desligada). O ta
 2. revisar o vazamento de Ponto 1/w24.08 na resposta de `w17.10` (o aviso de deriva já cobre; a segunda execução saiu limpa);
 3. CI da branch e, se verde, bump 6.0.5/79 + release unico.
 
+**Roteiro A34 (S-34):**
+
+1. backup da A34;
+2. instalar o build local assinado (mesma assinatura/versionCode 78) por cima do 6.0.4 público;
+3. abrir a nota #35, chat, foco no ponto 2;
+4. pedir `w17.10 23 §§9-10`, `jr 29` e `Je 29`;
+5. conferir: resposta usa a fonte, não o S-34; `jr` = livro/p. 29; `Je` = capítulo; `w17.10` não sustenta “esperança” se o texto for sobre Zedequias;
+6. se passar, bump **6.0.5/79** e release único.
+
 ## Saída da auditoria
 
 1. Lista dos casos FAIL, com severidade.
