@@ -207,25 +207,32 @@ Build release assinado local, instalado por cima do 6.0.4 público (mesma assina
 
 O modo fonte também reduziu o prompt de ~6,4k para ~1,4–3,2k tokens de entrada nesses turnos.
 
-**Build/validação:** 3.351 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings; CI da branch `43761024538` verde em `9a3c049`. APK de teste 78 (código final, ainda sem bump): SHA-256 `d9a348af28dab3b84023267035ca7f319626b3b56f219cd68ffc4b23e75e59e5` em `/tmp/opencode/better-talker-6.0.5-test-78-final.apk`. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release. **Falta o reteste na A34 com S-34 (caso 1 e casos 6–8).**
+**Build/validação:** 3.351 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings; CI da branch `43761024538` verde em `9a3c049`. APK de teste 78 (código final, ainda sem bump): SHA-256 `d9a348af28dab3b84023267035ca7f319626b3b56f219cd68ffc4b23e75e59e5` em `/tmp/opencode/better-talker-6.0.5-test-78-final.apk`. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
+
+### A34 — build local do fix 6.0.5 (código final, com S-34)
+
+Nota **#35** — “É possível viver para sempre? O que você precisa fazer?”, foco **Tópico 3/7**. Backup prévio: `better-talker-backup-20261113-1508.zip` (pull para `/tmp/opencode/a34-pre-6.0.5.zip`). APK 78 final instalado por cima do 6.0.4 público; dados preservados.
+
+| # | Caso | Resultado | Evidência |
+|---|---|---|---|
+| 1 | Desenvolva o ponto 2 | **PASS** | `ChatRouter route=ORATORY mode=DEVELOPMENT section=sec-2`; card “Texto para o card” com 270 palavras; **sem** `oratória-card: aviso de fidelidade` (o falso positivo de `Gênesis 5:5` não apareceu). O teste unitário cobre a ref do dossiê. |
+| 6 | `w17.10 23 §§9-10` sobre a esperança | **PASS** | `route=GENERAL`; `SourceGate` reconheceu `w17.10 23 §§9-10`; prompt de ~1,6k tokens; a resposta usou Zedequias/juramento e disse que o trecho **não** trata de esperança; não derivou para `w24.08`. |
+| 7 | `jr 29` | **PASS** | `route=GENERAL`; interpretação explícita “livro Jeremias — Uma Mensagem de Deus para Nós, página 29”; texto de Zedequias; sem confusão com o capítulo 29. |
+| 8 | `Je 29` | **PASS** | `route=GENERAL`; capítulo injetado (~3,2k tokens); resposta “carta de Jeremias aos exilados”, com `Je 29:5`, `7`, `8` e `9`; sem confusão com `jr`. |
+| 11 | `w99.01` | **PASS** | `route=GENERAL`; “Não encontrei o texto de A Sentinela de 1º de janeiro de 1999 no acervo local… Não quero arriscar inventar nada”; oferece “Abrir Biblioteca”. |
+
+**Observação (P2, 6.1):** em turnos longos, o chat ainda mostra a pílula “2 novas ↓” e não acompanha o fim com o teclado aberto. É UX, não conteúdo.
 
 ### Próximos casos
 
-Ainda faltam os casos 1–5, 9–10 e 12–15 na A34 (que está desligada). O tablet cobre os casos de fonte 6–8 e o capítulo bíblico. Antes de fechar o 6.0.5, falta:
+Os casos críticos do 6.0.5 estão cobertos: **1** (card + fidelidade), **6–8** (fonte publicada × capítulo bíblico) e **11** (recusa honesta) passaram na A34 com S-34; o tablet confirmou `w17.10`, `jr 29`, `Je 29` e `w99.01`. Ficam para o 6.1, sem bloquear o gate:
 
-1. rodar os casos 6–8 na A34 com S-34 (regressão do dossiê dominante);
-2. revisar o vazamento de Ponto 1/w24.08 na resposta de `w17.10` (o aviso de deriva já cobre; a segunda execução saiu limpa);
-3. CI da branch e, se verde, bump 6.0.5/79 + release unico.
+1. casos 2–5 (conclusão, transição, “desenvolva este ponto”, “melhore”);
+2. casos 9–10 (orientação `be` e fontes faltantes da nota);
+3. casos 12–15 (indexando, ref inexistente, discurso inteiro, resumo);
+4. UX do “2 novas ↓” com o teclado aberto.
 
-**Roteiro A34 (S-34):**
-
-1. backup da A34;
-2. instalar o build local assinado (mesma assinatura/versionCode 78) por cima do 6.0.4 público;
-3. abrir a nota #35, chat, foco no ponto 2;
-4. pedir **“Desenvolva o ponto 2”** e conferir o card no ponto 2 **sem** o aviso falso de `Gênesis 5:5` (ref do dossiê);
-5. pedir `w17.10 23 §§9-10`, `jr 29` e `Je 29`;
-6. conferir: resposta usa a fonte, não o S-34; `jr` = livro/p. 29; `Je` = capítulo; `w17.10` não sustenta “esperança” se o texto for sobre Zedequias;
-7. se passar, bump **6.0.5/79** e release único.
+**Decisão:** **6.0.5** (não 6.1). Resposta errada com fonte disponível é falha de integridade; o patch corrige os P0/P1 de fonte e o falso aviso de fidelidade.
 
 ## Saída da auditoria
 
