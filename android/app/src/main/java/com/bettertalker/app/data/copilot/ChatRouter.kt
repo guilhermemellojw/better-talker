@@ -584,8 +584,15 @@ object ChatRouter {
     private val TOPIC_OBJECTIVE = Regex("\\b(objetivo|proposito|meta|tema)\\b")
     private val TOPIC_POINTS = Regex("\\b(pontos principais|pontos|topicos|secoes|estrutura)\\b")
     private val TOPIC_SEQUENCE = Regex("\\b(sequencia|ordem|primeiro|ultimo|antes|depois)\\b")
+    /**
+     * Consulta estrutural sobre referências: exige contexto de ponto/nota/
+     * esboço. `w17.10` sozinho é pergunta sobre a PUBLICAÇÃO, não sobre a
+     * estrutura do S-34; antes o `w\\d{2}` aqui sequestrava o RAG.
+     */
     private val TOPIC_REFERENCES =
-        Regex("\\b(referencias|referencia|textos|versiculos|publicacoes|publicacao|citac|w\\d{2})\\b")
+        Regex("\\b(referencias|referencia|textos|versiculos|publicacoes|publicacao|citac)\\b")
+    private val TOPIC_STRUCTURAL_CONTEXT =
+        Regex("\\b(ponto|pontos|topico|topicos|secao|secoes|esboco|esbocos|estrutura|s\\s*34|discurso|nota)\\b")
 
     // ---------- Fatia 4: navegação/mentoria ----------
 
@@ -818,7 +825,8 @@ object ChatRouter {
         val isQuestion = t.trim().endsWith("?") || QUESTION_OPENERS.containsMatchIn(t.trim())
         if (!isQuestion) return null
         return when {
-            TOPIC_REFERENCES.containsMatchIn(t) -> StructuralTopic.REFERENCES
+            TOPIC_REFERENCES.containsMatchIn(t) &&
+                TOPIC_STRUCTURAL_CONTEXT.containsMatchIn(t) -> StructuralTopic.REFERENCES
             TOPIC_OBJECTIVE.containsMatchIn(t) -> StructuralTopic.OBJECTIVE
             // Sequência antes de "pontos": "sequência dos pontos" é ordem.
             TOPIC_SEQUENCE.containsMatchIn(t) -> StructuralTopic.SEQUENCE

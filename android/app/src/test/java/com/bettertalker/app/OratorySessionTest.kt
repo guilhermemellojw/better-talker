@@ -56,6 +56,17 @@ class OratorySessionTest {
         assertEquals("sec-2", d.sectionId)
     }
 
+    @Test
+    fun requestedPoint_naoLeRangeDeParagrafoComoPonto() {
+        // Regressão A34 6.0.4: "§§9-10" virava "ponto 10".
+        assertEquals(null, OratorySession.requestedPoint("O que diz w17.10 23 §§9-10?"))
+        assertEquals(null, OratorySession.requestedPoint("Leia os §§ 9-10"))
+        assertEquals(null, OratorySession.requestedPoint("O que diz Je 29?"))
+        assertEquals(2, OratorySession.requestedPoint("Desenvolva o ponto 2"))
+        assertEquals(3, OratorySession.requestedPoint("3."))
+        assertEquals(3, OratorySession.requestedPoint("no 3"))
+    }
+
     // ---------- Iteração: herda modo + ponto (§§16-20) ----------
 
     @Test

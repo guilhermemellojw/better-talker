@@ -181,9 +181,39 @@ No logcat (filtros):
 - **P1 — pós-check:** se uma fonte da pergunta foi injetada e a resposta não a usou, refazer uma vez com instrução estrita; se persistir, responder de forma determinística/abrir o reader.
 - **P2 — scroll:** corrigir o “followEnd” com teclado aberto; o turno novo deve entrar na viewport.
 
+### Tablet — 6.0.4 público (pré-fix)
+
+Nota: “Uma reação compreensível diante de uma terrível perda” (sem S-34; 6 anexos, 2 extras).
+Provider/rede: DeepSeek via app, Wi-Fi.
+
+| # | Caso | Resultado | Evidência |
+|---|---|---|---|
+| 6 | `w17.10 23 §§9-10` | **PASS com ressalva** | Rota `GENERAL`; 1 trecho injetado; a resposta usou o texto e disse honestamente que ele trata de Zedequias/juramento quebrado, não de esperança. Não citou `[Fonte N]` e derivou para o Ponto 1/w24.08 (fora da fonte). |
+| 7 | `jr 29` | **PASS** | Rota `GENERAL`; interpretou como **livro Jeremias — Uma Mensagem de Deus para Nós, página 29**, não como capítulo 29; usou o texto da página (Zedequias) e não inventou o capítulo. |
+| 8 | `Je 29` | **FAIL/PARCIAL** | Rota `GENERAL`; não injetou capítulo (só versículo); a resposta disse que não tinha o capítulo e ofereceu uma paráfrase geral. Também confundiu com a página 29 do `jr` do turno anterior. |
+
+**Comparação A34 × tablet:** a A34 (nota com S-34) falhou 6/7/8 porque o dossiê/S-34 dominou o prompt; o tablet (nota sem S-34) passou 6/7, mas falhou o capítulo bíblico. Isso confirma as duas causas: **S-34/dossiê dominante** e **capítulo não injetado**.
+
+### Tablet — build local do fix 6.0.5 (código da branch)
+
+Build release assinado local, instalado por cima do 6.0.4 público (mesma assinatura/versionCode 78). Dados preservados; a UI ainda mostra 6.0.4 (ainda sem bump).
+
+| # | Caso | Resultado | Evidência |
+|---|---|---|---|
+| 6 | `w17.10 23 §§9-10` | **PASS com ressalva** | Fonte usada; leu o trecho de Zedequias e disse que ele não sustenta “esperança”. Ainda derivou para Ponto 1/w24.08, que não estavam no bloco — ver P1 de pós-check. |
+| 7 | `jr 29` | **PASS** | Interpretação explícita “livro Jeremias — Uma Mensagem de Deus para Nós, página 29”; texto de Zedequias citado; sem confusão com o capítulo 29. |
+| 8 | `Je 29` | **PASS** | Capítulo injetado pelo leitor; resposta com versículos 4, 10, 11 e 13 e aviso contra falsos profetas; sem confusão com `jr`. |
+
+O modo fonte também reduziu o prompt de ~6,4k para ~1,6–3,2k tokens de entrada nesses turnos.
+
 ### Próximos casos
 
-Ainda faltam os casos 2–5, 9–10 e 12–15. Mas os casos 6–8 já mostram um padrão P0: **a fonte citada não governa a resposta**. Corrigir isso antes de continuar a auditoria completa, senão os demais casos de fonte repetem o mesmo FAIL.
+Ainda faltam os casos 1–5, 9–10 e 12–15 na A34 (que está desligada). O tablet cobre os casos de fonte 6–8 e o capítulo bíblico. Antes de fechar o 6.0.5, falta:
+
+1. rodar os casos 6–8 na A34 com S-34 (regressão do dossiê dominante);
+2. rodar o caso 11 (`w99.01`) no build com fix;
+3. revisar o vazamento de Ponto 1/w24.08 na resposta de `w17.10` (pós-check de fonte);
+4. suíte completa + lint/build + CI.
 
 ## Saída da auditoria
 

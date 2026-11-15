@@ -828,6 +828,8 @@ private fun DeepSeekProvider.deepSeekPromptsFor(request: LlmRequest): Pair<Strin
             contextBlock = request.contextBlock,
             userContextBlock = request.userContextBlock,
             longText = request.longTextRequest != null,
+            sourceQuestionMode = request.sourceQuestionMode,
+            sourceQuestionBlock = request.sourceQuestionBlock,
         )
         return parts.system to parts.user
     }
