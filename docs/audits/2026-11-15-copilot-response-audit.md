@@ -200,20 +200,22 @@ Build release assinado local, instalado por cima do 6.0.4 público (mesma assina
 
 | # | Caso | Resultado | Evidência |
 |---|---|---|---|
-| 6 | `w17.10 23 §§9-10` | **PASS com ressalva** | Fonte usada; leu o trecho de Zedequias e disse que ele não sustenta “esperança”. Ainda derivou para Ponto 1/w24.08, que não estavam no bloco — ver P1 de pós-check. |
+| 6 | `w17.10 23 §§9-10` | **PASS** | Fonte usada; leu o trecho de Zedequias e disse que ele não sustenta “esperança”. Na segunda execução, após o aviso de deriva, não citou Ponto 1/w24.08. |
 | 7 | `jr 29` | **PASS** | Interpretação explícita “livro Jeremias — Uma Mensagem de Deus para Nós, página 29”; texto de Zedequias citado; sem confusão com o capítulo 29. |
 | 8 | `Je 29` | **PASS** | Capítulo injetado pelo leitor; resposta com versículos 4, 10, 11 e 13 e aviso contra falsos profetas; sem confusão com `jr`. |
+| 11 | `w99.01` | **PASS** | “Não encontrei o texto de A Sentinela de 1º de janeiro de 1999 no acervo local. Não vou arriscar citar de memória…”; ofereceu “Ver na Biblioteca”. |
 
-O modo fonte também reduziu o prompt de ~6,4k para ~1,6–3,2k tokens de entrada nesses turnos.
+O modo fonte também reduziu o prompt de ~6,4k para ~1,4–3,2k tokens de entrada nesses turnos.
+
+**Build/validação:** 3.347 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
 
 ### Próximos casos
 
 Ainda faltam os casos 1–5, 9–10 e 12–15 na A34 (que está desligada). O tablet cobre os casos de fonte 6–8 e o capítulo bíblico. Antes de fechar o 6.0.5, falta:
 
 1. rodar os casos 6–8 na A34 com S-34 (regressão do dossiê dominante);
-2. rodar o caso 11 (`w99.01`) no build com fix;
-3. revisar o vazamento de Ponto 1/w24.08 na resposta de `w17.10` (pós-check de fonte);
-4. suíte completa + lint/build + CI.
+2. revisar o vazamento de Ponto 1/w24.08 na resposta de `w17.10` (o aviso de deriva já cobre; a segunda execução saiu limpa);
+3. CI da branch e, se verde, bump 6.0.5/79 + release unico.
 
 ## Saída da auditoria
 
