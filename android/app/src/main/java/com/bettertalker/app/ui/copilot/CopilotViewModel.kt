@@ -13,6 +13,7 @@ import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
 import com.bettertalker.app.data.copilot.SourceQuestionEvidence
 import com.bettertalker.app.data.copilot.buildSourceQuestionBlock
+import com.bettertalker.app.data.copilot.isSourceQuestionMessage
 import com.bettertalker.app.data.copilot.sourceQuestionDriftRefs
 import com.bettertalker.app.data.copilot.refDisplayLabel
 import com.bettertalker.app.data.bible.RoomBiblePassageSource
@@ -4295,14 +4296,14 @@ class CopilotViewModel(
         } else {
             null
         }
-        val sourceQuestionMode = (detectedPubRefs.isNotEmpty() ||
-            detectedBibleChapters.isNotEmpty() ||
-            questionPubs.isNotEmpty() ||
-            questionVerses.isNotEmpty() ||
-            bibleChapterPassage?.verses?.isNotEmpty() == true) &&
-            !com.bettertalker.app.data.copilot.ChatRouter.isLongTextGenerationRequest(text) &&
-            com.bettertalker.app.data.copilot.OratoryGeneration.detectMode(text) == null &&
-            !com.bettertalker.app.data.copilot.OratorySession.isRefinement(text)
+        val sourceQuestionMode = run {
+            val hasDetectedSourceRef = detectedPubRefs.isNotEmpty() ||
+                detectedBibleChapters.isNotEmpty() ||
+                questionPubs.isNotEmpty() ||
+                questionVerses.isNotEmpty() ||
+                bibleChapterPassage?.verses?.isNotEmpty() == true
+            isSourceQuestionMessage(text, hasDetectedSourceRef)
+        }
         val sourceInterpretations = buildList {
             detectedPubRefs.forEach { add(refDisplayLabel(it)) }
             detectedBibleChapters.forEach { add("${it.label} ${it.chapter} — Bíblia") }

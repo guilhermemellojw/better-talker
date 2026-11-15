@@ -207,7 +207,7 @@ Build release assinado local, instalado por cima do 6.0.4 público (mesma assina
 
 O modo fonte também reduziu o prompt de ~6,4k para ~1,4–3,2k tokens de entrada nesses turnos.
 
-**Build/validação:** 3.349 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
+**Build/validação:** 3.351 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
 
 ### Próximos casos
 

@@ -106,6 +106,41 @@ class SourceQuestionBlockTest {
     }
 
     @Test
+    fun modoFonteReconhecePerguntaDeLeitura() {
+        assertTrue(
+            isSourceQuestionMessage(
+                "O que diz w17.10 23 §§9-10 sobre a esperança?",
+                hasDetectedRef = true,
+            )
+        )
+        assertTrue(isSourceQuestionMessage("Leia Je 29", hasDetectedRef = true))
+        assertTrue(isSourceQuestionMessage("w17.10 23 §§9-10", hasDetectedRef = true))
+    }
+
+    @Test
+    fun modoFonteNaoSequestraGeracaoNemUsoNoPonto() {
+        assertFalse(
+            isSourceQuestionMessage(
+                "Desenvolva o ponto 2 com w17.10 23",
+                hasDetectedRef = true,
+            )
+        )
+        assertFalse(
+            isSourceQuestionMessage(
+                "Use João 3:16 no ponto 2",
+                hasDetectedRef = true,
+            )
+        )
+        assertFalse(
+            isSourceQuestionMessage(
+                "Melhore o ponto 2 com w17.10",
+                hasDetectedRef = true,
+            )
+        )
+        assertFalse(isSourceQuestionMessage("O que diz w17.10?", hasDetectedRef = false))
+    }
+
+    @Test
     fun promptNormalContinuaComDossie() {
         val prompts = buildDeepSeekPrompts(
             message = "melhore o ponto 2",

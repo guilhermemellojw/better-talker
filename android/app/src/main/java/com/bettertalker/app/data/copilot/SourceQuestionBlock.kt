@@ -87,6 +87,29 @@ fun buildSourceQuestionBlock(
 }
 
 /**
+ * 6.0.5 — a mensagem pede o TEXTO de uma fonte já detectada?
+ *
+ * Diferencia consulta de fonte de geração/refinamento: "O que diz w17.10?"
+ * entra no modo fonte; "Use João 3:16 no ponto 2" e "desenvolva o ponto 2"
+ * continuam no fluxo normal (S-34/dossiê). Puro/testável.
+ */
+fun isSourceQuestionMessage(text: String, hasDetectedRef: Boolean): Boolean {
+    if (!hasDetectedRef) return false
+    if (ChatRouter.isLongTextGenerationRequest(text)) return false
+    if (OratoryGeneration.detectMode(text) != null) return false
+    if (OratorySession.isRefinement(text)) return false
+    // Instrução de usar a ref num ponto é geração, não consulta da fonte.
+    if (SOURCE_USE_INSTRUCTION.containsMatchIn(text)) return false
+    return true
+}
+
+/** Verbos de “usar a ref no texto” — pedido de geração, não de leitura. */
+private val SOURCE_USE_INSTRUCTION = Regex(
+    """(?i)\b(use|usar|usando|utilize|utilizar|aplique|aplicar|inclua|incluir|""" +
+        """insira|inserir|coloque|colocar)\b"""
+)
+
+/**
  * P1 (6.0.5) — no modo fonte, uma resposta não pode introduzir outra
  * publicação (ex.: citou `w24.08` quando a pergunta era `w17.10`).
  * Devolve os rótulos extras, sem duplicar. Puro/testável.
