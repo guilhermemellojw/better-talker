@@ -207,7 +207,7 @@ Build release assinado local, instalado por cima do 6.0.4 público (mesma assina
 
 O modo fonte também reduziu o prompt de ~6,4k para ~1,4–3,2k tokens de entrada nesses turnos.
 
-**Build/validação:** 3.351 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
+**Build/validação:** 3.351 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings; CI da branch `43761024538` verde em `9a3c049`. APK de teste 78 (código final, ainda sem bump): SHA-256 `d9a348af28dab3b84023267035ca7f319626b3b56f219cd68ffc4b23e75e59e5` em `/tmp/opencode/better-talker-6.0.5-test-78-final.apk`. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release. **Falta o reteste na A34 com S-34 (caso 1 e casos 6–8).**
 
 ### Próximos casos
 
