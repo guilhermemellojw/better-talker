@@ -172,6 +172,35 @@ class ChatRouterTest {
         assertEquals(StructuralTopic.SEQUENCE, (r as Route.StructuralQuery).topic)
     }
 
+    @Test
+    fun perguntaSobrePublicacaoEspecificaNaoEViraConsultaEstrutural() {
+        // Regressão A34 6.0.4: `w\d{2}` estava em TOPIC_REFERENCES e
+        // sequestrava o RAG; a resposta falava do S-34 em vez da publicação.
+        for (texto in listOf(
+            "O que diz w17.10 23 §§9-10?",
+            "O que diz jr 29?",
+            "O que diz w99.01?",
+            "O que diz Je 29?",
+        )) {
+            val r = route(texto)
+            assertFalse(texto, r is Route.StructuralQuery)
+            assertTrue(texto, r is Route.General)
+        }
+    }
+
+    @Test
+    fun referenciaEstruturalComContextoContinuaConsulta() {
+        for (texto in listOf(
+            "Quais são as referências do ponto 2?",
+            "Quais textos o S-34 indica?",
+            "Qual publicação está ligada ao ponto 3?",
+        )) {
+            val r = route(texto)
+            assertTrue(texto, r is Route.StructuralQuery)
+            assertEquals(texto, StructuralTopic.REFERENCES, (r as Route.StructuralQuery).topic)
+        }
+    }
+
     // ---------- §41: falsos positivos evitados ----------
 
     @Test

@@ -587,7 +587,15 @@ fun buildChatPrompt(
     oratory: OratoryStructure.Inferred? = null,
     userContextBlock: String? = null,
     longText: Boolean = false,
+    sourceQuestionMode: Boolean = false,
+    sourceQuestionBlock: String? = null,
 ): String {
+    if (sourceQuestionMode && !sourceQuestionBlock.isNullOrBlank()) {
+        // Pergunta sobre fonte: nada de S-34/dossiê/bloco. A fonte citada
+        // governa a resposta; histórico é omitido para não misturar jr/Je.
+        return "$SOURCE_QUESTION_RULES\n\n${sourceQuestionBlock.trim()}\n\n" +
+            "Mensagem do usuário: \"$message\"\n\n" + chatTailInstructions()
+    }
     val context = serializePack(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
     val extension = extensionTargetSection(blockMinutes, longText)
@@ -651,7 +659,19 @@ fun buildDeepSeekPrompts(
     contextBlock: String? = null,
     userContextBlock: String? = null,
     longText: Boolean = false,
+    sourceQuestionMode: Boolean = false,
+    sourceQuestionBlock: String? = null,
 ): DeepSeekPrompts {
+    if (sourceQuestionMode && !sourceQuestionBlock.isNullOrBlank()) {
+        // Modo fonte: o system fica mínimo (persona + regras da fonte + cauda).
+        // Sem S-34, sem dossiê, sem bloco e sem histórico: a fonte citada é a
+        // única base e o modelo não pode responder sobre o ponto atual.
+        val system = (CHAT_PERSONA_FREE + "\n\n" + SOURCE_QUESTION_RULES +
+            "\n" + chatTailInstructions()).trim()
+        val user = sourceQuestionBlock.trim() +
+            "\n\nMensagem do usuário: \"$message\""
+        return DeepSeekPrompts(system = system, user = user)
+    }
     val context = serializePackStable(pack, legacyPassages, structural, oratory)
     val block = blockSection(blockTitle, blockMinutes)
     val extension = extensionTargetSection(blockMinutes, longText)

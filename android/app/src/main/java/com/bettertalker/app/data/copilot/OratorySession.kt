@@ -70,14 +70,24 @@ object OratorySession {
         ).containsMatchIn(t)
     }
 
-    /** Número de ponto pedido ("ponto 3", "3.", "no 3") — 1-based. */
+    /**
+     * Número de ponto pedido ("ponto 3", "3.", "no 3") — 1-based.
+     *
+     * O fallback numérico é deliberadamente conservador: texto com `§`,
+     * "parágrafo" ou referência cap:vers NÃO é um ponto. Antes,
+     * `w17.10 23 §§9-10` virava "ponto 10" e o S-34 mudava de alvo.
+     */
     fun requestedPoint(text: String): Int? {
         val t = " ${normalizeText(text)} "
         Regex("(ponto|topico|secao|parte)\\s*(n\\.?\\u00ba?\\s*)?(\\d{1,2})").find(t)?.let {
             return it.groupValues[3].toIntOrNull()
         }
-        Regex("\\b(\\d{1,2})\\b").find(t)?.let { return it.groupValues[1].toIntOrNull() }
-        return null
+        val raw = text.lowercase()
+        if (raw.contains('§') || raw.contains("parag") || raw.contains(':')) return null
+        val trimmed = t.trim().trim('.', '!', '?', ',', ';')
+        val numeric = Regex("^(?:no|numero|n\\.?)?\\s*(\\d{1,2})$").find(trimmed)
+            ?: return null
+        return numeric.groupValues[1].toIntOrNull()
     }
 
     /** Pedido que tenta criar estrutura nova ("crie um ponto 4"). */

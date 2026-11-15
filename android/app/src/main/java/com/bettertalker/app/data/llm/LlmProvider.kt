@@ -95,6 +95,13 @@ data class LlmRequest(
      */
     val userContextBlock: String? = null,
     /**
+     * 6.0.5 — pergunta sobre uma fonte específica. O prompt prioriza o
+     * bloco da fonte e omite S-34/dossiê/bloco/histórico para o modelo não
+     * responder sobre o ponto atual.
+     */
+    val sourceQuestionMode: Boolean = false,
+    val sourceQuestionBlock: String? = null,
+    /**
      * T1 (modo colar e conversar): esboço colado íntegro. Quando presente,
      * o provider usa o prompt minimalista ([buildMinimalPastePrompts]) em
      * vez do prompt estruturado — sem S-34, dossiê, RAG ou TAIL.

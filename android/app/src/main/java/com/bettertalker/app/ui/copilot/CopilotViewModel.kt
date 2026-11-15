@@ -11,6 +11,13 @@ import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
+import com.bettertalker.app.data.copilot.SourceQuestionEvidence
+import com.bettertalker.app.data.copilot.buildSourceQuestionBlock
+import com.bettertalker.app.data.copilot.isSourceQuestionMessage
+import com.bettertalker.app.data.copilot.sourceQuestionDriftRefs
+import com.bettertalker.app.data.copilot.refDisplayLabel
+import com.bettertalker.app.data.bible.RoomBiblePassageSource
+import com.bettertalker.app.domain.bible.BiblePassageReader
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.nextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteSectionRef
@@ -3435,7 +3442,17 @@ class CopilotViewModel(
                         )
                         return@launch
                     }
-                    generateOratory(route, text, remote, contextBlock, turnContext)
+                    generateOratory(
+                        route = route,
+                        message = text,
+                        remote = remote,
+                        contextBlock = contextBlock,
+                        turnContext = turnContext,
+                        extraAuthorizedRefs = buildList {
+                            dossier?.bibleTexts?.forEach { add(it.ref) }
+                            dossier?.publicationTexts?.forEach { add(it.ref.symbol) }
+                        },
+                    )
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.ApplyStructure -> {
@@ -3813,6 +3830,10 @@ class CopilotViewModel(
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+        // 6.0.5 — refs do dossiê da nota que também foram para o prompt. O
+        // gate de fidelidade não pode chamar de "inventada" uma citação que
+        // o modelo recebeu do dossiê (falso positivo Gênesis 5:5 na A34).
+        extraAuthorizedRefs: List<String> = emptyList(),
     ) {
         // #15a: sem S-34 o chamador degrada para o chat (com aviso suave);
         // este guard é defensivo — estado impossível pelo fluxo do sendMessage.
@@ -4012,7 +4033,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready)
+                .check(cardText, ready, extraAuthorizedRefs)
             val fidelityNotice = fidelityRevisionNotice(fidelity)
             if (fidelityNotice != null) {
                 android.util.Log.w(
@@ -4260,6 +4281,74 @@ class CopilotViewModel(
         // T1 (expert em publicações): trechos de publicações citadas NA
         // PERGUNTA (mesmo padrão dos versículos; P4: só com citação).
         val questionPubs = if (text.isNotBlank()) repo.publicationPassages(text, 3) else emptyList()
+        // 6.0.5 — pergunta sobre fonte específica. Capítulo bíblico
+        // (`Je 29`) não passava pelo findByRef de versículo; usa o MESMO
+        // leitor do sheet/reader. Depois de montar a evidência, o modo fonte
+        // omite S-34/dossiê/histórico para o modelo não responder sobre o
+        // ponto atual (regressão A34 6.0.4).
+        val detectedPubRefs = if (text.isNotBlank()) RefDetector.detect(text) else emptyList()
+        val detectedBibleChapters =
+            if (text.isNotBlank()) RefDetector.detectBibleChapters(text) else emptyList()
+        val bibleChapterPassage = if (detectedBibleChapters.isNotEmpty()) {
+            BiblePassageReader(
+                RoomBiblePassageSource(db.passageDao(), db.attachmentDao())
+            ).read(text)
+        } else {
+            null
+        }
+        val sourceQuestionMode = run {
+            val hasDetectedSourceRef = detectedPubRefs.isNotEmpty() ||
+                detectedBibleChapters.isNotEmpty() ||
+                questionPubs.isNotEmpty() ||
+                questionVerses.isNotEmpty() ||
+                bibleChapterPassage?.verses?.isNotEmpty() == true
+            isSourceQuestionMessage(text, hasDetectedSourceRef)
+        }
+        val sourceInterpretations = buildList {
+            detectedPubRefs.forEach { add(refDisplayLabel(it)) }
+            detectedBibleChapters.forEach { add("${it.label} ${it.chapter} — Bíblia") }
+            bibleChapterPassage?.takeIf { it.verses.isNotEmpty() }?.let {
+                add("${it.displayRef} — Bíblia (${it.sourceLabel})")
+            }
+        }.distinct()
+        val sourceEvidence = buildList {
+            questionPubs.forEach {
+                add(
+                    SourceQuestionEvidence(
+                        reference = it.passage.ref.ifBlank { it.source },
+                        text = it.passage.text,
+                        label = it.source,
+                    )
+                )
+            }
+            questionVerses.forEach {
+                add(
+                    SourceQuestionEvidence(
+                        reference = it.passage.ref,
+                        text = it.passage.text,
+                        label = it.source,
+                    )
+                )
+            }
+            bibleChapterPassage?.verses?.forEach {
+                add(
+                    SourceQuestionEvidence(
+                        reference = it.ref,
+                        text = it.text,
+                        label = bibleChapterPassage.sourceLabel,
+                    )
+                )
+            }
+        }.distinctBy { it.reference }
+        val sourceQuestionBlock = if (sourceQuestionMode) {
+            buildSourceQuestionBlock(
+                question = text,
+                interpretations = sourceInterpretations,
+                evidence = sourceEvidence,
+            )
+        } else {
+            null
+        }
         // T1 (Fase 2): memória da construção — resumo rolante do fio da
         // conversa, antes do dossiê. Null em conversa curta sem decisões =
         // prompt idêntico ao anterior (cache preservado).
@@ -4346,13 +4435,22 @@ class CopilotViewModel(
             focusId = _chatScope.value.takeIf { _focusMode.value == FocusMode.SECTION },
             whole = _focusMode.value == FocusMode.WHOLE,
         )
-        val volatileContextBlock = combineContextBlocks(noteLens, questionVerses, questionPubs)
-        // Corpus do gate: tudo o que foi injetado, estável + volátil.
-        val effectiveContextBlock = combineContextBlocks(
-            stableContextBlock,
-            questionVerses,
-            questionPubs,
-        )
+        val volatileContextBlock = if (sourceQuestionMode) {
+            null
+        } else {
+            combineContextBlocks(noteLens, questionVerses, questionPubs)
+        }
+        // Corpus do gate: tudo o que foi injetado, estável + volátil. No
+        // modo fonte, só o bloco da fonte (o dossiê/S-34 não foi enviado).
+        val effectiveContextBlock = if (sourceQuestionMode) {
+            sourceQuestionBlock
+        } else {
+            combineContextBlocks(
+                stableContextBlock,
+                questionVerses,
+                questionPubs,
+            )
+        }
         if (questionVerses.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
@@ -4386,17 +4484,20 @@ class CopilotViewModel(
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
-                    text = focusTextForLlm(blockText),
+                    text = if (sourceQuestionMode) "" else focusTextForLlm(blockText),
                     action = com.bettertalker.app.data.llm.LlmAction.CHAT,
                     message = text,
-                    history = history,
-                    isFirstMessage = isFirst,
+                    // Modo fonte: sem histórico, para `jr 29` e `Je 29` não
+                    // se contaminarem no turno seguinte.
+                    history = if (sourceQuestionMode) emptyList() else history,
+                    isFirstMessage = if (sourceQuestionMode) true else isFirst,
                     // #11-fix: folga quando há ref do acervo resolvida na pergunta.
                     // Texto longo: orçamento do pedido (2048..8192).
                     maxOutputTokens = longRequest
                         ?.let { OutputBudget.longText(it).maxTokens }
                         ?: answerOutputBudget(
-                            questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
+                            sourceQuestionMode ||
+                                questionVerses.isNotEmpty() || questionPubs.isNotEmpty()
                         ),
                     // C1: o retry por length do chat sobe até 4.096; texto
                     // longo pode usar o teto absoluto de 8.192.
@@ -4407,14 +4508,21 @@ class CopilotViewModel(
                     },
                     // F2.3 §10: o RAG NUNCA desaparece com foco. O dossiê do
                     // tópico e o ContextPack coexistem no mesmo prompt.
-                    contextPack = turnContext.pack,
-                    blockTitle = scopeBlockTitle(),
-                    blockMinutes = blockMinutes,
-                    structural = turnContext.structural,
-                    oratory = turnContext.oratory,
-                    contextBlock = stableContextBlock,
-                    userContextBlock = volatileContextBlock,
-                    longTextRequest = longRequest,
+                    // 6.0.5: no modo fonte, o prompt é só a fonte citada.
+                    contextPack = if (sourceQuestionMode) {
+                        com.bettertalker.app.data.domain.ContextPack(emptyList(), emptyList())
+                    } else {
+                        turnContext.pack
+                    },
+                    blockTitle = if (sourceQuestionMode) null else scopeBlockTitle(),
+                    blockMinutes = if (sourceQuestionMode) null else blockMinutes,
+                    structural = if (sourceQuestionMode) null else turnContext.structural,
+                    oratory = if (sourceQuestionMode) null else turnContext.oratory,
+                    contextBlock = if (sourceQuestionMode) null else stableContextBlock,
+                    userContextBlock = if (sourceQuestionMode) null else volatileContextBlock,
+                    longTextRequest = if (sourceQuestionMode) null else longRequest,
+                    sourceQuestionMode = sourceQuestionMode,
+                    sourceQuestionBlock = sourceQuestionBlock,
                 )
             )
         }
@@ -4455,27 +4563,42 @@ class CopilotViewModel(
         // de publicação da pergunta. Sem o dossiê, citar uma ref do PRÓPRIO
         // tópico dispara o aviso falso "fora dos trechos" (visto no device
         // com "ec 3:11").
-        val structuralVerseLines = resolveStructuralBibleLines(turnContext)
+        val structuralVerseLines = if (sourceQuestionMode) {
+            emptyList()
+        } else {
+            resolveStructuralBibleLines(turnContext)
+        }
         if (structuralVerseLines.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
                 "chat remoto: ${structuralVerseLines.size} versículo(s) do S-34 no corpus do verifier",
             )
         }
-        val corpus = verificationCorpus(
-            turnContext,
+        val corpus = if (sourceQuestionMode) {
+            // O modelo viu só o bloco da fonte; o corpus do verifier é o
+            // mesmo. Incluir o dossiê/S-34 aqui autorizaria citações que o
+            // modelo não recebeu.
             listOfNotNull(effectiveContextBlock) +
-                structuralVerseLines +
-                questionVerseLines(questionVerses, text) +
                 questionPubs.map { it.passage.text } +
-                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
-                // usuário e o rótulo das refs citadas também são fonte — citar
-                // a hipótese do usuário ("Baruque perdeu prestígio social")
-                // para refutá-la NÃO é inventar (falso positivo do A/B).
-                listOfNotNull(text.takeIf { it.isNotBlank() }) +
-                history.filter { it.fromMe }.map { it.text } +
-                questionPubs.map { it.source },
-        )
+                questionVerses.map { it.passage.text } +
+                bibleChapterPassage?.verses?.map { it.text }.orEmpty() +
+                listOfNotNull(text.takeIf { it.isNotBlank() })
+        } else {
+            verificationCorpus(
+                turnContext,
+                listOfNotNull(effectiveContextBlock) +
+                    structuralVerseLines +
+                    questionVerseLines(questionVerses, text) +
+                    questionPubs.map { it.passage.text } +
+                    // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
+                    // usuário e o rótulo das refs citadas também são fonte — citar
+                    // a hipótese do usuário ("Baruque perdeu prestígio social")
+                    // para refutá-la NÃO é inventar (falso positivo do A/B).
+                    listOfNotNull(text.takeIf { it.isNotBlank() }) +
+                    history.filter { it.fromMe }.map { it.text } +
+                    questionPubs.map { it.source },
+            )
+        }
         val outcome = verifyChatText(text, corpus)
         val verified = outcome.result
         // Nível 0: mede o “antes” (strict) e o “depois” (warn-only) no mesmo
@@ -4492,7 +4615,21 @@ class CopilotViewModel(
             )
         }
         // Aviso ÚNICO: substitui o REMOVAL_NOTICE e o citationRevisionNotice.
-        val notice = outcome.notice
+        // 6.0.5: no modo fonte, sinaliza publicação estranha (ex.: w24.08
+        // numa pergunta sobre w17.10) em vez de deixar passar como apoio.
+        val sourceDriftNotice = if (sourceQuestionMode) {
+            sourceQuestionDriftRefs(
+                answer = text,
+                allowedEditionKeys = detectedPubRefs.map { it.editionKey }.toSet(),
+            ).takeIf { it.isNotEmpty() }?.let { extras ->
+                "⚠️ Revise: a resposta citou ${extras.joinToString(", ")}, fora da fonte pedida."
+            }
+        } else {
+            null
+        }
+        val notice = listOfNotNull(outcome.notice, sourceDriftNotice)
+            .joinToString("\n\n")
+            .ifBlank { null }
         if (notice != null) {
             android.util.Log.w("CopilotLLM", "chat remoto: aviso único do verifier exibido")
         }
