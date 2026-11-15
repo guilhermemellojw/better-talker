@@ -234,6 +234,17 @@ Os casos críticos do 6.0.5 estão cobertos: **1** (card + fidelidade), **6–8*
 
 **Decisão:** **6.0.5** (não 6.1). Resposta errada com fonte disponível é falha de integridade; o patch corrige os P0/P1 de fonte e o falso aviso de fidelidade.
 
+## Fechamento 6.0.5
+
+- Tag **`v6.0.5`** em `b9f33e2` (merge da branch na `main`); release workflow
+  **`43765645820`** verde (unit tests + Storage rules + lint + build assinado
+  + `apksigner`).
+- APK público **79/6.0.5**: SHA-256
+  `7c3512f7da7e123a5117b93ffa8d6028444b1bb59951779a4cfa0dce2769cc08`
+  ([release](https://github.com/guilhermemellojw/better-talker/releases/tag/v6.0.5)).
+- A34 e tablet: casos críticos 1, 6–8 e 11 cobertos; dados preservados no
+  update por cima da 6.0.4/78 (mesma assinatura).
+
 ## Saída da auditoria
 
 1. Lista dos casos FAIL, com severidade.
