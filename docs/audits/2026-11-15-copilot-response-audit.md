@@ -168,7 +168,7 @@ No logcat (filtros):
 3. **O dossiê/S-34 domina o prompt.** A fonte citada na pergunta entra como bloco secundário no user; o system abre com “CONTEXTO DO DOSSIÊ (seção em foco)” e o ponto atual. O modelo responde sobre o ponto 2 mesmo quando a pergunta é sobre `jr 29`/`Je 29`.
 4. **Capítulo bíblico não é injetado.** `biblePassages` resolve versículos (`Je 29:11`), não capítulo (`Je 29`). O reader de capítulo existe, mas o chat não usa.
 5. **Range de publicação pode ser truncado.** `questionPublicationBlock` corta cada trecho em `MAX_QUESTION_PUB_CHARS = 600`; o reader mostra o texto completo, mas o prompt pode ver menos.
-6. **Aviso de fidelidade possivelmente falso.** `Gênesis 5:5` está no dossiê do ponto 2, mas o `OratoryFidelityCheck` o marcou como “sem apoio” — provavelmente porque compara só com as refs do S-34 `ready`, não com as refs do dossiê da nota.
+6. **Aviso de fidelidade possivelmente falso.** `Gênesis 5:5` está no dossiê do ponto 2, mas o `OratoryFidelityCheck` o marcou como “sem apoio” — porque comparava só com as refs do S-34 `ready`, não com as refs do dossiê da nota. **Corrigido no 6.0.5:** o gate recebe as refs do dossiê que foram ao prompt (`extraAuthorizedRefs`).
 7. **Auto-scroll com teclado.** Após enviar, o turno nasceu abaixo da viewport e apareceu a pílula “Nova mensagem”; o chat não acompanhou até o fim enquanto o teclado estava aberto. É UX, não conteúdo.
 
 ### Correções propostas
@@ -177,7 +177,7 @@ No logcat (filtros):
 - **P0 — modo pergunta-de-fonte:** quando a mensagem cita uma ref específica, montar um bloco prioritário “PERGUNTA SOBRE FONTE” com interpretação (`jr 29` = livro, p. 29; `Je 29` = Bíblia, cap. 29), texto integral e instrução para responder **dessa fonte**, não do ponto atual. Para pergunta puramente sobre fonte, rebaixar/omitir o dossiê e o S-34 do system.
 - **P0 — capítulo bíblico:** usar o leitor de capítulo/faixa no injetor da pergunta, não só `findByRef` de versículo.
 - **P1 — range completo:** incluir os dois parágrafos de `§§9-10`; se o orçamento não couber, marcar truncamento com `seenChars`/`originalChars` e nunca fingir que viu tudo.
-- **P1 — fidelidade:** considerar as refs do dossiê da nota no corpus do `OratoryFidelityCheck` ou distinguir “não está no S-34” de “não está na nota”.
+- **P1 — fidelidade:** considerar as refs do dossiê da nota no corpus do `OratoryFidelityCheck` ou distinguir “não está no S-34” de “não está na nota”. **Feito:** `check(..., extraAuthorizedRefs)` recebe as refs do dossiê que foram ao prompt; o falso positivo de `Gênesis 5:5` não volta, e uma ref fora do dossiê continua sendo reportada.
 - **P1 — pós-check:** se uma fonte da pergunta foi injetada e a resposta não a usou, refazer uma vez com instrução estrita; se persistir, responder de forma determinística/abrir o reader.
 - **P2 — scroll:** corrigir o “followEnd” com teclado aberto; o turno novo deve entrar na viewport.
 
@@ -207,7 +207,7 @@ Build release assinado local, instalado por cima do 6.0.4 público (mesma assina
 
 O modo fonte também reduziu o prompt de ~6,4k para ~1,4–3,2k tokens de entrada nesses turnos.
 
-**Build/validação:** 3.347 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
+**Build/validação:** 3.349 testes JVM / 0 falhas; `lintPublicAppRelease` 0 errors / 50 warnings. O build local assinado foi instalado por cima do 6.0.4 público no tablet (mesma assinatura/versionCode); a nota e o chat abriram, dados preservados. A UI ainda mostra 6.0.4 porque o bump para 6.0.5/79 será feito só no release.
 
 ### Próximos casos
 

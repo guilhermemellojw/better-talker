@@ -3441,7 +3441,17 @@ class CopilotViewModel(
                         )
                         return@launch
                     }
-                    generateOratory(route, text, remote, contextBlock, turnContext)
+                    generateOratory(
+                        route = route,
+                        message = text,
+                        remote = remote,
+                        contextBlock = contextBlock,
+                        turnContext = turnContext,
+                        extraAuthorizedRefs = buildList {
+                            dossier?.bibleTexts?.forEach { add(it.ref) }
+                            dossier?.publicationTexts?.forEach { add(it.ref.symbol) }
+                        },
+                    )
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.ApplyStructure -> {
@@ -3819,6 +3829,10 @@ class CopilotViewModel(
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+        // 6.0.5 — refs do dossiê da nota que também foram para o prompt. O
+        // gate de fidelidade não pode chamar de "inventada" uma citação que
+        // o modelo recebeu do dossiê (falso positivo Gênesis 5:5 na A34).
+        extraAuthorizedRefs: List<String> = emptyList(),
     ) {
         // #15a: sem S-34 o chamador degrada para o chat (com aviso suave);
         // este guard é defensivo — estado impossível pelo fluxo do sendMessage.
@@ -4018,7 +4032,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready)
+                .check(cardText, ready, extraAuthorizedRefs)
             val fidelityNotice = fidelityRevisionNotice(fidelity)
             if (fidelityNotice != null) {
                 android.util.Log.w(

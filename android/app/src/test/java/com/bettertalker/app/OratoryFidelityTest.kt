@@ -48,6 +48,30 @@ class OratoryFidelityTest {
     }
 
     @Test
+    fun referenciaDoDossieDaNotaNaoEhInventada() {
+        // 6.0.5: Gênesis 5:5 veio do dossiê da nota (contexto do ponto 2),
+        // não do S-34. O gate não pode marcar como "sem apoio" uma ref que o
+        // modelo recebeu — era o falso positivo medido na A34.
+        val r = OratoryFidelityCheck.check(
+            "Gênesis 5:5 mostra que a morte passou a existir.",
+            spec(),
+            extraAuthorizedRefs = listOf("Gênesis 5:5"),
+        )
+        assertTrue(r.inventedReferences.isEmpty())
+        assertTrue(r.leakedReferences.isEmpty())
+    }
+
+    @Test
+    fun referenciaForaDoDossieContinuaInventada() {
+        val r = OratoryFidelityCheck.check(
+            "Gênesis 5:5 mostra que a morte passou a existir.",
+            spec(),
+            extraAuthorizedRefs = listOf("Provérbios 21:5"),
+        )
+        assertTrue(r.inventedReferences.any { it.contains("Gênesis") })
+    }
+
+    @Test
     fun referenciaDaSubsecaoNaoEhInventada() {
         // 2.1: a ref está numa subseção do ponto; o corpus autorizado precisa
         // incluí-la (buildSpec agrega section.references + subseções).

@@ -76,8 +76,17 @@ object OratoryFidelityCheck {
      * Inspeciona [generatedText] contra o [spec]. `authorizedText` é o texto
      * das fontes de conteúdo disponíveis (Bíblia/publicações/section body);
      * números que não aparecem lá são reportados.
+     *
+     * [extraAuthorizedRefs] são refs que o turno também recebeu (ex.: o dossiê
+     * da NOTA injetado no prompt) mas não pertencem ao S-34. Sem elas, uma
+     * citação legítima do dossiê aparecia como "referência sem apoio"
+     * (falso positivo medido na A34: Gênesis 5:5).
      */
-    fun check(generatedText: String, spec: OratoryGeneration.Spec): Report {
+    fun check(
+        generatedText: String,
+        spec: OratoryGeneration.Spec,
+        extraAuthorizedRefs: List<String> = emptyList(),
+    ): Report {
         val allowedRefs = spec.current?.references.orEmpty().map { it.label }
         val leaked = spec.orderedSections
             .filter { it.sectionId != spec.current?.sectionId }
@@ -88,7 +97,8 @@ object OratoryFidelityCheck {
         // autorizada por CONTERÇÃO, não por igualdade.
         // #16-fix-f: ranges do S-34 ("Jó 38:31-33") autorizam também os
         // versículos individuais que o modelo cita (38:31, 38:32, 38:33).
-        val allowedKeys = (allowedRefs + allowedRefs.flatMap { RefCanonicalizer.expandRanges(it) })
+        val allAllowedRefs = allowedRefs + extraAuthorizedRefs.filter { it.isNotBlank() }
+        val allowedKeys = (allAllowedRefs + allAllowedRefs.flatMap { RefCanonicalizer.expandRanges(it) })
             .map { normalizeRef(it) }
 
         val invented = mutableListOf<String>()
