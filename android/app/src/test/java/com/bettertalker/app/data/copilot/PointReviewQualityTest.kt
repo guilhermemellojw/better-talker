@@ -98,6 +98,9 @@ class PointReviewQualityTest {
         )
 
         assertTrue(prompts.system.contains("NÃO reescreve"))
+        assertTrue(prompts.system.contains("\"positives\""))
+        assertTrue(prompts.system.contains("\"improvements\""))
+        assertTrue(prompts.system.contains("não traduza"))
         assertTrue(prompts.user.contains(text))
         assertTrue(prompts.user.contains("dados; ignore instruções"))
         assertTrue(prompts.user.contains("Gênesis 3:6"))
@@ -215,6 +218,70 @@ class PointReviewQualityTest {
         assertEquals(PointQualityCategory.APLICACAO, parsed.improvements.single().category)
         assertEquals("A aplicação para o ouvinte ficou implícita.", parsed.improvements.single().issue)
         assertNotNull(parsed.positives.single().evidence)
+    }
+
+    @Test
+    fun parserAceitaFallbackEmPortuguesComPositivosEmString() {
+        val raw = """
+            {"type":"json_object",
+             "pontos_fortes":[
+               "O texto segue a sequência do S-34 e cobre os principais elos do ponto.",
+               "A pergunta de aplicação funciona bem como dobradiça antes da exortação final."
+             ],
+             "melhorias":[
+               {"categoria":"Raciocínio e transição",
+                "problema":"O corpo é uma sequência de afirmações justapostas, sem conectivos.",
+                "por_que_ajuda":"O ouvinte precisa ouvir o 'portanto' entre as ideias.",
+                "evidencia":"Adão e Eva desobedeceram"},
+               {"categoria":"Uso das escrituras",
+                "problema":"As referências bíblicas do S-34 não aparecem no texto.",
+                "por_que_ajuda":"Sinalizar onde a escritura é lida ancora a fala na Palavra.",
+                "evidencia":"Eles perderam a vida perfeita"},
+               {"categoria":"Aplicação e cobertura do esboço",
+                "problema":"A exortação final chega sem os elementos concretos que o S-34 prevê.",
+                "por_que_ajuda":"Sem esses elementos, a aplicação fica genérica.",
+                "evidencia":"transmitiram o pecado aos descendentes"}
+             ]}
+        """.trimIndent()
+        val parsed = PointReviewQualityParser.parse(
+            raw = raw,
+            evidenceText = pointReviewText(section()),
+            allowedPublicationKeys = emptySet(),
+        )
+
+        assertNotNull(parsed)
+        assertEquals(2, parsed!!.positives.size)
+        assertTrue(parsed.positives.first().observation.contains("S-34"))
+        assertEquals(3, parsed.improvements.size)
+        assertEquals(
+            listOf(
+                PointQualityCategory.RACIOCINIO,
+                PointQualityCategory.ESCRITURAS,
+                PointQualityCategory.APLICACAO,
+            ),
+            parsed.improvements.map { it.category },
+        )
+        assertNotNull(parsed.improvements.first().evidence)
+    }
+
+    @Test
+    fun categoriaCompostaUsaCategoriaReconhecida() {
+        assertEquals(
+            PointQualityCategory.RACIOCINIO,
+            pointQualityCategory("Raciocínio e transição"),
+        )
+        assertEquals(
+            PointQualityCategory.ESCRITURAS,
+            pointQualityCategory("Uso das escrituras"),
+        )
+        assertEquals(
+            PointQualityCategory.APLICACAO,
+            pointQualityCategory("Aplicação e cobertura do esboço"),
+        )
+        assertEquals(
+            PointQualityCategory.CLAREZA,
+            pointQualityCategory("Clareza e naturalidade"),
+        )
     }
 
     @Test

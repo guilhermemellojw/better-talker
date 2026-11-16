@@ -37,34 +37,45 @@ object PointReviewQualityParser {
     ): PointQualityReview? {
         if (raw.isBlank()) return null
         val root = rootObject(stripFence(raw)) ?: return null
-        val positiveSpan = arraySpan(root, "positives") ?: return null
-        val improvementSpan = arraySpan(root, "improvements") ?: return null
+        val positiveSpan = arraySpanAny(root, "positives", "pontos_fortes", "pontosFortes")
+            ?: return null
+        val improvementSpan = arraySpanAny(root, "improvements", "melhorias")
+            ?: return null
         val positiveObjects = objectSpans(positiveSpan)
         val improvementObjects = objectSpans(improvementSpan)
-        // Array com conteúdo que não é objeto = saída inválida (não vazia).
-        if (positiveSpan.isNotBlank() && positiveObjects.isEmpty()) return null
+        // Positivos podem vir como objetos (schema) ou como strings (fallback).
+        val positiveStrings = if (positiveObjects.isEmpty()) stringValues(positiveSpan) else emptyList()
+        // Array com conteúdo que não é objeto nem string = saída inválida.
+        if (positiveSpan.isNotBlank() && positiveObjects.isEmpty() && positiveStrings.isEmpty()) {
+            return null
+        }
         if (improvementSpan.isNotBlank() && improvementObjects.isEmpty()) return null
 
-        val positives = positiveObjects.mapNotNull { obj ->
-            val observation = stringField(obj, "observation")?.trim().orEmpty()
-            if (observation.isBlank()) return@mapNotNull null
-            if (isReplacement(observation)) return@mapNotNull null
-            if (hasInventedPublication(observation, allowedPublicationKeys)) {
-                return@mapNotNull null
-            }
-            val evidence = stringField(obj, "evidence")
-                ?.takeIf { it.isNotBlank() && evidenceMatches(it, evidenceText) }
-            PointQualityPositive(observation, evidence)
-        }.take(2)
+        val positives = if (positiveObjects.isNotEmpty()) {
+            positiveObjects.mapNotNull { obj ->
+                val observation = stringFieldAny(
+                    obj, "observation", "observacao", "observação", "ponto_forte", "pontoForte",
+                ).orEmpty()
+                val evidence = stringFieldAny(obj, "evidence", "evidencia", "evidência")
+                    ?.takeIf { it.isNotBlank() && evidenceMatches(it, evidenceText) }
+                positiveOrNull(observation, evidence, allowedPublicationKeys)
+            }.take(2)
+        } else {
+            positiveStrings.mapNotNull { observation ->
+                positiveOrNull(observation, null, allowedPublicationKeys)
+            }.take(2)
+        }
 
         val improvements = improvementObjects.mapNotNull { obj ->
-            val issue = stringField(obj, "issue")?.trim().orEmpty()
-            val why = stringField(obj, "why")?.trim().orEmpty()
+            val issue = stringFieldAny(obj, "issue", "problema")?.trim().orEmpty()
+            val why = stringFieldAny(
+                obj, "why", "por_que_ajuda", "porQueAjuda", "justificativa",
+            )?.trim().orEmpty()
             if (issue.isBlank() || why.isBlank()) return@mapNotNull null
-            val rawCategory = stringField(obj, "category")?.trim().orEmpty()
+            val rawCategory = stringFieldAny(obj, "category", "categoria")?.trim().orEmpty()
             if (rawCategory.isBlank()) return@mapNotNull null
             val category = pointQualityCategory(rawCategory)
-            val evidence = stringField(obj, "evidence")
+            val evidence = stringFieldAny(obj, "evidence", "evidencia", "evidência")
                 ?.takeIf { it.isNotBlank() && evidenceMatches(it, evidenceText) }
             if (isReplacement(issue) || isReplacement(why)) return@mapNotNull null
             if (isGeneric(issue, evidence)) return@mapNotNull null
@@ -78,7 +89,8 @@ object PointReviewQualityParser {
         }.take(3)
 
         // JSON com itens brutos, mas todos rejeitados = saída inválida.
-        if (positiveObjects.isNotEmpty() && positives.isEmpty()) return null
+        val rawPositiveCount = positiveObjects.size + positiveStrings.size
+        if (rawPositiveCount > 0 && positives.isEmpty()) return null
         if (improvementObjects.isNotEmpty() && improvements.isEmpty()) return null
 
         return PointQualityReview(
@@ -88,6 +100,18 @@ object PointReviewQualityParser {
     }
 
     // ---------- validação semântica ----------
+
+    private fun positiveOrNull(
+        observation: String,
+        evidence: String?,
+        allowed: Set<String>,
+    ): PointQualityPositive? {
+        val trimmed = observation.trim()
+        if (trimmed.isBlank()) return null
+        if (isReplacement(trimmed)) return null
+        if (hasInventedPublication(trimmed, allowed)) return null
+        return PointQualityPositive(trimmed, evidence)
+    }
 
     private fun isReplacement(text: String): Boolean {
         val n = normalizeText(text)
@@ -176,6 +200,12 @@ object PointReviewQualityParser {
         return scope.substring(open + 1, close)
     }
 
+    /** Aceita o nome canônico e aliases em português (fallback do modelo). */
+    private fun arraySpanAny(scope: String, vararg keys: String): String? {
+        keys.forEach { key -> arraySpan(scope, key)?.let { return it } }
+        return null
+    }
+
     private fun objectSpans(span: String): List<String> {
         val out = mutableListOf<String>()
         var i = 0
@@ -227,8 +257,13 @@ object PointReviewQualityParser {
         if (i >= scope.length || scope[i] != ':') return null
         i++
         while (i < scope.length && scope[i].isWhitespace()) i++
-        if (i >= scope.length || scope[i] != '"') return null
-        i++
+        return parseJsonString(scope, i)?.first
+    }
+
+    /** Lê uma string JSON a partir de [start] (aspas) e devolve valor + próximo índice. */
+    private fun parseJsonString(scope: String, start: Int): Pair<String, Int>? {
+        if (start >= scope.length || scope[start] != '"') return null
+        var i = start + 1
         val out = StringBuilder()
         while (i < scope.length) {
             val c = scope[i]
@@ -256,10 +291,32 @@ object PointReviewQualityParser {
                 i += 2
                 continue
             }
-            if (c == '"') return out.toString()
+            if (c == '"') return out.toString() to (i + 1)
             out.append(c)
             i++
         }
+        return null
+    }
+
+    /** Extrai strings de um array simples (positivos no fallback em português). */
+    private fun stringValues(span: String): List<String> {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < span.length) {
+            if (span[i] == '"') {
+                val parsed = parseJsonString(span, i) ?: break
+                out += parsed.first
+                i = parsed.second
+            } else {
+                i++
+            }
+        }
+        return out
+    }
+
+    /** Aceita o nome canônico e aliases em português (fallback do modelo). */
+    private fun stringFieldAny(scope: String, vararg keys: String): String? {
+        keys.forEach { key -> stringField(scope, key)?.let { return it } }
         return null
     }
 }
