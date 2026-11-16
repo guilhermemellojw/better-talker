@@ -11,8 +11,9 @@
 > Introdução e cobre os 7 blocos; caso 12: setup controlado no debug com
 > `status=INDEXING` e resposta honesta (“aguardar”); caso 13: §§99-100
 > inexistente sem invenção. Docs da auditoria em `88f5949`. Bump
-> 80/6.1.0 e notas em `docs/releases/v6.1.0.md`; tag, CI de main e SHA
-> pendentes.
+> 80/6.1.0 e notas em `docs/releases/v6.1.0.md`; CI de main
+> `43874948486` e APK assinado 80/6.1.0 verdes (SHA de preparação
+> `37d2039c…`); tag e SHA final pendentes.
 
 
 > **2026-11-15 — v6.0.5/79 (fonte citada × capítulo bíblico):**
