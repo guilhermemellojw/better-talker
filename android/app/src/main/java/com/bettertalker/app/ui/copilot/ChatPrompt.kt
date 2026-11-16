@@ -530,6 +530,7 @@ fun ChatErrorRow(
 fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
     listOf(
         "Diagnóstico do esboço",
+        "Como desenvolver este ponto",
         "Próximo passo",
         "Mostrar fontes",
         "Ideias para a introdução",
@@ -544,6 +545,7 @@ fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
 } else {
     listOf(
         "Diagnóstico do esboço",
+        "Como desenvolver este ponto",
         "Próximo passo",
         "Mostrar fontes",
         "Resumir",

@@ -674,7 +674,7 @@ class ChatRouterTest {
         assertTrue(route("Quais são os pontos principais?") is Route.StructuralQuery)
         assertTrue(route("Analise o ponto 2") !is Route.Mentor)
         assertTrue(route("Como está o ponto 2?") !is Route.Mentor)
-        assertTrue(route("O que falta no ponto 2?") !is Route.Mentor)
+        assertTrue(route("O que falta na introdução?") !is Route.Mentor)
     }
 
     @Test
@@ -683,5 +683,41 @@ class ChatRouterTest {
         assertFalse(ChatRouter.isOutlineDiagnosisCommand("Como está o ponto 2?"))
         assertTrue(ChatRouter.isOutlineDiagnosisCommand("Como está a estrutura da nota?"))
         assertTrue(ChatRouter.isOutlineDiagnosisCommand("Diagnostique o esboço do discurso inteiro"))
+    }
+
+    // ---------- Mentor: coaching de um ponto ----------
+
+    @Test
+    fun coachingDoPontoViraMentor() {
+        for (t in listOf(
+            "Como desenvolvo o ponto 2?",
+            "Como posso desenvolver o ponto 2?",
+            "O que falta no ponto 2?",
+            "O que está faltando neste ponto?",
+            "Como estruturo este ponto?",
+            "Como desenvolvo o ponto atual?",
+        )) {
+            val r = route(t)
+            assertTrue(
+                "esperado MENTOR DE PONTO para '$t', veio ${ChatRouter.describe(r)}",
+                r is Route.Mentor,
+            )
+            assertEquals(MentorIntent.DEVELOP_POINT, (r as Route.Mentor).intent)
+        }
+    }
+
+    @Test
+    fun coachingNaoSequestraRascunhoNemRefinamento() {
+        assertTrue(route("Desenvolva o ponto 2") is Route.Oratory)
+        assertTrue(route("Me ajude a desenvolver o ponto 2") is Route.Oratory)
+        assertTrue(route("Melhore o ponto 2") is Route.Oratory)
+        assertTrue(route("Como está o ponto 2?") !is Route.Mentor)
+        assertTrue(route("O que diz o ponto 2?") !is Route.Mentor)
+        assertTrue(route("Como desenvolvo a introdução?") !is Route.Mentor)
+
+        assertFalse(ChatRouter.isPointCoachingCommand("Desenvolva o ponto 2"))
+        assertFalse(ChatRouter.isPointCoachingCommand("Me ajude a desenvolver o ponto 2"))
+        assertFalse(ChatRouter.isPointCoachingCommand("Melhore o ponto 2"))
+        assertFalse(ChatRouter.isPointCoachingCommand("Como está o ponto 2?"))
     }
 }

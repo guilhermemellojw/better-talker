@@ -6,8 +6,8 @@ import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.speech.SectionRole
 
-/** Intenção da rota Mentor (fatia 1: só diagnóstico do esboço). */
-enum class MentorIntent { DIAGNOSE_OUTLINE }
+/** Intenção da rota Mentor. */
+enum class MentorIntent { DIAGNOSE_OUTLINE, DEVELOP_POINT }
 
 /**
  * Fase 20-D — roteamento natural do chat para a sessão oratória.
@@ -554,6 +554,29 @@ object ChatRouter {
         return true
     }
 
+    // ---------- Mentor: coaching de UM ponto ----------
+
+    private val POINT_COACHING_HOW = Regex(
+        "\\bcomo\\s+(eu\\s+)?(posso\\s+)?(desenvolvo|desenvolver|estruturo|" +
+            "estruturar|comeco|comecar)\\s+(o|este|esse|meu|minha|no|nesse|neste)?\\s*ponto\\b"
+    )
+    private val POINT_COACHING_GAP = Regex(
+        "\\bo que\\s+(falta|esta faltando)\\s+(no|neste|nesse)\\s+ponto\\b"
+    )
+
+    /**
+     * Comando explícito de coaching de um ponto. Puro/testável.
+     *
+     * Deliberadamente NÃO captura “Desenvolva o ponto 2” nem “Me ajude a
+     * desenvolver o ponto 2” (o rewrite existente manda para o rascunho).
+     * Só “como desenvolvo/estruturo…” e “o que falta no ponto…” viram Mentor.
+     */
+    fun isPointCoachingCommand(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        return POINT_COACHING_HOW.containsMatchIn(t) ||
+            POINT_COACHING_GAP.containsMatchIn(t)
+    }
+
     /**
      * C6 (Sessão 2): pergunta de orientação — "Como/Qual/O que…" sem verbo
      * imperativo de geração. Sem contexto de seção, é conversa/mentoria, não
@@ -773,6 +796,15 @@ object ChatRouter {
             return Route.Mentor(
                 MentorIntent.DIAGNOSE_OUTLINE,
                 "pedido de diagnóstico do esboço",
+            )
+        }
+
+        // Mentor — coaching de um ponto. Antes do normalizePhrasing, que
+        // transformaria "como desenvolvo o ponto 2" em "Desenvolva este ponto".
+        if (isPointCoachingCommand(text)) {
+            return Route.Mentor(
+                MentorIntent.DEVELOP_POINT,
+                "pedido de mentoria do ponto",
             )
         }
 
