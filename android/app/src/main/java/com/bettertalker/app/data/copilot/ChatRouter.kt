@@ -7,7 +7,7 @@ import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.speech.SectionRole
 
 /** Intenção da rota Mentor. */
-enum class MentorIntent { DIAGNOSE_OUTLINE, DEVELOP_POINT }
+enum class MentorIntent { DIAGNOSE_OUTLINE, DEVELOP_POINT, REVIEW_POINT }
 
 /**
  * Fase 20-D — roteamento natural do chat para a sessão oratória.
@@ -577,6 +577,28 @@ object ChatRouter {
             POINT_COACHING_GAP.containsMatchIn(t)
     }
 
+    // ---------- Mentor: revisão de UM ponto ----------
+
+    private val POINT_REVIEW_REVISE = Regex(
+        "\\brevis(?:e|ar)\\b.*\\bponto\\b|" +
+            "\\brevis(?:e|ar)\\b\\s+(meu|este|esse)\\s+texto\\b"
+    )
+    private val POINT_REVIEW_EVALUATE = Regex(
+        "\\bavali(?:e|ar)\\b.*\\b(texto|ponto)\\b"
+    )
+
+    /**
+     * Comando explícito de revisão do texto do ponto. Puro/testável.
+     *
+     * Não captura “Desenvolva”, “Melhore”, “Como está o ponto…” nem
+     * “Revise o esboço” (sem ponto/texto do ponto).
+     */
+    fun isPointReviewCommand(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        return POINT_REVIEW_REVISE.containsMatchIn(t) ||
+            POINT_REVIEW_EVALUATE.containsMatchIn(t)
+    }
+
     /**
      * C6 (Sessão 2): pergunta de orientação — "Como/Qual/O que…" sem verbo
      * imperativo de geração. Sem contexto de seção, é conversa/mentoria, não
@@ -805,6 +827,15 @@ object ChatRouter {
             return Route.Mentor(
                 MentorIntent.DEVELOP_POINT,
                 "pedido de mentoria do ponto",
+            )
+        }
+
+        // Mentor — revisão do texto do ponto. Também antes do normalizePhrasing,
+        // para "revise o ponto 2" não cair em conversa/refinamento.
+        if (isPointReviewCommand(text)) {
+            return Route.Mentor(
+                MentorIntent.REVIEW_POINT,
+                "pedido de revisão do ponto",
             )
         }
 

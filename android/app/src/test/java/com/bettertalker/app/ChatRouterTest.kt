@@ -720,4 +720,41 @@ class ChatRouterTest {
         assertFalse(ChatRouter.isPointCoachingCommand("Melhore o ponto 2"))
         assertFalse(ChatRouter.isPointCoachingCommand("Como está o ponto 2?"))
     }
+
+    // ---------- Mentor: revisão de um ponto ----------
+
+    @Test
+    fun revisaoDoPontoViraMentor() {
+        for (t in listOf(
+            "Revise o ponto 2",
+            "Revise o texto do ponto 2",
+            "Revise este ponto",
+            "Revise meu texto",
+            "Avalie meu texto do ponto 2",
+            "Avalie o ponto 2",
+            "Revisar o ponto 2",
+        )) {
+            val r = route(t)
+            assertTrue(
+                "esperado MENTOR DE REVISÃO para '$t', veio ${ChatRouter.describe(r)}",
+                r is Route.Mentor,
+            )
+            assertEquals(MentorIntent.REVIEW_POINT, (r as Route.Mentor).intent)
+        }
+    }
+
+    @Test
+    fun revisaoNaoSequestraRascunhoRefinamentoNemEsboco() {
+        assertTrue(route("Desenvolva o ponto 2") is Route.Oratory)
+        assertTrue(route("Melhore o ponto 2") is Route.Oratory)
+        assertTrue(route("Como está o ponto 2?") !is Route.Mentor)
+        assertFalse(ChatRouter.isPointReviewCommand("Revise o esboço"))
+        assertFalse(ChatRouter.isPointReviewCommand("Revise a introdução"))
+        assertFalse(ChatRouter.isPointReviewCommand("Desenvolva o ponto 2"))
+        assertFalse(ChatRouter.isPointReviewCommand("Melhore o ponto 2"))
+        // "Avalie o esboço" continua diagnóstico do esboço, não revisão de ponto.
+        val r = route("Avalie o esboço")
+        assertTrue(r is Route.Mentor)
+        assertEquals(MentorIntent.DIAGNOSE_OUTLINE, (r as Route.Mentor).intent)
+    }
 }

@@ -141,6 +141,7 @@ import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.DiagnosisNextStep
 import com.bettertalker.app.data.copilot.PointCoachingNextStep
+import com.bettertalker.app.data.copilot.PointReviewNextStep
 import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.CardCapturedFrom
@@ -1508,6 +1509,30 @@ private fun PointCoachingBody(
 }
 
 @Composable
+private fun PointReviewBody(
+    item: CopilotViewModel.ChatItem,
+    onOpenEditor: (PointReviewNextStep.OpenEditor) -> Unit,
+    onReanalyze: () -> Unit,
+) {
+    val report = item.review
+    if (report == null) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                item.text.ifBlank { "Revisão indisponível. Reanalise o ponto." },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onReanalyze) { Text("Reanalisar") }
+        }
+        return
+    }
+    PointReviewCard(
+        report = report,
+        onOpenEditor = onOpenEditor,
+        onReanalyze = onReanalyze,
+    )
+}
+
+@Composable
 private fun MessageBubble(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
@@ -1595,6 +1620,21 @@ private fun MessageBubble(
                 onGenerateDraft = { number -> vm.send("Desenvolva o ponto $number") },
                 onReanalyze = {
                     item.coaching?.let { vm.reanalyzePointCoaching(it.sectionId) }
+                },
+            )
+            "review" -> PointReviewBody(
+                item = item,
+                onOpenEditor = { step ->
+                    onNavigate(
+                        ResolvedChatNav.OpenSection(
+                            sectionId = step.sectionId,
+                            title = step.title,
+                            sectionNumber = step.sectionNumber,
+                        )
+                    )
+                },
+                onReanalyze = {
+                    item.review?.let { vm.reanalyzePointReview(it.sectionId) }
                 },
             )
             else -> Surface(
