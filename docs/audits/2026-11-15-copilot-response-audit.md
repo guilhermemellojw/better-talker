@@ -244,6 +244,9 @@ Os casos críticos do 6.0.5 estão cobertos: **1** (card + fidelidade), **6–8*
   ([release](https://github.com/guilhermemellojw/better-talker/releases/tag/v6.0.5)).
 - A34 e tablet: casos críticos 1, 6–8 e 11 cobertos; dados preservados no
   update por cima da 6.0.4/78 (mesma assinatura).
+- A34 público **79/6.0.5** instalado por cima do build de teste 78; a nota
+  **#35** abriu com o mesmo título e o chat preservado. Tablet público
+  **79/6.0.5** instalado; dados preservados.
 
 ## Saída da auditoria
 
