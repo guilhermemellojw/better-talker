@@ -3320,6 +3320,19 @@ class CopilotViewModel(
             )
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
+            // Inventário da NOTA é determinístico: responde com os 40 refs
+            // reais e os status/ações, sem depender do foco do ponto nem do
+            // LLM. Evita “nada essencial pendente” quando a nota tem lacunas.
+            if (com.bettertalker.app.data.copilot.isNoteSourcesInventoryQuestion(text)) {
+                val noteSources = turnContext.noteSources
+                if (noteSources != null && noteSources.hasRefs) {
+                    postText(
+                        com.bettertalker.app.data.copilot
+                            .buildNoteSourcesInventoryAnswer(noteSources)
+                    )
+                    return@launch
+                }
+            }
             // Fase 4 — refinamento de seção sem geração anterior: o texto
             // atual da seção É a base. Sem isso, "reescreva"/"mais natural"
             // caíam em "ainda não gerei nenhuma parte".
@@ -4034,7 +4047,36 @@ class CopilotViewModel(
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
                 .check(cardText, ready, extraAuthorizedRefs)
-            val fidelityNotice = fidelityRevisionNotice(fidelity)
+            // Fidelidade bloqueante para o card: se o verificador achou ref/
+            // número sem apoio, remove as sentenças ofensoras ANTES de
+            // publicar. Se sobrar vazio ou ainda houver ofensa, não entrega o
+            // card — melhor regenerar do que inserir citação inventada.
+            val cleanedCardText = if (fidelity.ok) {
+                cardText
+            } else {
+                com.bettertalker.app.data.copilot
+                    .removeUnsupportedFidelitySentences(cardText, fidelity)
+            }
+            val cleanedFidelity = if (cleanedCardText == cardText) {
+                fidelity
+            } else {
+                com.bettertalker.app.data.copilot.OratoryFidelityCheck
+                    .check(cleanedCardText, ready, extraAuthorizedRefs)
+            }
+            if (cleanedCardText.isBlank() || !cleanedFidelity.ok) {
+                postText(
+                    "Não consegui entregar este card sem referências sem apoio. " +
+                        "Tente regenerar."
+                )
+                return
+            }
+            val fidelityNotice = if (fidelity.ok) {
+                null
+            } else {
+                // O texto já foi limpo; não repete as refs inventadas na UI
+                // (o log abaixo guarda o detalhe para diagnóstico).
+                "⚠️ Revise: removi do texto referências/números sem apoio."
+            }
             if (fidelityNotice != null) {
                 android.util.Log.w(
                     "CopilotLLM",
@@ -4043,7 +4085,7 @@ class CopilotViewModel(
                 )
             }
             val verified = verifyGeneratedText(
-                cardText,
+                cleanedCardText,
                 turnContext,
                 listOfNotNull(
                     contextBlock,
@@ -4061,11 +4103,17 @@ class CopilotViewModel(
                 )
             }
             val (cleanText, removalNotice) = stripRemovalNotice(verified.text)
-            val finalText = if (verified.hasRemovals) cleanText else cardText
+            val finalText = if (verified.hasRemovals) cleanText else cleanedCardText
             val finalResponse = if (finalText == cardText) {
                 res.text
             } else {
-                replaceCardTextBlock(res.text, finalText) ?: res.text
+                replaceCardTextBlock(res.text, finalText) ?: run {
+                    postText(
+                        "Não consegui atualizar o card sem as referências sem apoio. " +
+                            "Tente regenerar."
+                    )
+                    return
+                }
             }
             val previous = activeCardTarget
             activeCardTarget = cardTarget
