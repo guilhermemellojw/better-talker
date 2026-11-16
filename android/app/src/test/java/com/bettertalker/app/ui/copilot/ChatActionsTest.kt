@@ -67,6 +67,12 @@ class ChatActionsTest {
     }
 
     @Test
+    fun diagnosticoDoEsbocoEhOPrimeiroChip() {
+        assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = true).first())
+        assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = false).first())
+    }
+
+    @Test
     fun runStateItemCount() {
         assertEquals(0, runStateItemCount(ChatRunState.Idle))
         assertEquals(0, runStateItemCount(ChatRunState.Success))

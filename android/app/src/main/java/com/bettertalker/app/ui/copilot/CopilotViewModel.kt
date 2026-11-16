@@ -69,6 +69,14 @@ import com.bettertalker.app.data.copilot.SourceGateDecision
 import com.bettertalker.app.data.copilot.proposalSummaryText
 import com.bettertalker.app.data.copilot.MAX_SELECTION_CHARS
 import com.bettertalker.app.data.copilot.OutlineStructureContext
+import com.bettertalker.app.data.copilot.OutlineDiagnosis
+import com.bettertalker.app.data.copilot.DiagnosisLevel
+import com.bettertalker.app.data.copilot.DiagnosisSourceCounts
+import com.bettertalker.app.data.copilot.OutlineDiagnosisAnalyzer
+import com.bettertalker.app.data.copilot.OutlineDiagnosisInputBuilder
+import com.bettertalker.app.data.copilot.OutlineDiagnosisCodec
+import com.bettertalker.app.data.copilot.diagnosisFromPayload
+import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
 import com.bettertalker.app.data.db.AppDatabase
@@ -111,6 +119,7 @@ import com.bettertalker.app.data.repo.OutlineImportService
 import com.bettertalker.app.data.repo.ScopedHit
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.s34.S34ImportHook
+import com.bettertalker.app.data.s34.S34Document
 import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
@@ -118,10 +127,12 @@ import com.bettertalker.app.data.util.BasePub
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.ChatIntent
 import com.bettertalker.app.data.util.DocExtractors
+import com.bettertalker.app.data.util.EditionStatus
 import com.bettertalker.app.data.util.HtmlInlineSanitizer
 import com.bettertalker.app.data.util.NoteRefs
 import com.bettertalker.app.data.util.NoteRefsCollector
 import com.bettertalker.app.data.util.NoteSource
+import com.bettertalker.app.data.util.NoteSources
 import com.bettertalker.app.data.util.SourceStatus
 import com.bettertalker.app.data.util.OutlineParser
 import com.bettertalker.app.data.util.OutlineSection
@@ -180,6 +191,8 @@ import com.bettertalker.app.domain.speech.SectionRole
 import com.bettertalker.app.domain.speech.SubPoint
 import com.bettertalker.app.domain.speech.canonicalPublicationSymbol
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -655,6 +668,9 @@ class CopilotViewModel(
     private val app = ctx.applicationContext
     private val repo = CopilotRepository(db)
     private val outlines = OutlineRepository(app, db)
+    /** Cache do inventário de fontes para o diagnóstico do Mentor. */
+    private var diagnosisSourcesCache: Pair<String, NoteSources>? = null
+    private val diagnosisSourcesMutex = Mutex()
     // 3.2.3c: persistência do esboço convertido (seções + sub-pontos).
     private val outlineImportService = OutlineImportService(
         transactionRunner = RoomTransactionRunner(db),
@@ -742,6 +758,7 @@ class CopilotViewModel(
                     outlineSections.value =
                         if (o != null) OutlineParser.fromJson(o.sectionsJson) else emptyList()
                     refreshOutlineRefs()
+                    prefetchDiagnosisSources()
                 }
             }
             viewModelScope.launch {
@@ -759,6 +776,7 @@ class CopilotViewModel(
                         .forEach { db.chatDao().delete(it.id) }
                 } catch (_: Exception) {
                 }
+                prefetchDiagnosisSources()
             }
         }
         // Fonte única reativa: download/indexação/reindexação mudam o status
@@ -780,6 +798,7 @@ class CopilotViewModel(
         if (_focusSources.value != null) {
             reanalyzeFocusSourcesNow()
         }
+        prefetchDiagnosisSources()
     }
 
     fun setQuery(v: String) { _query.value = v }
@@ -1407,7 +1426,7 @@ class CopilotViewModel(
     data class ChatItem(
         val id: String,
         val fromMe: Boolean,
-        val kind: String, // text | ideas | refs | bases | sections | draft
+        val kind: String, // text | ideas | refs | bases | sections | draft | diagnosis
         val text: String = "",
         val section: String = "",
         /** Foco em que a mensagem foi produzida (null = discurso inteiro). */
@@ -1438,6 +1457,8 @@ class CopilotViewModel(
         val cardTargetEmpty: Boolean = false,
         /** Card-first: snapshot de undo existe NESTA sessão. */
         val cardCanUndo: Boolean = false,
+        /** Mentor: diagnóstico estrutural decodificado (kind="diagnosis"). */
+        val diagnosis: OutlineDiagnosis? = null,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -2197,6 +2218,161 @@ class CopilotViewModel(
         return true
     }
 
+    // ---------- Mentor: diagnóstico do esboço ----------
+
+    /**
+     * Diagnóstico estrutural determinístico, read-only e offline.
+     *
+     * Não chama LLM, não usa RAG e não altera a nota. Reanalisar desativa o
+     * diagnóstico anterior da nota para não empilhar cards.
+     */
+    private suspend fun runOutlineDiagnosis() {
+        val started = System.currentTimeMillis()
+        val nid = noteId ?: run {
+            postText("Abra uma nota para diagnosticar o esboço.")
+            return
+        }
+        val s34 = loadDiagnosisS34(nid)
+        if (s34 != null) _lastS34Document = s34
+        val tS34 = System.currentTimeMillis()
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val tSections = System.currentTimeMillis()
+        val subPoints = sections.associate { section ->
+            section.id to db.subPointDao().forSection(section.id).map { it.toDomain() }
+        }
+        val tSubs = System.currentTimeMillis()
+        val noteSources = diagnosisSources(nid)
+        val tSources = System.currentTimeMillis()
+        val counts = DiagnosisSourceCounts(
+            total = noteSources.total,
+            resolved = noteSources.resolved,
+            indexing = noteSources.pending,
+            noText = noteSources.sources.count {
+                it.citation.edition == EditionStatus.READY &&
+                    it.citation.text == TextStatus.NOT_FOUND
+            },
+            blocking = noteSources.blocking.size,
+            needsAction = noteSources.needsAction,
+        )
+        val input = OutlineDiagnosisInputBuilder.build(
+            s34 = s34,
+            noteTitle = _noteTitle.value.ifBlank { db.noteDao().get(nid)?.title },
+            sections = sections,
+            subPointsBySection = subPoints,
+            sourceCounts = counts,
+        )
+        val tInput = System.currentTimeMillis()
+        val report = OutlineDiagnosisAnalyzer.analyze(input, System.currentTimeMillis())
+        val tAnalyze = System.currentTimeMillis()
+
+        db.chatDao().all(nid)
+            .let(::diagnosisMessageIdsToDeactivate)
+            .forEach { db.chatDao().deactivateMessage(it) }
+
+        post(
+            fromMe = false,
+            kind = "diagnosis",
+            payload = ChatCodec.escMap(
+                mapOf(
+                    "report" to OutlineDiagnosisCodec.encode(report),
+                    "text" to report.summary,
+                ),
+            ),
+            origin = MessageOrigin.LOCAL,
+            targetScope = null,
+            allowCard = false,
+        )
+        android.util.Log.i(
+            "Mentor",
+            "diagnosis|route=MENTOR|sections=${sections.size}|points=${report.points.size}|" +
+                "subpoints=${subPoints.values.sumOf { it.size }}|refs=${counts.total}|" +
+                "criteria=${report.criteria.count { it.level != DiagnosisLevel.OK }}|" +
+                "overall=${report.overall}|s34Ms=${tS34 - started}|" +
+                "sectionsMs=${tSections - tS34}|subsMs=${tSubs - tSections}|" +
+                "sourcesMs=${tSources - tSubs}|inputMs=${tInput - tSources}|" +
+                "analyzeMs=${tAnalyze - tInput}|ms=${System.currentTimeMillis() - started}",
+        )
+    }
+
+    /** Reanalisar pelo card: gera um novo diagnóstico e desativa o anterior. */
+    fun reanalyzeOutlineDiagnosis() = viewModelScope.launch {
+        runOutlineDiagnosis()
+    }
+
+    /** “Mostrar fontes” do card: reusa o fluxo determinístico de sources. */
+    fun showDiagnosisSources() = viewModelScope.launch {
+        handleNavigation(ChatNavAction.Sources)
+    }
+
+    /** S-34 em foco primeiro; senão o primeiro anexo vinculado com outline. */
+    private suspend fun loadDiagnosisS34(nid: String): S34Document? {
+        _lastS34Document?.let { return it }
+        val repo = com.bettertalker.app.data.repo.S34OutlineRepository(db.s34Dao())
+        val linked = db.attachmentDao().all().filter { it.noteId == nid }
+        linked.forEach { attachment ->
+            repo.getBySource(attachment.id)?.let { return it }
+        }
+        // Anexo S-34 vinculado, mas ainda sem outline persistido: o card
+        // precisa pedir reimportação, não "vincular" de novo.
+        val s34WithoutOutline = linked.firstOrNull {
+            com.bettertalker.app.data.util.PublicationFormatPolicy.isS34File(it.fileName)
+        }
+        return s34WithoutOutline?.let { attachment ->
+            S34Document(
+                id = "s34-no-structure-${attachment.id}",
+                title = attachment.fileName,
+                objective = null,
+                sections = emptyList(),
+            )
+        }
+    }
+
+    /**
+     * Inventário de fontes do diagnóstico. O cálculo completo (conteúdo por
+     * ref) é caro; cacheia e o chat pré-computa ao abrir.
+     */
+    private suspend fun diagnosisSources(nid: String): NoteSources {
+        val outlineRefs = outlines.get(nid)?.refsJson.orEmpty()
+        val signature = diagnosisSourcesSignature(outlineRefs)
+        diagnosisSourcesCache?.takeIf { it.first == signature }?.let { return it.second }
+        return diagnosisSourcesMutex.withLock {
+            diagnosisSourcesCache?.takeIf { it.first == signature }?.let {
+                return@withLock it.second
+            }
+            val sources = withContext(Dispatchers.Default) {
+                repo.noteSources(
+                    noteId = nid,
+                    outlineRefsJson = outlineRefs,
+                    noteText = _noteText.value,
+                    noteTitle = _noteTitle.value,
+                )
+            }
+            diagnosisSourcesCache = signature to sources
+            sources
+        }
+    }
+
+    private suspend fun diagnosisSourcesSignature(outlineRefs: String): String {
+        val attachments = db.attachmentDao().all()
+        return buildString {
+            append(_noteText.value.hashCode()).append('|')
+            append(outlineRefs.hashCode()).append('|')
+            attachments.forEach { attachment ->
+                append(attachment.id).append(':')
+                    .append(attachment.status).append(':')
+                    .append(attachment.indexed).append(';')
+            }
+        }
+    }
+
+    /** Pré-computa em background; o comando só espera se ainda estiver frio. */
+    private fun prefetchDiagnosisSources() {
+        val nid = noteId ?: return
+        viewModelScope.launch {
+            runCatching { diagnosisSources(nid) }
+        }
+    }
+
     /** Resolve "Ponto 2"/"Tópico 2"/introdução/conclusão contra a nota real. */
     private fun resolveNavSection(
         action: ChatNavAction.Section,
@@ -2616,6 +2792,17 @@ class CopilotViewModel(
                         ChatItem(e.id, e.fromMe, e.kind, draftTitle = title,
                             sectionId = e.sectionId,
                             draftItems = items, createdAt = e.createdAt)
+                    }
+                    "diagnosis" -> {
+                        val m = ChatCodec.unescMap(e.payload)
+                        diagnosisChatItem(
+                            id = e.id,
+                            fromMe = e.fromMe,
+                            payload = e.payload,
+                            sectionId = e.sectionId,
+                            origin = messageOriginOf(m),
+                            createdAt = e.createdAt,
+                        )
                     }
                     else -> {
                         val m = ChatCodec.unescMap(e.payload)
@@ -3299,6 +3486,12 @@ class CopilotViewModel(
                 handleNavigation(it)
                 return@launch
             }
+            // Mentor — diagnóstico estrutural determinístico, offline e
+            // read-only. Fica antes de buildTurnFor/RAG para responder <1 s.
+            if (com.bettertalker.app.data.copilot.ChatRouter.isOutlineDiagnosisCommand(text)) {
+                runOutlineDiagnosis()
+                return@launch
+            }
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -3411,6 +3604,10 @@ class CopilotViewModel(
                 return@launch
             }
             when (route) {
+                is com.bettertalker.app.data.copilot.ChatRouter.Route.Mentor -> {
+                    runOutlineDiagnosis()
+                    return@launch
+                }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.Navigate -> {
                     handleNavigation(route.action)
                     return@launch
@@ -8543,3 +8740,35 @@ internal fun proposalButtonLabel(sectionContentHtml: String): String =
  */
 internal fun appliedProposalUi(ui: CopilotViewModel.ProposalUi): CopilotViewModel.ProposalUi =
     ui.copy(applied = true)
+
+/**
+ * Parse puro de uma mensagem `kind="diagnosis"` em [CopilotViewModel.ChatItem].
+ * Payload corrompido vira `kind="text"` com o resumo, sem crash.
+ */
+internal fun diagnosisChatItem(
+    id: String,
+    fromMe: Boolean,
+    payload: String,
+    sectionId: String? = null,
+    origin: MessageOrigin = MessageOrigin.LOCAL,
+    createdAt: Long = 0L,
+): CopilotViewModel.ChatItem {
+    val report = diagnosisFromPayload(payload)
+    val map = ChatCodec.unescMap(payload)
+    return CopilotViewModel.ChatItem(
+        id = id,
+        fromMe = fromMe,
+        kind = if (report == null) "text" else "diagnosis",
+        text = map["text"].orEmpty().ifBlank {
+            if (report == null) "Diagnóstico indisponível. Reanalise o esboço." else ""
+        },
+        sectionId = sectionId,
+        diagnosis = report,
+        origin = origin,
+        createdAt = createdAt,
+    )
+}
+
+/** IDs dos diagnósticos ativos que serão desativados ao reanalisar. */
+internal fun diagnosisMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
+    items.filter { it.kind == "diagnosis" }.map { it.id }

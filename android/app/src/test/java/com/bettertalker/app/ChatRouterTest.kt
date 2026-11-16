@@ -3,6 +3,7 @@ package com.bettertalker.app
 import com.bettertalker.app.data.copilot.ChatRouter
 import com.bettertalker.app.data.copilot.ChatRouter.Route
 import com.bettertalker.app.data.copilot.ChatRouter.StructuralTopic
+import com.bettertalker.app.data.copilot.MentorIntent
 import com.bettertalker.app.data.copilot.OratoryGeneration.Action
 import com.bettertalker.app.data.copilot.OratoryGeneration.Mode
 import com.bettertalker.app.data.copilot.OratorySession
@@ -647,5 +648,40 @@ class ChatRouterTest {
         assertFalse(ChatRouter.allowsCard(Route.General("pedido de explicação/análise")))
         assertFalse(ChatRouter.allowsCard(Route.General("pergunta de orientação, não geração")))
         assertTrue(ChatRouter.allowsCard(Route.General("chat livre")))
+    }
+
+    // ---------- Mentor: diagnóstico do esboço ----------
+
+    @Test
+    fun diagnosticoDoEsbocoViraMentor() {
+        for (t in listOf(
+            "Diagnostique este esboço",
+            "O que falta no esboço?",
+            "Como está a estrutura do S-34?",
+            "Diagnóstico do esboço",
+            "Status da estrutura da nota",
+            "Analise o esboço inteiro",
+        )) {
+            val r = route(t)
+            assertTrue("esperado MENTOR para '$t', veio ${ChatRouter.describe(r)}", r is Route.Mentor)
+            assertEquals(MentorIntent.DIAGNOSE_OUTLINE, (r as Route.Mentor).intent)
+        }
+    }
+
+    @Test
+    fun diagnosticoNaoSequestraGeracaoNemConsultaEstrutural() {
+        assertTrue(route("Desenvolva o ponto 2") is Route.Oratory)
+        assertTrue(route("Quais são os pontos principais?") is Route.StructuralQuery)
+        assertTrue(route("Analise o ponto 2") !is Route.Mentor)
+        assertTrue(route("Como está o ponto 2?") !is Route.Mentor)
+        assertTrue(route("O que falta no ponto 2?") !is Route.Mentor)
+    }
+
+    @Test
+    fun diagnosticoComPontoEspecificoSemEscopoAmploNaoViraMentor() {
+        assertFalse(ChatRouter.isOutlineDiagnosisCommand("Analise a estrutura do ponto 2"))
+        assertFalse(ChatRouter.isOutlineDiagnosisCommand("Como está o ponto 2?"))
+        assertTrue(ChatRouter.isOutlineDiagnosisCommand("Como está a estrutura da nota?"))
+        assertTrue(ChatRouter.isOutlineDiagnosisCommand("Diagnostique o esboço do discurso inteiro"))
     }
 }
