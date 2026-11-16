@@ -72,5 +72,47 @@ class PointReviewCodecTest {
         assertEquals(0L, decoded.generatedAt)
         assertTrue(decoded.strengths.isEmpty())
         assertTrue(decoded.improvements.isEmpty())
+        assertEquals(PointQualityStatus.NONE, decoded.qualityStatus)
+        assertNull(decoded.quality)
+    }
+
+    @Test
+    fun roundTripQualidadeCompleta() {
+        val withQuality = report.copy(
+            qualityStatus = PointQualityStatus.COMPLETED,
+            qualityTextHash = "hash-123",
+            quality = PointQualityReview(
+                positives = listOf(
+                    PointQualityPositive("A progressão está clara.", "trecho do texto"),
+                ),
+                improvements = listOf(
+                    PointQualityImprovement(
+                        category = PointQualityCategory.APLICACAO,
+                        issue = "A aplicação ficou implícita.",
+                        why = "O ouvinte não sabe o que fazer.",
+                        evidence = "Eles perderam a vida perfeita",
+                    ),
+                ),
+                model = "deepseek-flash",
+                durationMs = 1_200,
+                inputTokens = 500,
+                outputTokens = 120,
+                textTruncated = true,
+            ),
+        )
+
+        assertEquals(withQuality, PointReviewCodec.decode(PointReviewCodec.encode(withQuality)))
+    }
+
+    @Test
+    fun roundTripPendingComErroEHash() {
+        val pending = report.copy(
+            qualityStatus = PointQualityStatus.PENDING,
+            qualityError = "em andamento",
+            qualityTextHash = "abc",
+            qualityStartedAt = 999L,
+        )
+
+        assertEquals(pending, PointReviewCodec.decode(PointReviewCodec.encode(pending)))
     }
 }

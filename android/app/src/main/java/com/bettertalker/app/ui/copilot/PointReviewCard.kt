@@ -24,17 +24,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.copilot.DiagnosisLevel
+import com.bettertalker.app.data.copilot.PointQualityImprovement
+import com.bettertalker.app.data.copilot.PointQualityPositive
+import com.bettertalker.app.data.copilot.PointQualityStatus
 import com.bettertalker.app.data.copilot.PointReviewNextStep
 import com.bettertalker.app.data.copilot.PointReviewReport
+import com.bettertalker.app.data.copilot.pointQualityCategoryLabel
 
 /**
- * Card do Mentor para revisão estrutural de um ponto.
+ * Card do Mentor para revisão de um ponto.
  *
- * Read-only: não reescreve o texto. Mostra o que está bom e até 3 melhorias;
- * o usuário edita no editor.
+ * Read-only: não reescreve o texto. Quando a revisão qualitativa está
+ * disponível, ela é a parte principal; a checagem estrutural determinística
+ * continua visível como apoio. Sem LLM/chave/rede, o card determinístico
+ * permanece.
  */
 @Composable
 internal fun PointReviewCard(
@@ -42,7 +49,17 @@ internal fun PointReviewCard(
     onOpenEditor: (PointReviewNextStep.OpenEditor) -> Unit,
     onReanalyze: () -> Unit,
 ) {
-    val statusColor = reviewColor(report.overall)
+    val quality = report.quality
+    val qualityCompleted = report.qualityStatus == PointQualityStatus.COMPLETED &&
+        quality != null
+    val badgeLevel = if (qualityCompleted &&
+        (quality.improvements.isNotEmpty() || report.overall == DiagnosisLevel.ATTENTION)
+    ) {
+        DiagnosisLevel.ATTENTION
+    } else {
+        report.overall
+    }
+    val statusColor = reviewColor(badgeLevel)
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
@@ -73,7 +90,7 @@ internal fun PointReviewCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                ReviewStatusBadge(report.overall)
+                ReviewStatusBadge(badgeLevel)
                 IconButton(onClick = onReanalyze) {
                     Icon(Icons.Default.Refresh, contentDescription = "Reanalisar revisão")
                 }
@@ -86,36 +103,45 @@ internal fun PointReviewCard(
             )
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
 
-            if (report.strengths.isNotEmpty()) {
-                Text(
-                    "O que está bom",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                report.strengths.forEach { strength ->
-                    Text(
-                        "• $strength",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-
-            if (report.improvements.isNotEmpty()) {
+            if (qualityCompleted) {
+                QualityStrengths(quality.positives)
+                QualityImprovements(quality.improvements)
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
                 Text(
-                    "Até 3 melhorias",
+                    "Checagem estrutural",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
-                report.improvements.forEachIndexed { index, improvement ->
+                if (report.strengths.isEmpty() && report.improvements.isEmpty()) {
                     Text(
-                        "${index + 1}. $improvement",
+                        "Sem pendências estruturais.",
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp),
                     )
+                } else {
+                    report.strengths.take(2).forEach {
+                        Text(
+                            "• $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
+                    report.improvements.take(3).forEach {
+                        Text(
+                            "• $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
                 }
+            } else {
+                DeterministicReview(report)
             }
+
+            QualityStatusNote(report)
 
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
             Text(
@@ -134,12 +160,161 @@ internal fun PointReviewCard(
                 Text(report.nextStep.label)
             }
             Text(
-                "Revisão estrutural. Não reescrevi seu texto; as melhorias são sugestões.",
+                if (qualityCompleted) {
+                    "Revisão qualitativa + checagem estrutural. Não reescrevi seu texto; " +
+                        "as melhorias são sugestões."
+                } else {
+                    "Revisão estrutural. Não reescrevi seu texto; as melhorias são sugestões."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 10.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun DeterministicReview(report: PointReviewReport) {
+    if (report.strengths.isNotEmpty()) {
+        Text(
+            "O que está bom",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        report.strengths.forEach { strength ->
+            Text(
+                "• $strength",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+    if (report.improvements.isNotEmpty()) {
+        HorizontalDivider(Modifier.padding(vertical = 10.dp))
+        Text(
+            "Até 3 melhorias",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        report.improvements.forEachIndexed { index, improvement ->
+            Text(
+                "${index + 1}. $improvement",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QualityStrengths(positives: List<PointQualityPositive>) {
+    Text(
+        "O que está bom",
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+    )
+    if (positives.isEmpty()) {
+        Text(
+            "Nenhum ponto forte específico identificado.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        return
+    }
+    positives.forEach { positive ->
+        Text(
+            "• ${positive.observation}",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        positive.evidence?.takeIf { it.isNotBlank() }?.let { evidence ->
+            Text(
+                "“${evidence.take(220)}”",
+                style = MaterialTheme.typography.labelSmall,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 10.dp, top = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QualityImprovements(improvements: List<PointQualityImprovement>) {
+    HorizontalDivider(Modifier.padding(vertical = 10.dp))
+    Text(
+        "Até 3 melhorias",
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.SemiBold,
+    )
+    if (improvements.isEmpty()) {
+        Text(
+            "Nenhuma melhoria específica encontrada; mantenha o texto.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        return
+    }
+    improvements.take(3).forEachIndexed { index, improvement ->
+        Text(
+            "${index + 1}. ${pointQualityCategoryLabel(improvement.category)}",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Text(
+            improvement.issue,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            improvement.why,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        improvement.evidence?.takeIf { it.isNotBlank() }?.let { evidence ->
+            Text(
+                "“${evidence.take(220)}”",
+                style = MaterialTheme.typography.labelSmall,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 10.dp, top = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QualityStatusNote(report: PointReviewReport) {
+    val text = when (report.qualityStatus) {
+        PointQualityStatus.PENDING -> "Revisão qualitativa em andamento…"
+        PointQualityStatus.FAILED,
+        PointQualityStatus.SKIPPED,
+        PointQualityStatus.STALE -> report.qualityError
+            ?: "Revisão qualitativa indisponível; mantive a análise estrutural."
+        PointQualityStatus.COMPLETED ->
+            if (report.quality?.textTruncated == true) {
+                "O texto enviado foi truncado; a revisão qualitativa cobre a parte inicial."
+            } else {
+                null
+            }
+        PointQualityStatus.NONE -> null
+    }
+    text?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            it,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (report.qualityStatus == PointQualityStatus.PENDING) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 

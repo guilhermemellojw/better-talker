@@ -41,6 +41,12 @@ data class PointReviewReport(
     val improvements: List<String>,
     val nextStep: PointReviewNextStep,
     val generatedAt: Long,
+    /** 1B — revisão qualitativa (DeepSeek); null quando não executada. */
+    val quality: PointQualityReview? = null,
+    val qualityStatus: PointQualityStatus = PointQualityStatus.NONE,
+    val qualityError: String? = null,
+    val qualityTextHash: String? = null,
+    val qualityStartedAt: Long? = null,
 )
 
 object PointReviewAnalyzer {

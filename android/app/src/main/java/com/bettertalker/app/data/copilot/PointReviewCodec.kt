@@ -32,6 +32,39 @@ object PointReviewCodec {
         append("overall=").append(report.overall.name).append('\n')
         append("reading=").append(esc(report.reading)).append('\n')
         append("generatedAt=").append(report.generatedAt).append('\n')
+        append("qualityStatus=").append(report.qualityStatus.name).append('\n')
+        report.qualityError?.takeIf { it.isNotBlank() }?.let {
+            append("qualityError=").append(esc(it)).append('\n')
+        }
+        report.qualityTextHash?.takeIf { it.isNotBlank() }?.let {
+            append("qualityTextHash=").append(esc(it)).append('\n')
+        }
+        report.qualityStartedAt?.let {
+            append("qualityStartedAt=").append(it).append('\n')
+        }
+        report.quality?.let { quality ->
+            quality.model?.takeIf { it.isNotBlank() }?.let {
+                append("qualityModel=").append(esc(it)).append('\n')
+            }
+            quality.durationMs?.let { append("qualityDurationMs=").append(it).append('\n') }
+            quality.inputTokens?.let { append("qualityInputTokens=").append(it).append('\n') }
+            quality.outputTokens?.let { append("qualityOutputTokens=").append(it).append('\n') }
+            if (quality.textTruncated) append("qualityTruncated=1\n")
+            quality.positives.forEach { positive ->
+                append("positive=")
+                    .append(esc(positive.observation)).append('|')
+                    .append(esc(positive.evidence.orEmpty()))
+                    .append('\n')
+            }
+            quality.improvements.forEach { improvement ->
+                append("qualityImprovement=")
+                    .append(improvement.category.name).append('|')
+                    .append(esc(improvement.issue)).append('|')
+                    .append(esc(improvement.why)).append('|')
+                    .append(esc(improvement.evidence.orEmpty()))
+                    .append('\n')
+            }
+        }
         report.strengths.forEach { append("strength=").append(esc(it)).append('\n') }
         report.improvements.forEach { append("improvement=").append(esc(it)).append('\n') }
         when (val step = report.nextStep) {
@@ -58,8 +91,19 @@ object PointReviewCodec {
         var reading: String? = null
         var generatedAt = 0L
         var nextStep: PointReviewNextStep? = null
+        var qualityStatus = PointQualityStatus.NONE
+        var qualityError: String? = null
+        var qualityTextHash: String? = null
+        var qualityStartedAt: Long? = null
+        var qualityModel: String? = null
+        var qualityDurationMs: Long? = null
+        var qualityInputTokens: Int? = null
+        var qualityOutputTokens: Int? = null
+        var qualityTruncated = false
         val strengths = mutableListOf<String>()
         val improvements = mutableListOf<String>()
+        val qualityPositives = mutableListOf<PointQualityPositive>()
+        val qualityImprovements = mutableListOf<PointQualityImprovement>()
 
         lines.drop(1).forEach { line ->
             if (line.isBlank()) return@forEach
@@ -78,6 +122,40 @@ object PointReviewCodec {
                 "strength" -> strengths += unesc(value)
                 "improvement" -> improvements += unesc(value)
                 "nextStep" -> nextStep = decodeNextStep(value)
+                "qualityStatus" ->
+                    qualityStatus = enumOrNull<PointQualityStatus>(value) ?: PointQualityStatus.NONE
+                "qualityError" -> qualityError = unesc(value).takeIf { it.isNotBlank() }
+                "qualityTextHash" -> qualityTextHash = unesc(value).takeIf { it.isNotBlank() }
+                "qualityStartedAt" -> qualityStartedAt = value.toLongOrNull()
+                "qualityModel" -> qualityModel = unesc(value).takeIf { it.isNotBlank() }
+                "qualityDurationMs" -> qualityDurationMs = value.toLongOrNull()
+                "qualityInputTokens" -> qualityInputTokens = value.toIntOrNull()
+                "qualityOutputTokens" -> qualityOutputTokens = value.toIntOrNull()
+                "qualityTruncated" -> qualityTruncated = value == "1"
+                "positive" -> {
+                    val fields = fields(value, 2)
+                    val observation = unesc(fields[0]).trim()
+                    if (observation.isNotBlank()) {
+                        qualityPositives += PointQualityPositive(
+                            observation = observation,
+                            evidence = unesc(fields[1]).takeIf { it.isNotBlank() },
+                        )
+                    }
+                }
+                "qualityImprovement" -> {
+                    val fields = fields(value, 4)
+                    val category = enumOrNull<PointQualityCategory>(fields[0])
+                    val issue = unesc(fields[1]).trim()
+                    val why = unesc(fields[2]).trim()
+                    if (category != null && issue.isNotBlank() && why.isNotBlank()) {
+                        qualityImprovements += PointQualityImprovement(
+                            category = category,
+                            issue = issue,
+                            why = why,
+                            evidence = unesc(fields[3]).takeIf { it.isNotBlank() },
+                        )
+                    }
+                }
             }
         }
 
@@ -85,6 +163,23 @@ object PointReviewCodec {
             overall == null || reading == null || nextStep == null
         ) {
             return null
+        }
+        val hasQualityData = qualityModel != null || qualityDurationMs != null ||
+            qualityInputTokens != null || qualityOutputTokens != null ||
+            qualityTruncated || qualityPositives.isNotEmpty() ||
+            qualityImprovements.isNotEmpty()
+        val quality = if (hasQualityData || qualityStatus == PointQualityStatus.COMPLETED) {
+            PointQualityReview(
+                positives = qualityPositives,
+                improvements = qualityImprovements,
+                model = qualityModel,
+                durationMs = qualityDurationMs,
+                inputTokens = qualityInputTokens,
+                outputTokens = qualityOutputTokens,
+                textTruncated = qualityTruncated,
+            )
+        } else {
+            null
         }
         return PointReviewReport(
             sectionId = sectionId,
@@ -97,6 +192,11 @@ object PointReviewCodec {
             improvements = improvements,
             nextStep = nextStep,
             generatedAt = generatedAt,
+            quality = quality,
+            qualityStatus = qualityStatus,
+            qualityError = qualityError,
+            qualityTextHash = qualityTextHash,
+            qualityStartedAt = qualityStartedAt,
         )
     }
 

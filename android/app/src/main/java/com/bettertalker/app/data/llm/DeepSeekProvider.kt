@@ -48,7 +48,17 @@ class DeepSeekProvider(
                 "Configure a chave do DeepSeek na tela Modelo IA.", id, 0
             )
         }
-        val prompts = deepSeekPromptsFor(request)
+        val prompts = if (request.customSystemPrompt != null &&
+            request.customUserPrompt != null
+        ) {
+            request.customSystemPrompt to request.customUserPrompt
+        } else {
+            deepSeekPromptsFor(request)
+        }
+        // 1B (Mentor): chamada em background não mexe no progresso global.
+        fun progress(block: () -> Unit) {
+            if (!request.silentProgress) block()
+        }
         // T1 (modo colar e conversar): texto puro sempre — nunca schema.
         val wantProposal = request.minimalPaste == null &&
             request.responseFormat == ResponseFormat.EDIT_PROPOSAL
@@ -134,7 +144,7 @@ class DeepSeekProvider(
             var sawReasoning = false
             var usageJson: String? = null
             var finish: String? = null
-            LocalProgress.beginAttempt(attempts, retryNotice)
+            progress { LocalProgress.beginAttempt(attempts, retryNotice) }
             retryNotice = null
             val mode = modes[modeIndex]
             // T1 (Bug #15): a instrução JSON vale SÓ para requisições
@@ -176,15 +186,15 @@ class DeepSeekProvider(
                             when (ev) {
                                 is SseEvent.ReasoningDelta -> {
                                     sawReasoning = true
-                                    LocalProgress.appendReasoning(ev.text)
+                                    progress { LocalProgress.appendReasoning(ev.text) }
                                 }
                                 is SseEvent.Delta -> {
                                     if (!streamStarted) {
                                         streamStarted = true
-                                        LocalProgress.set(LocalPhase.Generating)
+                                        progress { LocalProgress.set(LocalPhase.Generating) }
                                     }
                                     sb.append(ev.text)
-                                    LocalProgress.appendPartial(ev.text)
+                                    progress { LocalProgress.appendPartial(ev.text) }
                                 }
                                 SseEvent.Done -> Unit
                             }
@@ -267,12 +277,11 @@ class DeepSeekProvider(
                         // chave) para validar no device se o modelo emite.
                         if (sawReasoning) {
                             log(
-                                "deepseek reasoning_content presente " +
-                                    "(${LocalProgress.reasoningText.value.length} chars); " +
+                                "deepseek reasoning_content presente; " +
                                     "descartado da resposta"
                             )
                         }
-                        LocalProgress.set(LocalPhase.Done)
+                        progress { LocalProgress.set(LocalPhase.Done) }
                         // T1: no modo texto puro o modelo pode vir com prosa em
                         // volta do JSON; extrai o primeiro objeto balanceado.
                         val finalText = if (structured && mode == DeepSeekStructuredMode.TEXT) {
@@ -357,7 +366,7 @@ class DeepSeekProvider(
                     e.code == ProviderErrorCode.INVALID_REQUEST ||
                     e.code == ProviderErrorCode.INVALID_RESPONSE
                 ) {
-                    LocalProgress.set(LocalPhase.Idle)
+                    progress { LocalProgress.set(LocalPhase.Idle) }
                     throw e
                 }
                 lastError = e
@@ -371,12 +380,12 @@ class DeepSeekProvider(
                 )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Structured concurrency: cancelamento propaga (não vira erro tipado).
-                LocalProgress.set(LocalPhase.Idle)
+                progress { LocalProgress.set(LocalPhase.Idle) }
                 throw e
             }
             // Mid-stream: repetir duplicaria parciais já emitidas — falha honesta.
             if (streamStarted) {
-                LocalProgress.set(LocalPhase.Idle)
+                progress { LocalProgress.set(LocalPhase.Idle) }
                 throw lastError ?: ProviderError(
                     ProviderErrorCode.NETWORK, "Sem conexão com o provedor.", id, attempts
                 )
@@ -386,7 +395,7 @@ class DeepSeekProvider(
                 delay(RETRY_BACKOFF_MS * attempts)
             }
         }
-        LocalProgress.set(LocalPhase.Idle)
+        progress { LocalProgress.set(LocalPhase.Idle) }
         throw lastError ?: ProviderError(
             ProviderErrorCode.UNAVAILABLE, "Modelo remoto indisponível.", id, attempts
         )
