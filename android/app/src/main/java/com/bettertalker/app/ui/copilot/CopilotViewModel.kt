@@ -76,6 +76,11 @@ import com.bettertalker.app.data.copilot.OutlineDiagnosisAnalyzer
 import com.bettertalker.app.data.copilot.OutlineDiagnosisInputBuilder
 import com.bettertalker.app.data.copilot.OutlineDiagnosisCodec
 import com.bettertalker.app.data.copilot.diagnosisFromPayload
+import com.bettertalker.app.data.copilot.PointCoachingAnalyzer
+import com.bettertalker.app.data.copilot.PointCoachingCodec
+import com.bettertalker.app.data.copilot.PointCoachingInput
+import com.bettertalker.app.data.copilot.PointCoachingReport
+import com.bettertalker.app.data.copilot.pointCoachingFromPayload
 import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
@@ -1459,6 +1464,8 @@ class CopilotViewModel(
         val cardCanUndo: Boolean = false,
         /** Mentor: diagnóstico estrutural decodificado (kind="diagnosis"). */
         val diagnosis: OutlineDiagnosis? = null,
+        /** Mentor: coaching de um ponto decodificado (kind="coaching"). */
+        val coaching: PointCoachingReport? = null,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -2243,17 +2250,7 @@ class CopilotViewModel(
         val tSubs = System.currentTimeMillis()
         val noteSources = diagnosisSources(nid)
         val tSources = System.currentTimeMillis()
-        val counts = DiagnosisSourceCounts(
-            total = noteSources.total,
-            resolved = noteSources.resolved,
-            indexing = noteSources.pending,
-            noText = noteSources.sources.count {
-                it.citation.edition == EditionStatus.READY &&
-                    it.citation.text == TextStatus.NOT_FOUND
-            },
-            blocking = noteSources.blocking.size,
-            needsAction = noteSources.needsAction,
-        )
+        val counts = diagnosisSourceCounts(noteSources)
         val input = OutlineDiagnosisInputBuilder.build(
             s34 = s34,
             noteTitle = _noteTitle.value.ifBlank { db.noteDao().get(nid)?.title },
@@ -2325,6 +2322,135 @@ class CopilotViewModel(
                 sections = emptyList(),
             )
         }
+    }
+
+    // ---------- Mentor: coaching de um ponto ----------
+
+    private suspend fun runPointCoaching(text: String) {
+        val nid = noteId ?: run {
+            postText("Abra uma nota para receber a mentoria do ponto.")
+            return
+        }
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        if (body.isEmpty()) {
+            postText("Esta nota ainda não tem pontos de desenvolvimento.")
+            return
+        }
+        val requested = com.bettertalker.app.data.copilot.OratorySession.requestedPoint(text)
+        val target = if (requested != null) {
+            body.getOrNull(requested - 1)
+        } else {
+            currentPointSection(sections)
+        }
+        if (target == null) {
+            if (requested != null) {
+                postText(
+                    "Não encontrei o ponto $requested — esta nota tem ${body.size} ponto(s)."
+                )
+            } else {
+                postText("Abra o ponto que você quer desenvolver e peça de novo.")
+            }
+            return
+        }
+        coachPoint(nid, target, body)
+    }
+
+    private suspend fun coachPoint(
+        nid: String,
+        target: SpeechSection,
+        body: List<SpeechSection>,
+    ) {
+        if (target.role != SectionRole.BODY) {
+            postText("O Mentor trabalha os pontos de desenvolvimento. Abra um ponto e peça de novo.")
+            return
+        }
+        val pointNumber = body.indexOfFirst { it.id == target.id } + 1
+        if (pointNumber <= 0) {
+            postText("Não encontrei este ponto entre os pontos de desenvolvimento da nota.")
+            return
+        }
+        val started = System.currentTimeMillis()
+        val sourceCounts = diagnosisSourceCounts(diagnosisSources(nid))
+        val subs = db.subPointDao().forSection(target.id).map { it.toDomain() }
+        val snapshot = OutlineDiagnosisInputBuilder.build(
+            s34 = null,
+            noteTitle = _noteTitle.value.ifBlank { db.noteDao().get(nid)?.title },
+            sections = listOf(target),
+            subPointsBySection = mapOf(target.id to subs),
+            sourceCounts = sourceCounts,
+        ).sections.firstOrNull() ?: run {
+            postText("Não consegui ler este ponto agora. Tente de novo.")
+            return
+        }
+        val s34 = loadDiagnosisS34(nid)
+        val s34Section = s34?.sections?.sortedBy { it.order }?.getOrNull(pointNumber - 1)
+        val report = PointCoachingAnalyzer.analyze(
+            PointCoachingInput(
+                section = snapshot,
+                pointNumber = pointNumber,
+                s34Section = s34Section,
+                sourceCounts = sourceCounts,
+                nextPointTitle = body.getOrNull(pointNumber)?.title,
+            ),
+            now = System.currentTimeMillis(),
+        )
+        db.chatDao().all(nid)
+            .let(::coachingMessageIdsToDeactivate)
+            .forEach { db.chatDao().deactivateMessage(it) }
+        post(
+            fromMe = false,
+            kind = "coaching",
+            payload = ChatCodec.escMap(
+                mapOf(
+                    "report" to PointCoachingCodec.encode(report),
+                    "text" to report.reading,
+                ),
+            ),
+            origin = MessageOrigin.LOCAL,
+            targetScope = null,
+            allowCard = false,
+        )
+        val words = snapshot.bodyText.trim().split(Regex("\\s+")).count { it.isNotBlank() } +
+            snapshot.subPoints.sumOf { sub ->
+                sub.developedText.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+            }
+        android.util.Log.i(
+            "Mentor",
+            "point|route=MENTOR|section=${target.id}|point=$pointNumber|" +
+                "subs=${snapshot.subPoints.count { it.hasDevelopment }}/${snapshot.subPoints.size}|" +
+                "words=$words|overall=${report.overall}|ms=${System.currentTimeMillis() - started}",
+        )
+    }
+
+    private fun currentPointSection(sections: List<SpeechSection>): SpeechSection? {
+        val candidates = listOfNotNull(_chatScope.value, _pushedContext?.sectionId)
+        for (id in candidates) {
+            sections.firstOrNull { it.id == id }?.let { return it }
+        }
+        return null
+    }
+
+    private fun diagnosisSourceCounts(sources: NoteSources): DiagnosisSourceCounts =
+        DiagnosisSourceCounts(
+            total = sources.total,
+            resolved = sources.resolved,
+            indexing = sources.pending,
+            noText = sources.sources.count {
+                it.citation.edition == EditionStatus.READY &&
+                    it.citation.text == TextStatus.NOT_FOUND
+            },
+            blocking = sources.blocking.size,
+            needsAction = sources.needsAction,
+        )
+
+    /** Reanalisar o coaching de um ponto pelo card. */
+    fun reanalyzePointCoaching(sectionId: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        val target = body.firstOrNull { it.id == sectionId } ?: return@launch
+        coachPoint(nid, target, body)
     }
 
     /**
@@ -2796,6 +2922,17 @@ class CopilotViewModel(
                     "diagnosis" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         diagnosisChatItem(
+                            id = e.id,
+                            fromMe = e.fromMe,
+                            payload = e.payload,
+                            sectionId = e.sectionId,
+                            origin = messageOriginOf(m),
+                            createdAt = e.createdAt,
+                        )
+                    }
+                    "coaching" -> {
+                        val m = ChatCodec.unescMap(e.payload)
+                        pointCoachingChatItem(
                             id = e.id,
                             fromMe = e.fromMe,
                             payload = e.payload,
@@ -3492,6 +3629,10 @@ class CopilotViewModel(
                 runOutlineDiagnosis()
                 return@launch
             }
+            if (com.bettertalker.app.data.copilot.ChatRouter.isPointCoachingCommand(text)) {
+                runPointCoaching(text)
+                return@launch
+            }
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -3605,7 +3746,12 @@ class CopilotViewModel(
             }
             when (route) {
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.Mentor -> {
-                    runOutlineDiagnosis()
+                    when (route.intent) {
+                        com.bettertalker.app.data.copilot.MentorIntent.DIAGNOSE_OUTLINE ->
+                            runOutlineDiagnosis()
+                        com.bettertalker.app.data.copilot.MentorIntent.DEVELOP_POINT ->
+                            runPointCoaching(text)
+                    }
                     return@launch
                 }
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.Navigate -> {
@@ -8772,3 +8918,35 @@ internal fun diagnosisChatItem(
 /** IDs dos diagnósticos ativos que serão desativados ao reanalisar. */
 internal fun diagnosisMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
     items.filter { it.kind == "diagnosis" }.map { it.id }
+
+/**
+ * Parse puro de uma mensagem `kind="coaching"` em [CopilotViewModel.ChatItem].
+ * Payload corrompido vira `kind="text"` com o resumo, sem crash.
+ */
+internal fun pointCoachingChatItem(
+    id: String,
+    fromMe: Boolean,
+    payload: String,
+    sectionId: String? = null,
+    origin: MessageOrigin = MessageOrigin.LOCAL,
+    createdAt: Long = 0L,
+): CopilotViewModel.ChatItem {
+    val report = pointCoachingFromPayload(payload)
+    val map = ChatCodec.unescMap(payload)
+    return CopilotViewModel.ChatItem(
+        id = id,
+        fromMe = fromMe,
+        kind = if (report == null) "text" else "coaching",
+        text = map["text"].orEmpty().ifBlank {
+            if (report == null) "Mentoria indisponível. Reanalise o ponto." else ""
+        },
+        sectionId = sectionId,
+        coaching = report,
+        origin = origin,
+        createdAt = createdAt,
+    )
+}
+
+/** IDs dos coachings ativos que serão desativados ao reanalisar. */
+internal fun coachingMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
+    items.filter { it.kind == "coaching" }.map { it.id }

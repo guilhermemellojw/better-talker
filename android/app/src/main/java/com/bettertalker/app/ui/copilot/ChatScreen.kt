@@ -140,6 +140,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.DiagnosisNextStep
+import com.bettertalker.app.data.copilot.PointCoachingNextStep
 import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.CardCapturedFrom
@@ -1481,6 +1482,32 @@ private fun DiagnosisBody(
 }
 
 @Composable
+private fun PointCoachingBody(
+    item: CopilotViewModel.ChatItem,
+    onOpenEditor: (PointCoachingNextStep.OpenEditor) -> Unit,
+    onGenerateDraft: (Int) -> Unit,
+    onReanalyze: () -> Unit,
+) {
+    val report = item.coaching
+    if (report == null) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                item.text.ifBlank { "Mentoria indisponível. Reanalise o ponto." },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onReanalyze) { Text("Reanalisar") }
+        }
+        return
+    }
+    PointCoachingCard(
+        report = report,
+        onOpenEditor = onOpenEditor,
+        onGenerateDraft = onGenerateDraft,
+        onReanalyze = onReanalyze,
+    )
+}
+
+@Composable
 private fun MessageBubble(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
@@ -1553,6 +1580,22 @@ private fun MessageBubble(
                 onShowSources = { vm.showDiagnosisSources() },
                 onAttachS34 = onAttachS34,
                 onReanalyze = { vm.reanalyzeOutlineDiagnosis() },
+            )
+            "coaching" -> PointCoachingBody(
+                item = item,
+                onOpenEditor = { step ->
+                    onNavigate(
+                        ResolvedChatNav.OpenSection(
+                            sectionId = step.sectionId,
+                            title = step.title,
+                            sectionNumber = step.sectionNumber,
+                        )
+                    )
+                },
+                onGenerateDraft = { number -> vm.send("Desenvolva o ponto $number") },
+                onReanalyze = {
+                    item.coaching?.let { vm.reanalyzePointCoaching(it.sectionId) }
+                },
             )
             else -> Surface(
                 color = MaterialTheme.colorScheme.surface,

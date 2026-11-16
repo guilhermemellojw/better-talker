@@ -70,6 +70,7 @@ class ChatActionsTest {
     fun diagnosticoDoEsbocoEhOPrimeiroChip() {
         assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = true).first())
         assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = false).first())
+        assertEquals("Como desenvolver este ponto", localSuggestionTexts(hasOutline = true)[1])
     }
 
     @Test
