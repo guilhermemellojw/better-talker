@@ -1,6 +1,19 @@
 # Itens congelados / decisões pendentes
 
-**Atualizado:** 2026-11-15 · **Release público:** v6.0.5/79 (tag `v6.0.5`) · **Baseline anterior:** v6.0.4/78 (tag `v6.0.4`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+**Atualizado:** 2026-11-16 · **Release em preparação:** v6.1.0/80 (tag `v6.1.0` pendente) · **Último público:** v6.0.5/79 (tag `v6.0.5`) · **Baseline anterior:** v6.0.4/78 (tag `v6.0.4`) · **Fase 2:** concluída (`506f813`) · **Fase 3:** concluída (`ebdcd92`) · **UX:** concluído (`5e5e1fa`) · **Confiança:** concluída (`ae041b4`) · **Agrupamento:** concluído (`93c7b02`) · **Refs unificadas:** concluído (`c53c0b7`) · **Atalho ✨:** concluído (`fe63742`) · **T3-A:** concluído (`83a76e1`) · **Geração longa:** concluída (`1485b2d`) · **C1 — orçamentos:** concluído (`938c0f7`) · **C2a — prefixo de página:** concluído (`41c546d`) · **P0 voz:** concluído (`8ac6c0e`) · **A1/A2:** concluído (2.8.1/26) · **Release v2.8.2:** em **draft** (`4f4efa1c…dbd5a5`) até o teste de restauração da keystore em outra máquina · **Release v2.8.1:** em **draft** como checkpoint (`1397ca64…a93133`)
+
+> **2026-11-16 — v6.1.0/80 (auditoria do Copilot):**
+> `main` em `8daba19`; patch `fix/v6.1-audit-failures` (`466d923`)
+> mergeado; **3.359 testes JVM / 0**; dispatch de release `43857580901`
+> verde. Caso 4: o card remove sentenças com refs/números sem apoio
+> (`invented=2` no debug, card limpo); caso 10: inventário determinístico
+> (43 refs/33 disponíveis/8 atenção); caso 14: discurso inteiro começa na
+> Introdução e cobre os 7 blocos; caso 12: setup controlado no debug com
+> `status=INDEXING` e resposta honesta (“aguardar”); caso 13: §§99-100
+> inexistente sem invenção. Docs da auditoria em `88f5949`. Bump
+> 80/6.1.0 e notas em `docs/releases/v6.1.0.md`; tag, CI de main e SHA
+> pendentes.
+
 
 > **2026-11-15 — v6.0.5/79 (fonte citada × capítulo bíblico):**
 > tag `v6.0.5` no merge da branch
