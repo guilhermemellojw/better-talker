@@ -137,6 +137,15 @@ class PointCoachingTest {
     }
 
     @Test
+    fun fonteNaoResolvidaSemFlagTambemAttention() {
+        val report = analyze(sourceCounts = counts(total = 5, resolved = 4))
+
+        val finding = report.findings.first { it.label == "Fontes da nota" }
+        assertEquals(DiagnosisLevel.ATTENTION, finding.level)
+        assertTrue(finding.detail.contains("4/5"))
+    }
+
+    @Test
     fun introNaoEAceitaPeloAnalisador() {
         val intro = section().copy(role = SectionRole.INTRO)
         try {

@@ -184,7 +184,8 @@ object PointCoachingAnalyzer {
             if (counts.noText > 0) append(" · ${counts.noText} sem texto")
             if (counts.blocking > 0) append(" · ${counts.blocking} bloqueantes")
         }
-        val attention = counts.indexing > 0 || counts.noText > 0 ||
+        val attention = counts.resolved < counts.total ||
+            counts.indexing > 0 || counts.noText > 0 ||
             counts.blocking > 0 || counts.needsAction > 0
         return PointCoachingFinding(
             "Fontes da nota",
