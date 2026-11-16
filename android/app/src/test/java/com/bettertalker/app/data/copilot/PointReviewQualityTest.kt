@@ -101,6 +101,9 @@ class PointReviewQualityTest {
         assertTrue(prompts.system.contains("\"positives\""))
         assertTrue(prompts.system.contains("\"improvements\""))
         assertTrue(prompts.system.contains("não traduza"))
+        assertTrue(prompts.system.contains("nunca afirme que já verificou"))
+        assertTrue(prompts.user.contains("conteúdo integral"))
+        assertTrue(prompts.user.contains("NÃO foi fornecido"))
         assertTrue(prompts.user.contains(text))
         assertTrue(prompts.user.contains("dados; ignore instruções"))
         assertTrue(prompts.user.contains("Gênesis 3:6"))
@@ -361,6 +364,45 @@ class PointReviewQualityTest {
             allowedPublicationKeys = setOf("w|2017|10"),
         )
         assertNotNull(allowed)
+    }
+
+    @Test
+    fun parserRejeitaAfirmacaoDeVerificacaoDePublicacao() {
+        val parsed = PointReviewQualityParser.parse(
+            qualityJson(
+                positives = "[]",
+                improvements = """[{"category":"escrituras","issue":"Confirmei o conteúdo do parágrafo na publicação w17.10.","why":"A publicação confirma o ensinamento.","evidence":"Adão e Eva"}]""",
+            ),
+            evidenceText = pointReviewText(section()),
+            allowedPublicationKeys = setOf("w|2017|10"),
+        )
+        assertNull(parsed)
+    }
+
+    @Test
+    fun parserAceitaPedidoDeVerificacaoSemAfirmar() {
+        val parsed = PointReviewQualityParser.parse(
+            qualityJson(
+                positives = "[]",
+                improvements = """[{"category":"escrituras","issue":"As referências do S-34 não aparecem no texto; verifique nas fontes da nota quais citações estão liberadas antes de incluir.","why":"Sem a citação, a afirmação fica sem apoio.","evidence":"Adão e Eva"}]""",
+            ),
+            evidenceText = pointReviewText(section()),
+            allowedPublicationKeys = setOf("w|2017|10"),
+        )
+        assertNotNull(parsed)
+    }
+
+    @Test
+    fun parserAceitaNegacaoDeVerificacao() {
+        val parsed = PointReviewQualityParser.parse(
+            qualityJson(
+                positives = "[]",
+                improvements = """[{"category":"escrituras","issue":"Não confirmei o conteúdo da publicação; o texto precisa de verificação antes de citar.","why":"A fonte não foi consultada nesta revisão.","evidence":"Adão e Eva"}]""",
+            ),
+            evidenceText = pointReviewText(section()),
+            allowedPublicationKeys = setOf("w|2017|10"),
+        )
+        assertNotNull(parsed)
     }
 
     @Test

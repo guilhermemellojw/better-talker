@@ -91,6 +91,7 @@ import com.bettertalker.app.data.copilot.NoteSectionSnapshot
 import com.bettertalker.app.data.copilot.PointQualityStatus
 import com.bettertalker.app.data.copilot.POINT_REVIEW_QUALITY_SCHEMA
 import com.bettertalker.app.data.copilot.buildPointReviewQualityPrompts
+import com.bettertalker.app.data.copilot.matchS34SectionForPoint
 import com.bettertalker.app.data.copilot.pointQualitySkipReason
 import com.bettertalker.app.data.copilot.pointReviewTextHash
 import com.bettertalker.app.data.copilot.pointReviewWordCount
@@ -2537,7 +2538,7 @@ class CopilotViewModel(
             return
         }
         val s34 = loadDiagnosisS34(nid)
-        val s34Section = s34?.sections?.sortedBy { it.order }?.getOrNull(pointNumber - 1)
+        val s34Section = matchS34SectionForPoint(target.title, s34?.sections)
         val report = PointReviewAnalyzer.analyze(
             PointReviewInput(
                 section = snapshot,
@@ -2580,6 +2581,7 @@ class CopilotViewModel(
             "review|route=MENTOR|section=${target.id}|point=$pointNumber|" +
                 "strengths=${report.strengths.size}|improvements=${report.improvements.size}|" +
                 "overall=${report.overall}|quality=${reportWithQuality.qualityStatus}|" +
+                "s34=${if (s34Section != null) "matched" else "unavailable"}|" +
                 "words=$words|ms=${System.currentTimeMillis() - started}",
         )
         if (canQuality && messageId != null) {
@@ -2820,6 +2822,10 @@ class CopilotViewModel(
         db.chatDao().updateMessagePayload(messageId, payload)
     }
 
+    /**
+     * Só filtra menções: a chave autoriza citar a referência, mas NÃO
+     * significa que o conteúdo da publicação foi consultado/verificado.
+     */
     private fun allowedPublicationKeys(s34: S34Section?, text: String): Set<String> =
         (s34?.references.orEmpty().map { it.rawText } + text)
             .flatMap { RefDetector.detect(it) }

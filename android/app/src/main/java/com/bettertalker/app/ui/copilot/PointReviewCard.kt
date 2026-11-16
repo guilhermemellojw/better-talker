@@ -231,7 +231,7 @@ private fun QualityStrengths(positives: List<PointQualityPositive>) {
         )
         positive.evidence?.takeIf { it.isNotBlank() }?.let { evidence ->
             Text(
-                "Evidência: ${evidence.take(220)}",
+                "Trecho observado: ${evidence.take(220)}",
                 style = MaterialTheme.typography.labelSmall,
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -278,7 +278,7 @@ private fun QualityImprovements(improvements: List<PointQualityImprovement>) {
         )
         improvement.evidence?.takeIf { it.isNotBlank() }?.let { evidence ->
             Text(
-                "Evidência: ${evidence.take(220)}",
+                "Trecho observado: ${evidence.take(220)}",
                 style = MaterialTheme.typography.labelSmall,
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

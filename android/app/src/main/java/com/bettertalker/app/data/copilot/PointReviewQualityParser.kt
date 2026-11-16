@@ -30,6 +30,23 @@ object PointReviewQualityParser {
         "no lugar do texto",
     )
 
+    /**
+     * O prompt não inclui o conteúdo integral das publicações. Estas formas
+     * explícitas de "já verifiquei/confirmei" são rejeitadas para o card não
+     * apresentar uma fonte como comprovada sem consulta ao conteúdo.
+     */
+    private val UNVERIFIED_SOURCE_CLAIM = listOf(
+        Regex(
+            """(?<!nao )\b(confirmei|verifiquei|conferi|constatei|comprovei)\s+""" +
+                """(o|a|os|as)?\s*(conteudo|ensinamento|paragrafo|artigo|estudo|""" +
+                """publicacao|citacao|referencia)\b"""
+        ),
+        Regex(
+            """(?<!nao )\b(esta|foi)\s+(confirmado|verificado|conferido)\b.{0,80}""" +
+                """\b(publicacao|paragrafo|artigo|estudo|referencia)\b"""
+        ),
+    )
+
     fun parse(
         raw: String,
         evidenceText: String,
@@ -78,6 +95,9 @@ object PointReviewQualityParser {
             val evidence = stringFieldAny(obj, "evidence", "evidencia", "evidência")
                 ?.takeIf { it.isNotBlank() && evidenceMatches(it, evidenceText) }
             if (isReplacement(issue) || isReplacement(why)) return@mapNotNull null
+            if (hasUnverifiedSourceClaim(issue) || hasUnverifiedSourceClaim(why)) {
+                return@mapNotNull null
+            }
             if (isGeneric(issue, evidence)) return@mapNotNull null
             if (hasInventedPublication(issue, allowedPublicationKeys) ||
                 hasInventedPublication(why, allowedPublicationKeys) ||
@@ -109,6 +129,7 @@ object PointReviewQualityParser {
         val trimmed = observation.trim()
         if (trimmed.isBlank()) return null
         if (isReplacement(trimmed)) return null
+        if (hasUnverifiedSourceClaim(trimmed)) return null
         if (hasInventedPublication(trimmed, allowed)) return null
         return PointQualityPositive(trimmed, evidence)
     }
@@ -131,6 +152,12 @@ object PointReviewQualityParser {
         return RefDetector.detect(text)
             .filter { it.isExplicitPublicationRef() }
             .any { it.editionKey !in allowed }
+    }
+
+    private fun hasUnverifiedSourceClaim(text: String): Boolean {
+        if (text.isBlank()) return false
+        val n = normalizeText(text)
+        return UNVERIFIED_SOURCE_CLAIM.any { it.containsMatchIn(n) }
     }
 
     /**
