@@ -529,6 +529,7 @@ fun ChatErrorRow(
  */
 fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
     listOf(
+        "Diagnóstico do esboço",
         "Próximo passo",
         "Mostrar fontes",
         "Ideias para a introdução",
@@ -541,7 +542,13 @@ fun localSuggestionTexts(hasOutline: Boolean): List<String> = if (hasOutline) {
         "Sincronizar esboço"
     )
 } else {
-    listOf("Próximo passo", "Mostrar fontes", "Resumir", "Quais refs faltam?")
+    listOf(
+        "Diagnóstico do esboço",
+        "Próximo passo",
+        "Mostrar fontes",
+        "Resumir",
+        "Quais refs faltam?"
+    )
 }
 
 /** Fatia 4 — rótulo do botão da sugestão de próximo passo. Puro/testável. */

@@ -139,6 +139,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.copilot.ChatRunState
+import com.bettertalker.app.data.copilot.DiagnosisNextStep
 import com.bettertalker.app.data.copilot.PracticeSnapshot
 import com.bettertalker.app.data.copilot.ResolvedChatNav
 import com.bettertalker.app.data.copilot.CardCapturedFrom
@@ -1117,6 +1118,9 @@ fun ChatScreen(
                                         liveSections = outlineSections,
                                         merges = merges, draft = draft,
                                         onOpenLibrary = onOpenLibrary,
+                                        onNavigate = onNavigate,
+                                        onOpenNote = onOpenNote ?: onOpenEditor,
+                                        onAttachS34 = { showAttach = true },
                                         // #26-fix-c: preenche o composer e marca a
                                         // pergunta — o envio substitui a antiga.
                                         onEdit = { edited ->
@@ -1338,6 +1342,9 @@ fun ChatScreen(
                                         merges = merges,
                                         draft = draft,
                                         onOpenLibrary = onOpenLibrary,
+                                        onNavigate = onNavigate,
+                                        onOpenNote = onOpenNote ?: onOpenEditor,
+                                        onAttachS34 = { showAttach = true },
                                     )
                                 }
                             } else {
@@ -1444,6 +1451,36 @@ fun ChatScreen(
 }
 
 @Composable
+private fun DiagnosisBody(
+    item: CopilotViewModel.ChatItem,
+    onOpenSection: (DiagnosisNextStep.OpenSection) -> Unit,
+    onOpenNote: () -> Unit,
+    onShowSources: () -> Unit,
+    onAttachS34: () -> Unit,
+    onReanalyze: () -> Unit,
+) {
+    val report = item.diagnosis
+    if (report == null) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            Text(
+                item.text.ifBlank { "Diagnóstico indisponível. Reanalise o esboço." },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onReanalyze) { Text("Reanalisar") }
+        }
+        return
+    }
+    OutlineDiagnosisCard(
+        report = report,
+        onOpenSection = onOpenSection,
+        onOpenNote = onOpenNote,
+        onShowSources = onShowSources,
+        onAttachS34 = onAttachS34,
+        onReanalyze = onReanalyze,
+    )
+}
+
+@Composable
 private fun MessageBubble(
     item: CopilotViewModel.ChatItem,
     vm: CopilotViewModel,
@@ -1458,6 +1495,11 @@ private fun MessageBubble(
     onOpenLibrary: () -> Unit,
     /** #26-fix-c: "Editar pergunta" (só bolhas do usuário). */
     onEdit: ((CopilotViewModel.ChatItem) -> Unit)? = null,
+    /** Fatia 4: navegação de seção vinda de cards. */
+    onNavigate: (ResolvedChatNav) -> Unit = {},
+    /** Mentor: abrir nota / anexar S-34 a partir do diagnóstico. */
+    onOpenNote: (() -> Unit)? = null,
+    onAttachS34: () -> Unit = {},
     /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
     actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
@@ -1496,6 +1538,22 @@ private fun MessageBubble(
             "bases" -> BasesBody(item, dl, ctx, onOpenLibrary)
             "sections" -> SectionsBody(item, vm, sectionBusy, liveSections)
             "draft" -> DraftBody(item, vm, draft, merges)
+            "diagnosis" -> DiagnosisBody(
+                item = item,
+                onOpenSection = { step ->
+                    onNavigate(
+                        ResolvedChatNav.OpenSection(
+                            sectionId = step.sectionId,
+                            title = step.title,
+                            sectionNumber = step.sectionNumber,
+                        )
+                    )
+                },
+                onOpenNote = { (onOpenNote ?: onOpenLibrary)() },
+                onShowSources = { vm.showDiagnosisSources() },
+                onAttachS34 = onAttachS34,
+                onReanalyze = { vm.reanalyzeOutlineDiagnosis() },
+            )
             else -> Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(12.dp),

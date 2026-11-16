@@ -6,6 +6,9 @@ import com.bettertalker.app.data.util.normalizeText
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.speech.SectionRole
 
+/** Intenção da rota Mentor (fatia 1: só diagnóstico do esboço). */
+enum class MentorIntent { DIAGNOSE_OUTLINE }
+
 /**
  * Fase 20-D — roteamento natural do chat para a sessão oratória.
  *
@@ -41,6 +44,15 @@ object ChatRouter {
             val topic: StructuralTopic,
             val sectionNumber: Int?,
             val reason: String
+        ) : Route
+
+        /**
+         * Mentor — diagnóstico estrutural do esboço, determinístico e
+         * read-only. Não chama LLM, não gera texto e não edita a nota.
+         */
+        data class Mentor(
+            val intent: MentorIntent,
+            val reason: String,
         ) : Route
 
         data class ProposalReply(val accept: Boolean, val reason: String) : Route
@@ -504,6 +516,44 @@ object ChatRouter {
             "refaca|refazer|outra|outro)\\b"
     )
 
+    // ---------- Mentor: diagnóstico do esboço ----------
+
+    private val DIAGNOSIS_VERB = Regex(
+        "\\b(diagnostique|diagnostico|avalie|analise|analisa|verifique)\\b"
+    )
+    private val DIAGNOSIS_ASK = Regex(
+        "\\b(o que falta|o que esta faltando|como esta|status)\\b"
+    )
+    private val DIAGNOSIS_SCOPE = Regex(
+        "\\b(esboco|s\\s*34|estrutura|discurso|nota)\\b"
+    )
+    private val DIAGNOSIS_WHOLE = Regex(
+        "\\b(esboco|s\\s*34|discurso inteiro|nota inteira|estrutura da nota|" +
+            "estrutura do discurso)\\b"
+    )
+    private val DIAGNOSIS_POINT = Regex(
+        "\\b(ponto|topico|introducao|conclusao)\\s*\\d*\\b"
+    )
+
+    /**
+     * Comando explícito de diagnóstico do esboço. Puro/testável.
+     *
+     * Não captura “analise o ponto 2” nem “como está o ponto 2?”: exige
+     * escopo de esboço/S-34/estrutura/nota e rejeita ponto específico sem
+     * escopo de discurso inteiro.
+     */
+    fun isOutlineDiagnosisCommand(text: String): Boolean {
+        val t = " ${normalizeText(text)} "
+        if (!DIAGNOSIS_VERB.containsMatchIn(t) && !DIAGNOSIS_ASK.containsMatchIn(t)) {
+            return false
+        }
+        if (!DIAGNOSIS_SCOPE.containsMatchIn(t)) return false
+        if (DIAGNOSIS_POINT.containsMatchIn(t) && !DIAGNOSIS_WHOLE.containsMatchIn(t)) {
+            return false
+        }
+        return true
+    }
+
     /**
      * C6 (Sessão 2): pergunta de orientação — "Como/Qual/O que…" sem verbo
      * imperativo de geração. Sem contexto de seção, é conversa/mentoria, não
@@ -716,6 +766,16 @@ object ChatRouter {
             return Route.Navigate(it, "comando de navegação/mentoria")
         }
 
+        // Mentor — diagnóstico estrutural determinístico, antes da oratória,
+        // da explicação e da consulta estrutural (que sequestrariam
+        // "analise a estrutura do S-34").
+        if (isOutlineDiagnosisCommand(text)) {
+            return Route.Mentor(
+                MentorIntent.DIAGNOSE_OUTLINE,
+                "pedido de diagnóstico do esboço",
+            )
+        }
+
         // T2 (Fase 2): materializar a estrutura — antes da oratória e do
         // meta, para "crie as seções" não virar geração e "insira tudo na
         // nota" não cair no geral.
@@ -842,6 +902,7 @@ object ChatRouter {
             "action=${route.action} inherited=${route.inherited} reason=${route.reason}"
         is Route.StructuralQuery -> "route=STRUCTURAL_QUERY topic=${route.topic} " +
             "section=${route.sectionNumber ?: "—"} reason=${route.reason}"
+        is Route.Mentor -> "route=MENTOR intent=${route.intent} reason=${route.reason}"
         is Route.ProposalReply -> "route=PROPOSAL_REPLY accept=${route.accept} reason=${route.reason}"
         is Route.NothingToRefine -> "route=NOTHING_TO_REFINE reason=${route.reason}"
         is Route.OutOfScope -> "route=OUT_OF_SCOPE point=${route.requestedPoint} reason=${route.reason}"
