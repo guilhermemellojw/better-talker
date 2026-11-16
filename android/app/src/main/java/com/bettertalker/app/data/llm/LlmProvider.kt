@@ -102,6 +102,19 @@ data class LlmRequest(
     val sourceQuestionMode: Boolean = false,
     val sourceQuestionBlock: String? = null,
     /**
+     * 1B (Mentor) — prompt customizado para uma chamada estruturada.
+     * Quando ambos estão presentes, o provider usa exatamente estes textos
+     * (system/user) em vez de montar o prompt de chat. Aditivo: nenhuma rota
+     * existente preenche estes campos.
+     */
+    val customSystemPrompt: String? = null,
+    val customUserPrompt: String? = null,
+    /**
+     * 1B (Mentor) — chamada em background (revisão qualitativa). Não publica
+     * parciais/fases no [LocalProgress] global, para não poluir o chat.
+     */
+    val silentProgress: Boolean = false,
+    /**
      * T1 (modo colar e conversar): esboço colado íntegro. Quando presente,
      * o provider usa o prompt minimalista ([buildMinimalPastePrompts]) em
      * vez do prompt estruturado — sem S-34, dossiê, RAG ou TAIL.

@@ -85,6 +85,18 @@ import com.bettertalker.app.data.copilot.PointReviewAnalyzer
 import com.bettertalker.app.data.copilot.PointReviewCodec
 import com.bettertalker.app.data.copilot.PointReviewInput
 import com.bettertalker.app.data.copilot.PointReviewReport
+import com.bettertalker.app.data.copilot.PointReviewQualityContext
+import com.bettertalker.app.data.copilot.PointReviewQualityParser
+import com.bettertalker.app.data.copilot.NoteSectionSnapshot
+import com.bettertalker.app.data.copilot.PointQualityStatus
+import com.bettertalker.app.data.copilot.POINT_REVIEW_QUALITY_SCHEMA
+import com.bettertalker.app.data.copilot.buildPointReviewQualityPrompts
+import com.bettertalker.app.data.copilot.matchS34SectionForPoint
+import com.bettertalker.app.data.copilot.pointQualitySkipReason
+import com.bettertalker.app.data.copilot.pointReviewTextHash
+import com.bettertalker.app.data.copilot.pointReviewWordCount
+import com.bettertalker.app.data.copilot.shouldApplyPointQuality
+import com.bettertalker.app.data.copilot.shouldRequestPointQuality
 import com.bettertalker.app.data.copilot.pointReviewFromPayload
 import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.provenanceSummary
@@ -109,9 +121,13 @@ import com.bettertalker.app.data.edit.renderAfterText
 import com.bettertalker.app.data.edit.stripHtmlToText
 import com.bettertalker.app.data.edit.validateEditProposal
 import com.bettertalker.app.data.llm.GroundednessVerifier
+import com.bettertalker.app.data.llm.LlmAction
 import com.bettertalker.app.data.llm.LlmRequest
 import com.bettertalker.app.data.llm.ProviderFactory
+import com.bettertalker.app.data.llm.ProviderError
 import com.bettertalker.app.data.llm.ResponseFormat
+import com.bettertalker.app.data.llm.DeepSeekProvider
+import com.bettertalker.app.data.copilot.ProviderErrorCode
 import com.bettertalker.app.data.llm.VerificationCategory
 import com.bettertalker.app.data.llm.VerificationResult
 import com.bettertalker.app.data.planning.RoomReferenceResolver
@@ -130,6 +146,7 @@ import com.bettertalker.app.data.repo.ScopedHit
 import com.bettertalker.app.data.repo.childTitles
 import com.bettertalker.app.data.s34.S34ImportHook
 import com.bettertalker.app.data.s34.S34Document
+import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.normalizeBibleBookName
 import com.bettertalker.app.data.util.BASE_PUBS
@@ -787,6 +804,7 @@ class CopilotViewModel(
                 } catch (_: Exception) {
                 }
                 prefetchDiagnosisSources()
+                cleanupPendingQualityReviews(noteId)
             }
         }
         // Fonte única reativa: download/indexação/reindexação mudam o status
@@ -2520,7 +2538,7 @@ class CopilotViewModel(
             return
         }
         val s34 = loadDiagnosisS34(nid)
-        val s34Section = s34?.sections?.sortedBy { it.order }?.getOrNull(pointNumber - 1)
+        val s34Section = matchS34SectionForPoint(target.title, s34?.sections)
         val report = PointReviewAnalyzer.analyze(
             PointReviewInput(
                 section = snapshot,
@@ -2531,16 +2549,27 @@ class CopilotViewModel(
             ),
             now = System.currentTimeMillis(),
         )
+        val remote = ProviderFactory.resolveRemote(settings, app)
+        val words = pointReviewWordCount(snapshot)
+        val hasKey = remote.apiKey.isNotBlank()
+        val canQuality = shouldRequestPointQuality(words, hasKey)
+        val textHash = pointReviewTextHash(snapshot)
+        val reportWithQuality = report.copy(
+            qualityStatus = if (canQuality) PointQualityStatus.PENDING else PointQualityStatus.SKIPPED,
+            qualityError = pointQualitySkipReason(words, hasKey),
+            qualityTextHash = textHash,
+            qualityStartedAt = if (canQuality) started else null,
+        )
         db.chatDao().all(nid)
             .let(::reviewMessageIdsToDeactivate)
             .forEach { db.chatDao().deactivateMessage(it) }
-        post(
+        val messageId = post(
             fromMe = false,
             kind = "review",
             payload = ChatCodec.escMap(
                 mapOf(
-                    "report" to PointReviewCodec.encode(report),
-                    "text" to report.reading,
+                    "report" to PointReviewCodec.encode(reportWithQuality),
+                    "text" to reportWithQuality.reading,
                 ),
             ),
             origin = MessageOrigin.LOCAL,
@@ -2551,8 +2580,25 @@ class CopilotViewModel(
             "Mentor",
             "review|route=MENTOR|section=${target.id}|point=$pointNumber|" +
                 "strengths=${report.strengths.size}|improvements=${report.improvements.size}|" +
-                "overall=${report.overall}|ms=${System.currentTimeMillis() - started}",
+                "overall=${report.overall}|quality=${reportWithQuality.qualityStatus}|" +
+                "s34=${if (s34Section != null) "matched" else "unavailable"}|" +
+                "words=$words|ms=${System.currentTimeMillis() - started}",
         )
+        if (canQuality && messageId != null) {
+            launchQualityReview(
+                nid = nid,
+                target = target,
+                section = snapshot,
+                s34 = s34,
+                s34Section = s34Section,
+                deterministic = reportWithQuality,
+                sourceCounts = sourceCounts,
+                messageId = messageId,
+                remote = remote,
+                expectedTextHash = textHash,
+                nextPointTitle = body.getOrNull(pointNumber)?.title,
+            )
+        }
     }
 
     /** Reanalisar a revisão de um ponto pelo card. */
@@ -2562,6 +2608,251 @@ class CopilotViewModel(
         val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
         val target = body.firstOrNull { it.id == sectionId } ?: return@launch
         reviewPoint(nid, target, body)
+    }
+
+    // ---------- 1B: revisão qualitativa (DeepSeek Flash) ----------
+
+    /** Marca análises PENDING antigas como interrompidas ao abrir a nota. */
+    private suspend fun cleanupPendingQualityReviews(nid: String) {
+        val now = System.currentTimeMillis()
+        db.chatDao().all(nid)
+            .filter { it.kind == "review" && it.isActive }
+            .forEach { entity ->
+                val report = PointReviewCodec.decode(
+                    ChatCodec.unescMap(entity.payload)["report"].orEmpty()
+                ) ?: return@forEach
+                if (report.qualityStatus != PointQualityStatus.PENDING) return@forEach
+                val startedAt = report.qualityStartedAt
+                if (startedAt != null && now - startedAt < 120_000) return@forEach
+                updateReviewReport(
+                    entity.id,
+                    report.copy(
+                        qualityStatus = PointQualityStatus.STALE,
+                        qualityError = "A análise qualitativa foi interrompida; reanalise.",
+                        qualityStartedAt = null,
+                    ),
+                )
+            }
+    }
+
+    private fun launchQualityReview(
+        nid: String,
+        target: SpeechSection,
+        section: NoteSectionSnapshot,
+        s34: S34Document?,
+        s34Section: S34Section?,
+        deterministic: PointReviewReport,
+        sourceCounts: DiagnosisSourceCounts,
+        messageId: String,
+        remote: ProviderFactory.RemoteConfig,
+        expectedTextHash: String,
+        nextPointTitle: String?,
+    ) {
+        viewModelScope.launch {
+            val started = System.currentTimeMillis()
+            val context = PointReviewQualityContext(
+                pointNumber = deterministic.pointNumber,
+                title = deterministic.title,
+                minutes = deterministic.minutes,
+                noteTitle = _noteTitle.value.ifBlank { db.noteDao().get(nid)?.title },
+                s34Objective = s34?.objective,
+                s34Section = s34Section,
+                section = section,
+                deterministic = deterministic,
+                sourceCounts = sourceCounts,
+                nextPointTitle = nextPointTitle,
+            )
+            val prompts = buildPointReviewQualityPrompts(context)
+            val allowedKeys = allowedPublicationKeys(s34Section, prompts.evidenceText)
+            try {
+                val provider = ProviderFactory.createFor(
+                    remote.copy(model = DeepSeekProvider.MODEL_FLASH),
+                    app,
+                )
+                val res = provider.generate(
+                    LlmRequest(
+                        text = "",
+                        action = LlmAction.CHAT,
+                        message = "",
+                        responseFormat = ResponseFormat.JSON_SCHEMA,
+                        jsonSchema = POINT_REVIEW_QUALITY_SCHEMA,
+                        maxOutputTokens = 1_200,
+                        maxOutputTokensCap = 1_600,
+                        timeoutMs = 15_000,
+                        maxAttempts = 1,
+                        customSystemPrompt = prompts.system,
+                        customUserPrompt = prompts.user,
+                        silentProgress = true,
+                    )
+                )
+                val quality = PointReviewQualityParser.parse(
+                    raw = res.text,
+                    evidenceText = prompts.evidenceText,
+                    allowedPublicationKeys = allowedKeys,
+                )
+                if (quality == null) {
+                    val applied = applyQualityUpdate(nid, messageId, expectedTextHash, target.id) { current ->
+                        current.copy(
+                            qualityStatus = PointQualityStatus.FAILED,
+                            qualityError = "A revisão qualitativa não passou na validação; " +
+                                "mantive a análise estrutural.",
+                            qualityStartedAt = null,
+                        )
+                    }
+                    android.util.Log.w(
+                        "Mentor",
+                        "quality|section=${target.id}|point=${deterministic.pointNumber}|" +
+                            "status=INVALID|applied=$applied|model=${res.meta.model}|" +
+                            "ms=${res.meta.durationMs}|in=${res.meta.usage?.inputTokens}|" +
+                            "out=${res.meta.usage?.outputTokens}",
+                    )
+                    return@launch
+                }
+                val enriched = quality.copy(
+                    model = res.meta.model,
+                    durationMs = res.meta.durationMs,
+                    inputTokens = res.meta.usage?.inputTokens,
+                    outputTokens = res.meta.usage?.outputTokens,
+                    textTruncated = prompts.textTruncated,
+                )
+                val applied = applyQualityUpdate(nid, messageId, expectedTextHash, target.id) { current ->
+                    current.copy(
+                        quality = enriched,
+                        qualityStatus = PointQualityStatus.COMPLETED,
+                        qualityError = null,
+                        qualityStartedAt = null,
+                    )
+                }
+                android.util.Log.i(
+                    "Mentor",
+                    "quality|section=${target.id}|point=${deterministic.pointNumber}|" +
+                        "status=${if (applied) "COMPLETED" else "COMPLETED_DISCARDED"}|" +
+                        "model=${res.meta.model}|" +
+                        "ms=${res.meta.durationMs}|in=${res.meta.usage?.inputTokens}|" +
+                        "out=${res.meta.usage?.outputTokens}|" +
+                        "positives=${enriched.positives.size}|" +
+                        "improvements=${enriched.improvements.size}|" +
+                        "truncated=${enriched.textTruncated}|" +
+                        "totalMs=${System.currentTimeMillis() - started}",
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val message = qualityFailureMessage(e)
+                val applied = applyQualityUpdate(nid, messageId, expectedTextHash, target.id) { current ->
+                    current.copy(
+                        qualityStatus = PointQualityStatus.FAILED,
+                        qualityError = message,
+                        qualityStartedAt = null,
+                    )
+                }
+                val code = (e as? ProviderError)?.code?.name ?: e.javaClass.simpleName
+                android.util.Log.w(
+                    "Mentor",
+                    "quality|section=${target.id}|point=${deterministic.pointNumber}|" +
+                        "status=FAILED|applied=$applied|code=$code|" +
+                        "ms=${System.currentTimeMillis() - started}",
+                )
+            }
+        }
+    }
+
+    /**
+     * Atualiza o MESMO card de revisão, nunca cria outro. Só aplica se a
+     * mensagem continua ativa, o status é PENDING e o texto não mudou.
+     */
+    private suspend fun applyQualityUpdate(
+        nid: String,
+        messageId: String,
+        expectedTextHash: String,
+        sectionId: String,
+        transform: (PointReviewReport) -> PointReviewReport,
+    ): Boolean {
+        val entity = db.chatDao().all(nid).firstOrNull { it.id == messageId } ?: return false
+        val current = PointReviewCodec.decode(
+            ChatCodec.unescMap(entity.payload)["report"].orEmpty()
+        ) ?: return false
+        val liveHash = currentPointTextHash(nid, sectionId)
+        if (!shouldApplyPointQuality(
+                status = current.qualityStatus,
+                expectedTextHash = expectedTextHash,
+                liveTextHash = liveHash,
+                messageActive = entity.isActive,
+            )
+        ) {
+            if (entity.isActive && current.qualityStatus == PointQualityStatus.PENDING) {
+                val stale = current.copy(
+                    qualityStatus = PointQualityStatus.STALE,
+                    qualityError = if (liveHash == null) {
+                        "O ponto não está mais disponível; reanalise."
+                    } else {
+                        "O texto mudou durante a análise; reanalise."
+                    },
+                    qualityStartedAt = null,
+                )
+                updateReviewReport(messageId, stale)
+            }
+            return false
+        }
+        updateReviewReport(messageId, transform(current))
+        return true
+    }
+
+    private suspend fun currentPointTextHash(nid: String, sectionId: String): String? {
+        val section = db.speechSectionDao().get(sectionId)?.toDomain() ?: return null
+        val subs = db.subPointDao().forSection(sectionId).map { it.toDomain() }
+        val snapshot = OutlineDiagnosisInputBuilder.build(
+            s34 = null,
+            noteTitle = null,
+            sections = listOf(section),
+            subPointsBySection = mapOf(sectionId to subs),
+            sourceCounts = DiagnosisSourceCounts.NONE,
+        ).sections.firstOrNull() ?: return null
+        return pointReviewTextHash(snapshot)
+    }
+
+    private suspend fun updateReviewReport(messageId: String, report: PointReviewReport) {
+        val payload = ChatCodec.escMap(
+            mapOf(
+                "report" to PointReviewCodec.encode(report),
+                "text" to report.reading,
+                "origin" to MessageOrigin.LOCAL.name,
+            )
+        )
+        db.chatDao().updateMessagePayload(messageId, payload)
+    }
+
+    /**
+     * Só filtra menções: a chave autoriza citar a referência, mas NÃO
+     * significa que o conteúdo da publicação foi consultado/verificado.
+     */
+    private fun allowedPublicationKeys(s34: S34Section?, text: String): Set<String> =
+        (s34?.references.orEmpty().map { it.rawText } + text)
+            .flatMap { RefDetector.detect(it) }
+            .map { it.editionKey }
+            .toSet()
+
+    private fun qualityFailureMessage(e: Exception): String {
+        val code = (e as? ProviderError)?.code
+        return when (code) {
+            ProviderErrorCode.AUTHENTICATION ->
+                "A chave de IA não foi aceita; mantive a análise estrutural."
+            ProviderErrorCode.TIMEOUT ->
+                "A revisão qualitativa demorou demais; mantive a análise estrutural."
+            ProviderErrorCode.NETWORK,
+            ProviderErrorCode.UNAVAILABLE ->
+                "Não consegui conectar ao modelo agora; mantive a análise estrutural."
+            ProviderErrorCode.RATE_LIMIT ->
+                "Limite do modelo atingido; tente reanalisar em instantes."
+            ProviderErrorCode.INVALID_RESPONSE,
+            ProviderErrorCode.INVALID_REQUEST ->
+                "A revisão qualitativa não veio em formato válido; mantive a análise estrutural."
+            ProviderErrorCode.CANCELLED ->
+                "A revisão qualitativa foi interrompida; reanalise quando quiser."
+            else ->
+                "Não foi possível concluir a revisão qualitativa agora; " +
+                    "mantive a análise estrutural."
+        }
     }
 
     /**

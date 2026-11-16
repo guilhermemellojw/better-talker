@@ -127,6 +127,38 @@ class DeepSeekProviderTest {
     }
 
     @Test
+    fun customPromptUsadoESilentNaoMexeNoProgresso() = runBlocking {
+        LocalProgress.reset()
+        LocalProgress.appendPartial("sentinel")
+        try {
+            val http = FakeStream(
+                mutableListOf(okStream("""{"positives":[],"improvements":[]}"""))
+            )
+            val provider = DeepSeekProvider(apiKey = "k", stream = http, log = {})
+            val res = provider.generate(
+                LlmRequest(
+                    text = "",
+                    action = com.bettertalker.app.data.llm.LlmAction.CHAT,
+                    message = "",
+                    responseFormat = ResponseFormat.JSON_SCHEMA,
+                    jsonSchema = """{"name":"x","strict":true,"schema":{"type":"object","properties":{"positives":{"type":"array"},"improvements":{"type":"array"}},"required":["positives","improvements"]}}""",
+                    customSystemPrompt = "SYS-MENTOR",
+                    customUserPrompt = "USER-TEXTO-DO-PONTO",
+                    silentProgress = true,
+                    maxAttempts = 1,
+                )
+            )
+
+            assertTrue(http.bodies.single().contains("SYS-MENTOR"))
+            assertTrue(http.bodies.single().contains("USER-TEXTO-DO-PONTO"))
+            assertEquals("""{"positives":[],"improvements":[]}""", res.text)
+            assertEquals("sentinel", LocalProgress.partialText.value)
+        } finally {
+            LocalProgress.reset()
+        }
+    }
+
+    @Test
     fun parseSseLinePuro() {
         assertEquals(SseEvent.Done, DeepSeekProvider.parseSseLine("data: [DONE]"))
         val d = DeepSeekProvider.parseSseLine(delta("oi"))
