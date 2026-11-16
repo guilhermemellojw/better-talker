@@ -73,10 +73,10 @@ class PointCoachingCodecTest {
             "overall=OK\n" +
             "reading=Resumo\n" +
             "nextStep=OpenEditor|section-2|Ponto|2|Abrir no editor\n"
-        val decoded = PointCoachingCodec.decode(raw)
+        val decoded = requireNotNull(PointCoachingCodec.decode(raw))
 
-        assertEquals(0, decoded?.minutes)
-        assertEquals(0L, decoded?.generatedAt)
-        assertTrue(decoded?.findings?.isEmpty() == true)
+        assertEquals(0, decoded.minutes)
+        assertEquals(0L, decoded.generatedAt)
+        assertTrue(decoded.findings.isEmpty())
     }
 }
