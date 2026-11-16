@@ -42,6 +42,7 @@ fun PresentHomeScreen(
 ) {
     val card by vm.presentCard.collectAsState()
     val all by vm.cards.collectAsState()
+    val lastNote by vm.lastNoteCard.collectAsState()
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -59,11 +60,19 @@ fun PresentHomeScreen(
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             val current = card
+            val fallback = lastNote
             when {
                 all.isEmpty() -> HubEmptyState(
                     text = "Crie seu primeiro esboço para apresentar.",
                     actionLabel = "Ir para Esboços",
                     onAction = onGoToLibrary,
+                )
+                current == null && fallback != null -> HubEmptyState(
+                    text = "Continuar de onde você parou?",
+                    actionLabel = "Usar esboço atual: ${fallback.title}",
+                    onAction = { vm.useCurrentForPresent(fallback.id) },
+                    secondaryLabel = "Escolher outro esboço",
+                    onSecondary = onPickNote,
                 )
                 current == null -> HubEmptyState(
                     text = "Escolha um esboço para apresentar.",

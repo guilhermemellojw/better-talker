@@ -34,6 +34,7 @@ fun TrainHomeScreen(
 ) {
     val card by vm.trainCard.collectAsState()
     val all by vm.cards.collectAsState()
+    val lastNote by vm.lastNoteCard.collectAsState()
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -51,11 +52,19 @@ fun TrainHomeScreen(
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             val current = card
+            val fallback = lastNote
             when {
                 all.isEmpty() -> HubEmptyState(
                     text = "Crie seu primeiro esboço para treinar.",
                     actionLabel = "Ir para Esboços",
                     onAction = onGoToLibrary,
+                )
+                current == null && fallback != null -> HubEmptyState(
+                    text = "Continuar de onde você parou?",
+                    actionLabel = "Usar esboço atual: ${fallback.title}",
+                    onAction = { vm.useCurrentForTrain(fallback.id) },
+                    secondaryLabel = "Escolher outro esboço",
+                    onSecondary = onPickNote,
                 )
                 current == null -> HubEmptyState(
                     text = "Escolha um esboço para treinar.",
