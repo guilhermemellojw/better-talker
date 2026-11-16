@@ -492,7 +492,10 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         "\nVocê vê a nota inteira (título, estrutura, seções vizinhas e referências). " +
         "Por padrão, escreva apenas o bloco em foco. Se o usuário pedir outra seção, " +
         "use o esqueleto da nota e diga o que falta. “Discurso inteiro” é para " +
-        "planejamento e coerência, não para despejar o texto todo em uma resposta."
+        "planejamento e coerência, não para despejar o texto todo em uma resposta." +
+        "\nAo planejar ou resumir o discurso inteiro, percorra TODAS as seções na " +
+        "ordem, começando pela Introdução e terminando na última seção; não pule a " +
+        "Introdução nem comece direto no primeiro ponto."
 
 /** T2 — verbos/pedidos que pedem resposta estruturada (texto normalizado). */
 private val STRUCTURED_HINTS = Regex(
@@ -547,6 +550,10 @@ fun buildNoteLensBlock(
     sb.append("\n## FOCO ATUAL\n")
     if (whole) {
         sb.append("Discurso inteiro — planejamento e coerência da nota.\n")
+        sb.append(
+            "Cubra todas as seções na ordem, da Introdução à última seção; " +
+                "não pule a Introdução.\n"
+        )
     } else {
         val index = sections.indexOfFirst { it.id == focusId }
         if (index >= 0) {

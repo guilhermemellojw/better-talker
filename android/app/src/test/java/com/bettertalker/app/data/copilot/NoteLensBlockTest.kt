@@ -41,6 +41,8 @@ class NoteLensBlockTest {
         assertTrue(block.contains("Discurso inteiro"))
         assertTrue(block.contains("planejamento e coerência"))
         assertTrue(block.contains("não para despejar o texto todo"))
+        assertTrue(block.contains("da Introdução à última seção"))
+        assertTrue(block.contains("não pule a Introdução"))
         assertFalse(block.contains("SEÇÕES VIZINHAS"))
     }
 
