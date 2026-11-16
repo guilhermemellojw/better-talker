@@ -71,6 +71,7 @@ class ChatActionsTest {
         assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = true).first())
         assertEquals("Diagnóstico do esboço", localSuggestionTexts(hasOutline = false).first())
         assertEquals("Como desenvolver este ponto", localSuggestionTexts(hasOutline = true)[1])
+        assertEquals("Revise este ponto", localSuggestionTexts(hasOutline = true)[2])
     }
 
     @Test

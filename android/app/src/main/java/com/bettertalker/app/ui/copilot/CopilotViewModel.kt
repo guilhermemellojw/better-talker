@@ -81,6 +81,11 @@ import com.bettertalker.app.data.copilot.PointCoachingCodec
 import com.bettertalker.app.data.copilot.PointCoachingInput
 import com.bettertalker.app.data.copilot.PointCoachingReport
 import com.bettertalker.app.data.copilot.pointCoachingFromPayload
+import com.bettertalker.app.data.copilot.PointReviewAnalyzer
+import com.bettertalker.app.data.copilot.PointReviewCodec
+import com.bettertalker.app.data.copilot.PointReviewInput
+import com.bettertalker.app.data.copilot.PointReviewReport
+import com.bettertalker.app.data.copilot.pointReviewFromPayload
 import com.bettertalker.app.data.util.TextStatus
 import com.bettertalker.app.data.copilot.provenanceSummary
 import com.bettertalker.app.data.copilot.validateOutgoingMessage
@@ -1466,6 +1471,8 @@ class CopilotViewModel(
         val diagnosis: OutlineDiagnosis? = null,
         /** Mentor: coaching de um ponto decodificado (kind="coaching"). */
         val coaching: PointCoachingReport? = null,
+        /** Mentor: revisão do texto de um ponto (kind="review"). */
+        val review: PointReviewReport? = null,
     )
 
     private val _chatBusy = MutableStateFlow(false)
@@ -2453,6 +2460,110 @@ class CopilotViewModel(
         coachPoint(nid, target, body)
     }
 
+    // ---------- Mentor: revisão do texto de um ponto ----------
+
+    private suspend fun runPointReview(text: String) {
+        val nid = noteId ?: run {
+            postText("Abra uma nota para revisar o texto do ponto.")
+            return
+        }
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        if (body.isEmpty()) {
+            postText("Esta nota ainda não tem pontos de desenvolvimento.")
+            return
+        }
+        val requested = com.bettertalker.app.data.copilot.OratorySession.requestedPoint(text)
+        val target = if (requested != null) {
+            body.getOrNull(requested - 1)
+        } else {
+            currentPointSection(sections)
+        }
+        if (target == null) {
+            if (requested != null) {
+                postText(
+                    "Não encontrei o ponto $requested — esta nota tem ${body.size} ponto(s)."
+                )
+            } else {
+                postText("Abra o ponto que você quer revisar e peça de novo.")
+            }
+            return
+        }
+        reviewPoint(nid, target, body)
+    }
+
+    private suspend fun reviewPoint(
+        nid: String,
+        target: SpeechSection,
+        body: List<SpeechSection>,
+    ) {
+        if (target.role != SectionRole.BODY) {
+            postText("O Mentor revisa os pontos de desenvolvimento. Abra um ponto e peça de novo.")
+            return
+        }
+        val pointNumber = body.indexOfFirst { it.id == target.id } + 1
+        if (pointNumber <= 0) {
+            postText("Não encontrei este ponto entre os pontos de desenvolvimento da nota.")
+            return
+        }
+        val started = System.currentTimeMillis()
+        val sourceCounts = diagnosisSourceCounts(diagnosisSources(nid))
+        val subs = db.subPointDao().forSection(target.id).map { it.toDomain() }
+        val snapshot = OutlineDiagnosisInputBuilder.build(
+            s34 = null,
+            noteTitle = _noteTitle.value.ifBlank { db.noteDao().get(nid)?.title },
+            sections = listOf(target),
+            subPointsBySection = mapOf(target.id to subs),
+            sourceCounts = sourceCounts,
+        ).sections.firstOrNull() ?: run {
+            postText("Não consegui ler este ponto agora. Tente de novo.")
+            return
+        }
+        val s34 = loadDiagnosisS34(nid)
+        val s34Section = s34?.sections?.sortedBy { it.order }?.getOrNull(pointNumber - 1)
+        val report = PointReviewAnalyzer.analyze(
+            PointReviewInput(
+                section = snapshot,
+                pointNumber = pointNumber,
+                s34Section = s34Section,
+                sourceCounts = sourceCounts,
+                nextPointTitle = body.getOrNull(pointNumber)?.title,
+            ),
+            now = System.currentTimeMillis(),
+        )
+        db.chatDao().all(nid)
+            .let(::reviewMessageIdsToDeactivate)
+            .forEach { db.chatDao().deactivateMessage(it) }
+        post(
+            fromMe = false,
+            kind = "review",
+            payload = ChatCodec.escMap(
+                mapOf(
+                    "report" to PointReviewCodec.encode(report),
+                    "text" to report.reading,
+                ),
+            ),
+            origin = MessageOrigin.LOCAL,
+            targetScope = null,
+            allowCard = false,
+        )
+        android.util.Log.i(
+            "Mentor",
+            "review|route=MENTOR|section=${target.id}|point=$pointNumber|" +
+                "strengths=${report.strengths.size}|improvements=${report.improvements.size}|" +
+                "overall=${report.overall}|ms=${System.currentTimeMillis() - started}",
+        )
+    }
+
+    /** Reanalisar a revisão de um ponto pelo card. */
+    fun reanalyzePointReview(sectionId: String) = viewModelScope.launch {
+        val nid = noteId ?: return@launch
+        val sections = db.speechSectionDao().forNote(nid).map { it.toDomain() }
+        val body = sections.filter { it.role == SectionRole.BODY }.sortedBy { it.order }
+        val target = body.firstOrNull { it.id == sectionId } ?: return@launch
+        reviewPoint(nid, target, body)
+    }
+
     /**
      * Inventário de fontes do diagnóstico. O cálculo completo (conteúdo por
      * ref) é caro; cacheia e o chat pré-computa ao abrir.
@@ -2933,6 +3044,17 @@ class CopilotViewModel(
                     "coaching" -> {
                         val m = ChatCodec.unescMap(e.payload)
                         pointCoachingChatItem(
+                            id = e.id,
+                            fromMe = e.fromMe,
+                            payload = e.payload,
+                            sectionId = e.sectionId,
+                            origin = messageOriginOf(m),
+                            createdAt = e.createdAt,
+                        )
+                    }
+                    "review" -> {
+                        val m = ChatCodec.unescMap(e.payload)
+                        pointReviewChatItem(
                             id = e.id,
                             fromMe = e.fromMe,
                             payload = e.payload,
@@ -3633,6 +3755,10 @@ class CopilotViewModel(
                 runPointCoaching(text)
                 return@launch
             }
+            if (com.bettertalker.app.data.copilot.ChatRouter.isPointReviewCommand(text)) {
+                runPointReview(text)
+                return@launch
+            }
             // A intenção é interna: escolhe a trilha de recuperação e o foco do
             // prompt, e nunca é exibida ao usuário.
             val intent = inferIntent(text, isFirst)
@@ -3751,6 +3877,8 @@ class CopilotViewModel(
                             runOutlineDiagnosis()
                         com.bettertalker.app.data.copilot.MentorIntent.DEVELOP_POINT ->
                             runPointCoaching(text)
+                        com.bettertalker.app.data.copilot.MentorIntent.REVIEW_POINT ->
+                            runPointReview(text)
                     }
                     return@launch
                 }
@@ -8950,3 +9078,35 @@ internal fun pointCoachingChatItem(
 /** IDs dos coachings ativos que serão desativados ao reanalisar. */
 internal fun coachingMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
     items.filter { it.kind == "coaching" }.map { it.id }
+
+/**
+ * Parse puro de uma mensagem `kind="review"` em [CopilotViewModel.ChatItem].
+ * Payload corrompido vira `kind="text"` com o resumo, sem crash.
+ */
+internal fun pointReviewChatItem(
+    id: String,
+    fromMe: Boolean,
+    payload: String,
+    sectionId: String? = null,
+    origin: MessageOrigin = MessageOrigin.LOCAL,
+    createdAt: Long = 0L,
+): CopilotViewModel.ChatItem {
+    val report = pointReviewFromPayload(payload)
+    val map = ChatCodec.unescMap(payload)
+    return CopilotViewModel.ChatItem(
+        id = id,
+        fromMe = fromMe,
+        kind = if (report == null) "text" else "review",
+        text = map["text"].orEmpty().ifBlank {
+            if (report == null) "Revisão indisponível. Reanalise o ponto." else ""
+        },
+        sectionId = sectionId,
+        review = report,
+        origin = origin,
+        createdAt = createdAt,
+    )
+}
+
+/** IDs das revisões ativas que serão desativadas ao reanalisar. */
+internal fun reviewMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
+    items.filter { it.kind == "review" }.map { it.id }
