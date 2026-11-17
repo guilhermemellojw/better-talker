@@ -526,7 +526,10 @@ fun ChatScreen(
     val turnAnchor = turnAnchorIndex(
         messageCount = messages.size,
         hasContext = messages.isNotEmpty(),
-        hasTopicEmpty = messages.isEmpty() && chatScope != null,
+        // UX-2.2 edge: a LazyColumn renderiza "thread-empty" sempre que
+        // messages.isEmpty(), inclusive em Discurso inteiro (chatScope null).
+        // lastMessageIndex/chatLastItemIndex permanecem com sua regra própria.
+        hasThreadEmpty = messages.isEmpty(),
         activeTurnVisible = showActiveTurn,
         itemsBeforeTurn = itemsBeforeActiveTurn,
     )
@@ -2681,20 +2684,22 @@ internal fun lastMessageIndex(
  *
  * [itemsBeforeTurn] é a contagem determinística dos itens renderizados entre
  * as mensagens e o turno (não um booleano): pode haver proveniência e mais de
- * uma proposta ao mesmo tempo. Puro/testável.
+ * uma proposta ao mesmo tempo. [hasThreadEmpty] deve refletir o item real
+ * `thread-empty` (messages.isEmpty()), não a condição de escopo.
+ * Puro/testável.
  */
 internal fun turnAnchorIndex(
     messageCount: Int,
     hasContext: Boolean,
-    hasTopicEmpty: Boolean,
+    hasThreadEmpty: Boolean,
     activeTurnVisible: Boolean,
     itemsBeforeTurn: Int = 0,
 ): Int {
-    val offset = (if (hasContext) 1 else 0) + (if (hasTopicEmpty) 1 else 0)
+    val offset = (if (hasContext) 1 else 0) + (if (hasThreadEmpty) 1 else 0)
     return if (activeTurnVisible) {
         offset + messageCount + itemsBeforeTurn.coerceAtLeast(0)
     } else {
-        lastMessageIndex(messageCount, hasContext, hasTopicEmpty)
+        lastMessageIndex(messageCount, hasContext, hasThreadEmpty)
     }
 }
 

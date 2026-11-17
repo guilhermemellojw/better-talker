@@ -218,7 +218,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = false,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = true,
                 itemsBeforeTurn = 1,
             ),
@@ -234,7 +234,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = false,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = true,
                 itemsBeforeTurn = provenance,
             ),
@@ -248,7 +248,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = false,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = true,
                 itemsBeforeTurn = proposalItemCount(true, false, false, false, false),
             ),
@@ -264,7 +264,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = false,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = true,
                 itemsBeforeTurn = proposals,
             ),
@@ -281,7 +281,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = true,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = true,
                 itemsBeforeTurn = aux,
             ),
@@ -295,9 +295,24 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 0,
                 hasContext = true,
-                hasTopicEmpty = true,
+                hasThreadEmpty = true,
                 activeTurnVisible = true,
                 itemsBeforeTurn = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_threadEmptyEmDiscursoInteiroComTurnoAtivo() {
+        // messages.isEmpty() e chatScope == null: a LazyColumn ainda renderiza
+        // "thread-empty"; o turno ativo vem depois dele.
+        assertEquals(
+            1,
+            turnAnchorIndex(
+                messageCount = 0,
+                hasContext = false,
+                hasThreadEmpty = true,
+                activeTurnVisible = true,
             ),
         )
     }
@@ -310,7 +325,7 @@ class ChatMotionTest {
             turnAnchorIndex(
                 messageCount = 3,
                 hasContext = false,
-                hasTopicEmpty = false,
+                hasThreadEmpty = false,
                 activeTurnVisible = false,
                 itemsBeforeTurn = 99,
             ),
