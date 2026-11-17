@@ -1,6 +1,6 @@
 # Better Talker — Visão v2.0
 
-**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24)
+> **Nota de continuidade (17/11/2026):** este documento registra a visão histórica v2.0. Para o direcionamento estratégico mais recente — Mentor pedagógico, TRUST, voz, acessibilidade, prioridades e estado dos PRs — consulte [ROADMAP.md](ROADMAP.md) e [AGENT_HANDOFF.md](AGENT_HANDOFF.md). A documentação do roadmap é uma proposta em revisão até o merge do PR correspondente.\n\n**Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24)
 
 ## O que É
 
