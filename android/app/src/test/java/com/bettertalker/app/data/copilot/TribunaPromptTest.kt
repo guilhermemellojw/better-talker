@@ -75,7 +75,7 @@ class TribunaPromptTest {
         )
         assertTrue(p.contains("Refs bíblicas: Sal 103:20, Ef 4:8"))
         assertTrue(p.contains("objetivo: Consolar"))
-        assertTrue(p.contains("abordagem acordada: Tom pastoral"))
+        assertTrue(p.contains("registro legado (não confirmado): Tom pastoral"))
         assertTrue(p.contains("Subpontos:"))
         assertTrue(p.contains("1. Jeová é organizado"))
         assertTrue(p.contains("2. Os anjos o louvam"))

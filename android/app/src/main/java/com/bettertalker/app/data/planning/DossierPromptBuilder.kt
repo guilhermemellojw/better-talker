@@ -1,6 +1,7 @@
 package com.bettertalker.app.data.planning
 
 import com.bettertalker.app.data.copilot.GenerationPrompts
+import com.bettertalker.app.data.copilot.renderApproachMemory
 import com.bettertalker.app.data.util.htmlToPlainText
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DraftPartSpec
@@ -48,6 +49,16 @@ interface DossierPromptBuilder {
      * default `true`.
      */
     fun buildContextBlock(dossier: Dossier, includeSpeakerNote: Boolean = true): String
+
+    /**
+     * 1C.2.0 — variante para o CORPUS do verificador: omite a abordagem
+     * (memória de redação), que não é prova factual. O restante do dossiê
+     * (prosa, refs e textos resolvidos) permanece intacto.
+     *
+     * Implementação obrigatória: um fake nunca deve reutilizar o bloco de
+     * prompt (que contém abordagem) como corpus de evidências.
+     */
+    fun buildEvidenceBlock(dossier: Dossier, includeSpeakerNote: Boolean = true): String
 }
 
 /**
@@ -88,10 +99,22 @@ class DefaultDossierPromptBuilder(
         }.trim()
     }
 
+    override fun buildEvidenceBlock(dossier: Dossier, includeSpeakerNote: Boolean): String {
+        return buildString {
+            appendContext(
+                dossier,
+                includeSpeakerNote = includeSpeakerNote,
+                includeMentorHint = true,
+                includeApproach = false,
+            )
+        }.trim()
+    }
+
     private fun StringBuilder.appendContext(
         d: Dossier,
         includeSpeakerNote: Boolean = true,
         includeMentorHint: Boolean = false,
+        includeApproach: Boolean = true,
     ) {
         appendDiscourse(d)
         if (includeMentorHint) appendMentorHint(d)
@@ -99,7 +122,7 @@ class DefaultDossierPromptBuilder(
         appendS38Guidelines(d)
         if (includeSpeakerNote) appendSpeakerNote(d)
         appendSection(d)
-        appendAgreedApproach(d)
+        if (includeApproach) appendAgreedApproach(d)
         appendOverview(d)
         appendBibleTexts(d)
         appendPublicationTexts(d)
@@ -344,14 +367,13 @@ class DefaultDossierPromptBuilder(
         if (text.length <= max) text else text.take(max) + "… [truncado]"
 
     /**
-     * F2.3: abordagem acordada — instrução de alta prioridade para a redação
-     * do mini discurso. Só existe quando o usuário confirmou o consenso.
+     * F2.3/1C.2.0: abordagem de redação do tópico. Linhas com marcador de
+     * aceite explícito são confirmações; o restante é registro legado de
+     * confirmação desconhecida e NÃO pode ser apresentado como acordado.
      */
     private fun StringBuilder.appendAgreedApproach(d: Dossier) {
-        val approach = d.currentSection.agreedApproach?.takeIf { it.isNotBlank() } ?: return
-        appendLine("## ABORDAGEM ACORDADA (instrução de ALTA PRIORIDADE)")
-        appendLine(approach)
-        appendLine("Siga esta abordagem — ela foi acordada com o usuário.")
+        val block = renderApproachMemory(d.currentSection.agreedApproach) ?: return
+        appendLine(block)
         appendLine()
     }
 

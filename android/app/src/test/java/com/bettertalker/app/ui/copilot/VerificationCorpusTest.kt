@@ -7,6 +7,8 @@ import com.bettertalker.app.data.domain.EvidenceSource
 import com.bettertalker.app.data.domain.SourceType
 import com.bettertalker.app.data.s34.S34RefType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -71,5 +73,34 @@ class VerificationCorpusTest {
     @Test
     fun semFontesCorpusVazio() {
         assertEquals(emptyList<String>(), verificationCorpus(turn()))
+    }
+
+    @Test
+    fun memoriaNaoEntraNoCorpusDoChat() {
+        // A referência existe só na memória/abordagem, nunca no acervo.
+        val memory = "## MEMÓRIA DA CONSTRUÇÃO\n- Decisão: usar João 3:16 na abertura"
+        val corpus = chatVerificationCorpus(
+            turnContext = turn(),
+            evidenceContextBlock = null,
+        )
+        assertFalse(corpus.any { it.contains("João 3:16") })
+        val out = verifyChatText(
+            "Como diz João 3:16, “Deus amou o mundo de tal maneira.”",
+            corpus,
+        )
+        assertNotNull(out.text)
+        assertTrue(out.result.metrics.hasFlags || out.notice != null)
+        // A memória continua disponível para o prompt, mas não para o gate.
+        assertTrue(memory.contains("João 3:16"))
+    }
+
+    @Test
+    fun evidenciaAutorizadaContinuaNoCorpusSemMemoria() {
+        val corpus = chatVerificationCorpus(
+            turnContext = turn(content = listOf(ev("1", "Texto bíblico autorizado"))),
+            evidenceContextBlock = "Prosa e referências do dossiê",
+        )
+        assertTrue(corpus.contains("Texto bíblico autorizado"))
+        assertTrue(corpus.contains("Prosa e referências do dossiê"))
     }
 }

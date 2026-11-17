@@ -472,10 +472,14 @@ const val CHAT_TAIL_INSTRUCTIONS: String =
         // T2 (expert em publicações): mesma regra para trechos de publicação.
         "\nAo citar um trecho de TRECHOS DE PUBLICAÇÕES, use aspas palavra-por-palavra, " +
         "como para versículos." +
-        // T1 (Fase 2): ao registrar um consenso ou decisão com o usuário,
-        // marque com 〈decisão〉…〈/decisão〉 para o app lembrar e continuar daqui.
-        "\nAo registrar um consenso ou decisão com o usuário, marque com " +
-        "〈decisão〉…〈/decisão〉." +
+        // 1C.2.0: uma tag do modelo não é aceite do usuário. A decisão só
+        // existe quando o usuário a confirma explicitamente; propostas usam
+        // o marcador de sugestão.
+        "\nUma decisão só existe quando o usuário a aceita explicitamente. " +
+        "Não marque sugestões, propostas ou hipóteses suas como decisão. " +
+        "Use 〈decisão〉…〈/decisão〉 somente para registrar uma decisão que o " +
+        "usuário já aceitou nesta conversa; para propor algo novo, use " +
+        "〈sugestão〉…〈/sugestão〉." +
         // Fase 2: a regra do card aparece UMA vez no system; a persona não a
         // repete e os prompts de geração usam a mesma redação.
         "\n$CARD_FIRST_RULE" +

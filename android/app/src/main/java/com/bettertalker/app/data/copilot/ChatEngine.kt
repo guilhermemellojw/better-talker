@@ -261,13 +261,24 @@ const val SUMMARY_MAX_DECISIONS = 5
 
 /** Pistas de decisão do usuário (texto normalizado, sem acento). */
 private val DECISION_HINTS = Regex(
-    "\\b(decidido|decidimos|combinado|fechado|vamos fazer assim|pode ser assim|" +
+    "\\b(decidido|decidimos|combinado|fechado|vamos fazer assim|" +
         "fica assim|anota|anote|registra isso)\\b"
 )
 
 /**
- * Memória da construção em conjunto: o que foi decidido + próximo passo.
- * Por conversa (o histórico já é escopado); sem persistência própria.
+ * Pistas de rejeição/ambiguidade. Uma fala do usuário com estas pistas não
+ * entra na memória como decisão positiva; ela continua no histórico
+ * conversacional, mas não vira instrução de consenso.
+ */
+private val USER_REJECTION_HINTS = Regex(
+    "\\b(nao concordo|discordo|rejeito|rejeitar|nao quero|nao gosto|" +
+        "nao use|nao usar|evite|evitar|melhor nao|deixa pra depois)\\b"
+)
+
+/**
+ * Memória da construção em conjunto: decisões explícitas do usuário +
+ * próximo passo. O histórico é da nota inteira; a seção é apenas contexto.
+ * Sem persistência própria.
  */
 data class RollingSummary(
     val sectionTitle: String = "",
@@ -277,8 +288,10 @@ data class RollingSummary(
 )
 
 /**
- * Extrai decisões de um texto: tags 〈decisão〉 do modelo primeiro;
- * sem tags, frases do usuário com pista explícita ("decidido", ...).
+ * Extrai tags/marcadores de decisão do texto para fins de UI (ex.: sugerir
+ * “insira isso”). NUNCA use este retorno para gravar consenso: uma tag é
+ * gerada pelo modelo e não prova aceite do usuário.
+ *
  * Puro/testável.
  */
 fun extractDecisions(text: String): List<String> {
@@ -298,13 +311,34 @@ fun extractDecisions(text: String): List<String> {
 }
 
 /**
- * (Re)gera o resumo a partir do histórico escopado: decisões das respostas
- * + decisões do usuário, fio recente primeiro, teto aplicado. Puro/testável.
+ * Extrai somente decisões declaradas pelo próprio usuário, com pistas
+ * explícitas e sem pergunta/rejeição. Tags do modelo são ignoradas por
+ * desenho. Puro/testável.
+ */
+fun extractUserDecisions(text: String): List<String> {
+    val clean = text.trim()
+    if (clean.isEmpty() || clean.contains('?')) return emptyList()
+    val normalized = " ${normalizeText(clean)} "
+    if (USER_REJECTION_HINTS.containsMatchIn(normalized)) return emptyList()
+    if (!DECISION_HINTS.containsMatchIn(normalized)) return emptyList()
+    return clean.split(Regex("[.!?\\n]+"))
+        .map { it.trim() }
+        .filter { it.length > 12 }
+        .take(2)
+}
+
+/**
+ * (Re)gera o resumo a partir do histórico: SOMENTE falas do usuário viram
+ * decisões. Sugestões do Copilot continuam no histórico literal, mas nunca
+ * são promovidas a “decisão do usuário” no bloco de memória.
+ *
+ * Puro/testável.
  */
 fun buildRollingSummary(turns: List<ChatTurn>, sectionTitle: String): RollingSummary {
     val userTurns = turns.count { it.fromMe && it.text.isNotBlank() }
     val decisions = turns
-        .flatMap { extractDecisions(it.text) }
+        .filter { it.fromMe }
+        .flatMap { extractUserDecisions(it.text) }
         .takeLast(SUMMARY_MAX_DECISIONS)
     val nextStep = turns.lastOrNull { it.fromMe }?.text?.trim()?.take(140).orEmpty()
     return RollingSummary(sectionTitle.trim(), decisions, nextStep, userTurns)
@@ -318,7 +352,7 @@ fun buildRollingSummary(turns: List<ChatTurn>, sectionTitle: String): RollingSum
 fun renderMemoryBlock(summary: RollingSummary): String? {
     if (summary.decisions.isEmpty() && summary.userTurns < SUMMARY_EVERY_TURNS) return null
     return buildString {
-        appendLine("## MEMÓRIA DA CONSTRUÇÃO (o que já foi decidido — continue daqui)")
+        appendLine("## MEMÓRIA DA CONSTRUÇÃO (decisões explícitas do usuário — continue daqui)")
         if (summary.sectionTitle.isNotBlank()) appendLine("Seção atual: ${summary.sectionTitle}")
         summary.decisions.forEach { appendLine("- Decisão: $it") }
         if (summary.nextStep.isNotBlank()) appendLine("Próximo passo: ${summary.nextStep}")
@@ -326,22 +360,13 @@ fun renderMemoryBlock(summary: RollingSummary): String? {
 }
 
 /**
- * Mescla decisões novas no agreedApproach da seção (sem duplicar,
- * case-insensitive; teto de 500 chars). Null quando nada muda.
- * Puro/testável.
- */
-fun mergeApproach(current: String?, decisions: List<String>): String? {
-    val fresh = decisions.map { it.trim() }.filter { it.isNotEmpty() }
-    if (fresh.isEmpty()) return null
-    return mergeApproachText(current, fresh.joinToString("\n") { "- $it" })
-}
-
-/**
  * Mescla TEXTO novo no agreedApproach (uma ou várias linhas), com dedupe
  * por trecho (case-insensitive) e teto de [MAX_APPROACH_CHARS]. Aceita
  * tanto linhas "- item" quanto prosa livre. Null quando nada muda.
- * Puro/testável — usado pelo consenso do chat e pela proposta de
- * estrutura (#3c), para o campo não crescer sem limite.
+ * Puro/testável.
+ *
+ * Usado pelo aceite explícito de estrutura e por [mergeConfirmedApproachText].
+ * Nunca é chamado a partir de uma resposta do modelo.
  */
 fun mergeApproachText(existing: String?, addition: String?): String? {
     val add = addition?.trim().orEmpty()

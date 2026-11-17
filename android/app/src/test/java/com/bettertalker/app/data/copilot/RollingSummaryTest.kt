@@ -24,9 +24,22 @@ class RollingSummaryTest {
     }
 
     @Test
-    fun extractDecisions_pistaExplicitaDoUsuario() {
-        val out = extractDecisions("Está decidido então, vamos fazer assim. E depois vemos o resto.")
+    fun extractUserDecisions_pistaExplicitaDoUsuario() {
+        val out = extractUserDecisions("Está decidido então, vamos fazer assim. E depois vemos o resto.")
         assertTrue(out.any { it.contains("decidido", ignoreCase = true) })
+    }
+
+    @Test
+    fun extractUserDecisions_ignoraTagsDoModelo() {
+        val out = extractUserDecisions("〈decisão〉usar a segunda abordagem〈/decisão〉")
+        assertTrue(out.isEmpty())
+    }
+
+    @Test
+    fun extractUserDecisions_naoTrataPerguntaNemRejeicaoComoDecisao() {
+        assertTrue(extractUserDecisions("Vamos fazer assim?").isEmpty())
+        assertTrue(extractUserDecisions("Decidido não usar a segunda melhoria.").isEmpty())
+        assertTrue(extractUserDecisions("Não concordo com a segunda melhoria.").isEmpty())
     }
 
     @Test
@@ -38,19 +51,46 @@ class RollingSummaryTest {
     fun buildRollingSummary_tetoEDados() {
         val turns = (1..10).flatMap { i ->
             listOf(
-                turn(true, "Mensagem $i sobre o ponto."),
-                turn(false, "Resposta $i. 〈decisão〉decisão $i〈/decisão〉"),
+                turn(true, "Decidido: usar a ideia $i."),
+                turn(false, "Resposta $i. 〈decisão〉sugestão $i〈/decisão〉"),
             )
         }
         val s = buildRollingSummary(turns, "Ponto 2")
         assertEquals(10, s.userTurns)
         assertEquals("Ponto 2", s.sectionTitle)
-        // Teto: só o fio recente.
+        // Teto: só o fio recente, e somente falas do usuário.
         assertEquals(
-            listOf("decisão 6", "decisão 7", "decisão 8", "decisão 9", "decisão 10"),
+            listOf(
+                "Decidido: usar a ideia 6",
+                "Decidido: usar a ideia 7",
+                "Decidido: usar a ideia 8",
+                "Decidido: usar a ideia 9",
+                "Decidido: usar a ideia 10",
+            ),
             s.decisions,
         )
-        assertTrue(s.nextStep.startsWith("Mensagem 10"))
+        assertTrue(s.nextStep.startsWith("Decidido: usar a ideia 10"))
+    }
+
+    @Test
+    fun buildRollingSummary_ignoraTagDoModelo() {
+        val turns = listOf(
+            turn(true, "Não concordo com a segunda melhoria."),
+            turn(false, "Vou usar a segunda abordagem. 〈decisão〉usar a segunda abordagem〈/decisão〉"),
+            turn(true, "Explique melhor."),
+        )
+        val s = buildRollingSummary(turns, "Ponto 2")
+        assertTrue(s.decisions.isEmpty())
+        assertFalse(renderMemoryBlock(s)?.contains("segunda abordagem") == true)
+    }
+
+    @Test
+    fun buildRollingSummary_naoPromoveSugestaoEmLinguagemComum() {
+        val turns = listOf(
+            turn(true, "O que você acha?"),
+            turn(false, "Sugiro usar uma pergunta na abertura e evitar ilustrações."),
+        )
+        assertTrue(buildRollingSummary(turns, "Ponto 1").decisions.isEmpty())
     }
 
     @Test
@@ -73,32 +113,77 @@ class RollingSummaryTest {
     }
 
     @Test
-    fun mergeApproach_acrescentaSemDuplicar() {
-        assertEquals("- usar pergunta", mergeApproach(null, listOf("usar pergunta")))
+    fun mergeApproachText_acrescentaSemDuplicar() {
+        assertEquals("- usar pergunta", mergeApproachText(null, "- usar pergunta"))
         assertEquals(
             "tom pastoral\n- usar pergunta",
-            mergeApproach("tom pastoral", listOf("usar pergunta")),
+            mergeApproachText("tom pastoral", "- usar pergunta"),
         )
         // Duplicada (case-insensitive) não entra de novo.
-        assertNull(mergeApproach("Tom Pastoral", listOf("tom pastoral")))
-        assertNull(mergeApproach("x", emptyList()))
-        assertNull(mergeApproach("x", listOf("  ")))
+        assertNull(mergeApproachText("Tom Pastoral", "- tom pastoral"))
+        assertNull(mergeApproachText("x", ""))
+        assertNull(mergeApproachText("x", "  "))
     }
 
     @Test
-    fun mergeApproach_acumulaVariosTurnos() {
-        // Conversa longa: cada turno acrescenta sem apagar o anterior.
-        val after1 = mergeApproach(null, listOf("abertura com pergunta"))!!
-        val after2 = mergeApproach(after1, listOf("tom pastoral"))!!
+    fun mergeApproachText_acumulaVariosTurnos() {
+        // Aceite explícito de estrutura: acumula sem apagar o anterior.
+        val after1 = mergeApproachText(null, "- abertura com pergunta")!!
+        val after2 = mergeApproachText(after1, "- tom pastoral")!!
         assertTrue(after2.contains("abertura com pergunta"))
         assertTrue(after2.contains("tom pastoral"))
-        // Reafirmar o consenso não duplica (nada muda).
-        assertNull(mergeApproach(after2, listOf("abertura com pergunta")))
+        // Reafirmar o mesmo trecho não duplica (nada muda).
+        assertNull(mergeApproachText(after2, "- abertura com pergunta"))
+    }
+
+    @Test
+    fun promptEfetivoNaoPromoveTagDoModeloADecisao() {
+        val history = listOf(
+            turn(true, "O que você acha?"),
+            turn(false, "Vou usar a segunda abordagem. 〈decisão〉usar a segunda abordagem〈/decisão〉"),
+        )
+        val memory = renderMemoryBlock(buildRollingSummary(history, "Ponto 2"))
+        val prompts = buildDeepSeekPrompts(
+            message = "continue",
+            history = history,
+            isFirstMessage = false,
+            pack = com.bettertalker.app.data.domain.ContextPack(emptyList(), emptyList()),
+            blockTitle = "Ponto 2",
+            blockMinutes = 5,
+            blockText = "Texto do ponto.",
+            contextBlock = memory,
+        )
+        // A sugestão continua no histórico, mas não como decisão de memória.
+        assertTrue(prompts.user.contains("〈decisão〉"))
+        assertFalse(prompts.system.contains("MEMÓRIA DA CONSTRUÇÃO"))
+        assertFalse(prompts.system.contains("- Decisão: usar a segunda abordagem"))
+    }
+
+    @Test
+    fun promptEfetivoMostraDecisaoExplicitaDoUsuario() {
+        val history = listOf(
+            turn(true, "Fechado: usar a segunda abordagem."),
+            turn(false, "Certo, vou continuar por ela."),
+        )
+        val memory = renderMemoryBlock(buildRollingSummary(history, "Ponto 2"))
+        assertTrue(memory!!.contains("Decisão: Fechado: usar a segunda abordagem"))
+        val prompts = buildDeepSeekPrompts(
+            message = "continue",
+            history = history,
+            isFirstMessage = false,
+            pack = com.bettertalker.app.data.domain.ContextPack(emptyList(), emptyList()),
+            blockTitle = "Ponto 2",
+            blockMinutes = 5,
+            blockText = "Texto do ponto.",
+            contextBlock = memory,
+        )
+        assertTrue(prompts.system.contains("Decisão: Fechado: usar a segunda abordagem"))
     }
 
     @Test
     fun caudaInstruiMarcarDecisao() {
         assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("〈decisão〉"))
+        assertTrue(CHAT_TAIL_INSTRUCTIONS.contains("já aceitou"))
     }
 
     @Test

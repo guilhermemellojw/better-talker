@@ -259,10 +259,42 @@ class DossierPromptBuilderTest {
     }
 
     @Test
-    fun build_includesAgreedApproachAsHighPriority() {
+    fun build_trataAbordagemSemMarcadorComoLegadoNaoConfirmado() {
         val prompt = builder.build(dossier(agreedApproach = "situação → princípio → aplicação"))
-        assertTrue(prompt.contains("ABORDAGEM ACORDADA"))
+        assertTrue(prompt.contains("REGISTRO LEGADO DE ABORDAGEM"))
         assertTrue(prompt.contains("situação → princípio → aplicação"))
+        assertFalse(prompt.contains("ABORDAGEM ACORDADA"))
+        assertTrue(prompt.contains("NÃO o trate como decisão confirmada do usuário"))
+    }
+
+    @Test
+    fun build_mostraAbordagemConfirmadaComMarcador() {
+        val prompt = builder.build(
+            dossier(agreedApproach = "[confirmado] situação → princípio → aplicação"),
+        )
+        assertTrue(prompt.contains("ABORDAGEM CONFIRMADA PELO USUÁRIO"))
+        assertTrue(prompt.contains("situação → princípio → aplicação"))
+        assertTrue(prompt.contains("Siga estas decisões confirmadas"))
+    }
+
+    @Test
+    fun buildEvidenceBlockOmiteAbordagemMasMantemProsaERefs() {
+        val d = dossier(
+            agreedApproach = "usar ilustração do corpo humano",
+            contentHtml = "<p>Prosa legítima da seção.</p>",
+            bibleTexts = listOf(
+                ResolvedBibleText(
+                    ref = "Sal 103:20",
+                    text = "Louvem a Jeová, todos os seus anjos.",
+                    status = ReferenceStatus.RESOLVED,
+                )
+            ),
+        )
+        val prompt = builder.buildEvidenceBlock(d)
+        assertFalse(prompt.contains("usar ilustração do corpo humano"))
+        assertFalse(prompt.contains("REGISTRO LEGADO"))
+        assertTrue(prompt.contains("Sal 103:20"))
+        assertTrue(prompt.contains("Prosa legítima da seção"))
     }
 
     @Test
