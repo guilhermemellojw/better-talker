@@ -45,6 +45,156 @@ class ChatMotionTest {
         assertEquals(1, motionMillis(1, 0.1f))
     }
 
+    // ---------- UX-2.1: fim real da lista ----------
+
+    @Test
+    fun fimReal_listaVazia() {
+        assertTrue(
+            isAtListBottom(
+                totalItems = 0,
+                lastVisibleIndex = null,
+                lastVisibleEnd = 0,
+                viewportEnd = 0,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_ultimoItemExatamenteNoFim() {
+        assertTrue(
+            isAtListBottom(
+                totalItems = 4,
+                lastVisibleIndex = 3,
+                lastVisibleEnd = 1600,
+                viewportEnd = 1600,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_listaMenorQueViewport() {
+        assertTrue(
+            isAtListBottom(
+                totalItems = 2,
+                lastVisibleIndex = 1,
+                lastVisibleEnd = 800,
+                viewportEnd = 2000,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_ultimoItemUltrapassaOFim() {
+        assertFalse(
+            isAtListBottom(
+                totalItems = 4,
+                lastVisibleIndex = 3,
+                lastVisibleEnd = 2200,
+                viewportEnd = 1600,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_itemMaiorQueViewportLendoOMeio() {
+        // Último item visível, mas ainda há conteúdo abaixo da viewport.
+        assertFalse(
+            isAtListBottom(
+                totalItems = 3,
+                lastVisibleIndex = 2,
+                lastVisibleEnd = 2600,
+                viewportEnd = 2000,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_dentroDaTolerancia() {
+        assertTrue(
+            isAtListBottom(
+                totalItems = 3,
+                lastVisibleIndex = 2,
+                lastVisibleEnd = 2008,
+                viewportEnd = 2000,
+                tolerancePx = 8,
+            )
+        )
+        assertFalse(
+            isAtListBottom(
+                totalItems = 3,
+                lastVisibleIndex = 2,
+                lastVisibleEnd = 2009,
+                viewportEnd = 2000,
+                tolerancePx = 8,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_penultimoVisivelUltimoFora() {
+        assertFalse(
+            isAtListBottom(
+                totalItems = 3,
+                lastVisibleIndex = 1,
+                lastVisibleEnd = 1500,
+                viewportEnd = 2000,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_transitorioSemItensVisiveisNaoReata() {
+        // Layout ainda não publicou visibleItemsInfo: não é fim.
+        assertFalse(
+            isAtListBottom(
+                totalItems = 3,
+                lastVisibleIndex = null,
+                lastVisibleEnd = 0,
+                viewportEnd = 2000,
+            )
+        )
+    }
+
+    @Test
+    fun fimReal_transicaoDoMeioParaOFim() {
+        val meio = isAtListBottom(3, 2, 2600, 2000)
+        assertFalse(meio)
+        val fim = isAtListBottom(3, 2, 1996, 2000)
+        assertTrue(fim)
+    }
+
+    @Test
+    fun fimReal_preservaDecisaoDoFollowEnd() {
+        // Regressão: no meio de uma resposta alta, não acompanhar; no fim, acompanhar.
+        val meio = isAtListBottom(3, 2, 2600, 2000)
+        assertEquals(
+            MessagesEffect.CountUnseen,
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = true,
+                atBottom = meio,
+            ),
+        )
+        val fim = isAtListBottom(3, 2, 1996, 2000)
+        assertTrue(
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = true,
+                atBottom = fim,
+            ) is MessagesEffect.ScrollTo
+        )
+    }
+
     @Test
     fun turnAnchorIndex_usaTurnoNaoCardFinal() {
         // sem contexto: 3 mensagens (0..2) + turno visível = índice 3.
