@@ -116,8 +116,15 @@ class ProposalGateTest {
         assertTrue(isShortProposalAnswer("Sim"))
         assertTrue(isShortProposalAnswer("sim."))
         assertTrue(isShortProposalAnswer("Não"))
+        assertTrue(isShortProposalAnswer("Fechado"))
         assertFalse(isShortProposalAnswer("Sim, mas..."))
         assertFalse(isShortProposalAnswer("o que você acha?"))
+        // 1C.2.0: "fechado" no meio de uma frase não é aceite de card.
+        assertFalse(
+            isShortProposalAnswer(
+                "Fechado, use esta introdução. Registre isso como decidido."
+            )
+        )
         assertTrue(proposalAnswerIsYes("claro"))
         assertTrue(proposalAnswerIsNo("dispensa"))
     }

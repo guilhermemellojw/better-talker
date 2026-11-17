@@ -63,6 +63,9 @@ import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.ProposalGateAction
+import com.bettertalker.app.data.copilot.isShortProposalAnswer
+import com.bettertalker.app.data.copilot.proposalAnswerIsNo
+import com.bettertalker.app.data.copilot.proposalAnswerIsYes
 import com.bettertalker.app.data.copilot.proposalGateAction
 import com.bettertalker.app.data.copilot.SourceGate
 import com.bettertalker.app.data.copilot.SourceGateDecision
@@ -6845,7 +6848,9 @@ class CopilotViewModel(
      * outro texto (ou card que não é a última fala) segue o fluxo normal.
      */
     private suspend fun resolveCardShortAnswer(text: String): Boolean {
-        if (!ChatIntent.isYes(text) && !ChatIntent.isNo(text)) return false
+        // 1C.2.0: só resposta curta e inequívoca aplica card. "Fechado, use
+        // esta introdução…" ou "sim, mas…" são conversa, não aceite.
+        if (!isShortProposalAnswer(text)) return false
         val nid = noteId ?: return false
         val lastCopilot = db.chatDao().all(nid)
             .filter { it.isActive }
@@ -6891,12 +6896,12 @@ class CopilotViewModel(
             return false
         }
         return when {
-            ChatIntent.isYes(text) -> {
+            proposalAnswerIsYes(text) -> {
                 CardMetrics.gate("ACCEPT")
                 applyCard(lastCopilot.id, CardInsertMode.APPEND, gate = true)
                 true
             }
-            ChatIntent.isNo(text) -> {
+            proposalAnswerIsNo(text) -> {
                 CardMetrics.gate("REJECT")
                 dismissCardNow(lastCopilot.id, reason = "GATE_NO")
                 logCard(lastCopilot.id, "GATE_NO", card, 0, gate = true)
@@ -6967,12 +6972,12 @@ class CopilotViewModel(
     private suspend fun resolveConfirm(text: String): Boolean {
         val action = pendingConfirm ?: return false
         return when {
-            ChatIntent.isYes(text) -> {
+            proposalAnswerIsYes(text) -> {
                 pendingConfirm = null
                 action()
                 true
             }
-            ChatIntent.isNo(text) -> {
+            proposalAnswerIsNo(text) -> {
                 pendingConfirm = null
                 postText("Tudo bem — o esboço continua como está.")
                 true
