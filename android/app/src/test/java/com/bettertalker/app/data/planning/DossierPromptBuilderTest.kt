@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.planning
 
+import com.bettertalker.app.data.copilot.CONFIRMED_APPROACH_PREFIX
+import com.bettertalker.app.data.copilot.CONFIRMED_APPROACH_SUFFIX
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
@@ -270,7 +272,10 @@ class DossierPromptBuilderTest {
     @Test
     fun build_mostraAbordagemConfirmadaComMarcador() {
         val prompt = builder.build(
-            dossier(agreedApproach = "[confirmado] situação → princípio → aplicação"),
+            dossier(
+                agreedApproach = "$CONFIRMED_APPROACH_PREFIX situação → princípio → aplicação " +
+                    CONFIRMED_APPROACH_SUFFIX,
+            ),
         )
         assertTrue(prompt.contains("ABORDAGEM CONFIRMADA PELO USUÁRIO"))
         assertTrue(prompt.contains("situação → princípio → aplicação"))

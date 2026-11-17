@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.copilot.ChatRouter
+import com.bettertalker.app.data.copilot.ConfirmedApproachWrite
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.planning.OutlineAngle
@@ -181,6 +182,28 @@ class StructureProposalTest {
         assertTrue(
             "tinha ${s.agreedApproach!!.length} chars",
             s.agreedApproach!!.length <= 500,
+        )
+    }
+
+    @Test
+    fun apply_campoCheioNaoGravaConfirmacaoParcialNemAnunciaMemoria() {
+        val full = "x".repeat(500)
+        val result = applyStructurePlanResult(
+            section(approach = full),
+            plan(),
+            summary = "Abordagem nova que não cabe",
+        )
+        assertTrue(result.approachWrite is ConfirmedApproachWrite.NoSpace)
+        assertEquals(full, result.section.agreedApproach)
+        assertFalse(result.section.agreedApproach!!.contains("Abordagem nova"))
+        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("não foi memorizada"))
+        assertEquals(
+            STRUCTURE_APPROACH_NOT_STORED_NOTICE,
+            structureAppliedNotice(ConfirmedApproachWrite.NoSpace),
+        )
+        assertEquals(
+            "Estrutura aplicada.",
+            structureAppliedNotice(ConfirmedApproachWrite.AlreadyStored),
         )
     }
 

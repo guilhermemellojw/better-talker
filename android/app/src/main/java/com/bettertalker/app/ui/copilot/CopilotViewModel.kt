@@ -6267,7 +6267,10 @@ class CopilotViewModel(
                     _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
                 is StructureAcceptDecision.Apply -> {
                     db.speechSectionDao().upsert(d.updated.toEntity())
-                    _structureProposal.value = ui.copy(notice = "Estrutura aplicada.", applied = true)
+                    _structureProposal.value = ui.copy(
+                        notice = structureAppliedNotice(d.approachWrite),
+                        applied = true,
+                    )
                 }
             }
         }
@@ -8911,6 +8914,23 @@ const val STRUCTURE_STALE_NOTICE = "Proposta obsoleta — o texto mudou desde qu
 /** Aviso quando a proposta é rejeitada (nada é escrito). */
 const val STRUCTURE_REJECTED_NOTICE = "Proposta rejeitada — nada foi alterado."
 
+/**
+ * 1C.2.0: a estrutura foi aplicada, mas a confirmação da abordagem não coube
+ * no teto de 500 chars. Nunca anunciar memorização parcial.
+ */
+const val STRUCTURE_APPROACH_NOT_STORED_NOTICE =
+    "Estrutura aplicada, mas a abordagem não foi memorizada: o limite de 500 " +
+        "caracteres foi atingido. O registro anterior foi preservado."
+
+/** 1C.2.0: só anuncia memorização quando a confirmação foi gravada. */
+internal fun structureAppliedNotice(
+    write: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+): String = if (write is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.NoSpace) {
+    STRUCTURE_APPROACH_NOT_STORED_NOTICE
+} else {
+    "Estrutura aplicada."
+}
+
 /** Erro quando o foco não é uma seção (sub-ponto ou chat genérico). */
 const val STRUCTURE_NEEDS_SECTION_MESSAGE =
     "Para propor estrutura, foque numa seção (não num sub-ponto)."
@@ -9004,8 +9024,9 @@ internal fun pickSectionPlan(proposal: OutlineProposal, sectionTitle: String): S
 
 /**
  * Aplica o plano aprovado na seção: objetivo (= ideia central), minutos e
- * refs (merge com dedupe); abordagem concatena com `\n\n`. `approvedAt`
- * e o resto passam intactos — aprovação é passo separado (#3a).
+ * refs (merge com dedupe); abordagem confirmada é acrescentada em linha
+ * completa, ou fica intacta se não houver espaço. `approvedAt` e o resto
+ * passam intactos — aprovação é passo separado (#3a).
  * Puro/testável.
  */
 internal fun applyStructurePlan(
@@ -9013,28 +9034,54 @@ internal fun applyStructurePlan(
     plan: SectionPlan,
     summary: String,
     now: Long = System.currentTimeMillis(),
-): SpeechSection {
+): SpeechSection = applyStructurePlanResult(section, plan, summary, now).section
+
+/**
+ * 1C.2.0: além da seção resultante, devolve o resultado EXPLÍCITO da
+ * memorização da abordagem. O chamador não pode anunciar “memorizado” quando
+ * o teto de 500 chars impediu a escrita.
+ */
+internal data class StructurePlanApplication(
+    val section: SpeechSection,
+    val approachWrite: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+)
+
+internal fun applyStructurePlanResult(
+    section: SpeechSection,
+    plan: SectionPlan,
+    summary: String,
+    now: Long = System.currentTimeMillis(),
+): StructurePlanApplication {
     val bible = (section.bibleRefs + plan.bibleRefs).distinct()
     val pubs = (section.publicationRefs + plan.publicationRefs).distinct()
     val current = section.agreedApproach
     // 1C.2.0: este é um aceite EXPLÍCITO do usuário; a linha nova recebe o
     // marcador de confirmação. Linhas legadas permanecem intactas e não são
     // convertidas automaticamente.
-    val merged = com.bettertalker.app.data.copilot.mergeConfirmedApproachText(current, summary)
-    val approach = merged ?: current?.takeIf { it.isNotBlank() }
-    return section.copy(
-        objective = plan.mainIdea,
-        minutes = plan.minutes,
-        bibleRefs = bible,
-        publicationRefs = pubs,
-        agreedApproach = approach,
-        updatedAt = now,
+    val write = com.bettertalker.app.data.copilot.mergeConfirmedApproachText(current, summary)
+    val approach = when (write) {
+        is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.Stored -> write.text
+        else -> current?.takeIf { it.isNotBlank() }
+    }
+    return StructurePlanApplication(
+        section = section.copy(
+            objective = plan.mainIdea,
+            minutes = plan.minutes,
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            agreedApproach = approach,
+            updatedAt = now,
+        ),
+        approachWrite = write,
     )
 }
 
 /** Decisão do aceite: aplica ou barra por stale. Puro/testável. */
 sealed interface StructureAcceptDecision {
-    data class Apply(val updated: SpeechSection) : StructureAcceptDecision
+    data class Apply(
+        val updated: SpeechSection,
+        val approachWrite: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+    ) : StructureAcceptDecision
     data object Stale : StructureAcceptDecision
 }
 
@@ -9053,7 +9100,8 @@ internal fun decideStructureAccept(
     if (hashText(sectionProposalBlock(current.title, current.contentHtml)) != sectionBaseHash) {
         return StructureAcceptDecision.Stale
     }
-    return StructureAcceptDecision.Apply(applyStructurePlan(current, plan, summary, now))
+    val application = applyStructurePlanResult(current, plan, summary, now)
+    return StructureAcceptDecision.Apply(application.section, application.approachWrite)
 }
 
 // ---------- F5b (Modo C): estruturar texto colado de publicação (pura) ----------

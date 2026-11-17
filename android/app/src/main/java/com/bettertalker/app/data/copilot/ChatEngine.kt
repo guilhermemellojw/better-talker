@@ -365,8 +365,10 @@ fun renderMemoryBlock(summary: RollingSummary): String? {
  * tanto linhas "- item" quanto prosa livre. Null quando nada muda.
  * Puro/testável.
  *
- * Usado pelo aceite explícito de estrutura e por [mergeConfirmedApproachText].
- * Nunca é chamado a partir de uma resposta do modelo.
+ * Helper genérico de texto livre/legado. NÃO use para linhas confirmadas:
+ * elas exigem o caminho all-or-nothing de [mergeConfirmedApproachText], que
+ * nunca trunca uma confirmação. Nunca é chamado a partir de uma resposta do
+ * modelo.
  */
 fun mergeApproachText(existing: String?, addition: String?): String? {
     val add = addition?.trim().orEmpty()
