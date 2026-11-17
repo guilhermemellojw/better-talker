@@ -460,11 +460,20 @@ fun ChatScreen(
     var pillCount by rememberSaveable(vm) { mutableStateOf(0) }
     LaunchedEffect(unseenCount) { if (unseenCount > 0) pillCount = unseenCount }
     val pillMotion = motionMillis(PILL_MOTION_MS, motionScale)
-    val atBottom by remember {
+    val bottomTolerancePx = with(LocalDensity.current) {
+        AT_BOTTOM_TOLERANCE_DP.dp.roundToPx()
+    }
+    val atBottom by remember(listState, bottomTolerancePx) {
         derivedStateOf {
-            val l = listState.layoutInfo
-            l.totalItemsCount == 0 ||
-                l.visibleItemsInfo.lastOrNull()?.index == l.totalItemsCount - 1
+            val layout = listState.layoutInfo
+            val last = layout.visibleItemsInfo.lastOrNull()
+            isAtListBottom(
+                totalItems = layout.totalItemsCount,
+                lastVisibleIndex = last?.index,
+                lastVisibleEnd = (last?.offset ?: 0) + (last?.size ?: 0),
+                viewportEnd = layout.viewportEndOffset,
+                tolerancePx = bottomTolerancePx,
+            )
         }
     }
     // M1: o item do turno é único e usa `turn-<turnId>`; o final persistido
