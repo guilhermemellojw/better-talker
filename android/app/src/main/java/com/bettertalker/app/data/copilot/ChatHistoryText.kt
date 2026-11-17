@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.RefDetector
+import com.bettertalker.app.data.util.normalizeText
 
 /**
  * Teto do resumo textual de um card no histórico.
@@ -224,13 +225,127 @@ private fun cleanListItem(raw: String): String =
         .replace(SUGGESTION_TAG, "")
         .trim()
 
+/** Número original do item, preservado mesmo quando itens são omitidos. */
+private data class NumberedHistoryItem(val number: Int, val text: String)
+
+private const val MAX_FREE_LIST_ITEMS = 5
+private const val MAX_FOCUS_TITLE_CHARS = 28
+
+private val IDEA_LIST_CUES = Regex(
+    "\\b(ideias?|sugestoes?|opcoes?|alternativas?|angulos?|abordagens?|" +
+        "caminhos?|possibilidades)\\b"
+)
+private val FINAL_ADVICE_CUES = Regex(
+    "\\b(minha recomendacao|recomendo|recomendacao|sugiro|sugestao final|" +
+        "qual dessas|voce prefere|escolha|se preferir|para fechar|em resumo)\\b"
+)
+private val SCRIPT_MARKERS = Regex(
+    "\\b(publicador|morador|orador|estudante)\\s*:",
+    RegexOption.IGNORE_CASE,
+)
+
 /**
- * Resumo de uma LISTA numerada longa do próprio Copilot (quando o caminho
- * remoto devolve ideias como texto, não como card `ideas`).
+ * Separa o último parágrafo de recomendação/pergunta, quando ele é claramente
+ * um fecho e não a continuação de um item numerado.
+ */
+private fun splitFinalAdvice(text: String): Pair<String, String?> {
+    fun hasNumbered(body: String): Boolean =
+        body.lineSequence().any { NUMBERED_LINE.matches(it) }
+
+    val paragraphs = text.split(Regex("\\n\\s*\\n"))
+    if (paragraphs.size >= 2) {
+        val last = paragraphs.last().trim()
+        val normalized = normalizeText(last)
+        val isAdvice = last.isNotBlank() &&
+            !NUMBERED_LINE.matches(last) &&
+            (FINAL_ADVICE_CUES.containsMatchIn(normalized) || last.contains('?'))
+        val body = paragraphs.dropLast(1).joinToString("\n\n").trimEnd()
+        if (isAdvice && hasNumbered(body)) return body to last
+    }
+
+    // Também aceita um fecho sem parágrafo separado (ex.: item 5 seguido
+    // imediatamente de “Minha recomendação: …”, às vezes com cauda longa).
+    val lines = text.lines()
+    val lastNumbered = lines.indexOfLast { NUMBERED_LINE.matches(it) }
+    if (lastNumbered >= 0) {
+        val adviceIndex = (lastNumbered + 1 until lines.size).lastOrNull { index ->
+            val line = lines[index].trim()
+            line.isNotBlank() && !NUMBERED_LINE.matches(line) &&
+                (FINAL_ADVICE_CUES.containsMatchIn(normalizeText(line)) ||
+                    line.contains('?'))
+        }
+        if (adviceIndex != null) {
+            val body = lines.take(adviceIndex).joinToString("\n").trimEnd()
+            val outro = lines.drop(adviceIndex).joinToString("\n").trim()
+            if (hasNumbered(body)) return body to outro
+        }
+    }
+    return text to null
+}
+
+/** Só compacta listas que realmente têm sinais de ideias/sugestões. */
+private fun looksLikeIdeaList(
+    fullText: String,
+    intro: String?,
+    outro: String?,
+    items: List<NumberedHistoryItem>,
+): Boolean {
+    if (items.size < 3) return false
+    if (SCRIPT_MARKERS.containsMatchIn(fullText)) return false
+    val introNormalized = normalizeText(intro.orEmpty())
+    if (IDEA_LIST_CUES.containsMatchIn(introNormalized)) return true
+    if (SUGGESTION_TAG.containsMatchIn(fullText)) return true
+    val outroNormalized = normalizeText(outro.orEmpty())
+    return items.size >= 4 && outro != null &&
+        FINAL_ADVICE_CUES.containsMatchIn(outroNormalized)
+}
+
+private fun parseNumberedItems(
+    lines: List<String>,
+    firstNumber: Int,
+): List<NumberedHistoryItem> {
+    val items = mutableListOf<NumberedHistoryItem>()
+    var current: StringBuilder? = null
+    var currentNumber: Int? = null
+    fun flush() {
+        val text = current?.toString()?.trim()
+        val number = currentNumber
+        if (text != null && text.isNotBlank() && number != null) {
+            items += NumberedHistoryItem(number, text)
+        }
+        current = null
+        currentNumber = null
+    }
+    for (line in lines.drop(firstNumber)) {
+        val match = NUMBERED_LINE.find(line)
+        if (match != null) {
+            flush()
+            currentNumber = match.groupValues[1].toIntOrNull() ?: (items.size + 1)
+            current = StringBuilder(cleanListItem(match.groupValues[2]))
+        } else if (current != null && line.trim().isNotBlank()) {
+            current?.append(' ')?.append(cleanListItem(line))
+        }
+    }
+    flush()
+    return items
+}
+
+private fun numberedHistoryItemsOriginal(
+    items: List<NumberedHistoryItem>,
+    perItem: Int,
+): String = items.joinToString("; ") { item ->
+    "${item.number}) ${compactHistoryText(item.text, perItem)}"
+}
+
+/**
+ * Resumo de uma LISTA de ideias longa do próprio Copilot (caminho remoto).
  *
- * O truncamento genérico de 500 chars preserva início+fim e pode perder o
- * item 2 no meio. Aqui a ordem e os itens numerados são preservados, com
- * orçamento por item. Sem lista (≥2 itens) devolve o texto original.
+ * Conservador por desenho: só atua quando há sinais de ideias/sugestões
+ * (intro, tags de sugestão ou fecho de recomendação); respostas numeradas
+ * comuns (roteiro, discurso, plano) seguem o truncamento normal do histórico.
+ *
+ * Preserva os números originais, até cinco itens (ou primeiro quatro + último
+ * em listas maiores), o fecho relevante e sinaliza itens omitidos. Sem LLM.
  */
 internal fun compactAssistantListForHistory(
     text: String,
@@ -238,7 +353,9 @@ internal fun compactAssistantListForHistory(
 ): String {
     val clean = text.replace("\r\n", "\n").trim()
     if (clean.length <= maxChars) return clean
-    val lines = clean.split('\n')
+
+    val (bodyText, outro) = splitFinalAdvice(clean)
+    val lines = bodyText.split('\n')
     val firstNumber = lines.indexOfFirst { NUMBERED_LINE.matches(it) }
     if (firstNumber < 0) return clean
     val intro = lines.take(firstNumber)
@@ -246,37 +363,41 @@ internal fun compactAssistantListForHistory(
         .replace(Regex("\\s+"), " ")
         .trim()
         .takeIf { it.isNotBlank() }
-    val items = mutableListOf<String>()
-    var current: StringBuilder? = null
-    fun flush() {
-        current?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { items += it }
-        current = null
+    val items = parseNumberedItems(lines, firstNumber)
+    if (!looksLikeIdeaList(clean, intro, outro, items)) return clean
+
+    val selected = if (items.size <= MAX_FREE_LIST_ITEMS) {
+        items
+    } else {
+        items.take(MAX_FREE_LIST_ITEMS - 1) + items.last()
     }
-    for (line in lines.drop(firstNumber)) {
-        val match = NUMBERED_LINE.find(line)
-        if (match != null) {
-            flush()
-            current = StringBuilder(cleanListItem(match.groupValues[2]))
-        } else if (current != null && line.trim().isNotBlank()) {
-            current?.append(' ')?.append(cleanListItem(line))
-        }
+    val omitted = items.size - selected.size
+    val omittedText = when {
+        omitted <= 0 -> ""
+        omitted == 1 -> " (+1 item omitido)"
+        else -> " (+$omitted itens omitidos)"
     }
-    flush()
-    if (items.size < 2) return clean
     val header = buildString {
         append("Lista anterior do Copilot")
         intro?.let { append(": ").append(compactHistoryText(it, 80)) }
         append(" — ")
     }
-    val selected = items.take(4)
-    val available = maxChars - header.length
-    var perItem = (available / selected.size).coerceAtLeast(28)
-    var body = numberedHistoryItems(selected, 4, perItem)
-    while (body.length > available && perItem > 20) {
-        perItem -= 4
-        body = numberedHistoryItems(selected, 4, perItem)
+    val outroText = outro?.let { " Fecho: ${compactHistoryText(it, 110)}" }.orEmpty()
+    val available = maxChars - header.length - omittedText.length - outroText.length
+    var perItem = (available / selected.size).coerceAtLeast(24)
+    var body = numberedHistoryItemsOriginal(selected, perItem)
+    while (body.length > available && perItem > 16) {
+        perItem -= 2
+        body = numberedHistoryItemsOriginal(selected, perItem)
     }
-    return (header + body).take(maxChars).trim()
+    val summary = buildString {
+        append(header)
+        append(body)
+        append(omittedText)
+        append(outroText)
+    }
+    return if (summary.length <= maxChars) summary.trim()
+    else compactHistoryText(summary, maxChars)
 }
 
 /**
@@ -382,8 +503,15 @@ fun chatFocusLabel(sectionId: String?, sectionTitle: String?): String =
     if (sectionId.isNullOrBlank()) {
         "Discurso inteiro"
     } else {
-        val title = sectionTitle?.trim().orEmpty()
-        "Tópico: ${title.ifBlank { "seção" }}"
+        // O foco é contexto, não o texto principal; um título enorme não pode
+        // consumir o orçamento do histórico e cortar os itens do card.
+        val title = sectionTitle?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+        val compact = if (title.length <= MAX_FOCUS_TITLE_CHARS) {
+            title
+        } else {
+            title.take(MAX_FOCUS_TITLE_CHARS - 1).trimEnd() + "…"
+        }
+        "Tópico: ${compact.ifBlank { "seção" }}"
     }
 
 /** Prefixa o turno com o foco em que ele foi produzido. */

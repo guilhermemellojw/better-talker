@@ -491,4 +491,109 @@ class ChatHistoryTextTest {
         assertTrue(card.length <= MAX_CARD_HISTORY_CHARS)
         assertTrue(turn.text.length <= MAX_HISTORY_CHARS)
     }
+
+    @Test
+    fun listaDeCincoIdeiasPreservaSegundaQuintaEAFecho() {
+        val text = buildString {
+            appendLine("Aqui vão ideias para você escolher:")
+            appendLine("1. Abra com uma pergunta que cria curiosidade.")
+            appendLine("2. Use o contraste ordem/desordem com 1Co 14:33.")
+            appendLine("3. Puxe do título do discurso.")
+            appendLine("4. Use uma ilustração do corpo humano.")
+            appendLine("5. Ancore na criação com Jó 38:31-33.")
+            appendLine("")
+            appendLine("Minha recomendação: combine a ideia 2 com a 5, abrindo pelo contraste.")
+            appendLine("X".repeat(200))
+        }
+        val compact = compactAssistantListForHistory(text)
+        assertTrue(compact.length <= MAX_CARD_HISTORY_CHARS)
+        assertTrue(compact.contains("2) Use o contraste ordem/desordem"))
+        assertTrue(compact.contains("5) Ancore na criação"))
+        assertTrue(compact.contains("Minha recomendação"))
+        assertTrue(compact.contains("2 com a 5"))
+
+        val history = recentHistory(listOf(ChatTurn(false, compact)))
+        assertTrue(history.contains("2) Use o contraste"))
+        assertTrue(history.contains("5) Ancore na criação"))
+        assertTrue(history.contains("Minha recomendação"))
+    }
+
+    @Test
+    fun perguntaFinalDoCopilotSobreviveAoResumo() {
+        val text = buildString {
+            appendLine("Aqui vão sugestões:")
+            (1..5).forEach {
+                appendLine("$it. Ideia $it com um detalhe prático e uma aplicação concreta para o ouvinte.")
+            }
+            appendLine("")
+            appendLine("Qual dessas você quer usar na introdução?")
+        }
+        val compact = compactAssistantListForHistory(text)
+        assertTrue(compact.contains("Qual dessas você quer usar"))
+        assertTrue(compact.trimEnd().endsWith("?"))
+        val history = recentHistory(listOf(ChatTurn(false, compact)))
+        assertTrue(history.contains("Qual dessas você quer usar"))
+    }
+
+    @Test
+    fun respostaNumeradaQueNaoEhListaDeIdeiasNaoEhCompactada() {
+        val text = buildString {
+            appendLine("Plano do discurso em cinco movimentos:")
+            (1..5).forEach { appendLine("$it. " + "A".repeat(130)) }
+            appendLine("")
+            appendLine("Fim do plano.")
+        }.trim()
+        assertEquals(text, compactAssistantListForHistory(text))
+        assertFalse(compactAssistantListForHistory(text).contains("Lista anterior do Copilot"))
+        assertFalse(recentHistory(listOf(ChatTurn(false, text))).contains("Lista anterior do Copilot"))
+    }
+
+    @Test
+    fun cardSeguidoDePerguntaSobreSegundaETerceiraMelhoria() {
+        val card = readableChatTurn("review", reviewPayload(reviewReport()))
+        val question = "Não concordo com a segunda melhoria. E a terceira?"
+        val prompt = buildChatPrompt(
+            message = question,
+            history = listOf(
+                ChatTurn(false, labelChatTurn(card, null, null)),
+                ChatTurn(true, question),
+            ),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "A ORGANIZAÇÃO DE JEOVÁ É UNIDA",
+            blockMinutes = 8,
+            blockText = "Texto do ponto 2.",
+        )
+        assertTrue(prompt.contains("2) Explique a ligação entre as ideias."))
+        assertTrue(prompt.contains("3) Inclua uma aplicação concreta."))
+        assertTrue(prompt.contains(question))
+    }
+
+    @Test
+    fun tituloDeFocoLongoNaoCortaOsItensDoCard() {
+        val card = readableChatTurn("review", reviewPayload(reviewReport()))
+        val title = "A ORGANIZAÇÃO UNIDA DE JEOVÁ E A COOPERAÇÃO COM A ESTRUTURA CELESTIAL"
+        val turn = ChatTurn(false, labelChatTurn(card, "sec-long", title))
+        val history = recentHistory(listOf(turn))
+        assertTrue(history.contains("2) Explique a ligação entre as ideias."))
+        assertTrue(history.contains("3) Inclua uma aplicação concreta."))
+        assertTrue(history.length <= MAX_HISTORY_CHARS + 200)
+        assertTrue(chatFocusLabel("sec-long", title).length <= 44)
+    }
+
+    @Test
+    fun listaMaiorSinalizaItensOmitidosEPreservaOUltimo() {
+        val text = buildString {
+            appendLine("Aqui vão ideias:")
+            (1..7).forEach { appendLine("$it. Ideia $it com um detalhe.") }
+            appendLine("")
+            appendLine("Minha recomendação: combine a 2 com a 1.")
+            appendLine("X".repeat(400))
+        }
+        val compact = compactAssistantListForHistory(text)
+        assertTrue(compact.contains("itens omitidos"))
+        assertTrue(compact.contains("7) Ideia 7"))
+        assertTrue(compact.contains("2) Ideia 2"))
+        assertTrue(compact.length <= MAX_CARD_HISTORY_CHARS)
+    }
 }
