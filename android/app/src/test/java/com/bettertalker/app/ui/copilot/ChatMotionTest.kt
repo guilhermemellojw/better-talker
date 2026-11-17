@@ -208,6 +208,132 @@ class ChatMotionTest {
         assertEquals(2, turnAnchorIndex(0, true, true, activeTurnVisible = true))
     }
 
+    // ---------- UX-2.2: âncora do streaming ----------
+
+    @Test
+    fun turnAnchorIndex_comProveniencia() {
+        // 3 mensagens + proveniência + turno = índice 4.
+        assertEquals(
+            4,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                activeTurnVisible = true,
+                itemsBeforeTurn = 1,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_comFocusSourcesSemEvidence() {
+        val provenance = provenanceItemCount(evidenceCount = 0, hasFocusSources = true)
+        assertEquals(1, provenance)
+        assertEquals(
+            4,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                activeTurnVisible = true,
+                itemsBeforeTurn = provenance,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_comUmaProposta() {
+        assertEquals(
+            4,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                activeTurnVisible = true,
+                itemsBeforeTurn = proposalItemCount(true, false, false, false, false),
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_comMultiplasPropostas() {
+        val proposals = proposalItemCount(true, true, true, true, false)
+        assertEquals(4, proposals)
+        assertEquals(
+            7,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                activeTurnVisible = true,
+                itemsBeforeTurn = proposals,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_comProvenienciaEMultiplasPropostas() {
+        val aux = provenanceItemCount(evidenceCount = 2, hasFocusSources = false) +
+            proposalItemCount(true, true, false, false, false)
+        assertEquals(3, aux)
+        assertEquals(
+            7,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = true,
+                hasTopicEmpty = false,
+                activeTurnVisible = true,
+                itemsBeforeTurn = aux,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_topicoVazioComAuxiliares() {
+        assertEquals(
+            4,
+            turnAnchorIndex(
+                messageCount = 0,
+                hasContext = true,
+                hasTopicEmpty = true,
+                activeTurnVisible = true,
+                itemsBeforeTurn = 2,
+            ),
+        )
+    }
+
+    @Test
+    fun turnAnchorIndex_semTurnoIgnoraAuxiliares() {
+        // Sem turno visível, o alvo continua sendo a última mensagem.
+        assertEquals(
+            2,
+            turnAnchorIndex(
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                activeTurnVisible = false,
+                itemsBeforeTurn = 99,
+            ),
+        )
+    }
+
+    @Test
+    fun provenanceItemCount_soContaQuandoHaEvidenceOuFocusSources() {
+        assertEquals(0, provenanceItemCount(evidenceCount = 0, hasFocusSources = false))
+        assertEquals(1, provenanceItemCount(evidenceCount = 3, hasFocusSources = false))
+        assertEquals(1, provenanceItemCount(evidenceCount = 0, hasFocusSources = true))
+        assertEquals(1, provenanceItemCount(evidenceCount = 3, hasFocusSources = true))
+    }
+
+    @Test
+    fun proposalItemCount_contaCadaPropostaRenderizada() {
+        assertEquals(0, proposalItemCount(false, false, false, false, false))
+        assertEquals(1, proposalItemCount(true, false, false, false, false))
+        assertEquals(2, proposalItemCount(true, false, false, false, true))
+        assertEquals(4, proposalItemCount(true, true, true, true, false))
+        assertEquals(5, proposalItemCount(true, true, true, true, true))
+    }
+
     @Test
     fun visualGroup_agrupaStatusEErro() {
         assertEquals(TurnVisualGroup.STATUS, TurnPhase.WAITING.visualGroup())

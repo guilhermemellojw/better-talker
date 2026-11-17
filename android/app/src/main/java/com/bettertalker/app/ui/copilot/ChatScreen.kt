@@ -511,11 +511,24 @@ fun ChatScreen(
         runStateItems = runStateItems
     )
     // M2a: âncora do turno (não o último card/proposta).
+    // UX-2.2: proveniência e propostas podem coexistir e ficam entre as
+    // mensagens e o turno. Conta cada item renderizado, na mesma ordem da
+    // LazyColumn, em vez de usar um booleano.
+    val itemsBeforeActiveTurn =
+        provenanceItemCount(evidence.size, focusSources != null) +
+            proposalItemCount(
+                proposal != null,
+                structureProposal != null,
+                multiProposal != null,
+                noteStructureProposal != null,
+                scopeSuggestion,
+            )
     val turnAnchor = turnAnchorIndex(
         messageCount = messages.size,
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         activeTurnVisible = showActiveTurn,
+        itemsBeforeTurn = itemsBeforeActiveTurn,
     )
 
     val outlinePicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -2663,22 +2676,34 @@ internal fun lastMessageIndex(
 
 /**
  * M2a — âncora do turno ativo: índice do item `turn-<turnId>` (começo dele).
- * Com turno visível, fica DEPOIS das mensagens; sem turno, cai na última
- * mensagem (não em card/proposta). Puro/testável.
+ * Com turno visível, fica DEPOIS das mensagens e dos itens auxiliares
+ * (proveniência/propostas); sem turno, cai na última mensagem.
+ *
+ * [itemsBeforeTurn] é a contagem determinística dos itens renderizados entre
+ * as mensagens e o turno (não um booleano): pode haver proveniência e mais de
+ * uma proposta ao mesmo tempo. Puro/testável.
  */
 internal fun turnAnchorIndex(
     messageCount: Int,
     hasContext: Boolean,
     hasTopicEmpty: Boolean,
     activeTurnVisible: Boolean,
+    itemsBeforeTurn: Int = 0,
 ): Int {
     val offset = (if (hasContext) 1 else 0) + (if (hasTopicEmpty) 1 else 0)
     return if (activeTurnVisible) {
-        offset + messageCount
+        offset + messageCount + itemsBeforeTurn.coerceAtLeast(0)
     } else {
         lastMessageIndex(messageCount, hasContext, hasTopicEmpty)
     }
 }
+
+/** Itens de proveniência: 1 quando há evidence OU focusSources. */
+internal fun provenanceItemCount(evidenceCount: Int, hasFocusSources: Boolean): Int =
+    if (evidenceCount > 0 || hasFocusSources) 1 else 0
+
+/** Itens de proposta efetivamente renderizados (podem coexistir). */
+internal fun proposalItemCount(vararg present: Boolean): Int = present.count { it }
 
 /** #25-fix-a: ação do efeito de mensagem nova. Puro/testável. */
 internal sealed interface MessagesEffect {
