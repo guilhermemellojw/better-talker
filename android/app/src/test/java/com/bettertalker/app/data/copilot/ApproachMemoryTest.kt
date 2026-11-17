@@ -113,6 +113,17 @@ class ApproachMemoryTest {
     }
 
     @Test
+    fun confirmacaoQueCabeExatamenteNoTetoNaoEhTruncada() {
+        val addition = "a"
+        val marked = "- $CONFIRMED_APPROACH_PREFIX $addition $CONFIRMED_APPROACH_SUFFIX"
+        val existing = "x".repeat(MAX_APPROACH_CHARS - 1 - marked.length)
+        val merged = stored(existing, addition)
+        assertEquals(MAX_APPROACH_CHARS, merged.length)
+        assertTrue(merged.endsWith(marked))
+        assertEquals(listOf(addition), parseApproachMemory(merged).confirmed)
+    }
+
+    @Test
     fun confirmacaoMultilinhaSemEspacoNaoGravaNenhumaLinha() {
         val raw = "x".repeat(480)
         val result = mergeConfirmedApproachText(raw, "linha A\nlinha B")
