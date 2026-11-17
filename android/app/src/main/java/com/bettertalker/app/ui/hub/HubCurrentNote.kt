@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -130,6 +131,8 @@ internal fun HubEmptyState(
     text: String,
     actionLabel: String,
     onAction: () -> Unit,
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
@@ -140,9 +143,23 @@ internal fun HubEmptyState(
                 text,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(bottom = 16.dp),
             )
-            Button(onClick = onAction) { Text(actionLabel) }
+            Button(onClick = onAction) {
+                Text(
+                    actionLabel,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (secondaryLabel != null && onSecondary != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onSecondary) {
+                    Text(secondaryLabel, textAlign = TextAlign.Center)
+                }
+            }
         }
     }
 }

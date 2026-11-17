@@ -151,6 +151,14 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Última nota usada no Preparo/Assistente, mas apenas se ela ainda está
+     * ativa. É a fonte do atalho "Usar esboço atual" nos hubs vazios.
+     */
+    val lastNoteCard: StateFlow<HubNoteCard?> = combine(cards, settings.lastNoteId) { list, id ->
+        hubCurrentFallback(list, id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     /** Aba Treino: esboço atual (independente do Palco). */
     val trainNoteId: StateFlow<String?> = settings.trainNoteId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -190,6 +198,45 @@ class HubViewModel(ctx: Context, db: AppDatabase) : ViewModel() {
     suspend fun setPresentNoteNow(id: String?) {
         settings.setPresentNoteId(id)
         if (id != null) settings.setLastNoteId(id)
+    }
+
+    /**
+     * Atalho “Usar esboço atual”: grava SOMENTE a seleção do ambiente
+     * solicitado. O outro hub permanece exatamente como estava.
+     */
+    fun useCurrentForTrain(noteId: String) = useCurrent(
+        target = HubContinuityTarget.TRAIN,
+        // Seleção inválida (nota excluída) conta como vazia; só uma seleção
+        // válida impede o atalho.
+        currentNoteId = trainCard.value?.id,
+        noteId = noteId,
+    )
+
+    fun useCurrentForPresent(noteId: String) = useCurrent(
+        target = HubContinuityTarget.PRESENT,
+        currentNoteId = presentCard.value?.id,
+        noteId = noteId,
+    )
+
+    private fun useCurrent(
+        target: HubContinuityTarget,
+        currentNoteId: String?,
+        noteId: String,
+    ) = viewModelScope.launch {
+        val current = HubContinuitySelections(
+            trainNoteId = trainNoteId.value,
+            presentNoteId = presentNoteId.value,
+        )
+        val next = hubUseCurrent(
+            target = target,
+            currentNoteId = currentNoteId,
+            lastNoteId = noteId,
+            selections = current,
+        ) ?: return@launch
+        when (target) {
+            HubContinuityTarget.TRAIN -> settings.setTrainNoteId(next.trainNoteId)
+            HubContinuityTarget.PRESENT -> settings.setPresentNoteId(next.presentNoteId)
+        }
     }
 
     /** v4.1: picker do Assistente só vincula; não abre editor/Treino/Palco. */
