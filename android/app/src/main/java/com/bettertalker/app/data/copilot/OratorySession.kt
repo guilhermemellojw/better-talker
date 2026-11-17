@@ -63,12 +63,19 @@ object OratorySession {
     /** Refinamento: pedido que se apoia numa geração anterior. */
     fun isRefinement(text: String): Boolean {
         val t = " ${normalizeText(text)} "
-        return Regex(
-            "(melhore|melhorar|melhor|refaca|refazer|reescreva|ajuste|corrija|deixe mais|" +
-                "mais natural|mais curta|encurte|encurtar|resuma|mais curto|explique melhor|" +
-                "aprofunde|detalhe|mais simples|mais direto)"
-        ).containsMatchIn(t)
+        // Limites de palavra são obrigatórios: "melhoria"/"melhorias" contêm
+        // "melhor" como substring e antes viravam refinamento oratório,
+        // sequestrando a discussão de um card ("Não concordo com a segunda
+        // melhoria. Por quê?").
+        return REFINEMENT.containsMatchIn(t)
     }
+
+    private val REFINEMENT = Regex(
+        "\\b(melhore|melhorar|refaca|refazer|reescreva|ajuste|corrija|" +
+            "encurte|encurtar|resuma|aprofunde|detalhe)\\b|" +
+            "\\b(deixe mais|deixe melhor|mais natural|mais curta|mais curto|" +
+            "mais simples|mais direto|explique melhor)\\b"
+    )
 
     /**
      * Número de ponto pedido ("ponto 3", "3.", "no 3") — 1-based.

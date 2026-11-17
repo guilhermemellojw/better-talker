@@ -757,4 +757,90 @@ class ChatRouterTest {
         assertTrue(r is Route.Mentor)
         assertEquals(MentorIntent.DIAGNOSE_OUTLINE, (r as Route.Mentor).intent)
     }
+
+    // ---------- 1C.1: discutir um card não é refinar texto ----------
+
+    @Test
+    fun melhoriaNaoSequestraAConversa() {
+        for (text in listOf(
+            "Não concordo com a segunda melhoria. Por quê?",
+            "Não gostei dessa melhoria.",
+            "Essa melhoria não faz sentido.",
+            "A melhoria 2 está estranha.",
+        )) {
+            val r = route(text)
+            assertTrue(
+                "esperado GENERAL para '$text', veio ${ChatRouter.describe(r)}",
+                r is Route.General,
+            )
+        }
+    }
+
+    @Test
+    fun melhoriaNaoSequestraNemComGeracaoAnterior() {
+        val last = OratorySession.LastGeneration(Mode.DEVELOPMENT, "sec-2")
+        for (text in listOf(
+            "Não concordo com a segunda melhoria. Por quê?",
+            "Não gostei dessa melhoria.",
+            "Essa melhoria não faz sentido.",
+        )) {
+            val r = route(text, last = last)
+            assertTrue(
+                "esperado GENERAL para '$text' com last, veio ${ChatRouter.describe(r)}",
+                r is Route.General,
+            )
+        }
+    }
+
+    @Test
+    fun refinamentosReaisContinuamFuncionando() {
+        val last = OratorySession.LastGeneration(Mode.DEVELOPMENT, "sec-2")
+        for (text in listOf(
+            "Melhore o ponto 2.",
+            "Deixe mais natural.",
+            "Encurte o texto.",
+        )) {
+            val r = route(text, last = last)
+            assertTrue(
+                "esperado ORATORY para '$text', veio ${ChatRouter.describe(r)}",
+                r is Route.Oratory,
+            )
+        }
+    }
+
+    @Test
+    fun explicacaoSobreARespostaNaoViraGeracaoComLast() {
+        val last = OratorySession.LastGeneration(Mode.DEVELOPMENT, "sec-2")
+        val meta = route("Explique melhor o que você quis dizer", last = last)
+        assertTrue(
+            "meta-explicação deve ser conversa, veio ${ChatRouter.describe(meta)}",
+            meta is Route.General,
+        )
+        val section = route("Explique melhor o ponto 2", last = last)
+        assertTrue(
+            "explicação com contexto de seção continua oratória, veio ${ChatRouter.describe(section)}",
+            section is Route.Oratory,
+        )
+    }
+
+    @Test
+    fun comparacaoComMelhorNaoSequestraAGeracao() {
+        val texts = listOf(
+            "Gostei da segunda ideia, mas acho que ela funcionaria melhor no início. O que você acha?",
+            "Isso ficaria melhor no começo.",
+        )
+        for (text in texts) {
+            val semGeracao = route(text)
+            assertTrue(
+                "esperado GENERAL para '$text' sem last, veio ${ChatRouter.describe(semGeracao)}",
+                semGeracao is Route.General,
+            )
+            val last = OratorySession.LastGeneration(Mode.DEVELOPMENT, "sec-2")
+            val comGeracao = route(text, last = last)
+            assertTrue(
+                "esperado GENERAL para '$text' com last, veio ${ChatRouter.describe(comGeracao)}",
+                comGeracao is Route.General,
+            )
+        }
+    }
 }

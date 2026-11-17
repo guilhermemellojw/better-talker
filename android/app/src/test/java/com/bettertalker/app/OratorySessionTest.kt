@@ -148,6 +148,31 @@ class OratorySessionTest {
     }
 
     @Test
+    fun melhoriaNaoERefinamentoDeTexto() {
+        // 1C.1 — "melhoria" contém "melhor"; o limite de palavra impede o
+        // sequestro da conversa sobre um card.
+        for (text in listOf(
+            "Não concordo com a segunda melhoria. Por quê?",
+            "Não gostei dessa melhoria.",
+            "Essa melhoria não faz sentido.",
+            "A melhoria 2 está estranha.",
+        )) {
+            assertFalse(text, OratorySession.isRefinement(text))
+        }
+        assertTrue(OratorySession.isRefinement("Melhore o ponto 2."))
+        assertTrue(OratorySession.isRefinement("Deixe mais natural."))
+        assertTrue(OratorySession.isRefinement("Encurte o texto."))
+        assertTrue(OratorySession.isRefinement("Deixe melhor."))
+        // "melhor" comparativo/opinativo não é pedido de reescrita.
+        assertFalse(
+            OratorySession.isRefinement(
+                "Gostei da segunda ideia, mas acho que ela funcionaria melhor no início."
+            )
+        )
+        assertFalse(OratorySession.isRefinement("Isso ficaria melhor no começo."))
+    }
+
+    @Test
     fun pedidoDesconhecidoNaoViraGeracao() {
         assertTrue(decide("Qual é o objetivo?") is Decision.NothingToRefine)
     }
