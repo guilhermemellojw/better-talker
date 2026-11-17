@@ -1,5 +1,6 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.domain.ContextPack
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.util.ChatCodec
 import com.bettertalker.app.data.util.RefDetector
@@ -153,5 +154,341 @@ class ChatHistoryTextTest {
         assertTrue(turns[1].startsWith("[Tópico: Desenvolvimento]"))
         assertTrue(turns.joinToString("\n").contains("Pergunta no ponto 1"))
         assertTrue(turns.joinToString("\n").contains("Resposta no ponto 2"))
+    }
+
+    // ---------- 1C.1: cards do Mentor no histórico ----------
+
+    private fun reviewReport(
+        improvements: List<String> = listOf(
+            "Desenvolva o subponto 1.",
+            "Explique a ligação entre as ideias.",
+            "Inclua uma aplicação concreta.",
+        ),
+        strengths: List<String> = listOf("O ponto tem 11 subpontos."),
+        qualityStatus: PointQualityStatus = PointQualityStatus.NONE,
+        quality: PointQualityReview? = null,
+    ) = PointReviewReport(
+        sectionId = "section-2",
+        pointNumber = 2,
+        title = "A ORGANIZAÇÃO DE JEOVÁ É UNIDA",
+        minutes = 8,
+        overall = DiagnosisLevel.ATTENTION,
+        reading = "Ponto 2 · A ORGANIZAÇÃO DE JEOVÁ É UNIDA · 8 min · 96 palavra(s)",
+        strengths = strengths,
+        improvements = improvements,
+        nextStep = PointReviewNextStep.OpenEditor("section-2", "A ORGANIZAÇÃO DE JEOVÁ É UNIDA", 2),
+        generatedAt = 1L,
+        quality = quality,
+        qualityStatus = qualityStatus,
+    )
+
+    private fun reviewPayload(report: PointReviewReport, text: String = "Resumo antigo") =
+        ChatCodec.escMap(
+            mapOf(
+                "report" to PointReviewCodec.encode(report),
+                "text" to text,
+            )
+        )
+
+    private fun coachingReport() = PointCoachingReport(
+        sectionId = "section-1",
+        pointNumber = 1,
+        title = "JEOVÁ É UM DEUS DE ORGANIZAÇÃO",
+        minutes = 6,
+        overall = DiagnosisLevel.ATTENTION,
+        reading = "Ponto 1 · 6 min",
+        findings = listOf(
+            PointCoachingFinding("Subpontos", DiagnosisLevel.ATTENTION, "Faltam dois subpontos."),
+            PointCoachingFinding("Fontes", DiagnosisLevel.OK, "As fontes estão resolvidas."),
+        ),
+        steps = listOf(
+            "Abra o primeiro subponto.",
+            "Explique a ordem nos céus.",
+            "Feche com uma aplicação prática.",
+        ),
+        nextStep = PointCoachingNextStep.OpenEditor("section-1", "JEOVÁ É UM DEUS", 1),
+        generatedAt = 1L,
+    )
+
+    private fun diagnosisReport() = OutlineDiagnosis(
+        overall = DiagnosisLevel.ATTENTION,
+        headline = "Esboço com pontos de atenção",
+        summary = "Resumo do diagnóstico",
+        s34Status = DiagnosisS34Status.LINKED,
+        s34Detail = "S-34 de teste",
+        criteria = emptyList(),
+        points = listOf(
+            DiagnosisPoint("s1", 1, "JEOVÁ É UM DEUS DE ORGANIZAÇÃO", 6, DiagnosisLevel.OK, "OK", "Abrir"),
+            DiagnosisPoint("s2", 2, "A ORGANIZAÇÃO É UNIDA", 8, DiagnosisLevel.ATTENTION, "Falta aplicação", "Abrir"),
+        ),
+        priorities = listOf("Prioridade 1: desenvolver o ponto 2.", "Prioridade 2: revisar as fontes."),
+        nextStep = DiagnosisNextStep.OpenNote("Abrir nota"),
+        generatedAt = 1L,
+    )
+
+    @Test
+    fun revisaoEstruturalViraResumoNumeradoEProtegido() {
+        val text = readableChatTurn("review", reviewPayload(reviewReport()))
+        assertTrue(text.contains("Card do Mentor — revisão do Ponto 2"))
+        assertTrue(text.contains("não fonte factual"))
+        assertTrue(text.contains("1) Desenvolva o subponto 1."))
+        assertTrue(text.contains("2) Explique a ligação entre as ideias."))
+        assertTrue(text.contains("3) Inclua uma aplicação concreta."))
+        assertTrue(text.length <= MAX_CARD_HISTORY_CHARS)
+        assertFalse(text.trimEnd().endsWith("2)"))
+        assertFalse(text.trimEnd().endsWith("3)"))
+    }
+
+    @Test
+    fun revisaoQualitativaConcluidaUsaSomenteAsObservacoesDoCard() {
+        val quality = PointQualityReview(
+            positives = listOf(PointQualityPositive("A abertura prende o ouvinte.")),
+            improvements = listOf(
+                PointQualityImprovement(
+                    PointQualityCategory.APLICACAO,
+                    "A aplicação ficou genérica.",
+                    "O ouvinte não sabe o que fazer.",
+                ),
+                PointQualityImprovement(
+                    PointQualityCategory.ESCRITURAS,
+                    "A referência bíblica ficou implícita.",
+                    "Falta indicar de onde vem o ensino.",
+                ),
+            ),
+        )
+        val text = readableChatTurn(
+            "review",
+            reviewPayload(
+                reviewReport(
+                    improvements = listOf("Melhoria estrutural que não deve aparecer."),
+                    qualityStatus = PointQualityStatus.COMPLETED,
+                    quality = quality,
+                )
+            ),
+        )
+        assertTrue(text.contains("2) Escrituras: A referência bíblica ficou implícita."))
+        assertTrue(text.contains("1) Aplicação: A aplicação ficou genérica."))
+        assertFalse(text.contains("Melhoria estrutural que não deve aparecer."))
+        assertFalse(text.contains("3)"))
+        assertTrue(text.contains("A abertura prende o ouvinte."))
+    }
+
+    @Test
+    fun revisaoQualitativaPendenteUsaEstruturalSemAfirmarConclusao() {
+        val text = readableChatTurn(
+            "review",
+            reviewPayload(
+                reviewReport(
+                    qualityStatus = PointQualityStatus.PENDING,
+                    quality = null,
+                )
+            ),
+        )
+        assertTrue(text.contains("2) Explique a ligação entre as ideias."))
+        assertFalse(text.contains("qualitativa concluída"))
+        assertFalse(text.contains("Escrituras:"))
+    }
+
+    @Test
+    fun revisaoSemMelhoriasInformaSemInventar() {
+        val text = readableChatTurn(
+            "review",
+            reviewPayload(reviewReport(improvements = emptyList(), strengths = emptyList())),
+        )
+        assertTrue(text.contains("Melhorias: nenhum item registrado."))
+        assertFalse(text.contains("1)"))
+    }
+
+    @Test
+    fun coachingPreservaPassosNumeradosEAchados() {
+        val payload = ChatCodec.escMap(
+            mapOf(
+                "report" to PointCoachingCodec.encode(coachingReport()),
+                "text" to "Resumo antigo",
+            )
+        )
+        val text = readableChatTurn("coaching", payload)
+        assertTrue(text.contains("Card do Mentor — coaching do Ponto 1"))
+        assertTrue(text.contains("1) Abra o primeiro subponto."))
+        assertTrue(text.contains("2) Explique a ordem nos céus."))
+        assertTrue(text.contains("3) Feche com uma aplicação prática."))
+        assertTrue(text.length <= MAX_CARD_HISTORY_CHARS)
+    }
+
+    @Test
+    fun diagnosticoPreservaPrioridadesEPontos() {
+        val payload = ChatCodec.escMap(
+            mapOf(
+                "report" to OutlineDiagnosisCodec.encode(diagnosisReport()),
+                "text" to "Resumo antigo",
+            )
+        )
+        val text = readableChatTurn("diagnosis", payload)
+        assertTrue(text.contains("Card do Mentor — diagnóstico do esboço"))
+        assertTrue(text.contains("1) Prioridade 1: desenvolver o ponto 2."))
+        assertTrue(text.contains("2) Prioridade 2: revisar as fontes."))
+        assertTrue(text.contains("Ponto 2: A ORGANIZAÇÃO É UNIDA"))
+        assertTrue(text.length <= MAX_CARD_HISTORY_CHARS)
+    }
+
+    @Test
+    fun ideiasPreservamTituloEConteudo() {
+        val cards = listOf(
+            IdeaCard("Pergunta inicial", "Comece com uma pergunta que prenda o ouvinte.", "", "", "fonte", "Introdução"),
+            IdeaCard("Cena cotidiana", "Use uma cena simples do dia a dia para explicar a união.", "", "", "fonte", "Introdução"),
+        )
+        val payload = ChatCodec.escMap(
+            mapOf(
+                "section" to "Introdução",
+                "cards" to ChatCodec.cardsToJson(cards),
+                "text" to "Resumo antigo",
+            )
+        )
+        val text = readableChatTurn("ideas", payload)
+        assertTrue(text.contains("(ideias)"))
+        assertTrue(text.contains("1) Pergunta inicial"))
+        assertTrue(text.contains("2) Cena cotidiana"))
+        assertTrue(text.contains("Use uma cena simples do dia a dia"))
+        assertTrue(text.contains("não fonte factual"))
+        assertTrue(text.length <= MAX_CARD_HISTORY_CHARS)
+    }
+
+    @Test
+    fun payloadInvalidoMantemResumoAntigo() {
+        val payload = ChatCodec.escMap(
+            mapOf("report" to "lixo", "text" to "Resumo antigo do card")
+        )
+        assertEquals("Resumo antigo do card", readableChatTurn("review", payload))
+        assertEquals("Resumo antigo do card", readableChatTurn("coaching", payload))
+        assertEquals("Resumo antigo do card", readableChatTurn("diagnosis", payload))
+    }
+
+    @Test
+    fun resumoDoCardSobreviveAoHistoricoRealComSegundaEMelhorias() {
+        val card = readableChatTurn("review", reviewPayload(reviewReport()))
+        val turn = ChatTurn(false, labelChatTurn(card, null, null))
+        val history = recentHistory(listOf(turn))
+        assertTrue(history.contains("2) Explique a ligação entre as ideias."))
+        assertTrue(history.contains("3) Inclua uma aplicação concreta."))
+        assertTrue(history.contains("revisão do Ponto 2"))
+        assertTrue(turn.text.length <= MAX_HISTORY_CHARS)
+    }
+
+    @Test
+    fun listaLongaDoCopilotPreservaSegundaIdeiaNoHistorico() {
+        val text = buildString {
+            appendLine("Boa — vamos cuidar da introdução. Só um ajuste de foco antes:")
+            appendLine("1.")
+            appendLine("Abra com uma pergunta que cria curiosidade sobre a organização.")
+            appendLine("2.")
+            appendLine("Use o contraste ordem/desordem com 1Co 14:33.")
+            appendLine("3.")
+            appendLine("Puxe do título do discurso e anuncie os três pontos.")
+            appendLine("4.")
+            appendLine("Use uma ilustração do corpo humano, marcada como sua.")
+            appendLine("5.")
+            appendLine("Ancore na criação com Jó 38:31-33.")
+            appendLine("Minha recomendação: combine a ideia 3 com a 2.")
+            appendLine("X".repeat(200))
+        }
+        val compact = compactAssistantListForHistory(text)
+        assertTrue(compact.length <= MAX_CARD_HISTORY_CHARS)
+        assertTrue(compact.contains("1)"))
+        assertTrue(compact.contains("2)"))
+        assertTrue(compact.contains("contraste ordem/desordem"))
+        assertTrue(compact.contains("3)"))
+        assertFalse(compact.trimEnd().endsWith("3)"))
+
+        val history = recentHistory(listOf(ChatTurn(false, compact)))
+        assertTrue(history.contains("contraste ordem/desordem"))
+    }
+
+    @Test
+    fun listaMarkdownDoCopilotPreservaSegundaIdeia() {
+        // Formato real do caminho remoto no A34: itens em negrito.
+        val text = """
+            Boa — vamos cuidar da introdução. Só um ajuste de foco antes: a
+            introdução é curta (1 min), então ela precisa prender a atenção.
+
+            Aqui vão ideias para você escolher:
+
+            **1. Abra com uma pergunta que cria curiosidade.** 〈sugestão〉Algo como:
+            "Você já parou para pensar em quantas coisas precisam funcionar juntas
+            para que uma única reunião aconteça?"〈/sugestão〉 Depois mostre a organização.
+
+            **2. Use o contraste ordem/desordem.** Você tem 1Co 14:33 e 14:40 no
+            dossiê. Comece descrevendo uma cena de bagunça e pergunte: "Isso parece
+            com Jeová?"
+
+            **3. Puxe do título.** 〈sugestão〉"A pergunta que vamos responder hoje é
+            simples: você está avançando com a organização unida de Jeová?"〈/sugestão〉
+
+            **4. Ilustração do corpo.** Mencione como o corpo humano funciona.
+
+            **5. Ancore na criação.** Observe que até as estrelas seguem leis.
+
+            Minha recomendação: combine a ideia 3 com a 2, abrindo com a pergunta.
+        """.trimIndent()
+        val compact = compactAssistantListForHistory(text)
+        assertTrue(compact.length <= MAX_CARD_HISTORY_CHARS)
+        assertTrue(compact.contains("1)"))
+        assertTrue(compact.contains("2)"))
+        assertTrue(compact.contains("contraste ordem/desordem"))
+        assertTrue(compact.contains("3)"))
+        assertFalse(compact.contains("**"))
+        assertFalse(compact.contains("sugestão〉"))
+        assertFalse(compact.trimEnd().endsWith("3)"))
+    }
+
+    @Test
+    fun listaCurtaOuSemNumerosNaoMuda() {
+        val short = "1. Primeira\n2. Segunda"
+        assertEquals(short, compactAssistantListForHistory(short))
+        val prose = "A".repeat(1000)
+        assertEquals(prose, compactAssistantListForHistory(prose))
+        val oneItem = "1. Item único\n" + "A".repeat(600)
+        assertEquals(oneItem, compactAssistantListForHistory(oneItem))
+    }
+
+    @Test
+    fun promptEfetivoRecebeASegundaMelhoriaDoCard() {
+        val card = readableChatTurn("review", reviewPayload(reviewReport()))
+        val turn = ChatTurn(false, labelChatTurn(card, null, null))
+        val prompt = buildChatPrompt(
+            message = "Não concordo com a segunda melhoria. Por quê?",
+            history = listOf(turn),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "A ORGANIZAÇÃO DE JEOVÁ É UNIDA",
+            blockMinutes = 8,
+            blockText = "Texto do ponto 2.",
+        )
+        assertTrue(prompt.contains("CONVERSA ANTERIOR"))
+        assertTrue(prompt.contains("2) Explique a ligação entre as ideias."))
+        assertTrue(prompt.contains("3) Inclua uma aplicação concreta."))
+        assertTrue(prompt.contains("não fonte factual"))
+    }
+
+    @Test
+    fun titulosEObservacoesLongosNaoCortamItemNumeradoSemConteudo() {
+        val report = reviewReport(
+            improvements = listOf(
+                "A".repeat(300),
+                "B".repeat(300),
+                "C".repeat(300),
+            ),
+            strengths = listOf("D".repeat(300), "E".repeat(300)),
+        ).copy(title = "T".repeat(300))
+        val card = readableChatTurn("review", reviewPayload(report))
+        val turn = ChatTurn(false, labelChatTurn(card, null, null))
+        val history = recentHistory(listOf(turn))
+        assertTrue(history.contains("2)"))
+        assertTrue(history.contains("3)"))
+        assertFalse(history.trimEnd().endsWith("3)"))
+        assertTrue(card.contains("Fortes:"))
+        assertTrue(card.contains("DDDD"))
+        assertTrue(card.contains("não fonte factual"))
+        assertTrue(card.length <= MAX_CARD_HISTORY_CHARS)
+        assertTrue(turn.text.length <= MAX_HISTORY_CHARS)
     }
 }

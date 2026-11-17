@@ -516,6 +516,19 @@ object ChatRouter {
             "refaca|refazer|outra|outro)\\b"
     )
 
+    /**
+     * Pedido de explicação sobre a RESPOSTA anterior, não sobre o texto.
+     * "Explique melhor o que você quis dizer" não pode virar geração só
+     * porque existe uma geração anterior; "Explique melhor o ponto 2"
+     * continua sendo iteração oratória (tem contexto de seção).
+     *
+     * Limite conhecido desta fatia: "Explique melhor" sozinho continua
+     * herdando a geração anterior; a formulação meta é a protegida aqui.
+     */
+    private val META_EXPLANATION = Regex(
+        "\\b(?:o que|que)\\s+(?:voce\\s+)?(?:quis|quer)\\s+dizer\\b"
+    )
+
     // ---------- Mentor: diagnóstico do esboço ----------
 
     private val DIAGNOSIS_VERB = Regex(
@@ -882,9 +895,15 @@ object ChatRouter {
         // Exceção: follow-up curto de uma geração já existente ("explique
         // melhor") continua a iteração oratória. Uma explicação nova vence
         // o estado `last`, mesmo depois de uma geração anterior.
-        val shortIteration = last != null && ITERATION_HINT.containsMatchIn(t)
+        val metaExplanation = META_EXPLANATION.containsMatchIn(t)
+        val shortIteration = last != null &&
+            ITERATION_HINT.containsMatchIn(t) &&
+            !metaExplanation
         if (isExplanationOnly(text) && !shortIteration) {
             return Route.General("pedido de explicação/análise")
+        }
+        if (metaExplanation && !EXPLICIT_GENERATION_VERB.containsMatchIn(t)) {
+            return Route.General("pedido de explicação sobre a resposta anterior")
         }
 
         // 2)/3) Oratória: pedido explícito, phráse natural ou iteração.

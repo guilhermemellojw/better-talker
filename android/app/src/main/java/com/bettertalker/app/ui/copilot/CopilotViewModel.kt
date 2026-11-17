@@ -5536,7 +5536,14 @@ class CopilotViewModel(
         val titles = db.speechSectionDao().forNote(nid).associate { it.id to it.title }
         return db.chatDao().all(nid).mapNotNull { e ->
             // Payload legível, nunca o nome do kind.
-            val t = com.bettertalker.app.data.copilot.readableChatTurn(e.kind, e.payload)
+            val raw = com.bettertalker.app.data.copilot.readableChatTurn(e.kind, e.payload)
+            // 1C.1: listas longas do Copilot (ex.: ideias no caminho remoto)
+            // preservam os itens numerados; o truncamento cego perderia o 2º.
+            val t = if (!e.fromMe && e.kind == "text") {
+                com.bettertalker.app.data.copilot.compactAssistantListForHistory(raw)
+            } else {
+                raw
+            }
             if (t.isBlank()) null else ChatTurn(
                 e.fromMe,
                 com.bettertalker.app.data.copilot.labelChatTurn(

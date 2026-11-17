@@ -50,7 +50,7 @@ object ChatCodec {
 
     fun cardsFromJson(json: String): List<IdeaCard> {        return try {
             // tolerante: mensagens antigas não têm "f" (= inserível) nem "tc".
-            val item = Regex("""\{"t":"((?:[^"\\]|\\.)*)","b":"((?:[^"\\]|\\.)*)","s":"((?:[^"\\]|\\.)*)","u":"((?:[^"\\]|\\.)*)","src":"((?:[^"\\]|\\.)*)","sec":"((?:[^"\\]|\\.)*)","pr":"((?:[^"\\]|\\.)*)"(?:,"f":([01]))?(?:,"tc":"((?:[^"\\]|\\.)*)")?\}""")
+            val item = Regex("""\{"t":"((?:[^"\\]++|\\.)*+)","b":"((?:[^"\\]++|\\.)*+)","s":"((?:[^"\\]++|\\.)*+)","u":"((?:[^"\\]++|\\.)*+)","src":"((?:[^"\\]++|\\.)*+)","sec":"((?:[^"\\]++|\\.)*+)","pr":"((?:[^"\\]++|\\.)*+)"(?:,"f":([01]))?(?:,"tc":"((?:[^"\\]++|\\.)*+)")?\}""")
             item.findAll(json).map { m ->
                 IdeaCard(
                     unesc(m.groupValues[1]), unesc(m.groupValues[2]),
@@ -72,7 +72,12 @@ object ChatCodec {
 
     fun unescMap(json: String): Map<String, String> {
         return try {
-            val re = Regex("\"((?:[^\"\\\\]|\\\\.)*)\":\"((?:[^\"\\\\]|\\\\.)*)\"")
+            // Quantificadores possessivos: valores longos de cards podem ter
+            // milhares de chars/escapes; o `*` guloso causava backtracking
+            // catastrófico (StackOverflow) em payloads reais de revisão.
+            val re = Regex(
+                "\"((?:[^\"\\\\]++|\\\\.)*+)\":\"((?:[^\"\\\\]++|\\\\.)*+)\""
+            )
             re.findAll(json).associate { unesc(it.groupValues[1]) to unesc(it.groupValues[2]) }
         } catch (_: Exception) {
             emptyMap()
