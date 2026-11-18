@@ -94,6 +94,7 @@ class BiblePassageReader(
             verses = limited,
             status = status,
             sourceLabel = bible.label,
+            sourceAttachmentId = bible.attachmentId,
             warning = warningFor(
                 foundVerses = limited.size,
                 totalVerses = ordered.size,
