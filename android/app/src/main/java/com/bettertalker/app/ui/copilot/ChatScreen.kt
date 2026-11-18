@@ -599,11 +599,11 @@ fun ChatScreen(
         val proposalAdded = hasProposal && !seenProposal
         seenMessages = messages.size
         seenProposal = hasProposal
-        if (turnHandoff) {
-            // Política única: Room antes de DONE acompanha turnAnchor (turno
-            // visível); DONE antes de Room preserva a posição via turnAnchor,
-            // que cai na mensagem persistida quando o turno deixa de ser
-            // visível. Nunca volta à última mensagem anterior.
+        if (turnHandoff && !proposalAdded) {
+            // Handoff isolado: não é novidade. Room antes de DONE acompanha
+            // turnAnchor (turno visível); DONE antes de Room preserva a posição
+            // via turnAnchor, que cai na mensagem persistida quando o turno
+            // deixa de ser visível. Nunca volta à última mensagem anterior.
             if (followEnd && atBottom) {
                 if (firstLoad) {
                     listState.scrollToItem(turnAnchor, Int.MAX_VALUE)
@@ -2833,9 +2833,9 @@ internal fun chatLastItemIndex(
 internal fun isTurnHandoff(
     activeTurn: TurnUiState?,
     messages: List<CopilotViewModel.ChatItem>,
-): Boolean = activeTurn != null && messages.lastOrNull()?.let { m ->
+): Boolean = activeTurn != null && messages.any { m ->
     !m.fromMe && m.turnId.isNotBlank() && m.turnId == activeTurn.turnId
-} == true
+}
 
 internal fun isTurnHandoff(
     activeTurnId: String?,

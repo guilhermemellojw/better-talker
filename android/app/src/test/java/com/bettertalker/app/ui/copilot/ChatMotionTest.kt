@@ -437,6 +437,31 @@ class ChatMotionTest {
     }
 
     @Test
+    fun isTurnHandoff_verdadeiroEmPosicaoIntermediaria() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+            CopilotViewModel.ChatItem(id = "m2", fromMe = true, kind = "text", turnId = "other"),
+        )
+        assertTrue(isTurnHandoff(turn, messages))
+        // A contagem oculta só vale se o turno ainda estiver visível.
+        assertTrue(hasHiddenTurnMessage(true, turn, messages))
+        assertEquals(1, renderedMessageCount(messages.size, true))
+    }
+
+    @Test
+    fun isTurnHandoff_naoConfundeOutroTurnoNaUltimaPosicao() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
+        )
+        // A resposta do turno existe, mas a última mensagem é de outro turno:
+        // a identidade ainda é reconhecida pela presença, não pela posição.
+        assertTrue(isTurnHandoff(turn, messages))
+    }
+
+    @Test
     fun messagesEffect_followEndFalse_contaNovaMensagem() {
         assertEquals(
             MessagesEffect.CountUnseen,
