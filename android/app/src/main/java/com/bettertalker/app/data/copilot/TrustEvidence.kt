@@ -29,7 +29,14 @@ enum class EvidenceCategory {
     WRITING_MEMORY,
 }
 
-/** Proveniência mínima exigida para um item entrar no corpus factual. */
+/**
+ * Proveniência mínima exigida para um item entrar no corpus factual.
+ *
+ * `resolved` é uma informação fornecida por uma etapa de recuperação.
+ * Ela NÃO é prova autossuficiente de que o texto veio do jw.org; a futura
+ * integração deve construir evidências a partir de resultados de recuperação
+ * confiáveis, nunca de strings livres ou respostas do modelo.
+ */
 data class EvidenceProvenance(
     val sourceId: String,
     val category: EvidenceCategory,
@@ -38,6 +45,10 @@ data class EvidenceProvenance(
     val resolved: Boolean = false,
     val waived: Boolean = false,
 ) {
+    init {
+        require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
+    }
+
     /**
      * Um item é evidência documental apenas quando:
      * - é CONTENT;
@@ -62,13 +73,27 @@ data class EvidenceProvenance(
             recoveredText.isNotBlank()
 }
 
-/** Item de contexto com proveniência explícita. */
+/**
+ * Item de contexto com proveniência explícita.
+ *
+ * O texto documental canônico é [EvidenceProvenance.recoveredText].
+ * Não existe uma segunda representação independente: isso evita que um texto
+ * não recuperado seja apresentado como evidência.
+ */
 data class EvidenceItem(
     val id: String,
     val reference: String,
-    val text: String,
     val provenance: EvidenceProvenance,
 ) {
+    init {
+        require(id.isNotBlank()) { "id não pode ser vazio" }
+        require(reference.isNotBlank()) { "reference não pode ser vazio" }
+    }
+
+    /** Texto documental canônico, derivado da proveniência. */
+    val text: String
+        get() = provenance.recoveredText
+
     fun isDocumentaryEvidence(): Boolean = provenance.isDocumentaryEvidence() && text.isNotBlank()
 
     fun isMethodEvidence(): Boolean = provenance.isMethodEvidence() && text.isNotBlank()
@@ -111,18 +136,45 @@ data class EvidenceCorpus(
     fun isEmpty(): Boolean = items.isEmpty()
 
     fun hasDocumentaryEvidence(): Boolean = documentaryItems.isNotEmpty()
+
+    fun hasNoDocumentaryEvidence(): Boolean = documentaryItems.isEmpty()
+
+    fun containsOnlyTrainingEvidence(): Boolean =
+        items.isNotEmpty() && items.all { it.provenance.category == EvidenceCategory.TRAINING }
+
+    fun containsOnlyStructuralContext(): Boolean =
+        items.isNotEmpty() && items.all { it.provenance.category == EvidenceCategory.STRUCTURAL }
+}
+
+/**
+ * Extrato documental com vínculo verificável ao texto recuperado.
+ */
+data class EvidenceExcerpt(
+    val excerpt: String,
+    val sourceText: String,
+) {
+    fun isLinkedToSource(): Boolean =
+        excerpt.isNotBlank() &&
+            sourceText.isNotBlank() &&
+            sourceText.contains(excerpt.trim(), ignoreCase = true)
 }
 
 /**
  * Citação atribuída ao usuário. Deve estar relacionada ao conteúdo real da
- * mensagem, não apenas a um marcador gerado pela IA.
+ * mensagem fornecida por um consumidor confiável.
+ *
+ * `trustedOriginalMessage` não deve ser autodeclarado pelo modelo; deve vir
+ * de uma fonte confiável de mensagem.
  */
 data class AttributedUserQuote(
     val quote: String,
-    val sourceMessage: String,
+    val trustedOriginalMessage: String,
 ) {
     fun isGroundedInMessage(): Boolean =
         quote.isNotBlank() &&
-            sourceMessage.isNotBlank() &&
-            sourceMessage.contains(quote.trim(), ignoreCase = true)
+            trustedOriginalMessage.isNotBlank() &&
+            trustedOriginalMessage.contains(quote.trim(), ignoreCase = true)
+
+    /** Uma citação de usuário nunca é evidência bíblica/documental. */
+    val canSupportFactualClaim: Boolean = false
 }
