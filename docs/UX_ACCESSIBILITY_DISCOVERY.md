@@ -5,7 +5,7 @@ Escopo: discovery tecnico inicial. Nenhuma alteracao de codigo, Room, RAG, memor
 
 ## 1. Validacao da UX-2.3 (PR #12)
 
-HEAD revisado: 2904b0b2b35afcb72a8cf921f514022d8b6386f2
+HEAD revisado: ff4218f61abda33acebcee6769ed892230dff98e
 
 Evidencias locais:
 
@@ -35,6 +35,13 @@ Principios:
 - estado sempre visivel: pensando, consultando fontes, aguardando confirmacao;
 - nenhuma alteracao de texto sem aceite explicito;
 - reutilizar componentes existentes.
+
+## 2.1. Confirmações e detalhes no Modo simples
+
+- Ações não destrutivas (ler em voz alta, mostrar detalhes, abrir ajuda) não exigem confirmação extra.
+- Toda alteração aplicada ao discurso exige confirmação explícita.
+- No Modo simples, podem ser ocultados por padrão: métricas detalhadas, diagnósticos extensos, histórico técnico e opções avançadas.
+- Nunca podem ser ocultados: avisos de confiabilidade, fontes, cancelamento, erro recuperável e confirmação de aplicação.
 
 ## 3. Fluxos propostos
 
@@ -79,6 +86,15 @@ Principios:
 - Sempre manter foco do TalkBack no item atual.
 - Evitar acoes destrutivas sem confirmacao.
 
+## 5.1. Critérios objetivos de acessibilidade
+
+- Alvos de toque mínimos de 48dp.
+- Contraste mínimo WCAG AA para texto principal.
+- Suporte a fonte ampliada sem corte de conteúdo.
+- TalkBack anuncia estado atual em até 1 segundo.
+- Foco não se perde após streaming, handoff ou scroll.
+- Fluxo principal concluível com no máximo 3 toques.
+
 ## 6. Testes necessarios
 
 - TalkBack: anuncio de "Pensando", "Pronto", "Parado".
@@ -87,6 +103,8 @@ Principios:
 - Fluxo de aceite: nenhuma alteracao sem confirmacao.
 - Cancelamento e retry em modo simplificado.
 - Handoff da UX-2.3 preservado no modo acessivel.
+- Validação em dispositivo real: TalkBack ligado, fonte ampliada, streaming longo, Room antes/depois de DONE, cancelamento e retry.
+
 
 ## 7. Riscos
 
