@@ -128,7 +128,16 @@ class PublicationQuestionPromptTest {
 
     @Test
     fun verificationCorpus_incluiTrechoDaPublicacao() {
-        val corpus = verificationCorpus(turn(), listOf("texto do capítulo sobre o perdão"))
+        val corpus = verificationCorpus(
+            turn(),
+            documentarySources = listOf(
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "pub",
+                    reference = "pub",
+                    text = "texto do capítulo sobre o perdão",
+                ),
+            ),
+        )
         assertTrue(corpus.contains("texto do capítulo sobre o perdão"))
     }
 }

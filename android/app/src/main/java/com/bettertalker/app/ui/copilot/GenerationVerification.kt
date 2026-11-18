@@ -11,38 +11,78 @@ import com.bettertalker.app.data.s34.S34Document
  * Usado nos caminhos de geração que não têm um [ChatTurnContext].
  * Puro/testável.
  */
-internal fun s34CorpusTexts(doc: S34Document): List<String> = buildList {
-    doc.objective?.let { add(it) }
-    doc.speakerNote?.let { add(it) }
-    addAll(doc.headerLines)
+internal fun s34StructuralContext(doc: S34Document): List<String> {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    doc.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
+    doc.speakerNote?.let { if (it.isNotBlank()) items += structuralItem("speakerNote", it) }
+    doc.headerLines.forEach { if (it.isNotBlank()) items += structuralItem("header", it) }
     doc.sections.forEach { sec ->
-        add(sec.title)
-        add(sec.content)
-        sec.references.forEach { add(it.rawText) }
+        if (sec.title.isNotBlank()) items += structuralItem("section-title:${sec.id}", sec.title)
+        if (sec.content.isNotBlank()) items += structuralItem("section-content:${sec.id}", sec.content)
+        sec.references.forEach { ref ->
+            if (ref.rawText.isNotBlank()) {
+                items += structuralItem("section-ref:${ref.rawText}", ref.rawText, resolved = false)
+            }
+        }
         sec.subsections.forEach { sub ->
-            add(sub.content)
-            sub.references.forEach { add(it.rawText) }
+            if (sub.content.isNotBlank()) items += structuralItem("subsection:${sub.id}", sub.content)
+            sub.references.forEach { ref ->
+                if (ref.rawText.isNotBlank()) {
+                    items += structuralItem("subsection-ref:${ref.rawText}", ref.rawText, resolved = false)
+                }
+            }
         }
     }
-}.filter { it.isNotBlank() }
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).structuralTexts()
+}
+
+private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =
+    com.bettertalker.app.data.copilot.EvidenceItem(
+        id = id,
+        reference = id,
+        provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+            sourceId = id,
+            category = com.bettertalker.app.data.copilot.EvidenceCategory.STRUCTURAL,
+            recoveredText = text,
+            resolved = resolved,
+            waived = false,
+        ),
+    )
 
 /**
  * #7e — gate de groundedness para textos GERADOS fora do chat (oratória e
  * "insira tudo"): mesmo verificador do chat, aplicado antes de devolver o
  * texto ao usuário.
  *
- * Corpus = [turnContext] (pack + S-34 + dossiê, quando houver) + [extraSources]
- * (dossiê em contexto, foco, esboço colado…). Corpus vazio → o verificador
- * devolve o texto intacto (não bloqueia). Puro/testável.
+ * Corpus factual = [turnContext] + [documentarySources] elegíveis. Textos de
+ * [structuralExtras] permanecem como contexto, nunca como prova. Corpus vazio
+ * → o verificador devolve o texto intacto (não bloqueia), o que significa
+ * "sem verificação factual", nunca "fato confirmado". Puro/testável.
  */
 internal fun verifyGeneratedText(
     text: String,
     turnContext: ChatTurnContext? = null,
     extraSources: List<String> = emptyList(),
+): VerificationResult = verifyGeneratedText(
+    text = text,
+    turnContext = turnContext,
+    documentarySources = emptyList(),
+    structuralExtras = extraSources,
+)
+
+internal fun verifyGeneratedText(
+    text: String,
+    turnContext: ChatTurnContext? = null,
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
 ): VerificationResult {
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
-        addAll(extraSources)
+        addAll(
+            documentarySources
+                .filter { it.resolved && !it.waived && it.text.isNotBlank() }
+                .map { it.text }
+        )
     }.filter { it.isNotBlank() }
     return GroundednessVerifier.verify(text, corpus)
 }
