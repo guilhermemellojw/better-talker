@@ -48,10 +48,9 @@ Principios:
 ### Fluxo A - Preparar um topico
 
 1. Usuario escolhe um topico.
-2. Mentor mostra: "Vou preparar este topico. Posso continuar?"
-3. Usuario toca "Sim" ou "Nao".
-4. Mentor mostra status curto: "Lendo as fontes...", "Pensando...", "Pronto".
-5. Resultado aparece em um card simples com dois botoes: "Usar" e "Ajustar".
+2. Mentor prepara o topico automaticamente e mostra status curto: "Lendo as fontes...", "Pensando...", "Pronto".
+3. Resultado aparece em um card simples com dois botoes: "Usar" e "Ajustar".
+4. Antes de aplicar ao discurso, exibir confirmacao explicita.
 
 ### Fluxo B - Revisar resposta
 
@@ -91,9 +90,9 @@ Principios:
 - Alvos de toque mínimos de 48dp.
 - Contraste mínimo WCAG AA para texto principal.
 - Suporte a fonte ampliada sem corte de conteúdo.
-- TalkBack anuncia estado atual em até 1 segundo.
+- TalkBack anuncia estado atual em até 1 segundo em cenário controlado com resposta já disponível; o tempo de processamento do modelo não conta para essa meta.
 - Foco não se perde após streaming, handoff ou scroll.
-- Fluxo principal concluível com no máximo 3 toques.
+- Fluxo principal concluível com no máximo 3 toques em cenários sem confirmação; fluxos com confirmação explícita podem exigir um toque adicional para aceitar.
 
 ## 6. Testes necessarios
 
