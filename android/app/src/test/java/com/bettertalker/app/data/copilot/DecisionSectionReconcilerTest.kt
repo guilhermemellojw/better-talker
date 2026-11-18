@@ -143,8 +143,8 @@ class DecisionSectionReconcilerTest {
     }
 
     @Test
-    fun reordenacaoComMesmoIdMantemAssociacao() {
-        val d = decision()
+    fun reordenacaoComMesmoIdMantemAssociacaoEAtualizaSnapshot() {
+        val d = decision(order = 1)
         val report = DecisionSectionReconciler.reconcile(
             decisions = listOf(d),
             oldSections = listOf(snap(order = 1)),
@@ -152,13 +152,17 @@ class DecisionSectionReconcilerTest {
             operation = ReconcileOperation.REORDER,
             now = 20L,
         )
-        assertEquals(d, report.decisions.single())
-        assertEquals(SectionLink.VALID, report.decisions.single().sectionLink)
+        val result = report.decisions.single()
+        assertEquals("s1", result.sectionId)
+        assertEquals(SectionLink.VALID, result.sectionLink)
+        assertEquals(4, result.sectionOrderSnapshot)
+        assertEquals(1, result.originalSectionOrderSnapshot)
+        assertEquals(20L, result.updatedAt)
     }
 
     @Test
-    fun renomeacaoComMesmoIdMantemAssociacao() {
-        val d = decision()
+    fun renomeacaoComMesmoIdMantemAssociacaoEAtualizaSnapshot() {
+        val d = decision(title = "Ponto 1")
         val report = DecisionSectionReconciler.reconcile(
             decisions = listOf(d),
             oldSections = listOf(snap(title = "Ponto 1")),
@@ -166,8 +170,12 @@ class DecisionSectionReconcilerTest {
             operation = ReconcileOperation.REORDER,
             now = 20L,
         )
-        assertEquals(d, report.decisions.single())
-        assertEquals("s1", report.decisions.single().sectionId)
+        val result = report.decisions.single()
+        assertEquals("s1", result.sectionId)
+        assertEquals(SectionLink.VALID, result.sectionLink)
+        assertEquals("Ponto 1 — revisado", result.sectionTitleSnapshot)
+        assertEquals("Ponto 1", result.originalSectionTitleSnapshot)
+        assertEquals(20L, result.updatedAt)
     }
 
     @Test
@@ -341,6 +349,40 @@ class DecisionSectionReconcilerTest {
     }
 
     @Test
+    fun renomeacaoAtualizaSnapshotAtualAntesDaProximaReimportacao() {
+        val initial = decision(title = "Ponto A", order = 1)
+        val renamed = DecisionSectionReconciler.reconcile(
+            decisions = listOf(initial),
+            oldSections = listOf(snap("s1", "Ponto A", 1, "h-a")),
+            newSections = listOf(snap("s1", "Ponto B", 2, "h-a")),
+            operation = ReconcileOperation.REORDER,
+            now = 20L,
+        ).decisions.single()
+        assertEquals("s1", renamed.sectionId)
+        assertEquals(SectionLink.VALID, renamed.sectionLink)
+        assertEquals("Ponto B", renamed.sectionTitleSnapshot)
+        assertEquals(2, renamed.sectionOrderSnapshot)
+        assertEquals("Ponto A", renamed.originalSectionTitleSnapshot)
+        assertEquals(1, renamed.originalSectionOrderSnapshot)
+
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(renamed),
+            oldSections = listOf(snap("s1", "Ponto B", 2, "h-a")),
+            newSections = listOf(
+                snap("s3", "Ponto A", 1, "h-a"),
+                snap("s2", "Ponto B", 2, "h-a"),
+            ),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 30L,
+        )
+        val result = report.decisions.single()
+        assertEquals("s2", result.candidateSectionId)
+        assertEquals("s1", result.sectionId)
+        assertEquals("s1", result.originalSectionId)
+        assertEquals(SectionLink.PENDING_RECONFIRMATION, result.sectionLink)
+    }
+
+    @Test
     fun reconciliacaoIdempotenteNaoAtualizaTimestamps() {
         val orphan = DecisionSectionReconciler.reconcile(
             decisions = listOf(decision(link = SectionLink.ORPHANED)),
@@ -415,6 +457,8 @@ class DecisionSectionReconcilerTest {
         assertEquals(SectionLink.VALID, result.sectionLink)
         assertEquals(ApplicationState.STALE, result.applicationState)
         assertEquals(d.appliedHash, result.appliedHash)
+        assertEquals("h-s2", result.sectionContentHashSnapshot)
+        assertEquals("h-s1", result.originalSectionContentHashSnapshot)
     }
 
     @Test

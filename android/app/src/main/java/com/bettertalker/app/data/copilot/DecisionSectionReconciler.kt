@@ -100,7 +100,15 @@ object DecisionSectionReconciler {
         section: SectionSnapshot,
         now: Long,
     ): DecisionRecord {
-        var result = decision
+        // A associação é mantida pelo ID composto, mas o snapshot corrente
+        // precisa refletir a seção atual (título/ordem/papel/hash). O snapshot
+        // original permanece intocado para o histórico.
+        var result = decision.copy(
+            sectionTitleSnapshot = section.title,
+            sectionRoleSnapshot = section.role,
+            sectionOrderSnapshot = section.order,
+            sectionContentHashSnapshot = section.contentHash,
+        )
         if (result.sectionLink != SectionLink.VALID) {
             result = result.copy(
                 sectionLink = SectionLink.VALID,
