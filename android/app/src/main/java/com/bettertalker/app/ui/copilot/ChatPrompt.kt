@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -625,29 +626,36 @@ fun ChatQuickActions(
     onPick: (String) -> Unit,
     onAttach: () -> Unit,
     onPrefill: (String) -> Unit = {},
+    /** UX-A11Y-2A: no Modo simples, revela o restante dos atalhos. */
+    onShowAll: (() -> Unit)? = null,
+    /** UX-A11Y-2A: alvo efetivo de 48dp nos chips do Modo simples. */
+    largeTouchTargets: Boolean = false,
+    /** UX-A11Y-2A: mostra ou não o chip de Necessidades Locais. */
+    showLocalNeeds: Boolean = true,
+    /** UX-A11Y-2A: o chip de anexo participa do orçamento de atalhos. */
+    showAttach: Boolean = localActions.isEmpty(),
+    /** UX-A11Y-2A: no Modo simples, Necessidades Locais vai para o fim. */
+    needsAtEnd: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // T1 (P2 estético): háptica leve nos chips de ação.
     val haptic = LocalHapticFeedback.current
+    val chipModifier = if (largeTouchTargets) Modifier.heightIn(min = 48.dp) else Modifier
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // #8f: porta das Necessidades Locais — pré-preenche o composer (o
         // tema fica com o usuário; nada é enviado sem ele completar).
-        item {
-            AssistChip(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    onPrefill("Discurso curto para as necessidades locais sobre ")
-                },
-                label = { Text("Necessidades Locais") },
-                modifier = Modifier.semantics {
-                    contentDescription = "Necessidades Locais — preencher mensagem"
-                },
-            )
+        if (showLocalNeeds && !needsAtEnd) {
+            item {
+                LocalNeedsChip(
+                    onPrefill = onPrefill,
+                    modifier = chipModifier,
+                )
+            }
         }
-        if (localActions.isEmpty()) {
+        if (showAttach) {
             item {
                 AssistChip(
                     onClick = {
@@ -655,6 +663,7 @@ fun ChatQuickActions(
                         onAttach()
                     },
                     label = { Text("Anexar esboço") },
+                    modifier = chipModifier,
                 )
             }
         }
@@ -669,7 +678,7 @@ fun ChatQuickActions(
                 // Rótulo só para leitor de tela: o clique envia a mensagem.
                 modifier = Modifier.semantics {
                     contentDescription = qa.label + " — enviar mensagem"
-                }
+                }.then(chipModifier)
             )
         }
         items(localActions) { text ->
@@ -679,9 +688,50 @@ fun ChatQuickActions(
                     onPick(text)
                 },
                 label = { Text(text) },
+                modifier = chipModifier,
             )
         }
+        if (showLocalNeeds && needsAtEnd) {
+            item {
+                LocalNeedsChip(
+                    onPrefill = onPrefill,
+                    modifier = chipModifier,
+                )
+            }
+        }
+        onShowAll?.let { showAll ->
+            item {
+                AssistChip(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        showAll()
+                    },
+                    label = { Text("Ver outras opções") },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Ver outras opções de atalhos"
+                    }.then(chipModifier),
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun LocalNeedsChip(
+    onPrefill: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    AssistChip(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+            onPrefill("Discurso curto para as necessidades locais sobre ")
+        },
+        label = { Text("Necessidades Locais") },
+        modifier = Modifier.semantics {
+            contentDescription = "Necessidades Locais — preencher mensagem"
+        }.then(modifier),
+    )
 }
 
 /** Sheet do + : importar, colar, anexar do acervo ou baixar publicações. */
@@ -939,7 +989,7 @@ fun ProposalCard(
             Box {
                 IconButton(
                     onClick = { menuOpen = true },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(18.dp))
                 }
