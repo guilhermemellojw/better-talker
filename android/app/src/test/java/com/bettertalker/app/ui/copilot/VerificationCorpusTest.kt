@@ -76,6 +76,22 @@ class VerificationCorpusTest {
     }
 
     @Test
+    fun chatCorpusNaoIncluiTextoDoUsuario() {
+        val corpus = chatVerificationCorpus(
+            turnContext = turn(),
+            evidenceContextBlock = null,
+        )
+        assertFalse(corpus.any { it.contains("hipótese do usuário") })
+    }
+
+    @Test
+    fun corpusMistoMantemCompatibilidadeSemConversacao() {
+        val corpus = verificationCorpus(
+            turn(content = listOf(ev("1", "Texto bíblico autorizado"))),
+        )
+        assertTrue(corpus.contains("Texto bíblico autorizado"))
+    }
+    @Test
     fun memoriaNaoEntraNoCorpusDoChat() {
         // A referência existe só na memória/abordagem, nunca no acervo.
         val memory = "## MEMÓRIA DA CONSTRUÇÃO\n- Decisão: usar João 3:16 na abertura"

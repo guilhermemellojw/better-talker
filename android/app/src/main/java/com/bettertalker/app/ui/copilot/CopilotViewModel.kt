@@ -258,25 +258,160 @@ data class InsertRequest(
  * [extra] — T3 (acesso bíblico): textos resolvidos FORA do pack (ex.:
  * versículos citados na pergunta). Puro/testável.
  */
+/**
+ * Compatibilidade legada: retorna textos de contexto não conversacionais para
+ * o verificador. Não inclui pergunta, histórico, memória ou hipóteses do
+ * usuário. O resultado é usado para fidelidade de citações/refs/números, não
+ * como prova factual autônoma.
+ */
 fun verificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     extra: List<String> = emptyList(),
-): List<String> = buildList {
-    turnContext.pack.contentSources.forEach { add(it.text) }
-    turnContext.pack.trainingSources.forEach { add(it.text) }
-    turnContext.structural?.let { s ->
-        s.objective?.let { add(it) }
-        s.currentSection?.let { sec ->
-            add(sec.content)
-            sec.subsections.forEach { sub ->
-                add(sub.content)
-                sub.references.forEach { add(it.rawText) }
-            }
-            sec.references.forEach { add(it.rawText) }
+): List<String> = verificationCorpus(
+    turnContext = turnContext,
+    documentaryExtras = emptyList(),
+    structuralExtras = extra,
+)
+
+/**
+ * TRUST-1A2 — corpus derivado de proveniência explícita. O verificador legado
+ * recebe apenas textos não conversacionais; a evidência documental fica
+ * disponível separadamente via [documentaryEvidenceCorpus].
+ */
+fun verificationCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    documentaryExtras: List<String> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
+): List<String> {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    turnContext.pack.contentSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
         }
     }
-    extra.forEach { add(it) }
-}.filter { it.isNotBlank() }
+    turnContext.pack.trainingSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.TRAINING,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
+        }
+    }
+    turnContext.structural?.let { s ->
+        s.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
+        s.currentSection?.let { sec ->
+            if (sec.content.isNotBlank()) items += structuralItem("section:${sec.id}", sec.content)
+            sec.subsections.forEach { sub ->
+                if (sub.content.isNotBlank()) items += structuralItem("subsection:${sub.id}", sub.content)
+                sub.references.forEach { ref ->
+                    if (ref.rawText.isNotBlank()) {
+                        items += structuralItem("ref:${ref.rawText}", ref.rawText, resolved = false)
+                    }
+                }
+            }
+            sec.references.forEach { ref ->
+                if (ref.rawText.isNotBlank()) {
+                    items += structuralItem("ref:${ref.rawText}", ref.rawText, resolved = false)
+                }
+            }
+        }
+    }
+    documentaryExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+        items += com.bettertalker.app.data.copilot.EvidenceItem(
+            id = "doc-extra-$index",
+            reference = "doc-extra-$index",
+            provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                sourceId = "doc-extra-$index",
+                category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                recoveredText = text,
+                resolved = true,
+                waived = false,
+            ),
+        )
+    }
+    structuralExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+        items += structuralItem("structural-extra-$index", text)
+    }
+    val corpus = com.bettertalker.app.data.copilot.EvidenceCorpus(items)
+    return buildList {
+        addAll(corpus.documentaryTexts())
+        addAll(corpus.methodTexts())
+        addAll(corpus.structuralTexts())
+    }.filter { it.isNotBlank() }
+}
+
+/**
+ * TRUST-1A2 — evidência documental isolada, para TRUST-2 e auditoria.
+ * Não deve ser usada como corpus do verificador legado sem considerar fidelidade.
+ */
+internal fun documentaryEvidenceCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    documentaryExtras: List<String> = emptyList(),
+): com.bettertalker.app.data.copilot.EvidenceCorpus {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    turnContext.pack.contentSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
+        }
+    }
+    documentaryExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+        items += com.bettertalker.app.data.copilot.EvidenceItem(
+            id = "doc-extra-$index",
+            reference = "doc-extra-$index",
+            provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                sourceId = "doc-extra-$index",
+                category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                recoveredText = text,
+                resolved = true,
+                waived = false,
+            ),
+        )
+    }
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items)
+}
+
+private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =
+    com.bettertalker.app.data.copilot.EvidenceItem(
+        id = id,
+        reference = id,
+        provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+            sourceId = id,
+            category = com.bettertalker.app.data.copilot.EvidenceCategory.STRUCTURAL,
+            recoveredText = text,
+            resolved = resolved,
+            waived = false,
+        ),
+    )
 
 /**
  * 1C.2.0 — corpus do chat remoto. Recebe explicitamente apenas o bloco de
@@ -290,18 +425,10 @@ internal fun chatVerificationCorpus(
     structuralVerseLines: List<String> = emptyList(),
     questionVerseLines: List<String> = emptyList(),
     questionPubs: List<String> = emptyList(),
-    userText: String = "",
-    userHistory: List<String> = emptyList(),
-    questionSources: List<String> = emptyList(),
 ): List<String> = verificationCorpus(
-    turnContext,
-    listOfNotNull(evidenceContextBlock) +
-        structuralVerseLines +
-        questionVerseLines +
-        questionPubs +
-        listOfNotNull(userText.takeIf { it.isNotBlank() }) +
-        userHistory +
-        questionSources,
+    turnContext = turnContext,
+    documentaryExtras = structuralVerseLines + questionVerseLines + questionPubs,
+    structuralExtras = listOfNotNull(evidenceContextBlock),
 )
 
 /**
@@ -5464,8 +5591,7 @@ class CopilotViewModel(
             listOfNotNull(effectiveContextBlock) +
                 questionPubs.map { it.passage.text } +
                 questionVerses.map { it.passage.text } +
-                bibleChapterPassage?.verses?.map { it.text }.orEmpty() +
-                listOfNotNull(text.takeIf { it.isNotBlank() })
+                bibleChapterPassage?.verses?.map { it.text }.orEmpty()
         } else {
             chatVerificationCorpus(
                 turnContext = turnContext,
@@ -5473,13 +5599,6 @@ class CopilotViewModel(
                 structuralVerseLines = structuralVerseLines,
                 questionVerseLines = questionVerseLines(questionVerses, text),
                 questionPubs = questionPubs.map { it.passage.text },
-                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
-                // usuário e o rótulo das refs citadas também são fonte — citar
-                // a hipótese do usuário ("Baruque perdeu prestígio social")
-                // para refutá-la NÃO é inventar (falso positivo do A/B).
-                userText = text,
-                userHistory = history.filter { it.fromMe }.map { it.text },
-                questionSources = questionPubs.map { it.source },
             )
         }
         val outcome = verifyChatText(text, corpus)

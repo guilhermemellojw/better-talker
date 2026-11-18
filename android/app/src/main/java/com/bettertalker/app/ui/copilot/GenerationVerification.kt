@@ -11,20 +11,43 @@ import com.bettertalker.app.data.s34.S34Document
  * Usado nos caminhos de geração que não têm um [ChatTurnContext].
  * Puro/testável.
  */
-internal fun s34CorpusTexts(doc: S34Document): List<String> = buildList {
-    doc.objective?.let { add(it) }
-    doc.speakerNote?.let { add(it) }
-    addAll(doc.headerLines)
+internal fun s34CorpusTexts(doc: S34Document): List<String> {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    doc.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
+    doc.speakerNote?.let { if (it.isNotBlank()) items += structuralItem("speakerNote", it) }
+    doc.headerLines.forEach { if (it.isNotBlank()) items += structuralItem("header", it) }
     doc.sections.forEach { sec ->
-        add(sec.title)
-        add(sec.content)
-        sec.references.forEach { add(it.rawText) }
+        if (sec.title.isNotBlank()) items += structuralItem("section-title:${sec.id}", sec.title)
+        if (sec.content.isNotBlank()) items += structuralItem("section-content:${sec.id}", sec.content)
+        sec.references.forEach { ref ->
+            if (ref.rawText.isNotBlank()) {
+                items += structuralItem("section-ref:${ref.rawText}", ref.rawText, resolved = false)
+            }
+        }
         sec.subsections.forEach { sub ->
-            add(sub.content)
-            sub.references.forEach { add(it.rawText) }
+            if (sub.content.isNotBlank()) items += structuralItem("subsection:${sub.id}", sub.content)
+            sub.references.forEach { ref ->
+                if (ref.rawText.isNotBlank()) {
+                    items += structuralItem("subsection-ref:${ref.rawText}", ref.rawText, resolved = false)
+                }
+            }
         }
     }
-}.filter { it.isNotBlank() }
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).structuralTexts()
+}
+
+private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =
+    com.bettertalker.app.data.copilot.EvidenceItem(
+        id = id,
+        reference = id,
+        provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+            sourceId = id,
+            category = com.bettertalker.app.data.copilot.EvidenceCategory.STRUCTURAL,
+            recoveredText = text,
+            resolved = resolved,
+            waived = false,
+        ),
+    )
 
 /**
  * #7e — gate de groundedness para textos GERADOS fora do chat (oratória e

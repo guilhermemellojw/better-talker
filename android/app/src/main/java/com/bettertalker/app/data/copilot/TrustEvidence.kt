@@ -129,9 +129,14 @@ data class EvidenceCorpus(
     val methodItems: List<EvidenceItem>
         get() = items.filter { it.isMethodEvidence() }
 
+    val structuralItems: List<EvidenceItem>
+        get() = items.filter { it.provenance.category == EvidenceCategory.STRUCTURAL }
+
     fun documentaryTexts(): List<String> = documentaryItems.map { it.text }
 
     fun methodTexts(): List<String> = methodItems.map { it.text }
+
+    fun structuralTexts(): List<String> = structuralItems.map { it.text }
 
     fun isEmpty(): Boolean = items.isEmpty()
 
