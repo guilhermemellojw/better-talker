@@ -360,6 +360,10 @@ fun ChatScreen(
     // última mensagem. Antes, o item vivia só no ⋯ das respostas de texto;
     // cards/propostas (kinds sem MessageActions) deixavam a conversa sem clear.
     var topMenuOpen by remember { mutableStateOf(false) }
+    var showAdvancedOptions by remember { mutableStateOf(false) }
+    LaunchedEffect(topMenuOpen) {
+        if (!topMenuOpen) showAdvancedOptions = false
+    }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
     val voiceNotice by vm.voiceNotice.collectAsState()
@@ -841,26 +845,33 @@ fun ChatScreen(
                             expanded = topMenuOpen,
                             onDismissRequest = { topMenuOpen = false },
                         ) {
-                            if (!simpleModeHidesAdvancedActions(simpleMode)) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Transformar seleção em card")
-                                        if (!canTransformSelection) {
-                                            Text(
-                                                "Selecione um texto no editor primeiro.",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
+                            if (simpleMode && !showAdvancedOptions) {
+                                DropdownMenuItem(
+                                    text = { Text("Opções avançadas") },
+                                    onClick = { showAdvancedOptions = true },
+                                )
+                            }
+                            if (!simpleMode || showAdvancedOptions) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Transformar seleção em card")
+                                            if (!canTransformSelection) {
+                                                Text(
+                                                    "Selecione um texto no editor primeiro.",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
                                         }
-                                    }
-                                },
-                                enabled = canTransformSelection,
-                                onClick = {
-                                    topMenuOpen = false
-                                    vm.transformSelectionToCard()
-                                },
-                            )
+                                    },
+                                    enabled = canTransformSelection,
+                                    onClick = {
+                                        topMenuOpen = false
+                                        vm.transformSelectionToCard()
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Row(
@@ -879,7 +890,6 @@ fun ChatScreen(
                                     vm.setSimpleMode(!simpleMode)
                                 },
                             )
-                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(
