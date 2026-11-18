@@ -600,17 +600,16 @@ fun ChatScreen(
         seenMessages = messages.size
         seenProposal = hasProposal
         if (turnHandoff) {
+            // Política única: Room antes de DONE acompanha turnAnchor (turno
+            // visível); DONE antes de Room preserva a posição via turnAnchor,
+            // que cai na mensagem persistida quando o turno deixa de ser
+            // visível. Nunca volta à última mensagem anterior.
             if (followEnd && atBottom) {
-                val handoffIndex = lastMessageIndex(
-                    messageCount = renderedMessages,
-                    hasContext = messages.isNotEmpty(),
-                    hasTopicEmpty = messages.isEmpty() && chatScope != null,
-                )
                 if (firstLoad) {
-                    listState.scrollToItem(handoffIndex, Int.MAX_VALUE)
+                    listState.scrollToItem(turnAnchor, Int.MAX_VALUE)
                     initialScrollDone = true
                 } else {
-                    listState.animateScrollToItem(handoffIndex, Int.MAX_VALUE)
+                    listState.animateScrollToItem(turnAnchor, Int.MAX_VALUE)
                 }
             }
             return@LaunchedEffect
@@ -625,7 +624,6 @@ fun ChatScreen(
             followEnd = followEnd,
             initialLoad = firstLoad,
             atBottom = atBottom,
-            handoff = false,
         )) {
             is MessagesEffect.ScrollTo -> {
                 if (action.instant) {
@@ -2776,18 +2774,7 @@ internal fun messagesEffect(
     followEnd: Boolean,
     initialLoad: Boolean = false,
     atBottom: Boolean = followEnd,
-    handoff: Boolean = false,
 ): MessagesEffect = when {
-    // UX-2.3: o handoff do turno não é novidade. Quando o usuário acompanha
-    // o fim, mantém o acompanhamento normal; caso contrário, não conta nem rola.
-    handoff -> if (followEnd && atBottom) {
-        MessagesEffect.ScrollTo(
-            lastMessageIndex(messageCount, hasContext, hasTopicEmpty),
-            instant = false,
-        )
-    } else {
-        MessagesEffect.Nothing
-    }
     initialLoad -> MessagesEffect.ScrollTo(lastItemIndex, instant = true)
     !messageAdded && !proposalAdded -> MessagesEffect.Nothing
     followEnd && atBottom -> MessagesEffect.ScrollTo(

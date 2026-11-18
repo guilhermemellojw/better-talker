@@ -362,46 +362,64 @@ class ChatMotionTest {
     // ---------- UX-2.3: handoff estável ----------
 
     @Test
-    fun isTurnHandoff_true_quandoUltimaMensagemEhRespostaDoMesmoTurno() {
+    fun hasHiddenTurnMessage_true_apenasQuandoTurnoVisivelEOcultaPersistida() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.STREAMING)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        assertTrue(hasHiddenTurnMessage(true, turn, messages))
+        assertFalse(hasHiddenTurnMessage(false, turn, messages))
+        assertFalse(hasHiddenTurnMessage(true, null, messages))
+        val other = listOf(
+            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
+        )
+        assertFalse(hasHiddenTurnMessage(true, turn, other))
+    }
+
+    @Test
+    fun renderedMessageCount_subtraiMensagemOculta() {
+        assertEquals(2, renderedMessageCount(3, true))
+        assertEquals(3, renderedMessageCount(3, false))
+        assertEquals(0, renderedMessageCount(1, true))
+        assertEquals(0, renderedMessageCount(0, true))
+    }
+
+    @Test
+    fun isTurnHandoff_identificaPorTurnId() {
         val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
         val messages = listOf(
             CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
         )
         assertTrue(isTurnHandoff(turn, messages))
-        assertTrue(isTurnHandoff(turn, messages))
-        assertTrue(isTurnHandoff(turn, messages))
-        assertTrue(isTurnHandoff(turn, messages))
-    }
-
-    @Test
-    fun isTurnHandoff_false_quandoNaoHaTurnoOuMensagemDoUsuario() {
-        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.STREAMING)
         assertFalse(isTurnHandoff(turn, emptyList()))
+        assertFalse(isTurnHandoff(null, messages))
         val userMsg = listOf(
-            CopilotViewModel.ChatItem(id = "m1", fromMe = true, kind = "text", turnId = "t1"),
+            CopilotViewModel.ChatItem(id = "m2", fromMe = true, kind = "text", turnId = "t1"),
         )
         assertFalse(isTurnHandoff(turn, userMsg))
-        val other = listOf(
-            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
-        )
-        assertFalse(isTurnHandoff(turn, other))
-        assertFalse(isTurnHandoff(null, other))
     }
 
     @Test
-    fun messagesEffect_handoff_naoContaNovidade() {
+    fun isTurnHandoff_porIdPrimitivo() {
+        assertTrue(isTurnHandoff("t1", "t1", false))
+        assertFalse(isTurnHandoff("t1", "t1", true))
+        assertFalse(isTurnHandoff("t1", "t2", false))
+        assertFalse(isTurnHandoff(null, "t1", false))
+    }
+
+    @Test
+    fun messagesEffect_semHandoff_comportamentoNormal() {
         assertEquals(
             MessagesEffect.Nothing,
             messagesEffect(
-                messageAdded = true,
+                messageAdded = false,
                 proposalAdded = false,
                 messageCount = 3,
                 hasContext = false,
                 hasTopicEmpty = false,
                 lastItemIndex = 2,
-                followEnd = false,
-                atBottom = false,
-                handoff = true,
+                followEnd = true,
+                atBottom = true,
             ),
         )
         assertTrue(
@@ -414,8 +432,24 @@ class ChatMotionTest {
                 lastItemIndex = 2,
                 followEnd = true,
                 atBottom = true,
-                handoff = true,
             ) is MessagesEffect.ScrollTo,
+        )
+    }
+
+    @Test
+    fun messagesEffect_followEndFalse_contaNovaMensagem() {
+        assertEquals(
+            MessagesEffect.CountUnseen,
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = false,
+                atBottom = false,
+            ),
         )
     }
 }
