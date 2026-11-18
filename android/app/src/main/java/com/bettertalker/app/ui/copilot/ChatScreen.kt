@@ -489,6 +489,11 @@ fun ChatScreen(
             TurnPhase.ERROR -> true
         }
     } ?: false
+    // UX-2.3: o handoff do turno (streaming → mensagem persistida no Room)
+    // é identificado pela identidade real do turno, não pela contagem de
+    // mensagens. A resposta final já era o item `turn-<turnId>`; quando ela
+    // chega ao Room, não é uma mensagem nova (nem novidade, nem scroll extra).
+    val turnHandoff = isTurnHandoff(activeTurn, messages)
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
     // "para o fim" (garante os botões da última resposta visíveis).
     val runStateItems = if (activeTurn != null) {
@@ -587,10 +592,27 @@ fun ChatScreen(
         // forma INSTANTÂNEA no fim. Só depois de `initialScrollDone` os
         // efeitos de mensagem/turno/parcial podem animar.
         val firstLoad = !initialScrollDone && (messages.isNotEmpty() || hasProposal)
-        val messageAdded = messages.size > seenMessages
+        // UX-2.3: o handoff do turno não conta como mensagem nova.
+        val messageAdded = messages.size > seenMessages && !turnHandoff
         val proposalAdded = hasProposal && !seenProposal
         seenMessages = messages.size
         seenProposal = hasProposal
+        if (turnHandoff) {
+            if (followEnd && atBottom) {
+                val handoffIndex = lastMessageIndex(
+                    messageCount = messages.size,
+                    hasContext = messages.isNotEmpty(),
+                    hasTopicEmpty = messages.isEmpty() && chatScope != null,
+                )
+                if (firstLoad) {
+                    listState.scrollToItem(handoffIndex, Int.MAX_VALUE)
+                    initialScrollDone = true
+                } else {
+                    listState.animateScrollToItem(handoffIndex, Int.MAX_VALUE)
+                }
+            }
+            return@LaunchedEffect
+        }
         when (val action = messagesEffect(
             messageAdded = messageAdded,
             proposalAdded = proposalAdded,
@@ -601,6 +623,7 @@ fun ChatScreen(
             followEnd = followEnd,
             initialLoad = firstLoad,
             atBottom = atBottom,
+            handoff = false,
         )) {
             is MessagesEffect.ScrollTo -> {
                 if (action.instant) {
@@ -659,6 +682,19 @@ fun ChatScreen(
             } else {
                 listState.animateScrollToItem(turnAnchor, Int.MAX_VALUE)
             }
+        }
+    }
+    // UX-2.3: quando o handoff ocorre (turno deixa de ser visível porque a
+    // mensagem persistida chegou), acompanha o fim uma única vez, sem novidade.
+    LaunchedEffect(showActiveTurn, activeTurn?.phase, finalTurnInMessages) {
+        if (!initialScrollDone) return@LaunchedEffect
+        if (turnHandoff && !showActiveTurn && followEnd && atBottom) {
+            val handoffIndex = lastMessageIndex(
+                messageCount = messages.size,
+                hasContext = messages.isNotEmpty(),
+                hasTopicEmpty = messages.isEmpty() && chatScope != null,
+            )
+            listState.animateScrollToItem(handoffIndex, Int.MAX_VALUE)
         }
     }
     // #ui-polish (Item 4): teclado — se o usuário já acompanhava o fim, a
@@ -1083,6 +1119,15 @@ fun ChatScreen(
                         }
                     }
                     messages.forEach { m ->
+                        // UX-2.3: enquanto o turno ativo está visível, a resposta
+                        // persistida do MESMO turno (mesmo turnId) não renderiza
+                        // em paralelo — evita chave duplicada no LazyColumn quando
+                        // o Room chega antes do DONE (ou em qualquer ordem).
+                        if (showActiveTurn && !m.fromMe &&
+                            m.turnId.isNotBlank() && m.turnId == activeTurn?.turnId
+                        ) {
+                            return@forEach
+                        }
                         // M1: a resposta final assume a key do turno; o item
                         // de streaming usa a MESMA key e sai no mesmo frame.
                         val messageKey = if (!m.fromMe && m.turnId.isNotBlank()) {
@@ -2742,7 +2787,18 @@ internal fun messagesEffect(
     followEnd: Boolean,
     initialLoad: Boolean = false,
     atBottom: Boolean = followEnd,
+    handoff: Boolean = false,
 ): MessagesEffect = when {
+    // UX-2.3: o handoff do turno não é novidade. Quando o usuário acompanha
+    // o fim, mantém o acompanhamento normal; caso contrário, não conta nem rola.
+    handoff -> if (followEnd && atBottom) {
+        MessagesEffect.ScrollTo(
+            lastMessageIndex(messageCount, hasContext, hasTopicEmpty),
+            instant = false,
+        )
+    } else {
+        MessagesEffect.Nothing
+    }
     initialLoad -> MessagesEffect.ScrollTo(lastItemIndex, instant = true)
     !messageAdded && !proposalAdded -> MessagesEffect.Nothing
     followEnd && atBottom -> MessagesEffect.ScrollTo(
@@ -2791,6 +2847,84 @@ internal fun chatLastItemIndex(
         runStateItems
     return (total - 1).coerceAtLeast(0)
 }
+
+/**
+ * UX-2.3 — o handoff do turno (streaming → mensagem persistida no Room) é
+ * identificado pela identidade real do turno: a última mensagem persistida é a
+ * resposta do turno ativo (`turnId` igual e `fromMe == false`). Nesse caso, não
+ * é novidade nem exige scroll extra.
+ */
+internal fun isTurnHandoff(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = activeTurn != null && messages.lastOrNull()?.let { m ->
+    !m.fromMe && m.turnId.isNotBlank() && m.turnId == activeTurn.turnId
+} == true
+
+internal fun isTurnHandoff(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = !activeTurnId.isNullOrBlank() &&
+    !lastMessageFromMe &&
+    lastMessageTurnId == activeTurnId
+
+internal fun isHandoff(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = isTurnHandoff(activeTurn, messages)
+
+internal fun isHandoff(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = isTurnHandoff(activeTurnId, lastMessageTurnId, lastMessageFromMe)
+
+internal fun handoffInProgress(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = isTurnHandoff(activeTurn, messages)
+
+internal fun handoffInProgress(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = isTurnHandoff(activeTurnId, lastMessageTurnId, lastMessageFromMe)
+
+/** UX-2.3 — Room já contém (ou não) a mensagem final do turno. */
+internal fun isRoomHandoff(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    activeTurn != null && activeTurn.finalMessageId != null && finalInMessages
+
+internal fun turnHandoffReady(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    isRoomHandoff(activeTurn, finalInMessages)
+
+internal fun isHandoffComplete(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    isRoomHandoff(activeTurn, finalInMessages)
+
+internal fun handoffComplete(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    isRoomHandoff(activeTurn, finalInMessages)
+
+internal fun isStableHandoff(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = isTurnHandoff(activeTurn, messages)
+
+internal fun isStableHandoff(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = isTurnHandoff(activeTurnId, lastMessageTurnId, lastMessageFromMe)
+
+internal fun stableHandoff(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = isTurnHandoff(activeTurn, messages)
+
+internal fun stableHandoff(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = isTurnHandoff(activeTurnId, lastMessageTurnId, lastMessageFromMe)
 
 /** T3 — texto exibido após remover as tags de criação + flag do badge. */
 data class SuggestionText(val text: String, val hasSuggestion: Boolean)
