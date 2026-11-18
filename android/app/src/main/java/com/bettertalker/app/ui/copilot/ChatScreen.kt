@@ -493,7 +493,9 @@ fun ChatScreen(
     // é identificado pela identidade real do turno, não pela contagem de
     // mensagens. A resposta final já era o item `turn-<turnId>`; quando ela
     // chega ao Room, não é uma mensagem nova (nem novidade, nem scroll extra).
-    val turnHandoff = isTurnHandoff(activeTurn, messages)
+    var handoffConsumed by remember(activeTurn?.turnId) { mutableStateOf(false) }
+    val turnHandoffPresence = isTurnHandoff(activeTurn, messages)
+    val handoffArrival = isTurnHandoffArrival(turnHandoffPresence, handoffConsumed)
     val hiddenTurnMessage = hasHiddenTurnMessage(showActiveTurn, activeTurn, messages)
     val renderedMessages = renderedMessageCount(messages.size, hiddenTurnMessage)
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
@@ -584,6 +586,9 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(messages.size, hasProposal, showActiveTurn) {
+        if (handoffArrival) {
+            handoffConsumed = true
+        }
         // #25-fix-a/#26-fix: o efeito observa mensagem E proposta, mas conta
         // UMA vez por evento (mensagem+proposta juntas = 1); a proposta entra
         // na TRANSIÇÃO falsa→verdadeira (removê-la/fechar não conta). Alvo:
@@ -595,11 +600,11 @@ fun ChatScreen(
         // efeitos de mensagem/turno/parcial podem animar.
         val firstLoad = !initialScrollDone && (messages.isNotEmpty() || hasProposal)
         // UX-2.3: o handoff do turno não conta como mensagem nova.
-        val messageAdded = messages.size > seenMessages && !turnHandoff
+        val messageAdded = messages.size > seenMessages && !handoffArrival
         val proposalAdded = hasProposal && !seenProposal
         seenMessages = messages.size
         seenProposal = hasProposal
-        if (turnHandoff && !proposalAdded) {
+        if (handoffArrival && !proposalAdded) {
             // Handoff isolado: não é novidade. Room antes de DONE acompanha
             // turnAnchor (turno visível); DONE antes de Room preserva a posição
             // via turnAnchor, que cai na mensagem persistida quando o turno
@@ -2857,6 +2862,16 @@ internal fun hasHiddenTurnMessage(
     messages: List<CopilotViewModel.ChatItem>,
 ): Boolean = showActiveTurn && activeTurn != null &&
     messages.any { m -> !m.fromMe && m.turnId.isNotBlank() && m.turnId == activeTurn.turnId }
+
+internal fun isTurnHandoffArrival(
+    presence: Boolean,
+    alreadyHandled: Boolean,
+): Boolean = presence && !alreadyHandled
+
+internal fun handoffArrival(
+    presence: Boolean,
+    alreadyHandled: Boolean,
+): Boolean = isTurnHandoffArrival(presence, alreadyHandled)
 
 internal fun renderedMessageCount(
     messageCount: Int,

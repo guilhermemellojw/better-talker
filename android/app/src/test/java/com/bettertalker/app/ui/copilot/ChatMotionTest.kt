@@ -477,4 +477,24 @@ class ChatMotionTest {
             ),
         )
     }
+    @Test
+    fun isTurnHandoffArrival_eventoUnico() {
+        assertTrue(isTurnHandoffArrival(true, false))
+        assertFalse(isTurnHandoffArrival(true, true))
+        assertFalse(isTurnHandoffArrival(false, false))
+        assertFalse(isTurnHandoffArrival(false, true))
+    }
+
+    @Test
+    fun isTurnHandoff_presencaNaoEhEvento() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        // Presença permanece verdadeira enquanto a resposta existir.
+        assertTrue(isTurnHandoff(turn, messages))
+        // O evento de chegada é separado e pode ser consumido.
+        assertTrue(isTurnHandoffArrival(isTurnHandoff(turn, messages), false))
+        assertFalse(isTurnHandoffArrival(isTurnHandoff(turn, messages), true))
+    }
 }
