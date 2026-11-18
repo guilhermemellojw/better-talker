@@ -38,6 +38,7 @@ class SemanticVerificationTest {
         resolved: Boolean = true,
         waived: Boolean = false,
         truncated: Boolean = false,
+        completeness: EvidenceCompleteness = EvidenceCompleteness.COMPLETE,
         exposedToModel: Boolean = true,
     ): EvidenceUnit = EvidenceUnit(
         item = item(
@@ -51,6 +52,7 @@ class SemanticVerificationTest {
         kind = kind,
         documentUnit = documentUnit,
         truncated = truncated,
+        completeness = completeness,
         exposedToModel = exposedToModel,
     )
 
@@ -107,14 +109,16 @@ class SemanticVerificationTest {
     }
 
     @Test
-    fun documentoBiblicoSemUnidadeFalha() {
-        assertThrows(IllegalArgumentException::class.java) {
-            EvidenceUnit(
-                item = item(category = EvidenceCategory.CONTENT),
-                kind = DocumentKind.BIBLE,
-                documentUnit = null,
-            )
-        }
+    fun documentoBiblicoSemUnidadeNaoEhElegivel() {
+        val evidence = EvidenceUnit(
+            item = item(category = EvidenceCategory.CONTENT),
+            kind = DocumentKind.BIBLE,
+            documentUnit = null,
+            completeness = EvidenceCompleteness.COMPLETE,
+            exposedToModel = true,
+        )
+        assertFalse(evidence.hasDocumentUnit)
+        assertFalse(evidence.isFactualEligible())
     }
 
     @Test
@@ -199,6 +203,135 @@ class SemanticVerificationTest {
                 claimId = "c1",
                 state = SemanticState.SUPPORTED,
                 examinedEvidenceIds = emptyList(),
+            )
+        }
+    }
+
+    @Test
+    fun evidenciaExaminadaInadequadaNaoAutorizaSuporte() {
+        val claim = claim(type = ClaimType.FACTUAL_BIBLICAL)
+        val examinedTraining = unit(
+            id = "th-1",
+            text = "Use uma ilustração curta.",
+            kind = DocumentKind.TRAINING,
+            documentUnit = null,
+        )
+        val eligibleNotExamined = unit(id = "bible-1")
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimAssessment(
+                claim = claim,
+                verdict = ClaimVerdict(
+                    claimId = claim.id,
+                    state = SemanticState.SUPPORTED,
+                    examinedEvidenceIds = listOf(examinedTraining.documentId),
+                ),
+                evidence = listOf(examinedTraining, eligibleNotExamined),
+            )
+        }
+    }
+
+    @Test
+    fun documentoElegivelExaminadoAutorizaSuporte() {
+        val claim = claim(type = ClaimType.FACTUAL_BIBLICAL)
+        val evidence = unit(id = "bible-1")
+        val assessment = ClaimAssessment(
+            claim = claim,
+            verdict = ClaimVerdict(
+                claimId = claim.id,
+                state = SemanticState.SUPPORTED,
+                examinedEvidenceIds = listOf(evidence.documentId),
+            ),
+            evidence = listOf(evidence),
+        )
+        assertTrue(assessment.examinedEvidence().single().isFactualEligible())
+    }
+
+    @Test
+    fun documentoFactualExaminadoEmClaimOratoriaFalha() {
+        val claim = claim(type = ClaimType.ORATORY_TECHNIQUE)
+        val factual = unit(id = "bible-1")
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimAssessment(
+                claim = claim,
+                verdict = ClaimVerdict(
+                    claimId = claim.id,
+                    state = SemanticState.SUPPORTED,
+                    examinedEvidenceIds = listOf(factual.documentId),
+                ),
+                evidence = listOf(factual),
+            )
+        }
+    }
+
+    @Test
+    fun treinamentoExaminadoEmClaimFactualFalha() {
+        val claim = claim(type = ClaimType.FACTUAL_BIBLICAL)
+        val training = unit(
+            id = "th-1",
+            text = "Use uma ilustração curta.",
+            kind = DocumentKind.TRAINING,
+            documentUnit = null,
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimAssessment(
+                claim = claim,
+                verdict = ClaimVerdict(
+                    claimId = claim.id,
+                    state = SemanticState.SUPPORTED,
+                    examinedEvidenceIds = listOf(training.documentId),
+                ),
+                evidence = listOf(training),
+            )
+        }
+    }
+
+    @Test
+    fun idsExaminadosVaziosOuDuplicadosFalham() {
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimVerdict(
+                claimId = "c1",
+                state = SemanticState.SUPPORTED,
+                examinedEvidenceIds = listOf(""),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimVerdict(
+                claimId = "c1",
+                state = SemanticState.SUPPORTED,
+                examinedEvidenceIds = listOf("doc-1", "doc-1"),
+            )
+        }
+    }
+
+    @Test
+    fun idInexistenteNoVereditoFalha() {
+        val claim = claim()
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimAssessment(
+                claim = claim,
+                verdict = ClaimVerdict(
+                    claimId = claim.id,
+                    state = SemanticState.INSUFFICIENT,
+                    examinedEvidenceIds = listOf("missing"),
+                ),
+                evidence = listOf(unit()),
+            )
+        }
+    }
+
+    @Test
+    fun evidenciaDuplicadaFalha() {
+        val claim = claim()
+        val evidence = unit(id = "doc-1")
+        assertThrows(IllegalArgumentException::class.java) {
+            ClaimAssessment(
+                claim = claim,
+                verdict = ClaimVerdict(
+                    claimId = claim.id,
+                    state = SemanticState.INSUFFICIENT,
+                    examinedEvidenceIds = listOf(evidence.documentId),
+                ),
+                evidence = listOf(evidence, evidence),
             )
         }
     }
@@ -440,6 +573,46 @@ class SemanticVerificationTest {
     }
 
     @Test
+    fun metodoNaoViraSuporteDocumentalComDocumentoExtraNaoExaminado() {
+        val claim = claim(type = ClaimType.ORATORY_TECHNIQUE)
+        val training = unit(
+            id = "th-1",
+            text = "Use uma ilustração curta.",
+            kind = DocumentKind.TRAINING,
+            documentUnit = null,
+        )
+        val extraFactual = unit(id = "bible-1")
+        val assessment = ClaimAssessment(
+            claim = claim,
+            verdict = ClaimVerdict(
+                claimId = claim.id,
+                state = SemanticState.SUPPORTED,
+                examinedEvidenceIds = listOf(training.documentId),
+            ),
+            evidence = listOf(training, extraFactual),
+        )
+        val result = SemanticVerificationResult(listOf(assessment))
+        assertEquals(SemanticState.SUPPORTED, result.overallState())
+        assertFalse(result.hasDocumentarySupport())
+    }
+
+    @Test
+    fun suporteDocumentalExigeEvidenciaExaminada() {
+        val claim = claim(type = ClaimType.FACTUAL_BIBLICAL)
+        val evidence = unit(id = "bible-1")
+        val assessment = ClaimAssessment(
+            claim = claim,
+            verdict = ClaimVerdict(
+                claimId = claim.id,
+                state = SemanticState.SUPPORTED,
+                examinedEvidenceIds = listOf(evidence.documentId),
+            ),
+            evidence = listOf(evidence),
+        )
+        assertTrue(SemanticVerificationResult(listOf(assessment)).hasDocumentarySupport())
+    }
+
+    @Test
     fun estadoGlobalConservador() {
         val claim = claim()
         val evidence = unit()
@@ -459,6 +632,102 @@ class SemanticVerificationTest {
         assertEquals(
             SemanticState.NOT_EVALUATED,
             SemanticVerificationResult(listOf(supported, notEvaluated)).overallState(),
+        )
+    }
+
+    @Test
+    fun recuperacaoParcialNaoEhDocumentoCompleto() {
+        val resolved = com.bettertalker.app.domain.planning.ResolvedReference(
+            original = "Je 29:11",
+            canonicalRef = "Je 29:11",
+            text = "texto parcial",
+            passageId = "p1",
+            status = com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
+        )
+        val doc = recoveredDocumentFromResolvedBible("Je 29:11", resolved)
+        assertTrue(doc!!.partial)
+        assertFalse(doc.isDocumentaryEligible())
+        val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE, exposedToModel = true)
+        assertEquals(EvidenceCompleteness.PARTIAL, evidence.completeness)
+        assertFalse(evidence.isFactualEligible())
+    }
+
+    @Test
+    fun dossierComPartialPreservaIncompletude() {
+        val section = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1",
+            noteId = "n1",
+            order = 1,
+            role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+            title = "Ponto",
+            minutes = 5,
+            contentHtml = "",
+            bibleRefs = listOf("Je 29:11"),
+            publicationRefs = emptyList(),
+            methodPrinciple = null,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        val dossier = com.bettertalker.app.domain.planning.Dossier(
+            currentSection = section,
+            currentSubPoint = null,
+            selectedText = null,
+            fullContentHtml = "",
+            overview = emptyList(),
+            bibleTexts = listOf(
+                com.bettertalker.app.domain.planning.ResolvedBibleText(
+                    ref = "Je 29:11",
+                    text = "texto parcial",
+                    status = com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
+                )
+            ),
+            publicationTexts = emptyList(),
+            methodPrinciples = emptyList(),
+            unresolvedRefs = emptyList(),
+            transitionContext = null,
+        )
+        val docs = recoveredDocumentsFromDossier(dossier)
+        assertEquals(1, docs.size)
+        assertTrue(docs.single().partial)
+        assertFalse(docs.single().isDocumentaryEligible())
+    }
+
+    @Test
+    fun documentoRealSemUnidadeNaoEhElegivelNemInventaUnidade() {
+        val doc = RecoveredDocument(
+            sourceId = "dossier:bible:Je 29:11",
+            reference = "Je 29:11",
+            text = "texto recuperado",
+            documentUnit = null,
+            resolved = true,
+        )
+        val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE, exposedToModel = true)
+        assertEquals(null, evidence.documentUnit)
+        assertFalse(evidence.hasDocumentUnit)
+        assertFalse(evidence.isFactualEligible())
+    }
+
+    @Test
+    fun fidelidadeDocumentalExigeFonteResolvidaEDisponivel() {
+        val unresolved = unit(resolved = false)
+        val waived = unit(waived = true)
+        val valid = unit()
+        val truncated = unit(truncated = true)
+        assertEquals(
+            CitationFidelityState.UNVERIFIABLE,
+            checkDocumentCitation("texto recuperado", unresolved).state,
+        )
+        assertEquals(
+            CitationFidelityState.UNVERIFIABLE,
+            checkDocumentCitation("texto recuperado", waived).state,
+        )
+        assertEquals(
+            CitationFidelityState.EXACT,
+            checkDocumentCitation("texto recuperado", valid).state,
+        )
+        assertEquals(
+            CitationFidelityState.UNVERIFIABLE,
+            checkDocumentCitation("texto recuperado", truncated).state,
         )
     }
 

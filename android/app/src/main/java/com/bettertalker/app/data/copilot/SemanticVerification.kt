@@ -77,6 +77,13 @@ data class Claim(
     }
 }
 
+/** Completude da recuperação documental. */
+enum class EvidenceCompleteness {
+    COMPLETE,
+    PARTIAL,
+    UNKNOWN,
+}
+
 /** Tipo de documento de uma unidade verificável. */
 enum class DocumentKind(
     val requiredCategory: EvidenceCategory,
@@ -100,6 +107,8 @@ data class EvidenceUnit(
     val edition: String? = null,
     val documentUnit: String? = null,
     val truncated: Boolean = false,
+    /** Completude explícita; UNKNOWN nunca é promovido a COMPLETE. */
+    val completeness: EvidenceCompleteness = EvidenceCompleteness.UNKNOWN,
     /**
      * Indica que este texto foi efetivamente disponibilizado ao contexto do
      * Mentor. Recuperar não é o mesmo que expor ao modelo.
@@ -110,27 +119,33 @@ data class EvidenceUnit(
         require(item.provenance.category == kind.requiredCategory) {
             "kind ${kind.name} exige categoria ${kind.requiredCategory.name}"
         }
-        if (kind.requiresUnit) {
-            require(!documentUnit.isNullOrBlank()) {
-                "documentUnit é obrigatório para ${kind.name}"
-            }
-        }
     }
 
     val documentId: String get() = item.id
     val reference: String get() = item.reference
     val text: String get() = item.text
+    val hasDocumentUnit: Boolean get() = !documentUnit.isNullOrBlank()
 
     /**
      * Elegível como prova factual: documento bíblico/publicação, resolvido,
-     * não dispensado, com texto e sem truncamento.
+     * não dispensado, texto não vazio, sem truncamento, completo, com unidade
+     * documental e efetivamente exposto ao modelo.
      */
     fun isFactualEligible(): Boolean =
-        kind.documentary && item.isDocumentaryEvidence() && !truncated && exposedToModel
+        kind.documentary &&
+            item.isDocumentaryEvidence() &&
+            !truncated &&
+            completeness == EvidenceCompleteness.COMPLETE &&
+            hasDocumentUnit &&
+            exposedToModel
 
     /** Elegível como orientação de método/oratória, nunca como prova factual. */
     fun isMethodEligible(): Boolean =
-        kind == DocumentKind.TRAINING && item.isMethodEvidence() && !truncated && exposedToModel
+        kind == DocumentKind.TRAINING &&
+            item.isMethodEvidence() &&
+            !truncated &&
+            completeness == EvidenceCompleteness.COMPLETE &&
+            exposedToModel
 }
 
 /** Adaptador de [RecoveredDocument] para [EvidenceUnit], sem duplicar texto. */
@@ -138,6 +153,11 @@ fun RecoveredDocument.asEvidenceUnit(
     kind: DocumentKind,
     edition: String? = null,
     truncated: Boolean = false,
+    completeness: EvidenceCompleteness = when {
+        partial -> EvidenceCompleteness.PARTIAL
+        resolved -> EvidenceCompleteness.COMPLETE
+        else -> EvidenceCompleteness.UNKNOWN
+    },
     exposedToModel: Boolean = false,
 ): EvidenceUnit = EvidenceUnit(
     item = EvidenceItem(
@@ -156,6 +176,7 @@ fun RecoveredDocument.asEvidenceUnit(
     edition = edition,
     documentUnit = documentUnit,
     truncated = truncated,
+    completeness = completeness,
     exposedToModel = exposedToModel,
 )
 
@@ -184,6 +205,12 @@ data class ClaimVerdict(
         require(claimId.isNotBlank()) { "claimId não pode ser vazio" }
         require(confidence == null || confidence in 0.0..1.0) {
             "confidence deve estar entre 0 e 1"
+        }
+        require(examinedEvidenceIds.none { it.isBlank() }) {
+            "examinedEvidenceIds não pode conter IDs vazios"
+        }
+        require(examinedEvidenceIds.distinct().size == examinedEvidenceIds.size) {
+            "examinedEvidenceIds não pode conter duplicatas"
         }
         if (state == SemanticState.SUPPORTED) {
             require(examinedEvidenceIds.isNotEmpty()) {
@@ -217,24 +244,37 @@ data class ClaimAssessment(
         require(verdict.claimId == claim.id) {
             "verdict.claimId deve corresponder ao claim.id"
         }
-        val availableIds = evidence.map { it.documentId }.toSet()
+        val ids = evidence.map { it.documentId }
+        require(ids.distinct().size == ids.size) {
+            "evidence não pode conter documentId duplicado"
+        }
+        val availableIds = ids.toSet()
         require(verdict.examinedEvidenceIds.all { it in availableIds }) {
             "verdict cita evidência que não está em evidence"
         }
         if (verdict.state == SemanticState.SUPPORTED) {
+            val examined = examinedEvidence()
             when (claim.type.supportEvidence) {
-                SupportEvidence.DOCUMENTARY -> require(evidence.any { it.isFactualEligible() }) {
-                    "SUPPORTED factual exige evidência documental elegível"
-                }
-                SupportEvidence.METHOD -> require(evidence.any { it.isMethodEligible() }) {
-                    "SUPPORTED de oratória exige evidência de método elegível"
-                }
+                SupportEvidence.DOCUMENTARY ->
+                    require(examined.any { it.isFactualEligible() }) {
+                        "SUPPORTED factual exige evidência documental elegível entre as examinadas"
+                    }
+                SupportEvidence.METHOD ->
+                    require(examined.any { it.isMethodEligible() }) {
+                        "SUPPORTED de oratória exige evidência de método elegível entre as examinadas"
+                    }
                 SupportEvidence.NONE -> throw IllegalArgumentException(
                     "SUPPORTED não é permitido para ${claim.type.name}"
                 )
             }
         }
     }
+
+    /** Unidades efetivamente examinadas, na ordem dos IDs do veredito. */
+    fun examinedEvidence(): List<EvidenceUnit> =
+        verdict.examinedEvidenceIds.mapNotNull { id ->
+            evidence.firstOrNull { it.documentId == id }
+        }
 }
 
 /**
@@ -261,9 +301,10 @@ data class SemanticVerificationResult(
 
     fun hasDocumentarySupport(): Boolean =
         assessments.isNotEmpty() &&
-            assessments.all { it.verdict.state == SemanticState.SUPPORTED } &&
             assessments.all { assessment ->
-                assessment.evidence.any { it.isFactualEligible() }
+                assessment.verdict.state == SemanticState.SUPPORTED &&
+                    assessment.claim.type.supportEvidence == SupportEvidence.DOCUMENTARY &&
+                    assessment.examinedEvidence().any { it.isFactualEligible() }
             }
 }
 
@@ -361,6 +402,7 @@ fun checkDocumentCitation(
             state = CitationFidelityState.NOT_EVALUATED,
         )
     }
+    val provenance = evidence.item.provenance
     if (!evidence.kind.documentary) {
         return CitationFidelity(
             citation = citation,
@@ -371,24 +413,38 @@ fun checkDocumentCitation(
             reason = "unidade não é documental",
         )
     }
-    val (state, matched) = literalMatch(citation, evidence.text)
-    val finalState = if (state == CitationFidelityState.NOT_FOUND && evidence.truncated) {
-        CitationFidelityState.UNVERIFIABLE
-    } else {
-        state
+    if (!provenance.resolved || provenance.waived) {
+        return CitationFidelity(
+            citation = citation,
+            origin = CitationOrigin.DOCUMENT,
+            state = CitationFidelityState.UNVERIFIABLE,
+            sourceId = evidence.documentId,
+            documentUnit = evidence.documentUnit,
+            reason = if (provenance.waived) {
+                "fonte dispensada"
+            } else {
+                "fonte não resolvida"
+            },
+        )
     }
+    if (evidence.truncated || evidence.completeness != EvidenceCompleteness.COMPLETE) {
+        return CitationFidelity(
+            citation = citation,
+            origin = CitationOrigin.DOCUMENT,
+            state = CitationFidelityState.UNVERIFIABLE,
+            sourceId = evidence.documentId,
+            documentUnit = evidence.documentUnit,
+            reason = "fonte truncada ou incompleta: fidelidade não conclusiva",
+        )
+    }
+    val (state, matched) = literalMatch(citation, evidence.text)
     return CitationFidelity(
         citation = citation,
         origin = CitationOrigin.DOCUMENT,
-        state = finalState,
+        state = state,
         sourceId = evidence.documentId,
         documentUnit = evidence.documentUnit,
         matchedText = matched,
-        reason = if (finalState == CitationFidelityState.UNVERIFIABLE && evidence.truncated) {
-            "fonte truncada: ausência de correspondência não é conclusiva"
-        } else {
-            null
-        },
     )
 }
 
