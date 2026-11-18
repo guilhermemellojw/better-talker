@@ -358,7 +358,6 @@ class ChatMotionTest {
         assertEquals(TurnVisualGroup.ERROR, TurnPhase.CANCELLED.visualGroup())
         assertEquals(TurnVisualGroup.ERROR, TurnPhase.ERROR.visualGroup())
     }
-}
 
     // ---------- UX-2.3: handoff estável ----------
 
@@ -369,9 +368,9 @@ class ChatMotionTest {
             CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
         )
         assertTrue(isTurnHandoff(turn, messages))
-        assertTrue(isHandoff(turn, messages))
-        assertTrue(handoffInProgress(turn, messages))
-        assertTrue(isStableHandoff(turn, messages))
+        assertTrue(isTurnHandoff(turn, messages))
+        assertTrue(isTurnHandoff(turn, messages))
+        assertTrue(isTurnHandoff(turn, messages))
     }
 
     @Test
@@ -419,3 +418,4 @@ class ChatMotionTest {
             ) is MessagesEffect.ScrollTo,
         )
     }
+}
