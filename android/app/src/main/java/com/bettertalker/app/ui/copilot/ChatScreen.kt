@@ -126,11 +126,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -873,6 +877,10 @@ fun ChatScreen(
                                 )
                             }
                             DropdownMenuItem(
+                                modifier = Modifier.semantics {
+                                    role = Role.Switch
+                                    toggleableState = ToggleableState(simpleMode)
+                                },
                                 text = {
                                     Row(
                                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
