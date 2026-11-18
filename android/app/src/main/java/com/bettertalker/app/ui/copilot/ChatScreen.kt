@@ -938,7 +938,7 @@ fun ChatScreen(
                     // doSend: nenhum atalho tem prompt próprio (§9 F15).
                     val allLocal = localSuggestionTexts(outlineInfo != null)
                     val compact = simpleMode && !showAllShortcuts
-                    val quickToShow = if (compact) vm.quickActions.take(2) else vm.quickActions
+                    val quickToShow = if (compact) vm.quickActions.take(1) else vm.quickActions
                     val localToShow = if (compact) {
                         simpleModeLocalShortcuts(allLocal).take(1)
                     } else {
@@ -955,6 +955,7 @@ fun ChatScreen(
                         } else {
                             null
                         },
+                        largeTouchTargets = simpleMode,
                     )
                     Spacer(Modifier.height(6.dp))
                 }
