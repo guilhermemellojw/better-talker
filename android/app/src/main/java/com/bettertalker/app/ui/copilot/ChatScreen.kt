@@ -87,6 +87,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -239,6 +240,7 @@ fun ChatScreen(
     val localRetry by vm.localRetry.collectAsState()
     val localReasoning by vm.localReasoning.collectAsState()
     val activeTurn by vm.activeTurn.collectAsState()
+    val simpleMode by vm.simpleMode.collectAsState()
     val scopeLoading by vm.scopeLoading.collectAsState()
     val thinkingMode by vm.thinkingMode.collectAsState()
     // #17-fix: parcial limpo durante o streaming (só marcadores internos —
@@ -856,6 +858,24 @@ fun ChatScreen(
                                 onClick = {
                                     topMenuOpen = false
                                     vm.transformSelectionToCard()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text("Modo simples")
+                                        Switch(
+                                            checked = simpleMode,
+                                            onCheckedChange = { vm.setSimpleMode(it) },
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    topMenuOpen = false
+                                    vm.setSimpleMode(!simpleMode)
                                 },
                             )
                             DropdownMenuItem(
