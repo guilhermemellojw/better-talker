@@ -39,12 +39,21 @@ data class ReconcileReport(
  */
 object DecisionSectionReconciler {
 
+    /**
+     * [affectedNoteId] identifica a nota da operação quando
+     * `oldSections`/`newSections` não carregam snapshots (ex.: reimportação
+     * de uma nota que ficou sem seções). Sem isso, listas vazias não dizem
+     * qual nota foi afetada e a decisão poderia permanecer falsamente VALID.
+     * O parâmetro não remapeia nada: apenas permite reconciliar a ausência de
+     * seção. O default preserva chamadas antigas.
+     */
     fun reconcile(
         decisions: List<DecisionRecord>,
         oldSections: List<SectionSnapshot>,
         newSections: List<SectionSnapshot>,
         operation: ReconcileOperation,
         now: Long,
+        affectedNoteId: String? = null,
     ): ReconcileReport {
         // A identidade é composta: o mesmo sectionId em outra nota NUNCA é a
         // mesma seção. Operações de uma nota não alteram decisões de outra.
@@ -53,6 +62,10 @@ object DecisionSectionReconciler {
         val affectedNotes = buildSet {
             oldSections.forEach { add(it.noteId) }
             newSections.forEach { add(it.noteId) }
+            affectedNoteId?.let {
+                require(it.isNotBlank()) { "affectedNoteId vazio" }
+                add(it)
+            }
         }
         val warnings = mutableListOf<String>()
 

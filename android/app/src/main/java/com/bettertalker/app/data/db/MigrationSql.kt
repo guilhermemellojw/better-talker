@@ -303,4 +303,57 @@ object MigrationSql {
         "CREATE INDEX IF NOT EXISTS `index_publication_units_attachmentId_ord` ON `publication_units`(`attachmentId`, `ord`)",
         "CREATE UNIQUE INDEX IF NOT EXISTS `index_publication_units_attachmentId_canonicalKey` ON `publication_units`(`attachmentId`, `canonicalKey`)",
     )
+
+    /**
+     * v26 -> v27 (1C.2.1A2): ledger de decisões do Mentor.
+     *
+     * Aditiva e não destrutiva: cria a tabela vazia e não faz backfill de
+     * mensagens, tags, cards ou agreedApproach. `sectionId` é referência
+     * lógica (sem FK para speech_sections); `noteId` tem FK com CASCADE para
+     * notes, então excluir definitivamente a nota remove suas decisões.
+     */
+    val MIGRATION_26_27: List<String> = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS `decision_records` (
+            `id` TEXT NOT NULL,
+            `noteId` TEXT NOT NULL,
+            `scope` TEXT NOT NULL,
+            `kind` TEXT NOT NULL,
+            `decisionState` TEXT NOT NULL,
+            `sectionLink` TEXT NOT NULL,
+            `applicationState` TEXT NOT NULL,
+            `text` TEXT NOT NULL,
+            `source` TEXT NOT NULL,
+            `sectionId` TEXT,
+            `originalSectionId` TEXT,
+            `candidateSectionId` TEXT,
+            `sectionTitleSnapshot` TEXT,
+            `sectionRoleSnapshot` TEXT,
+            `sectionOrderSnapshot` INTEGER,
+            `sectionContentHashSnapshot` TEXT,
+            `originalSectionTitleSnapshot` TEXT,
+            `originalSectionRoleSnapshot` TEXT,
+            `originalSectionOrderSnapshot` INTEGER,
+            `originalSectionContentHashSnapshot` TEXT,
+            `subjectKey` TEXT,
+            `sourceMessageId` TEXT,
+            `sourceProposalId` TEXT,
+            `supersedesId` TEXT,
+            `appliedAt` INTEGER,
+            `appliedHash` TEXT,
+            `createdAt` INTEGER NOT NULL,
+            `updatedAt` INTEGER NOT NULL,
+            `removedAt` INTEGER,
+            PRIMARY KEY(`id`),
+            FOREIGN KEY(`noteId`) REFERENCES `notes`(`id`)
+                ON UPDATE NO ACTION ON DELETE CASCADE
+        )
+        """.trimIndent(),
+        "CREATE INDEX IF NOT EXISTS `index_decision_records_noteId` " +
+            "ON `decision_records`(`noteId`)",
+        "CREATE INDEX IF NOT EXISTS `index_decision_records_noteId_sectionId` " +
+            "ON `decision_records`(`noteId`, `sectionId`)",
+        "CREATE INDEX IF NOT EXISTS `index_decision_records_noteId_decisionState` " +
+            "ON `decision_records`(`noteId`, `decisionState`)",
+    )
 }

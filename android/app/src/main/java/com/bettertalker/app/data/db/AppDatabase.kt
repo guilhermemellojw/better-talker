@@ -383,8 +383,8 @@ interface PublicationUnitDao {
 }
 
 @Database(
-    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, PublicationUnitEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class],
-    version = 26,
+    entities = [FolderEntity::class, NoteEntity::class, AttachmentEntity::class, PassageEntity::class, PublicationUnitEntity::class, TombstoneEntity::class, OutlineEntity::class, ChatEntity::class, S34OutlineEntity::class, S34SectionEntity::class, S34SubsectionEntity::class, S34ReferenceEntity::class, SpeechSectionEntity::class, SubPointEntity::class, NoteImageEntity::class, ImageBackupEntity::class, DecisionEntity::class],
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -401,6 +401,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun subPointDao(): SubPointDao
     abstract fun noteImageDao(): NoteImageDao
     abstract fun imageBackupDao(): ImageBackupDao
+    abstract fun decisionDao(): DecisionDao
 }
 
 @Entity(
@@ -539,6 +540,72 @@ data class ImageBackupEntity(
     val updatedAt: Long = System.currentTimeMillis(),
     /** 5.4.1: conta dona do objeto; null em linhas antigas (backfill). */
     val uid: String? = null,
+)
+
+/**
+ * 1C.2.1A2 — memória estruturada de decisões do Mentor.
+ *
+ * `sectionId`, `originalSectionId` e `candidateSectionId` são referências
+ * LÓGICAS: não há FK para `speech_sections`. Assim, remoção reversível,
+ * órfãs, reconfirmação e remapeamento não apagam a decisão.
+ *
+ * `noteId` tem FK com CASCADE para `notes`: exclusão definitiva da nota
+ * elimina suas decisões; mover para a lixeira (flag `trashed`) não elimina
+ * nada. `supersedesId`, `sourceMessageId` e `sourceProposalId` também são
+ * lógicos — o histórico não depende da existência do registro citado.
+ */
+@Entity(
+    tableName = "decision_records",
+    foreignKeys = [ForeignKey(
+        entity = NoteEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["noteId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [
+        Index("noteId"),
+        Index(value = ["noteId", "sectionId"]),
+        Index(value = ["noteId", "decisionState"]),
+    ],
+)
+data class DecisionEntity(
+    @PrimaryKey val id: String,
+    val noteId: String,
+    /** DecisionScope.name */
+    val scope: String,
+    /** DecisionKind.name */
+    val kind: String,
+    /** DecisionState.name */
+    val decisionState: String,
+    /** SectionLink.name */
+    val sectionLink: String,
+    /** ApplicationState.name */
+    val applicationState: String,
+    val text: String,
+    /** DecisionSource.name */
+    val source: String,
+    val sectionId: String? = null,
+    val originalSectionId: String? = null,
+    val candidateSectionId: String? = null,
+    val sectionTitleSnapshot: String? = null,
+    /** SectionRole.name */
+    val sectionRoleSnapshot: String? = null,
+    val sectionOrderSnapshot: Int? = null,
+    val sectionContentHashSnapshot: String? = null,
+    val originalSectionTitleSnapshot: String? = null,
+    /** SectionRole.name */
+    val originalSectionRoleSnapshot: String? = null,
+    val originalSectionOrderSnapshot: Int? = null,
+    val originalSectionContentHashSnapshot: String? = null,
+    val subjectKey: String? = null,
+    val sourceMessageId: String? = null,
+    val sourceProposalId: String? = null,
+    val supersedesId: String? = null,
+    val appliedAt: Long? = null,
+    val appliedHash: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val removedAt: Long? = null,
 )
 
 /** Mensagens do chat com o Copilot (local, por nota; não sincroniza). */
@@ -927,4 +994,35 @@ interface ImageBackupDao {
 
     @Query("DELETE FROM image_backups")
     suspend fun clearAll()
+}
+
+/**
+ * 1C.2.1A2 — leitura/escrita da memória de decisões.
+ *
+ * As operações que abrangem mais de uma linha (salvar lote, substituir a nota,
+ * reconciliar, superseder) são compostas no repositório sob [TransactionRunner].
+ * O DAO não apaga decisões quando uma seção some: `sectionId` é lógico.
+ */
+@Dao
+interface DecisionDao {
+    @Query("SELECT * FROM decision_records WHERE noteId = :noteId ORDER BY createdAt ASC, id ASC")
+    suspend fun forNote(noteId: String): List<DecisionEntity>
+
+    @Query("SELECT * FROM decision_records WHERE id = :id LIMIT 1")
+    suspend fun get(id: String): DecisionEntity?
+
+    @Upsert
+    suspend fun upsert(record: DecisionEntity)
+
+    @Upsert
+    suspend fun upsertAll(records: List<DecisionEntity>)
+
+    @Query("DELETE FROM decision_records WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM decision_records WHERE noteId = :noteId")
+    suspend fun deleteForNote(noteId: String)
+
+    @Query("SELECT COUNT(*) FROM decision_records WHERE noteId = :noteId")
+    suspend fun countForNote(noteId: String): Int
 }
