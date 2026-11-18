@@ -11,6 +11,8 @@ import org.junit.Test
 
 class Trust2B1HarnessTest {
 
+    // Baseline sintético: 5 SUPPORTED, 5 INSUFFICIENT, 11 UNVERIFIABLE, 3 NOT_EVALUATED.
+
     private val report by lazy { Trust2B1Dataset.report() }
 
     @Test
