@@ -12,6 +12,7 @@ import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.toDomain
+import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.domain.planning.Audience
@@ -19,9 +20,11 @@ import com.bettertalker.app.domain.planning.OutlineAngle
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.SectionPlan
 import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.domain.speech.SpeechSection
 import com.bettertalker.app.ui.copilot.StructureAcceptRequest
 import com.bettertalker.app.ui.copilot.StructureAcceptResult
 import com.bettertalker.app.ui.copilot.StructureAcceptService
+import com.bettertalker.app.ui.copilot.buildStructureAcceptDecision
 import com.bettertalker.app.ui.copilot.sectionProposalBlock
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -96,6 +99,26 @@ class StructureAcceptMemoryRoomTest {
         updatedAt = 1L,
     )
 
+    private fun sectionDomain(
+        id: String,
+        noteId: String,
+        title: String = "Fé que age",
+        contentHtml: String = "<p>texto atual da seção</p>",
+    ) = SpeechSection(
+        id = id,
+        noteId = noteId,
+        order = 0,
+        role = SectionRole.BODY,
+        title = title,
+        minutes = 5,
+        contentHtml = contentHtml,
+        bibleRefs = emptyList(),
+        publicationRefs = emptyList(),
+        methodPrinciple = null,
+        createdAt = 1L,
+        updatedAt = 1L,
+    )
+
     private fun plan() = SectionPlan(
         title = "Fé que age",
         minutes = 7,
@@ -115,11 +138,13 @@ class StructureAcceptMemoryRoomTest {
 
     private fun request(
         proposalId: String = "sprop-1",
+        noteId: String = "n1",
         sectionId: String = "s1",
         title: String = "Fé que age",
         contentHtml: String = "<p>texto atual da seção</p>",
     ) = StructureAcceptRequest(
         proposalId = proposalId,
+        noteId = noteId,
         sectionId = sectionId,
         proposal = proposal(),
         plan = plan(),
@@ -169,6 +194,56 @@ class StructureAcceptMemoryRoomTest {
     }
 
     @Test
+    fun repeticaoAposEdicaoPosteriorNaoAvaliaStaleNemAlteraNada() = runBlocking {
+        db.noteDao().upsert(note("n1"))
+        db.speechSectionDao().upsert(section("s1", "n1"))
+        val first = service.accept(request(), now = 20L) as StructureAcceptResult.Applied
+
+        val edited = db.speechSectionDao().get("s1")!!.copy(
+            contentHtml = "<p>editado depois</p>",
+            updatedAt = 25L,
+        )
+        db.speechSectionDao().upsert(edited)
+
+        // O request ainda carrega o hash antigo; o evento já persistido vence.
+        val repeated = service.accept(request(), now = 30L)
+
+        assertTrue(repeated is StructureAcceptResult.AlreadyApplied)
+        assertEquals(first.decision, (repeated as StructureAcceptResult.AlreadyApplied).decision)
+        assertEquals(1, db.decisionDao().countForNote("n1"))
+        assertEquals(20L, db.decisionDao().forNote("n1").single().updatedAt)
+        val stored = db.speechSectionDao().get("s1")!!
+        assertEquals("<p>editado depois</p>", stored.contentHtml)
+        assertEquals(25L, stored.updatedAt)
+    }
+
+    @Test
+    fun colisaoDeIdentidadeEntreNotasFalhaSemAlterarNada() = runBlocking {
+        db.noteDao().upsert(note("n1"))
+        db.noteDao().upsert(note("n2"))
+        db.speechSectionDao().upsert(section("s1", "n1"))
+        val otherNoteSection = sectionDomain(id = "s1", noteId = "n2")
+        val colliding = buildStructureAcceptDecision(
+            proposalId = "sprop-1",
+            current = otherNoteSection,
+            updated = otherNoteSection,
+            summary = "Outra proposta",
+            plan = plan(),
+            now = 10L,
+        )
+        db.decisionDao().upsert(colliding.toEntity())
+
+        val error = runCatching { service.accept(request(), now = 20L) }.exceptionOrNull()
+
+        assertNotNull(error)
+        assertEquals(colliding, db.decisionDao().get(colliding.id)?.toDomain())
+        val stored = db.speechSectionDao().get("s1")!!
+        assertEquals(5, stored.minutes)
+        assertEquals(1L, stored.updatedAt)
+        assertNull(stored.agreedApproach)
+    }
+
+    @Test
     fun falhaNaDecisaoFazRollbackDaSecaoNoRoom() = runBlocking {
         db.noteDao().upsert(note("n1"))
         db.speechSectionDao().upsert(section("s1", "n1"))
@@ -192,7 +267,7 @@ class StructureAcceptMemoryRoomTest {
         db.speechSectionDao().upsert(section("s2", "n2"))
 
         val n2 = service.accept(
-            request(proposalId = "sprop-2", sectionId = "s2"),
+            request(proposalId = "sprop-2", noteId = "n2", sectionId = "s2"),
             now = 20L,
         ) as StructureAcceptResult.Applied
         val n1 = service.accept(

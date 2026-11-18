@@ -209,6 +209,7 @@ class StructureAcceptMemoryTest {
 
     private fun request(
         proposalId: String = "sprop-1",
+        noteId: String = "n1",
         sectionId: String = "s1",
         proposal: OutlineProposal = proposal(),
         plan: SectionPlan = plan(),
@@ -217,6 +218,7 @@ class StructureAcceptMemoryTest {
         allowEmptyRefs: Boolean = false,
     ) = StructureAcceptRequest(
         proposalId = proposalId,
+        noteId = noteId,
         sectionId = sectionId,
         proposal = proposal,
         plan = plan,
@@ -227,12 +229,14 @@ class StructureAcceptMemoryTest {
 
     private fun ui(
         id: String = "sprop-1",
+        noteId: String = "n1",
         proposal: OutlineProposal = proposal(),
         plan: SectionPlan = plan(),
         summary: String = "Resumo da proposta.",
         sectionBaseHash: String = baseHash(),
     ) = CopilotViewModel.StructureProposalUi(
         id = id,
+        noteId = noteId,
         sectionId = "s1",
         proposal = proposal,
         plan = plan,
@@ -305,6 +309,135 @@ class StructureAcceptMemoryTest {
         assertEquals(20L, decisionDao.rows.single().updatedAt)
         // O segundo aceite não reaplica a seção.
         assertEquals(1, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun repeticaoAposEdicaoPosteriorNaoAvaliaStale() = runBlocking {
+        val sectionDao = CaptureFakeSectionDao(listOf(section().toEntity()))
+        val decisionDao = CaptureFakeDecisionDao()
+        val (accept, _) = service(sectionDao, decisionDao)
+
+        val first = accept.accept(request(), now = 20L) as StructureAcceptResult.Applied
+        // O usuário edita a seção depois do aceite.
+        sectionDao.rows = listOf(
+            section(contentHtml = "<p>editado depois</p>", updatedAt = 25L).toEntity(),
+        )
+
+        val repeated = accept.accept(
+            request(sectionBaseHash = baseHash()),
+            now = 30L,
+        )
+
+        // O evento já persistido vence o gate de stale e não mexe em nada.
+        assertTrue(repeated is StructureAcceptResult.AlreadyApplied)
+        assertEquals(first.decision, (repeated as StructureAcceptResult.AlreadyApplied).decision)
+        assertEquals(1, decisionDao.rows.size)
+        assertEquals(20L, decisionDao.rows.single().updatedAt)
+        assertEquals("<p>editado depois</p>", sectionDao.rows.single().contentHtml)
+        assertEquals(25L, sectionDao.rows.single().updatedAt)
+        assertEquals(1, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun repeticaoComPropostaInvalidaPosteriorAindaEhIdempotente() = runBlocking {
+        val sectionDao = CaptureFakeSectionDao(listOf(section().toEntity()))
+        val decisionDao = CaptureFakeDecisionDao()
+        val (accept, _) = service(sectionDao, decisionDao)
+
+        accept.accept(request(), now = 20L)
+        val invalid = proposal(summary = "")
+        val repeated = accept.accept(
+            request(proposal = invalid, summary = ""),
+            now = 30L,
+        )
+
+        assertTrue(repeated is StructureAcceptResult.AlreadyApplied)
+        assertEquals(1, decisionDao.rows.size)
+        assertEquals(20L, decisionDao.rows.single().updatedAt)
+        assertEquals(1, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun colisaoDeIdComOutraSecaoFalhaSemAlterarNada() = runBlocking {
+        val sectionDao = CaptureFakeSectionDao(listOf(section().toEntity()))
+        val decisionDao = CaptureFakeDecisionDao()
+        val (accept, _) = service(sectionDao, decisionDao)
+        val otherSection = section(id = "s9", noteId = "n1")
+        val colliding = buildStructureAcceptDecision(
+            proposalId = "sprop-1",
+            current = otherSection,
+            updated = otherSection,
+            summary = "Outra proposta",
+            plan = plan(),
+            now = 10L,
+        )
+        decisionDao.upsert(colliding.toEntity())
+
+        val error = runCatching { accept.accept(request(), now = 20L) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals(colliding, decisionDao.rows.single().toDomain())
+        assertEquals(5, sectionDao.rows.single().minutes)
+        assertEquals(1L, sectionDao.rows.single().updatedAt)
+        assertEquals(0, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun colisaoDeIdComOutraNotaFalhaSemAlterarNada() = runBlocking {
+        val sectionDao = CaptureFakeSectionDao(listOf(section().toEntity()))
+        val decisionDao = CaptureFakeDecisionDao()
+        val (accept, _) = service(sectionDao, decisionDao)
+        val otherNoteSection = section(id = "s1", noteId = "n2")
+        val colliding = buildStructureAcceptDecision(
+            proposalId = "sprop-1",
+            current = otherNoteSection,
+            updated = otherNoteSection,
+            summary = "Outra proposta",
+            plan = plan(),
+            now = 10L,
+        )
+        decisionDao.upsert(colliding.toEntity())
+
+        val error = runCatching { accept.accept(request(), now = 20L) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals(colliding, decisionDao.rows.single().toDomain())
+        assertEquals(1L, sectionDao.rows.single().updatedAt)
+        assertEquals(0, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun colisaoDeOrigemFalhaSemAlterarNada() = runBlocking {
+        val sectionDao = CaptureFakeSectionDao(listOf(section().toEntity()))
+        val decisionDao = CaptureFakeDecisionDao()
+        val (accept, _) = service(sectionDao, decisionDao)
+        val current = section()
+        val colliding = buildStructureAcceptDecision(
+            proposalId = "sprop-1",
+            current = current,
+            updated = current,
+            summary = "Outra proposta",
+            plan = plan(),
+            now = 10L,
+        ).copy(source = DecisionSource.EXPLICIT_USER)
+        decisionDao.upsert(colliding.toEntity())
+
+        val error = runCatching { accept.accept(request(), now = 20L) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals(colliding, decisionDao.rows.single().toDomain())
+        assertEquals(0, sectionDao.upsertCalls)
+    }
+
+    @Test
+    fun avisoDeApproachCheioDistingueDecisaoDoCampoLegado() {
+        val notice = structureAppliedNotice(ConfirmedApproachWrite.NoSpace)
+
+        assertEquals(STRUCTURE_APPROACH_NOT_STORED_NOTICE, notice)
+        assertTrue(notice.contains("decisão registrada"))
+        assertTrue(notice.contains("campo legado"))
+        assertTrue(notice.contains("preservado"))
+        assertFalse(notice.contains("não foi memorizada"))
     }
 
     @Test
@@ -390,6 +523,7 @@ class StructureAcceptMemoryTest {
 
         val result = accept.accept(
             request(
+                noteId = "n7",
                 sectionId = "s9",
                 sectionBaseHash = baseHash(title = "Outra seção"),
             ),
@@ -414,7 +548,7 @@ class StructureAcceptMemoryTest {
         val (accept, _) = service(sectionDao, decisionDao)
 
         val fromN2 = accept.accept(
-            request(proposalId = "sprop-2", sectionId = "s2"),
+            request(proposalId = "sprop-2", noteId = "n2", sectionId = "s2"),
             now = 20L,
         ) as StructureAcceptResult.Applied
         val fromN1 = accept.accept(

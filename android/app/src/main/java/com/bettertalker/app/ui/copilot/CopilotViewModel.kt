@@ -5802,6 +5802,7 @@ class CopilotViewModel(
      */
     data class StructureProposalUi(
         val id: String,
+        val noteId: String,
         val sectionId: String,
         /** Proposta integral (para revalidar no aceite). */
         val proposal: OutlineProposal,
@@ -6388,6 +6389,7 @@ class CopilotViewModel(
         }
         _structureProposal.value = StructureProposalUi(
             id = newId("sprop"),
+            noteId = section.noteId,
             sectionId = sectionId,
             proposal = proposal,
             plan = plan,
@@ -6417,6 +6419,7 @@ class CopilotViewModel(
                 val result = structureAcceptService.accept(
                     request = StructureAcceptRequest(
                         proposalId = ui.id,
+                        noteId = ui.noteId,
                         sectionId = ui.sectionId,
                         proposal = ui.proposal,
                         plan = ui.plan,
@@ -9109,14 +9112,19 @@ const val STRUCTURE_APPLY_FAILED_NOTICE =
     "Não consegui aplicar a estrutura. Tente novamente."
 
 /**
- * 1C.2.0: a estrutura foi aplicada, mas a confirmação da abordagem não coube
- * no teto de 500 chars. Nunca anunciar memorização parcial.
+ * 1C.2.1B1: a decisão JÁ foi registrada no Room; apenas o campo legado
+ * `agreedApproach` não coube no teto de 500 chars. O aviso nunca deve dizer
+ * que a decisão não foi memorizada — só que o campo legado foi preservado.
  */
 const val STRUCTURE_APPROACH_NOT_STORED_NOTICE =
-    "Estrutura aplicada, mas a abordagem não foi memorizada: o limite de 500 " +
-        "caracteres foi atingido. O registro anterior foi preservado."
+    "Estrutura aplicada e decisão registrada. A abordagem não pôde ser " +
+        "atualizada no campo legado de abordagem (limite de 500 caracteres); " +
+        "o texto anterior foi preservado."
 
-/** 1C.2.0: só anuncia memorização quando a confirmação foi gravada. */
+/**
+ * 1C.2.0/1C.2.1B1: a decisão já está persistida. [NoSpace] diferencia apenas
+ * a impossibilidade de atualizar o campo legado `agreedApproach`.
+ */
 internal fun structureAppliedNotice(
     write: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
 ): String = if (write is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.NoSpace) {

@@ -196,7 +196,10 @@ class StructureProposalTest {
         assertTrue(result.approachWrite is ConfirmedApproachWrite.NoSpace)
         assertEquals(full, result.section.agreedApproach)
         assertFalse(result.section.agreedApproach!!.contains("Abordagem nova"))
-        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("não foi memorizada"))
+        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("decisão registrada"))
+        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("campo legado"))
+        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("preservado"))
+        assertFalse(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("não foi memorizada"))
         assertEquals(
             STRUCTURE_APPROACH_NOT_STORED_NOTICE,
             structureAppliedNotice(ConfirmedApproachWrite.NoSpace),
@@ -315,6 +318,7 @@ class StructureProposalTest {
         val propostaSemRefs = proposal(plan(minutes = 5, bibleRefs = emptyList()))
         val criadaSemRefs = CopilotViewModel.StructureProposalUi(
             id = "sp1",
+            noteId = "n1",
             sectionId = "s1",
             proposal = propostaSemRefs,
             plan = plan(),

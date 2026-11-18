@@ -33,6 +33,7 @@ import com.bettertalker.app.domain.speech.SpeechSection
  */
 internal data class StructureAcceptRequest(
     val proposalId: String,
+    val noteId: String,
     val sectionId: String,
     val proposal: OutlineProposal,
     val plan: SectionPlan,
@@ -58,13 +59,17 @@ internal sealed interface StructureAcceptResult {
 /**
  * Executa o aceite estrutural numa única transação:
  *
- * 1. revalida a proposta;
- * 2. relê a seção persistida e barra stale por hash;
- * 3. aplica a estrutura;
- * 4. grava a decisão explícita (`STRUCTURE_ACCEPT`).
+ * 1. verifica se o evento determinístico já foi persistido;
+ * 2. se novo, revalida a proposta;
+ * 3. relê a seção persistida e barra stale por hash;
+ * 4. aplica a estrutura;
+ * 5. grava a decisão explícita (`STRUCTURE_ACCEPT`).
  *
- * Se qualquer etapa falhar, a transação desfaz seção e decisão juntas.
- * Repetir o mesmo aceite reaproveita o id determinístico e não duplica.
+ * Um evento já persistido retorna `AlreadyApplied` antes do validador e do
+ * gate de stale: repetir depois de uma edição posterior não altera seção,
+ * decisão nem timestamps. Colisões de identidade (outra nota/seção/origem)
+ * falham explicitamente. Se qualquer etapa nova falhar, a transação desfaz
+ * seção e decisão juntas.
  */
 internal class StructureAcceptService(
     private val transactionRunner: TransactionRunner,
@@ -76,11 +81,21 @@ internal class StructureAcceptService(
         request: StructureAcceptRequest,
         now: Long = System.currentTimeMillis(),
     ): StructureAcceptResult = transactionRunner.run {
+        val decisionId = structureAcceptDecisionId(request.proposalId)
+        val existing = decisionMemory.get(decisionId)
+        if (existing != null) {
+            requireSameStructureAcceptIdentity(existing, request)
+            return@run StructureAcceptResult.AlreadyApplied(existing)
+        }
+
         if (!validateStructureAccept(request.proposal, request.allowEmptyRefs)) {
             return@run StructureAcceptResult.Invalid
         }
         val current = sectionDao.get(request.sectionId)?.toDomain()
             ?: return@run StructureAcceptResult.MissingSection
+        require(current.noteId == request.noteId) {
+            "seção ${request.sectionId} não pertence à nota ${request.noteId}"
+        }
 
         when (
             val decision = decideStructureAccept(
@@ -94,18 +109,6 @@ internal class StructureAcceptService(
             StructureAcceptDecision.Stale -> StructureAcceptResult.Stale
 
             is StructureAcceptDecision.Apply -> {
-                val decisionId = structureAcceptDecisionId(request.proposalId)
-                val existing = decisionMemory.get(decisionId)
-                if (existing != null) {
-                    // O mesmo evento já foi persistido. Não reaplica a seção
-                    // nem altera createdAt/updatedAt do registro original.
-                    require(existing.source == DecisionSource.STRUCTURE_ACCEPT)
-                    require(existing.sourceProposalId == request.proposalId)
-                    require(existing.noteId == current.noteId)
-                    require(existing.sectionId == current.id)
-                    return@run StructureAcceptResult.AlreadyApplied(existing)
-                }
-
                 sectionDao.upsert(decision.updated.toEntity())
                 val record = buildStructureAcceptDecision(
                     proposalId = request.proposalId,
@@ -117,6 +120,40 @@ internal class StructureAcceptService(
                 )
                 decisionMemory.save(record)
                 StructureAcceptResult.Applied(decision.approachWrite, record)
+            }
+        }
+    }
+
+    /**
+     * O id determinístico é global. Se já existe um registro com esse id, ele
+     * precisa representar exatamente o mesmo evento: `STRUCTURE_ACCEPT`, mesmo
+     * `sourceProposalId`, mesma seção e, quando a seção ainda existe, mesma
+     * nota. Caso contrário a colisão é rejeitada em vez de virar idempotência
+     * silenciosa.
+     */
+    private suspend fun requireSameStructureAcceptIdentity(
+        existing: DecisionRecord,
+        request: StructureAcceptRequest,
+    ) {
+        require(existing.source == DecisionSource.STRUCTURE_ACCEPT) {
+            "colisão de id ${existing.id}: origem diferente de STRUCTURE_ACCEPT"
+        }
+        require(existing.scope == DecisionScope.SECTION) {
+            "colisão de id ${existing.id}: escopo diferente de SECTION"
+        }
+        require(existing.sourceProposalId == request.proposalId) {
+            "colisão de id ${existing.id}: sourceProposalId divergente"
+        }
+        require(existing.noteId == request.noteId) {
+            "colisão de id ${existing.id}: nota divergente"
+        }
+        require(existing.sectionId == request.sectionId) {
+            "colisão de id ${existing.id}: seção divergente"
+        }
+        val current = sectionDao.get(request.sectionId)
+        if (current != null) {
+            require(current.noteId == request.noteId) {
+                "colisão de id ${existing.id}: seção pertence a outra nota"
             }
         }
     }
