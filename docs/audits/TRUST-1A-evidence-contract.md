@@ -1,0 +1,187 @@
+# TRUST-1A — Contrato de isolamento de evidência (proposta, sem implementação)
+
+**Status:** proposta para revisão/autorização. Nenhum código foi alterado.  
+**Base:** TRUST-0 (`docs/audits/TRUST-0-discovery-report.md`), `origin/main` `4210233`, PR #8 `26f9541`.  
+**Escopo:** separação por construção entre contexto conversacional e evidência factual. Não cobre avaliação semântica (TRUST-2).
+
+---
+
+## 1. Objetivo
+
+Garantir que verificadores factuais usem apenas conteúdo documental realmente recuperado, mesmo quando o LLM recebe contexto conversacional, memória e estrutura do S-34 no prompt.
+
+Invariante central:
+
+> Memória, hipótese do usuário, histórico, mera existência de referência e estrutura do S-34 **não** são prova documental.
+
+---
+
+## 2. Tipos de contexto (contrato)
+
+### 2.1 `ConversationContext` (prompt-only)
+
+Conteúdo:
+- pergunta atual do usuário;
+- histórico recente;
+- hipóteses do usuário;
+- tentativas de refutação;
+- decisões pendentes.
+
+Uso:
+- pode entrar no prompt para continuidade e personalização;
+- **nunca** entra em corpus factual;
+- não autoriza claim factual.
+
+### 2.2 `WritingMemory` (prompt-only)
+
+Conteúdo:
+- `agreedApproach`, preferências, decisões do usuário;
+- resumo rolante da conversa.
+
+Uso:
+- orienta estilo/redação;
+- **nunca** entra em corpus factual;
+- já parcialmente isolada em PR #8 via `buildEvidenceBlock(includeApproach = false)`.
+
+### 2.3 `StructuralContext` (estrutura, não prova)
+
+Conteúdo:
+- títulos, objetivos, ordem de pontos;
+- refs do S-34 (rótulos);
+- subpontos;
+- metadados de seção.
+
+Uso:
+- guia geração e navegação;
+- rótulos de refs podem aparecer como metadados;
+- **não** autoriza conteúdo da ref sem texto recuperado.
+
+### 2.4 `EvidenceCorpus` (única fonte factual)
+
+Conteúdo permitido:
+- `ContextPack` sources com texto não vazio (`CONTENT` e `TRAINING`? ver §2.5);
+- dossiê via `buildEvidenceBlock` (prosa, refs com texto, textos resolvidos);
+- versículos/publicações/capítulos resolvidos com texto não vazio;
+- fontes do assistente global com texto recuperado;
+- refs do S-34 **somente** quando houver texto recuperado (`rawText`/resolved text não vazio).
+
+Conteúdo proibido:
+- `userText`;
+- `userHistory`;
+- memória/abordagem;
+- títulos sem conteúdo;
+- refs sem texto;
+- fontes waived;
+- be/th como prova doutrinal (são `TRAINING`, não `CONTENT`);
+- S-34 contendo apenas referência.
+
+---
+
+## 3. Regra de cidadania da pergunta do usuário
+
+O Mentor pode:
+- citar a pergunta do usuário;
+- parafraseá-la;
+- usá-la para responder ou refutar.
+
+Mas:
+- a pergunta não é evidência;
+- citações da pergunta no answer devem ser tratadas como discurso indireto/atribuição ao usuário, não como fonte;
+- o verificador factual não deve tratar texto do usuário como corpus.
+
+Implicação de implementação (futura): quando o modelo cita a fala do usuário, deve usar formulação atribuída (“você disse…”) em vez de aspas factuais; aspas factuais continuam sendo checadas contra `EvidenceCorpus`.
+
+---
+
+## 4. Caminhos que usam `verificationCorpus` (inventário)
+
+| Caminho | Função/arquivo | Corpus atual | Ação futura |
+|---|---|---|---|
+| Chat remoto | `CopilotViewModel.answerRemote` → `chatVerificationCorpus` (`CopilotViewModel.kt:287-308`, chamada ~5470) | Inclui `userText`, `userHistory`, refs, dossiê | Remover user text/history; manter evidência |
+| Verificação de chat | `verifyChatText` (`CopilotViewModel.kt:468`) | Recebe corpus montado acima | Sem mudança de assinatura; apenas corpus |
+| Geração/insert | `verifyGeneratedText` (`GenerationVerification.kt:38-60`) | `verificationCorpus(turnContext)` + extras | Garantir extras são evidência |
+| Corpus S-34 | `s34CorpusTexts` (`GenerationVerification.kt:12-36`) | Objetivo, nota do orador, seções, refs `rawText` | Excluir refs sem texto resolvido |
+| Oratória/card | `CopilotViewModel` card path (~4860-4890) | `turnContext` + evidence + texto da seção | Mesmo contrato |
+| Global assistant | `GlobalAssistantViewModel` + `CitationContract` | Fontes da Biblioteca | Adicionar tipo `AUTHORIZED_SOURCE` |
+| Source question mode | `answerRemote` ~5456-5475 | Bloco da fonte + refs detectadas | Manter apenas texto recuperado |
+
+---
+
+## 5. Critérios para cenários obrigatórios
+
+| Cenário | Critério esperado |
+|---|---|
+| Hipótese falsa do usuário | Não pode ser tratada como evidência; resposta pode refutar usando fonte ou limitação |
+| Hipótese correta não comprovada | Deve ser rotulada como hipótese/sugestão, não fato |
+| Fonte documental recuperada | Entra em `EvidenceCorpus` |
+| Referência mencionada sem texto | Não entra em `EvidenceCorpus`; resposta deve dizer que o texto não está disponível |
+| Fonte citada que não sustenta interpretação | Corpus contém texto; verificação sintática não resolve (TRUST-2) |
+| Corpus vazio | Verificador retorna texto intacto (comportamento atual preservado) |
+| S-34 com apenas referência | Ref não autoriza conteúdo |
+| Memória de decisão com versículo sem texto | Memória não é corpus |
+| Respostas com/sem citações literais | Quote check só contra `EvidenceCorpus` |
+
+---
+
+## 6. Arquivos que a implementação futura precisaria alterar
+
+1. `android/.../ui/copilot/CopilotViewModel.kt`
+   - `verificationCorpus` (261-284)
+   - `chatVerificationCorpus` (287-308)
+   - `answerRemote` montagem de corpus (~5456-5475)
+2. `android/.../ui/copilot/GenerationVerification.kt`
+   - `s34CorpusTexts` (12-36)
+   - `verifyGeneratedText` (38-60)
+3. `android/.../ui/assistant/GlobalAssistantViewModel.kt`
+   - caminho de citação (354-395)
+4. `android/.../data/copilot/SourceGate.kt`
+   - waived/evidência (40-157)
+5. `android/.../data/copilot/DossierPromptBuilder.kt`
+   - `buildEvidenceBlock` (95-105)
+6. `android/.../data/copilot/OratoryFidelityCheck.kt`
+   - corpus autorizado (60-135)
+7. `android/.../data/copilot/CitationContract.kt`
+   - contrato de fonte (31-70)
+8. Testes:
+   - `VerificationCorpusTest.kt`
+   - `OratoryVerificationCorpusTest.kt`
+   - `SourceGateTest.kt`
+   - `CitationContractTest.kt`
+   - `GroundednessNormalizationTest.kt`
+   - `OratoryFidelityCanonicalTest.kt`, `OratoryFidelityCleanupTest.kt`
+   - `DossierFidelityCheckTest.kt`
+
+---
+
+## 7. Plano mínimo de implementação (TRUST-1A, não executar agora)
+
+1. Introduzir (em código, futuramente) a distinção de tipos de contexto sem mudar prompts.
+2. Alterar `chatVerificationCorpus` para não aceitar `userText`/`userHistory`.
+3. Alterar `s34CorpusTexts` para incluir apenas refs com texto resolvido.
+4. Garantir que `verifyGeneratedText` filtre extras vazios (já faz) e documente que extras devem ser evidência.
+5. Atualizar prompt rules para atribuição indireta da fala do usuário.
+6. Adicionar testes de regressão para os cenários da §5.
+7. Manter warn-only/remoção existentes sem mudança silenciosa.
+
+Não incluir avaliação semântica (TRUST-2).
+
+---
+
+## 8. Dependências do PR #8 e riscos de integração
+
+- PR #8 introduziu `evidenceContextBlock` e exclusão da memória do corpus. TRUST-1A depende dessa separação.
+- Se TRUST-1A for implementado antes da integração do PR #8, haverá conflito em `CopilotViewModel.answerRemote` e `chatVerificationCorpus`.
+- Recomendação: integrar PR #8 (M0) antes de TRUST-1A, ou rebasear TRUST-1A sobre o PR #8.
+- Risco: testes existentes (`VerificationCorpusTest`) podem quebrar com remoção de `userText`/`userHistory`; atualizar testes de forma explícita, não silenciosa.
+
+---
+
+## 9. Limitações e hipóteses não verificadas
+
+- Não foi possível validar em aparelho (sem build/teste).
+- Não se sabe a cobertura real de refs resolvidas em notas reais.
+- A eficácia da atribuição indireta no prompt depende do modelo.
+- TRUST-1A não resolve interpretação semântica (TRUST-2).
+- Corpus vazio continua sem proteção factual (comportamento atual preservado por requisito).
+
+**Fim da proposta TRUST-1A.**
