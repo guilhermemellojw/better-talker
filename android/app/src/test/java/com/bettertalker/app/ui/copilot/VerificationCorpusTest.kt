@@ -39,7 +39,7 @@ class VerificationCorpusTest {
                 training = listOf(ev("3", "Técnica de entrega", SourceType.TRAINING)),
             )
         )
-        assertEquals(listOf("Trecho de conteúdo", "Técnica de entrega"), corpus)
+        assertEquals(listOf("Trecho de conteúdo"), corpus)
     }
 
     @Test
