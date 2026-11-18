@@ -140,6 +140,7 @@ import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.verify.TextVerification
 import com.bettertalker.app.data.verify.verifyText
 import com.bettertalker.app.data.repo.CopilotRepository
+import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.data.repo.IdeaCard
 import com.bettertalker.app.data.repo.ImportException
 import com.bettertalker.app.data.repo.MIN_RELEVANT_HITS
@@ -242,6 +243,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class InsertRequest(
     val text: String,
@@ -727,13 +729,21 @@ class CopilotViewModel(
     /** Cache do inventário de fontes para o diagnóstico do Mentor. */
     private var diagnosisSourcesCache: Pair<String, NoteSources>? = null
     private val diagnosisSourcesMutex = Mutex()
+    private val transactionRunner = RoomTransactionRunner(db)
     // 3.2.3c: persistência do esboço convertido (seções + sub-pontos).
     private val outlineImportService = OutlineImportService(
-        transactionRunner = RoomTransactionRunner(db),
+        transactionRunner = transactionRunner,
         sectionDao = db.speechSectionDao(),
         subPointDao = db.subPointDao(),
         tombstoneDao = db.tombstoneDao(),
     )
+    // 1C.2.1B1: captura do aceite estrutural, na mesma transação do aceite.
+    private val structureAcceptService = StructureAcceptService(
+        transactionRunner = transactionRunner,
+        sectionDao = db.speechSectionDao(),
+        decisionMemory = DecisionMemoryRepository(db.decisionDao(), transactionRunner),
+    )
+    private val structureAcceptInFlight = AtomicBoolean(false)
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val _query = MutableStateFlow("")
@@ -6245,33 +6255,40 @@ class CopilotViewModel(
     }
 
     /**
-     * FALTA-2: aceita a estrutura — revalida, barra stale por hash e escreve
-     * objetivo/minutes/refs/abordagem na seção (via DAO, como o aceite de
-     * texto; o editor observa o banco e reflete). `approvedAt` intacto:
-     * aprovação é passo separado (#3a).
+     * 1C.2.1B1: aceita a estrutura — revalida, barra stale por hash, aplica
+     * objetivo/minutes/refs/abordagem e grava a decisão explícita
+     * (`STRUCTURE_ACCEPT`) na MESMA transação. A UI só marca `applied=true`
+     * depois que a transação termina; falha não anuncia memorização.
      */
     fun acceptStructureProposal() {
         val ui = _structureProposal.value ?: return
         if (ui.applied) return
+        if (!structureAcceptInFlight.compareAndSet(false, true)) return
         viewModelScope.launch {
-            if (!validateStructureAccept(ui)) {
-                _structureProposal.value = ui.copy(notice = "A estrutura ficou inválida. Gere novamente.")
-                return@launch
-            }
-            val current = db.speechSectionDao().get(ui.sectionId)?.toDomain() ?: run {
-                _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
-                return@launch
-            }
-            when (val d = decideStructureAccept(current, ui.sectionBaseHash, ui.plan, ui.summary)) {
-                StructureAcceptDecision.Stale ->
-                    _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
-                is StructureAcceptDecision.Apply -> {
-                    db.speechSectionDao().upsert(d.updated.toEntity())
-                    _structureProposal.value = ui.copy(
-                        notice = structureAppliedNotice(d.approachWrite),
-                        applied = true,
-                    )
+            try {
+                val result = structureAcceptService.accept(
+                    request = StructureAcceptRequest(
+                        proposalId = ui.id,
+                        sectionId = ui.sectionId,
+                        proposal = ui.proposal,
+                        plan = ui.plan,
+                        summary = ui.summary,
+                        sectionBaseHash = ui.sectionBaseHash,
+                        allowEmptyRefs = ui.allowEmptyRefs,
+                    ),
+                    now = System.currentTimeMillis(),
+                )
+                updateStructureProposal(ui.id) { current ->
+                    result.toStructureProposalUi(current)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateStructureProposal(ui.id) { current ->
+                    structureAcceptFailure(current)
+                }
+            } finally {
+                structureAcceptInFlight.set(false)
             }
         }
     }
@@ -6279,7 +6296,19 @@ class CopilotViewModel(
     /** Rejeita a estrutura: só marca a UI, nada é escrito. */
     fun rejectStructureProposal() {
         val ui = _structureProposal.value ?: return
-        _structureProposal.value = ui.copy(notice = STRUCTURE_REJECTED_NOTICE)
+        // Não deixa uma rejeição competir com um aceite já em andamento.
+        if (structureAcceptInFlight.get()) return
+        _structureProposal.value = rejectedStructureProposal(ui)
+    }
+
+    /** Atualiza o cartão somente se ainda for a mesma proposta. */
+    private fun updateStructureProposal(
+        proposalId: String,
+        update: (StructureProposalUi) -> StructureProposalUi,
+    ) {
+        val current = _structureProposal.value ?: return
+        if (current.id != proposalId) return
+        _structureProposal.value = update(current)
     }
 
     // ---------- F5b (Modo C): estruturar texto colado de publicação ----------
@@ -8914,6 +8943,16 @@ const val STRUCTURE_STALE_NOTICE = "Proposta obsoleta — o texto mudou desde qu
 /** Aviso quando a proposta é rejeitada (nada é escrito). */
 const val STRUCTURE_REJECTED_NOTICE = "Proposta rejeitada — nada foi alterado."
 
+/** 1C.2.1B1: aceite concluído — a decisão já foi persistida na transação. */
+const val STRUCTURE_APPLIED_NOTICE = "Estrutura aplicada."
+
+/** 1C.2.1B1: proposta inválida — nada aplicado nem memorizado. */
+const val STRUCTURE_INVALID_NOTICE = "A estrutura ficou inválida. Gere novamente."
+
+/** 1C.2.1B1: falha ao aplicar/persistir — nada foi memorizado. */
+const val STRUCTURE_APPLY_FAILED_NOTICE =
+    "Não consegui aplicar a estrutura. Tente novamente."
+
 /**
  * 1C.2.0: a estrutura foi aplicada, mas a confirmação da abordagem não coube
  * no teto de 500 chars. Nunca anunciar memorização parcial.
@@ -8928,7 +8967,7 @@ internal fun structureAppliedNotice(
 ): String = if (write is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.NoSpace) {
     STRUCTURE_APPROACH_NOT_STORED_NOTICE
 } else {
-    "Estrutura aplicada."
+    STRUCTURE_APPLIED_NOTICE
 }
 
 /** Erro quando o foco não é uma seção (sub-ponto ou chat genérico). */
