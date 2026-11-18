@@ -35,7 +35,17 @@ class OratoryVerificationCorpusTest {
 
     @Test
     fun semTextoDaRefCitacaoEhRemovida() {
-        val r = verifyGeneratedText(texto, null, structuralExtras = listOf("Outro texto qualquer, sem o versículo."))
+        val r = verifyGeneratedText(
+            texto,
+            null,
+            documentarySources = listOf(
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "other",
+                    reference = "other",
+                    text = "Outro texto qualquer, sem o versículo.",
+                ),
+            ),
+        )
         assertTrue(r.hasRemovals)
     }
 

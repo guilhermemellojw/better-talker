@@ -423,14 +423,11 @@ private fun structuralItem(id: String, text: String, resolved: Boolean = true): 
 internal fun chatVerificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     evidenceContextBlock: String?,
-    structuralVerseLines: List<String> = emptyList(),
     documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
     structuralExtras: List<String> = emptyList(),
 ): List<String> = verificationCorpus(
     turnContext = turnContext,
-    documentarySources = documentarySources + structuralVerseLines.mapNotNull {
-        com.bettertalker.app.data.copilot.recoveredDocumentFromVerseLine(it)
-    },
+    documentarySources = documentarySources,
     structuralExtras = listOfNotNull(evidenceContextBlock) + structuralExtras,
 )
 
@@ -8606,12 +8603,12 @@ class CopilotViewModel(
                     // 1C.2.0: corpus de evidências sem abordagem/memória.
                     add(dossierPromptBuilder.buildEvidenceBlock(it, includeSpeakerNote = false))
                 }
-                _lastS34Document?.let { addAll(s34CorpusTexts(it)) }
+                _lastS34Document?.let { addAll(s34StructuralContext(it)) }
                 existingSections.forEach {
                     add(com.bettertalker.app.data.edit.stripHtmlToText(it.contentHtml))
                 }
             }.filter { it.isNotBlank() }
-            val verified = verifyGeneratedText(combinedText, null, corpus)
+            val verified = verifyGeneratedText(combinedText, null, structuralExtras = corpus)
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length

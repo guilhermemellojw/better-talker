@@ -11,7 +11,9 @@ import com.bettertalker.app.data.s34.S34Document
  * Usado nos caminhos de geração que não têm um [ChatTurnContext].
  * Puro/testável.
  */
-internal fun s34CorpusTexts(doc: S34Document): List<String> {
+internal fun s34CorpusTexts(doc: S34Document): List<String> = emptyList()
+
+internal fun s34StructuralContext(doc: S34Document): List<String> {
     val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
     doc.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
     doc.speakerNote?.let { if (it.isNotBlank()) items += structuralItem("speakerNote", it) }
@@ -33,7 +35,7 @@ internal fun s34CorpusTexts(doc: S34Document): List<String> {
             }
         }
     }
-    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).documentaryTexts()
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).structuralTexts()
 }
 
 private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =
@@ -77,8 +79,11 @@ internal fun verifyGeneratedText(
 ): VerificationResult {
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
-        addAll(documentarySources.map { it.text })
-        addAll(structuralExtras)
+        addAll(
+            documentarySources
+                .filter { it.resolved && !it.waived && it.text.isNotBlank() }
+                .map { it.text }
+        )
     }.filter { it.isNotBlank() }
     return GroundednessVerifier.verify(text, corpus)
 }
