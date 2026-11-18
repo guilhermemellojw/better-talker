@@ -358,4 +358,143 @@ class ChatMotionTest {
         assertEquals(TurnVisualGroup.ERROR, TurnPhase.CANCELLED.visualGroup())
         assertEquals(TurnVisualGroup.ERROR, TurnPhase.ERROR.visualGroup())
     }
+
+    // ---------- UX-2.3: handoff estável ----------
+
+    @Test
+    fun hasHiddenTurnMessage_true_apenasQuandoTurnoVisivelEOcultaPersistida() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.STREAMING)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        assertTrue(hasHiddenTurnMessage(true, turn, messages))
+        assertFalse(hasHiddenTurnMessage(false, turn, messages))
+        assertFalse(hasHiddenTurnMessage(true, null, messages))
+        val other = listOf(
+            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
+        )
+        assertFalse(hasHiddenTurnMessage(true, turn, other))
+    }
+
+    @Test
+    fun renderedMessageCount_subtraiMensagemOculta() {
+        assertEquals(2, renderedMessageCount(3, true))
+        assertEquals(3, renderedMessageCount(3, false))
+        assertEquals(0, renderedMessageCount(1, true))
+        assertEquals(0, renderedMessageCount(0, true))
+    }
+
+    @Test
+    fun isTurnHandoff_identificaPorTurnId() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        assertTrue(isTurnHandoff(turn, messages))
+        assertFalse(isTurnHandoff(turn, emptyList()))
+        assertFalse(isTurnHandoff(null, messages))
+        val userMsg = listOf(
+            CopilotViewModel.ChatItem(id = "m2", fromMe = true, kind = "text", turnId = "t1"),
+        )
+        assertFalse(isTurnHandoff(turn, userMsg))
+    }
+
+    @Test
+    fun isTurnHandoff_porIdPrimitivo() {
+        assertTrue(isTurnHandoff("t1", "t1", false))
+        assertFalse(isTurnHandoff("t1", "t1", true))
+        assertFalse(isTurnHandoff("t1", "t2", false))
+        assertFalse(isTurnHandoff(null, "t1", false))
+    }
+
+    @Test
+    fun messagesEffect_semHandoff_comportamentoNormal() {
+        assertEquals(
+            MessagesEffect.Nothing,
+            messagesEffect(
+                messageAdded = false,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = true,
+                atBottom = true,
+            ),
+        )
+        assertTrue(
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = true,
+                atBottom = true,
+            ) is MessagesEffect.ScrollTo,
+        )
+    }
+
+    @Test
+    fun isTurnHandoff_verdadeiroEmPosicaoIntermediaria() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+            CopilotViewModel.ChatItem(id = "m2", fromMe = true, kind = "text", turnId = "other"),
+        )
+        assertTrue(isTurnHandoff(turn, messages))
+        // A contagem oculta só vale se o turno ainda estiver visível.
+        assertTrue(hasHiddenTurnMessage(true, turn, messages))
+        assertEquals(1, renderedMessageCount(messages.size, true))
+    }
+
+    @Test
+    fun isTurnHandoff_naoConfundeOutroTurnoNaUltimaPosicao() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
+        )
+        // A resposta do turno existe, mas a última mensagem é de outro turno:
+        // a identidade ainda é reconhecida pela presença, não pela posição.
+        assertTrue(isTurnHandoff(turn, messages))
+    }
+
+    @Test
+    fun messagesEffect_followEndFalse_contaNovaMensagem() {
+        assertEquals(
+            MessagesEffect.CountUnseen,
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = false,
+                atBottom = false,
+            ),
+        )
+    }
+    @Test
+    fun isTurnHandoffArrival_eventoUnico() {
+        assertTrue(isTurnHandoffArrival(true, false))
+        assertFalse(isTurnHandoffArrival(true, true))
+        assertFalse(isTurnHandoffArrival(false, false))
+        assertFalse(isTurnHandoffArrival(false, true))
+    }
+
+    @Test
+    fun isTurnHandoff_presencaNaoEhEvento() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        // Presença permanece verdadeira enquanto a resposta existir.
+        assertTrue(isTurnHandoff(turn, messages))
+        // O evento de chegada é separado e pode ser consumido.
+        assertTrue(isTurnHandoffArrival(isTurnHandoff(turn, messages), false))
+        assertFalse(isTurnHandoffArrival(isTurnHandoff(turn, messages), true))
+    }
 }
