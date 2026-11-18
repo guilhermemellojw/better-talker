@@ -191,7 +191,6 @@ class TrustEvidenceTest {
 
     @Test
     fun resolvidoSemOrigemValidaNaoEvidencia() {
-        val item = item(sourceId = "   ", recovered = "texto", resolved = true)
         // sourceId vazio lança; este caso valida que origem inválida não cria evidência.
         try {
             EvidenceProvenance(
