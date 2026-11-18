@@ -22,7 +22,16 @@ class GenerationVerificationTest {
     @Test
     fun oratoria_aspasInventadas_removeFraseComAviso() {
         val generated = "A Bíblia promete: \"os mansos herdarão a terra e viverão nela para sempre\". Confie nisso."
-        val r = verifyGeneratedText(generated, extraSources = corpus)
+        val r = verifyGeneratedText(
+            generated,
+            documentarySources = corpus.mapIndexed { index, text ->
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "src-$index",
+                    reference = "src-$index",
+                    text = text,
+                )
+            },
+        )
         assertTrue(r.hasRemovals)
         assertTrue(r.text.contains(GroundednessVerifier.REMOVAL_NOTICE))
         assertTrue(r.removed.any { it.contains("os mansos herdarão a terra") })
@@ -32,7 +41,16 @@ class GenerationVerificationTest {
     @Test
     fun oratoria_textoLimpo_passaIntacto() {
         val generated = "Os justos possuirão a terra e viverão nela para sempre."
-        val r = verifyGeneratedText(generated, extraSources = corpus)
+        val r = verifyGeneratedText(
+            generated,
+            documentarySources = corpus.mapIndexed { index, text ->
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "src-$index",
+                    reference = "src-$index",
+                    text = text,
+                )
+            },
+        )
         assertFalse(r.hasRemovals)
         assertEquals(generated, r.text)
     }
@@ -42,7 +60,16 @@ class GenerationVerificationTest {
         val markdown = "# INTRODUÇÃO\n\n" +
             "A Bíblia diz: \"a terra permanecerá para sempre e jamais passará\".\n\n" +
             "# DESENVOLVIMENTO\n\nDesenvolva o ponto principal do discurso.\n"
-        val r = verifyGeneratedText(markdown, extraSources = corpus)
+        val r = verifyGeneratedText(
+            markdown,
+            documentarySources = corpus.mapIndexed { index, text ->
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "src-$index",
+                    reference = "src-$index",
+                    text = text,
+                )
+            },
+        )
         assertTrue(r.hasRemovals)
         assertFalse(r.text.contains("jamais passará"))
         assertTrue(r.text.contains(GroundednessVerifier.REMOVAL_NOTICE))

@@ -63,11 +63,8 @@ class VerificationCorpusTest {
             focusState = OutlineStructureContext.FocusState.SECTION
         )
         val corpus = verificationCorpus(turn(structural = structural))
-        assertTrue(corpus.contains("Objetivo do discurso"))
-        assertTrue(corpus.contains("Corpo do ponto"))
-        assertTrue(corpus.contains("Sub"))
-        assertTrue(corpus.contains("Leia João 3:16."))
-        assertTrue(corpus.contains("Leia Tiago 2:17."))
+        // S-34 estrutural não é evidência documental.
+        assertEquals(emptyList<String>(), corpus)
     }
 
     @Test
@@ -91,6 +88,17 @@ class VerificationCorpusTest {
             turn(content = listOf(ev("1", "Texto bíblico autorizado"))),
         )
         assertTrue(corpus.contains("Texto bíblico autorizado"))
+    }
+
+    @Test
+    fun modoFonteNaoAutorizaPergunta() {
+        val corpus = sourceQuestionVerificationCorpus(
+            questionPubs = listOf("texto recuperado"),
+            questionVerses = emptyList(),
+            bibleChapterVerses = emptyList(),
+        )
+        assertFalse(corpus.contains("afirmação não comprovada da pergunta"))
+        assertEquals(listOf("texto recuperado"), corpus)
     }
     @Test
     fun memoriaNaoEntraNoCorpusDoChat() {
@@ -118,6 +126,6 @@ class VerificationCorpusTest {
             evidenceContextBlock = "Prosa e referências do dossiê",
         )
         assertTrue(corpus.contains("Texto bíblico autorizado"))
-        assertTrue(corpus.contains("Prosa e referências do dossiê"))
+        assertFalse(corpus.contains("Prosa e referências do dossiê"))
     }
 }

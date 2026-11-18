@@ -2,6 +2,8 @@ package com.bettertalker.app.data.copilot
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -323,6 +325,33 @@ class TrustEvidenceTest {
     fun trechoBiblicoRecuperadoElegivel() {
         val source = item(id = "b", category = EvidenceCategory.CONTENT, recovered = "texto bíblico", resolved = true)
         assertTrue(source.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun adapterResolvidoValido() {
+        val resolved = com.bettertalker.app.domain.planning.ResolvedReference(
+            original = "Je 29:11",
+            canonicalRef = "Je 29:11",
+            text = "texto recuperado",
+            passageId = "p1",
+            status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+        )
+        val doc = recoveredDocumentFromResolvedBible("Je 29:11", resolved)
+        assertNotNull(doc)
+        assertEquals("texto recuperado", doc!!.text)
+    }
+
+    @Test
+    fun adapterResolvidoSemTextoRetornaNull() {
+        val resolved = com.bettertalker.app.domain.planning.ResolvedReference(
+            original = "Je 29:11",
+            canonicalRef = "Je 29:11",
+            text = null,
+            passageId = null,
+            status = com.bettertalker.app.domain.planning.ReferenceStatus.UNRESOLVED,
+        )
+        val doc = recoveredDocumentFromResolvedBible("Je 29:11", resolved)
+        assertNull(doc)
     }
 
     @Test

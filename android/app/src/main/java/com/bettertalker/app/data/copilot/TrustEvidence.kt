@@ -187,6 +187,25 @@ data class RecoveredDocument(
  * Adapter para linhas produzidas por recuperação rastreável no formato
  * "[ref] texto". Retorna null se a linha não tiver ref e texto recuperado.
  */
+fun recoveredDocumentFromResolvedBible(
+    ref: String,
+    resolved: com.bettertalker.app.domain.planning.ResolvedReference,
+): com.bettertalker.app.data.copilot.RecoveredDocument? {
+    if (ref.isBlank()) return null
+    val text = resolved.text?.takeIf { it.isNotBlank() } ?: return null
+    val canonical = resolved.canonicalRef?.takeIf { it.isNotBlank() } ?: ref
+    if (canonical.isBlank()) return null
+    return com.bettertalker.app.data.copilot.RecoveredDocument(
+        sourceId = canonical,
+        reference = canonical,
+        text = text,
+        documentUnit = resolved.passageId,
+        resolved = resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED ||
+            resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
+        waived = false,
+    )
+}
+
 fun recoveredDocumentFromVerseLine(line: String): com.bettertalker.app.data.copilot.RecoveredDocument? {
     val trimmed = line.trim()
     if (!trimmed.startsWith("[")) return null

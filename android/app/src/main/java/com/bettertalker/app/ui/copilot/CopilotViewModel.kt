@@ -353,12 +353,10 @@ fun verificationCorpus(
         items += structuralItem("structural-extra-$index", text)
     }
     val corpus = com.bettertalker.app.data.copilot.EvidenceCorpus(items)
-    return buildList {
-        addAll(corpus.documentaryTexts())
-        addAll(corpus.methodTexts())
-        addAll(corpus.structuralTexts())
-    }.filter { it.isNotBlank() }
-}
+    // Apenas evidência documental é elegível para verificação factual.
+    // Contexto estrutural/método pode servir a fidelidade, mas não autoriza
+    // afirmação bíblica, doutrinal ou histórica.
+    return corpus.documentaryTexts().filter { it.isNotBlank() }
 
 /**
  * TRUST-1A2 — evidência documental isolada, para TRUST-2 e auditoria.
@@ -476,6 +474,17 @@ fun questionVerseAliases(rawQuestion: String): List<String> =
     RefDetector.detectBible(rawQuestion)
         .map { "${it.bookNorm} ${it.chapter} ${it.verse}" }
         .distinct()
+
+/**
+ * Corpus documental do modo fonte: apenas passagens recuperadas, sem o bloco
+ * composto nem o texto da pergunta.
+ */
+fun sourceQuestionVerificationCorpus(
+    questionPubs: List<String>,
+    questionVerses: List<String>,
+    bibleChapterVerses: List<String>,
+): List<String> = (questionPubs + questionVerses + bibleChapterVerses)
+    .filter { it.isNotBlank() }
 
 /**
  * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
@@ -5227,6 +5236,18 @@ class CopilotViewModel(
         )
     }
 
+    private suspend fun resolveStructuralBibleDocuments(
+        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    ): List<com.bettertalker.app.data.copilot.RecoveredDocument> {
+        val refs = structuralBibleRefs(turnContext)
+        if (refs.isEmpty()) return emptyList()
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        return refs.mapNotNull { ref ->
+            val resolved = resolver.resolveBible(ref)
+            com.bettertalker.app.data.copilot.recoveredDocumentFromResolvedBible(ref, resolved)
+        }
+    }
+
     /**
      * Chaves canônicas das refs da SEÇÃO EM FOCO (S-34), para o inventário
      * priorizar o que o usuário está desenvolvendo. Puro/testável.
@@ -5581,6 +5602,11 @@ class CopilotViewModel(
         } else {
             resolveStructuralBibleLines(turnContext)
         }
+        val structuralBibleDocuments = if (sourceQuestionMode) {
+            emptyList()
+        } else {
+            resolveStructuralBibleDocuments(turnContext)
+        }
         if (structuralVerseLines.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
@@ -5588,18 +5614,17 @@ class CopilotViewModel(
             )
         }
         val corpus = if (sourceQuestionMode) {
-            // O modelo viu só o bloco da fonte; o corpus do verifier é o
-            // mesmo. Incluir o dossiê/S-34 aqui autorizaria citações que o
-            // modelo não recebeu.
-            listOfNotNull(effectiveContextBlock) +
-                questionPubs.map { it.passage.text } +
-                questionVerses.map { it.passage.text } +
-                bibleChapterPassage?.verses?.map { it.text }.orEmpty()
+            // O verificador documental recebe apenas as passagens recuperadas.
+            // O bloco composto da fonte permanece somente no prompt.
+            sourceQuestionVerificationCorpus(
+                questionPubs = questionPubs.map { it.passage.text },
+                questionVerses = questionVerses.map { it.passage.text },
+                bibleChapterVerses = bibleChapterPassage?.verses?.map { it.text }.orEmpty(),
+            )
         } else {
             chatVerificationCorpus(
                 turnContext = turnContext,
                 evidenceContextBlock = effectiveContextBlock,
-                structuralVerseLines = structuralVerseLines,
                 documentarySources = questionVerses.map { v ->
                     com.bettertalker.app.data.copilot.RecoveredDocument(
                         sourceId = v.passage.ref.ifBlank { "question-verse" },
@@ -5618,7 +5643,7 @@ class CopilotViewModel(
                         resolved = p.passage.text.isNotBlank(),
                         waived = false,
                     )
-                },
+                } + structuralBibleDocuments,
                 structuralExtras = questionVerseAliases(text) +
                     listOfNotNull(effectiveContextBlock),
             )

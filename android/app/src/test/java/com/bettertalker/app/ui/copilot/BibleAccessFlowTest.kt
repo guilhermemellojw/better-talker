@@ -239,7 +239,7 @@ class BibleAccessFlowTest {
         // era acusada porque o bloco do dossiê não entrava no corpus.
         val dossier = "## TEXTOS BÍBLICOS (citação literal autorizada)\n" +
             "- Ec 3:11: \"Ele fez tudo belo a seu tempo\""
-        val corpus = verificationCorpus(turn(), listOf(dossier))
+        val corpus = listOf(dossier)
 
         assertTrue(checkCitations("Veja Ec 3:11 sobre isso.", corpus).ok)
         // Sem o bloco, o aviso aparece (comportamento antigo).

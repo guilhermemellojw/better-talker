@@ -33,7 +33,7 @@ internal fun s34CorpusTexts(doc: S34Document): List<String> {
             }
         }
     }
-    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).structuralTexts()
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items).documentaryTexts()
 }
 
 private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =

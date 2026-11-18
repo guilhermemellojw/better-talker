@@ -66,7 +66,16 @@ class BibleQuestionPromptTest {
     @Test
     fun verificationCorpus_incluiVersiculoDaPergunta() {
         val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem”"))
-        val corpus = verificationCorpus(turn(), questionVerseLines(verses))
+        val corpus = verificationCorpus(
+            turn(),
+            documentarySources = listOf(
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "Je 29:11",
+                    reference = "Je 29:11",
+                    text = "[Je 29:11] “Pois eu sei muito bem”",
+                ),
+            ),
+        )
         assertTrue(corpus.contains("[Je 29:11] “Pois eu sei muito bem”"))
     }
 
