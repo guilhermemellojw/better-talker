@@ -100,6 +100,11 @@ data class EvidenceUnit(
     val edition: String? = null,
     val documentUnit: String? = null,
     val truncated: Boolean = false,
+    /**
+     * Indica que este texto foi efetivamente disponibilizado ao contexto do
+     * Mentor. Recuperar não é o mesmo que expor ao modelo.
+     */
+    val exposedToModel: Boolean = false,
 ) {
     init {
         require(item.provenance.category == kind.requiredCategory) {
@@ -121,11 +126,11 @@ data class EvidenceUnit(
      * não dispensado, com texto e sem truncamento.
      */
     fun isFactualEligible(): Boolean =
-        kind.documentary && item.isDocumentaryEvidence() && !truncated
+        kind.documentary && item.isDocumentaryEvidence() && !truncated && exposedToModel
 
     /** Elegível como orientação de método/oratória, nunca como prova factual. */
     fun isMethodEligible(): Boolean =
-        kind == DocumentKind.TRAINING && item.isMethodEvidence() && !truncated
+        kind == DocumentKind.TRAINING && item.isMethodEvidence() && !truncated && exposedToModel
 }
 
 /** Adaptador de [RecoveredDocument] para [EvidenceUnit], sem duplicar texto. */
@@ -133,6 +138,7 @@ fun RecoveredDocument.asEvidenceUnit(
     kind: DocumentKind,
     edition: String? = null,
     truncated: Boolean = false,
+    exposedToModel: Boolean = false,
 ): EvidenceUnit = EvidenceUnit(
     item = EvidenceItem(
         id = sourceId,
@@ -150,6 +156,7 @@ fun RecoveredDocument.asEvidenceUnit(
     edition = edition,
     documentUnit = documentUnit,
     truncated = truncated,
+    exposedToModel = exposedToModel,
 )
 
 /** Estado semântico de uma afirmação. */

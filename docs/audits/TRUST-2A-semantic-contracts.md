@@ -16,9 +16,9 @@
 
 ### Evidência
 
-- `EvidenceUnit` reutiliza `EvidenceItem`/`EvidenceProvenance`; preserva `documentId`, referência, tipo, edição, unidade, texto, truncamento e vínculo.
+- `EvidenceUnit` reutiliza `EvidenceItem`/`EvidenceProvenance`; preserva `documentId`, referência, tipo, edição, unidade, texto, truncamento, `exposedToModel` e vínculo.
 - `DocumentKind`: BIBLE, PUBLICATION, S34, USER_MESSAGE, TRAINING.
-- `isFactualEligible()`: apenas BIBLE/PUBLICATION com `CONTENT` resolvido, não dispensado, texto não vazio e sem truncamento.
+- `isFactualEligible()`: apenas BIBLE/PUBLICATION com `CONTENT` resolvido, não dispensado, texto não vazio, sem truncamento e efetivamente exposto ao modelo.
 - `RecoveredDocument.asEvidenceUnit(...)` evita segunda cópia independente do conteúdo.
 
 ### Resultados
@@ -46,7 +46,8 @@
 5. `EvidenceUnit` BIBLE/PUBLICATION exige unidade documental.
 6. `kind` incompatível com `EvidenceCategory` falha na construção.
 7. Texto truncado não é elegível para `SUPPORTED`; ausência de citação em fonte truncada é `UNVERIFIABLE`.
-8. Corpus vazio resulta em `NOT_EVALUATED`/`UNVERIFIABLE`, nunca confirmação.
+8. Texto recuperado mas não exposto ao modelo (`exposedToModel=false`) não é elegível para suporte.
+9. Corpus vazio resulta em `NOT_EVALUATED`/`UNVERIFIABLE`, nunca confirmação.
 9. Resultados são imutáveis (data classes) e preservam IDs de origem.
 
 ## 3. Compatibilidade com TRUST-1A2

@@ -38,6 +38,7 @@ class SemanticVerificationTest {
         resolved: Boolean = true,
         waived: Boolean = false,
         truncated: Boolean = false,
+        exposedToModel: Boolean = true,
     ): EvidenceUnit = EvidenceUnit(
         item = item(
             id = id,
@@ -50,6 +51,7 @@ class SemanticVerificationTest {
         kind = kind,
         documentUnit = documentUnit,
         truncated = truncated,
+        exposedToModel = exposedToModel,
     )
 
     private fun claim(
@@ -97,6 +99,11 @@ class SemanticVerificationTest {
     @Test
     fun evidenciaTruncadaNaoEhElegivelParaSuporte() {
         assertFalse(unit(truncated = true).isFactualEligible())
+    }
+
+    @Test
+    fun textoNaoExpostoAoModeloNaoEhElegivel() {
+        assertFalse(unit(exposedToModel = false).isFactualEligible())
     }
 
     @Test
@@ -463,7 +470,7 @@ class SemanticVerificationTest {
             text = "texto recuperado",
             documentUnit = "v. 11",
         )
-        val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE)
+        val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE, exposedToModel = true)
         assertEquals("src-1", evidence.documentId)
         assertEquals("Je 29:11", evidence.reference)
         assertEquals("texto recuperado", evidence.text)
