@@ -17,7 +17,7 @@
 - **Honestidade:** quando falta fonte, dizer o que não foi possível conferir. Ilustrações criativas são hipóteses/sugestões identificadas, não acontecimentos históricos.
 - **S-34:** é um esboço estrutural que o usuário fornece em arquivo; não tentar baixá-lo automaticamente do jw.org ou presumir disponibilidade pública. Importar não autentica origem ou conteúdo.
 - **Local-first e acessibilidade:** texto e toque são alternativas completas à voz. Priorizar STT/TTS local onde disponível, sem garantir offline quando o motor depende de rede. Suporte real a leitura difícil, fontes ampliadas, TalkBack, confirmações claras e interface pouco carregada.
-- **Viabilidade:** DeepSeek como provedor principal nesta fase. Não distribuir chave compartilhada no APK. Acesso gratuito financiado por contribuições voluntárias é uma *visão condicionada* à medição e a backend seguro.
+- **Viabilidade e experiência antes do modelo:** a experiência de mentoria (conversa natural, paciência, autonomia, continuidade e fidelidade) é o produto; a marca/potência do LLM é um meio substituível. Adotar o **modelo mínimo suficiente**: o de menor custo total que passe os gates de qualidade em tarefas reais. DeepSeek permanece como provedor principal nesta fase, sem migração antecipada. Não distribuir chave compartilhada no APK. Acesso gratuito financiado por contribuições voluntárias é uma *visão condicionada* à medição e a backend seguro.
 - **Evolução incremental:** preservar Android/Compose, Room, Biblioteca, editor por introdução/tópicos/conclusão, Treino, Palco e mecanismos existentes; não reescrever o app.
 - **Governança:** nenhum agente faz merge, tag, release, version bump, migração de schema ou mudança de roadmap sem autorização explícita do mantenedor.
 
@@ -60,7 +60,7 @@
 | **M3 — Diálogo com memória** | 1C.2.1 → 1C.2.2; PEDAGOGY-1 | Decisões somente do usuário, por seção, rejeição/substituição, controle de apagar; Mentor conduz tópico a tópico sem perguntas infinitas |
 | **M4 — Voz e compreensão** | VOICE-FIRST + A11Y + feedback visual honesto (UX-3) | Voz aciona tarefas reais; leitura/repetição/pausa, transcrição verificável, TalkBack/fonte grande; texto e toque equivalentes |
 | **M5 — Preparação simples integrada** | EDITOR-SIMPLE → vertical S-34; TRUST-3/4 | Abrir/importar S-34 → compreender → conversar → rascunhar → ouvir/revisar → confirmar → editor → ensaiar, sem perda de autoria |
-| **M6 — Operação sustentável** | COST e eventual backend/quotas/contribuições | Custos reais e limites medidos; nenhuma chave central no APK; testes de segurança/privacidade, viabilidade e requisitos legais verificados |
+| **M6 — Operação sustentável** | COST-EVAL (comparação cega após baseline estável de Mentor/TRUST) → COST e eventual backend/quotas/contribuições | Escolha do modelo mínimo suficiente com qualidade, fidelidade, latência e custo por jornada medidos; nenhuma chave central no APK; testes de segurança/privacidade, viabilidade e requisitos legais verificados |
 
 **Gate de piloto de 8–12 semanas:** uma jornada S-34 controlada demonstrável e avaliada; NÃO implica conformidade total nem segurança factual absoluta. **Beta com visão ampliada:** horizonte exploratório de 4–6 meses. **Expansão sustentada:** 6–12 meses ou mais, condicionada a TRUST, A11Y e custo.
 
@@ -75,7 +75,7 @@ PEDAGOGY-0 (discovery) ───────────────────
                                                │
 VOICE-FIRST + A11Y (discovery cedo) ──────────┤
 EDITOR-SIMPLE (discovery cedo) ────────────────┴──► PILOTO S-34
-COST (medição desde já) ─► backend opcional após viabilidade e segurança
+COST (instrumentação desde já) ─► COST-EVAL (após baseline estável de Mentor/TRUST) ─► backend opcional após viabilidade e segurança
 ```
 
 ## 5. Backlog detalhado e critérios de aceitação
@@ -127,9 +127,17 @@ Preservar um único documento por seção com **vistas Entender / Escrever / Ens
 
 **Vertical de aceite:** usuário abre o Assistente (voz ou texto) → seleciona/importa S-34 manualmente → confirma objetivo/fonte → desenvolve um tópico → pede rascunho → escuta e revisa → confirma → texto salvo na seção correta → ensaio. Testar fonte ausente, troca de tópico, cancelamento, edição manual e reinício.
 
-### G. COST / operação
+### G. COST / experiência, avaliação de modelos e operação
 
-Instrumentar tokens/custos por **discurso preparado**, latência, retries, cache e consumo por voz; cenário com fonte faltante e preparação longa. Distinguir valores simulados de medições. Avaliar BYOK opcional, cota gratuita, contribuições voluntárias, quotas/antiabuso/backend somente depois de requisitos de privacidade, tributos e distribuição. Jamais incluir chave coletiva no APK.
+**Princípio de produto — experiência acima da potência do modelo.** O usuário deve perceber um Mentor competente, paciente, natural, acessível e confiável, não um chatbot genérico. Priorizar o **modelo mínimo suficiente**: o modelo de menor **custo total por jornada aprovada** que satisfaça os gates de experiência e confiança. Não presumir equivalência a modelos premium, nem otimizar custos sacrificando fluidez, profundidade útil ou fidelidade.
+
+**Otimizar primeiro a arquitetura:** reutilizar RAG local e evidências recuperadas, memória compacta de decisões aceitas, prompts específicos por intenção, tarefas determinísticas fora do LLM, controle de contexto, cache de prefixos quando suportado e verificação independente de fontes. Não enviar documentos inteiros ou histórico irrelevante. Medir custos de retries, verificações, tokens de raciocínio e eventuais escalonamentos; cache hit não é garantido. Preservar o contrato de privacidade e o isolamento de dados por usuário.
+
+**COST-EVAL — avaliação antes da troca de provedor:** iniciar agora somente instrumentação e desenho de fixtures; executar comparação decisória **após baseline estável de memória, diálogo pedagógico e TRUST**, com prompt, corpus, RAG, memória e parâmetros congelados. Testar o DeepSeek atual contra candidatos econômicos e pelo menos uma referência premium, **sem fixar nomes ou preços antes de confirmar disponibilidade, API e tabela vigente**. Usar pelo menos 60 casos representativos: 15 mentoria/conversa, 10 desenvolvimento S-34, 15 explicações com fontes, 10 memória/continuidade e 10 ausência de evidência/ataques; incluir conversas de múltiplos turnos, texto em português, usuários com menor fluência de leitura, casos com fonte ausente e preparação longa. Comparação cega com avaliadores humanos e verificadores independentes, registrando latência p50/p95, tokens normais/em cache/de saída, custo por jornada aprovada, retries, recusas indevidas e erros de fidelidade.
+
+**Critérios propostos, a validar no discovery:** mentoria/conversa 30%, fidelidade 30%, continuidade 20%, clareza/naturalidade 10%, latência/custo 10%. **Fidelidade é também gate eliminatório**, não compensável por pontuação alta em escrita ou preço; definir limiares concretos e taxa aceitável de erros antes do teste. Não selecionar modelo com base apenas em texto bonito, benchmark genérico ou preço por milhão de tokens. Se o modelo econômico cumprir os gates, manter modelo único; fallback premium apenas se testes demonstrarem ganho líquido suficiente e houver política de custo/privacidade.
+
+**Operação:** instrumentar tokens/custos por **discurso preparado**, latência, retries, cache e consumo por voz; distinguir simulações de medições. Avaliar BYOK opcional, cota gratuita, contribuições voluntárias, quotas/antiabuso/backend somente depois de requisitos de privacidade, tributos e distribuição. Jamais incluir chave coletiva no APK. Não trocar provedor, implementar backend ou alterar prompts de produção apenas por esta decisão de roadmap.
 
 ## 6. Regime de trabalho: dois agentes + um Discovery
 
@@ -166,6 +174,7 @@ Apenas um agente usa **o mesmo tablet** por vez; confirmar disponibilidade do A3
 | **Hipótese** | Três vistas simplificam o editor; feedback visual reduz confusão; voz realmente facilita aprendizado | Testes com usuários |
 | **Hipótese** | Verificação semântica tem cobertura/latência/custo aceitáveis | TRUST-2 |
 | **Proposta financeira** | Gratuidade + contribuições voluntárias + BYOK + backend de quotas | COST, após medições |
+| **Princípio de seleção** | Experiência e confiança acima da potência/marca do LLM; modelo mínimo suficiente | COST-EVAL com gates de qualidade e custo total por jornada aprovada |
 
 ## 9. Próximo checkpoint e manutenção do roadmap
 
