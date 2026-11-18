@@ -1,6 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
 import com.bettertalker.app.data.copilot.ChatRouter
+import com.bettertalker.app.data.copilot.ConfirmedApproachWrite
 import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.domain.planning.Audience
 import com.bettertalker.app.domain.planning.OutlineAngle
@@ -26,6 +27,7 @@ import org.junit.Test
 class StructureProposalTest {
 
     private fun section(
+        id: String = "s1",
         title: String = "Fé que age",
         minutes: Int = 5,
         contentHtml: String = "<p>texto atual da seção</p>",
@@ -33,7 +35,7 @@ class StructureProposalTest {
         pubRefs: List<PublicationRef> = emptyList(),
         approach: String? = null,
     ) = SpeechSection(
-        id = "s1", noteId = "n1", order = 0, role = SectionRole.BODY,
+        id = id, noteId = "n1", order = 0, role = SectionRole.BODY,
         title = title, minutes = minutes, contentHtml = contentHtml,
         bibleRefs = bibleRefs, publicationRefs = pubRefs,
         methodPrinciple = null, approvedAt = null,
@@ -119,7 +121,9 @@ class StructureProposalTest {
         assertEquals(7, updated.minutes)
         assertEquals(listOf("Gên 1:26", "Ec 3:11"), updated.bibleRefs)
         assertEquals(listOf(PublicationRef("lff", page = 5)), updated.publicationRefs)
-        assertTrue(updated.agreedApproach!!.contains("Abordagem proposta."))
+        assertTrue(updated.agreedApproach!!.contains("[confirmado] Abordagem proposta."))
+        // 1C.2.0: aceite de estrutura não edita o texto do usuário.
+        assertEquals("<p>texto atual da seção</p>", updated.contentHtml)
         assertEquals(777L, updated.updatedAt)
         // Aprovação é passo separado (#3a) — não é tocada.
         assertNull(updated.approvedAt)
@@ -127,12 +131,31 @@ class StructureProposalTest {
 
     @Test
     fun apply_mesclaAbordagemExistenteComDedupe() {
+        val old = "Abordagem antiga"
         val updated = applyStructurePlan(
-            section(approach = "Abordagem antiga"),
+            section(approach = old),
             plan(), summary = "Abordagem nova",
         )
+        assertTrue(updated.agreedApproach!!.startsWith(old))
+        assertTrue(updated.agreedApproach!!.contains("[confirmado] Abordagem nova"))
         assertTrue(updated.agreedApproach!!.contains("Abordagem antiga"))
-        assertTrue(updated.agreedApproach!!.contains("Abordagem nova"))
+    }
+
+    @Test
+    fun aceiteExplicitoUsaASecaoDoPlanoNaoUmFocoMutavel() {
+        val intro = section(id = "intro", title = "Introdução")
+        val point2 = section(id = "p2", title = "Ponto 2")
+        val updated = applyStructurePlan(
+            intro,
+            plan(title = "Introdução"),
+            summary = "Escolha feita para a introdução",
+        )
+        assertEquals("intro", updated.id)
+        assertTrue(updated.agreedApproach!!.contains("Escolha feita para a introdução"))
+        assertFalse(updated.agreedApproach!!.contains("Ponto 2"))
+        // A outra seção não é tocada.
+        assertEquals("p2", point2.id)
+        assertEquals("<p>texto atual da seção</p>", point2.contentHtml)
     }
 
     // ---------- E (cleanup): teto do agreedApproach ----------
@@ -159,6 +182,28 @@ class StructureProposalTest {
         assertTrue(
             "tinha ${s.agreedApproach!!.length} chars",
             s.agreedApproach!!.length <= 500,
+        )
+    }
+
+    @Test
+    fun apply_campoCheioNaoGravaConfirmacaoParcialNemAnunciaMemoria() {
+        val full = "x".repeat(500)
+        val result = applyStructurePlanResult(
+            section(approach = full),
+            plan(),
+            summary = "Abordagem nova que não cabe",
+        )
+        assertTrue(result.approachWrite is ConfirmedApproachWrite.NoSpace)
+        assertEquals(full, result.section.agreedApproach)
+        assertFalse(result.section.agreedApproach!!.contains("Abordagem nova"))
+        assertTrue(STRUCTURE_APPROACH_NOT_STORED_NOTICE.contains("não foi memorizada"))
+        assertEquals(
+            STRUCTURE_APPROACH_NOT_STORED_NOTICE,
+            structureAppliedNotice(ConfirmedApproachWrite.NoSpace),
+        )
+        assertEquals(
+            "Estrutura aplicada.",
+            structureAppliedNotice(ConfirmedApproachWrite.AlreadyStored),
         )
     }
 

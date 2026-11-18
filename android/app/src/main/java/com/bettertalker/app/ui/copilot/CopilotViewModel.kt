@@ -63,6 +63,9 @@ import com.bettertalker.app.data.copilot.friendlyChatError
 import com.bettertalker.app.data.copilot.generationTelemetry
 import com.bettertalker.app.data.copilot.inferIntent
 import com.bettertalker.app.data.copilot.ProposalGateAction
+import com.bettertalker.app.data.copilot.isShortProposalAnswer
+import com.bettertalker.app.data.copilot.proposalAnswerIsNo
+import com.bettertalker.app.data.copilot.proposalAnswerIsYes
 import com.bettertalker.app.data.copilot.proposalGateAction
 import com.bettertalker.app.data.copilot.SourceGate
 import com.bettertalker.app.data.copilot.SourceGateDecision
@@ -274,6 +277,32 @@ fun verificationCorpus(
     }
     extra.forEach { add(it) }
 }.filter { it.isNotBlank() }
+
+/**
+ * 1C.2.0 — corpus do chat remoto. Recebe explicitamente apenas o bloco de
+ * EVIDÊNCIAS (sem memória e sem abordagem de redação). A assinatura não
+ * aceita o bloco de memória: isso impede que uma decisão/preferência entre
+ * no verificador por engano. Puro/testável.
+ */
+internal fun chatVerificationCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    evidenceContextBlock: String?,
+    structuralVerseLines: List<String> = emptyList(),
+    questionVerseLines: List<String> = emptyList(),
+    questionPubs: List<String> = emptyList(),
+    userText: String = "",
+    userHistory: List<String> = emptyList(),
+    questionSources: List<String> = emptyList(),
+): List<String> = verificationCorpus(
+    turnContext,
+    listOfNotNull(evidenceContextBlock) +
+        structuralVerseLines +
+        questionVerseLines +
+        questionPubs +
+        listOfNotNull(userText.takeIf { it.isNotBlank() }) +
+        userHistory +
+        questionSources,
+)
 
 /**
  * Fase 2 — refs bíblicas da seção atual do S-34 (ponto + subpontos), sem
@@ -1519,12 +1548,25 @@ class CopilotViewModel(
         _practiceContext.value = block.orEmpty()
     }
 
-    /** Dossiê + snapshot de prática no mesmo contextBlock do LlmRequest. */
+    /**
+     * Dossiê + snapshot de prática no mesmo contextBlock do LlmRequest.
+     *
+     * 1C.2.0: `includeApproach = false` produz o bloco de EVIDÊNCIAS do
+     * verificador: omite a abordagem/memória de redação, mas preserva prosa,
+     * refs e textos resolvidos do dossiê.
+     */
     private fun contextBlockWithPractice(
         dossier: Dossier?,
         includeSpeakerNote: Boolean,
+        includeApproach: Boolean = true,
     ): String? = listOfNotNull(
-        dossier?.let { dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote) },
+        dossier?.let {
+            if (includeApproach) {
+                dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote)
+            } else {
+                dossierPromptBuilder.buildEvidenceBlock(it, includeSpeakerNote)
+            }
+        },
         _practiceContext.value.takeIf { it.isNotBlank() },
     ).joinToString("\n\n").ifBlank { null }
 
@@ -4069,6 +4111,14 @@ class CopilotViewModel(
                 dossier = dossier,
                 includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
             )
+            // 1C.2.0: o corpus do verificador não pode usar memória de
+            // redação/abordagem como prova. O bloco de evidências omite só
+            // a abordagem; os textos resolvidos do dossiê continuam.
+            val evidenceContextBlock = contextBlockWithPractice(
+                dossier = dossier,
+                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                includeApproach = false,
+            )
             _chatEvidence.value = turnContext.evidence
             _runState.value = ChatRunState.Generating
             // Inventário da NOTA é determinístico: responde com os 40 refs
@@ -4212,6 +4262,7 @@ class CopilotViewModel(
                             ?.let { DiscourseType.fromNameOrDefault(it) }
                         answerRemote(
                             text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                            evidenceContextBlock = evidenceContextBlock,
                             noS34Warning = needsS34Warning(noteType),
                             blockMinutes = blockMinutes,
                         )
@@ -4222,6 +4273,7 @@ class CopilotViewModel(
                         message = text,
                         remote = remote,
                         contextBlock = contextBlock,
+                        evidenceContextBlock = evidenceContextBlock,
                         turnContext = turnContext,
                         extraAuthorizedRefs = buildList {
                             dossier?.bibleTexts?.forEach { add(it.ref) }
@@ -4287,6 +4339,7 @@ class CopilotViewModel(
                 }
                 answerRemote(
                     text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                    evidenceContextBlock = evidenceContextBlock,
                     blockMinutes = blockMinutes,
                     allowCard = com.bettertalker.app.data.copilot.ChatRouter.allowsCard(route),
                 )
@@ -4604,6 +4657,8 @@ class CopilotViewModel(
         message: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        /** 1C.2.0: dossiê sem abordagem/memória, só para o corpus do gate. */
+        evidenceContextBlock: String? = null,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
         // 6.0.5 — refs do dossiê da nota que também foram para o prompt. O
         // gate de fidelidade não pode chamar de "inventada" uma citação que
@@ -4850,7 +4905,7 @@ class CopilotViewModel(
                 cleanedCardText,
                 turnContext,
                 listOfNotNull(
-                    contextBlock,
+                    evidenceContextBlock,
                     stripHtmlToText(block).takeIf { it.isNotBlank() },
                 ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
             )
@@ -5067,6 +5122,12 @@ class CopilotViewModel(
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        /**
+         * 1C.2.0: bloco de evidências sem abordagem/memória de redação.
+         * Usado só pelo corpus do verificador; o prompt continua recebendo
+         * [contextBlock] completo.
+         */
+        evidenceContextBlock: String? = null,
         /** #15a: rota sem S-34 degradada → aviso suave no fim da resposta. */
         noS34Warning: Boolean = false,
         /** Tempo da seção em foco (extensão alvo do texto longo). */
@@ -5236,6 +5297,14 @@ class CopilotViewModel(
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
             .ifBlank { null }
+        // 1C.2.0: o corpus do verificador usa a versão SEM memória e SEM
+        // abordagem. O prompt do modelo continua recebendo o bloco completo.
+        val evidenceStableContextBlock = listOfNotNull(
+            refsInventory, focusBlock, evidenceContextBlock, waivedBlock,
+        )
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+            .ifBlank { null }
         // Volátil: lente da nota (foco + vizinhas) e trechos citados agora.
         val noteLens = buildNoteLensBlock(
             noteTitle = _noteTitle.value,
@@ -5256,7 +5325,7 @@ class CopilotViewModel(
             sourceQuestionBlock
         } else {
             combineContextBlocks(
-                stableContextBlock,
+                evidenceStableContextBlock,
                 questionVerses,
                 questionPubs,
             )
@@ -5394,19 +5463,19 @@ class CopilotViewModel(
                 bibleChapterPassage?.verses?.map { it.text }.orEmpty() +
                 listOfNotNull(text.takeIf { it.isNotBlank() })
         } else {
-            verificationCorpus(
-                turnContext,
-                listOfNotNull(effectiveContextBlock) +
-                    structuralVerseLines +
-                    questionVerseLines(questionVerses, text) +
-                    questionPubs.map { it.passage.text } +
-                    // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
-                    // usuário e o rótulo das refs citadas também são fonte — citar
-                    // a hipótese do usuário ("Baruque perdeu prestígio social")
-                    // para refutá-la NÃO é inventar (falso positivo do A/B).
-                    listOfNotNull(text.takeIf { it.isNotBlank() }) +
-                    history.filter { it.fromMe }.map { it.text } +
-                    questionPubs.map { it.source },
+            chatVerificationCorpus(
+                turnContext = turnContext,
+                evidenceContextBlock = effectiveContextBlock,
+                structuralVerseLines = structuralVerseLines,
+                questionVerseLines = questionVerseLines(questionVerses, text),
+                questionPubs = questionPubs.map { it.passage.text },
+                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
+                // usuário e o rótulo das refs citadas também são fonte — citar
+                // a hipótese do usuário ("Baruque perdeu prestígio social")
+                // para refutá-la NÃO é inventar (falso positivo do A/B).
+                userText = text,
+                userHistory = history.filter { it.fromMe }.map { it.text },
+                questionSources = questionPubs.map { it.source },
             )
         }
         val outcome = verifyChatText(text, corpus)
@@ -5466,13 +5535,10 @@ class CopilotViewModel(
         // #24-fix: fecha órfão de <texto-do-card> sem abridor (o modelo às
         // vezes emite só o fechamento) — o payload persistido fica limpo.
         val persistedText = stripOrphanCardClose(withS34Notice)
-        // T1 (Fase 2): consenso automático — decisões da resposta (〈decisão〉
-        // ou pista explícita) viram agreedApproach do tópico em foco, sem
-        // duplicar. Best-effort: nunca quebra a resposta.
-        try {
-            recordConsensus(verified.text)
-        } catch (_: Exception) {
-        }
+        // 1C.2.0: NÃO gravar consenso a partir da resposta do modelo.
+        // Tags 〈decisão〉 e frases do Copilot são sugestões até o usuário
+        // aceitar explicitamente por card/proposta/estrutura. O caminho de
+        // aceite de estrutura continua em applyStructurePlan (explícito).
         val persistedPayload = buildMap {
             put("text", persistedText)
             // C1: "Continuar gerando" usa a meta do texto longo (palavras/
@@ -5504,24 +5570,6 @@ class CopilotViewModel(
                 _scopeSuggestion.value = true
             }
         }
-    }
-
-    /**
-     * T1 (Fase 2): persiste o consenso da resposta no tópico em foco.
-     * O editor observa o DAO e reflete sozinho; o dossiê seguinte já traz
-     * a abordagem acordada. Puro o merge ([mergeApproach]).
-     */
-    private suspend fun recordConsensus(responseText: String) {
-        val decisions =
-            com.bettertalker.app.data.copilot.extractDecisions(responseText)
-        if (decisions.isEmpty()) return
-        val sid = _pushedContext?.sectionId ?: return
-        val sec = db.speechSectionDao().get(sid) ?: return
-        val merged = com.bettertalker.app.data.copilot.mergeApproach(sec.agreedApproach, decisions)
-            ?: return
-        // Fase 0: UPDATE segmentado — um upsert aqui apagaria os sub-pontos
-        // da seção via REPLACE + CASCADE (e sobrescreveria edições alheias).
-        db.speechSectionDao().updateAgreedApproach(sid, merged, System.currentTimeMillis())
     }
 
     /**
@@ -6219,7 +6267,10 @@ class CopilotViewModel(
                     _structureProposal.value = ui.copy(notice = STRUCTURE_STALE_NOTICE)
                 is StructureAcceptDecision.Apply -> {
                     db.speechSectionDao().upsert(d.updated.toEntity())
-                    _structureProposal.value = ui.copy(notice = "Estrutura aplicada.", applied = true)
+                    _structureProposal.value = ui.copy(
+                        notice = structureAppliedNotice(d.approachWrite),
+                        applied = true,
+                    )
                 }
             }
         }
@@ -6800,7 +6851,9 @@ class CopilotViewModel(
      * outro texto (ou card que não é a última fala) segue o fluxo normal.
      */
     private suspend fun resolveCardShortAnswer(text: String): Boolean {
-        if (!ChatIntent.isYes(text) && !ChatIntent.isNo(text)) return false
+        // 1C.2.0: só resposta curta e inequívoca aplica card. "Fechado, use
+        // esta introdução…" ou "sim, mas…" são conversa, não aceite.
+        if (!isShortProposalAnswer(text)) return false
         val nid = noteId ?: return false
         val lastCopilot = db.chatDao().all(nid)
             .filter { it.isActive }
@@ -6846,12 +6899,12 @@ class CopilotViewModel(
             return false
         }
         return when {
-            ChatIntent.isYes(text) -> {
+            proposalAnswerIsYes(text) -> {
                 CardMetrics.gate("ACCEPT")
                 applyCard(lastCopilot.id, CardInsertMode.APPEND, gate = true)
                 true
             }
-            ChatIntent.isNo(text) -> {
+            proposalAnswerIsNo(text) -> {
                 CardMetrics.gate("REJECT")
                 dismissCardNow(lastCopilot.id, reason = "GATE_NO")
                 logCard(lastCopilot.id, "GATE_NO", card, 0, gate = true)
@@ -6922,12 +6975,12 @@ class CopilotViewModel(
     private suspend fun resolveConfirm(text: String): Boolean {
         val action = pendingConfirm ?: return false
         return when {
-            ChatIntent.isYes(text) -> {
+            proposalAnswerIsYes(text) -> {
                 pendingConfirm = null
                 action()
                 true
             }
-            ChatIntent.isNo(text) -> {
+            proposalAnswerIsNo(text) -> {
                 pendingConfirm = null
                 postText("Tudo bem — o esboço continua como está.")
                 true
@@ -8379,7 +8432,8 @@ class CopilotViewModel(
             val corpus = buildList {
                 pasteBuffer?.takeIf { it.isNotBlank() }?.let { add(it) }
                 lastDossier?.let {
-                    add(dossierPromptBuilder.buildContextBlock(it, includeSpeakerNote = false))
+                    // 1C.2.0: corpus de evidências sem abordagem/memória.
+                    add(dossierPromptBuilder.buildEvidenceBlock(it, includeSpeakerNote = false))
                 }
                 _lastS34Document?.let { addAll(s34CorpusTexts(it)) }
                 existingSections.forEach {
@@ -8860,6 +8914,23 @@ const val STRUCTURE_STALE_NOTICE = "Proposta obsoleta — o texto mudou desde qu
 /** Aviso quando a proposta é rejeitada (nada é escrito). */
 const val STRUCTURE_REJECTED_NOTICE = "Proposta rejeitada — nada foi alterado."
 
+/**
+ * 1C.2.0: a estrutura foi aplicada, mas a confirmação da abordagem não coube
+ * no teto de 500 chars. Nunca anunciar memorização parcial.
+ */
+const val STRUCTURE_APPROACH_NOT_STORED_NOTICE =
+    "Estrutura aplicada, mas a abordagem não foi memorizada: o limite de 500 " +
+        "caracteres foi atingido. O registro anterior foi preservado."
+
+/** 1C.2.0: só anuncia memorização quando a confirmação foi gravada. */
+internal fun structureAppliedNotice(
+    write: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+): String = if (write is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.NoSpace) {
+    STRUCTURE_APPROACH_NOT_STORED_NOTICE
+} else {
+    "Estrutura aplicada."
+}
+
 /** Erro quando o foco não é uma seção (sub-ponto ou chat genérico). */
 const val STRUCTURE_NEEDS_SECTION_MESSAGE =
     "Para propor estrutura, foque numa seção (não num sub-ponto)."
@@ -8953,8 +9024,9 @@ internal fun pickSectionPlan(proposal: OutlineProposal, sectionTitle: String): S
 
 /**
  * Aplica o plano aprovado na seção: objetivo (= ideia central), minutos e
- * refs (merge com dedupe); abordagem concatena com `\n\n`. `approvedAt`
- * e o resto passam intactos — aprovação é passo separado (#3a).
+ * refs (merge com dedupe); abordagem confirmada é acrescentada em linha
+ * completa, ou fica intacta se não houver espaço. `approvedAt` e o resto
+ * passam intactos — aprovação é passo separado (#3a).
  * Puro/testável.
  */
 internal fun applyStructurePlan(
@@ -8962,27 +9034,54 @@ internal fun applyStructurePlan(
     plan: SectionPlan,
     summary: String,
     now: Long = System.currentTimeMillis(),
-): SpeechSection {
+): SpeechSection = applyStructurePlanResult(section, plan, summary, now).section
+
+/**
+ * 1C.2.0: além da seção resultante, devolve o resultado EXPLÍCITO da
+ * memorização da abordagem. O chamador não pode anunciar “memorizado” quando
+ * o teto de 500 chars impediu a escrita.
+ */
+internal data class StructurePlanApplication(
+    val section: SpeechSection,
+    val approachWrite: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+)
+
+internal fun applyStructurePlanResult(
+    section: SpeechSection,
+    plan: SectionPlan,
+    summary: String,
+    now: Long = System.currentTimeMillis(),
+): StructurePlanApplication {
     val bible = (section.bibleRefs + plan.bibleRefs).distinct()
     val pubs = (section.publicationRefs + plan.publicationRefs).distinct()
     val current = section.agreedApproach
-    // E: mesmo merge do consenso do chat — dedupe + teto de 500 chars
-    // (o campo não pode crescer sem limite a cada aplicação).
-    val merged = com.bettertalker.app.data.copilot.mergeApproachText(current, summary)
-    val approach = merged ?: current?.takeIf { it.isNotBlank() }
-    return section.copy(
-        objective = plan.mainIdea,
-        minutes = plan.minutes,
-        bibleRefs = bible,
-        publicationRefs = pubs,
-        agreedApproach = approach,
-        updatedAt = now,
+    // 1C.2.0: este é um aceite EXPLÍCITO do usuário; a linha nova recebe o
+    // marcador de confirmação. Linhas legadas permanecem intactas e não são
+    // convertidas automaticamente.
+    val write = com.bettertalker.app.data.copilot.mergeConfirmedApproachText(current, summary)
+    val approach = when (write) {
+        is com.bettertalker.app.data.copilot.ConfirmedApproachWrite.Stored -> write.text
+        else -> current?.takeIf { it.isNotBlank() }
+    }
+    return StructurePlanApplication(
+        section = section.copy(
+            objective = plan.mainIdea,
+            minutes = plan.minutes,
+            bibleRefs = bible,
+            publicationRefs = pubs,
+            agreedApproach = approach,
+            updatedAt = now,
+        ),
+        approachWrite = write,
     )
 }
 
 /** Decisão do aceite: aplica ou barra por stale. Puro/testável. */
 sealed interface StructureAcceptDecision {
-    data class Apply(val updated: SpeechSection) : StructureAcceptDecision
+    data class Apply(
+        val updated: SpeechSection,
+        val approachWrite: com.bettertalker.app.data.copilot.ConfirmedApproachWrite,
+    ) : StructureAcceptDecision
     data object Stale : StructureAcceptDecision
 }
 
@@ -9001,7 +9100,8 @@ internal fun decideStructureAccept(
     if (hashText(sectionProposalBlock(current.title, current.contentHtml)) != sectionBaseHash) {
         return StructureAcceptDecision.Stale
     }
-    return StructureAcceptDecision.Apply(applyStructurePlan(current, plan, summary, now))
+    val application = applyStructurePlanResult(current, plan, summary, now)
+    return StructureAcceptDecision.Apply(application.section, application.approachWrite)
 }
 
 // ---------- F5b (Modo C): estruturar texto colado de publicação (pura) ----------

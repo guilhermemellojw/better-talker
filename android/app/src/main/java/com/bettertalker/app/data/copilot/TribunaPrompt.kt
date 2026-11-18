@@ -93,8 +93,20 @@ internal fun buildTribunaSectionPrompt(
     section.objective?.takeIf { it.isNotBlank() }?.let {
         sb.append("objetivo: ").append(it.take(500)).append("\n")
     }
-    section.agreedApproach?.takeIf { it.isNotBlank() }?.let {
-        sb.append("abordagem acordada: ").append(it.take(500)).append("\n")
+    // 1C.2.0: o campo é legado e pode misturar aceite explícito com sugestões
+    // antigas sem origem. Só o marcador [confirmado] vira instrução de consenso;
+    // o restante é referência de confirmação desconhecida.
+    parseApproachMemory(section.agreedApproach).let { approach ->
+        if (approach.confirmed.isNotEmpty()) {
+            sb.append("abordagem confirmada: ")
+                .append(approach.confirmed.joinToString("; ").take(500))
+                .append("\n")
+        }
+        if (approach.legacy.isNotEmpty()) {
+            sb.append("registro legado (não confirmado): ")
+                .append(approach.legacy.joinToString("; ").take(500))
+                .append("\n")
+        }
     }
     if (plain.isNotEmpty()) sb.append("Texto: ").append(plain.take(4000)).append("\n")
     val usefulSubPoints = subPoints.map { it.trim() }.filter { it.isNotEmpty() }
