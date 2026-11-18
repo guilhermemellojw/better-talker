@@ -54,6 +54,7 @@ data class EvalCase(
     val claim: Claim? = null,
     val evidence: List<EvidenceUnit> = emptyList(),
     val documentCitation: String? = null,
+    val documentCitationId: String? = null,
     val userCitation: String? = null,
     val userQuote: AttributedUserQuote? = null,
     val s34Citation: String? = null,
@@ -130,11 +131,30 @@ object DeterministicBaseline {
     fun evaluate(case: EvalCase): BaselineOutcome? {
         if (case.status != DatasetStatus.READY) return null
         val claim = case.claim ?: return null
-        val factual = case.evidence.filter { it.isFactualEligible() }
+        val factualAll = case.evidence.filter { it.isFactualEligible() }
+        val factual = if (case.expectedEdition == null) {
+            factualAll
+        } else {
+            factualAll.filter { it.edition == case.expectedEdition }
+        }
         val method = case.evidence.filter { it.isMethodEligible() }
         val fidelities = buildList {
             case.documentCitation?.let { citation ->
-                case.evidence.firstOrNull()?.let { add(checkDocumentCitation(citation, it)) }
+                val target = case.documentCitationId?.let { id ->
+                    case.evidence.firstOrNull { it.documentId == id }
+                }
+                add(
+                    if (target == null) {
+                        CitationFidelity(
+                            citation = citation,
+                            origin = CitationOrigin.DOCUMENT,
+                            state = CitationFidelityState.UNVERIFIABLE,
+                            reason = "documentId da citação não vinculado",
+                        )
+                    } else {
+                        checkDocumentCitation(citation, target)
+                    }
+                )
             }
             case.userCitation?.let { citation ->
                 case.userQuote?.let { add(checkUserCitation(citation, it, "fixture:user")) }
@@ -170,11 +190,10 @@ object DeterministicBaseline {
             }
 
             claim.type.supportEvidence == com.bettertalker.app.data.copilot.SupportEvidence.DOCUMENTARY -> when {
-                case.expectedEdition != null &&
-                    factual.none { it.edition == case.expectedEdition } -> Triple(
+                case.expectedEdition != null && factual.isEmpty() -> Triple(
                     SemanticState.UNVERIFIABLE,
                     emptyList(),
-                    "edição esperada não corresponde à evidência",
+                    "sem evidência elegível na edição esperada",
                 )
                 factual.isEmpty() -> Triple(
                     SemanticState.UNVERIFIABLE,
@@ -221,8 +240,12 @@ object DeterministicBaseline {
 
     private fun directTextMatch(claimText: String, evidenceText: String): Boolean {
         val claim = normalizeForMatch(claimText)
-        val evidence = normalizeForMatch(evidenceText)
-        return claim.isNotBlank() && evidence.contains(claim)
+        if (claim.isBlank()) return false
+        // Correspondência integral por sentença: nunca promove substring
+        // dentro de negação, refutação ou citação de alegação incorreta.
+        return evidenceText.split(Regex("(?<=[.!?…])\\s+|\\n+"))
+            .map(::normalizeForMatch)
+            .any { it == claim }
     }
 
     private fun normalizeForMatch(text: String): String = normalizeLiteralText(text)

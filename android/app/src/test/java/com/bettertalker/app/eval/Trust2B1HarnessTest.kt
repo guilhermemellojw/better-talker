@@ -11,7 +11,7 @@ import org.junit.Test
 
 class Trust2B1HarnessTest {
 
-    // Baseline sintético: 5 SUPPORTED, 5 INSUFFICIENT, 11 UNVERIFIABLE, 3 NOT_EVALUATED.
+    // Baseline sintético: 5 SUPPORTED, 7 INSUFFICIENT, 11 UNVERIFIABLE, 5 NOT_EVALUATED.
 
     private val report by lazy { Trust2B1Dataset.report() }
 
@@ -43,12 +43,12 @@ class Trust2B1HarnessTest {
 
     @Test
     fun metricasDePreparacaoSaoCoerentes() {
-        assertEquals(72, report.metrics.totalCases)
-        assertEquals(24, report.metrics.readyCases)
+        assertEquals(76, report.metrics.totalCases)
+        assertEquals(28, report.metrics.readyCases)
         assertEquals(48, report.metrics.needsAnnotation)
         assertEquals(0, report.metrics.notEvaluable)
-        assertEquals(24, report.metrics.executedCases)
-        assertEquals(24, report.metrics.coverageByRoute.values.sum())
+        assertEquals(28, report.metrics.executedCases)
+        assertEquals(28, report.metrics.coverageByRoute.values.sum())
     }
 
     @Test
@@ -101,6 +101,34 @@ class Trust2B1HarnessTest {
     }
 
     @Test
+    fun fraseNegadaNaoEhPromovida() {
+        val outcome = outcome("X-NEGATED-01")
+        assertEquals(SemanticState.INSUFFICIENT, outcome.state)
+    }
+
+    @Test
+    fun edicaoEsperadaFiltraAntesDaComparacao() {
+        val outcome = outcome("X-EDITION-02")
+        assertEquals(SemanticState.INSUFFICIENT, outcome.state)
+        assertEquals(listOf("fixture:pub:correct-edition"), outcome.examinedEvidenceIds)
+    }
+
+    @Test
+    fun citacaoEhVinculadaAoDocumentIdCorreto() {
+        val outcome = outcome("X-CITATION-01")
+        val fidelity = outcome.citationFidelities.single()
+        assertEquals(CitationFidelityState.EXACT, fidelity.state)
+        assertEquals("fixture:bible:second", fidelity.sourceId)
+    }
+
+    @Test
+    fun citacaoSemVinculoEhInconclusiva() {
+        val outcome = outcome("X-CITATION-NO-LINK-01")
+        val fidelity = outcome.citationFidelities.single()
+        assertEquals(CitationFidelityState.UNVERIFIABLE, fidelity.state)
+    }
+
+    @Test
     fun contradicaoNaoEhDetectadaPeloBaseline() {
         val outcome = outcome("X-CONTRA-01")
         assertEquals(SemanticState.INSUFFICIENT, outcome.state)
@@ -115,8 +143,8 @@ class Trust2B1HarnessTest {
         val fidelity = outcome.citationFidelities.single()
         assertEquals(CitationFidelityState.NORMALIZED, fidelity.state)
         assertFalse(fidelity.authorizesFactualClaim)
-        assertEquals(1, report.metrics.citationExpected)
-        assertEquals(1, report.metrics.citationMatched)
+        assertEquals(3, report.metrics.citationExpected)
+        assertEquals(3, report.metrics.citationMatched)
     }
 
     @Test
@@ -156,8 +184,8 @@ class Trust2B1HarnessTest {
     fun relatorioReproduzivel() {
         val text = EvalHarness.format(report)
         println(text)
-        assertTrue(text.contains("Casos inventariados: 72"))
-        assertTrue(text.contains("Executáveis: 24"))
+        assertTrue(text.contains("Casos inventariados: 76"))
+        assertTrue(text.contains("Executáveis: 28"))
     }
 
     private fun outcome(caseId: String): BaselineOutcome =
