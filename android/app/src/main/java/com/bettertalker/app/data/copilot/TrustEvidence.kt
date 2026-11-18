@@ -142,6 +142,10 @@ data class EvidenceCorpus(
 
     fun hasDocumentaryEvidence(): Boolean = documentaryItems.isNotEmpty()
 
+    /**
+     * Corpus documental vazio significa "sem verificação factual", nunca
+     * "fato confirmado". Ausência de aviso sintático não é prova de apoio.
+     */
     fun hasNoDocumentaryEvidence(): Boolean = documentaryItems.isEmpty()
 
     fun containsOnlyTrainingEvidence(): Boolean =
@@ -234,14 +238,16 @@ fun recoveredDocumentsFromDossier(
     dossier: com.bettertalker.app.domain.planning.Dossier,
 ): List<com.bettertalker.app.data.copilot.RecoveredDocument> = buildList {
     dossier.bibleTexts.forEach { resolved ->
+        val ref = resolved.ref.trim()
+        if (ref.isBlank()) return@forEach
         val text = resolved.text?.takeIf { it.isNotBlank() } ?: return@forEach
         if (resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED &&
             resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL
         ) return@forEach
         add(
             com.bettertalker.app.data.copilot.RecoveredDocument(
-                sourceId = "dossier:bible:${resolved.ref}",
-                reference = resolved.ref,
+                sourceId = "dossier:bible:$ref",
+                reference = ref,
                 text = text,
                 resolved = true,
                 waived = false,
@@ -249,14 +255,16 @@ fun recoveredDocumentsFromDossier(
         )
     }
     dossier.publicationTexts.forEach { resolved ->
+        val ref = resolved.ref.symbol.trim()
+        if (ref.isBlank()) return@forEach
         val text = resolved.text?.takeIf { it.isNotBlank() } ?: return@forEach
         if (resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED &&
             resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL
         ) return@forEach
         add(
             com.bettertalker.app.data.copilot.RecoveredDocument(
-                sourceId = "dossier:pub:${resolved.ref.symbol}",
-                reference = resolved.ref.symbol,
+                sourceId = "dossier:pub:$ref",
+                reference = ref,
                 text = text,
                 resolved = true,
                 waived = false,

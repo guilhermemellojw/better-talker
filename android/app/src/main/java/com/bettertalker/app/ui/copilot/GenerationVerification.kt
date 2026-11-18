@@ -54,9 +54,10 @@ private fun structuralItem(id: String, text: String, resolved: Boolean = true): 
  * "insira tudo"): mesmo verificador do chat, aplicado antes de devolver o
  * texto ao usuário.
  *
- * Corpus = [turnContext] (pack + S-34 + dossiê, quando houver) + [extraSources]
- * (dossiê em contexto, foco, esboço colado…). Corpus vazio → o verificador
- * devolve o texto intacto (não bloqueia). Puro/testável.
+ * Corpus factual = [turnContext] + [documentarySources] elegíveis. Textos de
+ * [structuralExtras] permanecem como contexto, nunca como prova. Corpus vazio
+ * → o verificador devolve o texto intacto (não bloqueia), o que significa
+ * "sem verificação factual", nunca "fato confirmado". Puro/testável.
  */
 internal fun verifyGeneratedText(
     text: String,

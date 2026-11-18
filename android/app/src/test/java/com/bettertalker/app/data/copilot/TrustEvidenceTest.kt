@@ -480,4 +480,80 @@ class TrustEvidenceTest {
         assertFalse(corpus.hasDocumentaryEvidence())
         assertTrue(corpus.hasNoDocumentaryEvidence())
     }
+
+    private fun dossier(
+        bibleTexts: List<com.bettertalker.app.domain.planning.ResolvedBibleText> = emptyList(),
+        publicationTexts: List<com.bettertalker.app.domain.planning.ResolvedPublicationText> = emptyList(),
+    ): com.bettertalker.app.domain.planning.Dossier {
+        val section = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1",
+            noteId = "n1",
+            order = 1,
+            role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+            title = "Ponto",
+            minutes = 5,
+            contentHtml = "",
+            bibleRefs = emptyList(),
+            publicationRefs = emptyList(),
+            methodPrinciple = null,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        return com.bettertalker.app.domain.planning.Dossier(
+            currentSection = section,
+            currentSubPoint = null,
+            selectedText = null,
+            fullContentHtml = "",
+            overview = emptyList(),
+            bibleTexts = bibleTexts,
+            publicationTexts = publicationTexts,
+            methodPrinciples = emptyList(),
+            unresolvedRefs = emptyList(),
+            transitionContext = null,
+        )
+    }
+
+    @Test
+    fun dossierRefBiblicaVaziaNaoViraDocumentoMasValidaPermanece() {
+        val docs = recoveredDocumentsFromDossier(
+            dossier(
+                bibleTexts = listOf(
+                    com.bettertalker.app.domain.planning.ResolvedBibleText(
+                        ref = "   ",
+                        text = "texto sem ref",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                    com.bettertalker.app.domain.planning.ResolvedBibleText(
+                        ref = "Je 29:11",
+                        text = "texto válido",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                ),
+            )
+        )
+        assertEquals(1, docs.size)
+        assertEquals("Je 29:11", docs.single().reference)
+    }
+
+    @Test
+    fun dossierRefPublicacaoVaziaNaoViraDocumentoMasValidaPermanece() {
+        val docs = recoveredDocumentsFromDossier(
+            dossier(
+                publicationTexts = listOf(
+                    com.bettertalker.app.domain.planning.ResolvedPublicationText(
+                        ref = com.bettertalker.app.domain.planning.PublicationRef(symbol = "   "),
+                        text = "texto sem ref",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                    com.bettertalker.app.domain.planning.ResolvedPublicationText(
+                        ref = com.bettertalker.app.domain.planning.PublicationRef(symbol = "w25.07"),
+                        text = "texto válido",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                ),
+            )
+        )
+        assertEquals(1, docs.size)
+        assertEquals("w25.07", docs.single().reference)
+    }
 }
