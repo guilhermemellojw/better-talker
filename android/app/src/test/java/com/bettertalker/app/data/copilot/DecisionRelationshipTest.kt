@@ -80,12 +80,84 @@ class DecisionRelationshipTest {
     @Test
     fun mesmoEventoComEstadoPosteriorAindaEhSameEvent() {
         val incoming = decision()
-        val existing = incoming.copy(decisionState = DecisionState.SUPERSEDED)
+        val superseded = incoming.copy(decisionState = DecisionState.SUPERSEDED)
+        val removed = incoming.copy(
+            decisionState = DecisionState.REMOVED,
+            updatedAt = 20L,
+            removedAt = 20L,
+        )
+
+        listOf(superseded, removed).forEach { existing ->
+            val result = relationship(incoming, existing)
+            assertTrue(result is DecisionRelationship.SameEvent)
+            assertEquals(existing, (result as DecisionRelationship.SameEvent).existing)
+        }
+    }
+
+    @Test
+    fun mesmoEventoAposRemapeamentoContinuaSameEvent() {
+        val incoming = decision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s1",
+        )
+        val existing = decision(
+            id = "d1",
+            sectionId = "s1",
+            originalSectionId = "s1",
+        )
 
         val result = relationship(incoming, existing)
 
         assertTrue(result is DecisionRelationship.SameEvent)
         assertEquals(existing, (result as DecisionRelationship.SameEvent).existing)
+    }
+
+    @Test
+    fun mesmoEventoReconstruidoEmOutroInstanteContinuaSameEvent() {
+        val incoming = decision(id = "d1", createdAt = 10L, updatedAt = 10L)
+        val existing = decision(id = "d1", createdAt = 20L, updatedAt = 20L)
+
+        val result = relationship(incoming, existing)
+
+        assertTrue(result is DecisionRelationship.SameEvent)
+        assertEquals(existing, (result as DecisionRelationship.SameEvent).existing)
+    }
+
+    @Test
+    fun mesmoIdComOriginalSectionDiferenteEhAmbiguous() {
+        val incoming = decision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s1",
+        )
+        val existing = decision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s9",
+        )
+
+        val result = relationship(incoming, existing)
+
+        assertTrue(result is DecisionRelationship.Ambiguous)
+        assertEquals(
+            AmbiguityReason.IDENTITY_COLLISION,
+            (result as DecisionRelationship.Ambiguous).reason,
+        )
+    }
+
+    @Test
+    fun mesmoIdComOrigemDiferenteEhAmbiguous() {
+        val incoming = decision(id = "d1", source = DecisionSource.STRUCTURE_ACCEPT)
+        val existing = decision(id = "d1", source = DecisionSource.EXPLICIT_USER)
+
+        val result = relationship(incoming, existing)
+
+        assertTrue(result is DecisionRelationship.Ambiguous)
+        assertEquals(
+            AmbiguityReason.IDENTITY_COLLISION,
+            (result as DecisionRelationship.Ambiguous).reason,
+        )
     }
 
     @Test
@@ -237,6 +309,27 @@ class DecisionRelationshipTest {
         )
 
         assertEquals(DecisionRelationship.Independent, relationship(incoming, existing))
+    }
+
+    @Test
+    fun legadoNoteNaoEhLegacyPotentialOverlap() {
+        val incoming = decision(
+            id = "d1",
+            scope = DecisionScope.NOTE,
+            source = DecisionSource.STRUCTURE_ACCEPT,
+            subjectKey = null,
+        )
+        val existing = decision(
+            id = "d2",
+            scope = DecisionScope.NOTE,
+            source = DecisionSource.STRUCTURE_ACCEPT,
+            subjectKey = null,
+        )
+
+        val result = relationship(incoming, existing)
+
+        assertEquals(DecisionRelationship.Independent, result)
+        assertTrue(result !is DecisionRelationship.LegacyPotentialOverlap)
     }
 
     @Test

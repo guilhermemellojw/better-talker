@@ -48,8 +48,9 @@ sealed interface DecisionRelationship {
     data class PotentialOverlap(val candidate: DecisionRecord) : DecisionRelationship
 
     /**
-     * Candidato único por fallback legado: ambas são STRUCTURE_ACCEPT da
-     * mesma nota/seção e pelo menos uma não tem subjectKey.
+     * Candidato único por fallback legado: ambas são `STRUCTURE_ACCEPT` do
+     * escopo `SECTION`, da mesma nota/seção original, e pelo menos uma não
+     * tem `subjectKey`.
      */
     data class LegacyPotentialOverlap(val candidate: DecisionRecord) : DecisionRelationship
 
@@ -97,7 +98,7 @@ enum class IneligibleReason {
  * - `subjectKey` igual e conhecido → candidato; chaves diferentes → sem
  *   relação; chave desconhecida igual → ambíguo;
  * - decisões legadas sem `subjectKey` só são candidatas quando AMBAS são
- *   `STRUCTURE_ACCEPT` da mesma nota/seção;
+ *   `STRUCTURE_ACCEPT`, do escopo `SECTION`, da mesma nota/seção;
  * - mais de um candidato → [DecisionRelationship.Ambiguous], nunca escolha
  *   automática.
  *
@@ -169,22 +170,26 @@ fun classifyDecisionRelationship(
 }
 
 /**
- * Identidade do evento, não do estado atual. `decisionState`, `sectionLink`,
- * `applicationState`, `updatedAt` e `supersedesId` podem mudar por transições
- * legítimas; `createdAt`, nota, escopo, seção original/atual, natureza,
- * origem e proveniência não.
+ * Identidade de ORIGEM do evento, não do estado atual.
+ *
+ * `sectionId` pode mudar após remapeamento confirmado e `createdAt` pode
+ * variar entre tentativas do mesmo evento determinístico. Por isso nenhum dos
+ * dois entra na identidade. Permanecem estáveis: id, nota, escopo, natureza,
+ * origem, proveniência e `originalSectionId` — este último protege contra
+ * colisão entre seções originais distintas.
+ *
+ * `decisionState`, `sectionLink`, `applicationState`, `updatedAt`,
+ * `supersedesId`, snapshots e texto podem mudar por transições/histórico.
  */
 private fun hasSameEventIdentity(a: DecisionRecord, b: DecisionRecord): Boolean =
     a.id == b.id &&
         a.noteId == b.noteId &&
         a.scope == b.scope &&
         a.kind == b.kind &&
-        a.sectionId == b.sectionId &&
         a.originalSectionId == b.originalSectionId &&
         a.source == b.source &&
         a.sourceMessageId == b.sourceMessageId &&
-        a.sourceProposalId == b.sourceProposalId &&
-        a.createdAt == b.createdAt
+        a.sourceProposalId == b.sourceProposalId
 
 private fun ineligibleReason(decision: DecisionRecord): IneligibleReason? {
     if (decision.decisionState != DecisionState.ACTIVE) {
@@ -234,9 +239,11 @@ private fun subjectMatch(
     val candidateKey = candidate.subjectKey
 
     if (incomingKey == null || candidateKey == null) {
-        // Regra 7: fallback legado só entre dois STRUCTURE_ACCEPT da mesma
-        // nota/seção. A localização já foi validada pelo chamador.
+        // Regra 7: fallback legado só entre dois STRUCTURE_ACCEPT de SECTION,
+        // da mesma nota/seção. A localização já foi validada pelo chamador.
         return if (
+            incoming.scope == DecisionScope.SECTION &&
+            candidate.scope == DecisionScope.SECTION &&
             incoming.source == DecisionSource.STRUCTURE_ACCEPT &&
             candidate.source == DecisionSource.STRUCTURE_ACCEPT
         ) {
