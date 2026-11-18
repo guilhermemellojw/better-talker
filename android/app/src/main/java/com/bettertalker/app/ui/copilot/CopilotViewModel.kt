@@ -269,7 +269,7 @@ fun verificationCorpus(
     extra: List<String> = emptyList(),
 ): List<String> = verificationCorpus(
     turnContext = turnContext,
-    documentaryExtras = emptyList(),
+    documentarySources = emptyList(),
     structuralExtras = extra,
 )
 
