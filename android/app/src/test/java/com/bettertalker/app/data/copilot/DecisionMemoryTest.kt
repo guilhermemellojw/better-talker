@@ -326,9 +326,19 @@ class DecisionMemoryTest {
             application = ApplicationState.APPLIED,
         )
         val stale = sectionDecision(application = ApplicationState.STALE)
+        val superseded = sectionDecision(
+            state = DecisionState.SUPERSEDED,
+            application = ApplicationState.APPLIED,
+        )
+        val removed = sectionDecision(
+            state = DecisionState.REMOVED,
+            application = ApplicationState.APPLIED,
+        )
         assertTrue(valid.hasCurrentApplication())
         assertFalse(orphan.hasCurrentApplication())
         assertFalse(stale.hasCurrentApplication())
+        assertFalse(superseded.hasCurrentApplication())
+        assertFalse(removed.hasCurrentApplication())
     }
 
     @Test

@@ -481,9 +481,10 @@ fun DecisionRecord.isEligibleForPromptMemory(): Boolean =
  * atual; uma aplicação STALE nunca conta.
  */
 fun DecisionRecord.hasCurrentApplication(): Boolean =
-    when (scope) {
-        DecisionScope.NOTE -> applicationState == ApplicationState.APPLIED
-        DecisionScope.SECTION ->
-            applicationState == ApplicationState.APPLIED &&
-                sectionLink == SectionLink.VALID
-    }
+    decisionState == DecisionState.ACTIVE &&
+        when (scope) {
+            DecisionScope.NOTE -> applicationState == ApplicationState.APPLIED
+            DecisionScope.SECTION ->
+                applicationState == ApplicationState.APPLIED &&
+                    sectionLink == SectionLink.VALID
+        }
