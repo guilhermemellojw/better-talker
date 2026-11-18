@@ -14,9 +14,10 @@ class DecisionSectionReconcilerTest {
         title: String = "Ponto 1",
         order: Int = 1,
         hash: String = "h-s1",
+        noteId: String = "n1",
     ) = SectionSnapshot(
         id = id,
-        noteId = "n1",
+        noteId = noteId,
         role = SectionRole.BODY,
         title = title,
         order = order,
@@ -76,6 +77,69 @@ class DecisionSectionReconcilerTest {
         )
         assertEquals(global, report.decisions.single())
         assertEquals(DecisionScope.NOTE, report.decisions.single().scope)
+    }
+
+    @Test
+    fun mesmoIdEmOutraNotaNaoCriaAssociacaoCruzada() {
+        val d = decision(sectionId = "s1", application = ApplicationState.APPLIED)
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = listOf(snap("s1", noteId = "n2", hash = "h-n2")),
+            newSections = listOf(snap("s1", noteId = "n2", hash = "h-n2")),
+            operation = ReconcileOperation.DELETE,
+            now = 20L,
+        )
+        val result = report.decisions.single()
+        assertEquals(d, result)
+        assertEquals("n1", result.noteId)
+        assertEquals("s1", result.sectionId)
+        assertEquals(ApplicationState.APPLIED, result.applicationState)
+    }
+
+    @Test
+    fun operacaoDeOutraNotaNaoAlteraDecisao() {
+        val d = decision(sectionId = "s1")
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = listOf(snap("s1", noteId = "n2")),
+            newSections = emptyList(),
+            operation = ReconcileOperation.DELETE,
+            now = 20L,
+        )
+        assertEquals(d, report.decisions.single())
+        assertEquals(DecisionState.ACTIVE, report.decisions.single().decisionState)
+    }
+
+    @Test
+    fun reimportReplaceDeOutraNotaNaoSugereCandidatoCruzado() {
+        val d = decision(sectionId = "s1", title = "Ponto 1")
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = listOf(snap("s1", noteId = "n2")),
+            newSections = listOf(snap("s2", "Ponto 1", 1, "h-s2", noteId = "n2")),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+        )
+        assertEquals(d, report.decisions.single())
+        assertEquals(null, report.decisions.single().candidateSectionId)
+    }
+
+    @Test
+    fun mesmoIdEmDuasNotasUsaAChaveCompostaCorreta() {
+        val d = decision(sectionId = "s1", application = ApplicationState.APPLIED)
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = listOf(snap("s1", hash = "h-s1"), snap("s1", noteId = "n2", hash = "h-n2")),
+            newSections = listOf(
+                snap("s1", noteId = "n2", hash = "h-n2"),
+                snap("s1", hash = "h-s1"),
+            ),
+            operation = ReconcileOperation.REORDER,
+            now = 20L,
+        )
+        val result = report.decisions.single()
+        assertEquals(ApplicationState.APPLIED, result.applicationState)
+        assertEquals("n1", result.noteId)
     }
 
     @Test
@@ -239,6 +303,86 @@ class DecisionSectionReconcilerTest {
         assertEquals(SectionLink.ORPHANED, orphan.sectionLink)
         assertEquals("s2", orphan.sectionId)
         assertEquals("s1", orphan.originalSectionId)
+    }
+
+    @Test
+    fun segundaImportacaoUsaSnapshotsDaUltimaAssociacaoConfirmada() {
+        val pending = decision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        val remapped = DecisionTransitions.confirmRemap(
+            pending,
+            snap("s2", "Ponto 2", 2, "h-s2"),
+            now = 20L,
+        )
+        assertEquals("Ponto 2", remapped.sectionTitleSnapshot)
+        assertEquals(2, remapped.sectionOrderSnapshot)
+        assertEquals("Ponto 1", remapped.originalSectionTitleSnapshot)
+        assertEquals(1, remapped.originalSectionOrderSnapshot)
+
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(remapped),
+            oldSections = listOf(snap("s2", "Ponto 2", 2, "h-s2")),
+            newSections = listOf(
+                // Isca com os dados antigos de A.
+                snap("s4", "Ponto 1", 1, "h-s4"),
+                // A nova seção que corresponde ao snapshot atual de B.
+                snap("s3", "Ponto 2", 2, "h-s3"),
+            ),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 30L,
+        )
+        val result = report.decisions.single()
+        assertEquals("s3", result.candidateSectionId)
+        assertEquals("s2", result.sectionId)
+        assertEquals("s1", result.originalSectionId)
+        assertEquals(SectionLink.PENDING_RECONFIRMATION, result.sectionLink)
+    }
+
+    @Test
+    fun reconciliacaoIdempotenteNaoAtualizaTimestamps() {
+        val orphan = DecisionSectionReconciler.reconcile(
+            decisions = listOf(decision(link = SectionLink.ORPHANED)),
+            oldSections = listOf(snap()),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REMOVE,
+            now = 20L,
+        ).decisions.single()
+        assertEquals(10L, orphan.updatedAt)
+
+        val valid = DecisionSectionReconciler.reconcile(
+            decisions = listOf(decision()),
+            oldSections = listOf(snap()),
+            newSections = listOf(snap()),
+            operation = ReconcileOperation.REORDER,
+            now = 20L,
+        ).decisions.single()
+        assertEquals(10L, valid.updatedAt)
+
+        val pending = decision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        val pendingAgain = DecisionSectionReconciler.reconcile(
+            decisions = listOf(pending),
+            oldSections = listOf(snap("s1", "Ponto 1", 1, "h-s1")),
+            newSections = listOf(snap("s2", "Ponto 1", 1, "h-s2")),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+        ).decisions.single()
+        assertEquals(10L, pendingAgain.updatedAt)
+        assertEquals(pending, pendingAgain)
+
+        val removed = decision(state = DecisionState.REMOVED)
+        val removedAgain = DecisionSectionReconciler.reconcile(
+            decisions = listOf(removed),
+            oldSections = emptyList(),
+            newSections = listOf(snap()),
+            operation = ReconcileOperation.UNDO_REMOVE,
+            now = 20L,
+        ).decisions.single()
+        assertEquals(removed, removedAgain)
     }
 
     @Test

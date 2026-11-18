@@ -46,8 +46,14 @@ object DecisionSectionReconciler {
         operation: ReconcileOperation,
         now: Long,
     ): ReconcileReport {
-        val oldById = oldSections.associateBy { it.id }
-        val newById = newSections.associateBy { it.id }
+        // A identidade é composta: o mesmo sectionId em outra nota NUNCA é a
+        // mesma seção. Operações de uma nota não alteram decisões de outra.
+        val oldByKey = oldSections.associateBy { it.noteId to it.id }
+        val newByKey = newSections.associateBy { it.noteId to it.id }
+        val affectedNotes = buildSet {
+            oldSections.forEach { add(it.noteId) }
+            newSections.forEach { add(it.noteId) }
+        }
         val warnings = mutableListOf<String>()
 
         val updated = decisions.map { decision ->
@@ -56,12 +62,18 @@ object DecisionSectionReconciler {
             } else if (decision.decisionState == DecisionState.REMOVED) {
                 // REMOVED é terminal; nem uma seção reaparecida o ressuscita.
                 decision
+            } else if (decision.noteId !in affectedNotes) {
+                // Operação de outra nota não pode tocar nesta decisão.
+                decision
             } else {
-                val current = decision.sectionId?.let { newById[it] }
+                val current = decision.sectionId?.let {
+                    newByKey[decision.noteId to it]
+                }
                 if (current != null) {
                     reconcileExact(decision, current, now)
                 } else {
-                    if (decision.sectionId == null || decision.sectionId !in oldById) {
+                    val oldKey = decision.sectionId?.let { decision.noteId to it }
+                    if (oldKey == null || oldKey !in oldByKey) {
                         warnings += "decisão ${decision.id} já não tinha seção conhecida"
                     }
                     reconcileMissing(decision, newSections, operation, now, warnings)

@@ -69,6 +69,11 @@ data class DecisionRecord(
     val sectionRoleSnapshot: SectionRole? = null,
     val sectionOrderSnapshot: Int? = null,
     val sectionContentHashSnapshot: String? = null,
+    // Snapshot da primeira associação; nunca muda após remapeamento.
+    val originalSectionTitleSnapshot: String? = sectionTitleSnapshot,
+    val originalSectionRoleSnapshot: SectionRole? = sectionRoleSnapshot,
+    val originalSectionOrderSnapshot: Int? = sectionOrderSnapshot,
+    val originalSectionContentHashSnapshot: String? = sectionContentHashSnapshot,
     val subjectKey: String? = null,
     val sourceMessageId: String? = null,
     val sourceProposalId: String? = null,
@@ -111,7 +116,11 @@ data class DecisionRecord(
                     sectionTitleSnapshot == null &&
                         sectionRoleSnapshot == null &&
                         sectionOrderSnapshot == null &&
-                        sectionContentHashSnapshot == null
+                        sectionContentHashSnapshot == null &&
+                        originalSectionTitleSnapshot == null &&
+                        originalSectionRoleSnapshot == null &&
+                        originalSectionOrderSnapshot == null &&
+                        originalSectionContentHashSnapshot == null
                 ) {
                     "decisão NOTE não pode ter snapshot de seção"
                 }
@@ -138,6 +147,18 @@ data class DecisionRecord(
                 }
                 require(!sectionContentHashSnapshot.isNullOrBlank()) {
                     "decisão SECTION exige sectionContentHashSnapshot"
+                }
+                require(!originalSectionTitleSnapshot.isNullOrBlank()) {
+                    "decisão SECTION exige originalSectionTitleSnapshot"
+                }
+                require(originalSectionRoleSnapshot != null) {
+                    "decisão SECTION exige originalSectionRoleSnapshot"
+                }
+                require(originalSectionOrderSnapshot != null && originalSectionOrderSnapshot >= 0) {
+                    "decisão SECTION exige originalSectionOrderSnapshot válido"
+                }
+                require(!originalSectionContentHashSnapshot.isNullOrBlank()) {
+                    "decisão SECTION exige originalSectionContentHashSnapshot"
                 }
                 when (sectionLink) {
                     SectionLink.VALID, SectionLink.ORPHANED ->
@@ -244,6 +265,9 @@ object DecisionTransitions {
         require(decision.sectionLink != SectionLink.NOT_APPLICABLE) {
             "seção sem associação não pode ser órfã"
         }
+        if (decision.sectionLink == SectionLink.ORPHANED && decision.candidateSectionId == null) {
+            return decision
+        }
         return decision.copy(
             sectionLink = SectionLink.ORPHANED,
             candidateSectionId = null,
@@ -267,6 +291,12 @@ object DecisionTransitions {
         require(candidateSectionId != decision.sectionId) {
             "candidato não pode ser a associação atual"
         }
+        if (
+            decision.sectionLink == SectionLink.PENDING_RECONFIRMATION &&
+            decision.candidateSectionId == candidateSectionId
+        ) {
+            return decision
+        }
         return decision.copy(
             sectionLink = SectionLink.PENDING_RECONFIRMATION,
             candidateSectionId = candidateSectionId,
@@ -275,10 +305,38 @@ object DecisionTransitions {
     }
 
     /**
-     * Único caminho de remapeamento. Preserva `originalSectionId` e só marca
-     * aplicação como STALE se o conteúdo do novo alvo não bater com o aplicado.
+     * Confirma o candidato sugerido em PENDING_RECONFIRMATION. O destino
+     * precisa ser exatamente o candidateSectionId; um destino diferente exige
+     * a operação explícita [confirmManualRemap].
      */
     fun confirmRemap(
+        decision: DecisionRecord,
+        target: SectionSnapshot,
+        now: Long,
+    ): DecisionRecord {
+        require(decision.scope == DecisionScope.SECTION) {
+            "só decisão SECTION pode ser remapeada"
+        }
+        require(decision.decisionState != DecisionState.REMOVED) {
+            "REMOVED é terminal"
+        }
+        require(decision.sectionLink == SectionLink.PENDING_RECONFIRMATION) {
+            "confirmRemap exige PENDING_RECONFIRMATION"
+        }
+        require(target.noteId == decision.noteId) {
+            "remapeamento não pode trocar de nota"
+        }
+        require(target.id == decision.candidateSectionId) {
+            "target deve ser o candidateSectionId sugerido"
+        }
+        return applyRemap(decision, target, now)
+    }
+
+    /**
+     * Operação explícita para escolher um destino diferente do candidato
+     * sugerido. Não é chamada por reconciliação automática.
+     */
+    fun confirmManualRemap(
         decision: DecisionRecord,
         target: SectionSnapshot,
         now: Long,
@@ -292,6 +350,14 @@ object DecisionTransitions {
         require(target.noteId == decision.noteId) {
             "remapeamento não pode trocar de nota"
         }
+        return applyRemap(decision, target, now)
+    }
+
+    private fun applyRemap(
+        decision: DecisionRecord,
+        target: SectionSnapshot,
+        now: Long,
+    ): DecisionRecord {
         val application = if (
             decision.applicationState == ApplicationState.APPLIED &&
             decision.appliedHash != target.contentHash
@@ -300,10 +366,25 @@ object DecisionTransitions {
         } else {
             decision.applicationState
         }
+        if (
+            decision.sectionId == target.id &&
+            decision.sectionLink == SectionLink.VALID &&
+            decision.sectionTitleSnapshot == target.title &&
+            decision.sectionRoleSnapshot == target.role &&
+            decision.sectionOrderSnapshot == target.order &&
+            decision.sectionContentHashSnapshot == target.contentHash &&
+            decision.applicationState == application
+        ) {
+            return decision
+        }
         return decision.copy(
             sectionId = target.id,
             sectionLink = SectionLink.VALID,
             candidateSectionId = null,
+            sectionTitleSnapshot = target.title,
+            sectionRoleSnapshot = target.role,
+            sectionOrderSnapshot = target.order,
+            sectionContentHashSnapshot = target.contentHash,
             applicationState = application,
             updatedAt = maxOf(now, decision.updatedAt),
         )
@@ -379,3 +460,30 @@ object DecisionTransitions {
         )
     }
 }
+
+/**
+ * Elegibilidade para a memória ativa do Mentor. Não integra prompts nesta
+ * fase; é o contrato puro que a 1C.2.1B consumirá.
+ *
+ * NOTE precisa estar ACTIVE e NOT_APPLICABLE; SECTION precisa estar ACTIVE e
+ * VALID. ORPHANED/PENDING continuam preservadas, mas ficam fora do prompt.
+ */
+fun DecisionRecord.isEligibleForPromptMemory(): Boolean =
+    decisionState == DecisionState.ACTIVE &&
+        when (scope) {
+            DecisionScope.NOTE -> sectionLink == SectionLink.NOT_APPLICABLE
+            DecisionScope.SECTION -> sectionLink == SectionLink.VALID
+        }
+
+/**
+ * Aplicação atualmente válida, distinta da aplicação histórica. Uma decisão
+ * órfã pode manter APPLIED como história, mas não conta como aplicada no texto
+ * atual; uma aplicação STALE nunca conta.
+ */
+fun DecisionRecord.hasCurrentApplication(): Boolean =
+    when (scope) {
+        DecisionScope.NOTE -> applicationState == ApplicationState.APPLIED
+        DecisionScope.SECTION ->
+            applicationState == ApplicationState.APPLIED &&
+                sectionLink == SectionLink.VALID
+    }

@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.domain.speech.SectionRole
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,9 +15,10 @@ class DecisionMemoryTest {
         title: String = "Ponto 1",
         order: Int = 1,
         hash: String = "hash-s1",
+        noteId: String = "n1",
     ) = SectionSnapshot(
         id = id,
-        noteId = "n1",
+        noteId = noteId,
         role = SectionRole.BODY,
         title = title,
         order = order,
@@ -229,6 +231,13 @@ class DecisionMemoryTest {
         assertEquals(SectionLink.VALID, remapped.sectionLink)
         assertEquals(null, remapped.candidateSectionId)
         assertEquals(ApplicationState.APPLIED, remapped.applicationState)
+        // O snapshot atual passa a representar B; o histórico de A fica separado.
+        assertEquals("Ponto 2", remapped.sectionTitleSnapshot)
+        assertEquals(2, remapped.sectionOrderSnapshot)
+        assertEquals("hash-s1", remapped.sectionContentHashSnapshot)
+        assertEquals("Ponto 1", remapped.originalSectionTitleSnapshot)
+        assertEquals(1, remapped.originalSectionOrderSnapshot)
+        assertEquals("hash-s1", remapped.originalSectionContentHashSnapshot)
     }
 
     @Test
@@ -241,6 +250,103 @@ class DecisionMemoryTest {
         val target = snapshot(id = "s2", title = "Ponto 2", order = 2, hash = "hash-s2")
         val remapped = DecisionTransitions.confirmRemap(pending, target, now = 20L)
         assertEquals(ApplicationState.STALE, remapped.applicationState)
+    }
+
+    @Test
+    fun remapeamentoExigeCandidatoSugerido() {
+        val pending = sectionDecision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            DecisionTransitions.confirmRemap(
+                pending,
+                snapshot(id = "s3", title = "Ponto 3", order = 3),
+                now = 20L,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DecisionTransitions.confirmRemap(
+                pending,
+                snapshot(id = "s2", title = "Ponto 2", order = 2, noteId = "n2"),
+                now = 20L,
+            )
+        }
+    }
+
+    @Test
+    fun remapeamentoManualEhOperacaoExplicitaSeparada() {
+        val pending = sectionDecision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        val manual = DecisionTransitions.confirmManualRemap(
+            pending,
+            snapshot(id = "s3", title = "Ponto 3", order = 3),
+            now = 20L,
+        )
+        assertEquals("s3", manual.sectionId)
+        assertEquals("s1", manual.originalSectionId)
+        assertEquals(SectionLink.VALID, manual.sectionLink)
+    }
+
+    @Test
+    fun elegibilidadeExcluiOrfaaEPendenteMasMantemPreservadas() {
+        val activeValid = sectionDecision()
+        val orphan = sectionDecision(link = SectionLink.ORPHANED)
+        val pending = sectionDecision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        val superseded = sectionDecision(state = DecisionState.SUPERSEDED)
+        val removed = sectionDecision(state = DecisionState.REMOVED)
+
+        assertTrue(activeValid.isEligibleForPromptMemory())
+        assertFalse(orphan.isEligibleForPromptMemory())
+        assertFalse(pending.isEligibleForPromptMemory())
+        assertFalse(superseded.isEligibleForPromptMemory())
+        assertFalse(removed.isEligibleForPromptMemory())
+        // Preservadas: o estado de associação não apaga o registro.
+        assertEquals(DecisionState.ACTIVE, orphan.decisionState)
+        assertEquals(DecisionState.ACTIVE, pending.decisionState)
+    }
+
+    @Test
+    fun notaGlobalAtivaEhElegivel() {
+        val global = globalDecision()
+        assertTrue(global.isEligibleForPromptMemory())
+        assertFalse(globalDecision(state = DecisionState.REMOVED).isEligibleForPromptMemory())
+    }
+
+    @Test
+    fun aplicacaoHistoricaNaoEhAplicacaoAtual() {
+        val valid = sectionDecision(application = ApplicationState.APPLIED)
+        val orphan = sectionDecision(
+            link = SectionLink.ORPHANED,
+            application = ApplicationState.APPLIED,
+        )
+        val stale = sectionDecision(application = ApplicationState.STALE)
+        assertTrue(valid.hasCurrentApplication())
+        assertFalse(orphan.hasCurrentApplication())
+        assertFalse(stale.hasCurrentApplication())
+    }
+
+    @Test
+    fun remocaoReversivelEhIdempotente() {
+        val orphan = sectionDecision(link = SectionLink.ORPHANED)
+        assertEquals(orphan, DecisionTransitions.orphanForReversibleRemoval(orphan, now = 20L))
+    }
+
+    @Test
+    fun pendingComMesmoCandidatoEhIdempotente() {
+        val pending = sectionDecision(
+            link = SectionLink.PENDING_RECONFIRMATION,
+            candidateSectionId = "s2",
+        )
+        assertEquals(
+            pending,
+            DecisionTransitions.markPendingReconfirmation(pending, "s2", now = 20L),
+        )
     }
 
     @Test
