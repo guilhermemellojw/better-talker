@@ -76,11 +76,12 @@ class VerificationCorpusTest {
     }
 
     @Test
-    fun chatCorpusNaoIncluiTextoDoUsuario() {
+    fun chatCorpusSemDocumentacaoNaoConfirmaFato() {
         val corpus = chatVerificationCorpus(
             turnContext = turn(),
             evidenceContextBlock = null,
         )
+        assertTrue(corpus.isEmpty())
         assertFalse(corpus.any { it.contains("hipótese do usuário") })
     }
 

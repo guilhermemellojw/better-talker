@@ -291,4 +291,44 @@ class TrustEvidenceTest {
         assertTrue(corpus.hasNoDocumentaryEvidence())
         assertFalse(corpus.isEmpty())
     }
+
+    @Test
+    fun citacaoApenasS34NaoDocumental() {
+        val corpus = EvidenceCorpus(listOf(item(id = "s", category = EvidenceCategory.STRUCTURAL, recovered = "texto do S-34", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+        assertEquals(emptyList<String>(), corpus.documentaryTexts())
+    }
+
+    @Test
+    fun citacaoApenasBeThNaoDocumental() {
+        val corpus = EvidenceCorpus(listOf(item(id = "t", category = EvidenceCategory.TRAINING, recovered = "técnica", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+    }
+
+    @Test
+    fun aliasDaPerguntaNaoViraContent() {
+        val alias = item(id = "alias", category = EvidenceCategory.STRUCTURAL, recovered = "jer 29 11", resolved = false)
+        assertFalse(alias.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun fonteWaivedOuUnresolvedNaoElegivel() {
+        val waived = item(id = "w", waived = true, recovered = "texto")
+        val unresolved = item(id = "u", resolved = false, recovered = "")
+        assertFalse(waived.isDocumentaryEvidence())
+        assertFalse(unresolved.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun trechoBiblicoRecuperadoElegivel() {
+        val source = item(id = "b", category = EvidenceCategory.CONTENT, recovered = "texto bíblico", resolved = true)
+        assertTrue(source.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun corpusDocumentalVazioNaoConfirmaFato() {
+        val corpus = EvidenceCorpus(listOf(item(id = "s", category = EvidenceCategory.STRUCTURAL, recovered = "S-34", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+        assertTrue(corpus.hasNoDocumentaryEvidence())
+    }
 }

@@ -62,10 +62,23 @@ internal fun verifyGeneratedText(
     text: String,
     turnContext: ChatTurnContext? = null,
     extraSources: List<String> = emptyList(),
+): VerificationResult = verifyGeneratedText(
+    text = text,
+    turnContext = turnContext,
+    documentarySources = emptyList(),
+    structuralExtras = extraSources,
+)
+
+internal fun verifyGeneratedText(
+    text: String,
+    turnContext: ChatTurnContext? = null,
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
 ): VerificationResult {
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
-        addAll(extraSources)
+        addAll(documentarySources.map { it.text })
+        addAll(structuralExtras)
     }.filter { it.isNotBlank() }
     return GroundednessVerifier.verify(text, corpus)
 }

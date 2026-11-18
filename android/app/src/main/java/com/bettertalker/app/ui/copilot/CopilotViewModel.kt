@@ -280,7 +280,7 @@ fun verificationCorpus(
  */
 fun verificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
-    documentaryExtras: List<String> = emptyList(),
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
     structuralExtras: List<String> = emptyList(),
 ): List<String> {
     val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
@@ -335,16 +335,17 @@ fun verificationCorpus(
             }
         }
     }
-    documentaryExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+    documentarySources.forEach { source ->
         items += com.bettertalker.app.data.copilot.EvidenceItem(
-            id = "doc-extra-$index",
-            reference = "doc-extra-$index",
+            id = source.sourceId,
+            reference = source.reference,
             provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
-                sourceId = "doc-extra-$index",
+                sourceId = source.sourceId,
                 category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
-                recoveredText = text,
-                resolved = true,
-                waived = false,
+                documentUnit = source.documentUnit,
+                recoveredText = source.text,
+                resolved = source.resolved,
+                waived = source.waived,
             ),
         )
     }
@@ -365,7 +366,7 @@ fun verificationCorpus(
  */
 internal fun documentaryEvidenceCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
-    documentaryExtras: List<String> = emptyList(),
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
 ): com.bettertalker.app.data.copilot.EvidenceCorpus {
     val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
     turnContext.pack.contentSources.forEach { source ->
@@ -384,16 +385,17 @@ internal fun documentaryEvidenceCorpus(
             )
         }
     }
-    documentaryExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+    documentarySources.forEach { source ->
         items += com.bettertalker.app.data.copilot.EvidenceItem(
-            id = "doc-extra-$index",
-            reference = "doc-extra-$index",
+            id = source.sourceId,
+            reference = source.reference,
             provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
-                sourceId = "doc-extra-$index",
+                sourceId = source.sourceId,
                 category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
-                recoveredText = text,
-                resolved = true,
-                waived = false,
+                documentUnit = source.documentUnit,
+                recoveredText = source.text,
+                resolved = source.resolved,
+                waived = source.waived,
             ),
         )
     }
@@ -423,12 +425,14 @@ internal fun chatVerificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     evidenceContextBlock: String?,
     structuralVerseLines: List<String> = emptyList(),
-    questionVerseLines: List<String> = emptyList(),
-    questionPubs: List<String> = emptyList(),
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
 ): List<String> = verificationCorpus(
     turnContext = turnContext,
-    documentaryExtras = structuralVerseLines + questionVerseLines + questionPubs,
-    structuralExtras = listOfNotNull(evidenceContextBlock),
+    documentarySources = documentarySources + structuralVerseLines.mapNotNull {
+        com.bettertalker.app.data.copilot.recoveredDocumentFromVerseLine(it)
+    },
+    structuralExtras = listOfNotNull(evidenceContextBlock) + structuralExtras,
 )
 
 /**
@@ -465,14 +469,13 @@ internal suspend fun resolveBibleRefLines(
  * forma escrita dispara o aviso falso "versículo fora dos trechos" mesmo com
  * o versículo injetado. Puro/testável.
  */
-fun questionVerseLines(verses: List<ScopedHit>, rawQuestion: String = ""): List<String> {
-    val lines = verses.map { "[${it.passage.ref}] ${it.passage.text}" }.toMutableList()
-    val aliases = RefDetector.detectBible(rawQuestion)
+fun questionVerseLines(verses: List<ScopedHit>): List<String> =
+    verses.map { "[${it.passage.ref}] ${it.passage.text}" }
+
+fun questionVerseAliases(rawQuestion: String): List<String> =
+    RefDetector.detectBible(rawQuestion)
         .map { "${it.bookNorm} ${it.chapter} ${it.verse}" }
         .distinct()
-    if (aliases.isNotEmpty()) lines += aliases.joinToString(" ")
-    return lines
-}
 
 /**
  * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
@@ -5597,8 +5600,27 @@ class CopilotViewModel(
                 turnContext = turnContext,
                 evidenceContextBlock = effectiveContextBlock,
                 structuralVerseLines = structuralVerseLines,
-                questionVerseLines = questionVerseLines(questionVerses, text),
-                questionPubs = questionPubs.map { it.passage.text },
+                documentarySources = questionVerses.map { v ->
+                    com.bettertalker.app.data.copilot.RecoveredDocument(
+                        sourceId = v.passage.ref.ifBlank { "question-verse" },
+                        reference = v.passage.ref,
+                        text = v.passage.text,
+                        documentUnit = v.source,
+                        resolved = v.passage.text.isNotBlank(),
+                        waived = false,
+                    )
+                } + questionPubs.map { p ->
+                    com.bettertalker.app.data.copilot.RecoveredDocument(
+                        sourceId = p.passage.ref.ifBlank { "question-pub" },
+                        reference = p.passage.ref,
+                        text = p.passage.text,
+                        documentUnit = p.source,
+                        resolved = p.passage.text.isNotBlank(),
+                        waived = false,
+                    )
+                },
+                structuralExtras = questionVerseAliases(text) +
+                    listOfNotNull(effectiveContextBlock),
             )
         }
         val outcome = verifyChatText(text, corpus)

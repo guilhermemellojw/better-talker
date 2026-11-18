@@ -76,7 +76,7 @@ class BibleQuestionPromptTest {
         // pós-check acusa "fora dos trechos") — inclusive na forma do usuário
         // ("Jer. 29:11"), que o modelo repete.
         val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem o que tenho em mente para vocês”"))
-        val lines = questionVerseLines(verses, "o que diz Jer. 29:11?")
+        val lines = questionVerseLines(verses) + questionVerseAliases("o que diz Jer. 29:11?")
         assertTrue(lines.first().startsWith("[Je 29:11] "))
         assertTrue(lines.last().contains("jer 29 11"))
 

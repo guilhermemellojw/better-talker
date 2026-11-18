@@ -165,6 +165,46 @@ data class EvidenceExcerpt(
 }
 
 /**
+ * Fonte documental recuperada, com referência e origem verificáveis.
+ * Nunca deve ser criada a partir de texto livre, alias ou resposta do modelo.
+ */
+data class RecoveredDocument(
+    val sourceId: String,
+    val reference: String,
+    val text: String,
+    val documentUnit: String? = null,
+    val resolved: Boolean = true,
+    val waived: Boolean = false,
+) {
+    init {
+        require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
+        require(reference.isNotBlank()) { "reference não pode ser vazio" }
+        require(text.isNotBlank()) { "text não pode ser vazio" }
+    }
+}
+
+/**
+ * Adapter para linhas produzidas por recuperação rastreável no formato
+ * "[ref] texto". Retorna null se a linha não tiver ref e texto recuperado.
+ */
+fun recoveredDocumentFromVerseLine(line: String): com.bettertalker.app.data.copilot.RecoveredDocument? {
+    val trimmed = line.trim()
+    if (!trimmed.startsWith("[")) return null
+    val closing = trimmed.indexOf("] ")
+    if (closing <= 1) return null
+    val ref = trimmed.substring(1, closing).trim()
+    val text = trimmed.substring(closing + 2).trim()
+    if (ref.isBlank() || text.isBlank()) return null
+    return RecoveredDocument(
+        sourceId = ref,
+        reference = ref,
+        text = text,
+        resolved = true,
+        waived = false,
+    )
+}
+
+/**
  * Citação atribuída ao usuário. Deve estar relacionada ao conteúdo real da
  * mensagem fornecida por um consumidor confiável.
  *
