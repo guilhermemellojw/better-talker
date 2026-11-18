@@ -497,4 +497,9 @@ class ChatMotionTest {
         assertTrue(isTurnHandoffArrival(isTurnHandoff(turn, messages), false))
         assertFalse(isTurnHandoffArrival(isTurnHandoff(turn, messages), true))
     }
+    @Test
+    fun simpleMode_ocultaAcoesAvancadasApenasQuandoAtivo() {
+        assertTrue(simpleModeHidesAdvancedActions(true))
+        assertFalse(simpleModeHidesAdvancedActions(false))
+    }
 }

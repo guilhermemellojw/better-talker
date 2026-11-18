@@ -841,6 +841,7 @@ fun ChatScreen(
                             expanded = topMenuOpen,
                             onDismissRequest = { topMenuOpen = false },
                         ) {
+                            if (!simpleModeHidesAdvancedActions(simpleMode)) {
                             DropdownMenuItem(
                                 text = {
                                     Column {
@@ -869,7 +870,7 @@ fun ChatScreen(
                                         Text("Modo simples")
                                         Switch(
                                             checked = simpleMode,
-                                            onCheckedChange = { vm.setSimpleMode(it) },
+                                            onCheckedChange = null,
                                         )
                                     }
                                 },
@@ -878,6 +879,7 @@ fun ChatScreen(
                                     vm.setSimpleMode(!simpleMode)
                                 },
                             )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(
@@ -2909,6 +2911,12 @@ internal fun isRoomHandoff(activeTurn: TurnUiState?, finalInMessages: Boolean): 
 
 internal fun turnHandoffReady(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
     isRoomHandoff(activeTurn, finalInMessages)
+
+/**
+ * UX-A11Y-1 — no Modo simples, ações avançadas ficam recolhidas por padrão.
+ * A decisão é pura e testável; a UI apenas a consome.
+ */
+internal fun simpleModeHidesAdvancedActions(simpleMode: Boolean): Boolean = simpleMode
 
 /** T3 — texto exibido após remover as tags de criação + flag do badge. */
 data class SuggestionText(val text: String, val hasSuggestion: Boolean)
