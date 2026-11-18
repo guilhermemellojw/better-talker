@@ -357,6 +357,7 @@ fun verificationCorpus(
     // Contexto estrutural/método pode servir a fidelidade, mas não autoriza
     // afirmação bíblica, doutrinal ou histórica.
     return corpus.documentaryTexts().filter { it.isNotBlank() }
+}
 
 /**
  * TRUST-1A2 — evidência documental isolada, para TRUST-2 e auditoria.
