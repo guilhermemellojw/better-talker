@@ -18,7 +18,7 @@
 
 - `EvidenceUnit` reutiliza `EvidenceItem`/`EvidenceProvenance`; preserva `documentId`, referência, tipo, edição, unidade, texto, truncamento, `completeness`, `exposedToModel` e vínculo.
 - `DocumentKind`: BIBLE, PUBLICATION, S34, USER_MESSAGE, TRAINING.
-- `EvidenceCompleteness`: COMPLETE, PARTIAL, UNKNOWN; UNKNOWN/PARTIAL nunca é promovido a COMPLETE.
+- `EvidenceCompleteness`: COMPLETE, PARTIAL, UNKNOWN; derivado da proveniência (`partial`, `resolved`, `waived`), sem override público no `EvidenceUnit`.
 - `isFactualEligible()`: apenas BIBLE/PUBLICATION com `CONTENT` resolvido, não dispensado, texto não vazio, sem truncamento, completo, com unidade e efetivamente exposto ao modelo.
 - `RecoveredDocument.partial` preserva `ReferenceStatus.PARTIAL`; `isDocumentaryEligible()` exige `!partial`.
 - `RecoveredDocument.asEvidenceUnit(...)` evita segunda cópia independente do conteúdo.

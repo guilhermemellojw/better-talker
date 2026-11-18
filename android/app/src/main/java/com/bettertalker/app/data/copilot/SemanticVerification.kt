@@ -107,8 +107,6 @@ data class EvidenceUnit(
     val edition: String? = null,
     val documentUnit: String? = null,
     val truncated: Boolean = false,
-    /** Completude explícita; UNKNOWN nunca é promovido a COMPLETE. */
-    val completeness: EvidenceCompleteness = EvidenceCompleteness.UNKNOWN,
     /**
      * Indica que este texto foi efetivamente disponibilizado ao contexto do
      * Mentor. Recuperar não é o mesmo que expor ao modelo.
@@ -125,6 +123,18 @@ data class EvidenceUnit(
     val reference: String get() = item.reference
     val text: String get() = item.text
     val hasDocumentUnit: Boolean get() = !documentUnit.isNullOrBlank()
+
+    /**
+     * Completude derivada da proveniência, sem override público:
+     * partial → PARTIAL; não resolvido/dispensado → UNKNOWN; caso contrário,
+     * COMPLETE.
+     */
+    val completeness: EvidenceCompleteness
+        get() = when {
+            item.provenance.partial -> EvidenceCompleteness.PARTIAL
+            !item.provenance.resolved || item.provenance.waived -> EvidenceCompleteness.UNKNOWN
+            else -> EvidenceCompleteness.COMPLETE
+        }
 
     /**
      * Elegível como prova factual: documento bíblico/publicação, resolvido,
@@ -153,11 +163,6 @@ fun RecoveredDocument.asEvidenceUnit(
     kind: DocumentKind,
     edition: String? = null,
     truncated: Boolean = false,
-    completeness: EvidenceCompleteness = when {
-        partial -> EvidenceCompleteness.PARTIAL
-        resolved -> EvidenceCompleteness.COMPLETE
-        else -> EvidenceCompleteness.UNKNOWN
-    },
     exposedToModel: Boolean = false,
 ): EvidenceUnit = EvidenceUnit(
     item = EvidenceItem(
@@ -170,13 +175,13 @@ fun RecoveredDocument.asEvidenceUnit(
             recoveredText = text,
             resolved = resolved,
             waived = waived,
+            partial = partial,
         ),
     ),
     kind = kind,
     edition = edition,
     documentUnit = documentUnit,
     truncated = truncated,
-    completeness = completeness,
     exposedToModel = exposedToModel,
 )
 

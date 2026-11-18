@@ -44,6 +44,8 @@ data class EvidenceProvenance(
     val recoveredText: String = "",
     val resolved: Boolean = false,
     val waived: Boolean = false,
+    /** Recuperação parcial/incompleta; nunca promove a documento completo. */
+    val partial: Boolean = false,
 ) {
     init {
         require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
@@ -59,6 +61,7 @@ data class EvidenceProvenance(
     fun isDocumentaryEvidence(): Boolean =
         category == EvidenceCategory.CONTENT &&
             !waived &&
+            !partial &&
             resolved &&
             recoveredText.isNotBlank()
 
@@ -69,6 +72,7 @@ data class EvidenceProvenance(
     fun isMethodEvidence(): Boolean =
         category == EvidenceCategory.TRAINING &&
             !waived &&
+            !partial &&
             resolved &&
             recoveredText.isNotBlank()
 }

@@ -16,6 +16,7 @@ class SemanticVerificationTest {
         category: EvidenceCategory = EvidenceCategory.CONTENT,
         resolved: Boolean = true,
         waived: Boolean = false,
+        partial: Boolean = false,
         documentUnit: String? = "v. 11",
     ): EvidenceItem = EvidenceItem(
         id = id,
@@ -27,6 +28,7 @@ class SemanticVerificationTest {
             recoveredText = text,
             resolved = resolved,
             waived = waived,
+            partial = partial,
         ),
     )
 
@@ -45,14 +47,14 @@ class SemanticVerificationTest {
             id = id,
             text = text,
             category = kind.requiredCategory,
-            resolved = resolved,
+            resolved = if (completeness == EvidenceCompleteness.UNKNOWN) false else resolved,
             waived = waived,
+            partial = completeness == EvidenceCompleteness.PARTIAL,
             documentUnit = documentUnit,
         ),
         kind = kind,
         documentUnit = documentUnit,
         truncated = truncated,
-        completeness = completeness,
         exposedToModel = exposedToModel,
     )
 
@@ -114,7 +116,6 @@ class SemanticVerificationTest {
             item = item(category = EvidenceCategory.CONTENT),
             kind = DocumentKind.BIBLE,
             documentUnit = null,
-            completeness = EvidenceCompleteness.COMPLETE,
             exposedToModel = true,
         )
         assertFalse(evidence.hasDocumentUnit)
@@ -650,6 +651,27 @@ class SemanticVerificationTest {
         val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE, exposedToModel = true)
         assertEquals(EvidenceCompleteness.PARTIAL, evidence.completeness)
         assertFalse(evidence.isFactualEligible())
+    }
+
+    @Test
+    fun partialNaoPodeSerPromovidoACompletePorOverride() {
+        val doc = RecoveredDocument(
+            sourceId = "partial-1",
+            reference = "Je 29:11",
+            text = "texto parcial",
+            documentUnit = "v. 11",
+            resolved = true,
+            waived = false,
+            partial = true,
+        )
+        val evidence = doc.asEvidenceUnit(DocumentKind.BIBLE, exposedToModel = true)
+        assertEquals(EvidenceCompleteness.PARTIAL, evidence.completeness)
+        assertFalse(evidence.isFactualEligible())
+        // Não existe parâmetro/copy de completeness no EvidenceUnit: a
+        // completude é derivada da proveniência.
+        val copy = evidence.copy(exposedToModel = true)
+        assertEquals(EvidenceCompleteness.PARTIAL, copy.completeness)
+        assertFalse(copy.isFactualEligible())
     }
 
     @Test
