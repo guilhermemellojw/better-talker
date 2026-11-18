@@ -142,6 +142,7 @@ internal fun hasPendingProposal(
 internal data class SimpleModeShortcutPlan(
     val quickActions: List<QuickAction>,
     val localActions: List<String>,
+    val showAttach: Boolean,
     val showLocalNeeds: Boolean,
     val hasMore: Boolean,
 ) {
@@ -149,6 +150,7 @@ internal data class SimpleModeShortcutPlan(
         get() = buildList {
             addAll(quickActions.map { it.label })
             addAll(localActions)
+            if (showAttach) add("Anexar esboço")
             if (showLocalNeeds) add("Necessidades Locais")
         }
 }
@@ -166,33 +168,40 @@ internal fun simpleModeShortcutPlan(
     val prioritizedLocal = simpleModeLocalShortcuts(localActions)
     val chosenQuick = mutableListOf<QuickAction>()
     val chosenLocal = mutableListOf<String>()
+    val attachAvailable = localActions.isEmpty()
+    var showAttach = false
     var showNeeds = false
 
-    if (chosenQuick.size < budget && quickActions.isNotEmpty()) {
+    fun used() = chosenQuick.size + chosenLocal.size +
+        (if (showAttach) 1 else 0) + (if (showNeeds) 1 else 0)
+
+    if (used() < budget && quickActions.isNotEmpty()) {
         chosenQuick.add(quickActions.first())
     }
-    if (chosenQuick.size + chosenLocal.size < budget && prioritizedLocal.isNotEmpty()) {
+    if (used() < budget && prioritizedLocal.isNotEmpty()) {
         chosenLocal.add(prioritizedLocal.first())
     }
-    if (chosenQuick.size + chosenLocal.size < budget) {
+    if (used() < budget && attachAvailable) {
+        showAttach = true
+    }
+    if (used() < budget) {
         showNeeds = true
     }
-    val remaining = (budget - chosenQuick.size - chosenLocal.size -
-        (if (showNeeds) 1 else 0)).coerceAtLeast(0)
-    if (remaining > 0) {
-        chosenQuick.addAll(quickActions.drop(1).take(remaining))
+    val remainingQuick = (budget - used()).coerceAtLeast(0)
+    if (remainingQuick > 0) {
+        chosenQuick.addAll(quickActions.drop(1).take(remainingQuick))
     }
-    val remainingLocal = (budget - chosenQuick.size - chosenLocal.size -
-        (if (showNeeds) 1 else 0)).coerceAtLeast(0)
+    val remainingLocal = (budget - used()).coerceAtLeast(0)
     if (remainingLocal > 0) {
         chosenLocal.addAll(prioritizedLocal.drop(1).take(remainingLocal))
     }
-    val shown = chosenQuick.size + chosenLocal.size + (if (showNeeds) 1 else 0)
-    val total = quickActions.size + localActions.size + 1
+    val total = quickActions.size + localActions.size + 1 +
+        (if (attachAvailable) 1 else 0)
     return SimpleModeShortcutPlan(
         quickActions = chosenQuick,
         localActions = chosenLocal,
+        showAttach = showAttach,
         showLocalNeeds = showNeeds,
-        hasMore = total > shown,
+        hasMore = total > used(),
     )
 }

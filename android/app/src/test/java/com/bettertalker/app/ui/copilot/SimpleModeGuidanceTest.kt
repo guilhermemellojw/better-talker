@@ -171,6 +171,7 @@ class SimpleModeGuidanceTest {
     private fun structureProposal(applied: Boolean = false, notice: String? = null) =
         CopilotViewModel.StructureProposalUi(
             id = "s",
+            noteId = "note",
             sectionId = "sec",
             proposal = outlineProposal(),
             plan = sectionPlan(),
@@ -283,6 +284,43 @@ class SimpleModeGuidanceTest {
 
     @Test
     fun planoSemAtalhosSuficientesNaoMostraVerOutrasOpcoes() {
+        val plan = simpleModeShortcutPlan(
+            quickActions = emptyList(),
+            localActions = listOf("Próximo passo"),
+        )
+        assertEquals(listOf("Próximo passo", "Necessidades Locais"), plan.labels)
+        assertFalse(plan.hasMore)
+    }
+
+    @Test
+    fun planoComListasVaziasIncluiAnexoENecessidades() {
+        val plan = simpleModeShortcutPlan(
+            quickActions = emptyList(),
+            localActions = emptyList(),
+        )
+        assertEquals(listOf("Anexar esboço", "Necessidades Locais"), plan.labels)
+        assertFalse(plan.hasMore)
+    }
+
+    @Test
+    fun planoSomenteComAcoesConversacionaisRespeitaOrcamento() {
+        val plan = simpleModeShortcutPlan(
+            quickActions = listOf(
+                QuickAction("a", "Melhorar este ponto", "Melhore este ponto."),
+                QuickAction("b", "Deixar mais natural", "Deixe mais natural."),
+                QuickAction("c", "Criar ilustração", "Crie uma ilustração."),
+            ),
+            localActions = emptyList(),
+        )
+        assertEquals(
+            listOf("Melhorar este ponto", "Anexar esboço", "Necessidades Locais"),
+            plan.labels,
+        )
+        assertTrue(plan.hasMore)
+    }
+
+    @Test
+    fun planoSomenteComAcoesLocaisRespeitaOrcamento() {
         val plan = simpleModeShortcutPlan(
             quickActions = emptyList(),
             localActions = listOf("Próximo passo"),

@@ -632,6 +632,8 @@ fun ChatQuickActions(
     largeTouchTargets: Boolean = false,
     /** UX-A11Y-2A: mostra ou não o chip de Necessidades Locais. */
     showLocalNeeds: Boolean = true,
+    /** UX-A11Y-2A: o chip de anexo participa do orçamento de atalhos. */
+    showAttach: Boolean = localActions.isEmpty(),
     /** UX-A11Y-2A: no Modo simples, Necessidades Locais vai para o fim. */
     needsAtEnd: Boolean = false,
     modifier: Modifier = Modifier
@@ -653,7 +655,7 @@ fun ChatQuickActions(
                 )
             }
         }
-        if (localActions.isEmpty()) {
+        if (showAttach) {
             item {
                 AssistChip(
                     onClick = {

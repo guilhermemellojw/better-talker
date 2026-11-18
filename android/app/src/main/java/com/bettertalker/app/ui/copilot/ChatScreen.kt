@@ -960,6 +960,7 @@ fun ChatScreen(
                         },
                         largeTouchTargets = simpleMode,
                         showLocalNeeds = plan?.showLocalNeeds ?: true,
+                        showAttach = plan?.showAttach ?: allLocal.isEmpty(),
                         needsAtEnd = compact,
                     )
                     Spacer(Modifier.height(6.dp))
