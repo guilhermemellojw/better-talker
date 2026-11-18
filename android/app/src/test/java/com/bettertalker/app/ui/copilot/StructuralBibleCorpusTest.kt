@@ -78,24 +78,24 @@ class StructuralBibleCorpusTest {
     }
 
     @Test
-    fun resolveBibleRefLinesInjetaTextoEOmiteNaoResolvido() = runBlocking {
+    fun resolveBibleDocumentsInjetaTextoEOmiteNaoResolvido() = runBlocking {
         val resolver = FakeResolver(
             mapOf(
                 "Jer. 45:3" to "Bendito o homem que confia em Jeová.",
                 "w25.07" to null,
             )
         )
-        val lines = resolveBibleRefLines(listOf("Jer. 45:3", "w25.07"), resolver)
-        assertEquals(1, lines.size)
-        assertTrue(lines.single().startsWith("[Jer. 45:3]"))
-        assertTrue(lines.single().contains("Bendito o homem"))
+        val docs = resolveBibleDocuments(listOf("Jer. 45:3", "w25.07"), resolver)
+        assertEquals(1, docs.size)
+        assertEquals("Jer. 45:3", docs.single().reference)
+        assertTrue(docs.single().text.contains("Bendito o homem"))
     }
 
     @Test
     fun citacaoDoVersiculoResolvidoNaoEhSinalizada() = runBlocking {
         val verse = "Bendito o homem que confia em Jeová e cuja esperança é Jeová."
         val resolver = FakeResolver(mapOf("Jer. 45:3" to verse))
-        val resolved = resolveBibleRefLines(listOf("Jer. 45:3"), resolver)
+        val resolved = resolveBibleDocuments(listOf("Jer. 45:3"), resolver).map { it.text }
         val text = "A resposta é: “$verse”."
         val sem = com.bettertalker.app.data.llm.GroundednessVerifier.verify(
             text, listOf("fonte sem o versículo"),

@@ -449,13 +449,16 @@ internal fun structuralBibleRefs(
  * Fase 2 — resolve refs bíblicas em linhas `[ref] texto` para o corpus do
  * verifier. Injetável (fake nos testes); refs não resolvidas são omitidas.
  */
-internal suspend fun resolveBibleRefLines(
+internal suspend fun resolveBibleDocuments(
     refs: List<String>,
     resolver: ReferenceResolver,
-): List<String> = refs.mapNotNull { ref ->
-    val resolved = resolver.resolveBible(ref)
-    resolved.text?.takeIf { it.isNotBlank() }?.let { "[$ref] $it" }
-}
+): List<com.bettertalker.app.data.copilot.RecoveredDocument> =
+    refs.mapNotNull { ref ->
+        com.bettertalker.app.data.copilot.recoveredDocumentFromResolvedBible(
+            ref,
+            resolver.resolveBible(ref),
+        )
+    }
 
 /**
  * T3 (acesso bíblico) — linhas "ref + texto" para o CORPUS do gate: cobre a
@@ -5220,30 +5223,18 @@ class CopilotViewModel(
      * o erro honesto sobe para o catch do send() (§5).
      */
     /**
-     * Fase 2 — versículos literais do S-34 atual para o corpus do verifier.
-     * Usa o índice TNM local; refs não encontradas são omitidas.
+     * Fase 2 — versículos literais do S-34 atual, uma única consulta ao
+     * resolvedor confiável. Refs não encontradas são omitidas.
      */
-    private suspend fun resolveStructuralBibleLines(
-        turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
-    ): List<String> {
-        val refs = structuralBibleRefs(turnContext)
-        if (refs.isEmpty()) return emptyList()
-        return resolveBibleRefLines(
-            refs,
-            RoomReferenceResolver(db.passageDao(), db.attachmentDao()),
-        )
-    }
-
     private suspend fun resolveStructuralBibleDocuments(
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     ): List<com.bettertalker.app.data.copilot.RecoveredDocument> {
         val refs = structuralBibleRefs(turnContext)
         if (refs.isEmpty()) return emptyList()
-        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
-        return refs.mapNotNull { ref ->
-            val resolved = resolver.resolveBible(ref)
-            com.bettertalker.app.data.copilot.recoveredDocumentFromResolvedBible(ref, resolved)
-        }
+        return resolveBibleDocuments(
+            refs,
+            RoomReferenceResolver(db.passageDao(), db.attachmentDao()),
+        )
     }
 
     /**
@@ -5595,20 +5586,15 @@ class CopilotViewModel(
         // de publicação da pergunta. Sem o dossiê, citar uma ref do PRÓPRIO
         // tópico dispara o aviso falso "fora dos trechos" (visto no device
         // com "ec 3:11").
-        val structuralVerseLines = if (sourceQuestionMode) {
-            emptyList()
-        } else {
-            resolveStructuralBibleLines(turnContext)
-        }
         val structuralBibleDocuments = if (sourceQuestionMode) {
             emptyList()
         } else {
             resolveStructuralBibleDocuments(turnContext)
         }
-        if (structuralVerseLines.isNotEmpty()) {
+        if (structuralBibleDocuments.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
-                "chat remoto: ${structuralVerseLines.size} versículo(s) do S-34 no corpus do verifier",
+                "chat remoto: ${structuralBibleDocuments.size} versículo(s) do S-34 no corpus do verifier",
             )
         }
         val corpus = if (sourceQuestionMode) {
@@ -5623,23 +5609,17 @@ class CopilotViewModel(
             chatVerificationCorpus(
                 turnContext = turnContext,
                 evidenceContextBlock = effectiveContextBlock,
-                documentarySources = questionVerses.map { v ->
-                    com.bettertalker.app.data.copilot.RecoveredDocument(
-                        sourceId = v.passage.ref.ifBlank { "question-verse" },
+                documentarySources = questionVerses.mapNotNull { v ->
+                    com.bettertalker.app.data.copilot.recoveredDocumentFromPassage(
                         reference = v.passage.ref,
                         text = v.passage.text,
                         documentUnit = v.source,
-                        resolved = v.passage.text.isNotBlank(),
-                        waived = false,
                     )
-                } + questionPubs.map { p ->
-                    com.bettertalker.app.data.copilot.RecoveredDocument(
-                        sourceId = p.passage.ref.ifBlank { "question-pub" },
+                } + questionPubs.mapNotNull { p ->
+                    com.bettertalker.app.data.copilot.recoveredDocumentFromPassage(
                         reference = p.passage.ref,
                         text = p.passage.text,
                         documentUnit = p.source,
-                        resolved = p.passage.text.isNotBlank(),
-                        waived = false,
                     )
                 } + structuralBibleDocuments,
                 structuralExtras = questionVerseAliases(text) +
@@ -8594,13 +8574,16 @@ class CopilotViewModel(
             }
             val combinedText = responses.joinToString("\n\n") { it.text }
             val anyCut = responses.any { it.meta.finishReason == "length" }
-            // #7e: gate de groundedness — o esboço colado é a fonte do gate;
-            // o que estiver carregado (dossiê, S-34 e seções atuais) complementa.
-            // Limitação: este caminho não monta ContextPack/RAG (reportado).
-            val corpus = buildList {
+            // #7e: gate de groundedness — o esboço colado, o dossiê e o S-34
+            // permanecem como contexto de fidelidade; apenas refs efetivamente
+            // recuperadas do dossiê entram como evidência documental.
+            val documentarySources = lastDossier?.let {
+                com.bettertalker.app.data.copilot.recoveredDocumentsFromDossier(it)
+            }.orEmpty()
+            val structuralContext = buildList {
                 pasteBuffer?.takeIf { it.isNotBlank() }?.let { add(it) }
                 lastDossier?.let {
-                    // 1C.2.0: corpus de evidências sem abordagem/memória.
+                    // 1C.2.0: contexto sem abordagem/memória.
                     add(dossierPromptBuilder.buildEvidenceBlock(it, includeSpeakerNote = false))
                 }
                 _lastS34Document?.let { addAll(s34StructuralContext(it)) }
@@ -8608,7 +8591,11 @@ class CopilotViewModel(
                     add(com.bettertalker.app.data.edit.stripHtmlToText(it.contentHtml))
                 }
             }.filter { it.isNotBlank() }
-            val verified = verifyGeneratedText(combinedText, null, structuralExtras = corpus)
+            val verified = verifyGeneratedText(
+                text = combinedText,
+                documentarySources = documentarySources,
+                structuralExtras = structuralContext,
+            )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length

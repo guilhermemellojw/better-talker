@@ -11,8 +11,6 @@ import com.bettertalker.app.data.s34.S34Document
  * Usado nos caminhos de geração que não têm um [ChatTurnContext].
  * Puro/testável.
  */
-internal fun s34CorpusTexts(doc: S34Document): List<String> = emptyList()
-
 internal fun s34StructuralContext(doc: S34Document): List<String> {
     val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
     doc.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
