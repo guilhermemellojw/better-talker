@@ -318,6 +318,109 @@ class DecisionMemoryRepositoryTest {
     }
 
     @Test
+    fun replaceForNoteRejeitaColisaoDeIdComOutraNota() = runBlocking {
+        setUp()
+        val d1 = sectionDecision(id = "d1", noteId = "n1")
+        val d2 = sectionDecision(id = "d2", noteId = "n2")
+        repo.saveAll(listOf(d1, d2))
+        val incoming = sectionDecision(id = "d3", noteId = "n1")
+        val colliding = sectionDecision(id = "d2", noteId = "n1")
+
+        val error = failureOf {
+            repo.replaceForNote("n1", listOf(incoming, colliding))
+        }
+
+        assertTrue(error is IllegalArgumentException)
+        // Nem a nota n1 foi substituída nem a decisão d2 foi transferida.
+        assertEquals(listOf(d1), repo.forNote("n1"))
+        assertEquals(listOf(d2), repo.forNote("n2"))
+    }
+
+    @Test
+    fun replaceForNotePermiteReutilizarIdDaMesmaNota() = runBlocking {
+        setUp()
+        val d1 = sectionDecision(id = "d1", noteId = "n1")
+        repo.save(d1)
+        val updated = d1.copy(text = "texto atualizado")
+
+        repo.replaceForNote("n1", listOf(updated))
+
+        assertEquals(listOf(updated), repo.forNote("n1"))
+    }
+
+    @Test
+    fun reconcileSemSnapshotsOrfanaSomenteANotaAfetada() = runBlocking {
+        setUp()
+        val d1 = sectionDecision(id = "d1", noteId = "n1")
+        val d2 = sectionDecision(id = "d2", noteId = "n2")
+        repo.saveAll(listOf(d1, d2))
+
+        val report = repo.reconcile(
+            noteId = "n1",
+            oldSections = emptyList(),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+        )
+
+        val result = report.decisions.single()
+        assertEquals(SectionLink.ORPHANED, result.sectionLink)
+        assertEquals("s1", result.sectionId)
+        assertEquals(20L, result.updatedAt)
+        assertEquals(result, repo.get("d1"))
+        assertEquals(d2, repo.forNote("n2").single())
+    }
+
+    @Test
+    fun reconcileReimportReplaceComOldNaoVazioENewVazioOrfana() = runBlocking {
+        setUp()
+        val d = sectionDecision(application = ApplicationState.APPLIED)
+        repo.save(d)
+
+        val report = repo.reconcile(
+            noteId = "n1",
+            oldSections = listOf(snap()),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+        )
+
+        val stored = repo.get("d1")!!
+        assertEquals(SectionLink.ORPHANED, stored.sectionLink)
+        assertNull(stored.candidateSectionId)
+        assertEquals(ApplicationState.APPLIED, stored.applicationState)
+        assertEquals(20L, stored.updatedAt)
+        assertEquals(stored, report.decisions.single())
+    }
+
+    @Test
+    fun removeSeguidoDeUndoReassociaSecao() = runBlocking {
+        setUp()
+        repo.save(sectionDecision())
+
+        repo.reconcile(
+            noteId = "n1",
+            oldSections = listOf(snap()),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REMOVE,
+            now = 20L,
+        )
+        assertEquals(SectionLink.ORPHANED, repo.get("d1")!!.sectionLink)
+
+        repo.reconcile(
+            noteId = "n1",
+            oldSections = emptyList(),
+            newSections = listOf(snap()),
+            operation = ReconcileOperation.UNDO_REMOVE,
+            now = 30L,
+        )
+        val restored = repo.get("d1")!!
+        assertEquals(SectionLink.VALID, restored.sectionLink)
+        assertEquals("s1", restored.sectionId)
+        assertEquals(30L, restored.updatedAt)
+    }
+
+    @Test
     fun reconcileSemMudancaNaoGravaNemAtualizaTimestamp() = runBlocking {
         setUp()
         val d = sectionDecision(updatedAt = 10L)

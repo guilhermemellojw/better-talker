@@ -210,8 +210,12 @@ object DbProvider {
         }
     }
 
-    /** 1C.2.1A2: ledger de decisões do Mentor (aditiva, sem backfill). */
-    private val MIGRATION_26_27 = object : Migration(26, 27) {
+    /**
+     * 1C.2.1A2: ledger de decisões do Mentor (aditiva, sem backfill).
+     * `internal` para o teste instrumentado abrir um banco v26 real com a
+     * MESMA migração usada em produção.
+     */
+    internal val MIGRATION_26_27 = object : Migration(26, 27) {
         override fun migrate(db: SupportSQLiteDatabase) {
             for (sql in MigrationSql.MIGRATION_26_27) db.execSQL(sql)
         }

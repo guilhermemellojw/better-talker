@@ -87,8 +87,20 @@ class DecisionMemoryRepository(
         }
         requireUniqueIds(decisions.map { it.id })
         transactionRunner.run {
+            // `DecisionEntity.id` é PK global. Antes de apagar a nota,
+            // detecta IDs que já pertencem a OUTRA nota; nesse caso a
+            // operação inteira falha, sem transferir nem sobrescrever nada.
+            val entities = decisions.map { it.toEntity() }
+            val collisions = entities.mapNotNull { entity ->
+                val existing = dao.get(entity.id)
+                entity.id.takeIf { existing != null && existing.noteId != noteId }
+            }
+            require(collisions.isEmpty()) {
+                "replaceForNote colide com decisão de outra nota: " +
+                    collisions.joinToString()
+            }
             dao.deleteForNote(noteId)
-            if (decisions.isNotEmpty()) dao.upsertAll(decisions.map { it.toEntity() })
+            if (entities.isNotEmpty()) dao.upsertAll(entities)
         }
     }
 
@@ -119,6 +131,7 @@ class DecisionMemoryRepository(
                 newSections = newSections,
                 operation = operation,
                 now = now,
+                affectedNoteId = noteId,
             )
             val changed = report.decisions.filterIndexed { index, record ->
                 record != current[index]

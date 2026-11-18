@@ -83,13 +83,14 @@ class DecisionMemoryRoomTest {
 
     private fun decision(
         id: String = "d1",
+        noteId: String = "n1",
         link: SectionLink = SectionLink.VALID,
         application: ApplicationState = ApplicationState.NOT_APPLIED,
         candidateSectionId: String? = null,
         supersedesId: String? = null,
     ) = DecisionRecord(
         id = id,
-        noteId = "n1",
+        noteId = noteId,
         scope = DecisionScope.SECTION,
         kind = DecisionKind.CONFIRMED,
         decisionState = DecisionState.ACTIVE,
@@ -218,11 +219,36 @@ class DecisionMemoryRoomTest {
         db.noteDao().upsert(note("n1"))
         db.noteDao().upsert(note("n2"))
         repo.save(decision())
-        repo.save(decision().copy(id = "d9", noteId = "n2"))
+        repo.save(decision(id = "d9", noteId = "n2"))
 
         repo.replaceForNote("n1", emptyList())
 
         assertEquals(0, db.decisionDao().countForNote("n1"))
         assertEquals(1, db.decisionDao().countForNote("n2"))
+    }
+
+    @Test
+    fun replaceForNoteEmRoomRejeitaColisaoDeIdComOutraNota() = runBlocking {
+        db.noteDao().upsert(note("n1"))
+        db.noteDao().upsert(note("n2"))
+        repo.save(decision(id = "d1"))
+        repo.save(decision(id = "d2", noteId = "n2"))
+
+        val error = runCatching {
+            repo.replaceForNote(
+                "n1",
+                listOf(
+                    decision(id = "d3"),
+                    decision(id = "d2", noteId = "n1"),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertNotNull("a colisão entre notas deve falhar", error)
+        // Nenhuma nota foi alterada: n1 mantém d1 e n2 mantém d2.
+        assertEquals(1, db.decisionDao().countForNote("n1"))
+        assertEquals(1, db.decisionDao().countForNote("n2"))
+        assertEquals("n1", repo.get("d1")!!.noteId)
+        assertEquals("n2", repo.get("d2")!!.noteId)
     }
 }

@@ -3,6 +3,7 @@ package com.bettertalker.app.data.copilot
 import com.bettertalker.app.domain.speech.SectionRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +27,7 @@ class DecisionSectionReconcilerTest {
 
     private fun decision(
         id: String = "d1",
+        noteId: String = "n1",
         sectionId: String = "s1",
         originalSectionId: String = sectionId,
         candidateSectionId: String? = null,
@@ -39,7 +41,7 @@ class DecisionSectionReconcilerTest {
         removedAt: Long? = if (state == DecisionState.REMOVED) 10L else null,
     ) = DecisionRecord(
         id = id,
-        noteId = "n1",
+        noteId = noteId,
         scope = DecisionScope.SECTION,
         kind = kind,
         decisionState = state,
@@ -472,5 +474,129 @@ class DecisionSectionReconcilerTest {
             now = 20L,
         )
         assertEquals(ApplicationState.APPLIED, report.decisions.single().applicationState)
+    }
+
+    @Test
+    fun reimportReplaceComOldNaoVazioENewVazioOrfanaDecisao() {
+        val d = decision(application = ApplicationState.APPLIED, appliedHash = "h-s1")
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = listOf(snap()),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+            affectedNoteId = "n1",
+        )
+        val result = report.decisions.single()
+        assertEquals(SectionLink.ORPHANED, result.sectionLink)
+        assertEquals("s1", result.sectionId)
+        assertNull(result.candidateSectionId)
+        // Aplicação histórica não é apagada por remoção reversível.
+        assertEquals(ApplicationState.APPLIED, result.applicationState)
+        assertEquals(20L, result.updatedAt)
+        assertTrue(report.orphaned.contains(result))
+    }
+
+    @Test
+    fun reimportReplaceSemNenhumSnapshotNaoMantemValid() {
+        val d = decision()
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d),
+            oldSections = emptyList(),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+            affectedNoteId = "n1",
+        )
+        val result = report.decisions.single()
+        assertEquals(SectionLink.ORPHANED, result.sectionLink)
+        assertEquals("s1", result.sectionId)
+        assertNull(result.candidateSectionId)
+        assertEquals(20L, result.updatedAt)
+    }
+
+    @Test
+    fun remocaoSemSnapshotsOrfanaDecisao() {
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(decision()),
+            oldSections = emptyList(),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REMOVE,
+            now = 20L,
+            affectedNoteId = "n1",
+        )
+        assertEquals(SectionLink.ORPHANED, report.decisions.single().sectionLink)
+    }
+
+    @Test
+    fun deleteSemSnapshotsRemoveDecisaoLogicamente() {
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(decision()),
+            oldSections = emptyList(),
+            newSections = emptyList(),
+            operation = ReconcileOperation.DELETE,
+            now = 20L,
+            affectedNoteId = "n1",
+        )
+        val result = report.decisions.single()
+        assertEquals(DecisionState.REMOVED, result.decisionState)
+        assertEquals(20L, result.removedAt)
+        assertTrue(report.removed.contains(result))
+    }
+
+    @Test
+    fun undoRemoveReassociaQuandoSecaoReaparece() {
+        val orphan = decision(link = SectionLink.ORPHANED)
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(orphan),
+            oldSections = emptyList(),
+            newSections = listOf(snap()),
+            operation = ReconcileOperation.UNDO_REMOVE,
+            now = 30L,
+            affectedNoteId = "n1",
+        )
+        val result = report.decisions.single()
+        assertEquals(SectionLink.VALID, result.sectionLink)
+        assertEquals("s1", result.sectionId)
+        assertEquals("s1", result.originalSectionId)
+        assertEquals(30L, result.updatedAt)
+    }
+
+    @Test
+    fun reimportReplaceReassociaMesmoIdSemRemaperar() {
+        val orphan = decision(link = SectionLink.ORPHANED)
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(orphan),
+            oldSections = emptyList(),
+            newSections = listOf(snap("s1", "Ponto 2", 2, "h-s2")),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 30L,
+            affectedNoteId = "n1",
+        )
+        val result = report.decisions.single()
+        assertEquals(SectionLink.VALID, result.sectionLink)
+        assertEquals("s1", result.sectionId)
+        assertEquals("Ponto 2", result.sectionTitleSnapshot)
+        assertEquals("Ponto 1", result.originalSectionTitleSnapshot)
+        assertEquals(2, result.sectionOrderSnapshot)
+        assertEquals(1, result.originalSectionOrderSnapshot)
+        assertEquals(30L, result.updatedAt)
+    }
+
+    @Test
+    fun affectedNoteIdNaoTocaDecisaoDeOutraNotaComMesmoSectionId() {
+        val d1 = decision(id = "d1", noteId = "n1", sectionId = "s1")
+        val d2 = decision(id = "d2", noteId = "n2", sectionId = "s1")
+        val report = DecisionSectionReconciler.reconcile(
+            decisions = listOf(d1, d2),
+            oldSections = emptyList(),
+            newSections = emptyList(),
+            operation = ReconcileOperation.REIMPORT_REPLACE,
+            now = 20L,
+            affectedNoteId = "n1",
+        )
+        assertEquals(SectionLink.ORPHANED, report.decisions[0].sectionLink)
+        assertEquals(d2, report.decisions[1])
+        assertEquals(SectionLink.VALID, report.decisions[1].sectionLink)
     }
 }
