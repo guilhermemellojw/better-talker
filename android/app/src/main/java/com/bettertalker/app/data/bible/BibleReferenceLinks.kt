@@ -17,6 +17,8 @@ data class BibleReferenceOccurrence(
     val verses: List<Int>,
     val chapterOnly: Boolean,
     val canonicalRefs: List<String>,
+    /** Capítulos cobertos; em versículo único contém apenas [chapter]. */
+    val chapters: List<Int> = listOf(chapter),
 ) {
     init {
         require(start >= 0) { "start deve ser >= 0" }
@@ -34,6 +36,11 @@ data class BibleReferenceOccurrence(
  *
  * `sourceAttachmentId` identifica a edição real escolhida pelo leitor.
  * `documentId`/`passageId` da TRUST não são presumidos aqui.
+ *
+ * UX-REF-1A2: `BibleReaderViewModel.open()` ainda aceita apenas referências
+ * textuais; a abertura do leitor deverá fixar ou revalidar
+ * [sourceAttachmentId] para não divergir se a Bíblia preferida mudar entre a
+ * resolução e o toque.
  */
 data class BibleReaderTarget(
     val rawReference: String,
@@ -86,6 +93,7 @@ object BibleReferenceSpanDetector {
     private val CHAPTER_CANDIDATE_RE = Regex(
         """(?<![\p{L}\p{N}_])""" +
             """((?:[1-3]\s*)?[\p{L}]{2,})\.?\s+(\d{1,3})""" +
+            """(?:\s*[-–—]\s*(\d{1,3}))?""" +
             """(?![\p{L}\p{N}_:])""",
         RegexOption.IGNORE_CASE,
     )
@@ -156,19 +164,21 @@ object BibleReferenceSpanDetector {
         end: Int,
     ): BibleReferenceOccurrence? {
         val chapterRefs = RefDetector.detectBibleChapters(raw)
-        if (chapterRefs.size != 1) return null
-        val chapter = chapterRefs.single()
+        if (chapterRefs.isEmpty()) return null
         val expanded = expandBibleChapters(raw)
-        if (expanded.size != 1) return null
+        if (expanded.isEmpty()) return null
+        val chapters = chapterRefs.map { it.chapter }.distinct().sorted()
+        if (chapters.size != chapterRefs.size) return null
         return BibleReferenceOccurrence(
             raw = raw,
             start = start,
             endExclusive = end,
-            book = chapter.label,
-            chapter = chapter.chapter,
+            book = chapterRefs.first().label,
+            chapter = chapters.first(),
             verses = emptyList(),
             chapterOnly = true,
             canonicalRefs = expanded.map { "${it.bookAbbrev} ${it.chapter}" },
+            chapters = chapters,
         )
     }
 

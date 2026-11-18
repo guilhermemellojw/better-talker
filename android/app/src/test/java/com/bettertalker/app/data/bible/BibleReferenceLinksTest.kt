@@ -27,7 +27,13 @@ class BibleReferenceLinksTest {
         override suspend fun chapterTexts(
             sourceId: String,
             prefix: String,
-        ): Map<String, String> = chapters[prefix].orEmpty()
+        ): Map<String, String> {
+            val needle = prefix.removeSuffix("%")
+            return chapters.filterKeys { it.startsWith(needle) }
+                .values
+                .flatMap { it.entries }
+                .associate { it.key to it.value }
+        }
     }
 
     private fun detectorText(text: String) = BibleReferenceSpanDetector.detect(text)
@@ -261,5 +267,77 @@ class BibleReferenceLinksTest {
 
         assertEquals(null, result.target.evidenceId)
         assertEquals("tnm", result.target.sourceAttachmentId)
+    }
+
+    @Test
+    fun intervaloDeCapitulosCobreOSpanInteiro() {
+        val text = "Leia Salmo 23-24 agora."
+        val occ = detectorText(text).single()
+        assertEquals("Salmo 23-24", occ.raw)
+        assertEquals(text.indexOf("Salmo 23-24"), occ.start)
+        assertEquals(occ.start + "Salmo 23-24".length, occ.endExclusive)
+        assertEquals(listOf(23, 24), occ.chapters)
+        assertEquals(listOf("Sal 23", "Sal 24"), occ.canonicalRefs)
+    }
+
+    @Test
+    fun intervaloMateusCobreOSpanInteiro() {
+        val occ = detectorText("(Mateus 24-25)").single()
+        assertEquals("Mateus 24-25", occ.raw)
+        assertEquals(listOf(24, 25), occ.chapters)
+        assertEquals(listOf("Mt 24", "Mt 25"), occ.canonicalRefs)
+    }
+
+    @Test
+    fun capituloIsoladoContinuaFuncionando() {
+        val occ = detectorText("Salmo 23").single()
+        assertEquals(listOf(23), occ.chapters)
+        assertTrue(occ.chapterOnly)
+    }
+
+    @Test
+    fun intervalosInvalidosNaoViramLinkParcial() {
+        assertTrue(detectorText("Salmo 24-23").isEmpty())
+        assertTrue(detectorText("Salmo 23-200").isEmpty())
+    }
+
+    @Test
+    fun intervaloEmNegritoPreservaSpanInterno() {
+        val occ = detectorText("**Salmo 23-24**").single()
+        assertEquals("Salmo 23-24", occ.raw)
+        assertEquals(2, occ.start)
+    }
+
+    @Test
+    fun intervaloDentroDeCodigoOuUrlNaoEhDetectado() {
+        assertTrue(detectorText("`Salmo 23-24`").isEmpty())
+        assertTrue(detectorText("https://jw.org/Salmo.23-24").isEmpty())
+    }
+
+    @Test
+    fun multiplasReferenciasComIntervaloMantemOrdem() {
+        val occs = detectorText("Salmo 23-24 e Mateus 5:3")
+        assertEquals(2, occs.size)
+        assertEquals("Salmo 23-24", occs[0].raw)
+        assertEquals("Mateus 5:3", occs[1].raw)
+        assertTrue(occs[0].start < occs[1].start)
+    }
+
+    @Test
+    fun intervaloComFonteParcialMantemNavegavelComAviso() = kotlinx.coroutines.runBlocking {
+        val source = FakeSource(
+            chapters = mapOf(
+                "Sal 23:" to mapOf("Sal 23:1" to "Primeiro capítulo."),
+            ),
+        )
+        val reader = BiblePassageReader(source)
+        val resolver = BibleReferenceResolver(reader, source)
+        val occ = detectorText("Salmo 23-24").single()
+
+        val result = resolver.resolve(occ)
+        assertTrue("result=$result", result is BibleReferenceResolution.Partial)
+        val partial = result as BibleReferenceResolution.Partial
+        assertEquals(listOf("Sal 23", "Sal 24"), partial.target.canonicalRefs)
+        assertTrue(partial.warning.isNotBlank())
     }
 }
