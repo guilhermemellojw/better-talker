@@ -630,6 +630,10 @@ fun ChatQuickActions(
     onShowAll: (() -> Unit)? = null,
     /** UX-A11Y-2A: alvo efetivo de 48dp nos chips do Modo simples. */
     largeTouchTargets: Boolean = false,
+    /** UX-A11Y-2A: mostra ou não o chip de Necessidades Locais. */
+    showLocalNeeds: Boolean = true,
+    /** UX-A11Y-2A: no Modo simples, Necessidades Locais vai para o fim. */
+    needsAtEnd: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // T1 (P2 estético): háptica leve nos chips de ação.
@@ -641,17 +645,13 @@ fun ChatQuickActions(
     ) {
         // #8f: porta das Necessidades Locais — pré-preenche o composer (o
         // tema fica com o usuário; nada é enviado sem ele completar).
-        item {
-            AssistChip(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    onPrefill("Discurso curto para as necessidades locais sobre ")
-                },
-                label = { Text("Necessidades Locais") },
-                modifier = Modifier.semantics {
-                    contentDescription = "Necessidades Locais — preencher mensagem"
-                }.then(chipModifier),
-            )
+        if (showLocalNeeds && !needsAtEnd) {
+            item {
+                LocalNeedsChip(
+                    onPrefill = onPrefill,
+                    modifier = chipModifier,
+                )
+            }
         }
         if (localActions.isEmpty()) {
             item {
@@ -689,6 +689,14 @@ fun ChatQuickActions(
                 modifier = chipModifier,
             )
         }
+        if (showLocalNeeds && needsAtEnd) {
+            item {
+                LocalNeedsChip(
+                    onPrefill = onPrefill,
+                    modifier = chipModifier,
+                )
+            }
+        }
         onShowAll?.let { showAll ->
             item {
                 AssistChip(
@@ -704,6 +712,24 @@ fun ChatQuickActions(
             }
         }
     }
+}
+
+@Composable
+private fun LocalNeedsChip(
+    onPrefill: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    AssistChip(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+            onPrefill("Discurso curto para as necessidades locais sobre ")
+        },
+        label = { Text("Necessidades Locais") },
+        modifier = Modifier.semantics {
+            contentDescription = "Necessidades Locais — preencher mensagem"
+        }.then(modifier),
+    )
 }
 
 /** Sheet do + : importar, colar, anexar do acervo ou baixar publicações. */

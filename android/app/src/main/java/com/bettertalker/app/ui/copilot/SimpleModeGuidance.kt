@@ -1,5 +1,7 @@
 package com.bettertalker.app.ui.copilot
 
+import com.bettertalker.app.data.copilot.QuickAction
+
 /**
  * UX-A11Y-2A — orientação única do Modo simples.
  *
@@ -103,3 +105,94 @@ internal fun simpleModeLocalShortcuts(localActions: List<String>): List<String> 
 
 /** Limite de atalhos prioritários no Modo simples antes de "Ver outras opções". */
 internal const val SIMPLE_MODE_SHORTCUT_LIMIT = 3
+
+/** UX-A11Y-2A — proposta de texto ainda aguarda decisão do usuário. */
+internal fun CopilotViewModel.ProposalUi.isPendingProposal(): Boolean =
+    !applied && notice == null
+
+/** UX-A11Y-2A — proposta de estrutura de seção ainda aguarda decisão. */
+internal fun CopilotViewModel.StructureProposalUi.isPendingProposal(): Boolean =
+    !applied && notice == null
+
+/** UX-A11Y-2A — proposta de estrutura da nota ainda aguarda decisão. */
+internal fun CopilotViewModel.NoteStructureProposalUi.isPendingProposal(): Boolean =
+    !applied && notice == null
+
+/** UX-A11Y-2A — opções de ângulo ainda não foram escolhidas/resolvidas. */
+internal fun CopilotViewModel.MultiProposalUi.isPendingProposal(): Boolean =
+    chosen == null && notice == null
+
+/**
+ * UX-A11Y-2A — há alguma proposta real aguardando confirmação?
+ *
+ * Propostas aplicadas, rejeitadas, com aviso terminal ou com opção já
+ * escolhida não bloqueiam a orientação de próximo passo.
+ */
+internal fun hasPendingProposal(
+    proposal: CopilotViewModel.ProposalUi?,
+    structureProposal: CopilotViewModel.StructureProposalUi?,
+    noteStructureProposal: CopilotViewModel.NoteStructureProposalUi?,
+    multiProposal: CopilotViewModel.MultiProposalUi?,
+): Boolean = proposal?.isPendingProposal() == true ||
+    structureProposal?.isPendingProposal() == true ||
+    noteStructureProposal?.isPendingProposal() == true ||
+    multiProposal?.isPendingProposal() == true
+
+/** Plano dos atalhos realmente exibidos no Modo simples. */
+internal data class SimpleModeShortcutPlan(
+    val quickActions: List<QuickAction>,
+    val localActions: List<String>,
+    val showLocalNeeds: Boolean,
+    val hasMore: Boolean,
+) {
+    val labels: List<String>
+        get() = buildList {
+            addAll(quickActions.map { it.label })
+            addAll(localActions)
+            if (showLocalNeeds) add("Necessidades Locais")
+        }
+}
+
+/**
+ * UX-A11Y-2A — seleciona até [limit] atalhos, priorizando uma ação de
+ * melhoria, um próximo passo local e, por último, Necessidades Locais.
+ */
+internal fun simpleModeShortcutPlan(
+    quickActions: List<QuickAction>,
+    localActions: List<String>,
+    limit: Int = SIMPLE_MODE_SHORTCUT_LIMIT,
+): SimpleModeShortcutPlan {
+    val budget = limit.coerceAtLeast(0)
+    val prioritizedLocal = simpleModeLocalShortcuts(localActions)
+    val chosenQuick = mutableListOf<QuickAction>()
+    val chosenLocal = mutableListOf<String>()
+    var showNeeds = false
+
+    if (chosenQuick.size < budget && quickActions.isNotEmpty()) {
+        chosenQuick.add(quickActions.first())
+    }
+    if (chosenQuick.size + chosenLocal.size < budget && prioritizedLocal.isNotEmpty()) {
+        chosenLocal.add(prioritizedLocal.first())
+    }
+    if (chosenQuick.size + chosenLocal.size < budget) {
+        showNeeds = true
+    }
+    val remaining = (budget - chosenQuick.size - chosenLocal.size -
+        (if (showNeeds) 1 else 0)).coerceAtLeast(0)
+    if (remaining > 0) {
+        chosenQuick.addAll(quickActions.drop(1).take(remaining))
+    }
+    val remainingLocal = (budget - chosenQuick.size - chosenLocal.size -
+        (if (showNeeds) 1 else 0)).coerceAtLeast(0)
+    if (remainingLocal > 0) {
+        chosenLocal.addAll(prioritizedLocal.drop(1).take(remainingLocal))
+    }
+    val shown = chosenQuick.size + chosenLocal.size + (if (showNeeds) 1 else 0)
+    val total = quickActions.size + localActions.size + 1
+    return SimpleModeShortcutPlan(
+        quickActions = chosenQuick,
+        localActions = chosenLocal,
+        showLocalNeeds = showNeeds,
+        hasMore = total > shown,
+    )
+}

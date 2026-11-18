@@ -758,13 +758,17 @@ fun ChatScreen(
         hasUserMessage = messages.any { it.fromMe },
         inputBlank = input.isBlank(),
     )
-    val hasPendingProposal = proposal != null || structureProposal != null ||
-        noteStructureProposal != null || multiProposal != null
+    val proposalPending = hasPendingProposal(
+        proposal = proposal,
+        structureProposal = structureProposal,
+        noteStructureProposal = noteStructureProposal,
+        multiProposal = multiProposal,
+    )
     val simpleGuidance = simpleModeGuidance(
         simpleMode = simpleMode,
         sourcesBlocked = sourcesNeeded != null || showSetupBanner,
         hasError = runState is ChatRunState.Error,
-        hasProposal = hasPendingProposal,
+        hasProposal = proposalPending,
         isGenerating = busy,
         hasNextStep = nextStep != null,
         isEmptyConversation = messages.isEmpty(),
@@ -938,24 +942,25 @@ fun ChatScreen(
                     // doSend: nenhum atalho tem prompt próprio (§9 F15).
                     val allLocal = localSuggestionTexts(outlineInfo != null)
                     val compact = simpleMode && !showAllShortcuts
-                    val quickToShow = if (compact) vm.quickActions.take(1) else vm.quickActions
-                    val localToShow = if (compact) {
-                        simpleModeLocalShortcuts(allLocal).take(1)
+                    val plan = if (compact) {
+                        simpleModeShortcutPlan(vm.quickActions, allLocal)
                     } else {
-                        allLocal
+                        null
                     }
                     ChatQuickActions(
-                        quickActions = quickToShow,
-                        localActions = localToShow,
+                        quickActions = plan?.quickActions ?: vm.quickActions,
+                        localActions = plan?.localActions ?: allLocal,
                         onPick = { doSend(it) },
                         onAttach = { showAttach = true },
                         onPrefill = { input = it; composerFocus.requestFocus() },
-                        onShowAll = if (compact) {
+                        onShowAll = if (plan?.hasMore == true) {
                             { showAllShortcuts = true }
                         } else {
                             null
                         },
                         largeTouchTargets = simpleMode,
+                        showLocalNeeds = plan?.showLocalNeeds ?: true,
+                        needsAtEnd = compact,
                     )
                     Spacer(Modifier.height(6.dp))
                 }
