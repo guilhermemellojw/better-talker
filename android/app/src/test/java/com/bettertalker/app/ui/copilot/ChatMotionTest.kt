@@ -359,3 +359,63 @@ class ChatMotionTest {
         assertEquals(TurnVisualGroup.ERROR, TurnPhase.ERROR.visualGroup())
     }
 }
+
+    // ---------- UX-2.3: handoff estável ----------
+
+    @Test
+    fun isTurnHandoff_true_quandoUltimaMensagemEhRespostaDoMesmoTurno() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.DONE)
+        val messages = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = false, kind = "text", turnId = "t1"),
+        )
+        assertTrue(isTurnHandoff(turn, messages))
+        assertTrue(isHandoff(turn, messages))
+        assertTrue(handoffInProgress(turn, messages))
+        assertTrue(isStableHandoff(turn, messages))
+    }
+
+    @Test
+    fun isTurnHandoff_false_quandoNaoHaTurnoOuMensagemDoUsuario() {
+        val turn = TurnUiState(turnId = "t1", phase = TurnPhase.STREAMING)
+        assertFalse(isTurnHandoff(turn, emptyList()))
+        val userMsg = listOf(
+            CopilotViewModel.ChatItem(id = "m1", fromMe = true, kind = "text", turnId = "t1"),
+        )
+        assertFalse(isTurnHandoff(turn, userMsg))
+        val other = listOf(
+            CopilotViewModel.ChatItem(id = "m2", fromMe = false, kind = "text", turnId = "t2"),
+        )
+        assertFalse(isTurnHandoff(turn, other))
+        assertFalse(isTurnHandoff(null, other))
+    }
+
+    @Test
+    fun messagesEffect_handoff_naoContaNovidade() {
+        assertEquals(
+            MessagesEffect.Nothing,
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = false,
+                atBottom = false,
+                handoff = true,
+            ),
+        )
+        assertTrue(
+            messagesEffect(
+                messageAdded = true,
+                proposalAdded = false,
+                messageCount = 3,
+                hasContext = false,
+                hasTopicEmpty = false,
+                lastItemIndex = 2,
+                followEnd = true,
+                atBottom = true,
+                handoff = true,
+            ) is MessagesEffect.ScrollTo,
+        )
+    }
