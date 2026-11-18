@@ -302,4 +302,11 @@ private fun subjectMatch(
  *    relação) ou de uma regra de exibição única por sessão. A ausência de
  *    supersessão já preserva as duas decisões; o problema é só repetição de
  *    pergunta.
+ *
+ * 6. Identidade sem sourceMessageId e sem sourceProposalId:
+ *    decisões futuras que não tiverem NENHUMA dessas proveniências exigem uma
+ *    política explícita de identidade antes de qualquer transição persistente
+ *    (B2B). Não usar texto, createdAt, sectionId atual ou similaridade como
+ *    substituto: o contrato de origem desta B2A não cobre esse caso e ele deve
+ *    ser decidido com testes próprios.
  */
