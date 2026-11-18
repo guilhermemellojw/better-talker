@@ -87,6 +87,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -125,11 +126,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -239,6 +244,7 @@ fun ChatScreen(
     val localRetry by vm.localRetry.collectAsState()
     val localReasoning by vm.localReasoning.collectAsState()
     val activeTurn by vm.activeTurn.collectAsState()
+    val simpleMode by vm.simpleMode.collectAsState()
     val scopeLoading by vm.scopeLoading.collectAsState()
     val thinkingMode by vm.thinkingMode.collectAsState()
     // #17-fix: parcial limpo durante o streaming (só marcadores internos —
@@ -358,6 +364,10 @@ fun ChatScreen(
     // última mensagem. Antes, o item vivia só no ⋯ das respostas de texto;
     // cards/propostas (kinds sem MessageActions) deixavam a conversa sem clear.
     var topMenuOpen by remember { mutableStateOf(false) }
+    var showAdvancedOptions by remember { mutableStateOf(false) }
+    LaunchedEffect(topMenuOpen) {
+        if (!topMenuOpen) showAdvancedOptions = false
+    }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
     val voiceNotice by vm.voiceNotice.collectAsState()
@@ -839,23 +849,53 @@ fun ChatScreen(
                             expanded = topMenuOpen,
                             onDismissRequest = { topMenuOpen = false },
                         ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text("Transformar seleção em card")
-                                        if (!canTransformSelection) {
-                                            Text(
-                                                "Selecione um texto no editor primeiro.",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
+                            if (simpleMode && !showAdvancedOptions) {
+                                DropdownMenuItem(
+                                    text = { Text("Opções avançadas") },
+                                    onClick = { showAdvancedOptions = true },
+                                )
+                            }
+                            if (!simpleMode || showAdvancedOptions) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Transformar seleção em card")
+                                            if (!canTransformSelection) {
+                                                Text(
+                                                    "Selecione um texto no editor primeiro.",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
                                         }
+                                    },
+                                    enabled = canTransformSelection,
+                                    onClick = {
+                                        topMenuOpen = false
+                                        vm.transformSelectionToCard()
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                modifier = Modifier.semantics {
+                                    role = Role.Switch
+                                    toggleableState = ToggleableState(simpleMode)
+                                },
+                                text = {
+                                    Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Text("Modo simples")
+                                        Switch(
+                                            checked = simpleMode,
+                                            onCheckedChange = null,
+                                        )
                                     }
                                 },
-                                enabled = canTransformSelection,
                                 onClick = {
                                     topMenuOpen = false
-                                    vm.transformSelectionToCard()
+                                    vm.setSimpleMode(!simpleMode)
                                 },
                             )
                             DropdownMenuItem(

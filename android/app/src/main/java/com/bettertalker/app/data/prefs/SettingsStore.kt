@@ -28,6 +28,11 @@ class SettingsStore(
     private val ctx: Context,
     private val secretCipher: SecretCipher = KeystoreSecretCipher(),
 ) {
+    /** Modo simples do Mentor: apresentação mais acessível, desativado por padrão. */
+    private val SIMPLE_MODE = booleanPreferencesKey("simple_mode")
+    val simpleMode: Flow<Boolean> = ctx.store.data.map { it[SIMPLE_MODE] ?: false }
+    suspend fun setSimpleMode(v: Boolean) { ctx.store.edit { it[SIMPLE_MODE] = v } }
+
     /** Home: modo de visualização (GRID | LIST_COMPACT | LIST_DETAILED). */
     private val HOME_VIEW_MODE = stringPreferencesKey("home_view_mode")
     val homeViewMode: Flow<String> = ctx.store.data.map { it[HOME_VIEW_MODE] ?: "GRID" }

@@ -1596,6 +1596,10 @@ class CopilotViewModel(
      */
     private val _activeTurn = MutableStateFlow<TurnUiState?>(null)
     val activeTurn = _activeTurn.asStateFlow()
+    /** UX-A11Y-1 — Modo simples do Mentor, desativado por padrão. */
+    val simpleMode: StateFlow<Boolean> =
+        settings.simpleMode.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    fun setSimpleMode(v: Boolean) = viewModelScope.launch { settings.setSimpleMode(v) }
     private var activeTurnProgressJob: Job? = null
     private var cancelledPersistJob: Job? = null
     private var currentTurnId: String? = null
