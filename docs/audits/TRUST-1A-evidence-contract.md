@@ -59,7 +59,7 @@ Uso:
 ### 2.4 `EvidenceCorpus` (única fonte factual)
 
 Conteúdo permitido:
-- `ContextPack` sources com texto não vazio (`CONTENT` e `TRAINING`? ver §2.5);
+- `ContextPack` sources com texto não vazio, conforme a proveniência da §2.5;
 - dossiê via `buildEvidenceBlock` (prosa, refs com texto, textos resolvidos);
 - versículos/publicações/capítulos resolvidos com texto não vazio;
 - fontes do assistente global com texto recuperado;
@@ -75,6 +75,35 @@ Conteúdo proibido:
 - be/th como prova doutrinal (são `TRAINING`, não `CONTENT`);
 - S-34 contendo apenas referência.
 
+### 2.5 Proveniência mínima para entrar no `EvidenceCorpus`
+
+Um trecho só pode ser adicionado se tiver:
+
+1. identificador de origem (`sourceId`, ref ou unidade);
+2. `sourceType`/categoria de origem (`CONTENT`, `TRAINING`, `STRUCTURAL`);
+3. texto não vazio efetivamente recuperado;
+4. para ref de S-34, texto resolvido por `ReferenceResolver` (não apenas `rawText`);
+5. para dossiê, saída de `buildEvidenceBlock` (que omite abordagem);
+6. para assistente global, texto vindo da fonte da Biblioteca.
+
+Texto de seção, objetivo, subponto, nota do orador ou rótulo de referência **não** são evidência documental apenas por existirem no S-34. Eles podem compor `StructuralContext` e prompt, mas não autorizam afirmação factual sobre a fonte.
+
+### 2.6 Fontes de treinamento (be/th)
+
+- `TRAINING` participa da orientação oratória (como apresentar), nunca como prova doutrinal, bíblica ou histórica.
+- `TRAINING` não sustenta automaticamente afirmações factuais. Só pode sustentar afirmações explicitamente sobre técnica/apresentação, e mesmo assim deve ser identificado como orientação.
+- Para afirmações bíblicas/editoriais/históricas, apenas `CONTENT` (fonte documental recuperada) conta.
+- A ambiguidade anterior (`CONTENT` e `TRAINING`?) fica resolvida: `TRAINING` é contexto de método, não evidência factual geral.
+
+### 2.7 Corpus S-34 (`s34CorpusTexts`)
+
+Distinguir:
+- texto escrito no esboço (dado do usuário, não prova de fonte);
+- referência citada pelo esboço (metadado);
+- texto bíblico/editorial efetivamente recuperado (única base para alegações sobre conteúdo da fonte).
+
+Somente o terceiro pode autorizar afirmações sobre o conteúdo da fonte.
+
 ---
 
 ## 3. Regra de cidadania da pergunta do usuário
@@ -86,10 +115,19 @@ O Mentor pode:
 
 Mas:
 - a pergunta não é evidência;
-- citações da pergunta no answer devem ser tratadas como discurso indireto/atribuição ao usuário, não como fonte;
+- citações da pergunta no answer devem ser tratadas como fala do usuário, não como fonte;
 - o verificador factual não deve tratar texto do usuário como corpus.
 
-Implicação de implementação (futura): quando o modelo cita a fala do usuário, deve usar formulação atribuída (“você disse…”) em vez de aspas factuais; aspas factuais continuam sendo checadas contra `EvidenceCorpus`.
+### 3.1 Citação atribuída ao usuário
+
+O Mentor pode citar literalmente a pergunta quando isso ajudar a explicar ou refutar uma hipótese.
+
+Requisitos:
+- a citação deve ser identificada como fala do usuário (atribuição explícita);
+- não pode ser tratada como evidência documental;
+- não depende apenas de instruir o modelo a evitar aspas.
+
+Implicação de implementação (futura): o verificador deve distinguir citações atribuídas ao usuário de citações factuais antes da checagem de aspas. A distinção deve ocorrer por construção (marcador/atribuição), não apenas por prompt.
 
 ---
 
@@ -98,6 +136,7 @@ Implicação de implementação (futura): quando o modelo cita a fala do usuári
 | Caminho | Função/arquivo | Corpus atual | Ação futura |
 |---|---|---|---|
 | Chat remoto | `CopilotViewModel.answerRemote` → `chatVerificationCorpus` (`CopilotViewModel.kt:287-308`, chamada ~5470) | Inclui `userText`, `userHistory`, refs, dossiê | Remover user text/history; manter evidência |
+| Explicação de fontes (modo fonte) | `CopilotViewModel.answerRemote` (`CopilotViewModel.kt:5456-5475`) | Inclui `text` do usuário no corpus | Remover user text; manter apenas texto recuperado da fonte |
 | Verificação de chat | `verifyChatText` (`CopilotViewModel.kt:468`) | Recebe corpus montado acima | Sem mudança de assinatura; apenas corpus |
 | Geração/insert | `verifyGeneratedText` (`GenerationVerification.kt:38-60`) | `verificationCorpus(turnContext)` + extras | Garantir extras são evidência |
 | Corpus S-34 | `s34CorpusTexts` (`GenerationVerification.kt:12-36`) | Objetivo, nota do orador, seções, refs `rawText` | Excluir refs sem texto resolvido |
@@ -118,6 +157,9 @@ Implicação de implementação (futura): quando o modelo cita a fala do usuári
 | Fonte citada que não sustenta interpretação | Corpus contém texto; verificação sintática não resolve (TRUST-2) |
 | Corpus vazio | Verificador retorna texto intacto (comportamento atual preservado) |
 | S-34 com apenas referência | Ref não autoriza conteúdo |
+| Objetivo/subpontos do S-34 no corpus | Não são evidência documental automaticamente |
+| Citação atribuída ao usuário | Permitida como fala do usuário, não como evidência |
+| Corpus documental vazio | Sem proteção sintática; resposta deve ser limitada/honesta |
 | Memória de decisão com versículo sem texto | Memória não é corpus |
 | Respostas com/sem citações literais | Quote check só contra `EvidenceCorpus` |
 
@@ -157,11 +199,15 @@ Implicação de implementação (futura): quando o modelo cita a fala do usuári
 
 1. Introduzir (em código, futuramente) a distinção de tipos de contexto sem mudar prompts.
 2. Alterar `chatVerificationCorpus` para não aceitar `userText`/`userHistory`.
-3. Alterar `s34CorpusTexts` para incluir apenas refs com texto resolvido.
-4. Garantir que `verifyGeneratedText` filtre extras vazios (já faz) e documente que extras devem ser evidência.
-5. Atualizar prompt rules para atribuição indireta da fala do usuário.
-6. Adicionar testes de regressão para os cenários da §5.
-7. Manter warn-only/remoção existentes sem mudança silenciosa.
+3. Alterar o ramo `sourceQuestionMode` de `answerRemote` para não incluir `text` do usuário no corpus.
+4. Alterar `s34CorpusTexts` para incluir apenas refs com texto resolvido e distinguir texto do esboço, ref citada e texto recuperado.
+5. Garantir que `verifyGeneratedText` filtre extras vazios (já faz) e documente que extras devem ser evidência.
+6. Exigir proveniência mínima (§2.5) para todo trecho do `EvidenceCorpus`.
+7. Definir `TRAINING` como método, não evidência factual geral (§2.6).
+8. Implementar distinção de citações atribuídas ao usuário antes da checagem de aspas (§3.1).
+9. Atualizar prompt rules para atribuição indireta da fala do usuário.
+10. Adicionar testes de regressão para os cenários da §5 e extensão T1A.
+11. Manter warn-only/remoção existentes sem mudança silenciosa.
 
 Não incluir avaliação semântica (TRUST-2).
 
@@ -176,8 +222,15 @@ Não incluir avaliação semântica (TRUST-2).
 
 ---
 
-## 9. Limitações e hipóteses não verificadas
+## 9. Limitações, limites explícitos e hipóteses não verificadas
 
+Limites explícitos do TRUST-1A:
+- TRUST-1A garante isolamento de proveniência, não correção semântica.
+- Corpus vazio não significa resposta comprovada.
+- Ausência de aviso sintático não significa que a afirmação esteja fundamentada.
+- TRUST-2 continua responsável por avaliar a relação entre alegação e trecho documental.
+
+Hipóteses não verificadas:
 - Não foi possível validar em aparelho (sem build/teste).
 - Não se sabe a cobertura real de refs resolvidas em notas reais.
 - A eficácia da atribuição indireta no prompt depende do modelo.

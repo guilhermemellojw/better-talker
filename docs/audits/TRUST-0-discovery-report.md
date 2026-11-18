@@ -47,6 +47,7 @@ Também foi analisado o PR #8, distinguindo alterações já integradas de alter
 | Bloco de fonte | `SourceQuestionBlock.kt:39-95` | Evidência literal truncada. |
 | Geração remota | `CopilotViewModel.kt:5220-5285` | `provider.generate(...)` com contexto estável/volátil. |
 | Corpus do verificador (chat) | `CopilotViewModel.kt:287-308` (`chatVerificationCorpus`) | Inclui `userText` e `userHistory`. |
+| Corpus do verificador (modo fonte) | `CopilotViewModel.kt:5456-5475` | Inclui também `text` do usuário (`listOfNotNull(text.takeIf { it.isNotBlank() })`): segunda rota de contaminação. |
 | Verificação pós-geração | `CopilotViewModel.kt:5456-5475` | `verifyChatText` (warn-only) + `strictShadow`. |
 
 ### 2.3 Explicação de fontes
@@ -112,6 +113,10 @@ Também foi analisado o PR #8, distinguindo alterações já integradas de alter
 1. **`userText` e `userHistory` entram no corpus factual do chat.**
    - `CopilotViewModel.kt:287-308` (`chatVerificationCorpus`) recebe `userText` e `userHistory`; em `answerRemote` (linha ~5470) são passados explicitamente com comentário de que “a fala do PRÓPRIO usuário … também são fonte”.
    - Efeito: uma hipótese do usuário (“Baruque perdeu prestígio social”) pode ser repetida pelo modelo e passar no verificador, ou servir de “apoio” para refutação sem fonte. Viola a invariante “usuário não é evidência factual”.
+
+1b. **O modo fonte também inclui o texto do usuário no corpus.**
+   - `CopilotViewModel.kt:5456-5475`: no ramo `sourceQuestionMode`, o corpus contém `listOfNotNull(text.takeIf { it.isNotBlank() })`.
+   - Efeito: a segunda rota de explicação de fontes repete a contaminação do chat normal.
 
 2. **Verificadores são sintáticos, não semânticos.**
    - `GroundednessVerifier` só remove citações entre aspas (≥20 chars) não presentes no corpus, refs explícitas (página/parágrafo/capítulo N) e números/versículos dentro de `〈sugestão〉`.
@@ -197,11 +202,11 @@ Legenda de resultado esperado: `PASS` = resposta permitida com fundamento; `REFU
 | C02 | Pergunta com citação entre aspas inexistente | WARN/remove |
 | C03 | Paráfrase não suportada sem aspas/refs/números | Atual: PASS (lacuna); TRUST-2 deve detectar |
 | C04 | Hipótese do usuário repetida como fato | Atual: pode PASS (lacuna) |
-| C05 | Ref de versículo fora do corpus | WARN |
+| C05 | Ref de versículo fora do corpus | Atual: WARN; esperado TRUST-1A: WARN, com a ref tratada como não autorizada se não houver texto recuperado |
 | C06 | Número não autorizado dentro de `〈sugestão〉` | WARN/remove |
 | C07 | “3 passos” dentro de sugestão | PASS (unidade técnica) |
 | C08 | Versículo citado na prosa normal (fora de sugestão) | Atual: não verificado pelo Groundedness |
-| C09 | Fonte waived + pergunta específica | SourceGate Ask |
+| C09 | Fonte waived + pergunta específica | Atual: SourceGate Ask; esperado TRUST-1A: Ask, sem tratar a fonte waived como evidência |
 | C10 | Fonte waived + pergunta ampla | Proceed com aviso |
 
 ### B. Assistente global (8)
@@ -286,6 +291,19 @@ Legenda de resultado esperado: `PASS` = resposta permitida com fundamento; `REFU
 | R04 | Refs agregadas de subpontos | Corpus inclui todos |
 
 ---
+
+### Extensão TRUST-1A (novos casos, sem renumerar os 56 originais)
+
+| ID | Cenário | Esperado |
+|---|---|---|
+| T1A-01 | `userText` no chat normal contendo hipótese falsa | Não entra no corpus; claim não autorizado é sinalizado |
+| T1A-02 | `userText` no modo fonte | Não entra no corpus; resposta não pode sustentar claim com a pergunta |
+| T1A-03 | Objetivo/subpontos do S-34 no corpus | Não são evidência documental automaticamente |
+| T1A-04 | `rawText` contendo apenas referência | Não autoriza conteúdo da fonte |
+| T1A-05 | Citação atribuída ao usuário | Permitida como fala do usuário, não como evidência |
+| T1A-06 | Fonte be/th usada fora da finalidade oratória | Não sustenta afirmação doutrinal/histórica |
+| T1A-07 | Corpus documental vazio | Sem proteção sintática; resposta deve ser limitada/honesta |
+| T1A-08 | Fonte citada sem texto recuperado | Não entra no EvidenceCorpus |
 
 ## 7. Exemplos de falsos positivos e falsos negativos
 
@@ -416,6 +434,13 @@ Desempenho/custo:
 - Cobertura real de refs resolvidas em notas reais não foi medida.
 - Eficácia da atribuição indireta no prompt depende do modelo.
 - TRUST-0 não prova correção factual; apenas mapeia rotas e riscos.
+
+## 12.7 Limites explícitos do TRUST-1A
+
+- TRUST-1A garante isolamento de proveniência, não correção semântica.
+- Corpus vazio não significa resposta comprovada.
+- Ausência de aviso sintático não significa que a afirmação esteja fundamentada.
+- TRUST-2 continua responsável por avaliar a relação entre alegação e trecho documental.
 
 ## 13. Sequência recomendada
 
