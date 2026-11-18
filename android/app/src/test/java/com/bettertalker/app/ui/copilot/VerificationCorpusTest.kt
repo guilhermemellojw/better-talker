@@ -39,7 +39,7 @@ class VerificationCorpusTest {
                 training = listOf(ev("3", "Técnica de entrega", SourceType.TRAINING)),
             )
         )
-        assertEquals(listOf("Trecho de conteúdo", "Técnica de entrega"), corpus)
+        assertEquals(listOf("Trecho de conteúdo"), corpus)
     }
 
     @Test
@@ -63,11 +63,8 @@ class VerificationCorpusTest {
             focusState = OutlineStructureContext.FocusState.SECTION
         )
         val corpus = verificationCorpus(turn(structural = structural))
-        assertTrue(corpus.contains("Objetivo do discurso"))
-        assertTrue(corpus.contains("Corpo do ponto"))
-        assertTrue(corpus.contains("Sub"))
-        assertTrue(corpus.contains("Leia João 3:16."))
-        assertTrue(corpus.contains("Leia Tiago 2:17."))
+        // S-34 estrutural não é evidência documental.
+        assertEquals(emptyList<String>(), corpus)
     }
 
     @Test
@@ -75,6 +72,34 @@ class VerificationCorpusTest {
         assertEquals(emptyList<String>(), verificationCorpus(turn()))
     }
 
+    @Test
+    fun chatCorpusSemDocumentacaoNaoConfirmaFato() {
+        val corpus = chatVerificationCorpus(
+            turnContext = turn(),
+            evidenceContextBlock = null,
+        )
+        assertTrue(corpus.isEmpty())
+        assertFalse(corpus.any { it.contains("hipótese do usuário") })
+    }
+
+    @Test
+    fun corpusMistoMantemCompatibilidadeSemConversacao() {
+        val corpus = verificationCorpus(
+            turn(content = listOf(ev("1", "Texto bíblico autorizado"))),
+        )
+        assertTrue(corpus.contains("Texto bíblico autorizado"))
+    }
+
+    @Test
+    fun modoFonteNaoAutorizaPergunta() {
+        val corpus = sourceQuestionVerificationCorpus(
+            questionPubs = listOf("texto recuperado"),
+            questionVerses = emptyList(),
+            bibleChapterVerses = emptyList(),
+        )
+        assertFalse(corpus.contains("afirmação não comprovada da pergunta"))
+        assertEquals(listOf("texto recuperado"), corpus)
+    }
     @Test
     fun memoriaNaoEntraNoCorpusDoChat() {
         // A referência existe só na memória/abordagem, nunca no acervo.
@@ -101,6 +126,6 @@ class VerificationCorpusTest {
             evidenceContextBlock = "Prosa e referências do dossiê",
         )
         assertTrue(corpus.contains("Texto bíblico autorizado"))
-        assertTrue(corpus.contains("Prosa e referências do dossiê"))
+        assertFalse(corpus.contains("Prosa e referências do dossiê"))
     }
 }

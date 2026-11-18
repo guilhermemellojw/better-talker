@@ -2,6 +2,8 @@ package com.bettertalker.app.data.copilot
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -290,5 +292,268 @@ class TrustEvidenceTest {
         val corpus = EvidenceCorpus(listOf(item(id = "c", category = EvidenceCategory.CONVERSATION, recovered = "fala", resolved = true)))
         assertTrue(corpus.hasNoDocumentaryEvidence())
         assertFalse(corpus.isEmpty())
+    }
+
+    @Test
+    fun citacaoApenasS34NaoDocumental() {
+        val corpus = EvidenceCorpus(listOf(item(id = "s", category = EvidenceCategory.STRUCTURAL, recovered = "texto do S-34", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+        assertEquals(emptyList<String>(), corpus.documentaryTexts())
+    }
+
+    @Test
+    fun citacaoApenasBeThNaoDocumental() {
+        val corpus = EvidenceCorpus(listOf(item(id = "t", category = EvidenceCategory.TRAINING, recovered = "técnica", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+    }
+
+    @Test
+    fun aliasDaPerguntaNaoViraContent() {
+        val alias = item(id = "alias", category = EvidenceCategory.STRUCTURAL, recovered = "jer 29 11", resolved = false)
+        assertFalse(alias.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun fonteWaivedOuUnresolvedNaoElegivel() {
+        val waived = item(id = "w", waived = true, recovered = "texto")
+        val unresolved = item(id = "u", resolved = false, recovered = "")
+        assertFalse(waived.isDocumentaryEvidence())
+        assertFalse(unresolved.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun trechoBiblicoRecuperadoElegivel() {
+        val source = item(id = "b", category = EvidenceCategory.CONTENT, recovered = "texto bíblico", resolved = true)
+        assertTrue(source.isDocumentaryEvidence())
+    }
+
+    @Test
+    fun adapterPassagemReferenciaVaziaRetornaNull() {
+        assertNull(recoveredDocumentFromPassage("", "texto"))
+        assertNull(recoveredDocumentFromPassage("   ", "texto"))
+    }
+
+    @Test
+    fun adapterPassagemTextoVazioRetornaNull() {
+        assertNull(recoveredDocumentFromPassage("Je 29:11", ""))
+        assertNull(recoveredDocumentFromPassage("Je 29:11", "   "))
+    }
+
+    @Test
+    fun adapterPassagemValidaRetornaDocumento() {
+        val doc = recoveredDocumentFromPassage("Je 29:11", "texto recuperado")
+        assertNotNull(doc)
+        assertEquals("Je 29:11", doc!!.reference)
+        assertEquals("texto recuperado", doc.text)
+        assertTrue(doc.resolved)
+    }
+
+    @Test
+    fun adapterPassagemMisturaValidosEInvalidos() {
+        val docs = listOf(
+            recoveredDocumentFromPassage("Je 29:11", "texto"),
+            recoveredDocumentFromPassage("", "texto"),
+            recoveredDocumentFromPassage("Je 29:12", ""),
+        ).filterNotNull()
+        assertEquals(1, docs.size)
+        assertEquals("Je 29:11", docs.single().reference)
+    }
+
+    @Test
+    fun adapterPassagemParcialNaoResolvidaNaoEhDocumental() {
+        val doc = RecoveredDocument(
+            sourceId = "Je 29:11",
+            reference = "Je 29:11",
+            text = "texto",
+            resolved = false,
+        )
+        assertFalse(doc.isDocumentaryEligible())
+    }
+
+    @Test
+    fun dossierRecuperadoViraDocumento() {
+        val section = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1",
+            noteId = "n1",
+            order = 1,
+            role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+            title = "Ponto",
+            minutes = 5,
+            contentHtml = "",
+            bibleRefs = listOf("Je 29:11"),
+            publicationRefs = emptyList(),
+            methodPrinciple = null,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        val dossier = com.bettertalker.app.domain.planning.Dossier(
+            currentSection = section,
+            currentSubPoint = null,
+            selectedText = null,
+            fullContentHtml = "",
+            overview = emptyList(),
+            bibleTexts = listOf(
+                com.bettertalker.app.domain.planning.ResolvedBibleText(
+                    ref = "Je 29:11",
+                    text = "texto recuperado",
+                    status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                )
+            ),
+            publicationTexts = emptyList(),
+            methodPrinciples = emptyList(),
+            unresolvedRefs = emptyList(),
+            transitionContext = null,
+        )
+        val docs = recoveredDocumentsFromDossier(dossier)
+        assertEquals(1, docs.size)
+        assertEquals("texto recuperado", docs.single().text)
+    }
+
+    @Test
+    fun dossierNaoResolvidoNaoViraDocumento() {
+        val section = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1",
+            noteId = "n1",
+            order = 1,
+            role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+            title = "Ponto",
+            minutes = 5,
+            contentHtml = "",
+            bibleRefs = listOf("Je 29:11"),
+            publicationRefs = emptyList(),
+            methodPrinciple = null,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        val dossier = com.bettertalker.app.domain.planning.Dossier(
+            currentSection = section,
+            currentSubPoint = null,
+            selectedText = null,
+            fullContentHtml = "",
+            overview = emptyList(),
+            bibleTexts = listOf(
+                com.bettertalker.app.domain.planning.ResolvedBibleText(
+                    ref = "Je 29:11",
+                    text = null,
+                    status = com.bettertalker.app.domain.planning.ReferenceStatus.UNRESOLVED,
+                )
+            ),
+            publicationTexts = emptyList(),
+            methodPrinciples = emptyList(),
+            unresolvedRefs = listOf("Je 29:11"),
+            transitionContext = null,
+        )
+        val docs = recoveredDocumentsFromDossier(dossier)
+        assertTrue(docs.isEmpty())
+    }
+
+    @Test
+    fun adapterResolvidoValido() {
+        val resolved = com.bettertalker.app.domain.planning.ResolvedReference(
+            original = "Je 29:11",
+            canonicalRef = "Je 29:11",
+            text = "texto recuperado",
+            passageId = "p1",
+            status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+        )
+        val doc = recoveredDocumentFromResolvedBible("Je 29:11", resolved)
+        assertNotNull(doc)
+        assertEquals("texto recuperado", doc!!.text)
+    }
+
+    @Test
+    fun adapterResolvidoSemTextoRetornaNull() {
+        val resolved = com.bettertalker.app.domain.planning.ResolvedReference(
+            original = "Je 29:11",
+            canonicalRef = "Je 29:11",
+            text = null,
+            passageId = null,
+            status = com.bettertalker.app.domain.planning.ReferenceStatus.UNRESOLVED,
+        )
+        val doc = recoveredDocumentFromResolvedBible("Je 29:11", resolved)
+        assertNull(doc)
+    }
+
+    @Test
+    fun corpusDocumentalVazioNaoConfirmaFato() {
+        val corpus = EvidenceCorpus(listOf(item(id = "s", category = EvidenceCategory.STRUCTURAL, recovered = "S-34", resolved = true)))
+        assertFalse(corpus.hasDocumentaryEvidence())
+        assertTrue(corpus.hasNoDocumentaryEvidence())
+    }
+
+    private fun dossier(
+        bibleTexts: List<com.bettertalker.app.domain.planning.ResolvedBibleText> = emptyList(),
+        publicationTexts: List<com.bettertalker.app.domain.planning.ResolvedPublicationText> = emptyList(),
+    ): com.bettertalker.app.domain.planning.Dossier {
+        val section = com.bettertalker.app.domain.speech.SpeechSection(
+            id = "s1",
+            noteId = "n1",
+            order = 1,
+            role = com.bettertalker.app.domain.speech.SectionRole.BODY,
+            title = "Ponto",
+            minutes = 5,
+            contentHtml = "",
+            bibleRefs = emptyList(),
+            publicationRefs = emptyList(),
+            methodPrinciple = null,
+            createdAt = 0,
+            updatedAt = 0,
+        )
+        return com.bettertalker.app.domain.planning.Dossier(
+            currentSection = section,
+            currentSubPoint = null,
+            selectedText = null,
+            fullContentHtml = "",
+            overview = emptyList(),
+            bibleTexts = bibleTexts,
+            publicationTexts = publicationTexts,
+            methodPrinciples = emptyList(),
+            unresolvedRefs = emptyList(),
+            transitionContext = null,
+        )
+    }
+
+    @Test
+    fun dossierRefBiblicaVaziaNaoViraDocumentoMasValidaPermanece() {
+        val docs = recoveredDocumentsFromDossier(
+            dossier(
+                bibleTexts = listOf(
+                    com.bettertalker.app.domain.planning.ResolvedBibleText(
+                        ref = "   ",
+                        text = "texto sem ref",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                    com.bettertalker.app.domain.planning.ResolvedBibleText(
+                        ref = "Je 29:11",
+                        text = "texto válido",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                ),
+            )
+        )
+        assertEquals(1, docs.size)
+        assertEquals("Je 29:11", docs.single().reference)
+    }
+
+    @Test
+    fun dossierRefPublicacaoVaziaNaoViraDocumentoMasValidaPermanece() {
+        val docs = recoveredDocumentsFromDossier(
+            dossier(
+                publicationTexts = listOf(
+                    com.bettertalker.app.domain.planning.ResolvedPublicationText(
+                        ref = com.bettertalker.app.domain.planning.PublicationRef(symbol = "   "),
+                        text = "texto sem ref",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                    com.bettertalker.app.domain.planning.ResolvedPublicationText(
+                        ref = com.bettertalker.app.domain.planning.PublicationRef(symbol = "w25.07"),
+                        text = "texto válido",
+                        status = com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED,
+                    ),
+                ),
+            )
+        )
+        assertEquals(1, docs.size)
+        assertEquals("w25.07", docs.single().reference)
     }
 }

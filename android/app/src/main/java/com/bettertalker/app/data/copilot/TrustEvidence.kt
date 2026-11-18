@@ -129,14 +129,23 @@ data class EvidenceCorpus(
     val methodItems: List<EvidenceItem>
         get() = items.filter { it.isMethodEvidence() }
 
+    val structuralItems: List<EvidenceItem>
+        get() = items.filter { it.provenance.category == EvidenceCategory.STRUCTURAL }
+
     fun documentaryTexts(): List<String> = documentaryItems.map { it.text }
 
     fun methodTexts(): List<String> = methodItems.map { it.text }
+
+    fun structuralTexts(): List<String> = structuralItems.map { it.text }
 
     fun isEmpty(): Boolean = items.isEmpty()
 
     fun hasDocumentaryEvidence(): Boolean = documentaryItems.isNotEmpty()
 
+    /**
+     * Corpus documental vazio significa "sem verificação factual", nunca
+     * "fato confirmado". Ausência de aviso sintático não é prova de apoio.
+     */
     fun hasNoDocumentaryEvidence(): Boolean = documentaryItems.isEmpty()
 
     fun containsOnlyTrainingEvidence(): Boolean =
@@ -157,6 +166,111 @@ data class EvidenceExcerpt(
         excerpt.isNotBlank() &&
             sourceText.isNotBlank() &&
             sourceText.contains(excerpt.trim(), ignoreCase = true)
+}
+
+/**
+ * Fonte documental recuperada, com referência e origem verificáveis.
+ * Nunca deve ser criada a partir de texto livre, alias ou resposta do modelo.
+ */
+data class RecoveredDocument(
+    val sourceId: String,
+    val reference: String,
+    val text: String,
+    val documentUnit: String? = null,
+    val resolved: Boolean = true,
+    val waived: Boolean = false,
+) {
+    init {
+        require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
+        require(reference.isNotBlank()) { "reference não pode ser vazio" }
+        require(text.isNotBlank()) { "text não pode ser vazio" }
+    }
+
+    fun isDocumentaryEligible(): Boolean = resolved && !waived && text.isNotBlank()
+}
+
+/**
+ * Adapter para linhas produzidas por recuperação rastreável no formato
+ * "[ref] texto". Retorna null se a linha não tiver ref e texto recuperado.
+ */
+fun recoveredDocumentFromResolvedBible(
+    ref: String,
+    resolved: com.bettertalker.app.domain.planning.ResolvedReference,
+): com.bettertalker.app.data.copilot.RecoveredDocument? {
+    if (ref.isBlank()) return null
+    val text = resolved.text?.takeIf { it.isNotBlank() } ?: return null
+    val canonical = resolved.canonicalRef?.takeIf { it.isNotBlank() } ?: ref
+    if (canonical.isBlank()) return null
+    return com.bettertalker.app.data.copilot.RecoveredDocument(
+        sourceId = canonical,
+        reference = canonical,
+        text = text,
+        documentUnit = resolved.passageId,
+        resolved = resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED ||
+            resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
+        waived = false,
+    )
+}
+
+/**
+ * Adapter puro para uma passagem recuperada. Retorna null para ref/texto
+ * vazios, sem lançar exceção para hits incompletos.
+ */
+fun recoveredDocumentFromPassage(
+    reference: String,
+    text: String,
+    documentUnit: String? = null,
+): com.bettertalker.app.data.copilot.RecoveredDocument? {
+    val ref = reference.trim()
+    val body = text.trim()
+    if (ref.isBlank() || body.isBlank()) return null
+    return com.bettertalker.app.data.copilot.RecoveredDocument(
+        sourceId = ref,
+        reference = ref,
+        text = body,
+        documentUnit = documentUnit,
+        resolved = true,
+        waived = false,
+    )
+}
+
+fun recoveredDocumentsFromDossier(
+    dossier: com.bettertalker.app.domain.planning.Dossier,
+): List<com.bettertalker.app.data.copilot.RecoveredDocument> = buildList {
+    dossier.bibleTexts.forEach { resolved ->
+        val ref = resolved.ref.trim()
+        if (ref.isBlank()) return@forEach
+        val text = resolved.text?.takeIf { it.isNotBlank() } ?: return@forEach
+        if (resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED &&
+            resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL
+        ) return@forEach
+        add(
+            com.bettertalker.app.data.copilot.RecoveredDocument(
+                sourceId = "dossier:bible:$ref",
+                reference = ref,
+                text = text,
+                resolved = true,
+                waived = false,
+            )
+        )
+    }
+    dossier.publicationTexts.forEach { resolved ->
+        val ref = resolved.ref.symbol.trim()
+        if (ref.isBlank()) return@forEach
+        val text = resolved.text?.takeIf { it.isNotBlank() } ?: return@forEach
+        if (resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED &&
+            resolved.status != com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL
+        ) return@forEach
+        add(
+            com.bettertalker.app.data.copilot.RecoveredDocument(
+                sourceId = "dossier:pub:$ref",
+                reference = ref,
+                text = text,
+                resolved = true,
+                waived = false,
+            )
+        )
+    }
 }
 
 /**

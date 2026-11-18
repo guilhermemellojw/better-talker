@@ -258,25 +258,161 @@ data class InsertRequest(
  * [extra] — T3 (acesso bíblico): textos resolvidos FORA do pack (ex.:
  * versículos citados na pergunta). Puro/testável.
  */
+/**
+ * Compatibilidade legada: retorna textos de contexto não conversacionais para
+ * o verificador. Não inclui pergunta, histórico, memória ou hipóteses do
+ * usuário. O resultado é usado para fidelidade de citações/refs/números, não
+ * como prova factual autônoma.
+ */
 fun verificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     extra: List<String> = emptyList(),
-): List<String> = buildList {
-    turnContext.pack.contentSources.forEach { add(it.text) }
-    turnContext.pack.trainingSources.forEach { add(it.text) }
-    turnContext.structural?.let { s ->
-        s.objective?.let { add(it) }
-        s.currentSection?.let { sec ->
-            add(sec.content)
-            sec.subsections.forEach { sub ->
-                add(sub.content)
-                sub.references.forEach { add(it.rawText) }
-            }
-            sec.references.forEach { add(it.rawText) }
+): List<String> = verificationCorpus(
+    turnContext = turnContext,
+    documentarySources = emptyList(),
+    structuralExtras = extra,
+)
+
+/**
+ * TRUST-1A2 — corpus derivado de proveniência explícita. O verificador legado
+ * recebe apenas textos não conversacionais; a evidência documental fica
+ * disponível separadamente via [documentaryEvidenceCorpus].
+ */
+fun verificationCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
+): List<String> {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    turnContext.pack.contentSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
         }
     }
-    extra.forEach { add(it) }
-}.filter { it.isNotBlank() }
+    turnContext.pack.trainingSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.TRAINING,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
+        }
+    }
+    turnContext.structural?.let { s ->
+        s.objective?.let { if (it.isNotBlank()) items += structuralItem("objective", it) }
+        s.currentSection?.let { sec ->
+            if (sec.content.isNotBlank()) items += structuralItem("section:${sec.id}", sec.content)
+            sec.subsections.forEach { sub ->
+                if (sub.content.isNotBlank()) items += structuralItem("subsection:${sub.id}", sub.content)
+                sub.references.forEach { ref ->
+                    if (ref.rawText.isNotBlank()) {
+                        items += structuralItem("ref:${ref.rawText}", ref.rawText, resolved = false)
+                    }
+                }
+            }
+            sec.references.forEach { ref ->
+                if (ref.rawText.isNotBlank()) {
+                    items += structuralItem("ref:${ref.rawText}", ref.rawText, resolved = false)
+                }
+            }
+        }
+    }
+    documentarySources.forEach { source ->
+        items += com.bettertalker.app.data.copilot.EvidenceItem(
+            id = source.sourceId,
+            reference = source.reference,
+            provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                sourceId = source.sourceId,
+                category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                documentUnit = source.documentUnit,
+                recoveredText = source.text,
+                resolved = source.resolved,
+                waived = source.waived,
+            ),
+        )
+    }
+    structuralExtras.filter { it.isNotBlank() }.forEachIndexed { index, text ->
+        items += structuralItem("structural-extra-$index", text)
+    }
+    val corpus = com.bettertalker.app.data.copilot.EvidenceCorpus(items)
+    // Apenas evidência documental é elegível para verificação factual.
+    // Contexto estrutural/método pode servir a fidelidade, mas não autoriza
+    // afirmação bíblica, doutrinal ou histórica.
+    return corpus.documentaryTexts().filter { it.isNotBlank() }
+}
+
+/**
+ * TRUST-1A2 — evidência documental isolada, para TRUST-2 e auditoria.
+ * Não deve ser usada como corpus do verificador legado sem considerar fidelidade.
+ */
+internal fun documentaryEvidenceCorpus(
+    turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+): com.bettertalker.app.data.copilot.EvidenceCorpus {
+    val items = mutableListOf<com.bettertalker.app.data.copilot.EvidenceItem>()
+    turnContext.pack.contentSources.forEach { source ->
+        if (source.text.isNotBlank()) {
+            items += com.bettertalker.app.data.copilot.EvidenceItem(
+                id = source.id,
+                reference = source.reference,
+                provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                    sourceId = source.id,
+                    category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                    documentUnit = source.section ?: source.publication,
+                    recoveredText = source.text,
+                    resolved = true,
+                    waived = false,
+                ),
+            )
+        }
+    }
+    documentarySources.forEach { source ->
+        items += com.bettertalker.app.data.copilot.EvidenceItem(
+            id = source.sourceId,
+            reference = source.reference,
+            provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+                sourceId = source.sourceId,
+                category = com.bettertalker.app.data.copilot.EvidenceCategory.CONTENT,
+                documentUnit = source.documentUnit,
+                recoveredText = source.text,
+                resolved = source.resolved,
+                waived = source.waived,
+            ),
+        )
+    }
+    return com.bettertalker.app.data.copilot.EvidenceCorpus(items)
+}
+
+private fun structuralItem(id: String, text: String, resolved: Boolean = true): com.bettertalker.app.data.copilot.EvidenceItem =
+    com.bettertalker.app.data.copilot.EvidenceItem(
+        id = id,
+        reference = id,
+        provenance = com.bettertalker.app.data.copilot.EvidenceProvenance(
+            sourceId = id,
+            category = com.bettertalker.app.data.copilot.EvidenceCategory.STRUCTURAL,
+            recoveredText = text,
+            resolved = resolved,
+            waived = false,
+        ),
+    )
 
 /**
  * 1C.2.0 — corpus do chat remoto. Recebe explicitamente apenas o bloco de
@@ -287,21 +423,12 @@ fun verificationCorpus(
 internal fun chatVerificationCorpus(
     turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
     evidenceContextBlock: String?,
-    structuralVerseLines: List<String> = emptyList(),
-    questionVerseLines: List<String> = emptyList(),
-    questionPubs: List<String> = emptyList(),
-    userText: String = "",
-    userHistory: List<String> = emptyList(),
-    questionSources: List<String> = emptyList(),
+    documentarySources: List<com.bettertalker.app.data.copilot.RecoveredDocument> = emptyList(),
+    structuralExtras: List<String> = emptyList(),
 ): List<String> = verificationCorpus(
-    turnContext,
-    listOfNotNull(evidenceContextBlock) +
-        structuralVerseLines +
-        questionVerseLines +
-        questionPubs +
-        listOfNotNull(userText.takeIf { it.isNotBlank() }) +
-        userHistory +
-        questionSources,
+    turnContext = turnContext,
+    documentarySources = documentarySources,
+    structuralExtras = listOfNotNull(evidenceContextBlock) + structuralExtras,
 )
 
 /**
@@ -322,13 +449,16 @@ internal fun structuralBibleRefs(
  * Fase 2 — resolve refs bíblicas em linhas `[ref] texto` para o corpus do
  * verifier. Injetável (fake nos testes); refs não resolvidas são omitidas.
  */
-internal suspend fun resolveBibleRefLines(
+internal suspend fun resolveBibleDocuments(
     refs: List<String>,
     resolver: ReferenceResolver,
-): List<String> = refs.mapNotNull { ref ->
-    val resolved = resolver.resolveBible(ref)
-    resolved.text?.takeIf { it.isNotBlank() }?.let { "[$ref] $it" }
-}
+): List<com.bettertalker.app.data.copilot.RecoveredDocument> =
+    refs.mapNotNull { ref ->
+        com.bettertalker.app.data.copilot.recoveredDocumentFromResolvedBible(
+            ref,
+            resolver.resolveBible(ref),
+        )
+    }
 
 /**
  * T3 (acesso bíblico) — linhas "ref + texto" para o CORPUS do gate: cobre a
@@ -338,14 +468,24 @@ internal suspend fun resolveBibleRefLines(
  * forma escrita dispara o aviso falso "versículo fora dos trechos" mesmo com
  * o versículo injetado. Puro/testável.
  */
-fun questionVerseLines(verses: List<ScopedHit>, rawQuestion: String = ""): List<String> {
-    val lines = verses.map { "[${it.passage.ref}] ${it.passage.text}" }.toMutableList()
-    val aliases = RefDetector.detectBible(rawQuestion)
+fun questionVerseLines(verses: List<ScopedHit>): List<String> =
+    verses.map { "[${it.passage.ref}] ${it.passage.text}" }
+
+fun questionVerseAliases(rawQuestion: String): List<String> =
+    RefDetector.detectBible(rawQuestion)
         .map { "${it.bookNorm} ${it.chapter} ${it.verse}" }
         .distinct()
-    if (aliases.isNotEmpty()) lines += aliases.joinToString(" ")
-    return lines
-}
+
+/**
+ * Corpus documental do modo fonte: apenas passagens recuperadas, sem o bloco
+ * composto nem o texto da pergunta.
+ */
+fun sourceQuestionVerificationCorpus(
+    questionPubs: List<String>,
+    questionVerses: List<String>,
+    bibleChapterVerses: List<String>,
+): List<String> = (questionPubs + questionVerses + bibleChapterVerses)
+    .filter { it.isNotBlank() }
 
 /**
  * T3 (acesso bíblico) — bloco "## TEXTOS BÍBLICOS (referências da pergunta)"
@@ -5083,15 +5223,15 @@ class CopilotViewModel(
      * o erro honesto sobe para o catch do send() (§5).
      */
     /**
-     * Fase 2 — versículos literais do S-34 atual para o corpus do verifier.
-     * Usa o índice TNM local; refs não encontradas são omitidas.
+     * Fase 2 — versículos literais do S-34 atual, uma única consulta ao
+     * resolvedor confiável. Refs não encontradas são omitidas.
      */
-    private suspend fun resolveStructuralBibleLines(
+    private suspend fun resolveStructuralBibleDocuments(
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
-    ): List<String> {
+    ): List<com.bettertalker.app.data.copilot.RecoveredDocument> {
         val refs = structuralBibleRefs(turnContext)
         if (refs.isEmpty()) return emptyList()
-        return resolveBibleRefLines(
+        return resolveBibleDocuments(
             refs,
             RoomReferenceResolver(db.passageDao(), db.attachmentDao()),
         )
@@ -5446,40 +5586,44 @@ class CopilotViewModel(
         // de publicação da pergunta. Sem o dossiê, citar uma ref do PRÓPRIO
         // tópico dispara o aviso falso "fora dos trechos" (visto no device
         // com "ec 3:11").
-        val structuralVerseLines = if (sourceQuestionMode) {
+        val structuralBibleDocuments = if (sourceQuestionMode) {
             emptyList()
         } else {
-            resolveStructuralBibleLines(turnContext)
+            resolveStructuralBibleDocuments(turnContext)
         }
-        if (structuralVerseLines.isNotEmpty()) {
+        if (structuralBibleDocuments.isNotEmpty()) {
             android.util.Log.i(
                 "CopilotLLM",
-                "chat remoto: ${structuralVerseLines.size} versículo(s) do S-34 no corpus do verifier",
+                "chat remoto: ${structuralBibleDocuments.size} versículo(s) do S-34 no corpus do verifier",
             )
         }
         val corpus = if (sourceQuestionMode) {
-            // O modelo viu só o bloco da fonte; o corpus do verifier é o
-            // mesmo. Incluir o dossiê/S-34 aqui autorizaria citações que o
-            // modelo não recebeu.
-            listOfNotNull(effectiveContextBlock) +
-                questionPubs.map { it.passage.text } +
-                questionVerses.map { it.passage.text } +
-                bibleChapterPassage?.verses?.map { it.text }.orEmpty() +
-                listOfNotNull(text.takeIf { it.isNotBlank() })
+            // O verificador documental recebe apenas as passagens recuperadas.
+            // O bloco composto da fonte permanece somente no prompt.
+            sourceQuestionVerificationCorpus(
+                questionPubs = questionPubs.map { it.passage.text },
+                questionVerses = questionVerses.map { it.passage.text },
+                bibleChapterVerses = bibleChapterPassage?.verses?.map { it.text }.orEmpty(),
+            )
         } else {
             chatVerificationCorpus(
                 turnContext = turnContext,
                 evidenceContextBlock = effectiveContextBlock,
-                structuralVerseLines = structuralVerseLines,
-                questionVerseLines = questionVerseLines(questionVerses, text),
-                questionPubs = questionPubs.map { it.passage.text },
-                // exp/mentoria-e-verifier (2026-10-21): a fala do PRÓPRIO
-                // usuário e o rótulo das refs citadas também são fonte — citar
-                // a hipótese do usuário ("Baruque perdeu prestígio social")
-                // para refutá-la NÃO é inventar (falso positivo do A/B).
-                userText = text,
-                userHistory = history.filter { it.fromMe }.map { it.text },
-                questionSources = questionPubs.map { it.source },
+                documentarySources = questionVerses.mapNotNull { v ->
+                    com.bettertalker.app.data.copilot.recoveredDocumentFromPassage(
+                        reference = v.passage.ref,
+                        text = v.passage.text,
+                        documentUnit = v.source,
+                    )
+                } + questionPubs.mapNotNull { p ->
+                    com.bettertalker.app.data.copilot.recoveredDocumentFromPassage(
+                        reference = p.passage.ref,
+                        text = p.passage.text,
+                        documentUnit = p.source,
+                    )
+                } + structuralBibleDocuments,
+                structuralExtras = questionVerseAliases(text) +
+                    listOfNotNull(effectiveContextBlock),
             )
         }
         val outcome = verifyChatText(text, corpus)
@@ -8430,21 +8574,28 @@ class CopilotViewModel(
             }
             val combinedText = responses.joinToString("\n\n") { it.text }
             val anyCut = responses.any { it.meta.finishReason == "length" }
-            // #7e: gate de groundedness — o esboço colado é a fonte do gate;
-            // o que estiver carregado (dossiê, S-34 e seções atuais) complementa.
-            // Limitação: este caminho não monta ContextPack/RAG (reportado).
-            val corpus = buildList {
+            // #7e: gate de groundedness — o esboço colado, o dossiê e o S-34
+            // permanecem como contexto de fidelidade; apenas refs efetivamente
+            // recuperadas do dossiê entram como evidência documental.
+            val documentarySources = lastDossier?.let {
+                com.bettertalker.app.data.copilot.recoveredDocumentsFromDossier(it)
+            }.orEmpty()
+            val structuralContext = buildList {
                 pasteBuffer?.takeIf { it.isNotBlank() }?.let { add(it) }
                 lastDossier?.let {
-                    // 1C.2.0: corpus de evidências sem abordagem/memória.
+                    // 1C.2.0: contexto sem abordagem/memória.
                     add(dossierPromptBuilder.buildEvidenceBlock(it, includeSpeakerNote = false))
                 }
-                _lastS34Document?.let { addAll(s34CorpusTexts(it)) }
+                _lastS34Document?.let { addAll(s34StructuralContext(it)) }
                 existingSections.forEach {
                     add(com.bettertalker.app.data.edit.stripHtmlToText(it.contentHtml))
                 }
             }.filter { it.isNotBlank() }
-            val verified = verifyGeneratedText(combinedText, null, corpus)
+            val verified = verifyGeneratedText(
+                text = combinedText,
+                documentarySources = documentarySources,
+                structuralExtras = structuralContext,
+            )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text
                     .removeSuffix(GroundednessVerifier.REMOVAL_NOTICE).length

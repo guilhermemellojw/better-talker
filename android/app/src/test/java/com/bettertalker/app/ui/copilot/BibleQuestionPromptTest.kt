@@ -66,7 +66,16 @@ class BibleQuestionPromptTest {
     @Test
     fun verificationCorpus_incluiVersiculoDaPergunta() {
         val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem”"))
-        val corpus = verificationCorpus(turn(), questionVerseLines(verses))
+        val corpus = verificationCorpus(
+            turn(),
+            documentarySources = listOf(
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "Je 29:11",
+                    reference = "Je 29:11",
+                    text = "[Je 29:11] “Pois eu sei muito bem”",
+                ),
+            ),
+        )
         assertTrue(corpus.contains("[Je 29:11] “Pois eu sei muito bem”"))
     }
 
@@ -76,7 +85,7 @@ class BibleQuestionPromptTest {
         // pós-check acusa "fora dos trechos") — inclusive na forma do usuário
         // ("Jer. 29:11"), que o modelo repete.
         val verses = listOf(hit("Je 29:11", "“Pois eu sei muito bem o que tenho em mente para vocês”"))
-        val lines = questionVerseLines(verses, "o que diz Jer. 29:11?")
+        val lines = questionVerseLines(verses) + questionVerseAliases("o que diz Jer. 29:11?")
         assertTrue(lines.first().startsWith("[Je 29:11] "))
         assertTrue(lines.last().contains("jer 29 11"))
 
