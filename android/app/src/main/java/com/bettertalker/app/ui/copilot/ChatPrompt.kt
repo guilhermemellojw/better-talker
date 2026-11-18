@@ -625,6 +625,8 @@ fun ChatQuickActions(
     onPick: (String) -> Unit,
     onAttach: () -> Unit,
     onPrefill: (String) -> Unit = {},
+    /** UX-A11Y-2A: no Modo simples, revela o restante dos atalhos. */
+    onShowAll: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // T1 (P2 estético): háptica leve nos chips de ação.
@@ -680,6 +682,20 @@ fun ChatQuickActions(
                 },
                 label = { Text(text) },
             )
+        }
+        onShowAll?.let { showAll ->
+            item {
+                AssistChip(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        showAll()
+                    },
+                    label = { Text("Ver outras opções") },
+                    modifier = Modifier.semantics {
+                        contentDescription = "Ver outras opções de atalhos"
+                    },
+                )
+            }
         }
     }
 }
@@ -939,7 +955,7 @@ fun ProposalCard(
             Box {
                 IconButton(
                     onClick = { menuOpen = true },
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(Icons.Default.MoreVert, "Opções", modifier = Modifier.size(18.dp))
                 }

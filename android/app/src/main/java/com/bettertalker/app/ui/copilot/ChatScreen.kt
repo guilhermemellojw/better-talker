@@ -365,8 +365,12 @@ fun ChatScreen(
     // cards/propostas (kinds sem MessageActions) deixavam a conversa sem clear.
     var topMenuOpen by remember { mutableStateOf(false) }
     var showAdvancedOptions by remember { mutableStateOf(false) }
+    var showAllShortcuts by remember { mutableStateOf(false) }
     LaunchedEffect(topMenuOpen) {
         if (!topMenuOpen) showAdvancedOptions = false
+    }
+    LaunchedEffect(simpleMode) {
+        if (!simpleMode) showAllShortcuts = false
     }
     // T3 (voz): STT nativo — estado, permissão, cronômetro e foco do composer.
     val voiceState by vm.voiceState.collectAsState()
@@ -754,6 +758,17 @@ fun ChatScreen(
         hasUserMessage = messages.any { it.fromMe },
         inputBlank = input.isBlank(),
     )
+    val hasPendingProposal = proposal != null || structureProposal != null ||
+        noteStructureProposal != null || multiProposal != null
+    val simpleGuidance = simpleModeGuidance(
+        simpleMode = simpleMode,
+        sourcesBlocked = sourcesNeeded != null || showSetupBanner,
+        hasError = runState is ChatRunState.Error,
+        hasProposal = hasPendingProposal,
+        isGenerating = busy,
+        hasNextStep = nextStep != null,
+        isEmptyConversation = messages.isEmpty(),
+    )
 
     Scaffold(
         // Deixa a textura global aparecer atrás das bolhas/cards do chat.
@@ -921,18 +936,36 @@ fun ChatScreen(
                 if (showSuggestions) {
                     // Atalhos da F15 + ações locais do app. Todos chamam o MESMO
                     // doSend: nenhum atalho tem prompt próprio (§9 F15).
+                    val allLocal = localSuggestionTexts(outlineInfo != null)
+                    val compact = simpleMode && !showAllShortcuts
+                    val quickToShow = if (compact) vm.quickActions.take(2) else vm.quickActions
+                    val localToShow = if (compact) {
+                        simpleModeLocalShortcuts(allLocal).take(1)
+                    } else {
+                        allLocal
+                    }
                     ChatQuickActions(
-                        quickActions = vm.quickActions,
-                        localActions = localSuggestionTexts(outlineInfo != null),
+                        quickActions = quickToShow,
+                        localActions = localToShow,
                         onPick = { doSend(it) },
                         onAttach = { showAttach = true },
-                        onPrefill = { input = it; composerFocus.requestFocus() }
+                        onPrefill = { input = it; composerFocus.requestFocus() },
+                        onShowAll = if (compact) {
+                            { showAllShortcuts = true }
+                        } else {
+                            null
+                        },
                     )
                     Spacer(Modifier.height(6.dp))
                 }
                 // Fatia 4: sugestão de próximo passo — confirmação explícita.
                 val suggestion = nextStep
-                if (suggestion != null && !busy) {
+                val showNextStep = if (simpleMode) {
+                    simpleGuidance.kind == SimpleGuidanceKind.NEXT_STEP
+                } else {
+                    true
+                }
+                if (suggestion != null && !busy && showNextStep) {
                     NextStepCard(
                         suggestion = suggestion,
                         onAction = { action ->
@@ -1133,6 +1166,34 @@ fun ChatScreen(
                             ) { loading ->
                                 if (loading) {
                                     ScopeSkeleton()
+                                } else if (simpleMode) {
+                                    when (simpleGuidance.kind) {
+                                        SimpleGuidanceKind.EMPTY -> SimpleModeEmptyState(
+                                            onStartTopic = {
+                                                input = "Quero preparar um tópico: "
+                                                composerFocus.requestFocus()
+                                            },
+                                            onImproveText = {
+                                                input = "Quero melhorar meu texto: "
+                                                composerFocus.requestFocus()
+                                            },
+                                            onShowShortcuts = { showAllShortcuts = true },
+                                        )
+                                        SimpleGuidanceKind.SOURCES_BLOCKED,
+                                        SimpleGuidanceKind.ERROR,
+                                        SimpleGuidanceKind.PROPOSAL,
+                                        SimpleGuidanceKind.GENERATING,
+                                        SimpleGuidanceKind.NEXT_STEP -> Text(
+                                            "Siga a orientação acima para continuar.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                        SimpleGuidanceKind.NONE -> Text(
+                                            "Escreva sua pergunta ou escolha um atalho abaixo.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                        )
+                                    }
                                 } else {
                                     val focus = when {
                                         focusMode == FocusMode.WHOLE -> "Discurso inteiro"
@@ -2361,7 +2422,7 @@ private fun CardFirstActions(
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         Icons.Default.MoreVert,
@@ -2689,7 +2750,7 @@ private fun QuickAction(
             onClick()
         },
         enabled = enabled,
-        modifier = Modifier.size(32.dp),
+        modifier = Modifier.size(48.dp),
     ) {
         Icon(
             icon, desc,
@@ -3786,5 +3847,43 @@ private fun PracticeContextStrip(snapshot: PracticeSnapshot) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
+    }
+}
+
+/**
+ * UX-A11Y-2A — estado vazio do Modo simples.
+ *
+ * Uma ação principal por vez, sem "Ouvir" sem texto e sem jargão técnico.
+ * Os três caminhos apenas preenchem o composer ou revelam atalhos; nada é
+ * enviado automaticamente.
+ */
+@Composable
+private fun SimpleModeEmptyState(
+    onStartTopic: () -> Unit,
+    onImproveText: () -> Unit,
+    onShowShortcuts: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "O que você quer preparar primeiro?",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            "Escolha um caminho. Você pode escrever ou falar depois.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Button(
+            onClick = onStartTopic,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Preparar um tópico") }
+        OutlinedButton(
+            onClick = onImproveText,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Melhorar meu texto") }
+        TextButton(
+            onClick = onShowShortcuts,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text("Ver atalhos") }
     }
 }
