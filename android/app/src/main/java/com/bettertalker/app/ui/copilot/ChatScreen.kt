@@ -489,6 +489,15 @@ fun ChatScreen(
             TurnPhase.ERROR -> true
         }
     } ?: false
+    // UX-2.3: o handoff do turno (streaming → mensagem persistida no Room)
+    // é identificado pela identidade real do turno, não pela contagem de
+    // mensagens. A resposta final já era o item `turn-<turnId>`; quando ela
+    // chega ao Room, não é uma mensagem nova (nem novidade, nem scroll extra).
+    var handoffConsumed by remember(activeTurn?.turnId) { mutableStateOf(false) }
+    val turnHandoffPresence = isTurnHandoff(activeTurn, messages)
+    val handoffArrival = isTurnHandoffArrival(turnHandoffPresence, handoffConsumed)
+    val hiddenTurnMessage = hasHiddenTurnMessage(showActiveTurn, activeTurn, messages)
+    val renderedMessages = renderedMessageCount(messages.size, hiddenTurnMessage)
     // T2 (Bug #13): índice do último item do LazyColumn — alvo do auto-scroll
     // "para o fim" (garante os botões da última resposta visíveis).
     val runStateItems = if (activeTurn != null) {
@@ -503,7 +512,7 @@ fun ChatScreen(
     val hasProposal = proposal != null || structureProposal != null ||
         noteStructureProposal != null || multiProposal != null || scopeSuggestion
     val lastItemIndex = chatLastItemIndex(
-        messageCount = messages.size,
+        messageCount = renderedMessages,
         hasContext = messages.isNotEmpty(),
         hasTopicEmpty = messages.isEmpty() && chatScope != null,
         hasProvenance = evidence.isNotEmpty(),
@@ -524,7 +533,7 @@ fun ChatScreen(
                 scopeSuggestion,
             )
     val turnAnchor = turnAnchorIndex(
-        messageCount = messages.size,
+        messageCount = renderedMessages,
         hasContext = messages.isNotEmpty(),
         // UX-2.2 edge: a LazyColumn renderiza "thread-empty" sempre que
         // messages.isEmpty(), inclusive em Discurso inteiro (chatScope null).
@@ -576,7 +585,10 @@ fun ChatScreen(
             }
         }
     }
-    LaunchedEffect(messages.size, hasProposal) {
+    LaunchedEffect(messages.size, hasProposal, showActiveTurn) {
+        if (handoffArrival) {
+            handoffConsumed = true
+        }
         // #25-fix-a/#26-fix: o efeito observa mensagem E proposta, mas conta
         // UMA vez por evento (mensagem+proposta juntas = 1); a proposta entra
         // na TRANSIÇÃO falsa→verdadeira (removê-la/fechar não conta). Alvo:
@@ -587,10 +599,26 @@ fun ChatScreen(
         // forma INSTANTÂNEA no fim. Só depois de `initialScrollDone` os
         // efeitos de mensagem/turno/parcial podem animar.
         val firstLoad = !initialScrollDone && (messages.isNotEmpty() || hasProposal)
-        val messageAdded = messages.size > seenMessages
+        // UX-2.3: o handoff do turno não conta como mensagem nova.
+        val messageAdded = messages.size > seenMessages && !handoffArrival
         val proposalAdded = hasProposal && !seenProposal
         seenMessages = messages.size
         seenProposal = hasProposal
+        if (handoffArrival && !proposalAdded) {
+            // Handoff isolado: não é novidade. Room antes de DONE acompanha
+            // turnAnchor (turno visível); DONE antes de Room preserva a posição
+            // via turnAnchor, que cai na mensagem persistida quando o turno
+            // deixa de ser visível. Nunca volta à última mensagem anterior.
+            if (followEnd && atBottom) {
+                if (firstLoad) {
+                    listState.scrollToItem(turnAnchor, Int.MAX_VALUE)
+                    initialScrollDone = true
+                } else {
+                    listState.animateScrollToItem(turnAnchor, Int.MAX_VALUE)
+                }
+            }
+            return@LaunchedEffect
+        }
         when (val action = messagesEffect(
             messageAdded = messageAdded,
             proposalAdded = proposalAdded,
@@ -1083,6 +1111,15 @@ fun ChatScreen(
                         }
                     }
                     messages.forEach { m ->
+                        // UX-2.3: enquanto o turno ativo está visível, a resposta
+                        // persistida do MESMO turno (mesmo turnId) não renderiza
+                        // em paralelo — evita chave duplicada no LazyColumn quando
+                        // o Room chega antes do DONE (ou em qualquer ordem).
+                        if (showActiveTurn && !m.fromMe &&
+                            m.turnId.isNotBlank() && m.turnId == activeTurn?.turnId
+                        ) {
+                            return@forEach
+                        }
                         // M1: a resposta final assume a key do turno; o item
                         // de streaming usa a MESMA key e sai no mesmo frame.
                         val messageKey = if (!m.fromMe && m.turnId.isNotBlank()) {
@@ -2791,6 +2828,67 @@ internal fun chatLastItemIndex(
         runStateItems
     return (total - 1).coerceAtLeast(0)
 }
+
+/**
+ * UX-2.3 — o handoff do turno (streaming → mensagem persistida no Room) é
+ * identificado pela identidade real do turno: a última mensagem persistida é a
+ * resposta do turno ativo (`turnId` igual e `fromMe == false`). Nesse caso, não
+ * é novidade nem exige scroll extra.
+ */
+internal fun isTurnHandoff(
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = activeTurn != null && messages.any { m ->
+    !m.fromMe && m.turnId.isNotBlank() && m.turnId == activeTurn.turnId
+}
+
+internal fun isTurnHandoff(
+    activeTurnId: String?,
+    lastMessageTurnId: String?,
+    lastMessageFromMe: Boolean,
+): Boolean = !activeTurnId.isNullOrBlank() &&
+    !lastMessageFromMe &&
+    lastMessageTurnId == activeTurnId
+
+/**
+ * UX-2.3 — a mensagem persistida do turno ativo pode estar oculta enquanto o
+ * turno ainda está visível (Room antes de DONE). A contagem de itens
+ * renderizados precisa excluir essa mensagem para manter os índices da
+ * LazyColumn coerentes.
+ */
+internal fun hasHiddenTurnMessage(
+    showActiveTurn: Boolean,
+    activeTurn: TurnUiState?,
+    messages: List<CopilotViewModel.ChatItem>,
+): Boolean = showActiveTurn && activeTurn != null &&
+    messages.any { m -> !m.fromMe && m.turnId.isNotBlank() && m.turnId == activeTurn.turnId }
+
+internal fun isTurnHandoffArrival(
+    presence: Boolean,
+    alreadyHandled: Boolean,
+): Boolean = presence && !alreadyHandled
+
+internal fun handoffArrival(
+    presence: Boolean,
+    alreadyHandled: Boolean,
+): Boolean = isTurnHandoffArrival(presence, alreadyHandled)
+
+internal fun renderedMessageCount(
+    messageCount: Int,
+    hiddenTurnMessage: Boolean,
+): Int = if (hiddenTurnMessage) (messageCount - 1).coerceAtLeast(0) else messageCount
+
+internal fun visibleMessageCount(
+    messageCount: Int,
+    hiddenTurnMessage: Boolean,
+): Int = renderedMessageCount(messageCount, hiddenTurnMessage)
+
+/** UX-2.3 — Room já contém (ou não) a mensagem final do turno. */
+internal fun isRoomHandoff(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    activeTurn != null && activeTurn.finalMessageId != null && finalInMessages
+
+internal fun turnHandoffReady(activeTurn: TurnUiState?, finalInMessages: Boolean): Boolean =
+    isRoomHandoff(activeTurn, finalInMessages)
 
 /** T3 — texto exibido após remover as tags de criação + flag do badge. */
 data class SuggestionText(val text: String, val hasSuggestion: Boolean)
