@@ -166,12 +166,14 @@ class NwtDocumentIdentityVerifierTest {
         attachment: String = attachmentId,
         passageId: String? = "p-passage",
         ord: Int? = 1,
+        section: String? = null,
     ) = NwtIndexedUnit(
         attachmentId = attachment,
         passageId = passageId,
         canonicalRef = ref,
         ord = ord,
         text = text,
+        section = section,
     )
 
     private fun codes(result: NwtDocumentIdentity): Set<NwtIssueCode> =
@@ -371,11 +373,12 @@ class NwtDocumentIdentityVerifierTest {
         val result = NwtDocumentIdentityVerifier.verify(
             metadata = metadata(file),
             file = file,
-            indexedUnit = unit(text),
+            indexedUnit = unit(text, section = "Mateus 24"),
         )
 
         assertEquals(NwtUnitIdentityState.UNIT_VERIFIED, result.unit.state)
         assertEquals(NwtTextComparison.EXACT, result.unit.comparison)
+        assertEquals("Mateus 24", result.unit.section)
         assertEquals(text.length, result.unit.indexedChars)
     }
 

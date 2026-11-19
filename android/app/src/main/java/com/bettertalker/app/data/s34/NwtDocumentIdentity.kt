@@ -167,6 +167,8 @@ data class NwtUnitIdentity(
     val attachmentId: String,
     val passageId: String?,
     val canonicalRef: String?,
+    /** Unidade/seção indexada associada à passagem. */
+    val section: String?,
     val ord: Int?,
     val comparison: NwtTextComparison,
     val indexedChars: Int,
