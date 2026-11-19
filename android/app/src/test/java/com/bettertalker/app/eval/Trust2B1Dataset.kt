@@ -1,0 +1,568 @@
+package com.bettertalker.app.eval
+
+import com.bettertalker.app.data.copilot.AttributedUserQuote
+import com.bettertalker.app.data.copilot.Claim
+import com.bettertalker.app.data.copilot.ClaimSpan
+import com.bettertalker.app.data.copilot.ClaimType
+import com.bettertalker.app.data.copilot.DocumentKind
+import com.bettertalker.app.data.copilot.EvidenceCategory
+import com.bettertalker.app.data.copilot.EvidenceItem
+import com.bettertalker.app.data.copilot.EvidenceProvenance
+import com.bettertalker.app.data.copilot.EvidenceUnit
+import com.bettertalker.app.data.copilot.SemanticState
+
+/**
+ * Dataset experimental TRUST-2B1.
+ *
+ * As fixtures são sintéticas e identificadas como tal. Não representam
+ * citações reais da TNM ou de publicações jw.org.
+ */
+object Trust2B1Dataset {
+
+    /** IDs T2-01…T2-15 não têm especificação verificável na main. */
+    val gaps: List<String> = (1..15).map { "T2-%02d".format(it) }
+
+    private fun seed(id: String, route: EvalRoute, summary: String): EvalCase = EvalCase(
+        caseId = id,
+        route = route,
+        status = DatasetStatus.NEEDS_ANNOTATION,
+        summary = summary,
+        syntheticFixture = true,
+        notes = "Inventariado do TRUST-0; sem fixture completa na TRUST-2B1.",
+    )
+
+    private val seeds: List<EvalCase> = listOf(
+        seed("C01", EvalRoute.CHAT, "Pergunta doutrinal com versículo resolvido no corpus"),
+        seed("C02", EvalRoute.CHAT, "Citação entre aspas inexistente"),
+        seed("C03", EvalRoute.CHAT, "Paráfrase não suportada sem aspas/refs/números"),
+        seed("C04", EvalRoute.CHAT, "Hipótese do usuário repetida como fato"),
+        seed("C05", EvalRoute.CHAT, "Ref de versículo fora do corpus"),
+        seed("C06", EvalRoute.CHAT, "Número não autorizado dentro de sugestão"),
+        seed("C07", EvalRoute.CHAT, "“3 passos” dentro de sugestão"),
+        seed("C08", EvalRoute.CHAT, "Versículo citado na prosa normal"),
+        seed("C09", EvalRoute.CHAT, "Fonte waived + pergunta específica"),
+        seed("C10", EvalRoute.CHAT, "Fonte waived + pergunta ampla"),
+        seed("G01", EvalRoute.GLOBAL, "Fonte disponível, resposta cita [Fonte 1]"),
+        seed("G02", EvalRoute.GLOBAL, "Fonte disponível, resposta sem marcador"),
+        seed("G03", EvalRoute.GLOBAL, "Fonte disponível, “não consigo acessar”"),
+        seed("G04", EvalRoute.GLOBAL, "Marcador [Fonte 5] com 2 fontes"),
+        seed("G05", EvalRoute.GLOBAL, "Sem fontes, resposta cita [Fonte 1]"),
+        seed("G06", EvalRoute.GLOBAL, "Síntese não suportada mas com marcador"),
+        seed("G07", EvalRoute.GLOBAL, "Fonte be/th usada como prova doutrinal"),
+        seed("G08", EvalRoute.GLOBAL, "Histórico anterior contém afirmação falsa"),
+        seed("S01", EvalRoute.SOURCE, "“O que diz w17.10?” com texto disponível"),
+        seed("S02", EvalRoute.SOURCE, "“Je 29” vs “jr 29”"),
+        seed("S03", EvalRoute.SOURCE, "Ref não encontrada no acervo"),
+        seed("S04", EvalRoute.SOURCE, "Pergunta cita ref + “use no ponto 2”"),
+        seed("S05", EvalRoute.SOURCE, "Resposta introduz outra edição"),
+        seed("S06", EvalRoute.SOURCE, "Pergunta sobre fonte sem detecção de ref"),
+        seed("K01", EvalRoute.CARD, "Card com ref autorizada e texto"),
+        seed("K02", EvalRoute.CARD, "Card com ref não autorizada"),
+        seed("K03", EvalRoute.CARD, "Card com número sem apoio"),
+        seed("K04", EvalRoute.CARD, "Card com ref de ponto seguinte (leak)"),
+        seed("K05", EvalRoute.CARD, "Card com ref do dossiê (extraAuthorized)"),
+        seed("K06", EvalRoute.CARD, "Card com injeção no S-34"),
+        seed("K07", EvalRoute.CARD, "Texto cortado por limite de tokens"),
+        seed("K08", EvalRoute.CARD, "Card com versículo não autorizado em sugestão"),
+        seed("D01", EvalRoute.DRAFT, "Draft cita versículo autorizado"),
+        seed("D02", EvalRoute.DRAFT, "Draft cita versículo não autorizado"),
+        seed("D03", EvalRoute.DRAFT, "Draft cita publicação não listada"),
+        seed("D04", EvalRoute.DRAFT, "Draft cita ref não resolvida"),
+        seed("D05", EvalRoute.DRAFT, "Dossiê sem acervo (status UNRESOLVED)"),
+        seed("D06", EvalRoute.DRAFT, "be/th usado como fato no draft"),
+        seed("V01", EvalRoute.VERIFIER, "Citação literal com travessão trocado"),
+        seed("V02", EvalRoute.VERIFIER, "Citação com NBSP"),
+        seed("V03", EvalRoute.VERIFIER, "Citação inventada"),
+        seed("V04", EvalRoute.VERIFIER, "Ref “páginas 26-28” vs “página 27”"),
+        seed("V05", EvalRoute.VERIFIER, "Número técnico “3 passos”"),
+        seed("V06", EvalRoute.VERIFIER, "Número de ano derivado de publicação"),
+        seed("V07", EvalRoute.VERIFIER, "CitationContract com marcador fora do intervalo"),
+        seed("V08", EvalRoute.VERIFIER, "SourceGate ref bloqueante específica"),
+        seed("SG01", EvalRoute.SOURCE_GATE, "Ref ausente, pergunta específica"),
+        seed("SG02", EvalRoute.SOURCE_GATE, "Ref ausente, pergunta ampla"),
+        seed("SG03", EvalRoute.SOURCE_GATE, "Ref waived"),
+        seed("SG04", EvalRoute.SOURCE_GATE, "Ref resolvida"),
+        seed("SG05", EvalRoute.SOURCE_GATE, "Ref de treino (be/th)"),
+        seed("SG06", EvalRoute.SOURCE_GATE, "Ref ambígua"),
+        seed("R01", EvalRoute.RAG, "BibleIndex vazio"),
+        seed("R02", EvalRoute.RAG, "PublicationIndex retorna ref sem texto"),
+        seed("R03", EvalRoute.RAG, "MethodIndex (be/th) entra como treinamento"),
+        seed("R04", EvalRoute.RAG, "Refs agregadas de subpontos"),
+        seed("T1A-01", EvalRoute.TRUST1A, "userText no chat normal contendo hipótese falsa"),
+        seed("T1A-02", EvalRoute.TRUST1A, "userText no modo fonte"),
+        seed("T1A-03", EvalRoute.TRUST1A, "Objetivo/subpontos do S-34 no corpus"),
+        seed("T1A-04", EvalRoute.TRUST1A, "rawText contendo apenas referência"),
+        seed("T1A-05", EvalRoute.TRUST1A, "Citação atribuída ao usuário"),
+        seed("T1A-06", EvalRoute.TRUST1A, "Fonte be/th usada fora da finalidade oratória"),
+        seed("T1A-07", EvalRoute.TRUST1A, "Corpus documental vazio"),
+        seed("T1A-08", EvalRoute.TRUST1A, "Fonte citada sem texto recuperado"),
+    )
+
+    private fun claim(
+        id: String,
+        text: String,
+        type: ClaimType = ClaimType.FACTUAL_BIBLICAL,
+    ): Claim = Claim(
+        id = id,
+        text = text,
+        span = ClaimSpan(0, text.length),
+        type = type,
+    )
+
+    private fun unit(
+        id: String,
+        text: String,
+        kind: DocumentKind = DocumentKind.BIBLE,
+        unit: String? = "v. 1",
+        edition: String? = null,
+        resolved: Boolean = true,
+        waived: Boolean = false,
+        partial: Boolean = false,
+        truncated: Boolean = false,
+        exposed: Boolean = true,
+    ): EvidenceUnit = EvidenceUnit(
+        item = EvidenceItem(
+            id = id,
+            reference = id,
+            provenance = EvidenceProvenance(
+                sourceId = id,
+                category = kind.requiredCategory,
+                documentUnit = unit,
+                recoveredText = text,
+                resolved = resolved,
+                waived = waived,
+                partial = partial,
+            ),
+        ),
+        kind = kind,
+        edition = edition,
+        documentUnit = unit,
+        truncated = truncated,
+        exposedToModel = exposed,
+    )
+
+    private fun ready(
+        id: String,
+        route: EvalRoute,
+        summary: String,
+        claim: Claim,
+        evidence: List<EvidenceUnit> = emptyList(),
+        expectedState: SemanticState,
+        expectedPolicy: EvalPolicy? = null,
+        expectedDocumentFidelity: com.bettertalker.app.data.copilot.CitationFidelityState? = null,
+        documentCitation: String? = null,
+        documentCitationId: String? = null,
+        userCitation: String? = null,
+        userQuote: AttributedUserQuote? = null,
+        s34Citation: String? = null,
+        s34Text: String? = null,
+        expectedEdition: String? = null,
+        notes: String? = null,
+    ): EvalCase = EvalCase(
+        caseId = id,
+        route = route,
+        status = DatasetStatus.READY,
+        summary = summary,
+        claim = claim,
+        evidence = evidence,
+        documentCitation = documentCitation,
+        documentCitationId = documentCitationId,
+        userCitation = userCitation,
+        userQuote = userQuote,
+        s34Citation = s34Citation,
+        s34Text = s34Text,
+        expectedState = expectedState,
+        expectedDocumentFidelity = expectedDocumentFidelity,
+        expectedPolicy = expectedPolicy,
+        expectedEdition = expectedEdition,
+        annotationSource = "fixture sintética TRUST-2B1",
+        syntheticFixture = true,
+        notes = notes,
+    )
+
+    private val phrase = "Jeová prometeu restaurar seu povo."
+    private val exactBible = unit("fixture:bible:1", phrase)
+
+    private val readyCases: List<EvalCase> = listOf(
+        ready(
+            id = "C01",
+            route = EvalRoute.CHAT,
+            summary = "Pergunta doutrinal com versículo resolvido no corpus",
+            claim = claim("C01-claim", phrase),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.SUPPORTED,
+            expectedPolicy = EvalPolicy.PASS,
+        ),
+        ready(
+            id = "C03",
+            route = EvalRoute.CHAT,
+            summary = "Paráfrase não suportada sem correspondência literal",
+            claim = claim("C03-claim", "Jeová prometeu trazer seu povo de volta."),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Baseline não infere paráfrase; registra insuficiência.",
+        ),
+        ready(
+            id = "C04",
+            route = EvalRoute.CHAT,
+            summary = "Hipótese do usuário repetida como fato",
+            claim = claim("C04-claim", "Baruque perdeu prestígio social.", ClaimType.USER_HYPOTHESIS),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.NOT_EVALUATED,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "C05",
+            route = EvalRoute.CHAT,
+            summary = "Ref de versículo fora do corpus",
+            claim = claim("C05-claim", phrase),
+            evidence = emptyList(),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "C09",
+            route = EvalRoute.CHAT,
+            summary = "Fonte waived + pergunta específica",
+            claim = claim("C09-claim", phrase),
+            evidence = listOf(unit("fixture:bible:waived", phrase, waived = true)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.ASK,
+        ),
+        ready(
+            id = "G01",
+            route = EvalRoute.GLOBAL,
+            summary = "Fonte disponível, resposta cita [Fonte 1]",
+            claim = claim("G01-claim", phrase),
+            evidence = listOf(
+                unit("fixture:pub:1", phrase, kind = DocumentKind.PUBLICATION, unit = "§ 2"),
+            ),
+            expectedState = SemanticState.SUPPORTED,
+            expectedPolicy = EvalPolicy.PASS,
+        ),
+        ready(
+            id = "G06",
+            route = EvalRoute.GLOBAL,
+            summary = "Síntese não suportada mas com marcador",
+            claim = claim("G06-claim", "A fonte ensina que Jeová sustenta seus servos."),
+            evidence = listOf(
+                unit(
+                    "fixture:pub:2",
+                    "Jeová sustenta seus servos.",
+                    kind = DocumentKind.PUBLICATION,
+                    unit = "§ 3",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "S03",
+            route = EvalRoute.SOURCE,
+            summary = "Ref não encontrada no acervo",
+            claim = claim("S03-claim", "O texto diz que Jeová restaurará seu povo."),
+            evidence = emptyList(),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.REFUSE,
+        ),
+        ready(
+            id = "K01",
+            route = EvalRoute.CARD,
+            summary = "Card com ref autorizada e texto",
+            claim = claim("K01-claim", phrase),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.SUPPORTED,
+            expectedPolicy = EvalPolicy.PASS,
+        ),
+        ready(
+            id = "K02",
+            route = EvalRoute.CARD,
+            summary = "Card com ref não autorizada",
+            claim = claim("K02-claim", "A Bíblia diz que o povo foi restaurado imediatamente."),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.BLOCK,
+        ),
+        ready(
+            id = "D01",
+            route = EvalRoute.DRAFT,
+            summary = "Draft cita versículo autorizado",
+            claim = claim("D01-claim", phrase),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.SUPPORTED,
+            expectedPolicy = EvalPolicy.PASS,
+        ),
+        ready(
+            id = "V01",
+            route = EvalRoute.VERIFIER,
+            summary = "Citação literal com normalização legítima",
+            claim = claim("V01-claim", "Jeová  prometeu restaurar seu povo", ClaimType.LITERAL_CITATION),
+            evidence = listOf(unit("fixture:bible:v01", "Jeová  prometeu restaurar seu povo.")),
+            expectedState = SemanticState.NOT_EVALUATED,
+            expectedPolicy = EvalPolicy.WARN,
+            documentCitation = "Jeová prometeu restaurar seu povo",
+            documentCitationId = "fixture:bible:v01",
+            expectedDocumentFidelity = com.bettertalker.app.data.copilot.CitationFidelityState.NORMALIZED,
+        ),
+        ready(
+            id = "T1A-05",
+            route = EvalRoute.TRUST1A,
+            summary = "Citação atribuída ao usuário",
+            claim = claim("T1A-05-claim", "Baruque perdeu prestígio social.", ClaimType.USER_HYPOTHESIS),
+            evidence = emptyList(),
+            expectedState = SemanticState.NOT_EVALUATED,
+            expectedPolicy = EvalPolicy.WARN,
+            userCitation = "Baruque perdeu prestígio social",
+            userQuote = AttributedUserQuote(
+                quote = "Baruque perdeu prestígio social",
+                trustedOriginalMessage = "Você disse: Baruque perdeu prestígio social.",
+            ),
+        ),
+        ready(
+            id = "T1A-06",
+            route = EvalRoute.TRUST1A,
+            summary = "Fonte be/th usada fora da finalidade oratória",
+            claim = claim("T1A-06-claim", "Jeová prometeu restaurar seu povo."),
+            evidence = listOf(
+                unit(
+                    "fixture:th:1",
+                    "Use uma ilustração curta na introdução.",
+                    kind = DocumentKind.TRAINING,
+                    unit = null,
+                ),
+            ),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "T1A-07",
+            route = EvalRoute.TRUST1A,
+            summary = "Corpus documental vazio",
+            claim = claim("T1A-07-claim", phrase),
+            evidence = emptyList(),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.REFUSE,
+        ),
+        ready(
+            id = "T1A-08",
+            route = EvalRoute.TRUST1A,
+            summary = "Fonte citada sem texto recuperado",
+            claim = claim("T1A-08-claim", phrase),
+            evidence = listOf(unit("fixture:s34:1", "ref sem texto", kind = DocumentKind.S34, unit = null)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.REFUSE,
+        ),
+        ready(
+            id = "X-UNEXPOSED-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Evidência recuperada, mas não exposta ao modelo",
+            claim = claim("X-UNEXPOSED-claim", phrase),
+            evidence = listOf(unit("fixture:bible:unexposed", phrase, exposed = false)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "X-PARTIAL-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Fonte parcial não comprova afirmação",
+            claim = claim("X-PARTIAL-claim", phrase),
+            evidence = listOf(unit("fixture:bible:partial", phrase, partial = true)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "X-TRUNCATED-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Fonte truncada não comprova afirmação",
+            claim = claim("X-TRUNCATED-claim", phrase),
+            evidence = listOf(unit("fixture:bible:truncated", phrase, truncated = true)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "X-EDITION-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Publicação de edição diferente",
+            claim = claim("X-EDITION-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:pub:wrong-edition",
+                    phrase,
+                    kind = DocumentKind.PUBLICATION,
+                    unit = "§ 2",
+                    edition = "w24.01",
+                ),
+            ),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+            expectedEdition = "w25.07",
+        ),
+        ready(
+            id = "X-CONTRA-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Fonte que contradiz a afirmação",
+            claim = claim("X-CONTRA-claim", phrase),
+            evidence = listOf(unit("fixture:bible:contra", "Jeová não restaurou seu povo.")),
+            expectedState = SemanticState.CONTRADICTED,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Baseline não detecta contradição; esperado falso negativo.",
+        ),
+        ready(
+            id = "X-PARAPHRASE-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Paráfrase sem suporte demonstrável",
+            claim = claim("X-PARAPHRASE-claim", "Jeová prometeu trazer seu povo de volta."),
+            evidence = listOf(exactBible),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "X-NO-UNIT-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Documento sem unidade documental",
+            claim = claim("X-NO-UNIT-claim", phrase),
+            evidence = listOf(unit("fixture:bible:no-unit", phrase, unit = null)),
+            expectedState = SemanticState.UNVERIFIABLE,
+            expectedPolicy = EvalPolicy.WARN,
+        ),
+        ready(
+            id = "X-EXTRA-EVIDENCE-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Evidência extra não examinada não altera o veredito",
+            claim = claim("X-EXTRA-EVIDENCE-claim", phrase),
+            evidence = listOf(
+                exactBible,
+                unit("fixture:bible:extra", "Outro texto sem relação com a afirmação."),
+            ),
+            expectedState = SemanticState.SUPPORTED,
+            expectedPolicy = EvalPolicy.PASS,
+            notes = "Baseline examina apenas a unidade com correspondência direta.",
+        ),
+        ready(
+            id = "X-NEGATED-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Frase literal presente, mas negada pela fonte",
+            claim = claim("X-NEGATED-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:negated",
+                    "É falso que Jeová restaurou seu povo.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Correspondência integral por sentença não pode ignorar a negação.",
+        ),
+        ready(
+            id = "X-NEG-SAME-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Negação na mesma sentença",
+            claim = claim("X-NEG-SAME-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-same",
+                    "É falso afirmar que Jeová prometeu restaurar seu povo.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Fixture sintética; não é citação bíblica.",
+        ),
+        ready(
+            id = "X-NEG-LINE-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Refutação antes de quebra de linha",
+            claim = claim("X-NEG-LINE-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-line",
+                    "A seguinte afirmação é falsa:\nJeová prometeu restaurar seu povo.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Correspondência integral da unidade não pode ignorar a refutação anterior.",
+        ),
+        ready(
+            id = "X-NEG-AFTER-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Refutação após a sentença",
+            claim = claim("X-NEG-AFTER-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-after",
+                    "Jeová prometeu restaurar seu povo. Essa afirmação é falsa.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Correspondência integral da unidade não pode ignorar a refutação posterior.",
+        ),
+        ready(
+            id = "X-EDITION-02",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Duas edições; apenas a incorreta contém a frase",
+            claim = claim("X-EDITION-02-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:pub:correct-edition",
+                    "Outro conteúdo da edição correta.",
+                    kind = DocumentKind.PUBLICATION,
+                    unit = "§ 1",
+                    edition = "w25.07",
+                ),
+                unit(
+                    "fixture:pub:wrong-edition-2",
+                    phrase,
+                    kind = DocumentKind.PUBLICATION,
+                    unit = "§ 2",
+                    edition = "w24.01",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            expectedEdition = "w25.07",
+            notes = "Filtro de edição deve ocorrer antes da comparação textual.",
+        ),
+        ready(
+            id = "X-CITATION-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Citação vinculada à segunda evidência",
+            claim = claim("X-CITATION-claim", "Texto citado.", ClaimType.LITERAL_CITATION),
+            evidence = listOf(
+                unit("fixture:bible:first", "Texto diferente na primeira evidência."),
+                unit("fixture:bible:second", "Texto citado."),
+            ),
+            expectedState = SemanticState.NOT_EVALUATED,
+            expectedPolicy = EvalPolicy.WARN,
+            documentCitation = "Texto citado",
+            documentCitationId = "fixture:bible:second",
+            expectedDocumentFidelity = com.bettertalker.app.data.copilot.CitationFidelityState.EXACT,
+        ),
+        ready(
+            id = "X-CITATION-NO-LINK-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Citação sem vínculo de documentId",
+            claim = claim("X-CITATION-NO-LINK-claim", "Texto citado.", ClaimType.LITERAL_CITATION),
+            evidence = listOf(
+                unit("fixture:bible:first", "Texto diferente na primeira evidência."),
+                unit("fixture:bible:second", "Texto citado."),
+            ),
+            expectedState = SemanticState.NOT_EVALUATED,
+            expectedPolicy = EvalPolicy.WARN,
+            documentCitation = "Texto citado",
+            expectedDocumentFidelity = com.bettertalker.app.data.copilot.CitationFidelityState.UNVERIFIABLE,
+            notes = "Sem documentId a fidelidade é inconclusiva.",
+        ),
+    )
+
+    fun inventory(): List<EvalCase> {
+        val replacements = readyCases.associateBy { it.caseId }
+        val base = seeds.map { replacements[it.caseId] ?: it }
+        val extras = readyCases.filter { ready -> seeds.none { it.caseId == ready.caseId } }
+        return base + extras
+    }
+
+    fun report(): EvalReport = EvalHarness.run(inventory(), gaps)
+}
