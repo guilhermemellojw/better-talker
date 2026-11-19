@@ -1465,6 +1465,52 @@ private fun NoteChatHost(
 
     // Fatia 4 — navegação/mentoria: o chat pede; a tela dona da rota executa.
     val navScope = androidx.compose.runtime.rememberCoroutineScope()
+    val bibleOpenCoordinator = androidx.compose.runtime.remember(
+        navScope,
+        bibleVm,
+        bibleResolver,
+        ctx,
+    ) {
+        com.bettertalker.app.data.bible.BibleReferenceOpenCoordinator(
+            scope = navScope,
+            onResolution = { result ->
+                when (result) {
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Available ->
+                        bibleVm.open(result.target)
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Partial ->
+                        bibleVm.open(result.target)
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Unavailable ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Essa passagem ainda não está disponível na Biblioteca.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Ambiguous ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Não foi possível identificar essa referência.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.NotRecognized ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Não foi possível identificar essa referência.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                }
+            },
+            onFailure = {
+                android.widget.Toast.makeText(
+                    ctx,
+                    "Não foi possível abrir esta referência agora.",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            },
+        )
+    }
+    androidx.compose.runtime.DisposableEffect(bibleOpenCoordinator) {
+        onDispose { bibleOpenCoordinator.cancel() }
+    }
     val navSettings = androidx.compose.runtime.remember(ctx) {
         com.bettertalker.app.data.prefs.SettingsStore(ctx)
     }
@@ -1665,32 +1711,7 @@ private fun NoteChatHost(
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
         onOpenBibleReference = { occurrence ->
-            navScope.launch {
-                when (val result = bibleResolver.resolve(occurrence)) {
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Available ->
-                        bibleVm.open(result.target)
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Partial ->
-                        bibleVm.open(result.target)
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Unavailable ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Essa passagem ainda não está disponível na Biblioteca.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Ambiguous ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Não foi possível identificar essa referência.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.NotRecognized ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Não foi possível identificar essa referência.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                }
-            }
+            bibleOpenCoordinator.open(occurrence) { bibleResolver.resolve(it) }
         },
         practiceContext = practiceContext,
         onBackToWalkie = if (walkieDefault) ({ walkie = true }) else null,
