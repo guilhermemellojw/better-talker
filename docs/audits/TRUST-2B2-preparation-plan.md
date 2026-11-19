@@ -69,7 +69,11 @@ Regras:
 - anotações duplicadas por anotador;
 - separação entre anotação humana e sintética;
 - metadados de proveniência com `documentId`, `documentUnit`, `premiseId`, edição, recuperação, completude, truncamento e exposição;
-- `premiseId` precisa existir nos metadados e a unidade precisa ser verificada para `SUPPORTED`/`CONTRADICTED`.
+- `premiseId` precisa existir nos metadados e a unidade precisa ser verificada.
+- Elegibilidade segue `ClaimType.supportEvidence`: `DOCUMENTARY` para fatos, `METHOD` para oratória e `NONE` para citação literal, hipótese, criativo e estrutural.
+- `SUPPORTED` não é permitido para `LITERAL_CITATION`, `USER_HYPOTHESIS`, `CREATIVE_SUGGESTION`, `STRUCTURAL_EDITORIAL` ou classificação PENDING.
+- Citação literal usa apenas fidelidade (`EXACT`, `NORMALIZED`, `NOT_FOUND`, `UNVERIFIABLE`, `NOT_EVALUATED`), separada do suporte factual.
+- `CONTRADICTED` só é permitido para claim factual com documento verificado; não se aplica a citação literal, hipótese, criativo, estrutural ou PENDING.
 
 ### 4.1 Cohen's κ
 

@@ -3,6 +3,7 @@ package com.bettertalker.app.eval
 import com.bettertalker.app.data.copilot.ClaimType
 import com.bettertalker.app.data.copilot.DocumentKind
 import com.bettertalker.app.data.copilot.SemanticState
+import com.bettertalker.app.data.copilot.SupportEvidence
 
 /**
  * Validador e relatório experimental TRUST-2B2.
@@ -51,17 +52,36 @@ object Trust2B2Validator {
                 errors += "${case.caseId}: READY_FOR_REVIEW com campos ausentes"
             }
             if (case.evidenceEligibleForSupport) {
-                if (case.evidenceAvailability != EvidenceAvailability.VERIFIED_LOCAL) {
-                    errors += "${case.caseId}: suporte elegível sem fonte local verificada"
-                }
-                if (case.evidenceMetadata.none { it.isVerifiedDocumentary(case.expectedEdition) }) {
-                    errors += "${case.caseId}: suporte elegível sem metadados documentais verificados"
-                }
-                if (case.evidenceTruncated) {
-                    errors += "${case.caseId}: evidência truncada não é elegível para suporte"
-                }
-                if (!case.evidenceExposedToModel) {
-                    errors += "${case.caseId}: evidência não exposta ao modelo não é elegível"
+                val type = case.expectedClaimType
+                if (type == null) {
+                    errors += "${case.caseId}: suporte elegível sem claim classificado"
+                } else {
+                    when (type.supportEvidence) {
+                        SupportEvidence.DOCUMENTARY -> {
+                            if (case.evidenceAvailability != EvidenceAvailability.VERIFIED_LOCAL) {
+                                errors += "${case.caseId}: suporte elegível sem fonte local verificada"
+                            }
+                            if (case.evidenceMetadata.none {
+                                    it.isVerifiedDocumentary(case.expectedEdition)
+                                }
+                            ) {
+                                errors += "${case.caseId}: suporte factual sem documento verificado"
+                            }
+                        }
+                        SupportEvidence.METHOD -> {
+                            if (case.evidenceMetadata.none { it.isVerifiedMethod() }) {
+                                errors += "${case.caseId}: suporte de oratória sem método verificado"
+                            }
+                        }
+                        SupportEvidence.NONE ->
+                            errors += "${case.caseId}: SUPPORTED não permitido para ${type.name}"
+                    }
+                    if (case.evidenceTruncated) {
+                        errors += "${case.caseId}: evidência truncada não é elegível para suporte"
+                    }
+                    if (!case.evidenceExposedToModel) {
+                        errors += "${case.caseId}: evidência não exposta ao modelo não é elegível"
+                    }
                 }
             }
             case.evidenceMetadata.forEach { metadata ->
@@ -116,35 +136,53 @@ object Trust2B2Validator {
                 }
             }
             if (annotation.semanticState == SemanticState.SUPPORTED) {
-                if (!case.evidenceEligibleForSupport ||
-                    case.evidenceTruncated ||
-                    !case.evidenceExposedToModel
-                ) {
-                    errors += "${annotation.caseId}: SUPPORTED sem evidência elegível"
-                }
-                if (annotation.premiseIds.isEmpty()) {
-                    errors += "${annotation.caseId}: SUPPORTED sem premiseIds"
-                }
                 val claimType = case.expectedClaimType
                 if (claimType == null) {
                     errors += "${annotation.caseId}: SUPPORTED em cenário sem classificação"
-                } else if (claimType == ClaimType.ORATORY_TECHNIQUE) {
-                    if (!annotation.premiseIds.any { id -> metadataById[id]?.isVerifiedMethod() == true }) {
-                        errors += "${annotation.caseId}: SUPPORTED de oratória sem método verificado"
-                    }
-                } else if (claimType.isFactualType() || claimType == ClaimType.LITERAL_CITATION) {
-                    if (!annotation.premiseIds.any { id ->
-                            metadataById[id]?.isVerifiedDocumentary(case.expectedEdition) == true
-                        }
-                    ) {
-                        errors += "${annotation.caseId}: SUPPORTED factual sem documento verificado"
-                    }
                 } else {
-                    errors += "${annotation.caseId}: SUPPORTED em claim não factual"
+                    when (claimType.supportEvidence) {
+                        SupportEvidence.DOCUMENTARY -> {
+                            if (!case.evidenceEligibleForSupport ||
+                                case.evidenceTruncated ||
+                                !case.evidenceExposedToModel
+                            ) {
+                                errors += "${annotation.caseId}: SUPPORTED factual sem evidência elegível"
+                            }
+                            if (annotation.premiseIds.isEmpty()) {
+                                errors += "${annotation.caseId}: SUPPORTED factual sem premiseIds"
+                            } else if (!annotation.premiseIds.any { id ->
+                                    metadataById[id]?.isVerifiedDocumentary(case.expectedEdition) == true
+                                }
+                            ) {
+                                errors += "${annotation.caseId}: SUPPORTED factual sem documento verificado"
+                            }
+                        }
+                        SupportEvidence.METHOD -> {
+                            if (!case.evidenceEligibleForSupport ||
+                                case.evidenceTruncated ||
+                                !case.evidenceExposedToModel
+                            ) {
+                                errors += "${annotation.caseId}: SUPPORTED de oratória sem evidência elegível"
+                            }
+                            if (annotation.premiseIds.isEmpty()) {
+                                errors += "${annotation.caseId}: SUPPORTED de oratória sem premiseIds"
+                            } else if (!annotation.premiseIds.any { id ->
+                                    metadataById[id]?.isVerifiedMethod() == true
+                                }
+                            ) {
+                                errors += "${annotation.caseId}: SUPPORTED de oratória sem método verificado"
+                            }
+                        }
+                        SupportEvidence.NONE ->
+                            errors += "${annotation.caseId}: SUPPORTED não é permitido para ${claimType.name}"
+                    }
                 }
             }
             if (annotation.semanticState == SemanticState.CONTRADICTED) {
-                if (annotation.premiseIds.isEmpty()) {
+                val claimType = case.expectedClaimType
+                if (claimType == null || claimType.supportEvidence != SupportEvidence.DOCUMENTARY) {
+                    errors += "${annotation.caseId}: CONTRADICTED só é permitido para claim factual"
+                } else if (annotation.premiseIds.isEmpty()) {
                     errors += "${annotation.caseId}: CONTRADICTED sem premiseIds"
                 } else if (!annotation.premiseIds.any { id ->
                         metadataById[id]?.isVerifiedDocumentary(case.expectedEdition) == true

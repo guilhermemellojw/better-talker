@@ -5,6 +5,7 @@ import com.bettertalker.app.data.copilot.CitationFidelityState
 import com.bettertalker.app.data.copilot.DocumentKind
 import com.bettertalker.app.data.copilot.EvidenceCompleteness
 import com.bettertalker.app.data.copilot.SemanticState
+import com.bettertalker.app.data.copilot.SupportEvidence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -84,6 +85,27 @@ class Trust2B2Test {
         exposed = true,
         expectedEdition = "w25.07",
         evidence = listOf(metadata()),
+    )
+
+    private fun eligibleMethodCase(id: String = "O-01"): Trust2B2Case = case(
+        id = id,
+        type = ClaimType.ORATORY_TECHNIQUE,
+        source = TruthSourceType.METHOD,
+        required = listOf("methodDocumentId", "methodUnit", "methodText", "premiseIds", "humanAnnotation"),
+        missing = emptyList(),
+        status = PreparationStatus.VERIFIED,
+        availability = EvidenceAvailability.VERIFIED_LOCAL,
+        eligible = true,
+        exposed = true,
+        expectedEdition = null,
+        evidence = listOf(
+            metadata(
+                premiseId = "method-1",
+                kind = DocumentKind.TRAINING,
+                edition = null,
+                truthSource = TruthSourceType.METHOD,
+            ),
+        ),
     )
 
     private fun human(
@@ -459,6 +481,201 @@ class Trust2B2Test {
         val realCases = Trust2B2Inventory.cases()
         assertTrue(realCases.all { !it.evidenceEligibleForSupport })
         assertEquals(0, Trust2B2Validator.report().verifiedCases)
+    }
+
+    @Test
+    fun supportEvidenceDoContratoEUsado() {
+        assertEquals(SupportEvidence.DOCUMENTARY, ClaimType.FACTUAL_BIBLICAL.supportEvidence)
+        assertEquals(SupportEvidence.METHOD, ClaimType.ORATORY_TECHNIQUE.supportEvidence)
+        assertEquals(SupportEvidence.NONE, ClaimType.LITERAL_CITATION.supportEvidence)
+        assertEquals(SupportEvidence.NONE, ClaimType.USER_HYPOTHESIS.supportEvidence)
+        assertEquals(SupportEvidence.NONE, ClaimType.CREATIVE_SUGGESTION.supportEvidence)
+        assertEquals(SupportEvidence.NONE, ClaimType.STRUCTURAL_EDITORIAL.supportEvidence)
+    }
+
+    @Test
+    fun literaCitationNaoRecebeSupported() {
+        val c = case(type = ClaimType.LITERAL_CITATION)
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED não é permitido")
+        })
+    }
+
+    @Test
+    fun fidelidadeExactNaoAutorizaSuporteFactual() {
+        val c = case(type = ClaimType.LITERAL_CITATION)
+        val annotation = Trust2B2Annotation(
+            caseId = "T-01",
+            annotatorId = "A1",
+            semanticState = SemanticState.NOT_EVALUATED,
+            citationFidelity = CitationFidelityState.EXACT,
+            premiseIds = emptyList(),
+            rationale = "Citação fiel, sem julgamento factual.",
+            source = AnnotationSource.HUMAN_INDEPENDENT,
+        )
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).isEmpty())
+        assertFalse(annotation.semanticState == SemanticState.SUPPORTED)
+    }
+
+    @Test
+    fun hipoteseDoUsuarioNaoRecebeSupported() {
+        val c = case(type = ClaimType.USER_HYPOTHESIS, source = TruthSourceType.USER_CONTEXT)
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED não é permitido")
+        })
+    }
+
+    @Test
+    fun conteudoEstruturalNaoRecebeSupported() {
+        val c = case(type = ClaimType.STRUCTURAL_EDITORIAL, source = TruthSourceType.STRUCTURE)
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED não é permitido")
+        })
+    }
+
+    @Test
+    fun conteudoCriativoNaoRecebeSupported() {
+        val c = case(type = ClaimType.CREATIVE_SUGGESTION, source = TruthSourceType.NONE)
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED não é permitido")
+        })
+    }
+
+    @Test
+    fun classificacaoPendenteNaoRecebeSupported() {
+        val c = case(type = null)
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("sem classificação")
+        })
+    }
+
+    @Test
+    fun factualComDocumentoVerificadoEhPermitido() {
+        val c = eligibleCase()
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("premise-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).isEmpty())
+    }
+
+    @Test
+    fun factualApenasComBeThEhRejeitado() {
+        val c = case(
+            type = ClaimType.FACTUAL_BIBLICAL,
+            evidence = listOf(
+                metadata(
+                    premiseId = "method-1",
+                    kind = DocumentKind.TRAINING,
+                    truthSource = TruthSourceType.METHOD,
+                ),
+            ),
+        )
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("method-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED factual")
+        })
+    }
+
+    @Test
+    fun oratoriaComMetodoVerificadoEhPermitida() {
+        val c = eligibleMethodCase()
+        val annotation = human("O-01", "A1", SemanticState.SUPPORTED, listOf("method-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).isEmpty())
+    }
+
+    @Test
+    fun oratoriaApenasComDocumentoFactualEhRejeitada() {
+        val c = case(
+            type = ClaimType.ORATORY_TECHNIQUE,
+            source = TruthSourceType.METHOD,
+            evidence = listOf(metadata(premiseId = "doc-1")),
+        )
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("doc-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED de oratória")
+        })
+    }
+
+    @Test
+    fun metodoTruncadoNaoEhElegivel() {
+        assertThrows(IllegalArgumentException::class.java) {
+            eligibleMethodCase().copy(
+                evidenceMetadata = listOf(metadata(premiseId = "method-1", kind = DocumentKind.TRAINING, edition = null, truthSource = TruthSourceType.METHOD, truncated = true)),
+            )
+        }
+    }
+
+    @Test
+    fun metodoNaoExpostoNaoEhElegivel() {
+        assertThrows(IllegalArgumentException::class.java) {
+            eligibleMethodCase().copy(
+                evidenceMetadata = listOf(metadata(premiseId = "method-1", kind = DocumentKind.TRAINING, edition = null, truthSource = TruthSourceType.METHOD, exposed = false)),
+            )
+        }
+    }
+
+    @Test
+    fun metodoLocalNaoVerificadoNaoEhElegivel() {
+        assertThrows(IllegalArgumentException::class.java) {
+            eligibleMethodCase().copy(
+                evidenceMetadata = listOf(metadata(premiseId = "method-1", kind = DocumentKind.TRAINING, edition = null, truthSource = TruthSourceType.METHOD, availability = EvidenceAvailability.LOCAL_SOURCE_AVAILABLE)),
+            )
+        }
+    }
+
+    @Test
+    fun contradictedFactualComPremissaVerificadaEhPermitido() {
+        val c = eligibleCase()
+        val annotation = human("T-01", "A1", SemanticState.CONTRADICTED, listOf("premise-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).isEmpty())
+    }
+
+    @Test
+    fun contradictedFactualSemPremissaEhRejeitado() {
+        val c = eligibleCase()
+        val annotation = human("T-01", "A1", SemanticState.CONTRADICTED, listOf("missing"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("CONTRADICTED sem documento verificado")
+        })
+    }
+
+    @Test
+    fun contradictedEmCitacaoLiteralEhRejeitado() {
+        val c = case(type = ClaimType.LITERAL_CITATION)
+        val annotation = human("T-01", "A1", SemanticState.CONTRADICTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("CONTRADICTED só é permitido")
+        })
+    }
+
+    @Test
+    fun contradictedEmCenarioPendenteEhRejeitado() {
+        val c = case(type = null)
+        val annotation = human("T-01", "A1", SemanticState.CONTRADICTED, listOf("p"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("CONTRADICTED só é permitido")
+        })
+    }
+
+    @Test
+    fun s34NaoAutorizaSuporteFactual() {
+        val c = case(
+            type = ClaimType.FACTUAL_DOCTRINAL,
+            evidence = listOf(
+                metadata(
+                    premiseId = "s34-1",
+                    kind = DocumentKind.S34,
+                    truthSource = TruthSourceType.STRUCTURE,
+                ),
+            ),
+        )
+        val annotation = human("T-01", "A1", SemanticState.SUPPORTED, listOf("s34-1"))
+        assertTrue(Trust2B2Validator.validateAnnotations(listOf(c), listOf(annotation)).any {
+            it.contains("SUPPORTED factual")
+        })
     }
 
     @Test

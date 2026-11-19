@@ -5,6 +5,7 @@ import com.bettertalker.app.data.copilot.CitationFidelityState
 import com.bettertalker.app.data.copilot.DocumentKind
 import com.bettertalker.app.data.copilot.EvidenceCompleteness
 import com.bettertalker.app.data.copilot.SemanticState
+import com.bettertalker.app.data.copilot.SupportEvidence
 
 /** Origem de verdade exigida por um caso experimental. */
 enum class TruthSourceType {
@@ -170,8 +171,18 @@ data class Trust2B2Case(
             }
         }
         if (evidenceEligibleForSupport) {
-            require(evidenceMetadata.any { it.isVerifiedDocumentary(expectedEdition) }) {
-                "suporte elegível exige metadados documentais verificados"
+            val type = expectedClaimType
+                ?: throw IllegalArgumentException("suporte elegível exige claim classificado")
+            when (type.supportEvidence) {
+                SupportEvidence.DOCUMENTARY -> require(
+                    evidenceMetadata.any { it.isVerifiedDocumentary(expectedEdition) }
+                ) { "suporte documental exige metadados documentais verificados" }
+                SupportEvidence.METHOD -> require(
+                    evidenceMetadata.any { it.isVerifiedMethod() }
+                ) { "suporte de método exige metadados de treinamento verificados" }
+                SupportEvidence.NONE -> throw IllegalArgumentException(
+                    "SUPPORTED não é permitido para ${type.name}"
+                )
             }
         }
         require(evidenceMetadata.map { it.premiseId }.distinct().size == evidenceMetadata.size) {
