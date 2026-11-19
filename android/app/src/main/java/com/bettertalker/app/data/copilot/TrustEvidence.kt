@@ -44,6 +44,8 @@ data class EvidenceProvenance(
     val recoveredText: String = "",
     val resolved: Boolean = false,
     val waived: Boolean = false,
+    /** Recuperação parcial/incompleta; nunca promove a documento completo. */
+    val partial: Boolean = false,
 ) {
     init {
         require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
@@ -59,6 +61,7 @@ data class EvidenceProvenance(
     fun isDocumentaryEvidence(): Boolean =
         category == EvidenceCategory.CONTENT &&
             !waived &&
+            !partial &&
             resolved &&
             recoveredText.isNotBlank()
 
@@ -69,6 +72,7 @@ data class EvidenceProvenance(
     fun isMethodEvidence(): Boolean =
         category == EvidenceCategory.TRAINING &&
             !waived &&
+            !partial &&
             resolved &&
             recoveredText.isNotBlank()
 }
@@ -179,6 +183,8 @@ data class RecoveredDocument(
     val documentUnit: String? = null,
     val resolved: Boolean = true,
     val waived: Boolean = false,
+    /** Recuperação parcial/incompleta; nunca promove a documento completo. */
+    val partial: Boolean = false,
 ) {
     init {
         require(sourceId.isNotBlank()) { "sourceId não pode ser vazio" }
@@ -186,7 +192,8 @@ data class RecoveredDocument(
         require(text.isNotBlank()) { "text não pode ser vazio" }
     }
 
-    fun isDocumentaryEligible(): Boolean = resolved && !waived && text.isNotBlank()
+    fun isDocumentaryEligible(): Boolean =
+        resolved && !waived && !partial && text.isNotBlank()
 }
 
 /**
@@ -209,6 +216,7 @@ fun recoveredDocumentFromResolvedBible(
         resolved = resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.RESOLVED ||
             resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
         waived = false,
+        partial = resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
     )
 }
 
@@ -251,6 +259,8 @@ fun recoveredDocumentsFromDossier(
                 text = text,
                 resolved = true,
                 waived = false,
+                partial = resolved.status ==
+                    com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
             )
         )
     }
@@ -268,6 +278,8 @@ fun recoveredDocumentsFromDossier(
                 text = text,
                 resolved = true,
                 waived = false,
+                partial = resolved.status ==
+                    com.bettertalker.app.domain.planning.ReferenceStatus.PARTIAL,
             )
         )
     }
