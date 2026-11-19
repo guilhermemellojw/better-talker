@@ -41,6 +41,8 @@ data class BiblePassage(
     val verses: List<BibleVerse>,
     val status: BiblePassageStatus,
     val sourceLabel: String,
+    /** Identidade da edição lida; null quando nenhuma fonte foi escolhida. */
+    val sourceAttachmentId: String? = null,
     val warning: String? = null,
     /** Quantidade de versículos pedidos (antes do teto de 200). */
     val totalVerses: Int = verses.size,
