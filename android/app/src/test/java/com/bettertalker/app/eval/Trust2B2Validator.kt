@@ -1,6 +1,7 @@
 package com.bettertalker.app.eval
 
 import com.bettertalker.app.data.copilot.ClaimType
+import com.bettertalker.app.data.copilot.DocumentKind
 import com.bettertalker.app.data.copilot.SemanticState
 
 /**
@@ -17,16 +18,26 @@ object Trust2B2Validator {
         duplicates.keys.forEach { errors += "caseId duplicado: $it" }
 
         cases.forEach { case ->
-            if (case.expectedClaimType.isFactualType() &&
+            if (case.classificationStatus == ClassificationStatus.PENDING) {
+                if (case.expectedClaimType != null) {
+                    errors += "${case.caseId}: PENDING com claim definido"
+                }
+                if (case.truthSource != TruthSourceType.PENDING) {
+                    errors += "${case.caseId}: PENDING sem truthSource PENDING"
+                }
+            }
+            val type = case.expectedClaimType
+            if (type != null && type.isFactualType() &&
                 case.truthSource != TruthSourceType.FACTUAL_DOCUMENT
             ) {
                 errors += "${case.caseId}: claim factual exige FACTUAL_DOCUMENT"
             }
-            if (case.expectedClaimType.isFactualType() &&
+            if (type != null && type.isFactualType() &&
                 case.truthSource in setOf(
                     TruthSourceType.METHOD,
                     TruthSourceType.STRUCTURE,
                     TruthSourceType.USER_CONTEXT,
+                    TruthSourceType.PENDING,
                 )
             ) {
                 errors += "${case.caseId}: método/estrutura/usuário não é prova factual"
@@ -39,19 +50,41 @@ object Trust2B2Validator {
             ) {
                 errors += "${case.caseId}: READY_FOR_REVIEW com campos ausentes"
             }
-            if (case.evidenceEligibleForSupport &&
-                case.evidenceAvailability !in setOf(
-                    EvidenceAvailability.LOCAL_SOURCE_AVAILABLE,
-                    EvidenceAvailability.VERIFIED_LOCAL,
-                )
-            ) {
-                errors += "${case.caseId}: suporte elegível sem fonte local verificada"
+            if (case.evidenceEligibleForSupport) {
+                if (case.evidenceAvailability != EvidenceAvailability.VERIFIED_LOCAL) {
+                    errors += "${case.caseId}: suporte elegível sem fonte local verificada"
+                }
+                if (case.evidenceMetadata.none { it.isVerifiedDocumentary(case.expectedEdition) }) {
+                    errors += "${case.caseId}: suporte elegível sem metadados documentais verificados"
+                }
+                if (case.evidenceTruncated) {
+                    errors += "${case.caseId}: evidência truncada não é elegível para suporte"
+                }
+                if (!case.evidenceExposedToModel) {
+                    errors += "${case.caseId}: evidência não exposta ao modelo não é elegível"
+                }
             }
-            if (case.evidenceEligibleForSupport && case.evidenceTruncated) {
-                errors += "${case.caseId}: evidência truncada não é elegível para suporte"
-            }
-            if (case.evidenceEligibleForSupport && !case.evidenceExposedToModel) {
-                errors += "${case.caseId}: evidência não exposta ao modelo não é elegível"
+            case.evidenceMetadata.forEach { metadata ->
+                if (metadata.documentKind in setOf(DocumentKind.BIBLE, DocumentKind.PUBLICATION) &&
+                    metadata.truthSource != TruthSourceType.FACTUAL_DOCUMENT
+                ) {
+                    errors += "${case.caseId}: documento bíblico/publicação exige FACTUAL_DOCUMENT"
+                }
+                if (metadata.truthSource == TruthSourceType.METHOD &&
+                    metadata.documentKind != DocumentKind.TRAINING
+                ) {
+                    errors += "${case.caseId}: METHOD exige DocumentKind.TRAINING"
+                }
+                if (metadata.truthSource == TruthSourceType.STRUCTURE &&
+                    metadata.documentKind != DocumentKind.S34
+                ) {
+                    errors += "${case.caseId}: STRUCTURE exige DocumentKind.S34"
+                }
+                if (metadata.truthSource == TruthSourceType.USER_CONTEXT &&
+                    metadata.documentKind != DocumentKind.USER_MESSAGE
+                ) {
+                    errors += "${case.caseId}: USER_CONTEXT exige DocumentKind.USER_MESSAGE"
+                }
             }
         }
         return errors
@@ -76,6 +109,12 @@ object Trust2B2Validator {
                     errors += "${annotation.caseId}: anotador duplicado ${annotation.annotatorId}"
                 }
             }
+            val metadataById = case.evidenceMetadata.associateBy { it.premiseId }
+            annotation.premiseIds.forEach { premise ->
+                if (premise !in metadataById) {
+                    errors += "${annotation.caseId}: premiseId não cadastrado $premise"
+                }
+            }
             if (annotation.semanticState == SemanticState.SUPPORTED) {
                 if (!case.evidenceEligibleForSupport ||
                     case.evidenceTruncated ||
@@ -86,62 +125,105 @@ object Trust2B2Validator {
                 if (annotation.premiseIds.isEmpty()) {
                     errors += "${annotation.caseId}: SUPPORTED sem premiseIds"
                 }
-                if (!case.expectedClaimType.isFactualType() &&
-                    case.expectedClaimType != ClaimType.ORATORY_TECHNIQUE
-                ) {
+                val claimType = case.expectedClaimType
+                if (claimType == null) {
+                    errors += "${annotation.caseId}: SUPPORTED em cenário sem classificação"
+                } else if (claimType == ClaimType.ORATORY_TECHNIQUE) {
+                    if (!annotation.premiseIds.any { id -> metadataById[id]?.isVerifiedMethod() == true }) {
+                        errors += "${annotation.caseId}: SUPPORTED de oratória sem método verificado"
+                    }
+                } else if (claimType.isFactualType() || claimType == ClaimType.LITERAL_CITATION) {
+                    if (!annotation.premiseIds.any { id ->
+                            metadataById[id]?.isVerifiedDocumentary(case.expectedEdition) == true
+                        }
+                    ) {
+                        errors += "${annotation.caseId}: SUPPORTED factual sem documento verificado"
+                    }
+                } else {
                     errors += "${annotation.caseId}: SUPPORTED em claim não factual"
                 }
             }
-            if (annotation.semanticState == SemanticState.CONTRADICTED &&
-                annotation.premiseIds.isEmpty()
-            ) {
-                errors += "${annotation.caseId}: CONTRADICTED sem premiseIds"
-            }
-            if (annotation.source == AnnotationSource.SYNTHETIC &&
-                annotation.semanticState == SemanticState.SUPPORTED &&
-                case.truthSource != TruthSourceType.FACTUAL_DOCUMENT
-            ) {
-                errors += "${annotation.caseId}: sintético não comprova suporte documental"
+            if (annotation.semanticState == SemanticState.CONTRADICTED) {
+                if (annotation.premiseIds.isEmpty()) {
+                    errors += "${annotation.caseId}: CONTRADICTED sem premiseIds"
+                } else if (!annotation.premiseIds.any { id ->
+                        metadataById[id]?.isVerifiedDocumentary(case.expectedEdition) == true
+                    }
+                ) {
+                    errors += "${annotation.caseId}: CONTRADICTED sem documento verificado"
+                }
             }
         }
         return errors
     }
 
     fun agreement(annotations: List<Trust2B2Annotation>): AgreementResult {
-        val independent = annotations
-            .filter { it.source == AnnotationSource.HUMAN_INDEPENDENT }
-            .groupBy { it.caseId }
-            .filter { (_, list) -> list.map { it.annotatorId }.distinct().size == 2 }
-        if (independent.size < 2) {
+        val independent = annotations.filter {
+            it.source == AnnotationSource.HUMAN_INDEPENDENT
+        }
+        val duplicate = independent.groupingBy { it.caseId to it.annotatorId }
+            .eachCount().any { it.value > 1 }
+        if (duplicate) {
+            return AgreementResult(null, "anotação duplicada; κ não calculado", 0)
+        }
+
+        val byCase = independent.groupBy { it.caseId }
+        val pairCounts = mutableMapOf<Pair<String, String>, MutableList<List<Trust2B2Annotation>>>()
+        byCase.forEach { (_, list) ->
+            if (list.map { it.annotatorId }.distinct().size == 2) {
+                val pair = list.map { it.annotatorId }.sorted()
+                pairCounts.getOrPut(pair[0] to pair[1]) { mutableListOf() } += list
+            }
+        }
+        if (pairCounts.isEmpty()) {
             return AgreementResult(
-                kappa = null,
-                reason = "casos insuficientes para Cohen's κ (mínimo 2 com dois anotadores)",
-                annotatedCases = independent.size,
+                null,
+                "sem dois anotadores independentes por caso",
+                0,
             )
         }
-        val pairs = independent.values.map { list ->
-            val first = list.first()
-            val second = list.first { it.annotatorId != first.annotatorId }
-            first.semanticState to second.semanticState
+        val chosen = pairCounts.entries
+            .sortedWith(compareByDescending<Map.Entry<Pair<String, String>, MutableList<List<Trust2B2Annotation>>>> { it.value.size }
+                .thenBy { it.key.first }
+                .thenBy { it.key.second })
+            .first()
+        val pair = chosen.key
+        val cases = chosen.value
+        if (cases.size < 2) {
+            return AgreementResult(
+                null,
+                "amostra insuficiente para Cohen's κ (mínimo 2 casos do mesmo par)",
+                cases.size,
+                "${pair.first}|${pair.second}",
+            )
         }
-        val n = pairs.size
-        val labels = pairs.flatMap { listOf(it.first, it.second) }
-        val po = pairs.count { it.first == it.second }.toDouble() / n
-        val pe = labels.distinct().sumOf { label ->
-            val p = labels.count { it == label }.toDouble() / labels.size
-            p * p
+        val labelsA = cases.map { list -> list.first { it.annotatorId == pair.first }.semanticState }
+        val labelsB = cases.map { list -> list.first { it.annotatorId == pair.second }.semanticState }
+        val n = cases.size
+        val po = labelsA.indices.count { labelsA[it] == labelsB[it] }.toDouble() / n
+        val categories = (labelsA + labelsB).distinct()
+        val pe = categories.sumOf { category ->
+            val pA = labelsA.count { it == category }.toDouble() / n
+            val pB = labelsB.count { it == category }.toDouble() / n
+            pA * pB
         }
         if (pe >= 1.0) {
             return AgreementResult(
-                kappa = null,
-                reason = "sem variação de rótulos; κ indefinido",
-                annotatedCases = independent.size,
+                null,
+                "sem variação de rótulos; κ indefinido",
+                n,
+                "${pair.first}|${pair.second}",
             )
         }
         return AgreementResult(
             kappa = (po - pe) / (1.0 - pe),
-            reason = "calculado sobre anotações humanas independentes",
-            annotatedCases = independent.size,
+            reason = if (pairCounts.size > 1) {
+                "pares adicionais excluídos para manter identidade dos revisores"
+            } else {
+                "calculado com distribuições marginais por anotador"
+            },
+            annotatedCases = n,
+            reviewerPair = "${pair.first}|${pair.second}",
         )
     }
 
@@ -162,31 +244,50 @@ object Trust2B2Validator {
             list.map { it.semanticState }.distinct().size > 1
         }
         val agreement = agreement(annotations)
+        val verifiedCases = cases.count { it.preparationStatus == PreparationStatus.VERIFIED }
+        val limitations = buildList {
+            if (verifiedCases == 0) {
+                add("Nenhum caso com fonte real verificada nesta execução.")
+            } else {
+                add("$verifiedCases caso(s) com fonte real verificada; não generalizar.")
+            }
+            if (humanAnnotated == 0) {
+                add("Nenhuma anotação humana real nesta execução.")
+            } else {
+                add("$humanAnnotated caso(s) com anotação humana; segunda anotação/κ dependem dos dados.")
+            }
+            if (agreement.kappa == null) {
+                add("Cohen's κ indisponível: ${agreement.reason}.")
+            } else {
+                add("Cohen's κ calculável com ${agreement.annotatedCases} caso(s); amostra pequena exige cautela.")
+            }
+            add("Macro-F1 ${b2b1.macroF1() ?: "n/d"} é do baseline sintético B2B1, não desempenho real.")
+            add("T2-01…T2-15 continuam sem especificação verificável na main.")
+            add("Fonte disponível não prova que o Mentor a utilizou.")
+        }
         return Trust2B2Report(
             totalPending = cases.size,
             preparedCases = cases.count { it.preparationStatus != PreparationStatus.INVENTORIED },
+            classifiedCases = cases.count { it.classificationStatus == ClassificationStatus.CLASSIFIED },
+            pendingClassification = cases.count { it.classificationStatus == ClassificationStatus.PENDING },
             pilotCases = cases.count { it.isPilot },
-            verifiedCases = cases.count { it.preparationStatus == PreparationStatus.VERIFIED },
+            verifiedCases = verifiedCases,
             humanAnnotatedCases = humanAnnotated,
             secondAnnotationPending = secondPending,
             divergences = divergences,
             kappa = agreement.kappa,
             kappaReason = agreement.reason,
+            reviewerPair = agreement.reviewerPair,
             coverageByRoute = cases.groupingBy { it.route }.eachCount(),
-            coverageByClaimType = cases.groupingBy { it.expectedClaimType }.eachCount(),
+            coverageByClaimType = cases.mapNotNull { it.expectedClaimType }
+                .groupingBy { it }.eachCount(),
             missingFieldCounts = cases.flatMap { it.missingFields }
                 .groupingBy { it }.eachCount(),
             pilotGoals = Trust2B2Inventory.pilotGoals(),
             t2Gap = Trust2B1Dataset.gaps,
             validationErrors = validateInventory(cases) + validateAnnotations(cases, annotations),
             b2b1Metrics = b2b1,
-            limitations = listOf(
-                "Nenhuma fonte real foi copiada para o repositório.",
-                "0 casos verificados; 0 anotações humanas reais nesta execução.",
-                "Macro-F1 de 0,7895 é do baseline sintético B2B1, não desempenho real.",
-                "T2-01…T2-15 continuam sem especificação verificável na main.",
-                "κ não é calculado sem dois anotadores independentes e casos suficientes.",
-            ),
+            limitations = limitations,
         )
     }
 
@@ -202,12 +303,15 @@ object Trust2B2Validator {
         appendLine("## B. Dataset real preparado")
         appendLine("- Casos pendentes inventariados: ${report.totalPending}")
         appendLine("- Casos preparados estruturalmente: ${report.preparedCases}")
+        appendLine("- Casos classificados: ${report.classifiedCases}")
+        appendLine("- Casos com classificação pendente: ${report.pendingClassification}")
         appendLine("- Casos-piloto: ${report.pilotCases}")
         appendLine("- Casos verificados com fonte real: ${report.verifiedCases}")
         appendLine("- Casos com anotação humana: ${report.humanAnnotatedCases}")
         appendLine("- Aguardando segunda anotação: ${report.secondAnnotationPending}")
         appendLine("- Divergências: ${report.divergences}")
         appendLine("- Cohen's κ: ${report.kappa ?: "n/d"} (${report.kappaReason})")
+        appendLine("- Par de revisores: ${report.reviewerPair ?: "n/d"}")
         appendLine("- Cobertura por rota: ${report.coverageByRoute}")
         appendLine("- Cobertura por tipo: ${report.coverageByClaimType}")
         appendLine("- Campos ausentes: ${report.missingFieldCounts}")

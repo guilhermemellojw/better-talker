@@ -17,6 +17,8 @@
 |---|---:|
 | Casos pendentes inventariados | 48 |
 | Casos preparados estruturalmente | 48 |
+| Casos classificados | 24 |
+| Casos com classificação pendente | 24 |
 | Casos-piloto | 11 |
 | Casos verificados com fonte real | 0 |
 | Casos com anotação humana | 0 |
@@ -27,27 +29,27 @@
 
 Cobertura por rota: `{CHAT=5, GLOBAL=6, SOURCE=5, CARD=6, DRAFT=5, VERIFIER=7, SOURCE_GATE=6, RAG=4, TRUST1A=4}`.
 
-Cobertura por tipo: `{FACTUAL_BIBLICAL=27, ORATORY_TECHNIQUE=4, LITERAL_CITATION=6, FACTUAL_DOCTRINAL=2, USER_HYPOTHESIS=3, STRUCTURAL_EDITORIAL=6}`.
+Cobertura por tipo classificado: `{FACTUAL_BIBLICAL=11, LITERAL_CITATION=6, FACTUAL_DOCTRINAL=2, USER_HYPOTHESIS=3, STRUCTURAL_EDITORIAL=2}`. Os 24 restantes são cenários técnicos com classificação PENDING.
 
-Campos ausentes: `{documentId=35, publication=35, edition=35, documentUnit=35, recoveredText=35, recoveryState=35, exposedToModel=35, premiseIds=39, humanAnnotation=48, methodDocumentId=4, methodUnit=4, methodText=4, userMessageId=3, userMessageText=3, structureDocumentId=6, structureUnit=6, contextText=6}`.
+Campos ausentes: `{documentId=19, publication=19, edition=19, documentUnit=19, recoveredText=19, recoveryState=19, exposedToModel=19, premiseIds=19, humanAnnotation=48, claimClassification=24, evaluationCriterion=24, userMessageId=3, userMessageText=3, structureDocumentId=2, structureUnit=2, contextText=2}`.
 
 ## C. Piloto — 11 objetivos, 0 verificados
 
 | Objetivo | Caso(s) | Estado |
 |---|---|---|
-| Citação bíblica literal | C02 | NEEDS_SOURCE |
-| Paráfrase correta | G02 | NEEDS_SOURCE |
-| Paráfrase sem apoio | C10 | NEEDS_SOURCE |
-| Afirmação contradita | C08 | NEEDS_SOURCE |
-| Fonte ausente | G03 | NEEDS_SOURCE |
-| Edição incorreta | G04 | NEEDS_SOURCE |
-| Citação inventada | G05 | NEEDS_SOURCE |
-| Interpretação que extrapola | C06 | NEEDS_SOURCE |
-| be/th como prova doutrinal | G07 | NEEDS_SOURCE |
-| Hipótese do usuário | G08 | NEEDS_ANNOTATION |
-| Número/técnica em sugestão | C07 | NEEDS_ANNOTATION |
+| Citação literal inexistente/entre aspas | C02 | NEEDS_SOURCE |
+| Número não autorizado dentro de sugestão | C06 | NEEDS_CLAIM |
+| Contagem técnica “3 passos” em sugestão | C07 | NEEDS_CLAIM |
+| Versículo citado na prosa normal | C08 | NEEDS_SOURCE |
+| Fonte waived em pergunta ampla | C10 | NEEDS_SOURCE |
+| Fonte disponível sem marcador [Fonte N] | G02 | NEEDS_CLAIM |
+| Fonte disponível com frase de falta de acesso | G03 | NEEDS_CLAIM |
+| Marcador [Fonte 5] fora do intervalo | G04 | NEEDS_CLAIM |
+| Sem fontes com [Fonte 1] | G05 | NEEDS_CLAIM |
+| be/th usada como prova doutrinal | G07 | NEEDS_SOURCE |
+| Histórico com afirmação falsa | G08 | NEEDS_ANNOTATION |
 
-Nenhum cenário foi promovido a verificado, anotado ou executável por falta de fonte legítima local e de anotação humana real.
+Nenhum cenário foi promovido a verificado, anotado ou executável por falta de fonte legítima local e de anotação humana real. Propostas futuras de paráfrase, contradição, edição incorreta e interpretação extrapolada não reutilizam IDs históricos.
 
 ## D. Lacunas e causas
 
