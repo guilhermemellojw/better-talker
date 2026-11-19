@@ -324,104 +324,16 @@ class DecisionMemoryRepository(
                     )
                 }
 
-                if (replacement.noteId != previous.noteId) {
-                    return@run SupersessionResult.Ineligible(
-                        SupersessionIneligibleReason.DIFFERENT_NOTE,
-                    )
-                }
-
-                previous.relationshipEligibilityFailure()?.let { reason ->
-                    return@run SupersessionResult.Ineligible(
-                        mapPreviousIneligibility(reason),
-                    )
-                }
-                replacement.relationshipEligibilityFailure()?.let { reason ->
-                    return@run SupersessionResult.Ineligible(
-                        mapReplacementIneligibility(reason),
-                    )
-                }
-
-                if (previous.scope != replacement.scope) {
-                    return@run SupersessionResult.Ineligible(
-                        SupersessionIneligibleReason.DIFFERENT_SCOPE,
-                    )
-                }
-                if (previous.scope == DecisionScope.SECTION) {
-                    if (previous.sectionId != replacement.sectionId) {
-                        return@run SupersessionResult.Ineligible(
-                            SupersessionIneligibleReason.DIFFERENT_SECTION,
-                        )
-                    }
-                    if (!DecisionTransitions.allowsRemappedOrigin(previous, replacement)) {
-                        return@run SupersessionResult.Ineligible(
-                            SupersessionIneligibleReason.DIFFERENT_ORIGINAL_SECTION,
-                        )
-                    }
-                }
-
-                if (previous.updatedAt != confirmation.expectedPreviousUpdatedAt) {
-                    return@run SupersessionResult.Stale(
-                        previousDecisionId = previous.id,
-                        expectedUpdatedAt = confirmation.expectedPreviousUpdatedAt,
-                        actualUpdatedAt = previous.updatedAt,
-                    )
-                }
-
-                if (
-                    !previous.hasStableOriginIdentity() ||
-                    !replacement.hasStableOriginIdentity()
-                ) {
-                    return@run SupersessionResult.Ambiguous(
-                        SupersessionAmbiguityReason.MISSING_STABLE_ORIGIN,
-                    )
-                }
-                if (hasOriginCollision(previous, replacement)) {
-                    return@run SupersessionResult.Conflict(
-                        SupersessionConflictReason.ORIGIN_COLLISION,
-                    )
-                }
-
-                when (
-                    val relationship = classifyDecisionRelationship(
-                        incoming = replacement,
-                        existing = listOf(previous),
-                    )
-                ) {
-                    is DecisionRelationship.PotentialOverlap,
-                    is DecisionRelationship.LegacyPotentialOverlap -> Unit
-
-                    is DecisionRelationship.Ambiguous -> return@run SupersessionResult.Ambiguous(
-                        mapAmbiguity(relationship.reason),
-                    )
-
-                    is DecisionRelationship.Ineligible -> return@run SupersessionResult.Ineligible(
-                        SupersessionIneligibleReason.RELATIONSHIP_NOT_ELIGIBLE,
-                    )
-
-                    is DecisionRelationship.Independent -> return@run SupersessionResult.Ineligible(
-                        SupersessionIneligibleReason.DIFFERENT_SUBJECT,
-                    )
-
-                    is DecisionRelationship.SameEvent -> return@run SupersessionResult.Conflict(
-                        SupersessionConflictReason.CONFIRMATION_MISMATCH,
-                    )
-                }
-
-                val linked = replacement.copy(
-                    supersedesId = previous.id,
-                    updatedAt = maxOf(now, replacement.updatedAt),
-                )
-                val pair = try {
-                    DecisionTransitions.supersede(
+                val pair = when (
+                    val validation = validateConfirmedPair(
+                        confirmation = confirmation,
                         previous = previous,
-                        replacement = linked,
+                        replacement = replacement,
                         now = now,
-                        allowRemappedPrevious = true,
                     )
-                } catch (_: IllegalArgumentException) {
-                    return@run SupersessionResult.Ineligible(
-                        SupersessionIneligibleReason.INVALID_TRANSITION,
-                    )
+                ) {
+                    is PairValidation.Valid -> validation.pair
+                    is PairValidation.Failed -> return@run validation.result
                 }
 
                 // Primeiro insere a substituta; a PK é a barreira contra
@@ -430,7 +342,7 @@ class DecisionMemoryRepository(
                 val inserted = dao.insertIfAbsent(pair.replacement.toEntity())
                 if (inserted == -1L) {
                     val currentPrevious = dao.get(previous.id)?.toDomain()
-                    val currentReplacement = dao.get(linked.id)?.toDomain()
+                    val currentReplacement = dao.get(pair.replacement.id)?.toDomain()
                     return@run if (
                         currentPrevious != null &&
                         currentReplacement != null &&
@@ -471,6 +383,294 @@ class DecisionMemoryRepository(
         } catch (rollback: SupersessionRollback) {
             rollback.result
         }
+    }
+
+    /**
+     * 1C.2.1B2C — variante para substituta JÁ PERSISTIDA pela B1.
+     *
+     * Distinta de [supersedeConfirmed]: aqui a substituta existe, então não há
+     * insert; o vínculo é gravado por compare-and-set (`supersedesId IS NULL`)
+     * e a anterior vira `SUPERSEDED` no mesmo commit. Reutiliza exatamente as
+     * mesmas validações de [validateConfirmedPair].
+     */
+    suspend fun supersedePersistedReplacementConfirmed(
+        confirmation: SupersessionConfirmation,
+        now: Long = System.currentTimeMillis(),
+    ): SupersessionResult {
+        if (
+            confirmation.confirmationId.isBlank() ||
+            confirmation.noteId.isBlank() ||
+            confirmation.previousDecisionId.isBlank() ||
+            confirmation.replacementDecisionId.isBlank() ||
+            confirmation.previousDecisionId == confirmation.replacementDecisionId
+        ) {
+            return SupersessionResult.Conflict(
+                SupersessionConflictReason.CONFIRMATION_MISMATCH,
+            )
+        }
+        if (confirmation.expectedPreviousState != DecisionState.ACTIVE) {
+            return SupersessionResult.Ineligible(
+                SupersessionIneligibleReason.INVALID_CONFIRMATION,
+            )
+        }
+
+        return try {
+            transactionRunner.run {
+                val previous = dao.get(confirmation.previousDecisionId)?.toDomain()
+                    ?: return@run SupersessionResult.NotFound(
+                        confirmation.previousDecisionId,
+                    )
+                val replacement = dao.get(confirmation.replacementDecisionId)?.toDomain()
+                    ?: return@run SupersessionResult.NotFound(
+                        confirmation.replacementDecisionId,
+                    )
+
+                if (previous.noteId != confirmation.noteId) {
+                    return@run SupersessionResult.Conflict(
+                        SupersessionConflictReason.CONFIRMATION_MISMATCH,
+                    )
+                }
+
+                // Par já vinculado: idempotência legítima.
+                if (replacement.supersedesId == previous.id) {
+                    return@run if (previous.decisionState == DecisionState.SUPERSEDED) {
+                        SupersessionResult.AlreadyApplied(previous, replacement)
+                    } else {
+                        SupersessionResult.Conflict(
+                            SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+                        )
+                    }
+                }
+                if (replacement.supersedesId != null) {
+                    return@run SupersessionResult.Conflict(
+                        SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+                    )
+                }
+
+                if (previous.decisionState != DecisionState.ACTIVE) {
+                    return@run when (previous.decisionState) {
+                        DecisionState.SUPERSEDED -> SupersessionResult.Conflict(
+                            SupersessionConflictReason.PREVIOUS_SUPERSEDED_BY_OTHER,
+                        )
+
+                        else -> SupersessionResult.Ineligible(
+                            SupersessionIneligibleReason.PREVIOUS_NOT_ACTIVE,
+                        )
+                    }
+                }
+
+                val pair = when (
+                    val validation = validateConfirmedPair(
+                        confirmation = confirmation,
+                        previous = previous,
+                        replacement = replacement,
+                        now = now,
+                    )
+                ) {
+                    is PairValidation.Valid -> validation.pair
+                    is PairValidation.Failed -> return@run validation.result
+                }
+
+                // Primeiro prende a substituta; se o vínculo já tiver sido
+                // tomado, nada da anterior é alterado.
+                val linked = dao.linkReplacementIfUnlinked(
+                    replacementId = pair.replacement.id,
+                    previousId = previous.id,
+                    updatedAt = pair.replacement.updatedAt,
+                )
+                if (linked != 1) {
+                    val currentPrevious = dao.get(previous.id)?.toDomain()
+                    val currentReplacement = dao.get(replacement.id)?.toDomain()
+                    return@run when {
+                        currentPrevious != null &&
+                            currentReplacement != null &&
+                            currentPrevious.decisionState == DecisionState.SUPERSEDED &&
+                            currentReplacement.supersedesId == currentPrevious.id ->
+                            SupersessionResult.AlreadyApplied(
+                                currentPrevious,
+                                currentReplacement,
+                            )
+
+                        currentReplacement?.supersedesId != null &&
+                            currentReplacement.supersedesId != previous.id ->
+                            SupersessionResult.Conflict(
+                                SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+                            )
+
+                        else -> SupersessionResult.Conflict(
+                            SupersessionConflictReason.CONCURRENT_SUPERSESSION,
+                        )
+                    }
+                }
+
+                val updated = dao.markSupersededIfActive(
+                    id = previous.id,
+                    updatedAt = pair.previous.updatedAt,
+                )
+                if (updated != 1) {
+                    throw SupersessionRollback(
+                        SupersessionResult.Conflict(
+                            SupersessionConflictReason.CONCURRENT_SUPERSESSION,
+                        ),
+                    )
+                }
+
+                SupersessionResult.Committed(pair.previous, pair.replacement)
+            }
+        } catch (rollback: SupersessionRollback) {
+            rollback.result
+        }
+    }
+
+    /**
+     * Política única de validação compartilhada por [supersedeConfirmed] e
+     * [supersedePersistedReplacementConfirmed]. Não grava nada.
+     */
+    private fun validateConfirmedPair(
+        confirmation: SupersessionConfirmation,
+        previous: DecisionRecord,
+        replacement: DecisionRecord,
+        now: Long,
+    ): PairValidation {
+        if (confirmation.noteId != previous.noteId) {
+            return PairValidation.Failed(
+                SupersessionResult.Conflict(
+                    SupersessionConflictReason.CONFIRMATION_MISMATCH,
+                ),
+            )
+        }
+        if (replacement.noteId != previous.noteId) {
+            return PairValidation.Failed(
+                SupersessionResult.Ineligible(
+                    SupersessionIneligibleReason.DIFFERENT_NOTE,
+                ),
+            )
+        }
+
+        previous.relationshipEligibilityFailure()?.let { reason ->
+            return PairValidation.Failed(
+                SupersessionResult.Ineligible(mapPreviousIneligibility(reason)),
+            )
+        }
+        replacement.relationshipEligibilityFailure()?.let { reason ->
+            return PairValidation.Failed(
+                SupersessionResult.Ineligible(mapReplacementIneligibility(reason)),
+            )
+        }
+
+        if (previous.scope != replacement.scope) {
+            return PairValidation.Failed(
+                SupersessionResult.Ineligible(
+                    SupersessionIneligibleReason.DIFFERENT_SCOPE,
+                ),
+            )
+        }
+        if (previous.scope == DecisionScope.SECTION) {
+            if (previous.sectionId != replacement.sectionId) {
+                return PairValidation.Failed(
+                    SupersessionResult.Ineligible(
+                        SupersessionIneligibleReason.DIFFERENT_SECTION,
+                    ),
+                )
+            }
+            if (!DecisionTransitions.allowsRemappedOrigin(previous, replacement)) {
+                return PairValidation.Failed(
+                    SupersessionResult.Ineligible(
+                        SupersessionIneligibleReason.DIFFERENT_ORIGINAL_SECTION,
+                    ),
+                )
+            }
+        }
+
+        if (previous.updatedAt != confirmation.expectedPreviousUpdatedAt) {
+            return PairValidation.Failed(
+                SupersessionResult.Stale(
+                    previousDecisionId = previous.id,
+                    expectedUpdatedAt = confirmation.expectedPreviousUpdatedAt,
+                    actualUpdatedAt = previous.updatedAt,
+                ),
+            )
+        }
+
+        if (
+            !previous.hasStableOriginIdentity() ||
+            !replacement.hasStableOriginIdentity()
+        ) {
+            return PairValidation.Failed(
+                SupersessionResult.Ambiguous(
+                    SupersessionAmbiguityReason.MISSING_STABLE_ORIGIN,
+                ),
+            )
+        }
+        if (hasOriginCollision(previous, replacement)) {
+            return PairValidation.Failed(
+                SupersessionResult.Conflict(
+                    SupersessionConflictReason.ORIGIN_COLLISION,
+                ),
+            )
+        }
+        if (
+            replacement.supersedesId != null &&
+            replacement.supersedesId != previous.id
+        ) {
+            return PairValidation.Failed(
+                SupersessionResult.Conflict(
+                    SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+                ),
+            )
+        }
+
+        when (
+            val relationship = classifyDecisionRelationship(
+                incoming = replacement,
+                existing = listOf(previous),
+            )
+        ) {
+            is DecisionRelationship.PotentialOverlap,
+            is DecisionRelationship.LegacyPotentialOverlap -> Unit
+
+            is DecisionRelationship.Ambiguous -> return PairValidation.Failed(
+                SupersessionResult.Ambiguous(mapAmbiguity(relationship.reason)),
+            )
+
+            is DecisionRelationship.Ineligible -> return PairValidation.Failed(
+                SupersessionResult.Ineligible(
+                    SupersessionIneligibleReason.RELATIONSHIP_NOT_ELIGIBLE,
+                ),
+            )
+
+            is DecisionRelationship.Independent -> return PairValidation.Failed(
+                SupersessionResult.Ineligible(
+                    SupersessionIneligibleReason.DIFFERENT_SUBJECT,
+                ),
+            )
+
+            is DecisionRelationship.SameEvent -> return PairValidation.Failed(
+                SupersessionResult.Conflict(
+                    SupersessionConflictReason.CONFIRMATION_MISMATCH,
+                ),
+            )
+        }
+
+        val linked = replacement.copy(
+            supersedesId = previous.id,
+            updatedAt = maxOf(now, replacement.updatedAt),
+        )
+        val pair = try {
+            DecisionTransitions.supersede(
+                previous = previous,
+                replacement = linked,
+                now = now,
+                allowRemappedPrevious = true,
+            )
+        } catch (_: IllegalArgumentException) {
+            return PairValidation.Failed(
+                SupersessionResult.Ineligible(
+                    SupersessionIneligibleReason.INVALID_TRANSITION,
+                ),
+            )
+        }
+        return PairValidation.Valid(pair)
     }
 
     private fun mapPreviousIneligibility(
@@ -600,3 +800,8 @@ class DecisionMemoryRepository(
 private class SupersessionRollback(
     val result: SupersessionResult,
 ) : RuntimeException()
+
+private sealed interface PairValidation {
+    data class Valid(val pair: SupersededPair) : PairValidation
+    data class Failed(val result: SupersessionResult) : PairValidation
+}

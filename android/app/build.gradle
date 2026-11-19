@@ -176,6 +176,10 @@ dependencies {
     // #23-bench: teste instrumentado (RTF do Kokoro no A34).
     androidTestImplementation "androidx.test.ext:junit:1.2.1"
     androidTestImplementation "androidx.test:runner:1.6.2"
+    // 1C.2.1B2C — testes Compose do diálogo (somente teste; fora do release).
+    androidTestImplementation platform("androidx.compose:compose-bom:${rootProject.ext.composeBomVersion}")
+    androidTestImplementation 'androidx.compose.ui:ui-test-junit4'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }
 

@@ -132,6 +132,23 @@ private class CaptureFakeDecisionDao : DecisionDao {
         return 1
     }
 
+    override suspend fun linkReplacementIfUnlinked(
+        replacementId: String,
+        previousId: String,
+        updatedAt: Long,
+    ): Int {
+        val existing = rows.firstOrNull { it.id == replacementId } ?: return 0
+        if (existing.supersedesId != null || existing.decisionState != "ACTIVE") return 0
+        rows = rows.map {
+            if (it.id == replacementId) {
+                it.copy(supersedesId = previousId, updatedAt = updatedAt)
+            } else {
+                it
+            }
+        }
+        return 1
+    }
+
     override suspend fun deleteById(id: String) {
         rows = rows.filter { it.id != id }
     }

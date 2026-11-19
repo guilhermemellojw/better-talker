@@ -307,6 +307,12 @@ class StructureAcceptMemoryRoomTest {
         override suspend fun markSupersededIfActive(id: String, updatedAt: Long): Int =
             delegate.markSupersededIfActive(id, updatedAt)
 
+        override suspend fun linkReplacementIfUnlinked(
+            replacementId: String,
+            previousId: String,
+            updatedAt: Long,
+        ): Int = delegate.linkReplacementIfUnlinked(replacementId, previousId, updatedAt)
+
         override suspend fun deleteById(id: String) = delegate.deleteById(id)
 
         override suspend fun deleteForNote(noteId: String) = delegate.deleteForNote(noteId)
