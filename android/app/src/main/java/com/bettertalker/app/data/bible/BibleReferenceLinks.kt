@@ -63,11 +63,66 @@ sealed interface BibleReferenceResolution {
     ) : BibleReferenceResolution
 
     data class Unavailable(val reason: String) : BibleReferenceResolution
+    /** NWT ausente, não indexada ou sem edição válida. */
+    data class NwtUnavailable(val reason: String) : BibleReferenceResolution
+    /** NWT disponível, mas a passagem não foi encontrada. */
+    data class PassageNotFound(val reason: String) : BibleReferenceResolution
+    /** A edição mudou entre a resolução e a abertura. */
+    data class EditionChanged(val reason: String) : BibleReferenceResolution
     data class Ambiguous(
         val reason: String,
         val candidates: List<String>,
     ) : BibleReferenceResolution
     data class NotRecognized(val reason: String) : BibleReferenceResolution
+}
+
+/** Aviso curto e tipado para a UI do chat. */
+data class BibleReferenceNotice(
+    val title: String,
+    val message: String,
+    val openLibrary: Boolean,
+)
+
+internal fun bibleReferenceNotice(
+    resolution: BibleReferenceResolution,
+): BibleReferenceNotice? = when (resolution) {
+    is BibleReferenceResolution.Available,
+    is BibleReferenceResolution.Partial,
+    -> null
+
+    is BibleReferenceResolution.NwtUnavailable -> BibleReferenceNotice(
+        title = "Bíblia ainda não disponível",
+        message = "Para mostrar o texto bíblico, você precisa baixar e importar a " +
+            "Tradução do Novo Mundo (NWT) na Biblioteca do aplicativo.",
+        openLibrary = true,
+    )
+    is BibleReferenceResolution.PassageNotFound -> BibleReferenceNotice(
+        title = "Passagem não encontrada",
+        message = "Não encontramos essa passagem na Tradução do Novo Mundo importada. " +
+            "Confira a importação na Biblioteca.",
+        openLibrary = true,
+    )
+    is BibleReferenceResolution.EditionChanged -> BibleReferenceNotice(
+        title = "A Bíblia mudou",
+        message = "A edição usada nesta referência não está mais disponível. " +
+            "Abra a Biblioteca para conferir a importação.",
+        openLibrary = true,
+    )
+    is BibleReferenceResolution.Ambiguous -> BibleReferenceNotice(
+        title = "Referência ambígua",
+        message = "Não foi possível identificar uma única passagem para esta referência.",
+        openLibrary = false,
+    )
+    is BibleReferenceResolution.NotRecognized -> BibleReferenceNotice(
+        title = "Referência não identificada",
+        message = "Não foi possível identificar essa referência bíblica.",
+        openLibrary = false,
+    )
+    is BibleReferenceResolution.Unavailable -> BibleReferenceNotice(
+        title = "Não foi possível abrir",
+        message = resolution.reason.ifBlank { "Tente novamente em alguns instantes." },
+        openLibrary = false,
+    )
 }
 
 /**

@@ -93,6 +93,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -120,6 +121,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -143,6 +146,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bettertalker.app.data.bible.BibleReferenceOccurrence
+import com.bettertalker.app.data.bible.BibleReferenceSpanDetector
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.DiagnosisNextStep
 import com.bettertalker.app.data.copilot.PointCoachingNextStep
@@ -180,8 +185,11 @@ import com.bettertalker.app.ui.components.PasteDestination
 import com.bettertalker.app.ui.components.PastePreviewSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.inline
+import com.bettertalker.app.ui.components.InlineBibleLink
 import com.bettertalker.app.ui.components.parseBlocks
 import kotlinx.coroutines.delay
+import java.net.URLDecoder
+import java.net.URLEncoder
 import kotlinx.coroutines.launch
 
 /**
@@ -212,6 +220,8 @@ fun ChatScreen(
     /** v4.0 Walkie: “Digitar” abre o chat com o campo focado. */
     focusComposerOnStart: Boolean = false,
     onComposerFocusConsumed: () -> Unit = {},
+    /** UX-REF-1A2: abre uma referência bíblica no leitor local. */
+    onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
     /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
     pttState: PttState? = null,
     pttPartial: String = "",
@@ -1295,6 +1305,7 @@ fun ChatScreen(
                                         onNavigate = onNavigate,
                                         onOpenNote = onOpenNote ?: onOpenEditor,
                                         onAttachS34 = { showAttach = true },
+                                        onOpenBibleReference = onOpenBibleReference,
                                         // #26-fix-c: preenche o composer e marca a
                                         // pergunta — o envio substitui a antiga.
                                         onEdit = { edited ->
@@ -1519,6 +1530,8 @@ fun ChatScreen(
                                         onNavigate = onNavigate,
                                         onOpenNote = onOpenNote ?: onOpenEditor,
                                         onAttachS34 = { showAttach = true },
+                                        onOpenBibleReference = onOpenBibleReference
+                                            ?.takeIf { turn.phase == TurnPhase.DONE },
                                     )
                                 }
                             } else {
@@ -1738,6 +1751,8 @@ private fun MessageBubble(
     /** Mentor: abrir nota / anexar S-34 a partir do diagnóstico. */
     onOpenNote: (() -> Unit)? = null,
     onAttachS34: () -> Unit = {},
+    /** UX-REF-1A2: referências bíblicas clicáveis apenas em texto terminal. */
+    onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
     /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
     actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
@@ -1850,6 +1865,7 @@ private fun MessageBubble(
                             null
                         },
                         leadingMark = assistantInlineMark(),
+                        onOpenBibleReference = onOpenBibleReference,
                         cardActions = if (card != null) {
                             {
                                 // M2a: card aninhado entra com fade + expand
@@ -3088,6 +3104,8 @@ fun ChatMessageText(
     onUseInCard: ((String) -> Unit)? = null,
     /** #22-fix (P1): selo prependado ao primeiro bloco de texto (ex.: "BT · "). */
     leadingMark: AnnotatedString? = null,
+    /** UX-REF-1A2: referências bíblicas detectadas viram links. */
+    onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
     /** Card-first: ações renderizadas dentro do disclosure `<texto-do-card>`. */
     cardActions: (@Composable () -> Unit)? = null,
 ) {
@@ -3096,7 +3114,41 @@ fun ChatMessageText(
     // (posição preservada) e o strip de marcadores roda por bloco.
     val hasSuggestion = remember(md) { stripSuggestionTags(md).hasSuggestion }
     val blocks = remember(md) { cleanBlocks(parseBlocks(md)) }
-    SelectionContainer {
+    val systemUriHandler = LocalUriHandler.current
+    val bibleUriHandler = remember(systemUriHandler, onOpenBibleReference) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (uri.startsWith("bettertalker-bible://open?ref=")) {
+                    val raw = runCatching {
+                        URLDecoder.decode(uri.substringAfter("ref="), "UTF-8")
+                    }.getOrNull()
+                    val occurrence = raw
+                        ?.let { BibleReferenceSpanDetector.detect(it).firstOrNull() }
+                    if (occurrence != null && onOpenBibleReference != null) {
+                        onOpenBibleReference(occurrence)
+                    } else {
+                        systemUriHandler.openUri(uri)
+                    }
+                } else {
+                    systemUriHandler.openUri(uri)
+                }
+            }
+        }
+    }
+    val hasBibleLinks = remember(blocks, onOpenBibleReference) {
+        onOpenBibleReference != null && blocks.any { block ->
+            val text = when (block) {
+                is MdBlock.Title -> block.text
+                is MdBlock.Quote -> block.text
+                is MdBlock.Bullet -> block.text
+                is MdBlock.Check -> block.text
+                is MdBlock.Para -> block.text
+                else -> ""
+            }
+            text.isNotBlank() && BibleReferenceSpanDetector.detect(text).isNotEmpty()
+        }
+    }
+    val body: @Composable () -> Unit = {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (hasSuggestion) {
                 Text(
@@ -3130,6 +3182,28 @@ fun ChatMessageText(
                 }
                 // #20-fix-a/3.4: o card é um disclosure; as ações só existem
                 // dentro dele e nunca aparecem antes do "Ver".
+                val blockText = when (block) {
+                    is MdBlock.Title -> block.text
+                    is MdBlock.Quote -> block.text
+                    is MdBlock.Bullet -> block.text
+                    is MdBlock.Check -> block.text
+                    is MdBlock.Para -> block.text
+                    else -> ""
+                }
+                val detectedBibleRefs = remember(blockText) {
+                    if (blockText.isBlank()) emptyList()
+                    else BibleReferenceSpanDetector.detect(blockText)
+                }
+                val bibleLinks = remember(detectedBibleRefs) {
+                    detectedBibleRefs.map { occ ->
+                        InlineBibleLink(
+                            start = occ.start,
+                            endExclusive = occ.endExclusive,
+                            tag = URLEncoder.encode(occ.raw, "UTF-8"),
+                            label = occ.raw,
+                        )
+                    }
+                }
                 RenderBlock(
                     block = block,
                     mark = mark,
@@ -3140,9 +3214,15 @@ fun ChatMessageText(
                     } else {
                         null
                     },
+                    bibleLinks = if (onOpenBibleReference != null) bibleLinks else emptyList(),
                 )
             }
         }
+    }
+    if (hasBibleLinks) {
+        CompositionLocalProvider(LocalUriHandler provides bibleUriHandler) { body() }
+    } else {
+        SelectionContainer { body() }
     }
 }
 
@@ -3157,10 +3237,11 @@ internal fun RenderBlock(
     mark: AnnotatedString?,
     onUseInCard: ((String) -> Unit)?,
     cardActions: (@Composable () -> Unit)? = null,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
 ) {
     when (block) {
         is MdBlock.Title -> Text(
-            markPlain(block.text, mark),
+            markInline(block.text, mark, bibleLinks),
             // P1: pesos e lineHeights vêm da AppTypography.
             style = if (block.level >= 3) MaterialTheme.typography.titleMedium
             else MaterialTheme.typography.titleLarge,
@@ -3168,16 +3249,16 @@ internal fun RenderBlock(
                 .padding(top = 4.dp)
                 .semantics { heading() },
         )
-        is MdBlock.Quote -> RenderQuote(block.text, mark)
+        is MdBlock.Quote -> RenderQuote(block.text, mark, bibleLinks)
         is MdBlock.Divider -> HorizontalDivider(
             modifier = Modifier.padding(vertical = 2.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
         )
-        is MdBlock.Bullet -> RenderBullet(block, mark)
-        is MdBlock.Check -> RenderCheck(block, mark)
+        is MdBlock.Bullet -> RenderBullet(block, mark, bibleLinks)
+        is MdBlock.Check -> RenderCheck(block, mark, bibleLinks)
         is MdBlock.Para -> Text(
-            markInline(block.text, mark),
+            markInline(block.text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge
         )
         is MdBlock.TextForCard -> RenderTextForCard(
@@ -3189,7 +3270,11 @@ internal fun RenderBlock(
 }
 
 @Composable
-private fun RenderQuote(text: String, mark: AnnotatedString?) {
+private fun RenderQuote(
+    text: String,
+    mark: AnnotatedString?,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -3209,7 +3294,7 @@ private fun RenderQuote(text: String, mark: AnnotatedString?) {
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            markInline(text, mark),
+            markInline(text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -3218,7 +3303,11 @@ private fun RenderQuote(text: String, mark: AnnotatedString?) {
 }
 
 @Composable
-private fun RenderBullet(block: MdBlock.Bullet, mark: AnnotatedString?) {
+private fun RenderBullet(
+    block: MdBlock.Bullet,
+    mark: AnnotatedString?,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+) {
     Row(
         verticalAlignment = Alignment.Top,
         // #22-fix-b: recuo progressivo por profundidade.
@@ -3233,12 +3322,19 @@ private fun RenderBullet(block: MdBlock.Bullet, mark: AnnotatedString?) {
             fontWeight = if (block.depth == 0) FontWeight.Bold else FontWeight.Normal,
             modifier = Modifier.widthIn(min = 26.dp)
         )
-        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            markInline(block.text, mark, bibleLinks),
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }
 
 @Composable
-private fun RenderCheck(block: MdBlock.Check, mark: AnnotatedString?) {
+private fun RenderCheck(
+    block: MdBlock.Check,
+    mark: AnnotatedString?,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+) {
     Row(
         verticalAlignment = Alignment.Top,
         // #22-fix-b: recuo progressivo por profundidade.
@@ -3251,7 +3347,10 @@ private fun RenderCheck(block: MdBlock.Check, mark: AnnotatedString?) {
             else MaterialTheme.colorScheme.secondary,
             modifier = Modifier.widthIn(min = 26.dp)
         )
-        Text(markInline(block.text, mark), style = MaterialTheme.typography.bodyLarge)
+        Text(
+            markInline(block.text, mark, bibleLinks),
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }
 
@@ -3339,14 +3438,16 @@ internal fun cardTextToMarkdown(text: String): String {
 internal fun bulletMarker(number: Int?, depth: Int): String =
     number?.let { "$it.  " } ?: if (depth > 0) "○  " else "•  "
 
-/** #22-fix (P1): texto do bloco com o selo prependado (quando houver). */
-private fun markPlain(text: String, mark: AnnotatedString?): AnnotatedString =
-    if (mark == null) AnnotatedString(text)
-    else buildAnnotatedString { append(mark); append(text) }
-
 @Composable
-private fun markInline(text: String, mark: AnnotatedString?): AnnotatedString =
-    if (mark == null) inline(text) else buildAnnotatedString { append(mark); append(inline(text)) }
+private fun markInline(
+    text: String,
+    mark: AnnotatedString?,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+): AnnotatedString = inline(
+    text = text,
+    bibleLinks = bibleLinks,
+    leading = mark,
+)
 
 @Composable
 private fun IdeasBody(

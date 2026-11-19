@@ -210,4 +210,92 @@ class BiblePassageReaderTest {
             displayBibleRefsFor("Sal 23:1-6; 24:1-2"),
         )
     }
+
+    @Test
+    fun edicaoEsperadaDivergenteNaoLeOutraBiblia() = runBlocking {
+        val source = FakeSource(
+            source = BibleSource("alt", "Bíblia alternativa", false),
+            texts = verses("Jo 3:16"),
+        )
+        val p = BiblePassageReader(source).read(
+            listOf("João 3:16"),
+            expectedAttachmentId = "nwt",
+        )
+        assertEquals(BiblePassageStatus.MISSING_CORPUS, p.status)
+        assertTrue(p.needsLibrary)
+        assertTrue(p.verses.isEmpty())
+        assertEquals(
+            "A edição usada nesta referência não está mais disponível.",
+            p.warning,
+        )
+    }
+
+    @Test
+    fun edicaoEsperadaIgualLeNormalmente() = runBlocking {
+        val source = FakeSource(
+            source = BibleSource("nwt", "TNM", true),
+            texts = verses("Jo 3:16"),
+        )
+        val p = BiblePassageReader(source).read(
+            listOf("João 3:16"),
+            expectedAttachmentId = "nwt",
+        )
+        assertEquals(BiblePassageStatus.RESOLVED, p.status)
+        assertEquals("nwt", p.sourceAttachmentId)
+        assertEquals(1, p.verses.size)
+    }
+
+    @Test
+    fun requireNwtIgnoraOutraBiblia() = runBlocking {
+        val other = BibleSource("alt", "Alternativa", false)
+        val nwt = BibleSource("nwt", "TNM", true)
+        val source = object : BiblePassageSource {
+            override suspend fun preferredSource(): BibleSource = other
+            override suspend fun nwtSource(): BibleSource = nwt
+            override suspend fun texts(
+                sourceId: String,
+                canonicalRefs: List<String>,
+            ): Map<String, String> = canonicalRefs.associateWith {
+                if (sourceId == "nwt") "texto TNM" else "texto alternativo"
+            }
+            override suspend fun chapterTexts(
+                sourceId: String,
+                prefix: String,
+            ): Map<String, String> = emptyMap()
+        }
+
+        val p = BiblePassageReader(source).read(
+            rawRefs = listOf("Mateus 24:14"),
+            requireNwt = true,
+        )
+        assertEquals(BiblePassageStatus.RESOLVED, p.status)
+        assertEquals("nwt", p.sourceAttachmentId)
+        assertEquals("texto TNM", p.verses.single().text)
+    }
+
+    @Test
+    fun requireNwtSemNwtNaoUsaOutraBiblia() = runBlocking {
+        val other = BibleSource("alt", "Alternativa", false)
+        val source = object : BiblePassageSource {
+            override suspend fun preferredSource(): BibleSource = other
+            override suspend fun nwtSource(): BibleSource? = null
+            override suspend fun texts(
+                sourceId: String,
+                canonicalRefs: List<String>,
+            ): Map<String, String> = canonicalRefs.associateWith { "texto alternativo" }
+            override suspend fun chapterTexts(
+                sourceId: String,
+                prefix: String,
+            ): Map<String, String> = emptyMap()
+        }
+
+        val p = BiblePassageReader(source).read(
+            rawRefs = listOf("Mateus 24:14"),
+            requireNwt = true,
+        )
+        assertEquals(BiblePassageStatus.MISSING_CORPUS, p.status)
+        assertTrue(p.needsLibrary)
+        assertTrue(p.verses.isEmpty())
+        assertTrue(p.warning!!.contains("NWT"))
+    }
 }

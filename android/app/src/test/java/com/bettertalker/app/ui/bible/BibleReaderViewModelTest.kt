@@ -109,4 +109,15 @@ class BibleReaderViewModelTest {
         vm.open(listOf(" ", ""))
         assertFalse(vm.state.value.visible)
     }
+
+    @Test
+    fun abreComEdicaoEsperadaEDetectaTroca() = withVm { vm, _ ->
+        vm.open(listOf("Ez 1:16"), expectedAttachmentId = "outra-edicao")
+        awaitPassage(vm)
+        val p = vm.state.value.passage!!
+        assertEquals(com.bettertalker.app.domain.bible.BiblePassageStatus.MISSING_CORPUS, p.status)
+        assertTrue(p.needsLibrary)
+        assertTrue(p.verses.isEmpty())
+        assertTrue(p.warning!!.contains("não está mais disponível"))
+    }
 }

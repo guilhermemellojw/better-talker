@@ -28,24 +28,29 @@ class BibleReferenceResolver(
                 "Referência bíblica não reconhecida.",
             )
         }
-        val preferred = source.preferredSource()
-            ?: return BibleReferenceResolution.Unavailable(
-                "A Bíblia não está disponível no acervo local.",
+        val preferred = source.nwtSource()
+            ?: return BibleReferenceResolution.NwtUnavailable(
+                "A Tradução do Novo Mundo (NWT) não está disponível no acervo local.",
             )
-        val passage = reader.read(occurrence.raw)
+        val passage = reader.read(occurrence.raw, requireNwt = true)
+        if (passage.status == BiblePassageStatus.MISSING_CORPUS) {
+            return BibleReferenceResolution.NwtUnavailable(
+                passage.warning ?: "A Tradução do Novo Mundo (NWT) não está disponível.",
+            )
+        }
         if (passage.sourceAttachmentId == null) {
-            return BibleReferenceResolution.Unavailable(
+            return BibleReferenceResolution.NwtUnavailable(
                 passage.warning ?: "Não foi possível identificar a edição lida.",
             )
         }
         if (passage.sourceAttachmentId != preferred.attachmentId) {
             // Nunca abrir uma edição diferente da escolhida pelo leitor.
-            return BibleReferenceResolution.Unavailable(
+            return BibleReferenceResolution.EditionChanged(
                 "A edição disponível não corresponde à fonte de leitura.",
             )
         }
         if (passage.verses.isEmpty()) {
-            return BibleReferenceResolution.Unavailable(
+            return BibleReferenceResolution.PassageNotFound(
                 passage.warning ?: "Nenhum versículo encontrado no acervo.",
             )
         }
@@ -78,10 +83,14 @@ class BibleReferenceResolver(
                     warning = passage.warning ?: "A leitura está incompleta.",
                 )
 
-            BiblePassageStatus.UNRESOLVED,
-            BiblePassageStatus.MISSING_CORPUS ->
-                BibleReferenceResolution.Unavailable(
+            BiblePassageStatus.UNRESOLVED ->
+                BibleReferenceResolution.PassageNotFound(
                     passage.warning ?: "Referência não encontrada no acervo.",
+                )
+
+            BiblePassageStatus.MISSING_CORPUS ->
+                BibleReferenceResolution.NwtUnavailable(
+                    passage.warning ?: "A Tradução do Novo Mundo (NWT) não está disponível.",
                 )
         }
     }

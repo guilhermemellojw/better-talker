@@ -148,7 +148,7 @@ class BibleReferenceLinksTest {
         val occ = detectorText("(Mat. 24:14)").single()
 
         val result = resolver.resolve(occ)
-        assertTrue(result is BibleReferenceResolution.Unavailable)
+        assertTrue(result is BibleReferenceResolution.PassageNotFound)
     }
 
     @Test
@@ -161,7 +161,7 @@ class BibleReferenceLinksTest {
         val resolver = BibleReferenceResolver(reader, source)
         val occ = detectorText("(Mat. 24:14)").single()
 
-        assertTrue(resolver.resolve(occ) is BibleReferenceResolution.Unavailable)
+        assertTrue(resolver.resolve(occ) is BibleReferenceResolution.NwtUnavailable)
     }
 
     @Test
@@ -253,7 +253,7 @@ class BibleReferenceLinksTest {
         val resolver = BibleReferenceResolver(reader, source)
         val occ = detectorText("(Mat. 99:999)").single()
 
-        assertTrue(resolver.resolve(occ) is BibleReferenceResolution.Unavailable)
+        assertTrue(resolver.resolve(occ) is BibleReferenceResolution.PassageNotFound)
     }
 
     @Test
@@ -339,5 +339,86 @@ class BibleReferenceLinksTest {
         val partial = result as BibleReferenceResolution.Partial
         assertEquals(listOf("Sal 23", "Sal 24"), partial.target.canonicalRefs)
         assertTrue(partial.warning.isNotBlank())
+    }
+
+    @Test
+    fun nwtAusenteComOutraBibliaNaoUsaFallback() = kotlinx.coroutines.runBlocking {
+        val other = BibleSource("alt", "Bíblia alternativa", false)
+        val source = object : BiblePassageSource {
+            override suspend fun preferredSource(): BibleSource = other
+            override suspend fun nwtSource(): BibleSource? = null
+            override suspend fun texts(
+                sourceId: String,
+                canonicalRefs: List<String>,
+            ): Map<String, String> = canonicalRefs.associateWith { "texto alternativo" }
+            override suspend fun chapterTexts(
+                sourceId: String,
+                prefix: String,
+            ): Map<String, String> = emptyMap()
+        }
+        val reader = BiblePassageReader(source)
+        val resolver = BibleReferenceResolver(reader, source)
+        val occ = detectorText("(Mat. 24:14)").single()
+
+        assertTrue(resolver.resolve(occ) is BibleReferenceResolution.NwtUnavailable)
+    }
+
+    @Test
+    fun nwtPresenteComOutraBibliaMantemNwt() = kotlinx.coroutines.runBlocking {
+        val other = BibleSource("alt", "Bíblia alternativa", false)
+        val nwt = BibleSource("nwt", "TNM", true)
+        val source = object : BiblePassageSource {
+            override suspend fun preferredSource(): BibleSource = other
+            override suspend fun nwtSource(): BibleSource = nwt
+            override suspend fun texts(
+                sourceId: String,
+                canonicalRefs: List<String>,
+            ): Map<String, String> = canonicalRefs.associateWith {
+                if (sourceId == "nwt") "texto TNM" else "texto alternativo"
+            }
+            override suspend fun chapterTexts(
+                sourceId: String,
+                prefix: String,
+            ): Map<String, String> = emptyMap()
+        }
+        val reader = BiblePassageReader(source)
+        val resolver = BibleReferenceResolver(reader, source)
+        val occ = detectorText("(Mat. 24:14)").single()
+
+        val result = resolver.resolve(occ) as BibleReferenceResolution.Available
+        assertEquals("nwt", result.target.sourceAttachmentId)
+    }
+
+    @Test
+    fun avisoDeNwtAusenteOrientaAbrirBiblioteca() {
+        val notice = bibleReferenceNotice(
+            BibleReferenceResolution.NwtUnavailable("sem NWT"),
+        )!!
+        assertEquals("Bíblia ainda não disponível", notice.title)
+        assertTrue(notice.message.contains("Tradução do Novo Mundo"))
+        assertTrue(notice.openLibrary)
+    }
+
+    @Test
+    fun avisoDePassagemAusenteTambemApontaBiblioteca() {
+        val notice = bibleReferenceNotice(
+            BibleReferenceResolution.PassageNotFound("sem versículo"),
+        )!!
+        assertEquals("Passagem não encontrada", notice.title)
+        assertTrue(notice.openLibrary)
+    }
+
+    @Test
+    fun disponibilidadeNaoGeraAviso() {
+        val target = BibleReaderTarget(
+            rawReference = "Mat. 24:14",
+            canonicalRefs = listOf("Mt 24:14"),
+            displayRef = "Mateus 24:14",
+            sourceAttachmentId = "nwt",
+            sourceLabel = "TNM",
+            chapterOnly = false,
+            partial = false,
+        )
+        assertTrue(bibleReferenceNotice(BibleReferenceResolution.Available(target)) == null)
     }
 }
