@@ -693,6 +693,8 @@ private fun AppNav(
                     session = sessionFor(target.id),
                     nav = nav,
                     ptt = pttHost.controller,
+                    db = db,
+                    voiceRouter = voiceRouter,
                     embedded = true,
                     // Sem foco vindo do editor, o assistente começa no
                     // discurso inteiro (não num "Tópico" sem número).
@@ -1181,6 +1183,8 @@ private fun AppNav(
                 session = sessionFor(noteId),
                 nav = nav,
                 ptt = pttHost.controller,
+                db = db,
+                voiceRouter = voiceRouter,
                 embedded = false,
                 chatOpenedFromEditor = chatOpenedFromEditor,
                 onBack = { nav.popBackStack() },
@@ -1322,6 +1326,8 @@ private fun NoteChatHost(
     session: NoteSession,
     nav: androidx.navigation.NavHostController,
     ptt: com.bettertalker.app.data.voice.PttController,
+    db: com.bettertalker.app.data.db.AppDatabase,
+    voiceRouter: com.bettertalker.app.data.voice.VoiceRouter,
     embedded: Boolean,
     defaultWholeFocus: Boolean = false,
     /** Fatia 5: snapshot de Treino/Palco (só no Assistente). */
@@ -1350,6 +1356,27 @@ private fun NoteChatHost(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val editorVm = session.editorVm
     val copilotVm = session.copilotVm
+
+    // UX-REF-1A2 — leitor bíblico e resolução local scoped à rota do chat.
+    val bibleSource = androidx.compose.runtime.remember(db) {
+        com.bettertalker.app.data.bible.RoomBiblePassageSource(
+            db.passageDao(),
+            db.attachmentDao(),
+        )
+    }
+    val bibleReader = androidx.compose.runtime.remember(bibleSource) {
+        com.bettertalker.app.domain.bible.BiblePassageReader(bibleSource)
+    }
+    val bibleResolver = androidx.compose.runtime.remember(bibleReader, bibleSource) {
+        com.bettertalker.app.data.bible.BibleReferenceResolver(bibleReader, bibleSource)
+    }
+    val bibleVm: com.bettertalker.app.ui.bible.BibleReaderViewModel = viewModel(
+        key = "chat-bible-${session.noteId}",
+        factory = com.bettertalker.app.ui.bible.BibleReaderViewModel.Factory(
+            db,
+            voiceRouter,
+        ),
+    )
 
     // O chat pode ser restaurado sem a rota do editor: garante o gerador
     // para o fluxo "texto total" → DraftSheet.
@@ -1637,6 +1664,34 @@ private fun NoteChatHost(
         }) else null,
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
+        onOpenBibleReference = { occurrence ->
+            navScope.launch {
+                when (val result = bibleResolver.resolve(occurrence)) {
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Available ->
+                        bibleVm.open(result.target)
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Partial ->
+                        bibleVm.open(result.target)
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Unavailable ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Essa passagem ainda não está disponível na Biblioteca.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Ambiguous ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Não foi possível identificar essa referência.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.NotRecognized ->
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Não foi possível identificar essa referência.",
+                            android.widget.Toast.LENGTH_LONG,
+                        ).show()
+                }
+            }
+        },
         practiceContext = practiceContext,
         onBackToWalkie = if (walkieDefault) ({ walkie = true }) else null,
         focusComposerOnStart = fullFocusRequest,
@@ -1661,6 +1716,13 @@ private fun NoteChatHost(
         },
         onDraftNext = editorVm::nextDraft,
         onDraftContinue = editorVm::continueDraft,
+    )
+    com.bettertalker.app.ui.bible.BibleReaderSheet(
+        vm = bibleVm,
+        onOpenLibrary = {
+            bibleVm.close()
+            nav.navigate(Routes.library(session.noteId))
+        },
     )
     }
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {

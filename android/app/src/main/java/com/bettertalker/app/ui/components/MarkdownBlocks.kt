@@ -2,7 +2,9 @@ package com.bettertalker.app.ui.components
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.text.LinkAnnotation
@@ -165,6 +167,14 @@ fun parseBlocks(md: String): List<MdBlock> {
     return out
 }
 
+/** UX-REF-1A2 — link bíblico inline já mapeado para o texto-fonte. */
+data class InlineBibleLink(
+    val start: Int,
+    val endExclusive: Int,
+    val tag: String,
+    val label: String,
+)
+
 /**
  * T3 — só domínios oficiais (jw.org e subdomínios, ex.: wol.jw.org) são
  * clicáveis. Puro/testável.
@@ -178,12 +188,25 @@ internal fun isJwUrl(url: String): Boolean {
 }
 
 @Composable
-fun inline(text: String): androidx.compose.ui.text.AnnotatedString {
+fun inline(
+    text: String,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
+    leading: androidx.compose.ui.text.AnnotatedString? = null,
+): androidx.compose.ui.text.AnnotatedString {
     // Cores lidas fora do remember (leitura composable não pode viver no lambda).
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
     val linkColor = MaterialTheme.colorScheme.tertiary
-    return remember(text, codeBackground, linkColor) {
-        buildInline(text, codeBackground, linkColor)
+    val currentOnBibleLink by rememberUpdatedState(onBibleLink)
+    return remember(text, codeBackground, linkColor, bibleLinks, leading) {
+        buildInline(
+            text = text,
+            codeBackground = codeBackground,
+            linkColor = linkColor,
+            leading = leading,
+            bibleLinks = bibleLinks,
+            onBibleLink = { link -> currentOnBibleLink?.invoke(link) },
+        )
     }
 }
 
@@ -191,34 +214,77 @@ fun inline(text: String): androidx.compose.ui.text.AnnotatedString {
  * T2/T3/T4 — constrói o texto com ênfase (`**` negrito, `*`/`_` itálico),
  * `código` em monoespaçado (com fundo [codeBackground]) e links markdown
  * `[texto](url)` (clicáveis apenas para jw.org; outros domínios ficam
- * sublinhados e inertes). P1: links ganham cor explícita [linkColor] +
- * sublinhado. Puro/testável.
+ * sublinhados e inertes). UX-REF-1A2: [bibleLinks] usam spans do texto-fonte
+ * e viram `LinkAnnotation.Clickable`; [leading] entra antes do texto sem
+ * deslocar os spans porque os links são aplicados durante a emissão.
+ * Puro/testável.
  */
 fun buildInline(
     text: String,
     codeBackground: Color = Color.Unspecified,
-    linkColor: Color = Color.Unspecified
+    linkColor: Color = Color.Unspecified,
+    leading: androidx.compose.ui.text.AnnotatedString? = null,
+    bibleLinks: List<InlineBibleLink> = emptyList(),
+    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
+    leading?.let { append(it) }
     var i = 0
     var bold = false
     var italic = false
     var mono = false
     val buf = StringBuilder()
+    fun appendWithLink(s: String, link: InlineBibleLink?) {
+        if (link == null) {
+            append(s)
+            return
+        }
+        val styles = if (linkColor.isSpecified) {
+            TextLinkStyles(
+                style = SpanStyle(
+                    color = linkColor,
+                    textDecoration = TextDecoration.Underline
+                )
+            )
+        } else {
+            null
+        }
+        withLink(
+            LinkAnnotation.Clickable(
+                tag = link.tag,
+                styles = styles,
+                linkInteractionListener = { onBibleLink?.invoke(link) },
+            )
+        ) { append(s) }
+    }
+    fun emitStyled(s: String, link: InlineBibleLink? = null) {
+        if (s.isEmpty()) return
+        when {
+            mono -> withStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
+            ) { appendWithLink(s, link) }
+            bold && italic -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { appendWithLink(s, link) }
+            bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { appendWithLink(s, link) }
+            italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendWithLink(s, link) }
+            else -> appendWithLink(s, link)
+        }
+    }
     fun emit() {
         if (buf.isEmpty()) return
         val s = buf.toString()
         buf.clear()
-        when {
-            mono -> withStyle(
-                SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
-            ) { append(s) }
-            bold && italic -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { append(s) }
-            bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(s) }
-            italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(s) }
-            else -> append(s)
-        }
+        emitStyled(s)
     }
+    val linksByStart = bibleLinks
+        .filter { it.start >= 0 && it.endExclusive > it.start && it.endExclusive <= text.length }
+        .associateBy { it.start }
     while (i < text.length) {
+        val bibleLink = linksByStart[i]
+        if (bibleLink != null) {
+            emit()
+            emitStyled(text.substring(bibleLink.start, bibleLink.endExclusive), bibleLink)
+            i = bibleLink.endExclusive
+            continue
+        }
         when {
             // T3: link markdown [texto](url) — tolera espaço entre ] e (.
             text[i] == '[' -> {

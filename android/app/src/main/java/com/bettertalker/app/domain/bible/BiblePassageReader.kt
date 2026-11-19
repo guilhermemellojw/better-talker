@@ -19,9 +19,13 @@ class BiblePassageReader(
     private val maxVerses: Int = MAX_VERSES,
 ) {
 
-    suspend fun read(raw: String): BiblePassage = read(listOf(raw))
+    suspend fun read(raw: String, expectedAttachmentId: String? = null): BiblePassage =
+        read(listOf(raw), expectedAttachmentId)
 
-    suspend fun read(rawRefs: List<String>): BiblePassage {
+    suspend fun read(
+        rawRefs: List<String>,
+        expectedAttachmentId: String? = null,
+    ): BiblePassage {
         val cleaned = rawRefs.map { it.trim() }.filter { it.isNotEmpty() }
         val requested = cleaned.joinToString("; ")
         val verseRefs = expandBibleRefs(cleaned)
@@ -54,6 +58,22 @@ class BiblePassageReader(
                 totalRequests = totalRequests,
                 foundRequests = 0,
             )
+
+        if (expectedAttachmentId != null && bible.attachmentId != expectedAttachmentId) {
+            return BiblePassage(
+                requested = requested,
+                displayRef = displayRef,
+                verses = emptyList(),
+                status = BiblePassageStatus.MISSING_CORPUS,
+                sourceLabel = "",
+                warning = "A edição usada nesta referência não está mais disponível.",
+                totalVerses = verseRefs.size,
+                needsLibrary = true,
+                chapterOnly = chapterOnly,
+                totalRequests = totalRequests,
+                foundRequests = 0,
+            )
+        }
 
         val verseTexts = if (verseRefs.isEmpty()) {
             emptyMap()

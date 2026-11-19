@@ -210,4 +210,38 @@ class BiblePassageReaderTest {
             displayBibleRefsFor("Sal 23:1-6; 24:1-2"),
         )
     }
+
+    @Test
+    fun edicaoEsperadaDivergenteNaoLeOutraBiblia() = runBlocking {
+        val source = FakeSource(
+            source = BibleSource("alt", "Bíblia alternativa", false),
+            texts = verses("Jo 3:16"),
+        )
+        val p = BiblePassageReader(source).read(
+            listOf("João 3:16"),
+            expectedAttachmentId = "nwt",
+        )
+        assertEquals(BiblePassageStatus.MISSING_CORPUS, p.status)
+        assertTrue(p.needsLibrary)
+        assertTrue(p.verses.isEmpty())
+        assertEquals(
+            "A edição usada nesta referência não está mais disponível.",
+            p.warning,
+        )
+    }
+
+    @Test
+    fun edicaoEsperadaIgualLeNormalmente() = runBlocking {
+        val source = FakeSource(
+            source = BibleSource("nwt", "TNM", true),
+            texts = verses("Jo 3:16"),
+        )
+        val p = BiblePassageReader(source).read(
+            listOf("João 3:16"),
+            expectedAttachmentId = "nwt",
+        )
+        assertEquals(BiblePassageStatus.RESOLVED, p.status)
+        assertEquals("nwt", p.sourceAttachmentId)
+        assertEquals(1, p.verses.size)
+    }
 }
