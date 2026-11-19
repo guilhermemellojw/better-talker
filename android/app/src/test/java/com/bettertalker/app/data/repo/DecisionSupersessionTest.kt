@@ -756,6 +756,50 @@ class DecisionSupersessionTest {
     }
 
     @Test
+    fun repeticaoComSupersedesIdDaPropriaAnteriorEhIdempotente() = runBlocking {
+        val previous = decision(id = "a")
+        val replacement = decision(id = "b", createdAt = 20L, updatedAt = 20L)
+        seed(previous)
+        val confirmation = confirmation(previous, replacement)
+        repo.supersedeConfirmed(confirmation, replacement, now = 30L)
+        val before = dao.rows
+
+        val repeated = repo.supersedeConfirmed(
+            confirmation,
+            replacement.copy(supersedesId = "a"),
+            now = 40L,
+        )
+
+        assertTrue(repeated is SupersessionResult.AlreadyApplied)
+        assertEquals(before, dao.rows)
+    }
+
+    @Test
+    fun repeticaoComSupersedesIdDeOutraDecisaoConflita() = runBlocking {
+        val previous = decision(id = "a")
+        val replacement = decision(id = "b", createdAt = 20L, updatedAt = 20L)
+        seed(previous)
+        val confirmation = confirmation(previous, replacement)
+        repo.supersedeConfirmed(confirmation, replacement, now = 30L)
+        val before = dao.rows
+
+        val result = repo.supersedeConfirmed(
+            confirmation,
+            replacement.copy(supersedesId = "c"),
+            now = 40L,
+        )
+
+        assertTrue(result is SupersessionResult.Conflict)
+        assertEquals(
+            SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+            (result as SupersessionResult.Conflict).reason,
+        )
+        assertEquals(before, dao.rows)
+        assertEquals(DecisionState.SUPERSEDED, repo.get("a")!!.decisionState)
+        assertEquals("a", repo.get("b")!!.supersedesId)
+    }
+
+    @Test
     fun repeticaoComPayloadDivergenteConflita() = runBlocking {
         val previous = decision(id = "a")
         val replacement = decision(id = "b", createdAt = 20L)

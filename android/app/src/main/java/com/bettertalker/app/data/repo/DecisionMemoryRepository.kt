@@ -188,6 +188,13 @@ class DecisionMemoryRepository(
     }
 
     /**
+     * API LEGADA — mantida para compatibilidade com a B1 e testes existentes.
+     *
+     * Usa `upsertAll()` e NÃO oferece todas as garantias da B2B (confirmação
+     * explícita, compare-and-set, inserção sem sobrescrita e resultados
+     * tipados). A futura B2C NÃO deve chamá-la; substituições confirmadas
+     * devem usar exclusivamente [supersedeConfirmed].
+     *
      * Persiste anterior + substituta no mesmo commit, usando a validação e as
      * transições do domínio. O histórico anterior é preservado como
      * SUPERSEDED, nunca apagado.
@@ -270,6 +277,18 @@ class DecisionMemoryRepository(
 
                 val persistedReplacement =
                     dao.get(confirmation.replacementDecisionId)?.toDomain()
+
+                // O vínculo pedido pela substituta precisa ser compatível com
+                // esta operação ANTES de qualquer atalho de idempotência.
+                // Repetir A→B com B.supersedesId=C é conflito, não sucesso.
+                if (
+                    replacement.supersedesId != null &&
+                    replacement.supersedesId != previous.id
+                ) {
+                    return@run SupersessionResult.Conflict(
+                        SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+                    )
+                }
 
                 // Idempotência: a operação A→B já foi persistida. Isso vence
                 // qualquer stale do estado atual de A.
@@ -359,14 +378,6 @@ class DecisionMemoryRepository(
                 if (hasOriginCollision(previous, replacement)) {
                     return@run SupersessionResult.Conflict(
                         SupersessionConflictReason.ORIGIN_COLLISION,
-                    )
-                }
-                if (
-                    replacement.supersedesId != null &&
-                    replacement.supersedesId != previous.id
-                ) {
-                    return@run SupersessionResult.Conflict(
-                        SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
                     )
                 }
 

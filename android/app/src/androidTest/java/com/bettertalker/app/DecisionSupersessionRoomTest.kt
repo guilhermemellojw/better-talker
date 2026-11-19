@@ -161,6 +161,40 @@ class DecisionSupersessionRoomTest {
     }
 
     @Test
+    fun repeticaoNoRoomRespeitaVinculoDivergente() = runBlocking {
+        val previous = decision(id = "a")
+        val replacement = decision(id = "b", createdAt = 20L, updatedAt = 20L)
+        seed(previous)
+        val confirmation = confirmation(previous, replacement)
+        assertTrue(
+            repo.supersedeConfirmed(confirmation, replacement, now = 30L)
+                is SupersessionResult.Committed,
+        )
+        val before = db.decisionDao().forNote("n1")
+
+        val linkedToPrevious = repo.supersedeConfirmed(
+            confirmation,
+            replacement.copy(supersedesId = "a"),
+            now = 40L,
+        )
+        assertTrue(linkedToPrevious is SupersessionResult.AlreadyApplied)
+
+        val diverged = repo.supersedeConfirmed(
+            confirmation,
+            replacement.copy(supersedesId = "c"),
+            now = 50L,
+        )
+        assertTrue(diverged is SupersessionResult.Conflict)
+        assertEquals(
+            SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+            (diverged as SupersessionResult.Conflict).reason,
+        )
+        assertEquals(before, db.decisionDao().forNote("n1"))
+        assertEquals(30L, db.decisionDao().get("a")!!.updatedAt)
+        assertEquals(30L, db.decisionDao().get("b")!!.updatedAt)
+    }
+
+    @Test
     fun concorrenciaAParaBAParaCAceitaSomenteUma() = runBlocking {
         val previous = decision(id = "a", createdAt = 10L)
         val b = decision(id = "b", createdAt = 20L, updatedAt = 20L)
