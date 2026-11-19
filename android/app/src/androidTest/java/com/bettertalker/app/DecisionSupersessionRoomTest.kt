@@ -150,6 +150,7 @@ class DecisionSupersessionRoomTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedReplacement = replacement,
             now = 30L,
         )
 
@@ -167,6 +168,49 @@ class DecisionSupersessionRoomTest {
     }
 
     @Test
+    fun substitutaAlteradaNoRoomAntesDaConfirmacaoNaoVincula() = runBlocking {
+        val previous = decision(id = "a", application = ApplicationState.APPLIED)
+        val displayed = decision(
+            id = "b",
+            text = "texto exibido",
+            createdAt = 20L,
+            updatedAt = 20L,
+            application = ApplicationState.APPLIED,
+        )
+        seed(previous)
+        db.decisionDao().upsert(displayed.toEntity())
+        // Outro fluxo altera B depois que o diálogo já tinha o retrato antigo,
+        // mantendo o mesmo updatedAt para provar que a versão não é só timestamp.
+        db.decisionDao().upsert(
+            displayed.copy(text = "texto atualizado no mesmo milissegundo").toEntity(),
+        )
+        val previousBefore = db.decisionDao().get("a")!!
+        val replacementBefore = db.decisionDao().get("b")!!
+        val countBefore = db.decisionDao().countForNote("n1")
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(previous, displayed),
+            expectedReplacement = displayed,
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        result as SupersessionResult.ReplacementStale
+        assertEquals("b", result.replacementDecisionId)
+        assertEquals(20L, result.expectedUpdatedAt)
+        assertEquals(20L, result.actualUpdatedAt)
+        assertEquals(previousBefore, db.decisionDao().get("a"))
+        assertEquals(replacementBefore, db.decisionDao().get("b"))
+        assertEquals(countBefore, db.decisionDao().countForNote("n1"))
+        assertEquals(DecisionState.ACTIVE, db.decisionDao().get("a")!!.toDomain().decisionState)
+        assertEquals(
+            "texto atualizado no mesmo milissegundo",
+            db.decisionDao().get("b")!!.toDomain().text,
+        )
+        assertNull(db.decisionDao().get("b")!!.supersedesId)
+    }
+
+    @Test
     fun concorrenciaComSubstitutasPersistidasAceitaSomenteUma() = runBlocking {
         val previous = decision(id = "a")
         val b = decision(id = "b", createdAt = 20L, updatedAt = 20L)
@@ -180,12 +224,14 @@ class DecisionSupersessionRoomTest {
                 async(Dispatchers.IO) {
                     repo.supersedePersistedReplacementConfirmed(
                         confirmation(previous, b),
+                        expectedReplacement = b,
                         now = 30L,
                     )
                 },
                 async(Dispatchers.IO) {
                     repo.supersedePersistedReplacementConfirmed(
                         confirmation(previous, c),
+                        expectedReplacement = c,
                         now = 30L,
                     )
                 },
@@ -448,8 +494,14 @@ class DecisionSupersessionRoomTest {
         override suspend fun linkReplacementIfUnlinked(
             replacementId: String,
             previousId: String,
+            expectedUpdatedAt: Long,
             updatedAt: Long,
-        ): Int = delegate.linkReplacementIfUnlinked(replacementId, previousId, updatedAt)
+        ): Int = delegate.linkReplacementIfUnlinked(
+            replacementId,
+            previousId,
+            expectedUpdatedAt,
+            updatedAt,
+        )
 
         override suspend fun deleteById(id: String) = delegate.deleteById(id)
 

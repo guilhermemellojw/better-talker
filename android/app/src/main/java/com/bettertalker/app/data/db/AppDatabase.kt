@@ -1038,17 +1038,19 @@ interface DecisionDao {
 
     /**
      * 1C.2.1B2C — vincula uma substituta JÁ PERSISTIDA (caso B1) à anterior.
-     * Só grava se o vínculo ainda estiver vazio e a substituta estiver ACTIVE.
+     * Só grava se o vínculo ainda estiver vazio, a substituta estiver ACTIVE e
+     * a versão observada na pergunta for exatamente a versão atual.
      * Retorna 0 quando outra operação já vinculou/alterou a linha.
      */
     @Query(
         "UPDATE decision_records SET supersedesId = :previousId, updatedAt = :updatedAt " +
             "WHERE id = :replacementId AND supersedesId IS NULL " +
-            "AND decisionState = 'ACTIVE'"
+            "AND decisionState = 'ACTIVE' AND updatedAt = :expectedUpdatedAt"
     )
     suspend fun linkReplacementIfUnlinked(
         replacementId: String,
         previousId: String,
+        expectedUpdatedAt: Long,
         updatedAt: Long,
     ): Int
 

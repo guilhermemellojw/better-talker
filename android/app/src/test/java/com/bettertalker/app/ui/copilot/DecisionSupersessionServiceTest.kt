@@ -8,6 +8,7 @@ import com.bettertalker.app.data.copilot.DecisionSource
 import com.bettertalker.app.data.copilot.DecisionState
 import com.bettertalker.app.data.copilot.DecisionSubject
 import com.bettertalker.app.data.copilot.SectionLink
+import com.bettertalker.app.data.copilot.SupersessionConflictReason
 import com.bettertalker.app.data.copilot.SupersessionResult
 import com.bettertalker.app.data.db.DecisionDao
 import com.bettertalker.app.data.db.DecisionEntity
@@ -28,6 +29,7 @@ private class ServiceFakeDao : DecisionDao {
     var insertCalls = 0
     var upsertAllCalls = 0
     var deleteCalls = 0
+    var linkCalls = 0
 
     override suspend fun forNote(noteId: String): List<DecisionEntity> =
         rows.filter { it.noteId == noteId }
@@ -68,12 +70,15 @@ private class ServiceFakeDao : DecisionDao {
     override suspend fun linkReplacementIfUnlinked(
         replacementId: String,
         previousId: String,
+        expectedUpdatedAt: Long,
         updatedAt: Long,
     ): Int {
+        linkCalls++
         val existing = rows.firstOrNull { it.id == replacementId } ?: return 0
         if (
             existing.supersedesId != null ||
-            existing.decisionState != DecisionState.ACTIVE.name
+            existing.decisionState != DecisionState.ACTIVE.name ||
+            existing.updatedAt != expectedUpdatedAt
         ) {
             return 0
         }
@@ -212,6 +217,98 @@ class DecisionSupersessionServiceTest {
 
         assertTrue(repeated is SupersessionResult.AlreadyApplied)
         assertEquals(before, dao.rows)
+    }
+
+    @Test
+    fun perguntaUsaORetratoPersistidoDaSubstituta() = runBlocking {
+        val previous = decision("a")
+        val replacement = decision("b", text = "texto persistido", createdAt = 20L)
+        seed(previous, replacement)
+        val copiaEmMemoria = replacement.copy(text = "texto em memória")
+
+        val prompt = service.findPrompt(copiaEmMemoria)!!
+
+        assertEquals("texto persistido", prompt.replacement.text)
+        assertEquals(20L, prompt.replacement.updatedAt)
+    }
+
+    @Test
+    fun substitutaAlteradaDepoisDaPerguntaNaoVincula() = runBlocking {
+        val previous = decision("a")
+        val replacement = decision("b", text = "texto exibido", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(
+            replacement.copy(text = "texto novo", updatedAt = 21L).toEntity(),
+        )
+        val before = dao.rows
+
+        val result = service.confirm(prompt, now = 30L)
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        result as SupersessionResult.ReplacementStale
+        assertEquals("b", result.replacementDecisionId)
+        assertEquals(20L, result.expectedUpdatedAt)
+        assertEquals(21L, result.actualUpdatedAt)
+        assertEquals(before, dao.rows)
+        assertEquals(DecisionState.ACTIVE.name, dao.get("a")!!.decisionState)
+        assertEquals("texto novo", dao.get("b")!!.text)
+        assertNull(dao.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaComMesmoTimestampETextoNovoNaoVincula() = runBlocking {
+        val previous = decision("a")
+        val replacement = decision("b", text = "texto exibido", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(replacement.copy(text = "texto novo").toEntity())
+
+        val result = service.confirm(prompt, now = 30L)
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        assertNull(dao.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaVinculadaAOutraDecisaoConflitaSemEscrita() = runBlocking {
+        val previous = decision("a")
+        val replacement = decision("b", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(replacement.copy(supersedesId = "c").toEntity())
+        val before = dao.rows
+
+        val result = service.confirm(prompt, now = 30L)
+
+        assertTrue(result is SupersessionResult.Conflict)
+        assertEquals(
+            SupersessionConflictReason.REPLACEMENT_ALREADY_LINKED,
+            (result as SupersessionResult.Conflict).reason,
+        )
+        assertEquals(before, dao.rows)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun refreshAposMudancaDaSubstitutaAtualizaORetrato() = runBlocking {
+        val previous = decision("a")
+        val replacement = decision("b", text = "texto exibido", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(replacement.copy(text = "texto novo", updatedAt = 21L).toEntity())
+
+        val refreshed = service.refresh(prompt)!!
+
+        assertEquals("texto novo", refreshed.replacement.text)
+        assertEquals(21L, refreshed.replacement.updatedAt)
+
+        val result = service.confirm(refreshed, now = 30L)
+
+        assertTrue(result is SupersessionResult.Committed)
+        assertEquals("a", dao.get("b")!!.supersedesId)
     }
 
     @Test

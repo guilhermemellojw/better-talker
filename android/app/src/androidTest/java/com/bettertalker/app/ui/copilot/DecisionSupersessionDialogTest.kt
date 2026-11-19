@@ -120,6 +120,12 @@ class DecisionSupersessionDialogTest {
         composeRule.onNodeWithText("Quer substituir uma decisão anterior?").assertIsDisplayed()
         composeRule.onNodeWithText("Antes: “Começar com uma pergunta.”").assertIsDisplayed()
         composeRule.onNodeWithText("Agora: “Começar com uma experiência.”").assertIsDisplayed()
+        composeRule.onNodeWithText(
+            "Essa escolha organiza suas decisões salvas.",
+            substring = true,
+        ).assertIsDisplayed()
+        // A memória ainda não é injetada no prompt do Mentor: não prometer isso.
+        composeRule.onNodeWithText("Mentor lembra", substring = true).assertDoesNotExist()
 
         composeRule.onNodeWithText("Manter as duas").performClick()
         composeRule.onNodeWithText("Usar a nova no lugar da anterior").performClick()
@@ -201,15 +207,15 @@ class DecisionSupersessionDialogTest {
         setDialog(
             prompt(
                 outcome = DecisionSupersessionOutcome.SUCCESS,
-                message = "Pronto. A nova decisão agora vale no lugar da anterior. " +
-                    "O texto do discurso não foi alterado.",
+                message = "Pronto. A nova decisão agora fica no lugar da anterior " +
+                    "nas decisões salvas. O texto do discurso não foi alterado.",
             ),
             onDismissOutcome = { dismissed++ },
         )
 
         composeRule.onNodeWithText(
-            "Pronto. A nova decisão agora vale no lugar da anterior. " +
-                "O texto do discurso não foi alterado.",
+            "Pronto. A nova decisão agora fica no lugar da anterior " +
+                "nas decisões salvas. O texto do discurso não foi alterado.",
         ).assertIsDisplayed()
         composeRule.onNodeWithText("OK").performClick()
 

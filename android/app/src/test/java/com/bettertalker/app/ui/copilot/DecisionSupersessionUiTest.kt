@@ -250,6 +250,17 @@ class DecisionSupersessionUiTest {
         assertTrue(stale.canRefresh())
         assertFalse(stale.canRetry())
 
+        val replacementStale = base.withResult(
+            SupersessionResult.ReplacementStale(
+                "b",
+                expectedUpdatedAt = 10L,
+                actualUpdatedAt = 11L,
+            ),
+        )
+        assertEquals(DecisionSupersessionOutcome.STALE, replacementStale.outcome)
+        assertTrue(replacementStale.canRefresh())
+        assertTrue(replacementStale.message!!.contains("nova decisão"))
+
         val conflict = base.withResult(
             SupersessionResult.Conflict(
                 com.bettertalker.app.data.copilot.SupersessionConflictReason

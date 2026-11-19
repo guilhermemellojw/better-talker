@@ -84,12 +84,19 @@ private class SupersessionFakeDao : DecisionDao {
     override suspend fun linkReplacementIfUnlinked(
         replacementId: String,
         previousId: String,
+        expectedUpdatedAt: Long,
         updatedAt: Long,
     ): Int {
         linkCalls++
         if (forceLinkZero) return 0
         val existing = rows.firstOrNull { it.id == replacementId } ?: return 0
-        if (existing.supersedesId != null || existing.decisionState != DecisionState.ACTIVE.name) return 0
+        if (
+            existing.supersedesId != null ||
+            existing.decisionState != DecisionState.ACTIVE.name ||
+            existing.updatedAt != expectedUpdatedAt
+        ) {
+            return 0
+        }
         rows = rows.map {
             if (it.id == replacementId) {
                 it.copy(supersedesId = previousId, updatedAt = updatedAt)
@@ -897,6 +904,7 @@ class DecisionSupersessionTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedReplacement = replacement,
             now = 30L,
         )
 
@@ -914,15 +922,24 @@ class DecisionSupersessionTest {
         val replacement = decision(id = "b", createdAt = 20L, updatedAt = 20L)
         seed(previous, replacement)
         val confirmation = confirmation(previous, replacement)
-        repo.supersedePersistedReplacementConfirmed(confirmation, now = 30L)
+        repo.supersedePersistedReplacementConfirmed(
+            confirmation,
+            expectedReplacement = replacement,
+            now = 30L,
+        )
         val before = dao.rows
 
-        val repeated = repo.supersedePersistedReplacementConfirmed(confirmation, now = 40L)
+        val repeated = repo.supersedePersistedReplacementConfirmed(
+            confirmation,
+            expectedReplacement = replacement,
+            now = 40L,
+        )
 
         assertTrue(repeated is SupersessionResult.AlreadyApplied)
         assertEquals(before, dao.rows)
         assertEquals(30L, repo.get("a")!!.updatedAt)
         assertEquals(30L, repo.get("b")!!.updatedAt)
+        assertEquals(1, dao.linkCalls)
     }
 
     @Test
@@ -939,6 +956,7 @@ class DecisionSupersessionTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedReplacement = replacement,
             now = 30L,
         )
 
@@ -958,12 +976,115 @@ class DecisionSupersessionTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement, expectedUpdatedAt = 11L),
+            expectedReplacement = replacement,
             now = 30L,
         )
 
         assertTrue(result is SupersessionResult.Stale)
         assertEquals(DecisionState.ACTIVE, repo.get("a")!!.decisionState)
         assertNull(repo.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaPersistidaAlteradaDepoisDaPerguntaEhStale() = runBlocking {
+        val previous = decision(id = "a")
+        val displayed = decision(
+            id = "b",
+            text = "texto exibido",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+        seed(previous, displayed)
+        val changed = displayed.copy(text = "texto novo", updatedAt = 21L)
+        dao.upsert(changed.toEntity())
+        val before = dao.rows
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(previous, displayed),
+            expectedReplacement = displayed,
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        result as SupersessionResult.ReplacementStale
+        assertEquals("b", result.replacementDecisionId)
+        assertEquals(20L, result.expectedUpdatedAt)
+        assertEquals(21L, result.actualUpdatedAt)
+        assertEquals(before, dao.rows)
+        assertEquals(DecisionState.ACTIVE, repo.get("a")!!.decisionState)
+        assertEquals("texto novo", repo.get("b")!!.text)
+        assertNull(repo.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaPersistidaComMesmoTimestampMasTextoDiferenteEhStale() = runBlocking {
+        val previous = decision(id = "a")
+        val displayed = decision(
+            id = "b",
+            text = "texto exibido",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+        seed(previous, displayed)
+        dao.upsert(displayed.copy(text = "texto novo").toEntity())
+        val before = dao.rows
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(previous, displayed),
+            expectedReplacement = displayed,
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        assertEquals(before, dao.rows)
+        assertEquals("texto novo", repo.get("b")!!.text)
+        assertNull(repo.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaPersistidaComAssuntoAlteradoEhStaleSemSupersessao() = runBlocking {
+        val previous = decision(id = "a")
+        val displayed = decision(id = "b", createdAt = 20L, updatedAt = 20L)
+        seed(previous, displayed)
+        dao.upsert(
+            displayed.copy(subjectKey = DecisionSubject.SECTION_OPENING.key).toEntity(),
+        )
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(previous, displayed),
+            expectedReplacement = displayed,
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.ReplacementStale)
+        assertEquals(DecisionState.ACTIVE, repo.get("a")!!.decisionState)
+        assertNull(repo.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun substitutaPersistidaComRetratoDeOutroIdEhConfirmacaoInvalida() = runBlocking {
+        val previous = decision(id = "a")
+        val replacement = decision(id = "b", createdAt = 20L)
+        seed(previous, replacement)
+        val before = dao.rows
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(previous, replacement),
+            expectedReplacement = replacement.copy(id = "c"),
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.Conflict)
+        assertEquals(
+            SupersessionConflictReason.CONFIRMATION_MISMATCH,
+            (result as SupersessionResult.Conflict).reason,
+        )
+        assertEquals(before, dao.rows)
+        assertEquals(0, dao.linkCalls)
     }
 
     @Test
@@ -976,6 +1097,7 @@ class DecisionSupersessionTest {
         val failure = runCatching {
             repo.supersedePersistedReplacementConfirmed(
                 confirmation(previous, replacement),
+                expectedReplacement = replacement,
                 now = 30L,
             )
         }.exceptionOrNull()
@@ -995,6 +1117,7 @@ class DecisionSupersessionTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedReplacement = replacement,
             now = 30L,
         )
 
@@ -1015,12 +1138,14 @@ class DecisionSupersessionTest {
         seed(a, b, c)
         repo.supersedePersistedReplacementConfirmed(
             confirmation(a, b),
+            expectedReplacement = b,
             now = 30L,
         )
         val bLinked = repo.get("b")!!
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(bLinked, c),
+            expectedReplacement = c,
             now = 40L,
         )
 
@@ -1044,6 +1169,7 @@ class DecisionSupersessionTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedReplacement = replacement,
             now = 30L,
         )
 

@@ -99,8 +99,8 @@ fun DecisionSupersessionDialog(
                     if (prompt.outcome == null) {
                         Text(
                             "Você pode manter as duas ou usar a nova no lugar da anterior. " +
-                                "Isso muda só o que o Mentor lembra; o texto do discurso " +
-                                "não será alterado.",
+                                "Essa escolha organiza suas decisões salvas. " +
+                                "O texto do discurso não será alterado.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }

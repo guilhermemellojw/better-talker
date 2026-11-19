@@ -103,8 +103,8 @@ fun DecisionSupersessionPrompt.withResult(
     is SupersessionResult.Committed -> copy(
         isSubmitting = false,
         outcome = DecisionSupersessionOutcome.SUCCESS,
-        message = "Pronto. A nova decisão agora vale no lugar da anterior. " +
-            "O texto do discurso não foi alterado.",
+        message = "Pronto. A nova decisão agora fica no lugar da anterior nas " +
+            "decisões salvas. O texto do discurso não foi alterado.",
     )
 
     is SupersessionResult.AlreadyApplied -> copy(
@@ -117,6 +117,13 @@ fun DecisionSupersessionPrompt.withResult(
         isSubmitting = false,
         outcome = DecisionSupersessionOutcome.STALE,
         message = "A decisão anterior mudou desde que esta pergunta apareceu. " +
+            "Atualize os dados e tente de novo.",
+    )
+
+    is SupersessionResult.ReplacementStale -> copy(
+        isSubmitting = false,
+        outcome = DecisionSupersessionOutcome.STALE,
+        message = "A nova decisão mudou desde que esta pergunta apareceu. " +
             "Atualize os dados e tente de novo.",
     )
 
@@ -186,17 +193,23 @@ class DecisionSupersessionService(
     private val decisionMemory: DecisionMemoryRepository,
 ) {
 
-    suspend fun findPrompt(newDecision: DecisionRecord): DecisionSupersessionPrompt? =
-        buildDecisionSupersessionPrompt(
-            newDecision = newDecision,
-            history = decisionMemory.forNote(newDecision.noteId),
+    suspend fun findPrompt(newDecision: DecisionRecord): DecisionSupersessionPrompt? {
+        val history = decisionMemory.forNote(newDecision.noteId)
+        // O retrato exibido vem do registro persistido, nunca de uma cópia
+        // em memória que possa divergir do que será validado na confirmação.
+        val persisted = history.firstOrNull { it.id == newDecision.id } ?: return null
+        return buildDecisionSupersessionPrompt(
+            newDecision = persisted,
+            history = history,
         )
+    }
 
     suspend fun confirm(
         prompt: DecisionSupersessionPrompt,
         now: Long = System.currentTimeMillis(),
     ): SupersessionResult = decisionMemory.supersedePersistedReplacementConfirmed(
         confirmation = prompt.toConfirmation(now),
+        expectedReplacement = prompt.replacement,
         now = now,
     )
 

@@ -66,10 +66,17 @@ private class FakeDecisionDao : DecisionDao {
     override suspend fun linkReplacementIfUnlinked(
         replacementId: String,
         previousId: String,
+        expectedUpdatedAt: Long,
         updatedAt: Long,
     ): Int {
         val existing = rows.firstOrNull { it.id == replacementId } ?: return 0
-        if (existing.supersedesId != null || existing.decisionState != "ACTIVE") return 0
+        if (
+            existing.supersedesId != null ||
+            existing.decisionState != "ACTIVE" ||
+            existing.updatedAt != expectedUpdatedAt
+        ) {
+            return 0
+        }
         rows = rows.map {
             if (it.id == replacementId) {
                 it.copy(supersedesId = previousId, updatedAt = updatedAt)

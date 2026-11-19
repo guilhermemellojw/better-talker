@@ -389,12 +389,18 @@ class DecisionMemoryRepository(
      * 1C.2.1B2C — variante para substituta JÁ PERSISTIDA pela B1.
      *
      * Distinta de [supersedeConfirmed]: aqui a substituta existe, então não há
-     * insert; o vínculo é gravado por compare-and-set (`supersedesId IS NULL`)
-     * e a anterior vira `SUPERSEDED` no mesmo commit. Reutiliza exatamente as
-     * mesmas validações de [validateConfirmedPair].
+     * insert; o vínculo é gravado por compare-and-set (`supersedesId IS NULL`
+     * + versão esperada) e a anterior vira `SUPERSEDED` no mesmo commit.
+     * Reutiliza exatamente as mesmas validações de [validateConfirmedPair].
+     *
+     * [expectedReplacement] é o retrato EXIBIDO ao usuário, não uma releitura
+     * feita na confirmação. Qualquer mudança nesse registro (inclusive no
+     * mesmo milissegundo) retorna [SupersessionResult.ReplacementStale] sem
+     * vincular nada.
      */
     suspend fun supersedePersistedReplacementConfirmed(
         confirmation: SupersessionConfirmation,
+        expectedReplacement: DecisionRecord,
         now: Long = System.currentTimeMillis(),
     ): SupersessionResult {
         if (
@@ -402,7 +408,9 @@ class DecisionMemoryRepository(
             confirmation.noteId.isBlank() ||
             confirmation.previousDecisionId.isBlank() ||
             confirmation.replacementDecisionId.isBlank() ||
-            confirmation.previousDecisionId == confirmation.replacementDecisionId
+            confirmation.previousDecisionId == confirmation.replacementDecisionId ||
+            expectedReplacement.id != confirmation.replacementDecisionId ||
+            expectedReplacement.noteId != confirmation.noteId
         ) {
             return SupersessionResult.Conflict(
                 SupersessionConflictReason.CONFIRMATION_MISMATCH,
@@ -459,6 +467,17 @@ class DecisionMemoryRepository(
                     }
                 }
 
+                // A versão exibida da substituta faz parte da confirmação.
+                // `updatedAt` cobre a versão; a igualdade integral cobre
+                // conteúdo/identidade alterados no mesmo milissegundo.
+                if (replacement != expectedReplacement) {
+                    return@run SupersessionResult.ReplacementStale(
+                        replacementDecisionId = replacement.id,
+                        expectedUpdatedAt = expectedReplacement.updatedAt,
+                        actualUpdatedAt = replacement.updatedAt,
+                    )
+                }
+
                 val pair = when (
                     val validation = validateConfirmedPair(
                         confirmation = confirmation,
@@ -472,10 +491,11 @@ class DecisionMemoryRepository(
                 }
 
                 // Primeiro prende a substituta; se o vínculo já tiver sido
-                // tomado, nada da anterior é alterado.
+                // tomado ou a versão mudado, nada da anterior é alterado.
                 val linked = dao.linkReplacementIfUnlinked(
                     replacementId = pair.replacement.id,
                     previousId = previous.id,
+                    expectedUpdatedAt = expectedReplacement.updatedAt,
                     updatedAt = pair.replacement.updatedAt,
                 )
                 if (linked != 1) {

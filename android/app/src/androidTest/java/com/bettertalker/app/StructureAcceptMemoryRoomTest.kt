@@ -310,8 +310,14 @@ class StructureAcceptMemoryRoomTest {
         override suspend fun linkReplacementIfUnlinked(
             replacementId: String,
             previousId: String,
+            expectedUpdatedAt: Long,
             updatedAt: Long,
-        ): Int = delegate.linkReplacementIfUnlinked(replacementId, previousId, updatedAt)
+        ): Int = delegate.linkReplacementIfUnlinked(
+            replacementId,
+            previousId,
+            expectedUpdatedAt,
+            updatedAt,
+        )
 
         override suspend fun deleteById(id: String) = delegate.deleteById(id)
 
