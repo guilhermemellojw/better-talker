@@ -693,6 +693,8 @@ private fun AppNav(
                     session = sessionFor(target.id),
                     nav = nav,
                     ptt = pttHost.controller,
+                    db = db,
+                    voiceRouter = voiceRouter,
                     embedded = true,
                     // Sem foco vindo do editor, o assistente começa no
                     // discurso inteiro (não num "Tópico" sem número).
@@ -1181,6 +1183,8 @@ private fun AppNav(
                 session = sessionFor(noteId),
                 nav = nav,
                 ptt = pttHost.controller,
+                db = db,
+                voiceRouter = voiceRouter,
                 embedded = false,
                 chatOpenedFromEditor = chatOpenedFromEditor,
                 onBack = { nav.popBackStack() },
@@ -1322,6 +1326,8 @@ private fun NoteChatHost(
     session: NoteSession,
     nav: androidx.navigation.NavHostController,
     ptt: com.bettertalker.app.data.voice.PttController,
+    db: com.bettertalker.app.data.db.AppDatabase,
+    voiceRouter: com.bettertalker.app.data.voice.VoiceRouter,
     embedded: Boolean,
     defaultWholeFocus: Boolean = false,
     /** Fatia 5: snapshot de Treino/Palco (só no Assistente). */
@@ -1350,6 +1356,27 @@ private fun NoteChatHost(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val editorVm = session.editorVm
     val copilotVm = session.copilotVm
+
+    // UX-REF-1A2 — leitor bíblico e resolução local scoped à rota do chat.
+    val bibleSource = androidx.compose.runtime.remember(db) {
+        com.bettertalker.app.data.bible.RoomBiblePassageSource(
+            db.passageDao(),
+            db.attachmentDao(),
+        )
+    }
+    val bibleReader = androidx.compose.runtime.remember(bibleSource) {
+        com.bettertalker.app.domain.bible.BiblePassageReader(bibleSource)
+    }
+    val bibleResolver = androidx.compose.runtime.remember(bibleReader, bibleSource) {
+        com.bettertalker.app.data.bible.BibleReferenceResolver(bibleReader, bibleSource)
+    }
+    val bibleVm: com.bettertalker.app.ui.bible.BibleReaderViewModel = viewModel(
+        key = "chat-bible-${session.noteId}",
+        factory = com.bettertalker.app.ui.bible.BibleReaderViewModel.Factory(
+            db,
+            voiceRouter,
+        ),
+    )
 
     // O chat pode ser restaurado sem a rota do editor: garante o gerador
     // para o fluxo "texto total" → DraftSheet.
@@ -1438,6 +1465,40 @@ private fun NoteChatHost(
 
     // Fatia 4 — navegação/mentoria: o chat pede; a tela dona da rota executa.
     val navScope = androidx.compose.runtime.rememberCoroutineScope()
+    var bibleNotice by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.bible.BibleReferenceNotice?>(null)
+    }
+    val bibleOpenCoordinator = androidx.compose.runtime.remember(
+        navScope,
+        bibleVm,
+        bibleResolver,
+        ctx,
+    ) {
+        com.bettertalker.app.data.bible.BibleReferenceOpenCoordinator(
+            scope = navScope,
+            onResolution = { result ->
+                when (result) {
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Available ->
+                        bibleVm.open(result.target)
+                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Partial ->
+                        bibleVm.open(result.target)
+                    else ->
+                        bibleNotice =
+                            com.bettertalker.app.data.bible.bibleReferenceNotice(result)
+                }
+            },
+            onFailure = {
+                bibleNotice = com.bettertalker.app.data.bible.BibleReferenceNotice(
+                    title = "Não foi possível abrir",
+                    message = "Não foi possível abrir esta referência agora.",
+                    openLibrary = false,
+                )
+            },
+        )
+    }
+    androidx.compose.runtime.DisposableEffect(bibleOpenCoordinator) {
+        onDispose { bibleOpenCoordinator.cancel() }
+    }
     val navSettings = androidx.compose.runtime.remember(ctx) {
         com.bettertalker.app.data.prefs.SettingsStore(ctx)
     }
@@ -1637,6 +1698,9 @@ private fun NoteChatHost(
         }) else null,
         onOpenEditor = onOpenEditor,
         onNavigate = navigateFromChat,
+        onOpenBibleReference = { occurrence ->
+            bibleOpenCoordinator.open(occurrence) { bibleResolver.resolve(it) }
+        },
         practiceContext = practiceContext,
         onBackToWalkie = if (walkieDefault) ({ walkie = true }) else null,
         focusComposerOnStart = fullFocusRequest,
@@ -1662,6 +1726,43 @@ private fun NoteChatHost(
         onDraftNext = editorVm::nextDraft,
         onDraftContinue = editorVm::continueDraft,
     )
+    com.bettertalker.app.ui.bible.BibleReaderSheet(
+        vm = bibleVm,
+        onOpenLibrary = {
+            bibleVm.close()
+            nav.navigate(Routes.library(session.noteId))
+        },
+    )
+    bibleNotice?.let { notice ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { bibleNotice = null },
+            title = { androidx.compose.material3.Text(notice.title) },
+            text = { androidx.compose.material3.Text(notice.message) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        bibleNotice = null
+                        if (notice.openLibrary) {
+                            nav.navigate(Routes.library(session.noteId))
+                        }
+                    },
+                ) {
+                    androidx.compose.material3.Text(
+                        if (notice.openLibrary) "Abrir Biblioteca" else "Fechar",
+                    )
+                }
+            },
+            dismissButton = if (notice.openLibrary) {
+                {
+                    androidx.compose.material3.TextButton(
+                        onClick = { bibleNotice = null },
+                    ) { androidx.compose.material3.Text("Agora não") }
+                }
+            } else {
+                null
+            },
+        )
+    }
     }
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
         copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }
