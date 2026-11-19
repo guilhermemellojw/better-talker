@@ -1017,6 +1017,25 @@ interface DecisionDao {
     @Upsert
     suspend fun upsertAll(records: List<DecisionEntity>)
 
+    /**
+     * 1C.2.1B2B — inserção sem sobrescrever a substituta. Retorna `-1` quando
+     * o id já existe; o repositório traduz em conflito, nunca em overwrite.
+     * A política de colisão é a PK; os demais campos são validados no domínio.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(record: DecisionEntity): Long
+
+    /**
+     * Compare-and-set da substituição: só altera a anterior se ela ainda
+     * estiver ACTIVE. Retorna 0 quando outra operação venceu a corrida.
+     * O literal `SUPERSEDED` acompanha o mapeamento por `DecisionState.name`.
+     */
+    @Query(
+        "UPDATE decision_records SET decisionState = 'SUPERSEDED', updatedAt = :updatedAt " +
+            "WHERE id = :id AND decisionState = 'ACTIVE'"
+    )
+    suspend fun markSupersededIfActive(id: String, updatedAt: Long): Int
+
     @Query("DELETE FROM decision_records WHERE id = :id")
     suspend fun deleteById(id: String)
 
