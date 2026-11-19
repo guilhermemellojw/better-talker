@@ -1,7 +1,7 @@
 # TRUST-2B1 — Baseline determinístico (relatório experimental)
 
 **Status:** infraestrutura experimental em testes; nenhuma integração à produção.  
-**Base do experimento:** `79f9b8188ffdbaef1236638d185d02a5f565c25a` (TRUST-2A integrada). **Base do PR #25:** `530720af0943535f46939419be150d8546134630`.  
+**Base do experimento:** `79f9b8188ffdbaef1236638d185d02a5f565c25a` (TRUST-2A integrada). **Base do PR #25:** `532063253f7300ccdedb3e60568856af7bd18db3`.  
 **Código:** `android/app/src/test/java/com/bettertalker/app/eval/`.  
 **Natureza:** fixtures sintéticas; os números abaixo medem o **baseline mecânico**, não desempenho semântico real.
 
