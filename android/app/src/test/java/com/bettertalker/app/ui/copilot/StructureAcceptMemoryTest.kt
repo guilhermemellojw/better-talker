@@ -113,6 +113,25 @@ private class CaptureFakeDecisionDao : DecisionDao {
         records.forEach { upsert(it) }
     }
 
+    override suspend fun insertIfAbsent(record: DecisionEntity): Long {
+        if (rows.any { it.id == record.id }) return -1L
+        rows = rows + record
+        return rows.size.toLong()
+    }
+
+    override suspend fun markSupersededIfActive(id: String, updatedAt: Long): Int {
+        val existing = rows.firstOrNull { it.id == id } ?: return 0
+        if (existing.decisionState != "ACTIVE") return 0
+        rows = rows.map {
+            if (it.id == id) {
+                it.copy(decisionState = "SUPERSEDED", updatedAt = updatedAt)
+            } else {
+                it
+            }
+        }
+        return 1
+    }
+
     override suspend fun deleteById(id: String) {
         rows = rows.filter { it.id != id }
     }

@@ -424,4 +424,107 @@ class DecisionMemoryTest {
         }
         assertEquals("s1", snapshot.id)
     }
+
+    @Test
+    fun supersessaoComRemapConfirmadoAceitaDestinoAncoradoNaSecaoAtual() {
+        val previous = sectionDecision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s1",
+        )
+        val replacement = sectionDecision(
+            id = "d2",
+            sectionId = "s2",
+            originalSectionId = "s2",
+            supersedesId = "d1",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+
+        val pair = DecisionTransitions.supersede(
+            previous,
+            replacement,
+            now = 20L,
+            allowRemappedPrevious = true,
+        )
+
+        assertEquals(DecisionState.SUPERSEDED, pair.previous.decisionState)
+        assertEquals("s1", pair.previous.originalSectionId)
+        assertEquals("s2", pair.replacement.sectionId)
+        assertEquals("s2", pair.replacement.originalSectionId)
+        assertEquals("d1", pair.replacement.supersedesId)
+    }
+
+    @Test
+    fun supersessaoComRemapMantemRegraEstritaPorPadrao() {
+        val previous = sectionDecision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s1",
+        )
+        val replacement = sectionDecision(
+            id = "d2",
+            sectionId = "s2",
+            originalSectionId = "s2",
+            supersedesId = "d1",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DecisionTransitions.supersede(previous, replacement, now = 20L)
+        }
+    }
+
+    @Test
+    fun supersessaoComRemapRejeitaDestinoNaoAncorado() {
+        val previous = sectionDecision(
+            id = "d1",
+            sectionId = "s2",
+            originalSectionId = "s1",
+        )
+        val replacement = sectionDecision(
+            id = "d2",
+            sectionId = "s2",
+            originalSectionId = "s3",
+            supersedesId = "d1",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DecisionTransitions.supersede(
+                previous,
+                replacement,
+                now = 20L,
+                allowRemappedPrevious = true,
+            )
+        }
+    }
+
+    @Test
+    fun supersessaoComOriginalDiferenteSemRemapEhRejeitada() {
+        val previous = sectionDecision(
+            id = "d1",
+            sectionId = "s1",
+            originalSectionId = "s1",
+        )
+        val replacement = sectionDecision(
+            id = "d2",
+            sectionId = "s1",
+            originalSectionId = "s2",
+            supersedesId = "d1",
+            createdAt = 20L,
+            updatedAt = 20L,
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            DecisionTransitions.supersede(
+                previous,
+                replacement,
+                now = 20L,
+                allowRemappedPrevious = true,
+            )
+        }
+    }
 }
