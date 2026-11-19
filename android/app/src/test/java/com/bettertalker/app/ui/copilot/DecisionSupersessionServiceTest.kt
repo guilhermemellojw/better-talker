@@ -233,6 +233,58 @@ class DecisionSupersessionServiceTest {
     }
 
     @Test
+    fun perguntaUsaORetratoPersistidoDaAnterior() = runBlocking {
+        val previous = decision("a", text = "anterior persistida")
+        val replacement = decision("b", createdAt = 20L)
+        seed(previous, replacement)
+
+        val prompt = service.findPrompt(replacement)!!
+
+        assertEquals("anterior persistida", prompt.previous.text)
+        assertEquals(10L, prompt.previous.updatedAt)
+    }
+
+    @Test
+    fun anteriorAlteradaDepoisDaPerguntaNaoVincula() = runBlocking {
+        val previous = decision("a", text = "texto exibido")
+        val replacement = decision("b", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(previous.copy(text = "texto novo").toEntity())
+        val before = dao.rows
+
+        val result = service.confirm(prompt, now = 30L)
+
+        assertTrue(result is SupersessionResult.Stale)
+        result as SupersessionResult.Stale
+        assertEquals("a", result.previousDecisionId)
+        assertEquals(before, dao.rows)
+        assertEquals(DecisionState.ACTIVE.name, dao.get("a")!!.decisionState)
+        assertEquals("texto novo", dao.get("a")!!.text)
+        assertNull(dao.get("b")!!.supersedesId)
+        assertEquals(0, dao.linkCalls)
+    }
+
+    @Test
+    fun refreshAposMudancaDaAnteriorAtualizaORetrato() = runBlocking {
+        val previous = decision("a", text = "texto exibido")
+        val replacement = decision("b", createdAt = 20L, updatedAt = 20L)
+        seed(previous, replacement)
+        val prompt = service.findPrompt(replacement)!!
+        dao.upsert(previous.copy(text = "texto novo").toEntity())
+
+        val refreshed = service.refresh(prompt)!!
+
+        assertEquals("texto novo", refreshed.previous.text)
+
+        val result = service.confirm(refreshed, now = 30L)
+
+        assertTrue(result is SupersessionResult.Committed)
+        assertEquals(DecisionState.SUPERSEDED.name, dao.get("a")!!.decisionState)
+        assertEquals("a", dao.get("b")!!.supersedesId)
+    }
+
+    @Test
     fun substitutaAlteradaDepoisDaPerguntaNaoVincula() = runBlocking {
         val previous = decision("a")
         val replacement = decision("b", text = "texto exibido", createdAt = 20L, updatedAt = 20L)

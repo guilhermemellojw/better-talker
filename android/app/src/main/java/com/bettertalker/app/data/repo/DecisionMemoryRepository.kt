@@ -393,13 +393,15 @@ class DecisionMemoryRepository(
      * + versão esperada) e a anterior vira `SUPERSEDED` no mesmo commit.
      * Reutiliza exatamente as mesmas validações de [validateConfirmedPair].
      *
-     * [expectedReplacement] é o retrato EXIBIDO ao usuário, não uma releitura
-     * feita na confirmação. Qualquer mudança nesse registro (inclusive no
-     * mesmo milissegundo) retorna [SupersessionResult.ReplacementStale] sem
-     * vincular nada.
+     * [expectedPrevious] e [expectedReplacement] são os retratos EXIBIDOS ao
+     * usuário, não releituras feitas na confirmação. Qualquer mudança em
+     * qualquer um deles (inclusive no mesmo milissegundo) impede a escrita:
+     * A divergente retorna [SupersessionResult.Stale]; B divergente retorna
+     * [SupersessionResult.ReplacementStale].
      */
     suspend fun supersedePersistedReplacementConfirmed(
         confirmation: SupersessionConfirmation,
+        expectedPrevious: DecisionRecord,
         expectedReplacement: DecisionRecord,
         now: Long = System.currentTimeMillis(),
     ): SupersessionResult {
@@ -409,6 +411,8 @@ class DecisionMemoryRepository(
             confirmation.previousDecisionId.isBlank() ||
             confirmation.replacementDecisionId.isBlank() ||
             confirmation.previousDecisionId == confirmation.replacementDecisionId ||
+            expectedPrevious.id != confirmation.previousDecisionId ||
+            expectedPrevious.noteId != confirmation.noteId ||
             expectedReplacement.id != confirmation.replacementDecisionId ||
             expectedReplacement.noteId != confirmation.noteId
         ) {
@@ -465,6 +469,18 @@ class DecisionMemoryRepository(
                             SupersessionIneligibleReason.PREVIOUS_NOT_ACTIVE,
                         )
                     }
+                }
+
+                // A decisão anterior exibida também faz parte da confirmação.
+                // A igualdade integral cobre conteúdo, assunto, origem,
+                // seção, snapshots, aplicação, vínculo e timestamps — inclusive
+                // mudanças que preservam o mesmo `updatedAt`.
+                if (previous != expectedPrevious) {
+                    return@run SupersessionResult.Stale(
+                        previousDecisionId = previous.id,
+                        expectedUpdatedAt = expectedPrevious.updatedAt,
+                        actualUpdatedAt = previous.updatedAt,
+                    )
                 }
 
                 // A versão exibida da substituta faz parte da confirmação.

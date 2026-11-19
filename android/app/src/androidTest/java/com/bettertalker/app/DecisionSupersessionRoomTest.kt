@@ -150,6 +150,7 @@ class DecisionSupersessionRoomTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, replacement),
+            expectedPrevious = previous,
             expectedReplacement = replacement,
             now = 30L,
         )
@@ -190,6 +191,7 @@ class DecisionSupersessionRoomTest {
 
         val result = repo.supersedePersistedReplacementConfirmed(
             confirmation(previous, displayed),
+            expectedPrevious = previous,
             expectedReplacement = displayed,
             now = 30L,
         )
@@ -211,6 +213,38 @@ class DecisionSupersessionRoomTest {
     }
 
     @Test
+    fun anteriorAlteradaNoRoomNoMesmoTimestampNaoVincula() = runBlocking {
+        val displayed = decision(id = "a", text = "texto exibido")
+        val replacement = decision(id = "b", createdAt = 20L, updatedAt = 20L)
+        seed(displayed)
+        db.decisionDao().upsert(replacement.toEntity())
+        // Outro fluxo altera A mantendo o mesmo updatedAt.
+        db.decisionDao().upsert(displayed.copy(text = "texto atualizado").toEntity())
+        val previousBefore = db.decisionDao().get("a")!!
+        val replacementBefore = db.decisionDao().get("b")!!
+        val countBefore = db.decisionDao().countForNote("n1")
+
+        val result = repo.supersedePersistedReplacementConfirmed(
+            confirmation(displayed, replacement),
+            expectedPrevious = displayed,
+            expectedReplacement = replacement,
+            now = 30L,
+        )
+
+        assertTrue(result is SupersessionResult.Stale)
+        result as SupersessionResult.Stale
+        assertEquals("a", result.previousDecisionId)
+        assertEquals(10L, result.expectedUpdatedAt)
+        assertEquals(10L, result.actualUpdatedAt)
+        assertEquals(previousBefore, db.decisionDao().get("a"))
+        assertEquals(replacementBefore, db.decisionDao().get("b"))
+        assertEquals(countBefore, db.decisionDao().countForNote("n1"))
+        assertEquals(DecisionState.ACTIVE, db.decisionDao().get("a")!!.toDomain().decisionState)
+        assertEquals("texto atualizado", db.decisionDao().get("a")!!.toDomain().text)
+        assertNull(db.decisionDao().get("b")!!.supersedesId)
+    }
+
+    @Test
     fun concorrenciaComSubstitutasPersistidasAceitaSomenteUma() = runBlocking {
         val previous = decision(id = "a")
         val b = decision(id = "b", createdAt = 20L, updatedAt = 20L)
@@ -224,6 +258,7 @@ class DecisionSupersessionRoomTest {
                 async(Dispatchers.IO) {
                     repo.supersedePersistedReplacementConfirmed(
                         confirmation(previous, b),
+                        expectedPrevious = previous,
                         expectedReplacement = b,
                         now = 30L,
                     )
@@ -231,6 +266,7 @@ class DecisionSupersessionRoomTest {
                 async(Dispatchers.IO) {
                     repo.supersedePersistedReplacementConfirmed(
                         confirmation(previous, c),
+                        expectedPrevious = previous,
                         expectedReplacement = c,
                         now = 30L,
                     )

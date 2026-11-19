@@ -209,6 +209,7 @@ class DecisionSupersessionService(
         now: Long = System.currentTimeMillis(),
     ): SupersessionResult = decisionMemory.supersedePersistedReplacementConfirmed(
         confirmation = prompt.toConfirmation(now),
+        expectedPrevious = prompt.previous,
         expectedReplacement = prompt.replacement,
         now = now,
     )
