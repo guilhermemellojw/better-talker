@@ -93,6 +93,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -120,6 +121,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -185,6 +188,8 @@ import com.bettertalker.app.ui.components.inline
 import com.bettertalker.app.ui.components.InlineBibleLink
 import com.bettertalker.app.ui.components.parseBlocks
 import kotlinx.coroutines.delay
+import java.net.URLDecoder
+import java.net.URLEncoder
 import kotlinx.coroutines.launch
 
 /**
@@ -3093,7 +3098,41 @@ fun ChatMessageText(
     // (posição preservada) e o strip de marcadores roda por bloco.
     val hasSuggestion = remember(md) { stripSuggestionTags(md).hasSuggestion }
     val blocks = remember(md) { cleanBlocks(parseBlocks(md)) }
-    SelectionContainer {
+    val systemUriHandler = LocalUriHandler.current
+    val bibleUriHandler = remember(systemUriHandler, onOpenBibleReference) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                if (uri.startsWith("bettertalker-bible://open?ref=")) {
+                    val raw = runCatching {
+                        URLDecoder.decode(uri.substringAfter("ref="), "UTF-8")
+                    }.getOrNull()
+                    val occurrence = raw
+                        ?.let { BibleReferenceSpanDetector.detect(it).firstOrNull() }
+                    if (occurrence != null && onOpenBibleReference != null) {
+                        onOpenBibleReference(occurrence)
+                    } else {
+                        systemUriHandler.openUri(uri)
+                    }
+                } else {
+                    systemUriHandler.openUri(uri)
+                }
+            }
+        }
+    }
+    val hasBibleLinks = remember(blocks, onOpenBibleReference) {
+        onOpenBibleReference != null && blocks.any { block ->
+            val text = when (block) {
+                is MdBlock.Title -> block.text
+                is MdBlock.Quote -> block.text
+                is MdBlock.Bullet -> block.text
+                is MdBlock.Check -> block.text
+                is MdBlock.Para -> block.text
+                else -> ""
+            }
+            text.isNotBlank() && BibleReferenceSpanDetector.detect(text).isNotEmpty()
+        }
+    }
+    val body: @Composable () -> Unit = {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (hasSuggestion) {
                 Text(
@@ -3144,7 +3183,7 @@ fun ChatMessageText(
                         InlineBibleLink(
                             start = occ.start,
                             endExclusive = occ.endExclusive,
-                            tag = "bible:${occ.start}:${occ.endExclusive}",
+                            tag = URLEncoder.encode(occ.raw, "UTF-8"),
                             label = occ.raw,
                         )
                     }
@@ -3160,18 +3199,14 @@ fun ChatMessageText(
                         null
                     },
                     bibleLinks = if (onOpenBibleReference != null) bibleLinks else emptyList(),
-                    onBibleLink = if (onOpenBibleReference != null) {
-                        { link ->
-                            detectedBibleRefs
-                                .firstOrNull { it.start == link.start }
-                                ?.let(onOpenBibleReference)
-                        }
-                    } else {
-                        null
-                    },
                 )
             }
         }
+    }
+    if (hasBibleLinks) {
+        CompositionLocalProvider(LocalUriHandler provides bibleUriHandler) { body() }
+    } else {
+        SelectionContainer { body() }
     }
 }
 
@@ -3187,11 +3222,10 @@ internal fun RenderBlock(
     onUseInCard: ((String) -> Unit)?,
     cardActions: (@Composable () -> Unit)? = null,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ) {
     when (block) {
         is MdBlock.Title -> Text(
-            markInline(block.text, mark, bibleLinks, onBibleLink),
+            markInline(block.text, mark, bibleLinks),
             // P1: pesos e lineHeights vêm da AppTypography.
             style = if (block.level >= 3) MaterialTheme.typography.titleMedium
             else MaterialTheme.typography.titleLarge,
@@ -3199,16 +3233,16 @@ internal fun RenderBlock(
                 .padding(top = 4.dp)
                 .semantics { heading() },
         )
-        is MdBlock.Quote -> RenderQuote(block.text, mark, bibleLinks, onBibleLink)
+        is MdBlock.Quote -> RenderQuote(block.text, mark, bibleLinks)
         is MdBlock.Divider -> HorizontalDivider(
             modifier = Modifier.padding(vertical = 2.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
         )
-        is MdBlock.Bullet -> RenderBullet(block, mark, bibleLinks, onBibleLink)
-        is MdBlock.Check -> RenderCheck(block, mark, bibleLinks, onBibleLink)
+        is MdBlock.Bullet -> RenderBullet(block, mark, bibleLinks)
+        is MdBlock.Check -> RenderCheck(block, mark, bibleLinks)
         is MdBlock.Para -> Text(
-            markInline(block.text, mark, bibleLinks, onBibleLink),
+            markInline(block.text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge
         )
         is MdBlock.TextForCard -> RenderTextForCard(
@@ -3224,7 +3258,6 @@ private fun RenderQuote(
     text: String,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ) {
     Row(
         Modifier
@@ -3245,7 +3278,7 @@ private fun RenderQuote(
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            markInline(text, mark, bibleLinks, onBibleLink),
+            markInline(text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -3258,7 +3291,6 @@ private fun RenderBullet(
     block: MdBlock.Bullet,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.Top,
@@ -3275,7 +3307,7 @@ private fun RenderBullet(
             modifier = Modifier.widthIn(min = 26.dp)
         )
         Text(
-            markInline(block.text, mark, bibleLinks, onBibleLink),
+            markInline(block.text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge,
         )
     }
@@ -3286,7 +3318,6 @@ private fun RenderCheck(
     block: MdBlock.Check,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.Top,
@@ -3301,7 +3332,7 @@ private fun RenderCheck(
             modifier = Modifier.widthIn(min = 26.dp)
         )
         Text(
-            markInline(block.text, mark, bibleLinks, onBibleLink),
+            markInline(block.text, mark, bibleLinks),
             style = MaterialTheme.typography.bodyLarge,
         )
     }
@@ -3396,11 +3427,9 @@ private fun markInline(
     text: String,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ): AnnotatedString = inline(
     text = text,
     bibleLinks = bibleLinks,
-    onBibleLink = onBibleLink,
     leading = mark,
 )
 

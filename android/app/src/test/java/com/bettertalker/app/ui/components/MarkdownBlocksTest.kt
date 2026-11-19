@@ -258,7 +258,10 @@ class MarkdownBlocksTest {
         val link = a.getLinkAnnotations(0, a.length).single()
         assertEquals(start, link.start)
         assertEquals(start + "Mateus 24:14".length, link.end)
-        assertEquals("bible:test", (link.item as LinkAnnotation.Clickable).tag)
+        assertEquals(
+            "bettertalker-bible://open?ref=bible:test",
+            (link.item as LinkAnnotation.Url).url,
+        )
     }
 
     @Test
@@ -273,6 +276,7 @@ class MarkdownBlocksTest {
         val link = a.getLinkAnnotations(0, a.length).single()
         assertEquals(0, link.start)
         assertEquals(12, link.end)
+        assertTrue((link.item as LinkAnnotation.Url).url.startsWith("bettertalker-bible://open?ref="))
         assertTrue(a.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
     }
 
@@ -290,7 +294,8 @@ class MarkdownBlocksTest {
         )
         val links = a.getLinkAnnotations(0, a.length)
         assertEquals(2, links.size)
-        assertEquals(listOf("bible:1", "bible:2"), links.map { (it.item as LinkAnnotation.Clickable).tag })
+        assertTrue((links[0].item as LinkAnnotation.Url).url.endsWith("ref=bible:1"))
+        assertTrue((links[1].item as LinkAnnotation.Url).url.endsWith("ref=bible:2"))
     }
 
     @Test
@@ -305,8 +310,13 @@ class MarkdownBlocksTest {
         )
         val links = a.getLinkAnnotations(0, a.length)
         assertEquals(2, links.size)
-        assertEquals(1, links.count { it.item is LinkAnnotation.Url })
-        assertEquals(1, links.count { it.item is LinkAnnotation.Clickable })
+        assertEquals(2, links.count { it.item is LinkAnnotation.Url })
+        assertTrue(links.any { (it.item as LinkAnnotation.Url).url == "https://jw.org" })
+        assertTrue(
+            links.any {
+                (it.item as LinkAnnotation.Url).url.startsWith("bettertalker-bible://open?ref=")
+            },
+        )
         assertEquals("Veja a página e Mateus 24:14.", a.text)
     }
 

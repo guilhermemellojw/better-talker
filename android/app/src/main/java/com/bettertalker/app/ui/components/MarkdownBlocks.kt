@@ -4,7 +4,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.text.LinkAnnotation
@@ -191,13 +190,11 @@ internal fun isJwUrl(url: String): Boolean {
 fun inline(
     text: String,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
     leading: androidx.compose.ui.text.AnnotatedString? = null,
 ): androidx.compose.ui.text.AnnotatedString {
     // Cores lidas fora do remember (leitura composable não pode viver no lambda).
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
     val linkColor = MaterialTheme.colorScheme.tertiary
-    val currentOnBibleLink by rememberUpdatedState(onBibleLink)
     return remember(text, codeBackground, linkColor, bibleLinks, leading) {
         buildInline(
             text = text,
@@ -205,7 +202,6 @@ fun inline(
             linkColor = linkColor,
             leading = leading,
             bibleLinks = bibleLinks,
-            onBibleLink = { link -> currentOnBibleLink?.invoke(link) },
         )
     }
 }
@@ -225,7 +221,6 @@ fun buildInline(
     linkColor: Color = Color.Unspecified,
     leading: androidx.compose.ui.text.AnnotatedString? = null,
     bibleLinks: List<InlineBibleLink> = emptyList(),
-    onBibleLink: ((InlineBibleLink) -> Unit)? = null,
 ): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     leading?.let { append(it) }
     var i = 0
@@ -249,10 +244,9 @@ fun buildInline(
             null
         }
         withLink(
-            LinkAnnotation.Clickable(
-                tag = link.tag,
+            LinkAnnotation.Url(
+                url = "bettertalker-bible://open?ref=${link.tag}",
                 styles = styles,
-                linkInteractionListener = { onBibleLink?.invoke(link) },
             )
         ) { append(s) }
     }
