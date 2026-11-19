@@ -124,7 +124,7 @@ Resultados (31 executáveis):
 2. Definir formalmente T2-01…T2-15 antes de usá-los.
 3. Medir recall@k de candidatos (embeddings) sobre as fixtures anotadas.
 4. Só então avaliar NLI local; não integrar verificador às rotas.
-5. Manter o baseline determinístico como primeira camada e никогда não tratar `SUPPORTED` como certificado de verdade.
+5. Manter o baseline determinístico como primeira camada e nunca tratar `SUPPORTED` como certificado de verdade.
 
 ## 8. Reprodução
 
