@@ -1465,6 +1465,9 @@ private fun NoteChatHost(
 
     // Fatia 4 — navegação/mentoria: o chat pede; a tela dona da rota executa.
     val navScope = androidx.compose.runtime.rememberCoroutineScope()
+    var bibleNotice by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.bible.BibleReferenceNotice?>(null)
+    }
     val bibleOpenCoordinator = androidx.compose.runtime.remember(
         navScope,
         bibleVm,
@@ -1479,32 +1482,17 @@ private fun NoteChatHost(
                         bibleVm.open(result.target)
                     is com.bettertalker.app.data.bible.BibleReferenceResolution.Partial ->
                         bibleVm.open(result.target)
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Unavailable ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Essa passagem ainda não está disponível na Biblioteca.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.Ambiguous ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Não foi possível identificar essa referência.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
-                    is com.bettertalker.app.data.bible.BibleReferenceResolution.NotRecognized ->
-                        android.widget.Toast.makeText(
-                            ctx,
-                            "Não foi possível identificar essa referência.",
-                            android.widget.Toast.LENGTH_LONG,
-                        ).show()
+                    else ->
+                        bibleNotice =
+                            com.bettertalker.app.data.bible.bibleReferenceNotice(result)
                 }
             },
             onFailure = {
-                android.widget.Toast.makeText(
-                    ctx,
-                    "Não foi possível abrir esta referência agora.",
-                    android.widget.Toast.LENGTH_LONG,
-                ).show()
+                bibleNotice = com.bettertalker.app.data.bible.BibleReferenceNotice(
+                    title = "Não foi possível abrir",
+                    message = "Não foi possível abrir esta referência agora.",
+                    openLibrary = false,
+                )
             },
         )
     }
@@ -1745,6 +1733,36 @@ private fun NoteChatHost(
             nav.navigate(Routes.library(session.noteId))
         },
     )
+    bibleNotice?.let { notice ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { bibleNotice = null },
+            title = { androidx.compose.material3.Text(notice.title) },
+            text = { androidx.compose.material3.Text(notice.message) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        bibleNotice = null
+                        if (notice.openLibrary) {
+                            nav.navigate(Routes.library(session.noteId))
+                        }
+                    },
+                ) {
+                    androidx.compose.material3.Text(
+                        if (notice.openLibrary) "Abrir Biblioteca" else "Fechar",
+                    )
+                }
+            },
+            dismissButton = if (notice.openLibrary) {
+                {
+                    androidx.compose.material3.TextButton(
+                        onClick = { bibleNotice = null },
+                    ) { androidx.compose.material3.Text("Agora não") }
+                }
+            } else {
+                null
+            },
+        )
+    }
     }
     androidx.compose.runtime.LaunchedEffect(editorVm, copilotVm) {
         copilotVm.setDraftQueueStarter { targets -> editorVm.startDraftQueue(targets) }

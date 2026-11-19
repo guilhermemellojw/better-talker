@@ -65,12 +65,14 @@ class BibleReaderViewModel(
         open(
             rawRefs = target.canonicalRefs.ifEmpty { listOf(target.rawReference) },
             expectedAttachmentId = target.sourceAttachmentId,
+            requireNwt = true,
         )
     }
 
     fun open(
         rawRefs: List<String>,
         expectedAttachmentId: String? = null,
+        requireNwt: Boolean = false,
     ) {
         val refs = rawRefs.map { it.trim() }.filter { it.isNotEmpty() }
         if (refs.isEmpty()) return
@@ -79,7 +81,7 @@ class BibleReaderViewModel(
         _state.value = BibleReaderUiState(visible = true, loading = true)
         readJob = workScope.launch {
             val passage = try {
-                reader.read(refs, expectedAttachmentId)
+                reader.read(refs, expectedAttachmentId, requireNwt)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

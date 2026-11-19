@@ -13,6 +13,15 @@ data class BibleSource(
  */
 interface BiblePassageSource {
     suspend fun preferredSource(): BibleSource?
+
+    /**
+     * UX-REF-1A2 — fonte estritamente NWT/TNM para o fluxo Mentor → referência.
+     * O default só aceita a fonte preferida quando ela se identifica como TNM;
+     * a implementação Room usa o índice `baseReady("nwt")`.
+     */
+    suspend fun nwtSource(): BibleSource? =
+        preferredSource()?.takeIf { it.isTnm }
+
     suspend fun texts(sourceId: String, canonicalRefs: List<String>): Map<String, String>
 
     /** v5.2.1: versículos de um capítulo inteiro, na ordem do índice. */
