@@ -1,5 +1,8 @@
 package com.bettertalker.app.ui.editor
 
+import com.bettertalker.app.data.copilot.DecisionReconciliationHook
+import com.bettertalker.app.data.copilot.ReconcileOperation
+import com.bettertalker.app.data.copilot.toSectionSnapshot
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SubPointDao
 import com.bettertalker.app.data.db.TombstoneDao
@@ -63,6 +66,11 @@ class SectionsController(
     private val onSaved: suspend () -> Unit = {},
     /** Opcional em testes; produção passa `db.tombstoneDao()`. */
     private val tombstoneDao: TombstoneDao? = null,
+    /**
+     * 1C.2.2A — reconciliação do ledger após mudanças estruturais/conteúdo.
+     * Produção delega ao DecisionMemoryRepository; testes podem usar fake.
+     */
+    private val decisionReconciliation: DecisionReconciliationHook? = null,
 ) {
     private val _sections = MutableStateFlow<List<SectionUiState>>(emptyList())
     val sections: StateFlow<List<SectionUiState>> = _sections.asStateFlow()
@@ -246,7 +254,7 @@ class SectionsController(
         val renormalized = renormalizeSections(updated)
         _sections.value = renormalized
         // Hotfix P0.2: persiste TUDO atomicamente (não agenda save individual).
-        launchAtomicPersist(renormalized)
+        launchAtomicPersist(renormalized, ReconcileOperation.ADD)
         return newSection
     }
 
@@ -266,7 +274,7 @@ class SectionsController(
             current.filterNot { it.section.id == sectionId }
         )
         _sections.value = renormalized
-        launchAtomicPersist(renormalized)
+        launchAtomicPersist(renormalized, ReconcileOperation.REMOVE)
     }
 
     /**
@@ -285,7 +293,7 @@ class SectionsController(
             dao.remove(state.section.id)
             state.subPoints.forEach { dao.remove(it.id) }
         }
-        persistSectionsAtomically(renormalized)
+        persistSectionsAtomically(renormalized, ReconcileOperation.UNDO_REMOVE)
         onSaved()
         return true
     }
@@ -303,7 +311,7 @@ class SectionsController(
         list[idx] = list[target].also { list[target] = list[idx] }
         val renormalized = renormalizeSections(list)
         _sections.value = renormalized
-        launchAtomicPersist(renormalized)
+        launchAtomicPersist(renormalized, ReconcileOperation.REORDER)
     }
 
     /**
@@ -320,7 +328,7 @@ class SectionsController(
         list.add(to, item)
         val renormalized = renormalizeSections(list)
         _sections.value = renormalized
-        launchAtomicPersist(renormalized)
+        launchAtomicPersist(renormalized, ReconcileOperation.REORDER)
     }
 
     /** Muda o role de uma seção (sem validar — validação é aviso). */
@@ -480,9 +488,25 @@ class SectionsController(
 
     private suspend fun saveSection(sectionId: String) {
         val current = _sections.value.firstOrNull { it.section.id == sectionId } ?: return
-        sectionDao.upsert(current.section.toEntity())
-        if (current.subPoints.isNotEmpty()) {
-            subPointDao.upsertAll(current.subPoints.map { it.toEntity() })
+        val now = clock()
+        transactionRunner.run {
+            val old = sectionDao.get(sectionId)?.toDomain()
+            sectionDao.upsert(current.section.toEntity())
+            if (current.subPoints.isNotEmpty()) {
+                subPointDao.upsertAll(current.subPoints.map { it.toEntity() })
+            }
+            // 1C.2.2A: o snapshot cobre título + conteúdo. Reconciliar na
+            // mesma transação evita decisão VALID apontando para conteúdo
+            // antigo e mantém STALE coerente quando houver aplicação.
+            if (old != null && decisionReconciliation != null) {
+                decisionReconciliation.onSectionsChanged(
+                    noteId = noteId,
+                    oldSections = listOf(old.toSectionSnapshot()),
+                    newSections = listOf(current.section.toSectionSnapshot()),
+                    operation = ReconcileOperation.REORDER,
+                    now = now,
+                )
+            }
         }
     }
 
@@ -500,22 +524,25 @@ class SectionsController(
      * individual" que causava perda silenciosa de dados quando o `order`
      * colidia com o de outra seção existente.
      */
-    private suspend fun persistSectionsAtomically(sections: List<SectionUiState>) {
-        // Ids antigos para tombstones de exclusão estrutural. Sem isso o
-        // pull do sync recria a seção/sub-ponto apagado.
-        val oldSections = sectionDao.forNote(noteId)
-        val oldSubPoints = if (oldSections.isEmpty()) {
-            emptyList()
-        } else {
-            subPointDao.forSections(oldSections.map { it.id })
-        }
-        val newSectionIds = sections.map { it.section.id }.toSet()
-        val newSubPointIds = sections.flatMap { state ->
-            state.subPoints.map { it.id }
-        }.toSet()
+    private suspend fun persistSectionsAtomically(
+        sections: List<SectionUiState>,
+        operation: ReconcileOperation,
+    ) {
         val now = clock()
-
         transactionRunner.run {
+            // Ids antigos lidos DENTRO da transação: a reconciliação e os
+            // tombstones enxergam o mesmo estado que será substituído.
+            val oldSections = sectionDao.forNote(noteId)
+            val oldSubPoints = if (oldSections.isEmpty()) {
+                emptyList()
+            } else {
+                subPointDao.forSections(oldSections.map { it.id })
+            }
+            val newSectionIds = sections.map { it.section.id }.toSet()
+            val newSubPointIds = sections.flatMap { state ->
+                state.subPoints.map { it.id }
+            }.toSet()
+
             // CASCADE no schema apaga sub-pontos junto com as seções.
             sectionDao.deleteForNote(noteId)
             sectionDao.upsertAll(sections.map { it.section.toEntity() })
@@ -533,13 +560,25 @@ class SectionsController(
                     dao.put(TombstoneEntity(it.id, "subPoint", now))
                 }
             }
+            // 1C.2.2A: mesma transação da alteração estrutural. Se a
+            // reconciliação falhar, seções/tombstones também voltam atrás.
+            decisionReconciliation?.onSectionsChanged(
+                noteId = noteId,
+                oldSections = oldSections.map { it.toDomain().toSectionSnapshot() },
+                newSections = sections.map { it.section.toSectionSnapshot() },
+                operation = operation,
+                now = now,
+            )
         }
     }
 
     /** Dispara persistência atômica rastreada por [awaitSaves] (determinismo em teste). */
-    private fun launchAtomicPersist(sections: List<SectionUiState>) {
+    private fun launchAtomicPersist(
+        sections: List<SectionUiState>,
+        operation: ReconcileOperation = ReconcileOperation.REORDER,
+    ) {
         val job = scope.launch {
-            persistSectionsAtomically(sections)
+            persistSectionsAtomically(sections, operation)
             onSaved()
         }
         synchronized(atomicJobs) { atomicJobs += job }

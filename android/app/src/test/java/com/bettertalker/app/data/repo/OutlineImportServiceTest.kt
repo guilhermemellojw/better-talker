@@ -1,10 +1,14 @@
 package com.bettertalker.app.data.repo
 
+import com.bettertalker.app.data.copilot.DecisionReconciliationHook
+import com.bettertalker.app.data.copilot.ReconcileOperation
+import com.bettertalker.app.data.copilot.SectionSnapshot
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointDao
 import com.bettertalker.app.data.db.SubPointEntity
 import com.bettertalker.app.data.db.TransactionRunner
+import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.domain.speech.BodyConversion
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
@@ -317,5 +321,84 @@ class OutlineImportServiceTest {
         assertEquals(subPointsBefore, subPoints.rows)
         assertTrue(sections.rows.none { it.id.startsWith("b-") })
         assertTrue(subPoints.rows.none { it.id.startsWith("b-") })
+    }
+
+    // ---------- 1C.2.2A: reconciliação do ledger ----------
+
+    @Test
+    fun persist_reconciliaReimportacaoNaMesmaTransacao() = runBlocking {
+        val old = section("a-i", "n1", 0, SectionRole.INTRO, 1).toEntity()
+        val sections = FakeSectionDao(rows = listOf(old))
+        val subPoints = FakeSubPointDao()
+        val hook = RecordingReconciliationHook()
+        val service = OutlineImportService(
+            FakeTransactionRunner(sections, subPoints),
+            sections,
+            subPoints,
+            decisionReconciliation = hook,
+        )
+
+        service.persist(conversion(prefix = "b"))
+
+        val call = hook.calls.single()
+        assertEquals(ReconcileOperation.REIMPORT_REPLACE, call.operation)
+        assertEquals(listOf("a-i"), call.oldSections.map { it.id })
+        assertEquals(
+            listOf("b-i", "b-b0", "b-b1", "b-c"),
+            call.newSections.map { it.id },
+        )
+    }
+
+    @Test
+    fun persist_falhaNaReconciliacaoDesfazSecoes() = runBlocking {
+        val old = section("a-i", "n1", 0, SectionRole.INTRO, 1).toEntity()
+        val sections = FakeSectionDao(rows = listOf(old))
+        val subPoints = FakeSubPointDao()
+        val service = OutlineImportService(
+            FakeTransactionRunner(sections, subPoints),
+            sections,
+            subPoints,
+            decisionReconciliation = object : DecisionReconciliationHook {
+                override suspend fun onSectionsChanged(
+                    noteId: String,
+                    oldSections: List<SectionSnapshot>,
+                    newSections: List<SectionSnapshot>,
+                    operation: ReconcileOperation,
+                    now: Long,
+                ) {
+                    error("falha simulada na reconciliação")
+                }
+            },
+        )
+
+        try {
+            service.persist(conversion(prefix = "b"))
+            fail("Esperava falha da reconciliação")
+        } catch (e: IllegalStateException) {
+            assertTrue((e.message ?: "").contains("falha simulada"))
+        }
+
+        assertEquals(listOf(old), sections.rows)
+    }
+}
+
+private class RecordingReconciliationHook : DecisionReconciliationHook {
+    data class Call(
+        val oldSections: List<SectionSnapshot>,
+        val newSections: List<SectionSnapshot>,
+        val operation: ReconcileOperation,
+        val now: Long,
+    )
+
+    val calls = mutableListOf<Call>()
+
+    override suspend fun onSectionsChanged(
+        noteId: String,
+        oldSections: List<SectionSnapshot>,
+        newSections: List<SectionSnapshot>,
+        operation: ReconcileOperation,
+        now: Long,
+    ) {
+        calls += Call(oldSections, newSections, operation, now)
     }
 }

@@ -1,5 +1,8 @@
 package com.bettertalker.app.ui.editor
 
+import com.bettertalker.app.data.copilot.DecisionReconciliationHook
+import com.bettertalker.app.data.copilot.ReconcileOperation
+import com.bettertalker.app.data.copilot.SectionSnapshot
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SpeechSectionEntity
 import com.bettertalker.app.data.db.SubPointDao
@@ -1021,6 +1024,160 @@ class SectionsControllerTest {
             assertEquals(listOf("sp1"), restored!!.subPoints.map { it.id })
             assertFalse("tombstone deve sair", tombs.rows.any { it.id == "s2" })
             assertFalse("tombstone do subponto deve sair", tombs.rows.any { it.id == "sp1" })
+        } finally {
+            controller.close()
+        }
+    }
+
+    // ---------- 1C.2.2A: reconciliação do ledger ----------
+
+    private class RecordingDecisionHook : DecisionReconciliationHook {
+        data class Call(
+            val oldSections: List<SectionSnapshot>,
+            val newSections: List<SectionSnapshot>,
+            val operation: ReconcileOperation,
+            val now: Long,
+        )
+
+        val calls = mutableListOf<Call>()
+
+        override suspend fun onSectionsChanged(
+            noteId: String,
+            oldSections: List<SectionSnapshot>,
+            newSections: List<SectionSnapshot>,
+            operation: ReconcileOperation,
+            now: Long,
+        ) {
+            calls += Call(oldSections, newSections, operation, now)
+        }
+    }
+
+    private fun reconcileController(
+        secs: FakeSections,
+        subs: FakeSubPoints,
+        scope: kotlinx.coroutines.CoroutineScope,
+        hook: RecordingDecisionHook,
+    ) = SectionsController(
+        nid, secs, subs, FakeTransactionRunner(), scope,
+        debounceMs = 0,
+        clock = { 1000L },
+        decisionReconciliation = hook,
+    )
+
+    @Test
+    fun removeSection_reconciliaOrfandadeNaMesmaChamada() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("s1", 0, "BODY"), section("s2", 1, "BODY"))
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.removeSection("s1")
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.REMOVE, call.operation)
+            assertEquals(listOf("s1", "s2"), call.oldSections.map { it.id })
+            assertEquals(listOf("s2"), call.newSections.map { it.id })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun undoRemoveSection_reconciliaRetornoDaIdentidade() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("s1", 0, "BODY"), section("s2", 1, "BODY"))
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.removeSection("s2")
+            controller.awaitSaves()
+            assertTrue(controller.undoRemoveSection())
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.UNDO_REMOVE, call.operation)
+            assertEquals(listOf("s1", "s2"), call.newSections.map { it.id })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun onSectionContent_reconciliaNovoHashNaMesmaTransacao() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            controller.onSectionContent("s1", "<p>novo conteúdo</p>")
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.REORDER, call.operation)
+            assertEquals("s1", call.newSections.single().id)
+            assertTrue(
+                "hash do conteúdo deve mudar",
+                call.oldSections.single().contentHash != call.newSections.single().contentHash,
+            )
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun updateSectionRole_reconciliaNovoSnapshot() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            controller.updateSectionRole("s1", SectionRole.INTRO)
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.REORDER, call.operation)
+            assertEquals(SectionRole.BODY, call.oldSections.single().role)
+            assertEquals(SectionRole.INTRO, call.newSections.single().role)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun moveSection_reconciliaNovaOrdem() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(section("s1", 0, "BODY"), section("s2", 1, "BODY"))
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.moveSection("s2", MoveDirection.UP)
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.REORDER, call.operation)
+            assertEquals(
+                listOf(0, 1),
+                call.newSections.sortedBy { it.order }.map { it.order },
+            )
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun addSection_reconciliaOperacaoAdd() = runBlocking {
+        val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.isNotEmpty() }
+            controller.addSection(SectionRole.CONCLUSION)
+            controller.awaitSaves()
+            val call = hook.calls.last()
+            assertEquals(ReconcileOperation.ADD, call.operation)
+            assertEquals(2, call.newSections.size)
         } finally {
             controller.close()
         }

@@ -9,11 +9,11 @@ import com.bettertalker.app.data.copilot.DecisionSource
 import com.bettertalker.app.data.copilot.DecisionState
 import com.bettertalker.app.data.copilot.SectionLink
 import com.bettertalker.app.data.copilot.SectionSnapshot
+import com.bettertalker.app.data.copilot.toSectionSnapshot
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.TransactionRunner
 import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.db.toEntity
-import com.bettertalker.app.data.edit.hashText
 import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.domain.planning.OutlineProposal
 import com.bettertalker.app.domain.planning.SectionPlan
@@ -179,18 +179,12 @@ internal fun structureAcceptDecisionText(summary: String, plan: SectionPlan): St
 }
 
 /**
- * Snapshot da seção para a decisão. O hash reutiliza a MESMA função do
- * gate de stale do aceite (`sectionProposalBlock` + `hashText`).
+ * Snapshot da seção para a decisão. Reutiliza [toSectionSnapshot], a mesma
+ * regra usada pela reconciliação da 1C.2.2A; o hash continua idêntico ao gate
+ * de stale do aceite (`sectionProposalBlock` + `hashText`).
  */
 internal fun speechSectionSnapshot(section: SpeechSection): SectionSnapshot =
-    SectionSnapshot(
-        id = section.id,
-        noteId = section.noteId,
-        role = section.role,
-        title = section.title.ifBlank { "Seção" },
-        order = section.order,
-        contentHash = hashText(sectionProposalBlock(section.title, section.contentHtml)),
-    )
+    section.toSectionSnapshot()
 
 /**
  * Transformação pura evento → decisão. Não lê nem grava banco.
