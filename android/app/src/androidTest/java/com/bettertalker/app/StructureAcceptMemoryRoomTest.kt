@@ -301,6 +301,12 @@ class StructureAcceptMemoryRoomTest {
             error("falha simulada na decisão")
         }
 
+        override suspend fun insertIfAbsent(record: DecisionEntity): Long =
+            delegate.insertIfAbsent(record)
+
+        override suspend fun markSupersededIfActive(id: String, updatedAt: Long): Int =
+            delegate.markSupersededIfActive(id, updatedAt)
+
         override suspend fun deleteById(id: String) = delegate.deleteById(id)
 
         override suspend fun deleteForNote(noteId: String) = delegate.deleteForNote(noteId)
