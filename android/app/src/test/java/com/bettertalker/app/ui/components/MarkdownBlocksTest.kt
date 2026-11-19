@@ -236,4 +236,94 @@ class MarkdownBlocksTest {
         assertEquals(2, b.number)
         assertEquals("**Contraste de esforço.** resto normal.", b.text)
     }
+
+    // ---------- UX-REF-1A2: links bíblicos ----------
+
+    @Test
+    fun linkBiblicoPreservaTextoEAnotacao() {
+        val text = "Leia Mateus 24:14 hoje."
+        val start = text.indexOf("Mateus 24:14")
+        val a = buildInline(
+            text,
+            bibleLinks = listOf(
+                InlineBibleLink(
+                    start = start,
+                    endExclusive = start + "Mateus 24:14".length,
+                    tag = "bible:test",
+                    label = "Mateus 24:14",
+                ),
+            ),
+        )
+        assertEquals(text, a.text)
+        val link = a.getLinkAnnotations(0, a.length).single()
+        assertEquals(start, link.start)
+        assertEquals(start + "Mateus 24:14".length, link.end)
+        assertEquals(
+            "bettertalker-bible://open?ref=bible:test",
+            (link.item as LinkAnnotation.Url).url,
+        )
+    }
+
+    @Test
+    fun linkBiblicoEmNegritoMantemEstilo() {
+        val a = buildInline(
+            "**Mateus 24:14**",
+            bibleLinks = listOf(
+                InlineBibleLink(2, 14, "bible:bold", "Mateus 24:14"),
+            ),
+        )
+        assertEquals("Mateus 24:14", a.text)
+        val link = a.getLinkAnnotations(0, a.length).single()
+        assertEquals(0, link.start)
+        assertEquals(12, link.end)
+        assertTrue((link.item as LinkAnnotation.Url).url.startsWith("bettertalker-bible://open?ref="))
+        assertTrue(a.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
+    }
+
+    @Test
+    fun multiplosLinksBiblicosNaMesmaLinha() {
+        val text = "Mateus 24:14 e Salmo 37:10, 11."
+        val first = text.indexOf("Mateus 24:14")
+        val second = text.indexOf("Salmo 37:10, 11")
+        val a = buildInline(
+            text,
+            bibleLinks = listOf(
+                InlineBibleLink(first, first + 12, "bible:1", "Mateus 24:14"),
+                InlineBibleLink(second, second + 15, "bible:2", "Salmo 37:10, 11"),
+            ),
+        )
+        val links = a.getLinkAnnotations(0, a.length)
+        assertEquals(2, links.size)
+        assertTrue((links[0].item as LinkAnnotation.Url).url.endsWith("ref=bible:1"))
+        assertTrue((links[1].item as LinkAnnotation.Url).url.endsWith("ref=bible:2"))
+    }
+
+    @Test
+    fun linkBiblicoCoexisteComLinkJw() {
+        val text = "Veja [a página](https://jw.org) e Mateus 24:14."
+        val start = text.indexOf("Mateus 24:14")
+        val a = buildInline(
+            text,
+            bibleLinks = listOf(
+                InlineBibleLink(start, start + 12, "bible:1", "Mateus 24:14"),
+            ),
+        )
+        val links = a.getLinkAnnotations(0, a.length)
+        assertEquals(2, links.size)
+        assertEquals(2, links.count { it.item is LinkAnnotation.Url })
+        assertTrue(links.any { (it.item as LinkAnnotation.Url).url == "https://jw.org" })
+        assertTrue(
+            links.any {
+                (it.item as LinkAnnotation.Url).url.startsWith("bettertalker-bible://open?ref=")
+            },
+        )
+        assertEquals("Veja a página e Mateus 24:14.", a.text)
+    }
+
+    @Test
+    fun semLinkBiblicoTextoPermaneceIgual() {
+        val a = buildInline("Mateus 24:14")
+        assertEquals("Mateus 24:14", a.text)
+        assertEquals(0, a.getLinkAnnotations(0, a.length).size)
+    }
 }

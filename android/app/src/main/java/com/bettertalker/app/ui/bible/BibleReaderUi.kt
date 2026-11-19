@@ -238,7 +238,8 @@ private fun BiblePassageBody(
             BiblePassageStatus.PARTIAL -> passage.foundLabel
             BiblePassageStatus.UNRESOLVED -> "Nenhum versículo encontrado no acervo."
             BiblePassageStatus.MISSING_CORPUS ->
-                if (passage.needsLibrary) "TNM não está no acervo." else passage.warning
+                passage.warning
+                    ?: if (passage.needsLibrary) "TNM não está no acervo." else null
         }
         if (status != null) {
             Text(

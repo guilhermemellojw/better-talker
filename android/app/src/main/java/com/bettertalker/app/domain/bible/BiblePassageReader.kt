@@ -19,9 +19,17 @@ class BiblePassageReader(
     private val maxVerses: Int = MAX_VERSES,
 ) {
 
-    suspend fun read(raw: String): BiblePassage = read(listOf(raw))
+    suspend fun read(
+        raw: String,
+        expectedAttachmentId: String? = null,
+        requireNwt: Boolean = false,
+    ): BiblePassage = read(listOf(raw), expectedAttachmentId, requireNwt)
 
-    suspend fun read(rawRefs: List<String>): BiblePassage {
+    suspend fun read(
+        rawRefs: List<String>,
+        expectedAttachmentId: String? = null,
+        requireNwt: Boolean = false,
+    ): BiblePassage {
         val cleaned = rawRefs.map { it.trim() }.filter { it.isNotEmpty() }
         val requested = cleaned.joinToString("; ")
         val verseRefs = expandBibleRefs(cleaned)
@@ -40,20 +48,40 @@ class BiblePassageReader(
         val displayRef = displayBibleRequest(verseRefs, chapterRefs)
         val totalRequests = verseRefs.size + chapterRefs.size
         val chapterOnly = chapterRefs.isNotEmpty() && verseRefs.isEmpty()
-        val bible = source.preferredSource()
+        val bible = (if (requireNwt) source.nwtSource() else source.preferredSource())
             ?: return BiblePassage(
                 requested = requested,
                 displayRef = displayRef,
                 verses = emptyList(),
                 status = BiblePassageStatus.MISSING_CORPUS,
                 sourceLabel = "",
-                warning = "A TNM não está no acervo.",
+                warning = if (requireNwt) {
+                    "A Tradução do Novo Mundo (NWT) não está disponível no acervo local."
+                } else {
+                    "A TNM não está no acervo."
+                },
                 totalVerses = verseRefs.size,
                 needsLibrary = true,
                 chapterOnly = chapterOnly,
                 totalRequests = totalRequests,
                 foundRequests = 0,
             )
+
+        if (expectedAttachmentId != null && bible.attachmentId != expectedAttachmentId) {
+            return BiblePassage(
+                requested = requested,
+                displayRef = displayRef,
+                verses = emptyList(),
+                status = BiblePassageStatus.MISSING_CORPUS,
+                sourceLabel = "",
+                warning = "A edição usada nesta referência não está mais disponível.",
+                totalVerses = verseRefs.size,
+                needsLibrary = true,
+                chapterOnly = chapterOnly,
+                totalRequests = totalRequests,
+                foundRequests = 0,
+            )
+        }
 
         val verseTexts = if (verseRefs.isEmpty()) {
             emptyMap()

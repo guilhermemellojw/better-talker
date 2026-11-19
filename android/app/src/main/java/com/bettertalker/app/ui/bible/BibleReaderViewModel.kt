@@ -3,6 +3,7 @@ package com.bettertalker.app.ui.bible
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.bettertalker.app.data.bible.BibleReaderTarget
 import com.bettertalker.app.data.bible.RoomBiblePassageSource
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.voice.VoiceRouter
@@ -59,7 +60,20 @@ class BibleReaderViewModel(
         }
     }
 
-    fun open(rawRefs: List<String>) {
+    /** UX-REF-1A2 — abre fixando a edição resolvida no toque. */
+    fun open(target: BibleReaderTarget) {
+        open(
+            rawRefs = target.canonicalRefs.ifEmpty { listOf(target.rawReference) },
+            expectedAttachmentId = target.sourceAttachmentId,
+            requireNwt = true,
+        )
+    }
+
+    fun open(
+        rawRefs: List<String>,
+        expectedAttachmentId: String? = null,
+        requireNwt: Boolean = false,
+    ) {
         val refs = rawRefs.map { it.trim() }.filter { it.isNotEmpty() }
         if (refs.isEmpty()) return
         readJob?.cancel()
@@ -67,7 +81,7 @@ class BibleReaderViewModel(
         _state.value = BibleReaderUiState(visible = true, loading = true)
         readJob = workScope.launch {
             val passage = try {
-                reader.read(refs)
+                reader.read(refs, expectedAttachmentId, requireNwt)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
