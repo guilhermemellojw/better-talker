@@ -63,6 +63,30 @@ private class FakeDecisionDao : DecisionDao {
         return 1
     }
 
+    override suspend fun linkReplacementIfUnlinked(
+        replacementId: String,
+        previousId: String,
+        expectedUpdatedAt: Long,
+        updatedAt: Long,
+    ): Int {
+        val existing = rows.firstOrNull { it.id == replacementId } ?: return 0
+        if (
+            existing.supersedesId != null ||
+            existing.decisionState != "ACTIVE" ||
+            existing.updatedAt != expectedUpdatedAt
+        ) {
+            return 0
+        }
+        rows = rows.map {
+            if (it.id == replacementId) {
+                it.copy(supersedesId = previousId, updatedAt = updatedAt)
+            } else {
+                it
+            }
+        }
+        return 1
+    }
+
     override suspend fun deleteById(id: String) {
         rows = rows.filter { it.id != id }
     }

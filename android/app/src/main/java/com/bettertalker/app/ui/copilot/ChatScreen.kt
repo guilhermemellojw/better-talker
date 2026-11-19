@@ -311,6 +311,8 @@ fun ChatScreen(
     val proposal by vm.proposal.collectAsState()
     // FALTA-2: proposta de ESTRUTURA da seção (coexiste com a de texto).
     val structureProposal by vm.structureProposal.collectAsState()
+    // 1C.2.1B2C: pergunta de substituição de decisão após um aceite B1.
+    val decisionSupersessionPrompt by vm.decisionSupersessionPrompt.collectAsState()
     // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
     // #15d-escopo: sugestão de vincular publicações (RAG fraco por escopo).
@@ -1631,6 +1633,20 @@ fun ChatScreen(
             onDismiss = vm::dismissStructurePreview,
             onReplace = { vm.applyStructure(replace = true) },
             onAppend = { vm.applyStructure(replace = false) },
+        )
+    }
+
+    // 1C.2.1B2C: substituição de memória, nunca de texto. O diálogo fica
+    // fora do Scaffold para sobreviver à rolagem/recomposição da conversa.
+    decisionSupersessionPrompt?.let { prompt ->
+        DecisionSupersessionDialog(
+            prompt = prompt,
+            onKeepBoth = vm::keepBothDecisionSupersession,
+            onReplace = vm::confirmDecisionSupersession,
+            onCancel = vm::cancelDecisionSupersession,
+            onRefresh = vm::refreshDecisionSupersession,
+            onRetry = vm::confirmDecisionSupersession,
+            onDismissOutcome = vm::dismissDecisionSupersessionOutcome,
         )
     }
 }
