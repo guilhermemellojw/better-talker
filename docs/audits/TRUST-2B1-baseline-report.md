@@ -19,10 +19,10 @@
 | RAG | R01–R04 | 4 |
 | TRUST-1A | T1A-01–T1A-08 | 8 |
 | **Subtotal preservado** | | **64** |
-| Extras experimentais | X-* | 12 |
-| **Inventário total** | | **76** |
+| Extras experimentais | X-* | 15 |
+| **Inventário total** | | **79** |
 
-- Executáveis: **28**.
+- Executáveis: **31**.
 - Pendentes de anotação: **48**.
 - Não avaliáveis: **0**.
 - Lacuna registrada: **T2-01…T2-15** não possuem especificação verificável na `main`; não foram inventados.
@@ -38,11 +38,11 @@
 | DRAFT | 1 |
 | VERIFIER | 1 |
 | TRUST1A | 4 |
-| EXPERIMENTAL | 12 |
+| EXPERIMENTAL | 15 |
 
 | Tipo de claim | Casos |
 |---|---:|
-| FACTUAL_BIBLICAL | 23 |
+| FACTUAL_BIBLICAL | 26 |
 | USER_HYPOTHESIS | 2 |
 | LITERAL_CITATION | 3 |
 
@@ -52,7 +52,7 @@ Regras implementadas:
 
 1. Fidelidade literal via `checkDocumentCitation`, `checkUserCitation`, `checkS34Citation`.
 2. Elegibilidade via `EvidenceUnit.isFactualEligible()`/`isMethodEligible()`.
-3. Correspondência textual **integral por sentença** em uma unidade documental elegível; substring/negação/refutação não promove.
+3. Correspondência textual **integral da unidade documental**; substring, negação, refutação anterior/posterior ou citação de alegação falsa não promove.
 4. `SUPPORTED` somente com evidência examinada identificável.
 5. Tipos não factuais permanecem `NOT_EVALUATED`.
 6. Fonte ausente/parcial/truncada/dispensada/não exposta/sem unidade → `UNVERIFIABLE`.
@@ -60,21 +60,21 @@ Regras implementadas:
 8. Citação documental exige `documentId` vinculado; sem vínculo → `UNVERIFIABLE`.
 9. Contradição e paráfrase não são inferidas.
 
-Resultados (28 executáveis):
+Resultados (31 executáveis):
 
 | Estado | Casos |
 |---|---:|
 | SUPPORTED | 5 (C01, G01, K01, D01, X-EXTRA-EVIDENCE-01) |
-| INSUFFICIENT | 7 (C03, G06, K02, X-CONTRA-01, X-PARAPHRASE-01, X-NEGATED-01, X-EDITION-02) |
+| INSUFFICIENT | 10 (C03, G06, K02, X-CONTRA-01, X-PARAPHRASE-01, X-NEGATED-01, X-NEG-SAME-01, X-NEG-LINE-01, X-NEG-AFTER-01, X-EDITION-02) |
 | UNVERIFIABLE | 11 |
 | NOT_EVALUATED | 5 (C04, V01, T1A-05, X-CITATION-01, X-CITATION-NO-LINK-01) |
 | CONTRADICTED | 0 |
 
-- Fidelidade documental: **3/3** (V01 NORMALIZED; X-CITATION-01 EXACT; X-CITATION-NO-LINK-01 UNVERIFIABLE).
+- Concordância de fidelidade com o rótulo esperado: **3/3** (V01 NORMALIZED; X-CITATION-01 EXACT; X-CITATION-NO-LINK-01 UNVERIFIABLE). Inclui um `UNVERIFIABLE` correto; não é certificado de verdade.
 - Falsos positivos: **0**.
 - Falsos negativos: **1** (`X-CONTRA-01`, esperado CONTRADICTED, baseline INSUFFICIENT).
-- Macro-F1: **0,7846** — calculado apenas sobre os 28 casos sintéticos rotulados; **não é desempenho real**.
-- Runtime local medido: **0 ms** para 28 casos (sem rede, sem LLM).
+- Macro-F1: **0,7895** — calculado apenas sobre os 31 casos sintéticos rotulados; **não é desempenho real**.
+- Runtime local medido: **0 ms** para 31 casos (sem rede, sem LLM).
 - Custo externo: **US$ 0** (nenhuma chamada de API).
 
 ## 4. Casos positivos
@@ -84,6 +84,9 @@ Resultados (28 executáveis):
 - X-EDITION-02: filtro por edição antes da comparação textual.
 - X-CITATION-01: citação vinculada ao `documentId` correto.
 - X-CITATION-NO-LINK-01: citação sem vínculo é inconclusiva.
+- X-NEG-SAME-01: negação na mesma sentença não é suporte.
+- X-NEG-LINE-01: refutação antes de quebra de linha não é suporte.
+- X-NEG-AFTER-01: refutação após a sentença não é suporte.
 - X-EXTRA-EVIDENCE-01: evidência extra não examinada não altera o veredito.
 - V01: fidelidade NORMALIZED, sem autorização factual.
 
@@ -111,7 +114,7 @@ Resultados (28 executáveis):
 - T2-01…T2-15 não têm especificação na `main`; lacuna registrada.
 - Fixtures são sintéticas; não representam citações reais da TNM/jw.org.
 - O baseline não detecta paráfrase, implicação, contradição ou interpretação.
-- Macro-F1 de 0,7846 é mecânico e não deve ser apresentado como desempenho semântico.
+- Macro-F1 de 0,7895 é mecânico e não deve ser apresentado como desempenho semântico.
 - Sem anotação humana real; nenhum rótulo é reivindicado como revisão humana.
 - Sem medição de memória no A34 nesta fase (teste puro JVM).
 

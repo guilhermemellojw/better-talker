@@ -100,7 +100,12 @@ data class EvalMetrics(
     val falseNegatives: List<String>,
     val runtimeMs: Long,
 ) {
-    fun citationAccuracy(): Double =
+    /**
+     * Concordância com o rótulo esperado de fidelidade. Não significa que
+     * todas as citações foram comprovadamente fiéis; UNVERIFIABLE correto
+     * também conta como concordância.
+     */
+    fun citationLabelAgreement(): Double =
         if (citationExpected == 0) 0.0 else citationMatched.toDouble() / citationExpected
 
     fun macroF1(): Double? {
@@ -240,12 +245,10 @@ object DeterministicBaseline {
 
     private fun directTextMatch(claimText: String, evidenceText: String): Boolean {
         val claim = normalizeForMatch(claimText)
-        if (claim.isBlank()) return false
-        // Correspondência integral por sentença: nunca promove substring
-        // dentro de negação, refutação ou citação de alegação incorreta.
-        return evidenceText.split(Regex("(?<=[.!?…])\\s+|\\n+"))
-            .map(::normalizeForMatch)
-            .any { it == claim }
+        val evidence = normalizeForMatch(evidenceText)
+        // Correspondência integral da unidade: nunca promove substring,
+        // sentença dentro de refutação, negação ou citação de alegação falsa.
+        return claim.isNotBlank() && claim == evidence
     }
 
     private fun normalizeForMatch(text: String): String = normalizeLiteralText(text)
@@ -324,7 +327,11 @@ object EvalHarness {
         appendLine("Não avaliáveis: ${report.metrics.notEvaluable}")
         appendLine("Cobertura por rota: ${report.metrics.coverageByRoute}")
         appendLine("Cobertura por tipo: ${report.metrics.coverageByClaimType}")
-        appendLine("Fidelidade de citações: ${report.metrics.citationMatched}/${report.metrics.citationExpected}")
+        appendLine(
+            "Concordância de fidelidade (rótulo esperado): " +
+                "${report.metrics.citationMatched}/${report.metrics.citationExpected}" +
+                " (inclui UNVERIFIABLE correto; não é certificado de verdade)"
+        )
         appendLine("Falsos positivos: ${report.metrics.falsePositives}")
         appendLine("Falsos negativos: ${report.metrics.falseNegatives}")
         appendLine("Macro-F1: ${report.metrics.macroF1() ?: "n/d"}")

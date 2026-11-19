@@ -455,6 +455,51 @@ object Trust2B1Dataset {
             notes = "Correspondência integral por sentença não pode ignorar a negação.",
         ),
         ready(
+            id = "X-NEG-SAME-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Negação na mesma sentença",
+            claim = claim("X-NEG-SAME-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-same",
+                    "É falso afirmar que Jeová prometeu restaurar seu povo.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Fixture sintética; não é citação bíblica.",
+        ),
+        ready(
+            id = "X-NEG-LINE-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Refutação antes de quebra de linha",
+            claim = claim("X-NEG-LINE-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-line",
+                    "A seguinte afirmação é falsa:\nJeová prometeu restaurar seu povo.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Correspondência integral da unidade não pode ignorar a refutação anterior.",
+        ),
+        ready(
+            id = "X-NEG-AFTER-01",
+            route = EvalRoute.EXPERIMENTAL,
+            summary = "Refutação após a sentença",
+            claim = claim("X-NEG-AFTER-claim", phrase),
+            evidence = listOf(
+                unit(
+                    "fixture:bible:neg-after",
+                    "Jeová prometeu restaurar seu povo. Essa afirmação é falsa.",
+                ),
+            ),
+            expectedState = SemanticState.INSUFFICIENT,
+            expectedPolicy = EvalPolicy.WARN,
+            notes = "Correspondência integral da unidade não pode ignorar a refutação posterior.",
+        ),
+        ready(
             id = "X-EDITION-02",
             route = EvalRoute.EXPERIMENTAL,
             summary = "Duas edições; apenas a incorreta contém a frase",
