@@ -132,7 +132,7 @@ fun classifyDecisionRelationship(
         }
     }
 
-    ineligibleReason(incoming)?.let {
+    incoming.relationshipEligibilityFailure()?.let {
         return DecisionRelationship.Ineligible(it)
     }
 
@@ -142,7 +142,7 @@ fun classifyDecisionRelationship(
 
     existing.forEach { candidate ->
         if (candidate.id == incoming.id) return@forEach
-        if (ineligibleReason(candidate) != null) return@forEach
+        if (candidate.relationshipEligibilityFailure() != null) return@forEach
         if (!sameDecisionLocation(incoming, candidate)) return@forEach
 
         when (subjectMatch(incoming, candidate)) {
@@ -191,22 +191,27 @@ private fun hasSameEventIdentity(a: DecisionRecord, b: DecisionRecord): Boolean 
         a.sourceMessageId == b.sourceMessageId &&
         a.sourceProposalId == b.sourceProposalId
 
-private fun ineligibleReason(decision: DecisionRecord): IneligibleReason? {
-    if (decision.decisionState != DecisionState.ACTIVE) {
+/**
+ * Elegibilidade da política inicial compartilhada entre B2A e B2B:
+ * `ACTIVE`, `CONFIRMED`, vínculo válido no escopo e assunto coerente com o
+ * escopo. Devolve `null` quando a decisão participa da política.
+ */
+fun DecisionRecord.relationshipEligibilityFailure(): IneligibleReason? {
+    if (decisionState != DecisionState.ACTIVE) {
         return IneligibleReason.NOT_ACTIVE
     }
-    if (decision.kind != DecisionKind.CONFIRMED) {
+    if (kind != DecisionKind.CONFIRMED) {
         return IneligibleReason.NOT_CONFIRMED
     }
-    val validLink = when (decision.scope) {
-        DecisionScope.SECTION -> decision.sectionLink == SectionLink.VALID
-        DecisionScope.NOTE -> decision.sectionLink == SectionLink.NOT_APPLICABLE
+    val validLink = when (scope) {
+        DecisionScope.SECTION -> sectionLink == SectionLink.VALID
+        DecisionScope.NOTE -> sectionLink == SectionLink.NOT_APPLICABLE
     }
     if (!validLink) {
         return IneligibleReason.SECTION_LINK_NOT_VALID
     }
-    val subject = DecisionSubject.fromKey(decision.subjectKey)
-    if (subject != null && subject.scope != decision.scope) {
+    val subject = DecisionSubject.fromKey(subjectKey)
+    if (subject != null && subject.scope != scope) {
         return IneligibleReason.SUBJECT_SCOPE_MISMATCH
     }
     return null

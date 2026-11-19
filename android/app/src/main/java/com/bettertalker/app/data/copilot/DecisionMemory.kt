@@ -403,11 +403,44 @@ object DecisionTransitions {
     /**
      * Valida a direção da substituição:
      * - apenas o novo registro aponta para o anterior em `supersedesId`;
-     * - ambos pertencem à mesma nota e ao mesmo escopo/seção;
+     * - ambos pertencem à mesma nota e ao mesmo escopo/seção atual;
      * - o anterior está ACTIVE e não é OPEN;
      * - o novo está ACTIVE e não é OPEN.
+     *
+     * [allowRemappedPrevious] só deve ser usado pela operação confirmada da
+     * B2B. Quando `true`, aceita `originalSectionId` diferente apenas se a
+     * anterior foi remapeada (seção atual ≠ original) e a substituta está
+     * ancorada na seção atual (atual = original). Os snapshots originais de
+     * ambas permanecem intactos.
      */
-    fun validateSupersession(previous: DecisionRecord, replacement: DecisionRecord) {
+    /**
+     * Regra explícita de origem para substituição confirmada:
+     * - NOTE não tem seção;
+     * - SECTION aceita a mesma seção original;
+     * - ou aceita a anterior remapeada (atual ≠ original) quando a substituta
+     *   está ancorada na seção atual (atual = original).
+     *
+     * Nunca escolhe uma seção automaticamente. Ambiguidade deve bloquear.
+     */
+    fun allowsRemappedOrigin(
+        previous: DecisionRecord,
+        replacement: DecisionRecord,
+    ): Boolean {
+        if (previous.scope != DecisionScope.SECTION || replacement.scope != DecisionScope.SECTION) {
+            return true
+        }
+        if (previous.originalSectionId == replacement.originalSectionId) return true
+        val previousWasRemapped = previous.sectionId != previous.originalSectionId
+        val replacementAnchoredToCurrent =
+            replacement.sectionId == replacement.originalSectionId
+        return previousWasRemapped && replacementAnchoredToCurrent
+    }
+
+    fun validateSupersession(
+        previous: DecisionRecord,
+        replacement: DecisionRecord,
+        allowRemappedPrevious: Boolean = false,
+    ) {
         require(previous.id != replacement.id) {
             "decisão não pode substituir a si mesma"
         }
@@ -439,7 +472,14 @@ object DecisionTransitions {
             require(previous.sectionId == replacement.sectionId) {
                 "substituição deve ocorrer na mesma associação de seção"
             }
-            require(previous.originalSectionId == replacement.originalSectionId) {
+            val sameOriginal = previous.originalSectionId == replacement.originalSectionId
+            require(
+                if (allowRemappedPrevious) {
+                    allowsRemappedOrigin(previous, replacement)
+                } else {
+                    sameOriginal
+                }
+            ) {
                 "substituição deve preservar a mesma seção original"
             }
         }
@@ -449,8 +489,9 @@ object DecisionTransitions {
         previous: DecisionRecord,
         replacement: DecisionRecord,
         now: Long,
+        allowRemappedPrevious: Boolean = false,
     ): SupersededPair {
-        validateSupersession(previous, replacement)
+        validateSupersession(previous, replacement, allowRemappedPrevious)
         return SupersededPair(
             previous = previous.copy(
                 decisionState = DecisionState.SUPERSEDED,
