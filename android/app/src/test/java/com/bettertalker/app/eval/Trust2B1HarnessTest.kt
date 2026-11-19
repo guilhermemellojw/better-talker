@@ -11,6 +11,8 @@ import org.junit.Test
 
 class Trust2B1HarnessTest {
 
+    // Base atualizada do PR #25; lógica experimental inalterada.
+
     // Cobertura de negação: mesma sentença, antes de linha e depois da sentença.
 
     // Baseline sintético: 5 SUPPORTED, 10 INSUFFICIENT, 11 UNVERIFIABLE, 5 NOT_EVALUATED.
