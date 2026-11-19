@@ -508,7 +508,7 @@ internal suspend fun unitSliceOf(
     if (candidates.isEmpty()) return null
     val title = candidates.firstOrNull {
         it.text.startsWith("# ") &&
-            normalizeText(it.text.removePrefix("# ")).contains(needleNorm)
+            sectionMatchesNeedle(it.text.removePrefix("# "), needleNorm)
     }
     if (title != null) {
         val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
@@ -516,10 +516,36 @@ internal suspend fun unitSliceOf(
         if (slice.isNotEmpty()) return slice
     }
     val bySection = candidates.filter {
-        it.section.isNotBlank() && normalizeText(it.section).contains(needleNorm)
+        it.section.isNotBlank() && sectionMatchesNeedle(it.section, needleNorm)
     }
     if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
     return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+}
+
+/**
+ * Correspondência de unidade com limite de número/identificador.
+ *
+ * `Lição 1` casa com `Lição 1`, `Lição 1: ...` e `Lição 1 — ...`, mas não
+ * com `Lição 10`. O mesmo vale para capítulo, estudo, parte, seção e ponto.
+ * Usa [normalizeText] para comparar o rótulo sem acentos/pontuação.
+ */
+internal fun sectionMatchesNeedle(section: String, needle: String): Boolean {
+    val normalizedSection = normalizeText(section)
+    val normalizedNeedle = normalizeText(needle)
+    if (normalizedNeedle.isBlank()) return false
+    var from = 0
+    while (true) {
+        val index = normalizedSection.indexOf(normalizedNeedle, from)
+        if (index < 0) return false
+        val before = normalizedSection.getOrNull(index - 1)
+        val after = normalizedSection.getOrNull(index + normalizedNeedle.length)
+        if ((before == null || !before.isLetterOrDigit()) &&
+            (after == null || !after.isLetterOrDigit())
+        ) {
+            return true
+        }
+        from = index + 1
+    }
 }
 
 /**

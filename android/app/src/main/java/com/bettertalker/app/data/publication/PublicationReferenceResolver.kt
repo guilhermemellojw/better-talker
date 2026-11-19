@@ -8,6 +8,8 @@ import com.bettertalker.app.data.db.PublicationUnitDao
 import com.bettertalker.app.data.db.PublicationUnitEntity
 import com.bettertalker.app.data.planning.MAX_UNIT_CHARS
 import com.bettertalker.app.data.planning.RoomReferenceResolver
+import com.bettertalker.app.data.planning.sectionMatchesNeedle
+import com.bettertalker.app.data.planning.sectionNeedles
 import com.bettertalker.app.data.repo.publicationRefOf
 import com.bettertalker.app.data.util.DocKind
 import com.bettertalker.app.data.util.EditionStatus
@@ -120,6 +122,18 @@ class PublicationReferenceResolver(
         detected: RefDetector.DetectedRef,
         attachment: AttachmentEntity,
     ): PublicationReferenceResolution {
+        // Camada 2 de B4: a busca pode devolver texto de uma unidade vizinha
+        // (ex.: Lição 10 para "lição 1"). Quando o índice de unidades existe,
+        // exigimos que a unidade solicitada esteja comprovadamente indexada.
+        val unit = unitOf(attachment.id, detected)
+        if (unitMismatch(attachment.id, detected, unit)) {
+            return PublicationReferenceResolution.TextNotFound(
+                reference = occurrence.raw,
+                publicationTitle = publicationTitleOf(detected) ?: "Publicação",
+                editionLabel = editionLabelOf(detected),
+            )
+        }
+
         val ref = publicationRefOf(detected)
         val resolved = try {
             referenceResolver.resolvePublication(
@@ -146,12 +160,12 @@ class PublicationReferenceResolver(
         return when {
             resolved.status == ReferenceStatus.RESOLVED && hasText ->
                 PublicationReferenceResolution.Available(
-                    target = targetOf(occurrence, detected, attachment, resolved),
+                    target = targetOf(occurrence, detected, attachment, resolved, unit),
                 )
 
             resolved.status == ReferenceStatus.PARTIAL && hasText ->
                 PublicationReferenceResolution.Partial(
-                    target = targetOf(occurrence, detected, attachment, resolved),
+                    target = targetOf(occurrence, detected, attachment, resolved, unit),
                     warning = resolved.canonicalRef
                         ?.let { "Trecho localizado por unidade/página/contexto: $it. Confira a edição." }
                         ?: "Trecho localizado de forma parcial; confira a edição.",
@@ -165,11 +179,12 @@ class PublicationReferenceResolver(
         }
     }
 
-    private suspend fun targetOf(
+    private fun targetOf(
         occurrence: PublicationReferenceOccurrence,
         detected: RefDetector.DetectedRef,
         attachment: AttachmentEntity,
         resolved: com.bettertalker.app.domain.planning.ResolvedReference,
+        unit: PublicationDocumentUnit?,
     ): PublicationReaderTarget {
         val title = publicationTitleOf(detected) ?: attachment.fileName.substringBeforeLast('.')
         val edition = editionLabelOf(detected)
@@ -189,7 +204,7 @@ class PublicationReferenceResolver(
                     append(" — ").append(it)
                 }
             },
-            unit = unitOf(attachment.id, detected),
+            unit = unit,
             page = detected.page,
             pageEnd = detected.pageEnd,
             paragraph = detected.paragraph,
@@ -225,11 +240,16 @@ class PublicationReferenceResolver(
         detected: RefDetector.DetectedRef,
     ): PublicationDocumentUnit? {
         val dao = unitDao ?: return null
-        val needle = listOfNotNull(detected.article, detected.chapter)
+        val rawNeedle = listOfNotNull(detected.article, detected.chapter)
             .firstOrNull { it.isNotBlank() }
-            ?.let(::normalizeText)
-            ?.takeIf { it.length >= 3 }
             ?: return null
+        // "cap. 2" e "Capítulo 2" são a mesma unidade indexada.
+        val needles = sectionNeedles(rawNeedle)
+            .map(::normalizeText)
+            .filter { it.length >= 3 }
+            .distinct()
+        if (needles.isEmpty()) return null
+        val requestedNumber = requestedUnitNumber(detected)
         val units = try {
             dao.forAttachment(attachmentId)
         } catch (e: CancellationException) {
@@ -239,13 +259,70 @@ class PublicationReferenceResolver(
         }
         val matches = units.filter { unit ->
             val title = normalizeText(unit.title)
-            val number = unit.number?.let(::normalizeText)
-            title.contains(needle) ||
-                (number != null && needle.endsWith(number)) ||
-                (number != null && needle.contains(" $number"))
+            if (needles.none { sectionMatchesNeedle(title, it) }) return@filter false
+            if (requestedNumber == null) return@filter true
+            val number = unit.number?.trim()?.toIntOrNull()
+                ?: unitNumberFromTitle(title)
+            number == requestedNumber
         }
         if (matches.size != 1) return null
         return matches.single().toDocumentUnit()
+    }
+
+    /**
+     * Camada 2 de B4: com índice de unidades disponível, uma unidade
+     * numerada só é aceita quando existe correspondência exata. Sem índice,
+     * a Camada 1 (busca com limites) continua valendo.
+     */
+    private suspend fun unitMismatch(
+        attachmentId: String,
+        detected: RefDetector.DetectedRef,
+        unit: PublicationDocumentUnit?,
+    ): Boolean {
+        val requested = requestedUnitNumber(detected) ?: return false
+        val dao = unitDao ?: return false
+        val indexedCount = try {
+            dao.countForAttachment(attachmentId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Sem prova de que a unidade indexada é a solicitada.
+            return true
+        }
+        if (indexedCount == 0) return false
+        if (unit == null) return true
+        val resolved = unit.number?.trim()?.toIntOrNull()
+            ?: unitNumberFromTitle(unit.title.orEmpty())
+            ?: return true
+        return resolved != requested
+    }
+
+    private fun requestedUnitNumber(detected: RefDetector.DetectedRef): Int? =
+        listOfNotNull(detected.chapter, detected.article)
+            .asSequence()
+            .mapNotNull { text ->
+                UNIT_NUMBER_RE.find(normalizeText(text))
+                    ?.groupValues
+                    ?.get(1)
+                    ?.toIntOrNull()
+            }
+            .firstOrNull()
+
+    private fun unitNumberFromTitle(title: String): Int? =
+        UNIT_NUMBER_RE.find(normalizeText(title))
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
+
+    private companion object {
+        /**
+         * Unidade numerada catalogada: lição, capítulo, estudo, parte, seção
+         * ou artigo. O `\b` após o número impede "1" de casar com "10".
+         */
+        val UNIT_NUMBER_RE = Regex(
+            """(?:capitulo|cap|licao|estudo|parte|secao|artigo)\s+(\d{1,3})\b""",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private fun PublicationUnitEntity.toDocumentUnit(): PublicationDocumentUnit? {
@@ -375,27 +452,30 @@ class PublicationReferenceResolver(
     }
 
     /**
-     * Agrupa arquivos que podem ser considerados a MESMA edição:
-     * - duplicatas binárias (sha256 igual) são equivalentes;
-     * - revistas usam o editionKey exato da referência;
-     * - livros usam o nome-base do arquivo (sem extensão), que comprova a
-     *   mesma distribuição em formatos diferentes. Nomes-base diferentes não
-     *   provam equivalência e viram Ambiguous.
+     * Só agrupa arquivos com prova binária: SHA-256 não vazio e idêntico.
+     *
+     * Nome-base igual NÃO comprova a mesma edição/conteúdo — inclusive entre
+     * formatos diferentes. Hash ausente ou diferente deixa cada anexo como
+     * candidato próprio; com mais de um grupo o resultado é `Ambiguous`,
+     * nunca uma escolha silenciosa.
      */
     private fun groupEquivalents(
         candidates: List<AttachmentEntity>,
     ): List<List<AttachmentEntity>> {
-        val hashes = candidates.mapNotNull { it.sha256?.trim()?.takeIf { value -> value.isNotEmpty() } }
-        if (hashes.isNotEmpty() &&
-            candidates.all { !it.sha256.isNullOrBlank() } &&
-            hashes.distinct().size == 1
-        ) {
-            return listOf(candidates)
+        val byHash = LinkedHashMap<String, MutableList<AttachmentEntity>>()
+        val unproven = mutableListOf<List<AttachmentEntity>>()
+        candidates.forEach { attachment ->
+            val hash = attachment.sha256
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.isNotEmpty() }
+            if (hash == null) {
+                unproven += listOf(attachment)
+            } else {
+                byHash.getOrPut(hash) { mutableListOf() } += attachment
+            }
         }
-        return candidates.groupBy { attachment ->
-            val base = attachment.fileName.substringBeforeLast('.').trim().lowercase()
-            if (base.isBlank()) attachment.id else base
-        }.values.toList()
+        return byHash.values.toList() + unproven
     }
 
     private fun choose(candidates: List<AttachmentEntity>): AttachmentEntity =
@@ -453,44 +533,16 @@ class PublicationReferenceResolver(
         }
 
     /**
-     * Reconstrução conservadora quando a ocorrência não veio do detector.
-     * Só aceita publicação conhecida; não inventa edição de revista.
+     * Revalida o texto original. Campos isolados da ocorrência (página,
+     * parágrafo, capítulo, artigo) NUNCA são usados sem o detector: eles
+     * podem não existir no `raw`. Quando o detector não reconhece o texto,
+     * o resultado é `NotRecognized`, nunca uma unidade presumida.
      */
     private fun redetect(
         occurrence: PublicationReferenceOccurrence,
-    ): RefDetector.DetectedRef? {
+    ): RefDetector.DetectedRef? =
         RefDetector.detect(occurrence.raw).firstOrNull { detected ->
             occurrence.publicationKey == null ||
                 detected.pubKey.equals(occurrence.publicationKey, true)
-        }?.let { return it }
-
-        val pubKey = occurrence.publicationKey?.trim()?.lowercase()
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
-        val canonical = PubCatalog.resolveSymbol(pubKey) ?: return null
-        val kind = if (occurrence.editionKey?.startsWith("book|") == true ||
-            PubCatalog.entryOf(canonical)?.kind != "magazine"
-        ) {
-            RefDetector.Kind.BOOK
-        } else {
-            RefDetector.Kind.MAGAZINE
         }
-        val editionKey = occurrence.editionKey?.takeIf { it.isNotBlank() }
-            ?: if (kind == RefDetector.Kind.BOOK) "book|$canonical" else return null
-        return RefDetector.DetectedRef(
-            raw = occurrence.raw,
-            kind = kind,
-            pubKey = canonical,
-            editionKey = editionKey,
-            label = occurrence.titleHint
-                ?: PubCatalog.titleOf(canonical)
-                ?: occurrence.raw,
-            article = occurrence.article,
-            chapter = occurrence.chapter,
-            page = occurrence.page,
-            pageEnd = occurrence.pageEnd,
-            paragraph = occurrence.paragraph,
-            paragraphEnd = occurrence.paragraphEnd,
-        )
-    }
 }

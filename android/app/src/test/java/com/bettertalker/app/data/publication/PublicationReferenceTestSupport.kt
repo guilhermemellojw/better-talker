@@ -6,6 +6,7 @@ import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.db.PublicationUnitDao
 import com.bettertalker.app.data.db.PublicationUnitEntity
+import com.bettertalker.app.data.planning.sectionMatchesNeedle
 import com.bettertalker.app.data.util.RefDetector
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,6 +90,9 @@ internal class FakePassageDao(
     var writeCount: Int = 0
         private set
 
+    /** Simula uma consulta Room que ainda usa substring (sem boundary). */
+    var bySectionIgnoresBoundary: Boolean = false
+
     override suspend fun insertAll(items: List<PassageEntity>) {
         writeCount++
         rows = rows + items
@@ -153,7 +157,11 @@ internal class FakePassageDao(
         limit: Int,
     ): List<PassageEntity> = rows.filter {
         it.attachmentId == attachmentId &&
-            it.section.contains(needle, ignoreCase = true)
+            if (bySectionIgnoresBoundary) {
+                it.section.contains(needle, ignoreCase = true)
+            } else {
+                sectionMatchesNeedle(it.section, needle)
+            }
     }.sortedBy { it.ord }.take(limit)
     override suspend fun byPageParagraph(
         attachmentId: String,

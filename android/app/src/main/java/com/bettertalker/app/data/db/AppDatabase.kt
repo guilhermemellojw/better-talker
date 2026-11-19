@@ -304,7 +304,15 @@ interface PassageDao {
     @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND text LIKE '# %' AND ord > :ord ORDER BY ord LIMIT 1")
     suspend fun nextTitleAfter(attachmentId: String, ord: Int): PassageEntity?
     // T4 (refs): passagens de uma seção (unidade citada) pelo rótulo.
-    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND section LIKE '%' || :needle || '%' ORDER BY ord LIMIT :limit")
+    // O limite de número evita "Lição 1" casar com "Lição 10"; a seção pode
+    // continuar com título separado por espaço/pontuação.
+    @Query(
+        "SELECT * FROM passages WHERE attachmentId = :attachmentId AND (" +
+            "section = :needle OR (" +
+            "section LIKE :needle || '%' AND " +
+            "substr(section, length(:needle) + 1, 1) NOT GLOB '[0-9A-Za-z]')) " +
+            "ORDER BY ord LIMIT :limit"
+    )
     suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity>
 
     /** RC1: parágrafos §start–§end da página citada (índice T4 do JWPUB). */

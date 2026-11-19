@@ -110,6 +110,42 @@ class PublicationReferenceLinksTest {
     }
 
     @Test
+    fun ignoraLinkMarkdownPorReferencia() {
+        assertTrue(spans("[Veja w25.07 22 § 8][ref]").isEmpty())
+    }
+
+    @Test
+    fun ignoraDefinicaoDeReferenciaMarkdown() {
+        assertTrue(spans("[ref]: https://jw.org/w25.07 22 § 8").isEmpty())
+    }
+
+    @Test
+    fun ignoraLinkMarkdownComColchetesAninhados() {
+        assertTrue(spans("[Veja [w25.07 22 § 8] aqui](https://jw.org)").isEmpty())
+    }
+
+    @Test
+    fun ignoraCodeFenceComTil() {
+        assertTrue(spans("~~~\nw25.07 22 § 8\n~~~").isEmpty())
+    }
+
+    @Test
+    fun ignoraCodeFenceComCrasesExtensas() {
+        assertTrue(spans("````\nw25.07 22 § 8\n````").isEmpty())
+    }
+
+    @Test
+    fun ignoraCodigoInlineComCrasesDuplas() {
+        assertTrue(spans("Use ``w25.07 22 § 8`` no código.").isEmpty())
+    }
+
+    @Test
+    fun referenciaForaDeMarkdownProtegidoContinuaDetectada() {
+        val text = "[ref]: https://jw.org\nVeja w25.07 22 § 8."
+        assertEquals("w25.07 22 § 8", spans(text).single().raw)
+    }
+
+    @Test
     fun textoBiblicoNaoViraPublicacao() {
         assertTrue(spans("Leia João 3:16 e Je 29.").isEmpty())
         assertTrue(spans("Re 1:1").isEmpty())

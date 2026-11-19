@@ -155,7 +155,8 @@ class PublicationReferenceResolverTest {
     }
 
     @Test
-    fun formatosDaMesmaEdicaoEscolhemJwpubSemAmbiguidade() = runBlocking {
+    fun formatosDiferentesSemProvaDeEquivalenciaSaoAmbiguos() = runBlocking {
+        // Nome-base igual entre PDF/JWPUB não comprova o mesmo conteúdo.
         val out = resolver(
             attachments = listOf(
                 attachment("a-lff-pdf", "lff_T.pdf"),
@@ -173,9 +174,56 @@ class PublicationReferenceResolverTest {
             ),
         ).resolve(occurrence("lff lição 3 ponto 4"))
 
+        assertTrue(out is PublicationReferenceResolution.Ambiguous)
+        assertEquals(
+            2,
+            (out as PublicationReferenceResolution.Ambiguous).candidates.size,
+        )
+    }
+
+    @Test
+    fun mesmoFormatoComHashesDiferentesEhAmbiguo() = runBlocking {
+        val out = resolver(
+            attachments = listOf(
+                attachment("a-lff-1", "lff_T.jwpub", sha256 = "aaa"),
+                attachment("a-lff-2", "lff_T.jwpub", sha256 = "bbb"),
+            ),
+            passages = lmdRows("a-lff-1") + lmdRows("a-lff-2"),
+        ).resolve(occurrence("lff lição 3 ponto 4"))
+
+        assertTrue(out is PublicationReferenceResolution.Ambiguous)
+        assertEquals(
+            setOf("a-lff-1", "a-lff-2"),
+            (out as PublicationReferenceResolution.Ambiguous)
+                .candidates.map { it.attachmentId }.toSet(),
+        )
+    }
+
+    @Test
+    fun hashAusenteNaoPresumeEquivalencia() = runBlocking {
+        val out = resolver(
+            attachments = listOf(
+                attachment("a-lff-1", "lff_T.jwpub", sha256 = null),
+                attachment("a-lff-2", "lff_T.pdf", sha256 = null),
+            ),
+            passages = lmdRows("a-lff-1") + lmdRows("a-lff-2"),
+        ).resolve(occurrence("lff lição 3 ponto 4"))
+
+        assertTrue(out is PublicationReferenceResolution.Ambiguous)
+    }
+
+    @Test
+    fun arquivoUnicoSemHashContinuaResolvendo() = runBlocking {
+        val out = resolver(
+            attachments = listOf(
+                attachment("a-lff", "lff_T.jwpub", sha256 = null),
+            ),
+            passages = lmdRows("a-lff"),
+        ).resolve(occurrence("lff lição 3 ponto 4"))
+
         assertTrue(out is PublicationReferenceResolution.Available)
         assertEquals(
-            "a-lff-jw",
+            "a-lff",
             (out as PublicationReferenceResolution.Available).target.expectedAttachmentId,
         )
     }
@@ -287,6 +335,178 @@ class PublicationReferenceResolverTest {
     }
 
     @Test
+    fun licao1NaoResolveLicao10() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p10",
+                    att,
+                    "1 Texto da licao dez.",
+                    section = "Lição 10: Outro assunto",
+                    paragraph = 1,
+                ),
+            ),
+            units = listOf(
+                unit(
+                    id = "u10",
+                    attachmentId = att,
+                    kind = "LESSON",
+                    number = "10",
+                    title = "Lição 10: Outro assunto",
+                ),
+            ),
+        ).resolve(occurrence("lmd lição 1 ponto 1"))
+
+        assertTrue(out is PublicationReferenceResolution.TextNotFound)
+    }
+
+    @Test
+    fun capituloAbreviadoCasaUnidadeIndexada() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto do capitulo dois.",
+                    section = "Capítulo 2: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+            units = listOf(
+                unit(
+                    id = "u2",
+                    attachmentId = att,
+                    kind = "CHAPTER",
+                    number = "2",
+                    title = "Capítulo 2: Como estudar",
+                ),
+            ),
+        ).resolve(occurrence("lmd cap. 2 ponto 1"))
+
+        assertTrue(
+            out is PublicationReferenceResolution.Available ||
+                out is PublicationReferenceResolution.Partial,
+        )
+        val target = when (out) {
+            is PublicationReferenceResolution.Available -> out.target
+            is PublicationReferenceResolution.Partial -> out.target
+            else -> error("resolução inesperada: $out")
+        }
+        assertEquals("2", target.unit?.number)
+    }
+
+    @Test
+    fun licao2NaoResolveLicao20() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p20",
+                    att,
+                    "1 Texto da licao vinte.",
+                    section = "Lição 20: Outro assunto",
+                    paragraph = 1,
+                ),
+            ),
+            units = listOf(
+                unit(
+                    id = "u20",
+                    attachmentId = att,
+                    kind = "LESSON",
+                    number = "20",
+                    title = "Lição 20: Outro assunto",
+                ),
+            ),
+        ).resolve(occurrence("lmd lição 2 ponto 1"))
+
+        assertTrue(out is PublicationReferenceResolution.TextNotFound)
+    }
+
+    @Test
+    fun ponto1NaoEhRotuladoComoPonto11() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p11",
+                    att,
+                    "11 Texto do ponto onze.",
+                    section = "Lição 1: Como estudar",
+                    page = 10,
+                    paragraph = 11,
+                ),
+            ),
+        ).resolve(occurrence("lmd página 10 ponto 1"))
+
+        assertFalse(out is PublicationReferenceResolution.Available)
+        if (out is PublicationReferenceResolution.Partial) {
+            assertEquals(1, out.target.paragraph)
+            assertTrue(out.target.partial)
+        }
+    }
+
+    @Test
+    fun unidadeInexistenteComIndiceRetornaTextNotFound() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = emptyList(),
+            units = listOf(
+                unit(
+                    id = "u10",
+                    attachmentId = att,
+                    kind = "LESSON",
+                    number = "10",
+                    title = "Lição 10: Outro assunto",
+                ),
+            ),
+        ).resolve(occurrence("lmd lição 1 ponto 1"))
+
+        assertTrue(out is PublicationReferenceResolution.TextNotFound)
+    }
+
+    @Test
+    fun resultadoDaBuscaRejeitadoPelaValidacaoEstrutural() = runBlocking {
+        val att = "a-lmd"
+        val attachmentDao = FakeAttachmentDao(listOf(attachment(att, "lmd_T.jwpub")))
+        val passageDao = FakePassageDao(
+            listOf(
+                passage(
+                    "p10",
+                    att,
+                    "1 Texto da licao dez.",
+                    section = "Lição 10: Outro assunto",
+                    paragraph = 1,
+                ),
+            ),
+        ).also { it.bySectionIgnoresBoundary = true }
+        val out = PublicationReferenceResolver(
+            attachmentDao = attachmentDao,
+            passageDao = passageDao,
+            unitDao = FakePublicationUnitDao(
+                listOf(
+                    unit(
+                        id = "u10",
+                        attachmentId = att,
+                        kind = "LESSON",
+                        number = "10",
+                        title = "Lição 10: Outro assunto",
+                    ),
+                ),
+            ),
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+        ).resolve(occurrence("lmd lição 1 ponto 1"))
+
+        assertTrue(out is PublicationReferenceResolution.TextNotFound)
+    }
+
+    @Test
     fun edicaoEncontradaSemTextoNaoEhAvailable() = runBlocking {
         val out = resolver(
             listOf(attachment("a-lmd", "lmd_T.jwpub")),
@@ -350,6 +570,87 @@ class PublicationReferenceResolverTest {
             ),
         )
         assertTrue(out is PublicationReferenceResolution.NotRecognized)
+    }
+
+    @Test
+    fun ocorrenciaSemDeteccaoNaoUsaPaginaFabricada() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p999",
+                    att,
+                    "Texto sintetico da pagina 999.",
+                    page = 999,
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "lmd",
+                start = 0,
+                endExclusive = 3,
+                publicationKey = "lmd",
+                titleHint = null,
+                editionKey = "book|lmd",
+                page = 999,
+                detection = null,
+            ),
+        )
+
+        assertFalse(out is PublicationReferenceResolution.Available)
+        assertFalse(out is PublicationReferenceResolution.Partial)
+    }
+
+    @Test
+    fun ocorrenciaSemDeteccaoRevalidaParagrafoNoTextoOriginal() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = lmdRows(att),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "lmd lição 3 ponto 4",
+                start = 0,
+                endExclusive = "lmd lição 3 ponto 4".length,
+                publicationKey = "lmd",
+                titleHint = null,
+                editionKey = "book|lmd",
+                paragraph = 999,
+                detection = null,
+            ),
+        )
+
+        assertTrue(out is PublicationReferenceResolution.Available)
+        assertEquals(
+            4,
+            (out as PublicationReferenceResolution.Available).target.paragraph,
+        )
+    }
+
+    @Test
+    fun ocorrenciaSemDeteccaoRevalidaCapituloNoTextoOriginal() = runBlocking {
+        val att = "a-lmd"
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = lmdRows(att),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "lmd lição 3",
+                start = 0,
+                endExclusive = "lmd lição 3".length,
+                publicationKey = "lmd",
+                titleHint = null,
+                editionKey = "book|lmd",
+                chapter = "lição 999",
+                detection = null,
+            ),
+        )
+
+        assertTrue(out is PublicationReferenceResolution.Partial)
+        val canonical = (out as PublicationReferenceResolution.Partial).target.canonicalRef.orEmpty()
+        assertTrue(canonical.contains("lição 3"))
+        assertFalse(canonical.contains("999"))
     }
 
     @Test

@@ -519,9 +519,14 @@ object PublicationReferenceSpanDetector {
 
     private fun protectedRanges(text: String): List<IntRange> {
         val ranges = mutableListOf<IntRange>()
-        Regex("```[\\s\\S]*?```").findAll(text).forEach { ranges += it.range }
-        Regex("`[^`\\n]*`").findAll(text).forEach { ranges += it.range }
-        Regex("\\[[^\\]]*]\\([^)]*\\)").findAll(text).forEach { ranges += it.range }
+        ranges += fencedCodeRanges(text)
+        ranges += inlineCodeRanges(text)
+        val definitions = REFERENCE_DEFINITION_RE.findAll(text).toList()
+        ranges += definitions.map { it.range }
+        ranges += markdownLinkRanges(
+            text = text,
+            definedLabels = definitions.mapNotNull { definitionLabel(it.value) }.toSet(),
+        )
         Regex("""https?://\S+|www\.\S+""", RegexOption.IGNORE_CASE)
             .findAll(text)
             .forEach { ranges += it.range }
@@ -531,4 +536,183 @@ object PublicationReferenceSpanDetector {
         ).findAll(text).forEach { ranges += it.range }
         return ranges
     }
+
+    /**
+     * Cercas de código Markdown com crases ou tils, de qualquer comprimento.
+     * A cerca de fechamento precisa ter o mesmo caractere e pelo menos o
+     * mesmo número de marcadores; sem fechamento, protege até o fim.
+     */
+    private fun fencedCodeRanges(text: String): List<IntRange> {
+        val out = mutableListOf<IntRange>()
+        var lineStart = 0
+        while (lineStart < text.length) {
+            val lineEnd = text.indexOf('\n', lineStart)
+                .let { if (it < 0) text.length else it }
+            val line = text.substring(lineStart, lineEnd)
+            val open = FENCE_OPEN_RE.find(line)
+            if (open == null) {
+                lineStart = if (lineEnd < text.length) lineEnd + 1 else text.length
+                continue
+            }
+            val fence = open.groupValues[1]
+            val marker = fence[0]
+            val minLength = fence.length
+            val closing = Regex(
+                "^ {0,3}" + Regex.escape(marker.toString()) + "{" + minLength + ",}[ \\t]*$",
+            )
+            var search = if (lineEnd < text.length) lineEnd + 1 else text.length
+            var end = text.length
+            while (search < text.length) {
+                val closeLineEnd = text.indexOf('\n', search)
+                    .let { if (it < 0) text.length else it }
+                if (closing.matches(text.substring(search, closeLineEnd))) {
+                    end = closeLineEnd
+                    break
+                }
+                search = if (closeLineEnd < text.length) closeLineEnd + 1 else text.length
+            }
+            out += lineStart until end
+            lineStart = if (end < text.length) end + 1 else text.length
+        }
+        return out
+    }
+
+    /**
+     * Código inline com uma ou mais crases. A cerca de fechamento precisa
+     * ter o mesmo comprimento da abertura; spans multilinha são ignorados
+     * para não proteger uma região grande por engano.
+     */
+    private fun inlineCodeRanges(text: String): List<IntRange> {
+        val out = mutableListOf<IntRange>()
+        var i = 0
+        while (i < text.length) {
+            if (text[i] != '`' || isEscaped(text, i)) {
+                i++
+                continue
+            }
+            var run = 1
+            while (i + run < text.length && text[i + run] == '`') run++
+            var search = i + run
+            var end = -1
+            while (search < text.length) {
+                val c = text[search]
+                if (c == '\n') break
+                if (c == '`' && !isEscaped(text, search)) {
+                    var closeRun = 1
+                    while (search + closeRun < text.length &&
+                        text[search + closeRun] == '`'
+                    ) {
+                        closeRun++
+                    }
+                    if (closeRun == run) {
+                        end = search + closeRun
+                        break
+                    }
+                    search += closeRun
+                    continue
+                }
+                search++
+            }
+            if (end > i) {
+                out += i until end
+                i = end
+            } else {
+                i += run
+            }
+        }
+        return out
+    }
+
+    /**
+     * Links Markdown inline e por referência, incluindo colchetes/parênteses
+     * aninhados. O span começa no `[`; imagens (`![alt](url)`) também ficam
+     * protegidas a partir do `[`.
+     */
+    private fun markdownLinkRanges(
+        text: String,
+        definedLabels: Set<String>,
+    ): List<IntRange> {
+        val out = mutableListOf<IntRange>()
+        var i = 0
+        while (i < text.length) {
+            if (text[i] != '[' || isEscaped(text, i)) {
+                i++
+                continue
+            }
+            val close = matchingDelimiter(text, i, '[', ']')
+            if (close < 0) {
+                i++
+                continue
+            }
+            val next = close + 1
+            val end = when {
+                next < text.length && text[next] == '(' ->
+                    matchingDelimiter(text, next, '(', ')')
+                next < text.length && text[next] == '[' ->
+                    matchingDelimiter(text, next, '[', ']')
+                else -> {
+                    // Link por referência no formato curto: [texto], quando
+                    // existe uma definição [texto]: ...
+                    val label = normalizeText(text.substring(i + 1, close))
+                    if (label.isNotBlank() && label in definedLabels) close else -1
+                }
+            }
+            if (end >= 0) {
+                out += i until end + 1
+                i = end + 1
+            } else {
+                i++
+            }
+        }
+        return out
+    }
+
+    private fun definitionLabel(line: String): String? =
+        REFERENCE_DEFINITION_LABEL_RE.find(line)
+            ?.groupValues
+            ?.get(1)
+            ?.let(::normalizeText)
+            ?.takeIf { it.isNotBlank() }
+
+    private fun matchingDelimiter(
+        text: String,
+        openIndex: Int,
+        open: Char,
+        close: Char,
+    ): Int {
+        var depth = 0
+        var i = openIndex
+        while (i < text.length) {
+            val c = text[i]
+            if (isEscaped(text, i)) {
+                i++
+                continue
+            }
+            when (c) {
+                open -> depth++
+                close -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+            i++
+        }
+        return -1
+    }
+
+    private fun isEscaped(text: String, index: Int): Boolean {
+        var backslashes = 0
+        var i = index - 1
+        while (i >= 0 && text[i] == '\\') {
+            backslashes++
+            i--
+        }
+        return backslashes % 2 == 1
+    }
+
+    private val FENCE_OPEN_RE = Regex("^ {0,3}(`{3,}|~{3,})(.*)$")
+    private val REFERENCE_DEFINITION_RE =
+        Regex("""(?m)^(?: {0,3}> ?)* {0,3}\[[^\]]+]:[ \t]*\S.*$""")
+    private val REFERENCE_DEFINITION_LABEL_RE =
+        Regex("""^(?: {0,3}> ?)* {0,3}\[([^\]]+)]:""")
 }
