@@ -21,6 +21,26 @@
 - **Evolução incremental:** preservar Android/Compose, Room, Biblioteca, editor por introdução/tópicos/conclusão, Treino, Palco e mecanismos existentes; não reescrever o app.
 - **Governança:** nenhum agente faz merge, tag, release, version bump, migração de schema ou mudança de roadmap sem autorização explícita do mantenedor.
 
+## Atualização de execução — 20/11/2026 (fotografia verificável, não substitui a revisão do GitHub)
+
+**Base consultada:** `origin/main` em `a6d7806a2fde330f44ad0b57e0869c99e4e6fd20`. Esta atualização registra avanço dos ramos de TRUST, Mentor e referências clicáveis, mas **não altera os critérios de aceite nem declara marcos concluídos apenas por haver PR aberto**. O roadmap estratégico segue em revisão no [PR #10](https://github.com/guilhermemellojw/better-talker/pull/10), ainda **não integrado à main**.
+
+| Frente | Estado conferido em 20/11/2026 | Próximo gate |
+| --- | --- | --- |
+| TRUST-2B3B-A (identidade documental TNM) | [PR #31](https://github.com/guilhermemellojw/better-talker/pull/31) **MERGED** em 20/11; `main` aponta para `a6d7806a` | Não confundir verificação de identidade com validação semântica claim→evidência; prosseguir com gates TRUST independentes |
+| UX-REF-1A2 (links bíblicos no chat) | [PR #27](https://github.com/guilhermemellojw/better-talker/pull/27) **MERGED** em 19/11 | Preservar contratos da TNM e testar integração/leitor; não inferir que toda navegação de publicações está pronta |
+| UX-REF-1B3-B0 (contratos de links de publicação) | [PR #34](https://github.com/guilhermemellojw/better-talker/pull/34) **OPEN**, HEAD `254ee49a`, base `a6d7806a` | Revisão e CI no HEAD exato; contratos puros não equivalem a UI clicável, coordinator ou leitor entregues |
+| 1C.2.2B0 (Memória Canônica no prompt do Mentor) | [PR #33](https://github.com/guilhermemellojw/better-talker/pull/33) **OPEN**, HEAD `0ff68369`, base `a6d7806a`; correções P1, P4 e P5 presentes no diff | **P6 pendente: corrigir fallback de dossiê incompatível/ausente; testes adversariais + revisão final + CI**, antes de solicitar autorização de merge |
+| 1C.2.2 (controle da memória pelo usuário, marco completo) | **Não declarar concluído**: o PR #33 trata da injeção da memória canônica no prompt, não comprova a entrega integral da UI de controle | Revisar aceites de consulta, correção, substituição, reconfirmação, remoção, reinício e edição manual |
+
+**Achado P6 (bloqueador de revisão do PR #33):** em `CopilotViewModel.generateOratory()`, quando `resolvedDossier` está ausente/incompatível, o fallback atual pode usar `stripLegacyApproachBlock(contextBlock)`; esse `contextBlock` pode ter sido montado com o dossiê do foco anterior. Remover apenas a abordagem legada **não garante remover prosa, instruções e referências da seção anterior**. Exigir falha segura: sem dossiê compatível, não reutilizar o contexto oratório da seção anterior. Manter `resolvedPromptMemory` exclusivamente no `userContextBlock`, dossiê compatível no system, corpus factual separado e `resolvedExtraAuthorizedRefs` sem referências derivadas de dossiê incompatível. Preservar referências globais legítimas da estrutura S-34, sem ampliar autorizações por acidente. Em transições, a seção **desenvolvida** determina memória/dossiê; o `targetSection` determina apenas o alvo do card. Propagar `CancellationException`.
+
+**Evidências e limites:** o PR #33 contém 13 arquivos (+1.318/−36), HEAD verificado `0ff68369`, sem conflitos de merge reportados pelo GitHub. O agente relatou **4.238 testes JVM** aprovados, lint e APKs, e dois workflows verdes nesse HEAD; essa execução não foi reproduzida aqui e a consulta de workflows não permitiu confirmar os registros. `DecisionPromptMemoryRoomTest` instrumentado **não foi executado** no ambiente reportado (sem dispositivo/emulador). O P6 ainda é **ação proposta, não commit concluído**; após implementação, exigir testes de dossiê compatível/nulo/divergente/exceção, ausência de vazamento entre A→B, gate de referências, transição e validação dos workflows no novo HEAD.
+
+**Governança da atualização:** nenhuma autorização implícita para merge dos PRs #10, #33 ou #34, nem para release, alteração de schema, versão ou troca de provedor. Após P6, fazer revisão final independente do PR #33 e somente então solicitar autorização explícita de merge; validar `main` e CI pós-merge antes de marcar integrado.
+
+---
+
 ## 2. Foto verificada em 17/11/2026 (não é estado em tempo real)
 
 | Componente | Snapshot | Evidência/observação |
@@ -88,6 +108,8 @@ COST (instrumentação desde já) ─► COST-EVAL (após baseline estável de M
 **1C.2.1 — DESIGN depois de M0.** Ledger por nota/seção, identidade/estado/origem de decisão (CONFIRMED/PREFERENCE/REJECTED/OPEN + ACTIVE/SUPERSEDED/STALE), chave de assunto, `sourceMessageId`, aceite e `contentHash`; recuperar por seção e em outras seções sem deslocar contexto; separar **decidir** de **aplicar**. Não promover legado automaticamente. Decidir ANTES de schema se ledger será local ou sincronizado; `agreedApproach` legado não pode ser uma segunda fonte de verdade contraditória. Medir tokens e cache de prompt.
 
 **1C.2.2 — CONTROLE.** Expor ao usuário o que foi lembrado, origem e onde vale; permitir corrigir, reconfirmar ou remover. Definir política de “limpar conversa” e de edições manuais. **Aceite:** após reinício e troca de foco, decisão correta persiste; substituição não mantém duas decisões conflitantes; usuário controla cada uma.
+
+**1C.2.2B0 — SUBETAPA DE INJEÇÃO DA MEMÓRIA CANÔNICA (PR #33, OPEN em 20/11).** Seleção de decisões confirmadas do ledger por nota e seção resolvida, supressão do `agreedApproach` legado inclusive com registros superseded/falha de leitura, conteúdo volátil no canal user e separação do dossiê system/corpus de evidências. P1/P4/P5 corrigiram seleção de seção e canal da geração oratória; **P6 ainda pendente** por fallback que pode reutilizar contexto do foco anterior sem dossiê compatível. **Gate específico:** nenhum texto/orientação/referência de A entra no prompt da seção B quando o dossiê de B falhar; manter referências globais autorizadas, fidelidade e transições, verificar testes adversariais/CI/head exato e documentar ausência de androidTest. Só após revisão e autorização explícita integrar. Esta subetapa **não substitui** o aceite completo de 1C.2.2 (controle visível da memória pelo usuário).
 
 ### B. UX — previsibilidade do chat e feedback visual
 
@@ -160,6 +182,9 @@ Preservar um único documento por seção com **vistas Entender / Escrever / Ens
 
 ## 6. Regime de trabalho: dois agentes + um Discovery
 
+> **Nota de atualização (20/11):** as atribuições da tabela a seguir refletem o plano inicial de 17/11 e **não devem ser executadas automaticamente**. Para o estado atual e o bloqueador P6 do Agente A, consulte a atualização de execução acima. Confirmar tarefa e PR atual antes de atuar.
+
+
 | Frente | Atribuição imediata | Área exclusiva | Bloqueios |
 | --- | --- | --- | --- |
 | **Agente A (segurança)** | Encerrar correção pontual e revisão do [PR #8](https://github.com/guilhermemellojw/better-talker/pull/8) | `ApproachMemory.kt`, `ChatEngine.kt`, gates/VM da 1C.2.0 na própria branch | Não iniciar ledger/Room/Trust-1; não fazer merge |
@@ -198,7 +223,9 @@ Apenas um agente usa **o mesmo tablet** por vez; confirmar disponibilidade do A3
 
 ## 9. Próximo checkpoint e manutenção do roadmap
 
-**Checkpoint imediato:** revisar HEAD/CI do PR #8 e #9; solicitar apenas correções pontuais, integrar **somente com autorização**; lançar TRUST-0 como discovery independente; depois UX-2.3. Ao avançar, registrar **data UTC, base/main SHA, PR/head, CI, device, decisão de merge e evidências**. Nunca marcar “concluído” apenas porque um agente disse que executou; conferir GitHub e, quando relevante, artefatos.
+**Checkpoint atualizado (20/11/2026):** Agente A — executar somente o P6 no PR #33 (sem merge), garantindo que a indisponibilidade/incompatibilidade do dossiê não reintroduza contexto de outra seção; executar testes adversariais, JVM, lint, builds, CI no HEAD exato e declarar instrumentados não executados quando for o caso. Coordenador — revisar P6 e revalidar base, conflitos, CI e testes antes de qualquer autorização de merge. Em paralelo, revisar PR #34 pelos contratos e integração sem confundir código puro com leitor/UI implementados. TRUST-2B3B-A (#31) já está integrado; prosseguir nos próximos gates sem inferir verificação semântica concluída.
+
+**Checkpoint histórico de 17/11/2026 (não executar sem nova verificação):** revisar HEAD/CI do PR #8 e #9; solicitar apenas correções pontuais, integrar **somente com autorização**; lançar TRUST-0 como discovery independente; depois UX-2.3. Ao avançar, registrar **data UTC, base/main SHA, PR/head, CI, device, decisão de merge e evidências**. Nunca marcar “concluído” apenas porque um agente disse que executou; conferir GitHub e, quando relevante, artefatos.
 
 **Estimativa de esforço global, não compromisso:** piloto controlado de 8–12 semanas; beta da visão em 4–6 meses; operação ampliada em 6–12 meses ou mais. Replanejar após TRUST-0 e medições de custo.
 
