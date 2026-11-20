@@ -2,6 +2,7 @@ package com.bettertalker.app.data.publication
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -178,6 +179,25 @@ class PublicationReferenceLinksTest {
         assertEquals(text.lastIndexOf("Achegue-se a Jeová"), occ.start)
         // O detector normaliza a unidade do título ("capítulo" → "capitulo").
         assertEquals("capitulo 5", occ.chapter)
+        assertNotNull(occ.validationStart)
+        assertNotNull(occ.validationEndExclusive)
+        val literal = text.substring(occ.validationStart!!, occ.validationEndExclusive!!)
+        assertTrue(literal.startsWith(occ.raw))
+        assertTrue(literal.contains("capítulo 5"))
+    }
+
+    @Test
+    fun tituloRepetidoSoRecebeUnidadeNaOcorrenciaCerta() {
+        val text = "Achegue-se a Jeová é uma publicação. " +
+            "Veja Achegue-se a Jeová, capítulo 5."
+        val occ = spans(text).single()
+        assertEquals("Achegue-se a Jeová", occ.raw)
+        assertEquals(text.lastIndexOf("Achegue-se a Jeová"), occ.start)
+        assertEquals("capitulo 5", occ.chapter)
+        assertNotNull(occ.validationEndExclusive)
+        val literal = text.substring(occ.validationStart!!, occ.validationEndExclusive!!)
+        assertTrue(literal.contains("capítulo 5"))
+        assertEquals(occ.raw, text.substring(occ.start, occ.endExclusive))
     }
 
     @Test

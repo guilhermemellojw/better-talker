@@ -741,8 +741,11 @@ class PublicationReferenceResolverTest {
     @Test
     fun deteccaoDeTituloCompartilhadoNaoResolve() = runBlocking {
         val att = "a-lff"
+        val source = "Veja Seja Feliz para Sempre, lição 5."
+        val start = source.indexOf("Seja Feliz para Sempre")
+        val title = "Seja Feliz para Sempre"
         val detection = RefDetector.DetectedRef(
-            raw = "Seja Feliz para Sempre",
+            raw = title,
             kind = RefDetector.Kind.BOOK,
             pubKey = "lff",
             editionKey = "book|lff",
@@ -762,14 +765,18 @@ class PublicationReferenceResolverTest {
             ),
         ).resolve(
             PublicationReferenceOccurrence(
-                raw = "Seja Feliz para Sempre",
-                start = 0,
-                endExclusive = "Seja Feliz para Sempre".length,
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
                 publicationKey = "lff",
-                titleHint = "Seja Feliz para Sempre",
+                titleHint = title,
                 editionKey = "book|lff",
+                chapter = "licao 5",
+                validationStart = start,
+                validationEndExclusive = source.length,
                 detection = detection,
             ),
+            sourceText = source,
         )
 
         assertFalse(out is PublicationReferenceResolution.Available)
@@ -780,12 +787,15 @@ class PublicationReferenceResolverTest {
     @Test
     fun deteccaoDeTituloComUnidadeContinuaValida() = runBlocking {
         val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 5."
+        val start = source.indexOf("Achegue-se a Jeová")
+        val title = "Achegue-se a Jeová"
         val detection = RefDetector.DetectedRef(
-            raw = "Achegue-se a Jeová",
+            raw = title,
             kind = RefDetector.Kind.BOOK,
             pubKey = "cl",
             editionKey = "book|cl",
-            label = "Achegue-se a Jeová",
+            label = title,
             chapter = "capitulo 5",
         )
         val out = resolver(
@@ -810,14 +820,18 @@ class PublicationReferenceResolverTest {
             ),
         ).resolve(
             PublicationReferenceOccurrence(
-                raw = "Achegue-se a Jeová",
-                start = 0,
-                endExclusive = "Achegue-se a Jeová".length,
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
                 publicationKey = "cl",
-                titleHint = "Achegue-se a Jeová",
+                titleHint = title,
                 editionKey = "book|cl",
+                chapter = "capitulo 5",
+                validationStart = start,
+                validationEndExclusive = source.length,
                 detection = detection,
             ),
+            sourceText = source,
         )
 
         assertTrue(
@@ -830,6 +844,299 @@ class PublicationReferenceResolverTest {
             else -> error("resolução inesperada: $out")
         }
         assertEquals("5", target.unit?.number)
+    }
+
+    @Test
+    fun tituloComCapituloFabricadoUsaCapituloDoTextoOriginal() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 4."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val forged = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto do capitulo quatro.",
+                    section = "Capítulo 4: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+            units = listOf(
+                unit(
+                    id = "u4",
+                    attachmentId = att,
+                    kind = "CHAPTER",
+                    number = "4",
+                    title = "Capítulo 4: Como estudar",
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = forged,
+            ),
+            sourceText = source,
+        )
+
+        assertTrue(
+            out is PublicationReferenceResolution.Available ||
+                out is PublicationReferenceResolution.Partial,
+        )
+        val target = when (out) {
+            is PublicationReferenceResolution.Available -> out.target
+            is PublicationReferenceResolution.Partial -> out.target
+            else -> error("resolução inesperada: $out")
+        }
+        assertEquals("4", target.unit?.number)
+        assertFalse(target.canonicalRef.orEmpty().contains("5"))
+    }
+
+    @Test
+    fun tituloComPaginaFabricadaUsaPaginaDoTextoOriginal() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, página 12."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val forged = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            page = 999,
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = listOf(
+                passage("p12", att, "Texto da pagina doze.", page = 12),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = forged,
+            ),
+            sourceText = source,
+        )
+
+        assertTrue(out is PublicationReferenceResolution.Partial)
+        assertEquals(12, (out as PublicationReferenceResolution.Partial).target.page)
+    }
+
+    @Test
+    fun tituloSemTextoOriginalNaoUsaUnidade() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 5."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val detection = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = emptyList(),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = detection,
+            ),
+        )
+
+        assertTrue(out is PublicationReferenceResolution.NotRecognized)
+    }
+
+    @Test
+    fun tituloComMetadadoDivergenteNaoResolve() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 4."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val detection = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto do capitulo quatro.",
+                    section = "Capítulo 4: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                chapter = "capitulo 5",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = detection,
+            ),
+            sourceText = source,
+        )
+
+        assertTrue(out is PublicationReferenceResolution.NotRecognized)
+    }
+
+    @Test
+    fun tituloComEditionKeyDivergenteNaoResolve() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 5."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val detection = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|lff",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = emptyList(),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|lff",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = detection,
+            ),
+            sourceText = source,
+        )
+
+        assertTrue(out is PublicationReferenceResolution.NotRecognized)
+    }
+
+    @Test
+    fun tituloComDeteccaoRawDivergenteNaoUsaUnidade() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 5."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val detection = RefDetector.DetectedRef(
+            raw = "Outro título",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto do capitulo cinco.",
+                    section = "Capítulo 5: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                chapter = "capitulo 5",
+                validationStart = start,
+                validationEndExclusive = source.length,
+                detection = detection,
+            ),
+            sourceText = source,
+        )
+
+        assertFalse(out is PublicationReferenceResolution.Available)
+        assertFalse(out is PublicationReferenceResolution.Partial)
+    }
+
+    @Test
+    fun tituloComProvaDeOutraOcorrenciaNaoResolve() = runBlocking {
+        val att = "a-cl"
+        val source = "Veja Achegue-se a Jeová, capítulo 5."
+        val title = "Achegue-se a Jeová"
+        val start = source.indexOf(title)
+        val detection = RefDetector.DetectedRef(
+            raw = title,
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = title,
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = emptyList(),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = title,
+                start = start,
+                endExclusive = start + title.length,
+                publicationKey = "cl",
+                titleHint = title,
+                editionKey = "book|cl",
+                validationStart = start + 1,
+                validationEndExclusive = source.length,
+                detection = detection,
+            ),
+            sourceText = source,
+        )
+
+        assertTrue(out is PublicationReferenceResolution.NotRecognized)
     }
 
     @Test

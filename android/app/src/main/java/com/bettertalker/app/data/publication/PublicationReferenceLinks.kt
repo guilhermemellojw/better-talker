@@ -29,6 +29,13 @@ data class PublicationReferenceOccurrence(
     val pageEnd: Int? = null,
     val paragraph: Int? = null,
     val paragraphEnd: Int? = null,
+    /**
+     * Offsets do trecho literal (título + unidade) no texto original.
+     * O span visual continua sendo [start]/[endExclusive]; este trecho é o
+     * que o resolvedor deve revalidar quando a unidade fica fora do título.
+     */
+    val validationStart: Int? = null,
+    val validationEndExclusive: Int? = null,
     /** Resultado bruto do detector; não é uma segunda fonte de verdade. */
     val detection: RefDetector.DetectedRef? = null,
 ) {
@@ -36,6 +43,15 @@ data class PublicationReferenceOccurrence(
         require(start >= 0) { "start deve ser >= 0" }
         require(endExclusive > start) { "endExclusive deve ser > start" }
         require(raw.isNotBlank()) { "raw não pode ser vazio" }
+        require((validationStart == null) == (validationEndExclusive == null)) {
+            "validationStart e validationEndExclusive devem ser ambos nulos ou ambos preenchidos"
+        }
+        require(validationStart == null || validationStart >= start) {
+            "validationStart não pode anteceder o span visual"
+        }
+        require(validationEndExclusive == null || validationEndExclusive > endExclusive) {
+            "validationEndExclusive deve incluir a unidade após o span visual"
+        }
     }
 
     val range: IntRange get() = start until endExclusive
@@ -324,7 +340,12 @@ object PublicationReferenceSpanDetector {
                 } else {
                     ref
                 }
-                candidates += Candidate(start, end, occurrenceRef)
+                val validationEnd = if (isTitleOnly(ref)) {
+                    minOf(text.length, end + 80)
+                } else {
+                    null
+                }
+                candidates += Candidate(start, end, occurrenceRef, validationEnd)
             }
         }
 
@@ -377,6 +398,8 @@ object PublicationReferenceSpanDetector {
                 pageEnd = ref.pageEnd,
                 paragraph = ref.paragraph,
                 paragraphEnd = ref.paragraphEnd,
+                validationStart = candidate.validationEndExclusive?.let { candidate.start },
+                validationEndExclusive = candidate.validationEndExclusive,
                 detection = ref,
             )
             lastEnd = candidate.end
@@ -388,6 +411,7 @@ object PublicationReferenceSpanDetector {
         val start: Int,
         val end: Int,
         val ref: RefDetector.DetectedRef,
+        val validationEndExclusive: Int? = null,
     )
 
     private fun isLinkable(ref: RefDetector.DetectedRef, raw: String): Boolean {

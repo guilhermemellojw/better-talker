@@ -42,14 +42,22 @@ class PublicationReferenceResolver(
         RoomReferenceResolver(passageDao, attachmentDao),
 ) {
 
+    /**
+     * @param sourceText texto imutável da mensagem que produziu a ocorrência.
+     *   É obrigatório para referências por título com unidade: o resolvedor
+     *   valida os offsets literais dentro deste texto. A verificação garante
+     *   correspondência literal interna, não autenticidade externa do
+     *   chamador; sem ele, a unidade do título é rejeitada.
+     */
     suspend fun resolve(
         occurrence: PublicationReferenceOccurrence,
         expectedAttachmentId: String? = null,
+        sourceText: String? = null,
     ): PublicationReferenceResolution {
         val raw = occurrence.raw.trim()
         if (raw.isBlank()) return PublicationReferenceResolution.NotRecognized(occurrence.raw)
 
-        val detected = validatedDetection(occurrence)
+        val detected = validatedDetection(occurrence, sourceText)
             ?: return PublicationReferenceResolution.NotRecognized(occurrence.raw)
         if (detected.pubKey.isBlank() || detected.pubKey.equals("nwt", true)) {
             return PublicationReferenceResolution.NotRecognized(occurrence.raw)
@@ -538,13 +546,15 @@ class PublicationReferenceResolver(
      * B2 — a detecção só é aceita se for compatível com o texto original.
      *
      * Para referências normais, o detector roda de novo sobre o `raw` e
-     * substitui qualquer unidade fornecida pelo chamador. A exceção é um
-     * título por extenso cuja unidade fica fora do span do título: nesse
-     * caso o detector de spans já validou a unidade no texto ao redor, e a
-     * identidade do título é conferida contra o catálogo.
+     * substitui qualquer unidade fornecida pelo chamador. Para um título por
+     * extenso, a unidade só é aceita quando [sourceText] contém literalmente
+     * o trecho delimitado por `validationStart`/`validationEndExclusive`, o
+     * span visual corresponde ao `raw` e o detector reconhece a unidade
+     * nesse trecho. A `detection` fornece apenas a identidade editorial.
      */
     private fun validatedDetection(
         occurrence: PublicationReferenceOccurrence,
+        sourceText: String?,
     ): RefDetector.DetectedRef? {
         val detection = occurrence.detection ?: return redetect(occurrence)
         val rawNorm = normalizeText(occurrence.raw)
@@ -561,12 +571,40 @@ class PublicationReferenceResolver(
             ) {
                 return null
             }
+            if (detection.kind == RefDetector.Kind.BOOK &&
+                detection.editionKey != "book|${detection.pubKey}"
+            ) {
+                return null
+            }
             val owners = PubCatalog.titleIndex()
                 .filter { it.first == title }
                 .mapNotNull { (_, symbol) -> canonicalSymbol(symbol) }
                 .toSet()
             if (owners.size > 1) return null
-            return detection
+
+            // Sem o texto original não há como provar que a unidade
+            // acompanha este título; nunca usar o capítulo/página da
+            // detection isoladamente.
+            if (sourceText == null) return null
+            val start = occurrence.start
+            val end = occurrence.endExclusive
+            if (start < 0 || end > sourceText.length || end <= start) return null
+            if (sourceText.substring(start, end) != occurrence.raw) return null
+            val validationStart = occurrence.validationStart ?: return null
+            val validationEnd = occurrence.validationEndExclusive ?: return null
+            if (validationStart != start ||
+                validationEnd > sourceText.length ||
+                validationEnd <= end
+            ) {
+                return null
+            }
+            val literal = sourceText.substring(validationStart, validationEnd)
+            if (!normalizeText(literal).startsWith(rawNorm)) return null
+            val validated = RefDetector.detect(literal).firstOrNull {
+                it.pubKey.equals(detection.pubKey, true) && it.hasUnit()
+            } ?: return null
+            if (!occurrenceMatchesValidated(occurrence, validated)) return null
+            return validated
         }
 
         val detected = RefDetector.detect(occurrence.raw).firstOrNull {
@@ -585,6 +623,50 @@ class PublicationReferenceResolver(
             return detection
         }
         return null
+    }
+
+    /**
+     * Metadados explícitos da ocorrência, quando presentes, precisam bater
+     * com o que o texto literal comprova. Campos nulos são aceitos: o
+     * resolvedor usa a unidade revalidada, não a detecção bruta.
+     */
+    private fun occurrenceMatchesValidated(
+        occurrence: PublicationReferenceOccurrence,
+        validated: RefDetector.DetectedRef,
+    ): Boolean {
+        if (!occurrence.publicationKey.isNullOrBlank() &&
+            !occurrence.publicationKey.equals(validated.pubKey, true)
+        ) {
+            return false
+        }
+        if (!occurrence.editionKey.isNullOrBlank() &&
+            occurrence.editionKey != validated.editionKey
+        ) {
+            return false
+        }
+        if (!occurrence.article.isNullOrBlank() &&
+            normalizeText(occurrence.article) != normalizeText(validated.article.orEmpty())
+        ) {
+            return false
+        }
+        if (!occurrence.chapter.isNullOrBlank() &&
+            normalizeText(occurrence.chapter) != normalizeText(validated.chapter.orEmpty())
+        ) {
+            return false
+        }
+        if (occurrence.page != null && occurrence.page != validated.page) return false
+        if (occurrence.pageEnd != null && occurrence.pageEnd != validated.pageEnd) return false
+        if (occurrence.paragraph != null &&
+            occurrence.paragraph != validated.paragraph
+        ) {
+            return false
+        }
+        if (occurrence.paragraphEnd != null &&
+            occurrence.paragraphEnd != validated.paragraphEnd
+        ) {
+            return false
+        }
+        return true
     }
 
     private fun RefDetector.DetectedRef.hasUnit(): Boolean =
