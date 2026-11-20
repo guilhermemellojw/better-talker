@@ -14,6 +14,10 @@ O componente **não** está conectado ao Mentor, RAG, prompts, SourceGate,
 GroundednessVerifier, CopilotViewModel ou RoomReferenceResolver. Nenhuma
 migração Room é necessária.
 
+**Neste BUILD, nenhum resultado é promovido a uso factual.** A promoção
+depende de infraestrutura externa de confiança na âncora e de consulta ao
+índice persistido, que ainda não existem.
+
 ## Entrada
 
 `NwtDocumentIdentityVerifier.verify(...)` recebe:
@@ -21,10 +25,10 @@ migração Room é necessária.
 - `NwtAttachmentMetadata`: `attachmentId`, nome, kind, baseSlot, symbol,
   indexed, status, SHA-256 registrado, tamanho e caminho;
 - `File`: o EPUB atual;
-- `NwtIndexedUnit?`: `attachmentId`, `passageId`, referência canônica, `ord`
-  e texto indexado;
+- `NwtIndexedUnit?`: `attachmentId`, `passageId`, referência canônica, seção,
+  `ord` e texto indexado;
 - `NwtExpectedEdition`: perfil de consistência editorial e, opcionalmente,
-  uma âncora externa previamente aprovada;
+  uma âncora externa para **correspondência**;
 - `NwtVerifierLimits`: tetos de XML, XHTML, entradas e tamanho descomprimido.
 
 ## Saída
@@ -35,42 +39,83 @@ migração Room é necessária.
 |---|---|
 | `integrity` | `FILE_MISSING`, `FILE_UNREADABLE`, `NOT_EPUB`, `HASH_MISSING`, `HASH_MISMATCH`, `HASH_MATCH` |
 | `editorialState` | `OPF_MISSING`, `OPF_INVALID`, `METADATA_INCONSISTENT`, `IDENTITY_UNVERIFIABLE`, `IDENTITY_CONSISTENT` |
-| `authenticity` | `NOT_ANCHORED`, `ANCHOR_MATCH`, `ANCHOR_MISMATCH` |
-| `unit.state` | `UNIT_MISSING`, `UNIT_PARTIAL`, `UNIT_VERIFIED`, `INDEX_STALE`, `UNIT_UNVERIFIABLE` |
+| `authenticity` | `NOT_ANCHORED`, `ANCHOR_MATCH`, `ANCHOR_MISMATCH` — apenas correspondência com a âncora fornecida |
+| `unit.state` | `UNIT_MISSING`, `UNIT_PARTIAL`, `UNIT_TEXT_VERIFIED`, `INDEX_STALE`, `UNIT_UNVERIFIABLE` |
 | `unit.comparison` | `EXACT`, `NORMALIZED_WHITESPACE`, `MISMATCH`, `NOT_COMPARED` |
+| `unit.textMatchesEpub` | fidelidade textual ao EPUB |
+| `unit.metadataShapeComplete` | `passageId`, `ord` e `section` presentes |
+| `unit.sectionMatchesEpub` | `null` = não fornecida; `false` = diverge |
+| `unit.indexIdentityVerified` | sempre `false` neste BUILD |
 | `corpus.state` | `COMPLETE_RELATIVE_TO_EPUB`, `PARTIAL`, `INCONSISTENT`, `UNKNOWN` |
-| `promotion` | elegibilidade derivada para promoção futura, sem `VERIFIED_LOCAL` |
+| `promotion` | diagnóstico de elegibilidade; promoção factual sempre bloqueada |
 
-Não existe `VERIFIED_LOCAL` na saída. A promoção futura exige todos os checks
-abaixo **e** uma âncora editorial externa (`NwtTrustedAnchor`):
+## O que cada estado comprova
 
-- integridade `HASH_MATCH`;
-- metadados do anexo consistentes;
-- estrutura EPUB válida;
-- identidade editorial `IDENTITY_CONSISTENT`;
-- autenticidade `ANCHOR_MATCH`;
-- unidade `UNIT_VERIFIED`;
-- para nível de corpus, `COMPLETE_RELATIVE_TO_EPUB`.
+### `IDENTITY_CONSISTENT`
 
-`ANCHOR_MATCH` significa apenas "coincide com a âncora fornecida". O verificador
-não cria uma autoridade oficial nem declara autenticidade oficial.
+Comprova que o OPF contém título, idioma, editora e identificador presentes e
+compatíveis com o perfil esperado. **Não comprova** que a publicação é oficial,
+que o arquivo foi obtido legitimamente ou que a âncora fornecida é confiável.
 
-## Completude
+### `ANCHOR_MATCH`
 
-A completude é medida contra o próprio EPUB:
+Comprova apenas que o identificador e/ou hash do arquivo coincidem com a âncora
+fornecida pelo chamador. Um UUID pode ser copiado e um hash pode ser calculado
+sobre um arquivo adulterado. Correspondência não é autorização.
 
-- spine/OPF e documentos de livro identificados;
-- marcadores `chapterN` / `chapterN_verseM`;
-- versículos efetivamente extraídos pelo parser;
-- 66 livros identificáveis no catálogo NWT.
+### `UNIT_TEXT_VERIFIED`
 
-O verificador **não** compara com 31.102 (KJV) nem com qualquer contagem de
-outra tradução. Omissões específicas da edição (por exemplo, João 8:1-11) não
-são tratadas como truncamento do índice.
+Comprova que o texto indexado coincide com o texto extraído do EPUB (exato ou
+com normalização estrita de espaços). **Não comprova** que `passageId`, `ord` ou
+`section` pertencem ao registro persistido. `indexIdentityVerified` permanece
+`false` até existir um adaptador que consulte o índice real.
 
-`COMPLETE_RELATIVE_TO_EPUB` não significa "Bíblia canônica completa"; significa
-que todo o conteúdo de livro/spine que o verificador conseguiu enumerar foi
-indexado sem divergência entre marcadores e parser.
+### `COMPLETE_RELATIVE_TO_EPUB`
+
+Comprova que todos os recursos de spine relevantes foram lidos e processados,
+que os marcadores de versículo coincidem com o parser e que os 66 livros foram
+identificados. **Não comprova** completude canônica nem que a edição é oficial.
+
+## Riscos investigados
+
+### R1 — Âncora editorial insuficiente
+
+- Confirmado: `ANCHOR_MATCH` podia ser obtido apenas com identificador.
+- Correção: a correspondência continua sendo reportada, mas
+  `anchorProvenanceTrusted=false` e `canPromoteUnitToLocalFactual=false` em
+  todos os casos. Um blocker `ANCHOR_PROVENANCE_UNVERIFIED` é sempre emitido.
+- Teste permanente: `ancoraApenasComIdentificadorNaoPromove`.
+
+### R2 — Identidade da unidade não comprovada
+
+- Confirmado: texto correto podia coexistir com `passageId`/`ord`/`section`
+  arbitrários e ainda habilitar promoção.
+- Correção: `UNIT_TEXT_VERIFIED` separa fidelidade textual de identidade do
+  índice; `indexIdentityVerified=false`; seção divergente vira `UNIT_PARTIAL`;
+  texto repetido em outra unidade vira `UNIT_PARTIAL`.
+- Testes: `passageIdFabricadoNaoEhComprovadoPeloEpub`,
+  `ordIncorretoNaoEhComprovadoPeloEpub`, `secaoDeOutraUnidadeViraPartial`,
+  `mesmoTextoEmUnidadesDiferentesViraPartial`.
+
+### R3 — Completude com falhas de leitura
+
+- Confirmado: recursos de spine ausentes/ilegíveis podiam ser ignorados e o
+  corpus ainda retornar `COMPLETE_RELATIVE_TO_EPUB` se os 66 livros e os
+  marcadores restantes coincidissem.
+- Correção: `failedResources > 0` impede `COMPLETE`; o estado vira `PARTIAL`
+  ou `UNKNOWN`. O resultado expõe `processedResources` e `failedResources`.
+- Testes: `spineResourceAusenteNaoViraComplete`,
+  `spineResourceAcimaDoLimiteNaoViraComplete`,
+  `spineBookMalformadoNaoViraComplete`.
+
+### R4 — Entradas ZIP duplicadas
+
+- Confirmado: duplicatas de XHTML podiam escapar da invalidação estrutural e
+  permitir leitura ambígua por `ZipFile.getEntry()`.
+- Correção: qualquer nome duplicado no ZIP torna `structureValid=false`; a
+  unidade fica `UNIT_UNVERIFIABLE`, o corpus não vira `COMPLETE` e a promoção
+  permanece bloqueada. Um teste usa um ZIP bruto com entradas duplicadas.
+- Teste: `zipComXhtmlDuplicadoNaoVerificaUnidade`.
 
 ## Segurança
 
@@ -78,42 +123,40 @@ indexado sem divergência entre marcadores e parser.
 - leitura limitada de `container.xml`, OPF e XHTML;
 - XML com `FEATURE_SECURE_PROCESSING`, DOCTYPE desabilitado, entidades externas
   desabilitadas e `EntityResolver` vazio;
-- rejeição de caminhos absolutos, `..`, `//` e entradas duplicadas críticas;
+- rejeição de caminhos absolutos, `..`, `//` e nomes duplicados;
 - EPUB tratado como entrada não confiável;
 - nenhum texto protegido é copiado, impresso ou persistido pelo verificador.
 
 ## Garantias demonstradas
 
-- Hash divergente, hash ausente e arquivo ausente não promovem identidade.
+- Hash divergente/ausente e arquivo ausente não promovem identidade.
 - OPF ausente/inválido, idioma/título/identificador incompatíveis não promovem.
 - Arquivo alterado após a indexação produz `HASH_MISMATCH`/`INDEX_STALE`.
-- Texto indexado igual ao extraído produz `UNIT_VERIFIED`; diferente produz
-  `INDEX_STALE`; unidade ausente produz `UNIT_MISSING`; identidade incompleta
-  produz `UNIT_PARTIAL`.
-- Referência pertencente a outro `attachmentId` não é resolvida globalmente.
-- Metadados coerentes sem âncora externa **não** promovem.
-- Âncora externa divergente **não** promove.
-- Completude de um único livro não vira `COMPLETE_RELATIVE_TO_EPUB`.
-- EPUB sintético com 66 livros e todos os marcadores coerentes vira
-  `COMPLETE_RELATIVE_TO_EPUB`.
+- Texto igual/diferente do EPUB é distinguido; unidade ausente/parcial também.
+- Unidade de outro `attachmentId` não é resolvida globalmente.
+- Seção divergente e texto repetido em outra unidade impedem verificação plena.
+- Recurso de spine ausente/ilegível impede `COMPLETE_RELATIVE_TO_EPUB`.
+- ZIP com nome duplicado impede verificação positiva.
+- Âncora com apenas identificador, ou mesmo com hash, não promove.
+- A promoção factual permanece bloqueada em todos os cenários deste BUILD.
 
 ## Garantias ainda não demonstradas
 
-- Autenticidade oficial da publicação: depende de uma âncora/manifesto externo
-  aprovado pelo mantenedor.
-- Exposição ao LLM: não faz parte deste componente.
-- Suporte semântico: não faz parte deste componente.
-- Integração com TRUST-2B2: será um PR posterior.
-- Validação contra um EPUB real da TNM: os testes usam apenas EPUBs sintéticos;
-  a validação real deve ocorrer no BUILD seguinte, com proveniência autorizada.
+- Autenticidade oficial da publicação: exige política externa de confiança na
+  âncora, com origem independente e verificável.
+- Identidade do registro persistido (`passageId`/`ord`/`section`): exige
+  adaptador que consulte o índice Room real.
+- Exposição ao LLM e suporte semântico: fora deste componente.
+- Integração TRUST-2B2: PR posterior.
+- Validação contra um EPUB real da TNM: os testes usam apenas EPUBs sintéticos.
 
 ## Integração futura
 
 1. Mapear `AttachmentEntity` para `NwtAttachmentMetadata`.
 2. Consultar `PassageEntity` por `attachmentId` + `ref` (nunca `findByRef`
-   global) e montar `NwtIndexedUnit`.
+   global) e montar `NwtIndexedUnit` com `passageId`/`ord`/`section` reais.
 3. Executar o verificador.
-4. Mapear `promotion.canPromoteUnitToLocalFactual` para `VERIFIED_LOCAL` somente
-   quando a política externa de âncora estiver aprovada.
-5. Manter `corpusCompleteRelativeToEpub` separado da recuperação da unidade.
-6. Ligar o resultado ao registro de exposição do prompt em etapa posterior.
+4. Introduzir uma política externa de confiança na âncora; só então mapear
+   `canPromoteUnitToLocalFactual` para `VERIFIED_LOCAL`.
+5. Manter completude do corpus separada da recuperação da unidade.
+6. Ligar ao registro de exposição do prompt em etapa posterior.

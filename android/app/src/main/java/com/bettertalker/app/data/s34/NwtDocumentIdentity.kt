@@ -33,7 +33,8 @@ enum class NwtAuthenticityAnchorState {
 enum class NwtUnitIdentityState {
     UNIT_MISSING,
     UNIT_PARTIAL,
-    UNIT_VERIFIED,
+    /** O texto coincide com o EPUB; não prova o registro persistido. */
+    UNIT_TEXT_VERIFIED,
     INDEX_STALE,
     UNIT_UNVERIFIABLE,
 }
@@ -84,6 +85,12 @@ enum class NwtIssueCode {
     IDENTIFIER_MISMATCH,
     NO_TRUSTED_ANCHOR,
     ANCHOR_MISMATCH,
+    ANCHOR_PROVENANCE_UNVERIFIED,
+    INDEX_IDENTITY_UNVERIFIED,
+    SECTION_MISMATCH,
+    AMBIGUOUS_TEXT_IN_EPUB,
+    DUPLICATE_AMBIGUITY,
+    SPINE_RESOURCE_UNPROCESSED,
     SPINE_MISSING,
     XHTML_MISSING,
     XHTML_READ_FAILED,
@@ -133,8 +140,9 @@ data class NwtIndexedUnit(
 
 /**
  * Perfil de consistência editorial. Não é autoridade oficial: define o que o
- * chamador espera encontrar. Autenticidade só pode ser afirmada quando
- * [trustedAnchor] vier de uma política externa aprovada.
+ * chamador espera encontrar. [trustedAnchor] serve apenas para correspondência;
+ * a confiança na procedência da âncora é uma política externa separada e não
+ * demonstrável por este verificador.
  */
 data class NwtExpectedEdition(
     val titleContains: String? = "Tradução do Novo Mundo",
@@ -145,8 +153,9 @@ data class NwtExpectedEdition(
 )
 
 /**
- * Âncora externa previamente aprovada. `ANCHOR_MATCH` significa apenas
- * "coincide com a âncora fornecida", não "autenticidade oficial".
+ * Âncora externa. `ANCHOR_MATCH` significa apenas "coincide com a âncora
+ * fornecida"; não demonstra que a âncora é confiável nem que a publicação é
+ * oficialmente autêntica. Este BUILD não promove nada a uso factual.
  */
 data class NwtTrustedAnchor(
     val identifier: String? = null,
@@ -171,6 +180,14 @@ data class NwtUnitIdentity(
     val section: String?,
     val ord: Int?,
     val comparison: NwtTextComparison,
+    /** O texto indexado coincide com o EPUB (fidelidade textual). */
+    val textMatchesEpub: Boolean,
+    /** passageId, ord e section foram fornecidos com forma completa. */
+    val metadataShapeComplete: Boolean,
+    /** null = seção não fornecida; false = diverge da seção do EPUB. */
+    val sectionMatchesEpub: Boolean?,
+    /** Nunca true neste BUILD: exigiria consulta ao índice persistido. */
+    val indexIdentityVerified: Boolean,
     val indexedChars: Int,
     val epubChars: Int,
     val indexedTextSha256: String?,
@@ -185,6 +202,8 @@ data class NwtCorpusSummary(
     val parsedVerses: Int,
     val rawVerseMarkers: Int,
     val missingBooks: List<Int>,
+    val processedResources: Int,
+    val failedResources: Int,
     val issues: List<NwtIdentityIssue>,
 ) {
     companion object {
@@ -195,23 +214,36 @@ data class NwtCorpusSummary(
             parsedVerses = 0,
             rawVerseMarkers = 0,
             missingBooks = (1..66).toList(),
+            processedResources = 0,
+            failedResources = 0,
             issues = issues,
         )
     }
 }
 
 data class NwtPromotionEligibility(
-    val documentIdentityVerified: Boolean,
-    val unitVerified: Boolean,
+    val integrityVerified: Boolean,
+    val editorialConsistencyVerified: Boolean,
+    val anchorCorrespondence: NwtAuthenticityAnchorState,
+    /** Sem infraestrutura de confiança externa, permanece false. */
+    val anchorProvenanceTrusted: Boolean,
+    val unitTextVerified: Boolean,
+    /** Sem consulta ao índice persistido, permanece false. */
+    val unitIndexIdentityVerified: Boolean,
     val corpusCompleteRelativeToEpub: Boolean,
+    /** Bloqueado neste BUILD até existir política externa verificável. */
     val canPromoteUnitToLocalFactual: Boolean,
     val canPromoteCorpusToLocalFactual: Boolean,
     val blockers: List<NwtIdentityIssue>,
 ) {
     companion object {
         fun blocked(issues: List<NwtIdentityIssue>) = NwtPromotionEligibility(
-            documentIdentityVerified = false,
-            unitVerified = false,
+            integrityVerified = false,
+            editorialConsistencyVerified = false,
+            anchorCorrespondence = NwtAuthenticityAnchorState.NOT_ANCHORED,
+            anchorProvenanceTrusted = false,
+            unitTextVerified = false,
+            unitIndexIdentityVerified = false,
             corpusCompleteRelativeToEpub = false,
             canPromoteUnitToLocalFactual = false,
             canPromoteCorpusToLocalFactual = false,

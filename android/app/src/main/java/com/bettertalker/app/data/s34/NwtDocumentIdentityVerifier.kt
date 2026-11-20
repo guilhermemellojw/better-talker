@@ -157,10 +157,16 @@ object NwtDocumentIdentityVerifier {
             val spinePaths = opf?.let { parseSpinePaths(it.document, it.path, issues) }.orEmpty()
             val targetRef = indexedUnit?.canonicalRef?.takeIf { it.isNotBlank() }
             val scan = scanEpub(zip, spinePaths, targetRef, limits, issues)
+            val duplicateAmbiguity = opened.duplicateNames.isNotEmpty()
+            if (duplicateAmbiguity) {
+                issues += issue(
+                    NwtIssueCode.DUPLICATE_AMBIGUITY,
+                    "ZIP contém ${opened.duplicateNames.size} nome(s) duplicado(s)",
+                )
+            }
             val structureValid = container != null &&
                 opf != null &&
-                !opened.duplicateNames.contains(CONTAINER_PATH) &&
-                !opened.duplicateNames.contains(container.path)
+                !duplicateAmbiguity
             val unit = verifyUnit(
                 metadata = metadata,
                 indexedUnit = indexedUnit,
@@ -169,7 +175,12 @@ object NwtDocumentIdentityVerifier {
                 structureValid = structureValid,
                 issues = issues,
             )
-            val corpus = corpusSummary(scan, spinePaths.isNotEmpty(), issues)
+            val corpus = corpusSummary(
+                scan = scan,
+                usedSpine = spinePaths.isNotEmpty(),
+                structureValid = structureValid,
+                issues = issues,
+            )
             val authenticity = evaluateAuthenticity(
                 anchor = expected.trustedAnchor,
                 identifier = editorial?.identifier,
@@ -456,7 +467,12 @@ object NwtDocumentIdentityVerifier {
         val bookOrders: Set<Int>,
         val chapterKeys: Set<Pair<Int, Int>>,
         val targetText: String?,
+        val targetSection: String?,
         val targetFoundCount: Int,
+        /** Quantas referências do EPUB compartilham o texto indexado. */
+        val textOccurrences: Int,
+        val processedPaths: Set<String>,
+        val failedPaths: Set<String>,
         val usedSpine: Boolean,
         val issues: List<NwtIdentityIssue>,
     )
@@ -478,23 +494,47 @@ object NwtDocumentIdentityVerifier {
         val parsedKeys = linkedSetOf<VerseKey>()
         val bookOrders = linkedSetOf<Int>()
         val chapterKeys = linkedSetOf<Pair<Int, Int>>()
+        val processedPaths = linkedSetOf<String>()
+        val failedPaths = linkedSetOf<String>()
+        val textToRefs = mutableMapOf<String, MutableSet<String>>()
         var targetText: String? = null
+        var targetSection: String? = null
         var targetFound = 0
         val normalizedTarget = targetRef?.let(::normalizeRef)
 
         for (path in paths.distinct()) {
             if (isUnsafeZipPath(path)) {
                 scanIssues += issue(NwtIssueCode.ZIP_PATH_UNSAFE, "caminho suspeito: $path")
+                failedPaths += path
                 continue
             }
-            val html = readXhtml(zip, path, limits, scanIssues) ?: continue
+            val html = readXhtml(zip, path, limits, scanIssues)
+            if (html == null) {
+                failedPaths += path
+                continue
+            }
             val docId = DOC_ID_REGEX.find(html)?.groupValues?.get(1)
-            val book = docId?.let { NWT_BOOKS[it] } ?: continue
+            if (docId == null) {
+                // Capa/navegação declarada no spine: lida, mas não é livro.
+                processedPaths += path
+                continue
+            }
+            val book = NWT_BOOKS[docId]
+            if (book == null) {
+                scanIssues += issue(NwtIssueCode.PARSER_NO_VERSES, "docId desconhecido: $path")
+                failedPaths += path
+                continue
+            }
             val chapter = CHAPTER_MARK_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
-                ?: continue
+            if (chapter == null) {
+                scanIssues += issue(NwtIssueCode.PARSER_NO_VERSES, "capítulo ausente: $path")
+                failedPaths += path
+                continue
+            }
             val marks = VERSE_MARK_REGEX.findAll(html).toList()
             if (marks.isEmpty()) {
                 scanIssues += issue(NwtIssueCode.PARSER_NO_VERSES, "sem marcadores: $path")
+                failedPaths += path
                 continue
             }
             marks.forEach { mark ->
@@ -504,20 +544,40 @@ object NwtDocumentIdentityVerifier {
             val parsed = NwtEpubParser.extractFromXhtml(html)
             if (parsed.isNullOrEmpty()) {
                 scanIssues += issue(NwtIssueCode.PARSER_NO_VERSES, "parser sem versículos: $path")
+                failedPaths += path
                 continue
             }
+            processedPaths += path
             parsed.forEach { verse ->
                 parsedKeys += VerseKey(verse.book.order, verse.chapter, verse.verse)
                 bookOrders += verse.book.order
                 chapterKeys += verse.book.order to verse.chapter
+                val textKey = sha256Text(verse.text)
+                textToRefs.getOrPut(textKey) { linkedSetOf() } += verse.canonicalRef
                 if (normalizedTarget != null && normalizeRef(verse.canonicalRef) == normalizedTarget) {
                     targetFound++
-                    if (targetText == null) targetText = verse.text
+                    if (targetText == null) {
+                        targetText = verse.text
+                        targetSection = verse.section
+                    }
                 }
             }
         }
         if (targetFound > 1) {
             scanIssues += issue(NwtIssueCode.AMBIGUOUS_UNIT_IN_EPUB, "referência repetida no EPUB")
+        }
+        val textOccurrences = targetText?.let { textToRefs[sha256Text(it)]?.size ?: 1 } ?: 0
+        if (textOccurrences > 1) {
+            scanIssues += issue(
+                NwtIssueCode.AMBIGUOUS_TEXT_IN_EPUB,
+                "mesmo texto aparece em $textOccurrences referências",
+            )
+        }
+        if (failedPaths.isNotEmpty()) {
+            scanIssues += issue(
+                NwtIssueCode.SPINE_RESOURCE_UNPROCESSED,
+                "recursos não processados=${failedPaths.size}",
+            )
         }
         issues += scanIssues
         return EpubScan(
@@ -526,7 +586,11 @@ object NwtDocumentIdentityVerifier {
             bookOrders = bookOrders,
             chapterKeys = chapterKeys,
             targetText = targetText,
+            targetSection = targetSection,
             targetFoundCount = targetFound,
+            textOccurrences = textOccurrences,
+            processedPaths = processedPaths,
+            failedPaths = failedPaths,
             usedSpine = usedSpine,
             issues = scanIssues,
         )
@@ -580,17 +644,36 @@ object NwtDocumentIdentityVerifier {
         if (comparison == NwtTextComparison.MISMATCH) {
             issues += issue(NwtIssueCode.UNIT_TEXT_MISMATCH, "texto indexado difere do EPUB")
         }
-        val identityComplete = indexedUnit.passageId?.isNotBlank() == true &&
-            indexedUnit.ord != null && indexedUnit.ord >= 0
-        if (!identityComplete) {
-            issues += issue(NwtIssueCode.UNIT_IDENTITY_INCOMPLETE, "passageId/ord ausente")
+        val metadataShapeComplete = indexedUnit.passageId?.isNotBlank() == true &&
+            indexedUnit.ord != null && indexedUnit.ord >= 0 &&
+            !indexedUnit.section.isNullOrBlank()
+        if (!metadataShapeComplete) {
+            issues += issue(
+                NwtIssueCode.UNIT_IDENTITY_INCOMPLETE,
+                "passageId/ord/section ausente",
+            )
         }
+        val sectionMatches = indexedUnit.section
+            ?.takeIf { it.isNotBlank() }
+            ?.let { normalizeForMatch(it) == normalizeForMatch(scan.targetSection.orEmpty()) }
+        if (sectionMatches == false) {
+            issues += issue(NwtIssueCode.SECTION_MISMATCH, "seção diverge da unidade do EPUB")
+        }
+        // O verificador puro não consulta o índice persistido: a identidade do
+        // registro Room permanece não demonstrada por construção.
+        issues += issue(
+            NwtIssueCode.INDEX_IDENTITY_UNVERIFIED,
+            "passageId/ord/section fornecidos pelo chamador; índice persistido não consultado",
+        )
         val state = when {
             indexedUnit.text.isBlank() -> NwtUnitIdentityState.UNIT_PARTIAL
             comparison == NwtTextComparison.MISMATCH -> NwtUnitIdentityState.INDEX_STALE
-            !identityComplete -> NwtUnitIdentityState.UNIT_PARTIAL
-            scan.targetFoundCount > 1 -> NwtUnitIdentityState.UNIT_PARTIAL
-            integrity == NwtFileIntegrity.HASH_MATCH -> NwtUnitIdentityState.UNIT_VERIFIED
+            !metadataShapeComplete -> NwtUnitIdentityState.UNIT_PARTIAL
+            sectionMatches == false -> NwtUnitIdentityState.UNIT_PARTIAL
+            scan.targetFoundCount > 1 || scan.textOccurrences > 1 ->
+                NwtUnitIdentityState.UNIT_PARTIAL
+            integrity == NwtFileIntegrity.HASH_MATCH ->
+                NwtUnitIdentityState.UNIT_TEXT_VERIFIED
             else -> NwtUnitIdentityState.UNIT_PARTIAL
         }
         if (integrity == NwtFileIntegrity.HASH_MISMATCH &&
@@ -609,6 +692,10 @@ object NwtDocumentIdentityVerifier {
             section = indexedUnit.section,
             ord = indexedUnit.ord,
             comparison = comparison,
+            textMatchesEpub = comparison != NwtTextComparison.MISMATCH,
+            metadataShapeComplete = metadataShapeComplete,
+            sectionMatchesEpub = sectionMatches,
+            indexIdentityVerified = false,
             indexedChars = indexedUnit.text.length,
             epubChars = target.length,
             indexedTextSha256 = sha256Text(indexedUnit.text),
@@ -628,6 +715,10 @@ object NwtDocumentIdentityVerifier {
         section = unit?.section,
         ord = unit?.ord,
         comparison = NwtTextComparison.NOT_COMPARED,
+        textMatchesEpub = false,
+        metadataShapeComplete = false,
+        sectionMatchesEpub = null,
+        indexIdentityVerified = false,
         indexedChars = unit?.text?.length ?: 0,
         epubChars = 0,
         indexedTextSha256 = unit?.text?.let(::sha256Text),
@@ -647,6 +738,10 @@ object NwtDocumentIdentityVerifier {
         section = unit?.section,
         ord = unit?.ord,
         comparison = NwtTextComparison.NOT_COMPARED,
+        textMatchesEpub = false,
+        metadataShapeComplete = false,
+        sectionMatchesEpub = null,
+        indexIdentityVerified = false,
         indexedChars = unit?.text?.length ?: 0,
         epubChars = 0,
         indexedTextSha256 = unit?.text?.let(::sha256Text),
@@ -657,6 +752,7 @@ object NwtDocumentIdentityVerifier {
     private fun corpusSummary(
         scan: EpubScan,
         usedSpine: Boolean,
+        structureValid: Boolean,
         issues: MutableList<NwtIdentityIssue>,
     ): NwtCorpusSummary {
         val missingBooks = (1..66).filter { it !in scan.bookOrders }
@@ -678,7 +774,9 @@ object NwtDocumentIdentityVerifier {
             corpusIssues += mismatch
         }
         val state = when {
-            !usedSpine || raw.isEmpty() -> NwtCorpusCompleteness.UNKNOWN
+            !structureValid || !usedSpine || raw.isEmpty() ->
+                NwtCorpusCompleteness.UNKNOWN
+            scan.failedPaths.isNotEmpty() -> NwtCorpusCompleteness.PARTIAL
             parsed.any { it !in raw } -> NwtCorpusCompleteness.INCONSISTENT
             missingBooks.isNotEmpty() || rawMismatch -> NwtCorpusCompleteness.PARTIAL
             raw.size == parsed.size -> NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB
@@ -691,6 +789,8 @@ object NwtDocumentIdentityVerifier {
             parsedVerses = parsed.size,
             rawVerseMarkers = raw.size,
             missingBooks = missingBooks,
+            processedResources = scan.processedPaths.size,
+            failedResources = scan.failedPaths.size,
             issues = corpusIssues,
         )
     }
@@ -707,15 +807,24 @@ object NwtDocumentIdentityVerifier {
         corpus: NwtCorpusSummary,
         issues: MutableList<NwtIdentityIssue>,
     ): NwtPromotionEligibility {
-        val documentVerified = integrity == NwtFileIntegrity.HASH_MATCH &&
-            attachmentConsistent &&
+        val integrityVerified = integrity == NwtFileIntegrity.HASH_MATCH
+        val editorialConsistencyVerified = attachmentConsistent &&
             structureValid &&
-            editorialState == NwtEditorialIdentityState.IDENTITY_CONSISTENT &&
-            authenticity == NwtAuthenticityAnchorState.ANCHOR_MATCH
-        val unitVerified = unit.state == NwtUnitIdentityState.UNIT_VERIFIED
+            editorialState == NwtEditorialIdentityState.IDENTITY_CONSISTENT
+        val unitTextVerified = unit.state == NwtUnitIdentityState.UNIT_TEXT_VERIFIED
         val corpusComplete = corpus.state == NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB
 
-        if (integrity != NwtFileIntegrity.HASH_MATCH) {
+        // Neste BUILD não existe infraestrutura capaz de demonstrar que a
+        // âncora externa é confiável. Correspondência não é autorização.
+        issues += issue(
+            NwtIssueCode.ANCHOR_PROVENANCE_UNVERIFIED,
+            "procedência da âncora externa não demonstrável neste BUILD",
+        )
+        issues += issue(
+            NwtIssueCode.INDEX_IDENTITY_UNVERIFIED,
+            "índice persistido não consultado; passageId/ord/section não comprovados",
+        )
+        if (!integrityVerified) {
             issues += issue(NwtIssueCode.PROMOTION_BLOCKED, "integridade=${integrity.name}")
         }
         if (!attachmentConsistent) {
@@ -728,9 +837,9 @@ object NwtDocumentIdentityVerifier {
             issues += issue(NwtIssueCode.PROMOTION_BLOCKED, "identidade editorial=${editorialState.name}")
         }
         if (authenticity != NwtAuthenticityAnchorState.ANCHOR_MATCH) {
-            issues += issue(NwtIssueCode.PROMOTION_BLOCKED, "autenticidade=${authenticity.name}")
+            issues += issue(NwtIssueCode.PROMOTION_BLOCKED, "correspondência da âncora=${authenticity.name}")
         }
-        if (unit.state != NwtUnitIdentityState.UNIT_VERIFIED) {
+        if (!unitTextVerified) {
             issues += issue(NwtIssueCode.PROMOTION_BLOCKED, "unidade=${unit.state.name}")
         }
         if (!corpusComplete) {
@@ -738,11 +847,15 @@ object NwtDocumentIdentityVerifier {
         }
 
         return NwtPromotionEligibility(
-            documentIdentityVerified = documentVerified,
-            unitVerified = unitVerified,
+            integrityVerified = integrityVerified,
+            editorialConsistencyVerified = editorialConsistencyVerified,
+            anchorCorrespondence = authenticity,
+            anchorProvenanceTrusted = false,
+            unitTextVerified = unitTextVerified,
+            unitIndexIdentityVerified = false,
             corpusCompleteRelativeToEpub = corpusComplete,
-            canPromoteUnitToLocalFactual = documentVerified && unitVerified,
-            canPromoteCorpusToLocalFactual = documentVerified && unitVerified && corpusComplete,
+            canPromoteUnitToLocalFactual = false,
+            canPromoteCorpusToLocalFactual = false,
             blockers = issues.distinctIssues(),
         )
     }

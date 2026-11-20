@@ -7,8 +7,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -38,6 +40,20 @@ class NwtDocumentIdentityVerifierTest {
         verses = mapOf(14 to verse14),
     )
 
+    private fun salmo(verse10: String = "Texto sintético de Salmos 37:10.") = DocFixture(
+        book = NWT_BOOKS.getValue("1001061123"),
+        chapter = 37,
+        verses = mapOf(10 to verse10),
+    )
+
+    private fun all66Docs(): List<DocFixture> = NWT_BOOKS.values.map { book ->
+        DocFixture(
+            book = book,
+            chapter = 1,
+            verses = mapOf(1 to "Texto sintético ${book.abbrev} 1:1."),
+        )
+    }
+
     private fun epub(
         file: File,
         docs: List<DocFixture> = listOf(mateus()),
@@ -50,6 +66,7 @@ class NwtDocumentIdentityVerifierTest {
         includeOpf: Boolean = true,
         malformedOpf: Boolean = false,
         containerFullPath: String = "OEBPS/content.opf",
+        extraSpine: List<String> = emptyList(),
         extraEntries: Map<String, String> = emptyMap(),
     ) {
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
@@ -71,8 +88,13 @@ class NwtDocumentIdentityVerifierTest {
                 val manifest = docs.mapIndexed { index, doc ->
                     val href = "${doc.book.docIdBase}-split${doc.chapter}.xhtml"
                     """<item id="doc$index" href="$href" media-type="application/xhtml+xml"/>"""
-                }.joinToString("\n")
-                val spine = docs.indices.joinToString("\n") { """<itemref idref="doc$it"/>""" }
+                } + extraSpine.mapIndexed { index, href ->
+                    """<item id="extra$index" href="$href" media-type="application/xhtml+xml"/>"""
+                }
+                val manifestXml = manifest.joinToString("\n")
+                val spine = docs.indices.map { """<itemref idref="doc$it"/>""" } +
+                    extraSpine.indices.map { """<itemref idref="extra$it"/>""" }
+                val spineXml = spine.joinToString("\n")
                 val opf = if (malformedOpf) {
                     """<?xml version="1.0"?><package><metadata><dc:title>$title"""
                 } else {
@@ -87,10 +109,10 @@ class NwtDocumentIdentityVerifierTest {
                         <meta property="dcterms:modified">$modified</meta>
                       </metadata>
                       <manifest>
-                        $manifest
+                        $manifestXml
                       </manifest>
                       <spine>
-                        $spine
+                        $spineXml
                       </spine>
                     </package>
                     """.trimIndent().trimStart()
@@ -166,7 +188,7 @@ class NwtDocumentIdentityVerifierTest {
         attachment: String = attachmentId,
         passageId: String? = "p-passage",
         ord: Int? = 1,
-        section: String? = null,
+        section: String? = "Mateus 24",
     ) = NwtIndexedUnit(
         attachmentId = attachment,
         passageId = passageId,
@@ -193,12 +215,17 @@ class NwtDocumentIdentityVerifierTest {
         assertEquals(NwtFileIntegrity.HASH_MATCH, result.integrity)
         assertEquals(NwtEditorialIdentityState.IDENTITY_CONSISTENT, result.editorialState)
         assertEquals(NwtAuthenticityAnchorState.NOT_ANCHORED, result.authenticity)
-        assertEquals(NwtUnitIdentityState.UNIT_VERIFIED, result.unit.state)
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
         assertEquals(NwtTextComparison.EXACT, result.unit.comparison)
         assertEquals(NwtCorpusCompleteness.PARTIAL, result.corpus.state)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertTrue(result.promotion.integrityVerified)
+        assertTrue(result.promotion.editorialConsistencyVerified)
+        assertTrue(result.promotion.unitTextVerified)
+        assertFalse(result.promotion.unitIndexIdentityVerified)
+        assertFalse(result.promotion.anchorProvenanceTrusted)
         assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.NO_TRUSTED_ANCHOR in codes(result))
+        assertTrue(NwtIssueCode.INDEX_IDENTITY_UNVERIFIED in codes(result))
     }
 
     @Test
@@ -239,7 +266,9 @@ class NwtDocumentIdentityVerifierTest {
 
         assertEquals(NwtFileIntegrity.FILE_MISSING, result.integrity)
         assertEquals(NwtUnitIdentityState.UNIT_UNVERIFIABLE, result.unit.state)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.integrityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.FILE_MISSING in codes(result))
     }
 
@@ -254,7 +283,8 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertEquals(NwtFileIntegrity.HASH_MISSING, result.integrity)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.integrityVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.HASH_MISSING in codes(result))
     }
 
@@ -269,7 +299,8 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertFalse(result.attachmentMetadataConsistent)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.SIZE_MISMATCH in codes(result))
     }
 
@@ -300,7 +331,8 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertEquals(NwtEditorialIdentityState.OPF_INVALID, result.editorialState)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
     }
 
     @Test
@@ -376,7 +408,7 @@ class NwtDocumentIdentityVerifierTest {
             indexedUnit = unit(text, section = "Mateus 24"),
         )
 
-        assertEquals(NwtUnitIdentityState.UNIT_VERIFIED, result.unit.state)
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
         assertEquals(NwtTextComparison.EXACT, result.unit.comparison)
         assertEquals("Mateus 24", result.unit.section)
         assertEquals(text.length, result.unit.indexedChars)
@@ -428,6 +460,83 @@ class NwtDocumentIdentityVerifierTest {
     }
 
     @Test
+    fun passageIdFabricadoNaoEhComprovadoPeloEpub() {
+        val file = temp.newFile("nwt.epub")
+        epub(file)
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético de Mateus 24:14.",
+                passageId = "passage-fabricado",
+            ),
+        )
+
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
+        assertFalse(result.unit.indexIdentityVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+        assertTrue(NwtIssueCode.INDEX_IDENTITY_UNVERIFIED in codes(result))
+    }
+
+    @Test
+    fun ordIncorretoNaoEhComprovadoPeloEpub() {
+        val file = temp.newFile("nwt.epub")
+        epub(file)
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético de Mateus 24:14.",
+                ord = 999,
+            ),
+        )
+
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
+        assertFalse(result.unit.indexIdentityVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+    }
+
+    @Test
+    fun secaoDeOutraUnidadeViraPartial() {
+        val file = temp.newFile("nwt.epub")
+        epub(file)
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético de Mateus 24:14.",
+                section = "Salmos 37",
+            ),
+        )
+
+        assertEquals(NwtUnitIdentityState.UNIT_PARTIAL, result.unit.state)
+        assertEquals(false, result.unit.sectionMatchesEpub)
+        assertTrue(NwtIssueCode.SECTION_MISMATCH in codes(result))
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+    }
+
+    @Test
+    fun mesmoTextoEmUnidadesDiferentesViraPartial() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = listOf(
+                mateus("Mesmo texto sintético."),
+                salmo("Mesmo texto sintético."),
+            ),
+        )
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit("Mesmo texto sintético."),
+        )
+
+        assertEquals(NwtUnitIdentityState.UNIT_PARTIAL, result.unit.state)
+        assertTrue(NwtIssueCode.AMBIGUOUS_TEXT_IN_EPUB in codes(result))
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+    }
+
+    @Test
     fun duasEdicoesComMesmaRefNaoSeMisturam() {
         val file = temp.newFile("nwt.epub")
         epub(file)
@@ -442,6 +551,26 @@ class NwtDocumentIdentityVerifierTest {
     }
 
     @Test
+    fun zipComXhtmlDuplicadoNaoVerificaUnidade() {
+        val file = temp.newFile("nwt.epub")
+        writeDuplicateEpub(
+            file = file,
+            firstText = "Texto sintético de Mateus 24:14.",
+            secondText = "Texto divergente na mesma entrada.",
+        )
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit("Texto sintético de Mateus 24:14."),
+        )
+
+        assertEquals(NwtUnitIdentityState.UNIT_UNVERIFIABLE, result.unit.state)
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertTrue(NwtIssueCode.DUPLICATE_AMBIGUITY in codes(result))
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+    }
+
+    @Test
     fun epubMalformadoNaoLanca() {
         val file = temp.newFile("nwt.epub")
         file.writeText("isto não é um zip")
@@ -453,7 +582,8 @@ class NwtDocumentIdentityVerifierTest {
 
         assertEquals(NwtFileIntegrity.NOT_EPUB, result.integrity)
         assertFalse(result.epubStructureValid)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.integrityVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
     }
 
     @Test
@@ -468,7 +598,8 @@ class NwtDocumentIdentityVerifierTest {
 
         assertEquals(NwtEditorialIdentityState.OPF_MISSING, result.editorialState)
         assertTrue(NwtIssueCode.OPF_PATH_UNSAFE in codes(result))
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
     }
 
     @Test
@@ -491,7 +622,8 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertFalse(result.epubStructureValid)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
     }
 
     @Test
@@ -541,26 +673,99 @@ class NwtDocumentIdentityVerifierTest {
 
     @Test
     fun completudeRelativaAoProprioEpub() {
-        val docs = NWT_BOOKS.values.map { book ->
-            DocFixture(
-                book = book,
-                chapter = 1,
-                verses = mapOf(1 to "Texto sintético ${book.abbrev} 1:1."),
-            )
-        }
         val file = temp.newFile("nwt.epub")
-        epub(file, docs = docs)
+        epub(file, docs = all66Docs())
         val mateus = NWT_BOOKS.getValue("1001061144")
         val result = NwtDocumentIdentityVerifier.verify(
             metadata = metadata(file),
             file = file,
-            indexedUnit = unit("Texto sintético ${mateus.abbrev} 1:1.", ref = "Mt 1:1"),
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
         )
 
         assertEquals(NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB, result.corpus.state)
         assertEquals(66, result.corpus.bookDocuments)
         assertTrue(result.corpus.missingBooks.isEmpty())
+        assertEquals(0, result.corpus.failedResources)
         assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun spineResourceAusenteNaoViraComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(file, docs = all66Docs(), extraSpine = listOf("extra.xhtml"))
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertEquals(1, result.corpus.failedResources)
+        assertTrue(NwtIssueCode.SPINE_RESOURCE_UNPROCESSED in codes(result))
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun spineResourceAcimaDoLimiteNaoViraComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("extra.xhtml"),
+            extraEntries = mapOf("OEBPS/extra.xhtml" to "<html>${"x".repeat(2000)}</html>"),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+            limits = NwtVerifierLimits(maxXhtmlBytes = 1000),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertEquals(1, result.corpus.failedResources)
+        assertTrue(NwtIssueCode.XHTML_TOO_LARGE in codes(result))
+    }
+
+    @Test
+    fun spineBookMalformadoNaoViraComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("broken.xhtml"),
+            extraEntries = mapOf(
+                "OEBPS/broken.xhtml" to
+                    """<html><body class="jwac docId-1001061144"><span id="chapter25"></span>sem versículos</body></html>"""
+            ),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertEquals(1, result.corpus.failedResources)
+        assertTrue(NwtIssueCode.PARSER_NO_VERSES in codes(result))
     }
 
     @Test
@@ -577,13 +782,16 @@ class NwtDocumentIdentityVerifierTest {
         assertEquals(NwtFileIntegrity.HASH_MATCH, result.integrity)
         assertEquals(NwtEditorialIdentityState.IDENTITY_CONSISTENT, result.editorialState)
         assertEquals(NwtAuthenticityAnchorState.NOT_ANCHORED, result.authenticity)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertTrue(result.promotion.integrityVerified)
+        assertTrue(result.promotion.editorialConsistencyVerified)
+        assertTrue(result.promotion.unitTextVerified)
+        assertFalse(result.promotion.anchorProvenanceTrusted)
         assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.NO_TRUSTED_ANCHOR in codes(result))
     }
 
     @Test
-    fun ancoraExternaPermitePromocaoFutura() {
+    fun ancoraExternaAindaNaoPromove() {
         val file = temp.newFile("nwt.epub")
         epub(file)
         val hash = sha256(file)
@@ -598,10 +806,33 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertEquals(NwtAuthenticityAnchorState.ANCHOR_MATCH, result.authenticity)
-        assertTrue(result.promotion.documentIdentityVerified)
-        assertTrue(result.promotion.unitVerified)
-        assertTrue(result.promotion.canPromoteUnitToLocalFactual)
+        assertEquals(
+            NwtAuthenticityAnchorState.ANCHOR_MATCH,
+            result.promotion.anchorCorrespondence,
+        )
+        assertFalse(result.promotion.anchorProvenanceTrusted)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+        assertTrue(NwtIssueCode.ANCHOR_PROVENANCE_UNVERIFIED in codes(result))
+    }
+
+    @Test
+    fun ancoraApenasComIdentificadorNaoPromove() {
+        val file = temp.newFile("nwt.epub")
+        epub(file)
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit("Texto sintético de Mateus 24:14."),
+            expected = NwtExpectedEdition(
+                trustedAnchor = NwtTrustedAnchor(identifier = identifier, sha256 = null)
+            ),
+        )
+
+        assertEquals(NwtAuthenticityAnchorState.ANCHOR_MATCH, result.authenticity)
+        assertFalse(result.promotion.anchorProvenanceTrusted)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
+        assertTrue(NwtIssueCode.ANCHOR_PROVENANCE_UNVERIFIED in codes(result))
     }
 
     @Test
@@ -621,7 +852,11 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertEquals(NwtAuthenticityAnchorState.ANCHOR_MISMATCH, result.authenticity)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertEquals(
+            NwtAuthenticityAnchorState.ANCHOR_MISMATCH,
+            result.promotion.anchorCorrespondence,
+        )
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.ANCHOR_MISMATCH in codes(result))
     }
 
@@ -636,7 +871,8 @@ class NwtDocumentIdentityVerifierTest {
         )
 
         assertFalse(result.attachmentMetadataConsistent)
-        assertFalse(result.promotion.documentIdentityVerified)
+        assertFalse(result.promotion.editorialConsistencyVerified)
+        assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.ATTACHMENT_NOT_INDEXED in codes(result))
     }
 
@@ -650,8 +886,121 @@ class NwtDocumentIdentityVerifierTest {
             indexedUnit = unit("Texto   sintético\nde Mateus 24:14."),
         )
 
-        assertEquals(NwtUnitIdentityState.UNIT_VERIFIED, result.unit.state)
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
         assertEquals(NwtTextComparison.NORMALIZED_WHITESPACE, result.unit.comparison)
         assertNotNull(result.unit.epubTextSha256)
+    }
+
+    // ---------- fixture ZIP com entradas duplicadas ----------
+
+    private fun writeDuplicateEpub(file: File, firstText: String, secondText: String) {
+        val docId = "1001061144"
+        val container = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <rootfiles>
+                <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+              </rootfiles>
+            </container>
+        """.trimIndent().trimStart()
+        val opf = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:title>Tradução do Novo Mundo (nwt-T)</dc:title>
+                <dc:language>pt</dc:language>
+                <dc:publisher>Associação Torre de Vigia de Bíblias e Tratados</dc:publisher>
+                <dc:identifier id="BookId">$identifier</dc:identifier>
+                <meta property="dcterms:modified">2026-03-19T01:01:11Z</meta>
+              </metadata>
+              <manifest>
+                <item id="doc0" href="$docId-split24.xhtml" media-type="application/xhtml+xml"/>
+              </manifest>
+              <spine>
+                <itemref idref="doc0"/>
+              </spine>
+            </package>
+        """.trimIndent().trimStart()
+        fun xhtml(text: String) = """
+            <html><body class="jwac docId-$docId">
+            <span id="chapter24"></span><span id="chapter24_verse14"></span>$text
+            </body></html>
+        """.trimIndent()
+        writeStoredZip(
+            file,
+            listOf(
+                "META-INF/container.xml" to container,
+                "OEBPS/content.opf" to opf,
+                "OEBPS/$docId-split24.xhtml" to xhtml(firstText),
+                "OEBPS/$docId-split24.xhtml" to xhtml(secondText),
+            ),
+        )
+    }
+
+    private fun writeStoredZip(file: File, entries: List<Pair<String, String>>) {
+        val body = ByteArrayOutputStream()
+        val central = ByteArrayOutputStream()
+        entries.forEach { (name, content) ->
+            val nameBytes = name.toByteArray(Charsets.UTF_8)
+            val data = content.toByteArray(Charsets.UTF_8)
+            val crc = CRC32().apply { update(data) }.value.toInt()
+            val offset = body.size()
+
+            leInt(body, 0x04034b50)
+            leShort(body, 20)
+            leShort(body, 0)
+            leShort(body, 0)
+            leShort(body, 0)
+            leShort(body, 0)
+            leInt(body, crc)
+            leInt(body, data.size)
+            leInt(body, data.size)
+            leShort(body, nameBytes.size)
+            leShort(body, 0)
+            body.write(nameBytes)
+            body.write(data)
+
+            leInt(central, 0x02014b50)
+            leShort(central, 20)
+            leShort(central, 20)
+            leShort(central, 0)
+            leShort(central, 0)
+            leShort(central, 0)
+            leShort(central, 0)
+            leInt(central, crc)
+            leInt(central, data.size)
+            leInt(central, data.size)
+            leShort(central, nameBytes.size)
+            leShort(central, 0)
+            leShort(central, 0)
+            leShort(central, 0)
+            leShort(central, 0)
+            leInt(central, 0)
+            leInt(central, offset)
+            central.write(nameBytes)
+        }
+        val centralOffset = body.size()
+        body.write(central.toByteArray())
+        leInt(body, 0x06054b50)
+        leShort(body, 0)
+        leShort(body, 0)
+        leShort(body, entries.size)
+        leShort(body, entries.size)
+        leInt(body, central.size())
+        leInt(body, centralOffset)
+        leShort(body, 0)
+        file.writeBytes(body.toByteArray())
+    }
+
+    private fun leShort(out: ByteArrayOutputStream, value: Int) {
+        out.write(value and 0xff)
+        out.write((value ushr 8) and 0xff)
+    }
+
+    private fun leInt(out: ByteArrayOutputStream, value: Int) {
+        out.write(value and 0xff)
+        out.write((value ushr 8) and 0xff)
+        out.write((value ushr 16) and 0xff)
+        out.write((value ushr 24) and 0xff)
     }
 }
