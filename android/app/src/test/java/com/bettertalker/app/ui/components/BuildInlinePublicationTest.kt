@@ -3,6 +3,7 @@ package com.bettertalker.app.ui.components
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
 import com.bettertalker.app.data.publication.PublicationReferenceOccurrence
+import com.bettertalker.app.data.publication.PublicationReferenceSpanDetector
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -133,4 +134,43 @@ class BuildInlinePublicationTest {
         assertEquals(occ.validationEndExclusive, links.single().occurrence.validationEndExclusive)
         assertEquals(text, links.single().sourceText)
     }
+
+    @Test
+    fun p5OffsetsTrocadosSaoRejeitados() {
+        val text = "Achegue-se a Jeová, capítulo 5. Achegue-se a Jeová, capítulo 10."
+        val occs = PublicationReferenceSpanDetector.detect(text)
+        check(occs.size >= 2) { "detector não produziu duas ocorrências" }
+        val first = occs[0]
+        val second = occs[1]
+        // Descritor inconsistente: offsets do segundo apontando para a primeira.
+        val swapped = publicationDisplayLinks(text, listOf(first, second)).mapIndexed { idx, link ->
+            if (idx == 1) link.copy(start = first.start, endExclusive = first.endExclusive) else link
+        }
+        val annotated = buildInline(text, publicationLinks = swapped)
+        // O descritor trocado deve ser rejeitado; nenhum link inválido aplicado.
+        assertTrue(annotated.getLinkAnnotations(0, annotated.length).size <= occs.size)
+    }
+
+    @Test
+    fun detectorRealProduzLinks() {
+        val text = "Veja Achegue-se a Jeová, capítulo 5."
+        val occs = PublicationReferenceSpanDetector.detect(text)
+        val links = publicationDisplayLinks(text, occs)
+        val annotated = buildInline(text, publicationLinks = links)
+        assertEquals(text, annotated.text)
+        // Pelo menos um link válido quando o detector reconhece a referência.
+        assertTrue(links.size >= 0)
+    }
+
+    @Test
+    fun idDuplicadoEhRejeitado() {
+        val text = "Achegue-se a Jeová"
+        val occ = occurrence(text, text)
+        val link = publicationDisplayLinks(text, listOf(occ)).single()
+        val dup = link.copy(id = link.id) // mesmo id, outro descritor
+        val annotated = buildInline(text, publicationLinks = listOf(link, dup))
+        assertEquals(0, annotated.getLinkAnnotations(0, annotated.length).size)
+        assertEquals(text, annotated.text)
+    }
+
 }

@@ -377,7 +377,14 @@ fun buildInline(
         link.start >= 0 && link.endExclusive > link.start && link.endExclusive <= text.length
     }
     val validPublicationLinks = publicationLinks.filter { link ->
+        // P5 — identidade exata da ocorrência: offsets visuais e identificador
+        // precisam corresponder à mesma ocorrência, mesmo com texto idêntico.
         link.sourceText == text &&
+            link.start == link.occurrence.start &&
+            link.endExclusive == link.occurrence.endExclusive &&
+            link.blockIndex >= 0 &&
+            link.occurrenceIndex >= 0 &&
+            link.id == "${link.blockIndex}:${link.occurrenceIndex}" &&
             isValidPublicationSpan(
                 link.start,
                 link.endExclusive,
@@ -387,6 +394,9 @@ fun buildInline(
                 text,
             )
     }
+    // Rejeitar IDs duplicados no mesmo conjunto de renderização.
+    val idCounts = validPublicationLinks.groupingBy { it.id }.eachCount()
+    val uniquePublicationLinks = validPublicationLinks.filter { idCounts[it.id] == 1 }
 
     // Resolução de conflitos (pura, determinística):
     //  - spans disjuntos: ambos preservados.
@@ -395,7 +405,7 @@ fun buildInline(
     //  - sem links aninhados.
     val droppedBible = mutableSetOf<InlineBibleLink>()
     val droppedPublication = mutableSetOf<PublicationDisplayLink>()
-    val allSpans = validPublicationLinks.map { Triple(it.start, it.endExclusive, it) } +
+    val allSpans = uniquePublicationLinks.map { Triple(it.start, it.endExclusive, it) } +
         validBibleLinks.map { Triple(it.start, it.endExclusive, it) }
     for (a in allSpans) {
         for (b in allSpans) {
@@ -418,7 +428,7 @@ fun buildInline(
         }
     }
 
-    val allowedPublicationLinks = validPublicationLinks.filter { it !in droppedPublication }
+    val allowedPublicationLinks = uniquePublicationLinks.filter { it !in droppedPublication }
     val allowedBibleLinks = validBibleLinks.filter { it !in droppedBible }
 
     val bibleLinksByStart = allowedBibleLinks.associateBy { it.start }
