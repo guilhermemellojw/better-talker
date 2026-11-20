@@ -879,6 +879,30 @@ class NwtDocumentIdentityVerifierTest {
     }
 
     @Test
+    fun spineComRecursoBinarioImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("cover.jpg"),
+            extraEntries = mapOf("OEBPS/cover.jpg" to "não é xhtml"),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertTrue(NwtIssueCode.SPINE_REFERENCE_INVALID in codes(result))
+    }
+
+    @Test
     fun recursoNaoBiblicoLegitimoEhAceito() {
         val file = temp.newFile("nwt.epub")
         epub(

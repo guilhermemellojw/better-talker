@@ -116,14 +116,16 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
   - `idref` inexistente;
   - item de manifesto sem `href`;
   - caminho relativo inválido/inseguro;
-  - item de spine que não aponta para documento XHTML.
+  - item de spine que não aponta para documento XHTML;
+  - item de spine com extensão binária (imagem/fonte/áudio etc.).
 - Uma referência inválida torna `structureValid=false`; a unidade fica
   `UNIT_UNVERIFIABLE` e o corpus não retorna `COMPLETE_RELATIVE_TO_EPUB`.
 - Recursos XHTML legítimos não bíblicos (capa/navegação) são lidos e contam
   como recursos processados; não precisam ser capítulos bíblicos.
 - Testes: `spineIdrefInexistenteImpedeComplete`,
   `spineIdrefVazioImpedeComplete`, `manifestoComItemSemHrefImpedeComplete`,
-  `spineComCaminhoInseguroImpedeComplete`, `recursoNaoBiblicoLegitimoEhAceito`.
+  `spineComCaminhoInseguroImpedeComplete`, `spineComRecursoBinarioImpedeComplete`,
+  `recursoNaoBiblicoLegitimoEhAceito`.
 
 ### R4 — Entradas ZIP duplicadas
 

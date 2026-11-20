@@ -951,8 +951,9 @@ object NwtDocumentIdentityVerifier {
                 invalid += idref
                 return@forEach
             }
-            val isContentDocument = isXhtml(resolved) ||
-                item.mediaType.contains("xhtml", ignoreCase = true)
+            val isContentDocument = (isXhtml(resolved) ||
+                item.mediaType.contains("xhtml", ignoreCase = true)) &&
+                !isBinaryResource(resolved)
             if (!isContentDocument) {
                 issues += issue(
                     NwtIssueCode.SPINE_REFERENCE_INVALID,
@@ -1120,6 +1121,11 @@ object NwtDocumentIdentityVerifier {
             name.endsWith(".html", ignoreCase = true) ||
             name.endsWith(".htm", ignoreCase = true)
 
+    private fun isBinaryResource(name: String): Boolean {
+        val lower = name.lowercase()
+        return BINARY_EXTENSIONS.any { lower.endsWith(it) }
+    }
+
     private fun isUnsafeZipPath(name: String): Boolean {
         val normalized = name.replace('\\', '/')
         return normalized.startsWith("/") ||
@@ -1148,6 +1154,12 @@ object NwtDocumentIdentityVerifier {
 
     private fun List<NwtIdentityIssue>.distinctIssues(): List<NwtIdentityIssue> =
         distinctBy { it.code to it.detail }
+
+    private val BINARY_EXTENSIONS = listOf(
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+        ".css", ".js", ".ttf", ".otf", ".woff", ".woff2",
+        ".mp3", ".mp4", ".m4a", ".pdf", ".zip",
+    )
 
     private const val CONTAINER_PATH = "META-INF/container.xml"
     private const val DC_NS = "http://purl.org/dc/elements/1.1/"
