@@ -51,6 +51,17 @@ sealed interface SupersessionResult {
         val actualUpdatedAt: Long,
     ) : SupersessionResult
 
+    /**
+     * 1C.2.1B2C — a substituta já persistida mudou depois que a pergunta foi
+     * exibida. Nada é vinculado e a anterior continua ativa; a UI deve reler
+     * os dois registros antes de uma nova confirmação.
+     */
+    data class ReplacementStale(
+        val replacementDecisionId: String,
+        val expectedUpdatedAt: Long,
+        val actualUpdatedAt: Long,
+    ) : SupersessionResult
+
     data class NotFound(val decisionId: String) : SupersessionResult
 
     /**

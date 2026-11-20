@@ -9,6 +9,7 @@ import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.DecisionRecord
 import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
 import com.bettertalker.app.data.copilot.SourceQuestionEvidence
@@ -878,12 +879,20 @@ class CopilotViewModel(
         tombstoneDao = db.tombstoneDao(),
     )
     // 1C.2.1B1: captura do aceite estrutural, na mesma transação do aceite.
+    private val decisionMemory = DecisionMemoryRepository(db.decisionDao(), transactionRunner)
     private val structureAcceptService = StructureAcceptService(
         transactionRunner = transactionRunner,
         sectionDao = db.speechSectionDao(),
-        decisionMemory = DecisionMemoryRepository(db.decisionDao(), transactionRunner),
+        decisionMemory = decisionMemory,
     )
+    private val decisionSupersessionService = DecisionSupersessionService(decisionMemory)
+    private val decisionSupersessionSession = DecisionSupersessionSession()
     private val structureAcceptInFlight = AtomicBoolean(false)
+    private val decisionSupersessionInFlight = AtomicBoolean(false)
+    private val _decisionSupersessionPrompt =
+        MutableStateFlow<DecisionSupersessionPrompt?>(null)
+    val decisionSupersessionPrompt: StateFlow<DecisionSupersessionPrompt?> =
+        _decisionSupersessionPrompt.asStateFlow()
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val _query = MutableStateFlow("")
@@ -6432,6 +6441,17 @@ class CopilotViewModel(
                 updateStructureProposal(ui.id) { current ->
                     result.toStructureProposalUi(current)
                 }
+                if (result is StructureAcceptResult.Applied) {
+                    // A B1 já foi concluída; qualquer falha na descoberta do
+                    // relacionamento não pode transformar o aceite em erro.
+                    try {
+                        offerDecisionSupersession(result.decision)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Sem pergunta; a decisão recém-aceita permanece.
+                    }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -6460,6 +6480,98 @@ class CopilotViewModel(
         val current = _structureProposal.value ?: return
         if (current.id != proposalId) return
         _structureProposal.value = update(current)
+    }
+
+    // ---------- 1C.2.1B2C: confirmação de substituição de decisão ----------
+
+    private suspend fun offerDecisionSupersession(newDecision: DecisionRecord) {
+        if (decisionSupersessionInFlight.get()) return
+        if (_decisionSupersessionPrompt.value != null) return
+        val prompt = decisionSupersessionService.findPrompt(newDecision) ?: return
+        if (!decisionSupersessionSession.shouldOffer(prompt)) return
+        _decisionSupersessionPrompt.compareAndSet(null, prompt)
+    }
+
+    /** Mantém as duas; a escolha não é persistida nesta etapa. */
+    fun keepBothDecisionSupersession() {
+        dismissDecisionSupersession()
+    }
+
+    /** "Agora não"/fechar: nenhuma escrita; os dois registros continuam. */
+    fun cancelDecisionSupersession() {
+        dismissDecisionSupersession()
+    }
+
+    private fun dismissDecisionSupersession() {
+        val prompt = _decisionSupersessionPrompt.value ?: return
+        if (prompt.isSubmitting) return
+        decisionSupersessionSession.suppress(prompt)
+        _decisionSupersessionPrompt.value = null
+    }
+
+    /** Fecha a mensagem final depois de sucesso/erro terminal. */
+    fun dismissDecisionSupersessionOutcome() {
+        dismissDecisionSupersession()
+    }
+
+    fun confirmDecisionSupersession() {
+        val prompt = _decisionSupersessionPrompt.value ?: return
+        if (prompt.isSubmitting) return
+        if (prompt.outcome != null && !prompt.canRetry()) return
+        if (!decisionSupersessionInFlight.compareAndSet(false, true)) return
+        _decisionSupersessionPrompt.value = prompt.startSubmission()
+        viewModelScope.launch {
+            try {
+                val result = decisionSupersessionService.confirm(prompt)
+                updateDecisionSupersessionPrompt(prompt.confirmationId) {
+                    it.withResult(result)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateDecisionSupersessionPrompt(prompt.confirmationId) {
+                    it.withUnexpectedError()
+                }
+            } finally {
+                decisionSupersessionInFlight.set(false)
+            }
+        }
+    }
+
+    fun refreshDecisionSupersession() {
+        val prompt = _decisionSupersessionPrompt.value ?: return
+        if (prompt.isSubmitting || !prompt.canRefresh()) return
+        if (!decisionSupersessionInFlight.compareAndSet(false, true)) return
+        _decisionSupersessionPrompt.value = prompt.startSubmission()
+        viewModelScope.launch {
+            try {
+                val refreshed = decisionSupersessionService.refresh(prompt)
+                updateDecisionSupersessionPrompt(prompt.confirmationId) { current ->
+                    if (refreshed == null) {
+                        current.withRefreshUnavailable()
+                    } else {
+                        refreshed
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                updateDecisionSupersessionPrompt(prompt.confirmationId) {
+                    it.withUnexpectedError()
+                }
+            } finally {
+                decisionSupersessionInFlight.set(false)
+            }
+        }
+    }
+
+    private fun updateDecisionSupersessionPrompt(
+        confirmationId: String,
+        update: (DecisionSupersessionPrompt) -> DecisionSupersessionPrompt,
+    ) {
+        val current = _decisionSupersessionPrompt.value ?: return
+        if (current.confirmationId != confirmationId) return
+        _decisionSupersessionPrompt.value = update(current)
     }
 
     // ---------- F5b (Modo C): estruturar texto colado de publicação ----------
