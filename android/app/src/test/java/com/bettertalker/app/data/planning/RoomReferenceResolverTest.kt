@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,8 +63,10 @@ class RoomReferenceResolverTest {
             rows.filter { it.attachmentId == attachmentId && it.text.startsWith("# ") && it.ord > ord }
                 .minByOrNull { it.ord }
         override suspend fun bySection(attachmentId: String, needle: String, limit: Int): List<PassageEntity> =
-            rows.filter { it.attachmentId == attachmentId && it.section.contains(needle, ignoreCase = true) }
-                .sortedBy { it.ord }.take(limit)
+            rows.filter {
+                it.attachmentId == attachmentId &&
+                    sectionMatchesNeedle(it.section, needle)
+            }.sortedBy { it.ord }.take(limit)
         override suspend fun byPageParagraph(
             attachmentId: String,
             page: Int,
@@ -357,6 +360,129 @@ class RoomReferenceResolverTest {
         val out = resolver(itRows(), listOf(itAtt().copy(indexed = false)))
             .resolvePublication(PublicationRef("it", article = "Gedalias", paragraph = 4))
         assertEquals(ReferenceStatus.MISSING_CORPUS, out.status)
+    }
+
+    @Test
+    fun resolvePublication_licao1NaoCasaLicao10() = runBlocking {
+        val att = attachment("lmd", null).copy(
+            fileName = "lmd_T.jwpub",
+            symbol = null,
+            baseSlot = null,
+        )
+        val rows = listOf(
+            passage(
+                "l10",
+                "lmd",
+                "lmd lição 1 §1",
+                "1 Texto da licao dez.",
+                "texto da licao dez",
+                section = "Lição 10: Outro assunto",
+                ord = 0,
+                paragraph = 1,
+            ),
+        )
+        val out = resolver(rows, listOf(att))
+            .resolvePublication(PublicationRef("lmd", chapter = "lição 1", paragraph = 1))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_licao2NaoCasaLicao20() = runBlocking {
+        val att = attachment("lmd", null).copy(
+            fileName = "lmd_T.jwpub",
+            symbol = null,
+            baseSlot = null,
+        )
+        val rows = listOf(
+            passage(
+                "l20",
+                "lmd",
+                "lmd lição 2 §1",
+                "1 Texto da licao vinte.",
+                "texto da licao vinte",
+                section = "Lição 20: Outro assunto",
+                ord = 0,
+                paragraph = 1,
+            ),
+        )
+        val out = resolver(rows, listOf(att))
+            .resolvePublication(PublicationRef("lmd", chapter = "lição 2", paragraph = 1))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_capitulo2NaoCasaCapitulo20() = runBlocking {
+        val att = attachment("lmd", null).copy(
+            fileName = "lmd_T.jwpub",
+            symbol = null,
+            baseSlot = null,
+        )
+        val rows = listOf(
+            passage(
+                "c20",
+                "lmd",
+                "lmd capítulo 2",
+                "Texto do capitulo vinte.",
+                "texto do capitulo vinte",
+                section = "Capítulo 20",
+                ord = 0,
+            ),
+        )
+        val out = resolver(rows, listOf(att))
+            .resolvePublication(PublicationRef("lmd", chapter = "capítulo 2"))
+        assertEquals(ReferenceStatus.UNRESOLVED, out.status)
+        assertNull(out.text)
+    }
+
+    @Test
+    fun resolvePublication_licao10ExataAindaCasa() = runBlocking {
+        val att = attachment("lmd", null).copy(
+            fileName = "lmd_T.jwpub",
+            symbol = null,
+            baseSlot = null,
+        )
+        val rows = listOf(
+            passage(
+                "l10",
+                "lmd",
+                "lmd lição 10",
+                "Texto da licao dez.",
+                "texto da licao dez",
+                section = "Lição 10: Outro assunto",
+                ord = 0,
+            ),
+        )
+        val out = resolver(rows, listOf(att))
+            .resolvePublication(PublicationRef("lmd", chapter = "lição 10"))
+        assertEquals(ReferenceStatus.PARTIAL, out.status)
+        assertTrue(out.text!!.contains("licao dez"))
+    }
+
+    @Test
+    fun resolvePublication_ponto1NaoEhResolvidoComoPonto11() = runBlocking {
+        val att = attachment("lmd", null).copy(
+            fileName = "lmd_T.jwpub",
+            symbol = null,
+            baseSlot = null,
+        )
+        val rows = listOf(
+            passage(
+                "p11",
+                "lmd",
+                "lmd p10 §11",
+                "11 Texto do ponto onze.",
+                "texto do ponto onze",
+                section = "Lição 1: Como estudar",
+                ord = 0,
+                paragraph = 11,
+                page = 10,
+            ),
+        )
+        val out = resolver(rows, listOf(att))
+            .resolvePublication(PublicationRef("lmd", page = 10, paragraph = 1))
+        assertNotEquals(ReferenceStatus.RESOLVED, out.status)
     }
 
     // ---------- RC1: página + parágrafos (§§ 8-9) sem artigo/capítulo ----------
