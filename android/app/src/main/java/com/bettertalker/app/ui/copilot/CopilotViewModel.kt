@@ -4663,6 +4663,21 @@ class CopilotViewModel(
         else _chatScope.value ?: _pushedContext?.sectionId
 
     /**
+     * 1C.2.2B0 P1: remove os blocos de abordagem legada (CONFIRMADA/LEGADO)
+     * injetados pelo dossiê do foco anterior quando a memória canônica da
+     * seção efetivamente resolvida exige supressão, evitando que decisões
+     * substituídas de outra seção reapareçam como orientação.
+     */
+    internal fun stripLegacyApproachBlock(text: String?): String? {
+        if (text.isNullOrBlank()) return text
+        val regex = Regex(
+            """(?s)## (?:ABORDAGEM CONFIRMADA PELO USUÁRIO|REGISTRO LEGADO DE ABORDAGEM).*?(?=\n## |\n?\z)""",
+        )
+        val cleaned = regex.replace(text, "").replace(Regex("\n{3,}"), "\n\n").trim()
+        return cleaned.ifBlank { null }
+    }
+
+    /**
      * "Texto total" no chat: NUNCA tenta um único texto gigante. Monta a fila
      * por seção (20+ min por sub-ponto) e entrega ao DraftSheet do editor,
      * onde cada parte é revisada/aceita antes de aplicar.
@@ -4969,6 +4984,21 @@ class CopilotViewModel(
         // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
         // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
         // a invariante do aceite (`block.contains(focus)`).
+        // 1C.2.2B0 P1: a memória da geração oratória deve acompanhar a seção
+        // efetivamente resolvida (section), e não o foco anterior do chat.
+        // Recarrega o ledger para o id persistido da seção resolvida; preserva
+        // a supressão do agreedApproach legado quando houver registros.
+        val resolvedPromptMemory = loadDecisionPromptMemory(
+            noteId = noteId,
+            focusSectionId = section.id,
+            wholeNote = false,
+            load = { nid -> decisionMemory.forNote(nid) },
+        )
+        val oratoryContextBlock = if (resolvedPromptMemory.suppressLegacyApproach) {
+            stripLegacyApproachBlock(contextBlock)
+        } else {
+            contextBlock
+        }
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
             sectionContentHtml = section.contentHtml,
@@ -5049,7 +5079,7 @@ class CopilotViewModel(
                         // O provider de oratória anexa o contextBlock ao
                         // conteúdo do usuário; a memória entra ali (volátil),
                         // nunca no system nem no corpus de evidências.
-                        contextBlock = listOfNotNull(contextBlock, promptMemory.block)
+                        contextBlock = listOfNotNull(oratoryContextBlock, resolvedPromptMemory.block)
                             .filter { it.isNotBlank() }
                             .joinToString("\n\n")
                             .ifBlank { null },

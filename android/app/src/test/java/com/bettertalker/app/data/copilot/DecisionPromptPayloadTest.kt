@@ -1,8 +1,10 @@
 package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.ContextPack
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -140,5 +142,38 @@ class DecisionPromptPayloadTest {
         assertFalse(system.contains("## DECISÕES CONFIRMADAS"))
         assertTrue(user.contains("## DECISÕES CONFIRMADAS"))
         assertTrue(user.contains("começar com uma ilustração"))
+    }
+
+    @Test
+    fun falhaDoLedgerSuprimeLegadoENaoPromoveDecisaoAntiga() = runBlocking {
+        val oldDecision = "começar com uma pergunta"
+        val result = loadDecisionPromptMemory(
+            noteId = "n1",
+            focusSectionId = "s1",
+            wholeNote = false,
+            load = { error("ledger indisponível") },
+        )
+        assertNull(result.block)
+        assertFalse(result.available)
+        assertTrue(result.suppressLegacyApproach)
+        // agreedApproach legado suprimido (simulado pelo contextBlock sem ele) e
+        // nenhuma decisão antiga promovida a orientação confirmada.
+        val prompts = buildDeepSeekPrompts(
+            message = "continue",
+            history = emptyList(),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "Ponto 1",
+            blockMinutes = 5,
+            blockText = "Texto do ponto.",
+            contextBlock = "## SEÇÃO ATUAL\nPonto 1",
+            userContextBlock = result.block,
+        )
+        assertFalse(prompts.user.contains(oldDecision))
+        assertFalse(prompts.system.contains(oldDecision))
+        assertFalse(prompts.user.contains("## DECISÕES CONFIRMADAS"))
+        // Requisição continua operacional.
+        assertTrue(prompts.user.isNotBlank())
+        assertTrue(prompts.system.isNotBlank())
     }
 }
