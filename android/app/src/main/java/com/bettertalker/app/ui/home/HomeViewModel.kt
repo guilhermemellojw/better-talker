@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.bettertalker.app.BuildConfig
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.copilot.asReconciliationHook
+import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.util.toPastedNote
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,6 +35,10 @@ class HomeViewModel(
         sectionDao = db.speechSectionDao(),
         subPointDao = db.subPointDao(),
         tombstoneDao = db.tombstoneDao(),
+        decisionReconciliation = DecisionMemoryRepository(
+            db.decisionDao(),
+            com.bettertalker.app.data.db.RoomTransactionRunner(db),
+        ).asReconciliationHook(),
     )
     val query = MutableStateFlow("")
     val folderId = MutableStateFlow<String?>(null)

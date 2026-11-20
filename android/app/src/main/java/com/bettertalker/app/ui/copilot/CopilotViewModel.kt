@@ -10,6 +10,7 @@ import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.DecisionRecord
+import com.bettertalker.app.data.copilot.asReconciliationHook
 import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
 import com.bettertalker.app.data.copilot.SourceQuestionEvidence
@@ -871,15 +872,17 @@ class CopilotViewModel(
     private var diagnosisSourcesCache: Pair<String, NoteSources>? = null
     private val diagnosisSourcesMutex = Mutex()
     private val transactionRunner = RoomTransactionRunner(db)
+    // 1C.2.1B1/1C.2.2A: ledger de decisões e reconciliação de seções.
+    private val decisionMemory = DecisionMemoryRepository(db.decisionDao(), transactionRunner)
     // 3.2.3c: persistência do esboço convertido (seções + sub-pontos).
     private val outlineImportService = OutlineImportService(
         transactionRunner = transactionRunner,
         sectionDao = db.speechSectionDao(),
         subPointDao = db.subPointDao(),
         tombstoneDao = db.tombstoneDao(),
+        decisionReconciliation = decisionMemory.asReconciliationHook(),
     )
     // 1C.2.1B1: captura do aceite estrutural, na mesma transação do aceite.
-    private val decisionMemory = DecisionMemoryRepository(db.decisionDao(), transactionRunner)
     private val structureAcceptService = StructureAcceptService(
         transactionRunner = transactionRunner,
         sectionDao = db.speechSectionDao(),
@@ -893,6 +896,10 @@ class CopilotViewModel(
         MutableStateFlow<DecisionSupersessionPrompt?>(null)
     val decisionSupersessionPrompt: StateFlow<DecisionSupersessionPrompt?> =
         _decisionSupersessionPrompt.asStateFlow()
+    // 1C.2.2A: visão somente leitura da memória persistida da nota.
+    private val _decisionMemoryUi = MutableStateFlow(DecisionMemoryUiState())
+    val decisionMemoryUi: StateFlow<DecisionMemoryUiState> =
+        _decisionMemoryUi.asStateFlow()
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val _query = MutableStateFlow("")
@@ -3867,6 +3874,31 @@ class CopilotViewModel(
         cancelledPersistJob?.cancel()
         cancelledPersistJob = null
         // T1 (chat minimalista): sem balão de boas-vindas após limpar.
+    }
+
+    /**
+     * 1C.2.2A — carrega a memória persistida para a visão somente leitura.
+     * Não altera ledger, abordagem, texto ou prompt.
+     */
+    fun loadDecisionMemory() {
+        val nid = noteId ?: return
+        if (_decisionMemoryUi.value.isLoading) return
+        _decisionMemoryUi.value = _decisionMemoryUi.value.copy(
+            isLoading = true,
+            error = null,
+        )
+        viewModelScope.launch {
+            try {
+                val decisions = decisionMemory.forNote(nid)
+                _decisionMemoryUi.value = buildDecisionMemoryUi(decisions)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _decisionMemoryUi.value = DecisionMemoryUiState(
+                    error = "Não consegui carregar as decisões agora.",
+                )
+            }
+        }
     }
 
     /**

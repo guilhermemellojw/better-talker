@@ -8,8 +8,10 @@ import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.planning.RoomMethodIndex
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.prefs.SettingsStore
+import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.repo.RoomTrainingRepository
+import com.bettertalker.app.data.copilot.asReconciliationHook
 import com.bettertalker.app.domain.planning.DefaultDossierBuilder
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DossierBuilder
@@ -246,6 +248,10 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
      * `onSaved` recomputa os agregados e atualiza o cache `NoteEntity`
      * (richHtml/mdText) — SEM tocar em `_mdRevision` (não é escrita externa).
      */
+    private val decisionMemory = DecisionMemoryRepository(
+        db.decisionDao(),
+        RoomTransactionRunner(db),
+    )
     private val sectionsController: SectionsController = SectionsController(
         noteId = noteId,
         sectionDao = db.speechSectionDao(),
@@ -254,6 +260,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
         scope = viewModelScope,
         debounceMs = 400L,
         tombstoneDao = db.tombstoneDao(),
+        decisionReconciliation = decisionMemory.asReconciliationHook(),
         onSaved = {
             if (_sections.value.isNotEmpty()) {
                 _html.value = sectionsController.aggregateHtml()
