@@ -350,6 +350,31 @@ class OutlineImportServiceTest {
     }
 
     @Test
+    fun persist_reimportacaoComMesmosIdsPreservaIdentidade() = runBlocking {
+        val old = section("a-i", "n1", 0, SectionRole.INTRO, 1).toEntity()
+        val sections = FakeSectionDao(rows = listOf(old))
+        val subPoints = FakeSubPointDao()
+        val hook = RecordingReconciliationHook()
+        val service = OutlineImportService(
+            FakeTransactionRunner(sections, subPoints),
+            sections,
+            subPoints,
+            decisionReconciliation = hook,
+        )
+
+        service.persist(conversion(prefix = "a"))
+
+        val call = hook.calls.single()
+        assertEquals(ReconcileOperation.REIMPORT_REPLACE, call.operation)
+        assertTrue("seção antiga deve estar no lado antigo", call.oldSections.any { it.id == "a-i" })
+        assertTrue("mesmo id deve sobreviver no lado novo", call.newSections.any { it.id == "a-i" })
+        assertEquals(
+            call.oldSections.single { it.id == "a-i" },
+            call.newSections.single { it.id == "a-i" },
+        )
+    }
+
+    @Test
     fun persist_falhaNaReconciliacaoDesfazSecoes() = runBlocking {
         val old = section("a-i", "n1", 0, SectionRole.INTRO, 1).toEntity()
         val sections = FakeSectionDao(rows = listOf(old))

@@ -1127,6 +1127,148 @@ class SectionsControllerTest {
     }
 
     @Test
+    fun onSectionContent_enviaVisaoCompletaDaNotaENaoTocaOutraSecao() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(
+                section("s1", 0, "BODY", "Ponto A", "<p>A</p>"),
+                section("s2", 1, "BODY", "Ponto B", "<p>B</p>"),
+            )
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.onSectionContent("s1", "<p>A atualizado</p>")
+            controller.awaitSaves()
+
+            val call = hook.calls.last()
+            assertEquals(listOf("s1", "s2"), call.oldSections.map { it.id })
+            assertEquals(listOf("s1", "s2"), call.newSections.map { it.id })
+
+            val oldB = call.oldSections.first { it.id == "s2" }
+            val newB = call.newSections.first { it.id == "s2" }
+            assertEquals("seção não editada não pode mudar de snapshot", oldB, newB)
+
+            val oldA = call.oldSections.first { it.id == "s1" }
+            val newA = call.newSections.first { it.id == "s1" }
+            assertTrue("hash da seção editada deve mudar", oldA.contentHash != newA.contentHash)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun onSectionTitle_emTresSecoesPreservaAsLaterais() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(
+                section("s1", 0, "BODY", "Ponto A", "<p>A</p>"),
+                section("s2", 1, "BODY", "Ponto B", "<p>B</p>"),
+                section("s3", 2, "CONCLUSION", "Conclusão", "<p>C</p>"),
+            )
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 3 }
+            controller.onSectionTitle("s2", "Ponto B renomeado")
+            controller.awaitSaves()
+
+            val call = hook.calls.last()
+            assertEquals(listOf("s1", "s2", "s3"), call.oldSections.map { it.id })
+            assertEquals(listOf("s1", "s2", "s3"), call.newSections.map { it.id })
+            assertEquals(
+                call.oldSections.first { it.id == "s1" },
+                call.newSections.first { it.id == "s1" },
+            )
+            assertEquals(
+                call.oldSections.first { it.id == "s3" },
+                call.newSections.first { it.id == "s3" },
+            )
+            val oldMiddle = call.oldSections.first { it.id == "s2" }
+            val newMiddle = call.newSections.first { it.id == "s2" }
+            assertEquals("Ponto B renomeado", newMiddle.title)
+            assertTrue(oldMiddle.contentHash != newMiddle.contentHash)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun updateSectionRole_preservaSnapshotsDasDemaisSecoes() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(
+                section("s1", 0, "BODY", "Ponto A", "<p>A</p>"),
+                section("s2", 1, "BODY", "Ponto B", "<p>B</p>"),
+            )
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.updateSectionRole("s2", SectionRole.INTRO)
+            controller.awaitSaves()
+
+            val call = hook.calls.last()
+            assertEquals(listOf("s1", "s2"), call.newSections.map { it.id })
+            assertEquals(
+                call.oldSections.first { it.id == "s1" },
+                call.newSections.first { it.id == "s1" },
+            )
+            assertEquals(SectionRole.INTRO, call.newSections.first { it.id == "s2" }.role)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun autosavesSucessivosDeSecoesDiferentesMantemVisaoCompleta() = runBlocking {
+        val secs = FakeSections().apply {
+            rows.value = listOf(
+                section("s1", 0, "BODY", "Ponto A", "<p>A</p>"),
+                section("s2", 1, "BODY", "Ponto B", "<p>B</p>"),
+            )
+        }
+        val hook = RecordingDecisionHook()
+        val controller = reconcileController(secs, FakeSubPoints(), this, hook)
+        try {
+            controller.sections.first { it.size == 2 }
+            controller.onSectionContent("s1", "<p>A atualizado</p>")
+            controller.awaitSaves()
+            controller.onSectionContent("s2", "<p>B atualizado</p>")
+            controller.awaitSaves()
+
+            val calls = hook.calls.filter { it.operation == ReconcileOperation.REORDER }
+            assertEquals(2, calls.size)
+            calls.forEach { call ->
+                assertEquals(listOf("s1", "s2"), call.oldSections.map { it.id })
+                assertEquals(listOf("s1", "s2"), call.newSections.map { it.id })
+            }
+
+            val first = calls[0]
+            assertTrue(
+                first.oldSections.first { it.id == "s1" }.contentHash !=
+                    first.newSections.first { it.id == "s1" }.contentHash,
+            )
+            assertEquals(
+                first.oldSections.first { it.id == "s2" },
+                first.newSections.first { it.id == "s2" },
+            )
+
+            val second = calls[1]
+            assertEquals(
+                second.oldSections.first { it.id == "s1" },
+                second.newSections.first { it.id == "s1" },
+            )
+            assertTrue(
+                second.oldSections.first { it.id == "s2" }.contentHash !=
+                    second.newSections.first { it.id == "s2" }.contentHash,
+            )
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun updateSectionRole_reconciliaNovoSnapshot() = runBlocking {
         val secs = FakeSections().apply { rows.value = listOf(section("s1", 0, "BODY")) }
         val hook = RecordingDecisionHook()

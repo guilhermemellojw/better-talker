@@ -490,19 +490,36 @@ class SectionsController(
         val current = _sections.value.firstOrNull { it.section.id == sectionId } ?: return
         val now = clock()
         transactionRunner.run {
-            val old = sectionDao.get(sectionId)?.toDomain()
+            // 1C.2.2A/B1: a reconciliação interpreta ausência em `newSections`
+            // como remoção. Por isso o autosave de UMA seção precisa entregar
+            // a visão completa da nota, lida dentro desta mesma transação.
+            // Antes, editar A passava apenas A e orfanava decisões de B.
+            val persisted = sectionDao.forNote(noteId)
+            val oldSections = persisted.map { it.toDomain().toSectionSnapshot() }
+            val targetExisted = persisted.any { it.id == sectionId }
+
             sectionDao.upsert(current.section.toEntity())
             if (current.subPoints.isNotEmpty()) {
                 subPointDao.upsertAll(current.subPoints.map { it.toEntity() })
             }
-            // 1C.2.2A: o snapshot cobre título + conteúdo. Reconciliar na
-            // mesma transação evita decisão VALID apontando para conteúdo
-            // antigo e mantém STALE coerente quando houver aplicação.
-            if (old != null && decisionReconciliation != null) {
+
+            // O snapshot cobre título + conteúdo. Reconciliar na mesma
+            // transação evita decisão VALID apontando para conteúdo antigo e
+            // mantém STALE coerente quando houver aplicação. As demais
+            // seções entram inalteradas nos dois lados, então suas decisões
+            // não são tocadas nem ganham updatedAt novo.
+            if (targetExisted && decisionReconciliation != null) {
+                val newSections = persisted.map { entity ->
+                    if (entity.id == sectionId) {
+                        current.section.toSectionSnapshot()
+                    } else {
+                        entity.toDomain().toSectionSnapshot()
+                    }
+                }
                 decisionReconciliation.onSectionsChanged(
                     noteId = noteId,
-                    oldSections = listOf(old.toSectionSnapshot()),
-                    newSections = listOf(current.section.toSectionSnapshot()),
+                    oldSections = oldSections,
+                    newSections = newSections,
                     operation = ReconcileOperation.REORDER,
                     now = now,
                 )
