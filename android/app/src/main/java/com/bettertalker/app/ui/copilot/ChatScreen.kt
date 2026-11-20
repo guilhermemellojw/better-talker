@@ -313,6 +313,8 @@ fun ChatScreen(
     val structureProposal by vm.structureProposal.collectAsState()
     // 1C.2.1B2C: pergunta de substituição de decisão após um aceite B1.
     val decisionSupersessionPrompt by vm.decisionSupersessionPrompt.collectAsState()
+    // 1C.2.2A: visão somente leitura da memória persistida.
+    val decisionMemoryUi by vm.decisionMemoryUi.collectAsState()
     // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
     // #15d-escopo: sugestão de vincular publicações (RAG fraco por escopo).
@@ -372,6 +374,7 @@ fun ChatScreen(
     // Fase B: porta única de colar material (prévia antes de aplicar).
     var showPasteSheet by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showDecisionMemory by rememberSaveable { mutableStateOf(false) }
     // v2.7.2 (Sessão 2): "Limpar conversa" no topo, independente do tipo da
     // última mensagem. Antes, o item vivia só no ⋯ das respostas de texto;
     // cards/propostas (kinds sem MessageActions) deixavam a conversa sem clear.
@@ -929,6 +932,15 @@ fun ChatScreen(
                                     vm.setSimpleMode(!simpleMode)
                                 },
                             )
+                            if (vm.currentNoteId != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Memória do Mentor") },
+                                    onClick = {
+                                        topMenuOpen = false
+                                        showDecisionMemory = true
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(
@@ -1575,11 +1587,26 @@ fun ChatScreen(
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             title = { Text("Limpar conversa?") },
-            text = { Text("O histórico desta conversa será apagado.") },
+            text = {
+                Text(
+                    "O histórico desta conversa será apagado. As decisões " +
+                        "salvas e o texto do discurso não serão alterados.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { confirmClear = false; vm.clearChat() }) { Text("Limpar") }
             },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancelar") } }
+        )
+    }
+
+    if (showDecisionMemory) {
+        LaunchedEffect(Unit) { vm.loadDecisionMemory() }
+        DecisionMemorySheet(
+            state = decisionMemoryUi,
+            noteTitle = noteTitle,
+            onDismiss = { showDecisionMemory = false },
+            onRetry = vm::loadDecisionMemory,
         )
     }
 
