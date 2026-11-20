@@ -13,6 +13,7 @@ import com.bettertalker.app.data.copilot.ReconcileOperation
 import com.bettertalker.app.data.copilot.SectionLink
 import com.bettertalker.app.data.copilot.SectionSnapshot
 import com.bettertalker.app.data.db.AppDatabase
+import com.bettertalker.app.data.db.ChatEntity
 import com.bettertalker.app.data.db.NoteEntity
 import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.SpeechSectionEntity
@@ -250,5 +251,41 @@ class DecisionMemoryRoomTest {
         assertEquals(1, db.decisionDao().countForNote("n2"))
         assertEquals("n1", repo.get("d1")!!.noteId)
         assertEquals("n2", repo.get("d2")!!.noteId)
+    }
+
+    @Test
+    fun limparConversaPreservaDecisoesAbordagemETexto() = runBlocking {
+        db.noteDao().upsert(
+            note().copy(
+                mdText = "texto do discurso",
+                plainText = "texto do discurso",
+            ),
+        )
+        db.speechSectionDao().upsert(
+            section("s1").copy(agreedApproach = "abordagem confirmada"),
+        )
+        repo.save(decision())
+        db.chatDao().put(
+            ChatEntity(
+                id = "m1",
+                noteId = "n1",
+                fromMe = true,
+                kind = "text",
+                payload = "{\"text\":\"mensagem\"}",
+                createdAt = 10L,
+            ),
+        )
+        assertEquals(1, db.chatDao().all("n1").size)
+
+        // É exatamente a operação de CopilotViewModel.clearChat().
+        db.chatDao().clear("n1")
+
+        assertEquals(0, db.chatDao().all("n1").size)
+        assertNotNull("decisão não pode ser apagada com a conversa", repo.get("d1"))
+        assertEquals(
+            "abordagem confirmada",
+            db.speechSectionDao().get("s1")!!.agreedApproach,
+        )
+        assertEquals("texto do discurso", db.noteDao().get("n1")!!.mdText)
     }
 }

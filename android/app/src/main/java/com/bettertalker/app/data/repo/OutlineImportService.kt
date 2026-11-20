@@ -1,10 +1,14 @@
 package com.bettertalker.app.data.repo
 
+import com.bettertalker.app.data.copilot.DecisionReconciliationHook
+import com.bettertalker.app.data.copilot.ReconcileOperation
+import com.bettertalker.app.data.copilot.toSectionSnapshot
 import com.bettertalker.app.data.db.SpeechSectionDao
 import com.bettertalker.app.data.db.SubPointDao
 import com.bettertalker.app.data.db.TombstoneDao
 import com.bettertalker.app.data.db.TombstoneEntity
 import com.bettertalker.app.data.db.TransactionRunner
+import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.data.db.toEntity
 import com.bettertalker.app.domain.speech.DiscourseType
 import com.bettertalker.app.domain.speech.OutlineConversion
@@ -37,6 +41,11 @@ class OutlineImportService(
     private val subPointDao: SubPointDao,
     /** Opcional em testes; produção passa `db.tombstoneDao()`. */
     private val tombstoneDao: TombstoneDao? = null,
+    /**
+     * 1C.2.2A — reconhece que a reimportação substituiu a estrutura e
+     * reconcilia o ledger na mesma transação. Opcional em testes.
+     */
+    private val decisionReconciliation: DecisionReconciliationHook? = null,
 ) {
 
     /**
@@ -104,6 +113,16 @@ class OutlineImportService(
                     dao.put(TombstoneEntity(it.id, "subPoint", now))
                 }
             }
+            // 1C.2.2A: reimportação é substituição estrutural. O
+            // reconciliador só remapeia com identidade comprovada; caso
+            // contrário, sugere PENDING_RECONFIRMATION/ORPHANED.
+            decisionReconciliation?.onSectionsChanged(
+                noteId = noteId,
+                oldSections = oldSections.map { it.toDomain().toSectionSnapshot() },
+                newSections = allSections.map { it.toSectionSnapshot() },
+                operation = ReconcileOperation.REIMPORT_REPLACE,
+                now = now,
+            )
         }
         return allSections.size
     }
