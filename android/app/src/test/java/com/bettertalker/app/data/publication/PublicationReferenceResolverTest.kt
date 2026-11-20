@@ -2,6 +2,7 @@ package com.bettertalker.app.data.publication
 
 import com.bettertalker.app.data.planning.RoomReferenceResolver
 import com.bettertalker.app.data.util.EditionStatus
+import com.bettertalker.app.data.util.RefDetector
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +12,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PublicationReferenceResolverTest {
+
+    private val shaA = "a".repeat(64)
+    private val shaB = "b".repeat(64)
 
     private fun resolver(
         attachments: List<com.bettertalker.app.data.db.AttachmentEntity>,
@@ -185,8 +189,8 @@ class PublicationReferenceResolverTest {
     fun mesmoFormatoComHashesDiferentesEhAmbiguo() = runBlocking {
         val out = resolver(
             attachments = listOf(
-                attachment("a-lff-1", "lff_T.jwpub", sha256 = "aaa"),
-                attachment("a-lff-2", "lff_T.jwpub", sha256 = "bbb"),
+                attachment("a-lff-1", "lff_T.jwpub", sha256 = shaA),
+                attachment("a-lff-2", "lff_T.jwpub", sha256 = shaB),
             ),
             passages = lmdRows("a-lff-1") + lmdRows("a-lff-2"),
         ).resolve(occurrence("lff lição 3 ponto 4"))
@@ -197,6 +201,20 @@ class PublicationReferenceResolverTest {
             (out as PublicationReferenceResolution.Ambiguous)
                 .candidates.map { it.attachmentId }.toSet(),
         )
+    }
+
+    @Test
+    fun hashInvalidoNaoPresumeEquivalencia() = runBlocking {
+        // "abc" não é SHA-256 hexadecimal de 64 dígitos.
+        val out = resolver(
+            attachments = listOf(
+                attachment("a-lff-1", "lff_T.jwpub", sha256 = "abc"),
+                attachment("a-lff-2", "lff_T.jwpub", sha256 = "abc"),
+            ),
+            passages = lmdRows("a-lff-1") + lmdRows("a-lff-2"),
+        ).resolve(occurrence("lff lição 3 ponto 4"))
+
+        assertTrue(out is PublicationReferenceResolution.Ambiguous)
     }
 
     @Test
@@ -232,8 +250,8 @@ class PublicationReferenceResolverTest {
     fun duplicataBinariaNaoViraAmbiguidade() = runBlocking {
         val out = resolver(
             attachments = listOf(
-                attachment("a-lff-1", "lff_T.jwpub", sha256 = "abc"),
-                attachment("a-lff-2", "lff_copy.jwpub", sha256 = "abc"),
+                attachment("a-lff-1", "lff_T.jwpub", sha256 = shaA),
+                attachment("a-lff-2", "lff_copy.jwpub", sha256 = shaA),
             ),
             passages = lmdRows("a-lff-1"),
         ).resolve(occurrence("lff lição 3 ponto 4"))
@@ -472,6 +490,59 @@ class PublicationReferenceResolverTest {
     }
 
     @Test
+    fun semUnitDaoLicao1NaoResolveLicao10() = runBlocking {
+        val att = "a-lmd"
+        val attachmentDao = FakeAttachmentDao(listOf(attachment(att, "lmd_T.jwpub")))
+        val passageDao = FakePassageDao(
+            listOf(
+                passage(
+                    "p10",
+                    att,
+                    "1 Texto da licao dez.",
+                    section = "Lição 10: Outro assunto",
+                    paragraph = 1,
+                ),
+            ),
+        )
+        val out = PublicationReferenceResolver(
+            attachmentDao = attachmentDao,
+            passageDao = passageDao,
+            unitDao = null,
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+        ).resolve(occurrence("lmd lição 1 ponto 1"))
+
+        assertTrue(out is PublicationReferenceResolution.TextNotFound)
+    }
+
+    @Test
+    fun semUnitDaoLicao1ExataResolve() = runBlocking {
+        val att = "a-lmd"
+        val attachmentDao = FakeAttachmentDao(listOf(attachment(att, "lmd_T.jwpub")))
+        val passageDao = FakePassageDao(
+            listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto da licao um.",
+                    section = "Lição 1: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+        )
+        val out = PublicationReferenceResolver(
+            attachmentDao = attachmentDao,
+            passageDao = passageDao,
+            unitDao = null,
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+        ).resolve(occurrence("lmd lição 1 ponto 1"))
+
+        assertTrue(
+            out is PublicationReferenceResolution.Available ||
+                out is PublicationReferenceResolution.Partial,
+        )
+    }
+
+    @Test
     fun resultadoDaBuscaRejeitadoPelaValidacaoEstrutural() = runBlocking {
         val att = "a-lmd"
         val attachmentDao = FakeAttachmentDao(listOf(attachment(att, "lmd_T.jwpub")))
@@ -600,6 +671,165 @@ class PublicationReferenceResolverTest {
 
         assertFalse(out is PublicationReferenceResolution.Available)
         assertFalse(out is PublicationReferenceResolution.Partial)
+    }
+
+    @Test
+    fun deteccaoIncompativelNaoUsaPaginaFabricada() = runBlocking {
+        val att = "a-lmd"
+        val forged = RefDetector.DetectedRef(
+            raw = "lmd",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "lmd",
+            editionKey = "book|lmd",
+            label = "Ame as Pessoas",
+            page = 999,
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = listOf(
+                passage("p999", att, "Texto sintetico da pagina 999.", page = 999),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "lmd",
+                start = 0,
+                endExclusive = 3,
+                publicationKey = "lmd",
+                titleHint = null,
+                editionKey = "book|lmd",
+                detection = forged,
+            ),
+        )
+
+        assertFalse(out is PublicationReferenceResolution.Available)
+        assertFalse(out is PublicationReferenceResolution.Partial)
+    }
+
+    @Test
+    fun deteccaoIncompativelRevalidaCapituloNoRaw() = runBlocking {
+        val att = "a-lmd"
+        val forged = RefDetector.DetectedRef(
+            raw = "lmd lição 3",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "lmd",
+            editionKey = "book|lmd",
+            label = "Ame as Pessoas",
+            chapter = "lição 999",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "lmd_T.jwpub")),
+            passages = lmdRows(att),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "lmd lição 3",
+                start = 0,
+                endExclusive = "lmd lição 3".length,
+                publicationKey = "lmd",
+                titleHint = null,
+                editionKey = "book|lmd",
+                chapter = "lição 999",
+                detection = forged,
+            ),
+        )
+
+        assertTrue(out is PublicationReferenceResolution.Partial)
+        val canonical = (out as PublicationReferenceResolution.Partial).target.canonicalRef.orEmpty()
+        assertTrue(canonical.contains("lição 3"))
+        assertFalse(canonical.contains("999"))
+    }
+
+    @Test
+    fun deteccaoDeTituloCompartilhadoNaoResolve() = runBlocking {
+        val att = "a-lff"
+        val detection = RefDetector.DetectedRef(
+            raw = "Seja Feliz para Sempre",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "lff",
+            editionKey = "book|lff",
+            label = "Seja Feliz para Sempre!",
+            chapter = "licao 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "lff_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto sintetico.",
+                    section = "Lição 5: Outro assunto",
+                    paragraph = 1,
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "Seja Feliz para Sempre",
+                start = 0,
+                endExclusive = "Seja Feliz para Sempre".length,
+                publicationKey = "lff",
+                titleHint = "Seja Feliz para Sempre",
+                editionKey = "book|lff",
+                detection = detection,
+            ),
+        )
+
+        assertFalse(out is PublicationReferenceResolution.Available)
+        assertFalse(out is PublicationReferenceResolution.Partial)
+        assertTrue(out is PublicationReferenceResolution.NotRecognized)
+    }
+
+    @Test
+    fun deteccaoDeTituloComUnidadeContinuaValida() = runBlocking {
+        val att = "a-cl"
+        val detection = RefDetector.DetectedRef(
+            raw = "Achegue-se a Jeová",
+            kind = RefDetector.Kind.BOOK,
+            pubKey = "cl",
+            editionKey = "book|cl",
+            label = "Achegue-se a Jeová",
+            chapter = "capitulo 5",
+        )
+        val out = resolver(
+            attachments = listOf(attachment(att, "cl_T.jwpub")),
+            passages = listOf(
+                passage(
+                    "p1",
+                    att,
+                    "1 Texto do capitulo cinco.",
+                    section = "Capítulo 5: Como estudar",
+                    paragraph = 1,
+                ),
+            ),
+            units = listOf(
+                unit(
+                    id = "u5",
+                    attachmentId = att,
+                    kind = "CHAPTER",
+                    number = "5",
+                    title = "Capítulo 5: Como estudar",
+                ),
+            ),
+        ).resolve(
+            PublicationReferenceOccurrence(
+                raw = "Achegue-se a Jeová",
+                start = 0,
+                endExclusive = "Achegue-se a Jeová".length,
+                publicationKey = "cl",
+                titleHint = "Achegue-se a Jeová",
+                editionKey = "book|cl",
+                detection = detection,
+            ),
+        )
+
+        assertTrue(
+            out is PublicationReferenceResolution.Available ||
+                out is PublicationReferenceResolution.Partial,
+        )
+        val target = when (out) {
+            is PublicationReferenceResolution.Available -> out.target
+            is PublicationReferenceResolution.Partial -> out.target
+            else -> error("resolução inesperada: $out")
+        }
+        assertEquals("5", target.unit?.number)
     }
 
     @Test

@@ -49,7 +49,7 @@ class PublicationReferenceResolver(
         val raw = occurrence.raw.trim()
         if (raw.isBlank()) return PublicationReferenceResolution.NotRecognized(occurrence.raw)
 
-        val detected = occurrence.detection ?: redetect(occurrence)
+        val detected = validatedDetection(occurrence)
             ?: return PublicationReferenceResolution.NotRecognized(occurrence.raw)
         if (detected.pubKey.isBlank() || detected.pubKey.equals("nwt", true)) {
             return PublicationReferenceResolution.NotRecognized(occurrence.raw)
@@ -314,6 +314,10 @@ class PublicationReferenceResolver(
             ?.get(1)
             ?.toIntOrNull()
 
+    /** Só um SHA-256 hexadecimal de 64 dígitos prova duplicata binária. */
+    private fun normalizedSha256(value: String?): String? =
+        value?.trim()?.lowercase()?.takeIf { SHA256_RE.matches(it) }
+
     private companion object {
         /**
          * Unidade numerada catalogada: lição, capítulo, estudo, parte, seção
@@ -323,6 +327,7 @@ class PublicationReferenceResolver(
             """(?:capitulo|cap|licao|estudo|parte|secao|artigo)\s+(\d{1,3})\b""",
             RegexOption.IGNORE_CASE,
         )
+        val SHA256_RE = Regex("^[0-9a-f]{64}$")
     }
 
     private fun PublicationUnitEntity.toDocumentUnit(): PublicationDocumentUnit? {
@@ -465,10 +470,7 @@ class PublicationReferenceResolver(
         val byHash = LinkedHashMap<String, MutableList<AttachmentEntity>>()
         val unproven = mutableListOf<List<AttachmentEntity>>()
         candidates.forEach { attachment ->
-            val hash = attachment.sha256
-                ?.trim()
-                ?.lowercase()
-                ?.takeIf { it.isNotEmpty() }
+            val hash = normalizedSha256(attachment.sha256)
             if (hash == null) {
                 unproven += listOf(attachment)
             } else {
@@ -531,6 +533,64 @@ class PublicationReferenceResolver(
         } else {
             null
         }
+
+    /**
+     * B2 — a detecção só é aceita se for compatível com o texto original.
+     *
+     * Para referências normais, o detector roda de novo sobre o `raw` e
+     * substitui qualquer unidade fornecida pelo chamador. A exceção é um
+     * título por extenso cuja unidade fica fora do span do título: nesse
+     * caso o detector de spans já validou a unidade no texto ao redor, e a
+     * identidade do título é conferida contra o catálogo.
+     */
+    private fun validatedDetection(
+        occurrence: PublicationReferenceOccurrence,
+    ): RefDetector.DetectedRef? {
+        val detection = occurrence.detection ?: return redetect(occurrence)
+        val rawNorm = normalizeText(occurrence.raw)
+        val title = detection.pubKey
+            .takeIf { it.isNotBlank() }
+            ?.let { PubCatalog.titleOf(it)?.let(::normalizeText) }
+        val detectionIsTitle = title != null &&
+            normalizeText(detection.raw) == title
+        val rawIsTitle = title != null && rawNorm == title
+
+        if (detectionIsTitle && rawIsTitle) {
+            if (!occurrence.publicationKey.isNullOrBlank() &&
+                !detection.pubKey.equals(occurrence.publicationKey, true)
+            ) {
+                return null
+            }
+            val owners = PubCatalog.titleIndex()
+                .filter { it.first == title }
+                .mapNotNull { (_, symbol) -> canonicalSymbol(symbol) }
+                .toSet()
+            if (owners.size > 1) return null
+            return detection
+        }
+
+        val detected = RefDetector.detect(occurrence.raw).firstOrNull {
+            occurrence.publicationKey == null ||
+                it.pubKey.equals(occurrence.publicationKey, true)
+        }
+        if (detected != null) return detected
+
+        // Símbolo isolado (ex.: it-1) pode ter detecção sintética sem
+        // unidade. Nunca aceitamos unidade fabricada nesse fallback.
+        if (normalizeText(detection.raw) == rawNorm &&
+            !detection.hasUnit() &&
+            (occurrence.publicationKey.isNullOrBlank() ||
+                detection.pubKey.equals(occurrence.publicationKey, true))
+        ) {
+            return detection
+        }
+        return null
+    }
+
+    private fun RefDetector.DetectedRef.hasUnit(): Boolean =
+        !article.isNullOrBlank() || !chapter.isNullOrBlank() ||
+            page != null || pageEnd != null ||
+            paragraph != null || paragraphEnd != null
 
     /**
      * Revalida o texto original. Campos isolados da ocorrência (página,
