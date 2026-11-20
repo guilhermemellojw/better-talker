@@ -503,17 +503,20 @@ object DecisionTransitions {
 }
 
 /**
- * Elegibilidade para a memória ativa do Mentor. Não integra prompts nesta
- * fase; é o contrato puro que a 1C.2.1B consumirá.
+ * Elegibilidade para a memória ativa do Mentor (1C.2.2B0).
  *
- * NOTE precisa estar ACTIVE e NOT_APPLICABLE; SECTION precisa estar ACTIVE e
- * VALID. ORPHANED/PENDING continuam preservadas, mas ficam fora do prompt.
+ * Somente decisões CONFIRMED e ACTIVE entram como orientação: PREFERENCE,
+ * REJECTED e OPEN ficam fora. NOTE exige NOT_APPLICABLE; SECTION exige
+ * sectionId e VALID. ORPHANED/PENDING continuam preservadas no banco, mas
+ * nunca orientam o prompt. Aplicação ao texto não participa desta regra.
  */
 fun DecisionRecord.isEligibleForPromptMemory(): Boolean =
-    decisionState == DecisionState.ACTIVE &&
+    kind == DecisionKind.CONFIRMED &&
+        decisionState == DecisionState.ACTIVE &&
         when (scope) {
             DecisionScope.NOTE -> sectionLink == SectionLink.NOT_APPLICABLE
-            DecisionScope.SECTION -> sectionLink == SectionLink.VALID
+            DecisionScope.SECTION ->
+                sectionLink == SectionLink.VALID && !sectionId.isNullOrBlank()
         }
 
 /**

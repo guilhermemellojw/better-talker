@@ -332,6 +332,10 @@ fun extractUserDecisions(text: String): List<String> {
  * decisões. Sugestões do Copilot continuam no histórico literal, mas nunca
  * são promovidas a “decisão do usuário” no bloco de memória.
  *
+ * 1C.2.2B0: NÃO use este resumo como memória do prompt. Ele não prova que uma
+ * decisão continua ativa; a autoridade é o ledger (`DecisionPromptMemory`).
+ * Mantido para UI/testes e compatibilidade.
+ *
  * Puro/testável.
  */
 fun buildRollingSummary(turns: List<ChatTurn>, sectionTitle: String): RollingSummary {
@@ -345,9 +349,11 @@ fun buildRollingSummary(turns: List<ChatTurn>, sectionTitle: String): RollingSum
 }
 
 /**
- * Bloco ## MEMÓRIA DA CONSTRUÇÃO para o system (antes das 6 mensagens).
- * Null quando não há o que lembrar (conversa curta sem decisões) — nesse
- * caso o prompt segue idêntico ao anterior. Puro/testável.
+ * Bloco ## MEMÓRIA DA CONSTRUÇÃO (legado de UI/testes).
+ *
+ * 1C.2.2B0: NÃO injetar no prompt do Mentor. Decisões confirmadas vêm do
+ * ledger via `DecisionPromptMemory`; este bloco não tem autoridade para
+ * promover falas do histórico a consenso. Puro/testável.
  */
 fun renderMemoryBlock(summary: RollingSummary): String? {
     if (summary.decisions.isEmpty() && summary.userTurns < SUMMARY_EVERY_TURNS) return null

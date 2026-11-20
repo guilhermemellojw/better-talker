@@ -83,7 +83,11 @@ class DefaultDossierPromptBuilder(
             appendLine()
             // Draft (JSON): a persona vem do system prompt do provider; o
             // bloco de chat "MODO MENTOR" não entra aqui.
-            appendContext(dossier, includeMentorHint = false)
+            appendContext(
+                dossier,
+                includeMentorHint = false,
+                includeDecisionMemory = true,
+            )
             appendTask(dossier, part)
             appendJsonFormat()
         }.trim()
@@ -115,6 +119,7 @@ class DefaultDossierPromptBuilder(
         includeSpeakerNote: Boolean = true,
         includeMentorHint: Boolean = false,
         includeApproach: Boolean = true,
+        includeDecisionMemory: Boolean = false,
     ) {
         appendDiscourse(d)
         if (includeMentorHint) appendMentorHint(d)
@@ -122,7 +127,13 @@ class DefaultDossierPromptBuilder(
         appendS38Guidelines(d)
         if (includeSpeakerNote) appendSpeakerNote(d)
         appendSection(d)
-        if (includeApproach) appendAgreedApproach(d)
+        if (includeApproach && !d.suppressAgreedApproach) appendAgreedApproach(d)
+        if (includeDecisionMemory) {
+            d.decisionMemoryBlock?.takeIf { it.isNotBlank() }?.let {
+                appendLine(it)
+                appendLine()
+            }
+        }
         appendOverview(d)
         appendBibleTexts(d)
         appendPublicationTexts(d)

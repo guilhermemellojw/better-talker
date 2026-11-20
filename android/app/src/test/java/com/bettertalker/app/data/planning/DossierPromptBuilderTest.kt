@@ -38,6 +38,8 @@ class DossierPromptBuilderTest {
         sectionTitle: String = "Título teste",
         contentHtml: String = "",
         noteTitle: String? = null,
+        suppressAgreedApproach: Boolean = false,
+        decisionMemoryBlock: String? = null,
     ): Dossier = Dossier(
         currentSection = SpeechSection(
             id = "s1", noteId = "n1", order = 0, role = role,
@@ -58,6 +60,8 @@ class DossierPromptBuilderTest {
         sectionSubPoints = sectionSubPoints,
         discourseType = discourseType,
         noteTitle = noteTitle,
+        suppressAgreedApproach = suppressAgreedApproach,
+        decisionMemoryBlock = decisionMemoryBlock,
     )
 
     private val builder = DefaultDossierPromptBuilder()
@@ -97,6 +101,42 @@ class DossierPromptBuilderTest {
     fun build_tasks_askToFinishSentence() {
         val prompt = builder.build(dossier(role = SectionRole.INTRO, subPoint = subPoint()))
         assertTrue(prompt.contains("nunca deixe texto cortado"))
+    }
+
+    @Test
+    fun suppressAgreedApproach_removeLegadoDoPromptEDoDraft() {
+        val legacy = "abertura antiga com pergunta"
+        val d = dossier(agreedApproach = legacy, suppressAgreedApproach = true)
+
+        assertFalse(builder.buildContextBlock(d).contains(legacy))
+        assertFalse(builder.build(d).contains(legacy))
+        assertFalse(builder.buildPart(d, com.bettertalker.app.domain.planning.DraftPartSpec(
+            index = 1,
+            count = 1,
+            targetWords = 300,
+        )).contains(legacy))
+    }
+
+    @Test
+    fun decisionMemoryBlock_entraNoDraftEMantemContextBlockDoChat() {
+        val memory = "## DECISÕES CONFIRMADAS PELO USUÁRIO\n" +
+            "1. [Seção em foco: Título teste] usar contraste"
+        val d = dossier(decisionMemoryBlock = memory)
+
+        assertTrue(builder.build(d).contains("usar contraste"))
+        assertTrue(
+            builder.buildPart(
+                d,
+                com.bettertalker.app.domain.planning.DraftPartSpec(
+                    index = 1,
+                    count = 1,
+                    targetWords = 300,
+                ),
+            ).contains("usar contraste"),
+        )
+        // O chat injeta o bloco no userContextBlock; não duplica no dossiê.
+        assertFalse(builder.buildContextBlock(d).contains("usar contraste"))
+        assertFalse(builder.buildEvidenceBlock(d).contains("usar contraste"))
     }
 
     @Test
