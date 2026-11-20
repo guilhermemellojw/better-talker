@@ -291,6 +291,38 @@ class DecisionMemorySheetTest {
         composeRule.onNodeWithText("Começar com uma pergunta.").assertIsDisplayed()
     }
 
+    @Test
+    fun trocaDeNotaMostraEstadoDaNovaNota() {
+        var currentTitle by mutableStateOf("Nota A")
+        var currentState by mutableStateOf(
+            state(active = listOf(item("a", "Começar com uma pergunta.", "Ativa"))),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                Box(Modifier.fillMaxSize()) {
+                    DecisionMemoryContent(
+                        state = currentState,
+                        noteTitle = currentTitle,
+                        onClose = {},
+                        onRetry = {},
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("Nota A").assertIsDisplayed()
+        composeRule.onNodeWithText("Começar com uma pergunta.").assertIsDisplayed()
+
+        composeRule.runOnIdle {
+            currentTitle = "Nota B"
+            currentState = state()
+        }
+
+        composeRule.onNodeWithText("Nota B").assertIsDisplayed()
+        composeRule.onNodeWithText("Ainda não há decisões salvas para este discurso.")
+            .assertIsDisplayed()
+    }
+
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun fonteAmpliadaMantemConteudoUtilizavel() {
