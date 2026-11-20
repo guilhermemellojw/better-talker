@@ -246,16 +246,41 @@ class NwtRoomIndexIdentityAdapterTest {
         assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_AMBIGUOUS_RECORD })
     }
 
-    // ---------- 13. Mesmo texto em dois anexos ----------
+    // ---------- 13. P1 — Duas edições da TNM não produzem falsa ambiguidade ----------
     @Test
-    fun ambiguousRecordQuandoMesmoTextoEmDoisAnexos() {
-        val p = passage(id = "p-1", attachmentId = attachmentId, ref = ref)
-        val (aDao, pDao) = newDaos(passages = listOf(p))
-        // findByRef global retorna registro de outro anexo
-        pDao.findByRefOverride = passage(id = "p-other", attachmentId = "att-other", ref = ref)
-        val result = runAdapter(aDao, pDao, claim())
-        assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
-        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_AMBIGUOUS_RECORD })
+    fun recordMatchEmDuasEdicoesSimultaneas() {
+        val attA = tnmAttachment(id = "att-A")
+        val attB = tnmAttachment(id = "att-B")
+        val pA = passage(id = "p-A", attachmentId = "att-A", ref = ref)
+        val pB = passage(id = "p-B", attachmentId = "att-B", ref = ref)
+        // ambos os registros no MESMO repositório (mesmo fake)
+        val aDao = FakeAttachmentDao()
+        aDao.attachments[attA.id] = attA
+        aDao.attachments[attB.id] = attB
+        val pDao = FakePassageDao()
+        pDao.passages.addAll(listOf(pA, pB))
+
+        val rA = kotlinx.coroutines.runBlocking {
+            NwtRoomIndexIdentityAdapter.verify(
+                attachmentId = "att-A",
+                canonicalRef = ref,
+                claim = claim(attachmentId = "att-A", passageId = "p-A"),
+                attachmentDao = aDao,
+                passageDao = pDao,
+            )
+        }
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, rA.state)
+
+        val rB = kotlinx.coroutines.runBlocking {
+            NwtRoomIndexIdentityAdapter.verify(
+                attachmentId = "att-B",
+                canonicalRef = ref,
+                claim = claim(attachmentId = "att-B", passageId = "p-B"),
+                attachmentDao = aDao,
+                passageDao = pDao,
+            )
+        }
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, rB.state)
     }
 
     // ---------- 14. Registros duplicados ou ambíguos ----------
@@ -409,6 +434,135 @@ class NwtRoomIndexIdentityAdapterTest {
         )
     }
 
+    // ---------- P2 — consulta sem limitação indevida de 500 registros ----------
+    @Test
+    fun textoUnicoAposMaisDe500Passagens() {
+        val passages = (1..600).map { i ->
+            passage(id = "p-$i", ref = "Mt 1:$i", text = "Texto $i", ord = i)
+        } + passage(id = "p-target", ref = ref, text = "Texto sintético de Mateus 24:14.", ord = 601)
+        val (aDao, pDao) = newDaos(passages = passages)
+        val c = claim(passageId = "p-target", ord = 601, text = "Texto sintético de Mateus 24:14.")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+    }
+
+    @Test
+    fun textoDuplicadoAposPosicao500() {
+        val passages = (1..600).map { i ->
+            passage(id = "p-$i", ref = "Mt 1:$i", text = "Texto $i", ord = i)
+        } + listOf(
+            passage(id = "p-a", ref = ref, text = "Texto sintético de Mateus 24:14.", ord = 601),
+            passage(id = "p-b", ref = "Mt 24:15", text = "Texto sintético de Mateus 24:14.", ord = 602),
+        )
+        val (aDao, pDao) = newDaos(passages = passages)
+        val c = claim(passageId = "p-a", ord = 601, text = "Texto sintético de Mateus 24:14.")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
+    }
+
+    @Test
+    fun textoDuplicadoNasPrimeirasPosicoes() {
+        val p1 = passage(id = "p-1", ref = ref, text = "Texto sintético de Mateus 24:14.")
+        val p2 = passage(id = "p-2", ref = "Mt 24:15", text = "Texto sintético de Mateus 24:14.")
+        val (aDao, pDao) = newDaos(passages = listOf(p1, p2))
+        val c = claim(passageId = "p-1", text = "Texto sintético de Mateus 24:14.")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
+    }
+
+    @Test
+    fun mesmoTextoEmOutroAnexoNaoInvalidaAnexoSelecionado() {
+        val pA = passage(id = "p-A", attachmentId = attachmentId, ref = ref, text = "Texto sintético de Mateus 24:14.")
+        val pB = passage(id = "p-B", attachmentId = "att-other", ref = ref, text = "Texto sintético de Mateus 24:14.")
+        val aDao = FakeAttachmentDao()
+        aDao.attachments[attachmentId] = tnmAttachment(id = attachmentId)
+        val pDao = FakePassageDao()
+        pDao.passages.addAll(listOf(pA, pB))
+        // findByRef global retorna registro do outro anexo (best-effort) — não deve bloquear
+        pDao.findByRefOverride = pB
+        val result = runAdapter(aDao, pDao, claim(passageId = "p-A"))
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+    }
+
+    // ---------- P3 — falhas de leitura conservadoras ----------
+    @Test
+    fun readFailedQuandoFindByTextInAttachmentFalha() {
+        val (aDao, pDao) = newDaos()
+        pDao.throwOnFindByTextInAttachment = true
+        val c = claim(text = "Texto sintético de Mateus 24:14.")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.READ_FAILED, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_READ_FAILED })
+        assertNull(result.unit)
+    }
+
+    @Test
+    fun rethrowCancellationNaConsultaDeDuplicatas() {
+        val (aDao, pDao) = newDaos()
+        pDao.throwCancellationOnFindByTextInAttachment = true
+        val c = claim(text = "Texto sintético de Mateus 24:14.")
+        try {
+            runAdapter(aDao, pDao, c)
+            org.junit.Assert.fail("deveria ter lançado CancellationException")
+        } catch (e: CancellationException) {
+            // esperado
+        }
+    }
+
+    @Test
+    fun nenhumCaminhoDeFalhaProduzRecordMatch() {
+        // falha no get do anexo
+        val r1 = runAdapter(FakeAttachmentDao().apply { throwOnGet = true }, FakePassageDao(), claim())
+        assertTrue(r1.state != NwtRoomIndexIdentityState.RECORD_MATCH)
+        // falha no findByRefsIn
+        val (a2, p2) = newDaos(throwOnFindByRefsIn = true)
+        val r2 = runAdapter(a2, p2, claim())
+        assertTrue(r2.state != NwtRoomIndexIdentityState.RECORD_MATCH)
+        // falha no findByTextInAttachment
+        val (a3, p3) = newDaos()
+        p3.throwOnFindByTextInAttachment = true
+        val r3 = runAdapter(a3, p3, claim(text = "Texto sintético de Mateus 24:14."))
+        assertTrue(r3.state != NwtRoomIndexIdentityState.RECORD_MATCH)
+    }
+
+    // ---------- P4 — referência canônica reivindicada ----------
+    @Test
+    fun metadataMismatchQuandoClaimComOutraReferencia() {
+        val (aDao, pDao) = newDaos()
+        val c = claim(canonicalRef = "Mt 24:15")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_METADATA_MISMATCH })
+    }
+
+    @Test
+    fun referenceMismatchQuandoRefSolicitadaVazia() {
+        val (aDao, pDao) = newDaos()
+        val result = runAdapter(aDao, pDao, claim(), attachmentIdOverride = attachmentId)
+        // canonicalRef override not supported by runAdapter; call adapter directly
+        val r = kotlinx.coroutines.runBlocking {
+            NwtRoomIndexIdentityAdapter.verify(
+                attachmentId = attachmentId,
+                canonicalRef = "",
+                claim = claim(),
+                attachmentDao = aDao,
+                passageDao = pDao,
+            )
+        }
+        assertEquals(NwtRoomIndexIdentityState.REFERENCE_MISMATCH, r.state)
+        assertTrue(r.issues.any { it.code == NwtIssueCode.ROOM_REFERENCE_MISMATCH })
+    }
+
+    @Test
+    fun referenceMismatchQuandoRefPersistidaVazia() {
+        val p = passage(ref = "")
+        val (aDao, pDao) = newDaos(passages = listOf(p))
+        pDao.findByRefsInOverride = listOf(p)
+        val result = runAdapter(aDao, pDao, claim())
+        assertEquals(NwtRoomIndexIdentityState.REFERENCE_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_REFERENCE_MISMATCH })
+    }
+
     // ---------- extras ----------
     @Test
     fun recordMatchConstróiUnitAPartirDoPersistido() {
@@ -519,8 +673,11 @@ class NwtRoomIndexIdentityAdapterTest {
         val passages = mutableListOf<PassageEntity>()
         var findByRefOverride: PassageEntity? = null
         var findByRefsInOverride: List<PassageEntity>? = null
+        var findByTextInAttachmentOverride: List<PassageEntity>? = null
         var throwOnFindByRefsIn: Boolean = false
         var throwCancellationOnFindByRefsIn: Boolean = false
+        var throwOnFindByTextInAttachment: Boolean = false
+        var throwCancellationOnFindByTextInAttachment: Boolean = false
 
         override suspend fun forAttachment(attachmentId: String): List<PassageEntity> =
             passages.filter { it.attachmentId == attachmentId }
@@ -533,6 +690,13 @@ class NwtRoomIndexIdentityAdapterTest {
             if (throwOnFindByRefsIn) throw IllegalStateException("boom")
             findByRefsInOverride?.let { return it }
             return passages.filter { it.attachmentId == attachmentId && it.ref in refs }
+        }
+
+        override suspend fun findByTextInAttachment(attachmentId: String, text: String, limit: Int): List<PassageEntity> {
+            if (throwOnFindByTextInAttachment) throw IllegalStateException("boom-text")
+            if (throwCancellationOnFindByTextInAttachment) throw CancellationException("cancelled-text")
+            findByTextInAttachmentOverride?.let { return it.take(limit) }
+            return passages.filter { it.attachmentId == attachmentId && it.text == text }.take(limit)
         }
 
         override suspend fun findByRef(ref: String): PassageEntity? =

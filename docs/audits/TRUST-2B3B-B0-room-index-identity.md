@@ -51,17 +51,27 @@ AttachmentDao.get(attachmentId)
   -> (não TNM) ATTACHMENT_MISMATCH
   -> (fileSha256 fornecido e divergente) METADATA_MISMATCH
   -> (claim.attachmentId divergente) ATTACHMENT_MISMATCH
+  -> (canonicalRef vazio) REFERENCE_MISMATCH
+  -> (claim.canonicalRef divergente) METADATA_MISMATCH
 PassageDao.findByRefsIn(attachmentId, [canonicalRef])  // sem LIMIT 1
   -> (vazio) RECORD_MISSING
   -> (>1) AMBIGUOUS_RECORD
-  -> (ref divergente) REFERENCE_MISMATCH
+  -> (attachmentId do registro divergente) ATTACHMENT_MISMATCH
+  -> (campos obrigatórios inválidos) METADATA_MISMATCH
+  -> (ref divergente ou vazio) REFERENCE_MISMATCH
   -> (claim divergente) METADATA_MISMATCH
-  -> (findByRef global em outro anexo) AMBIGUOUS_RECORD
-  -> (mesmo texto em >1 unidade do anexo) AMBIGUOUS_RECORD
+  -> (PassageDao.findByTextInAttachment(attachmentId, text, 2) >= 2) AMBIGUOUS_RECORD
+  -> (falha de leitura em qualquer consulta) READ_FAILED
   -> RECORD_MATCH + NwtIndexedUnit a partir do registro persistido
 ```
 
-O adaptador nunca usa `findByRef(ref)` global para comprovar identidade (apenas como verificação best-effort de ambiguidade entre anexos).
+A identidade de uma passagem é decidida pelo par `attachmentId + canonicalRef`. A presença da mesma referência ou do mesmo texto em outro anexo não invalida automaticamente a identidade do registro do anexo selecionado (P1). A detecção de duplicatas dentro do anexo selecionado é preservada.
+
+O adaptador não usa `findByRef(ref)` global como condição bloqueante para `RECORD_MATCH` (P1). O método `PassageDao.findByTextInAttachment` (novo, sem migração de schema) substitui a consulta limitada a 500 registros de `forAttachment()` para a verificação de ambiguidade de texto (P2).
+
+Falhas de leitura em qualquer consulta necessária à identidade retornam `READ_FAILED` com `ROOM_READ_FAILED` — nunca `RECORD_MATCH` (P3). `CancellationException` é repropagada.
+
+A referência canônica solicitada não pode ser vazia e deve coincidir com `claim.canonicalRef` e com a referência persistida (P4). Uma referência persistida vazia não é substituída silenciosamente pelo valor solicitado. Se o claim estiver ausente, `RECORD_MATCH` comprova apenas a identidade do registro consultado, não a concordância com uma reivindicação externa.
 
 ## Integração com o verificador existente
 
@@ -92,19 +102,23 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 
 ## Segurança contra ambiguidades
 
-- Consulta restrita por `attachmentId` (nunca global).
-- `findByRefsIn` sem `LIMIT 1` para detectar duplicatas.
+- Consulta restrita por `attachmentId` (nunca global para comprovar identidade).
+- `findByRefsIn` sem `LIMIT 1` para detectar duplicatas dentro do anexo.
+- `findByTextInAttachment` (até 2 registros) para detectar duplicação de texto sem carregar toda a TNM.
 - Divergência de `passageId`/`ord`/`section`/`text` → `METADATA_MISMATCH`.
-- Registros duplicados → `AMBIGUOUS_RECORD`.
-- Mesmo texto em múltiplas unidades → `AMBIGUOUS_RECORD`.
-- Mesmo ref em outro anexo → `AMBIGUOUS_RECORD` (best-effort via `findByRef`).
+- Registros duplicados (mesmo ref) → `AMBIGUOUS_RECORD`.
+- Mesmo texto em múltiplas unidades do mesmo anexo → `AMBIGUOUS_RECORD`.
+- Presença da mesma referência/texto em outro anexo **não** invalida a identidade do anexo selecionado (P1).
 - Cancelamento de coroutine é repropagado (não engolido).
-- Falha de leitura do Room → `READ_FAILED`.
+- Falha de leitura em qualquer consulta necessária → `READ_FAILED` (P3).
 - Anexo não TNM / não pronto / ausente → `ATTACHMENT_MISMATCH`/`INDEX_NOT_READY`.
+- `canonicalRef` vazio → `REFERENCE_MISMATCH` (P4).
+- `claim.canonicalRef` divergente → `METADATA_MISMATCH` (P4).
+- Referência persistida vazia não é substituída silenciosamente (P4).
 
 ## Testes
 
-24 casos JVM (fakes in-memory), todos verdes:
+34 casos JVM (fakes in-memory), todos verdes:
 
 1. `recordMatchQuandoPassagemPertenceAoAnexoCorreto`
 2. `recordMissingQuandoPassagemPertenceAOutroAnexo`
@@ -118,7 +132,7 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 10. `indexNotReadyQuandoAnexoNaoIndexado`
 11. `recordMatchEmDuasEdicoesIndependentes`
 12. `ambiguousRecordQuandoMesmoTextoEmDuasUnidades`
-13. `ambiguousRecordQuandoMesmoTextoEmDoisAnexos`
+13. `recordMatchEmDuasEdicoesSimultaneas` (P1 — duas edições no mesmo repositório)
 14. `ambiguousRecordQuandoRegistrosDuplicados`
 15. `metadataMismatchQuandoArquivoIncompativelComIndice`
 16. `readFailedQuandoConsultaRoomFalha`
@@ -130,12 +144,23 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 22. `claimNullAindaVerificaRecordMatch`
 23. `metadataMismatchQuandoClaimAttachmentIdDiverge`
 24. `readFailedQuandoFindByRefsInFalha`
+25. `textoUnicoAposMaisDe500Passagens` (P2)
+26. `textoDuplicadoAposPosicao500` (P2)
+27. `textoDuplicadoNasPrimeirasPosicoes` (P2)
+28. `mesmoTextoEmOutroAnexoNaoInvalidaAnexoSelecionado` (P2/P1)
+29. `readFailedQuandoFindByTextInAttachmentFalha` (P3)
+30. `rethrowCancellationNaConsultaDeDuplicatas` (P3)
+31. `nenhumCaminhoDeFalhaProduzRecordMatch` (P3)
+32. `metadataMismatchQuandoClaimComOutraReferencia` (P4)
+33. `referenceMismatchQuandoRefSolicitadaVazia` (P4)
+34. `referenceMismatchQuandoRefPersistidaVazia` (P4)
 
 ## Limitações
 
 - A prova de persistência Room real depende de testes instrumentados (sem dispositivo/emulador neste ambiente). As garantias acima são verificadas por fakes in-memory.
-- `findByRef` global tem `LIMIT 1` (Room) — a verificação de ambiguidade entre anexos é best-effort.
-- `forAttachment` tem `LIMIT 500` — a verificação de ambiguidade de texto é parcial para anexos muito grandes.
+- `findByRef` global tem `LIMIT 1` (Room) — não é mais usado como condição bloqueante para `RECORD_MATCH` (P1). A identidade é decidida por `attachmentId + canonicalRef`.
+- `forAttachment` tem `LIMIT 500` — não é mais usado para a verificação de ambiguidade de texto (P2); substituído por `findByTextInAttachment` (até 2 registros, SQL filtrado).
+- Leitura inconsistente entre anexo e passagens (atualização concorrente do índice) é mitigada pela validação de `passage.attachmentId == attachmentId` e dos campos obrigatórios; atomicidade cross-tabela não é garantida sem `@Transaction` (limitação documentada, sem mudança de schema).
 - Nenhuma rota de produção foi alterada.
 - Nenhuma migração de schema Room.
 - Nenhuma autenticação oficial da TNM.

@@ -158,7 +158,38 @@ object NwtRoomIndexIdentityAdapter {
             )
         }
 
-        // 6. consulta restrita ao anexo + ref (sem LIMIT 1, para detectar duplicatas)
+        // 6. P4 — referência canônica solicitada não pode ser vazia
+        if (canonicalRef.isBlank()) {
+            issues += issue(NwtIssueCode.ROOM_REFERENCE_MISMATCH, "referência canônica solicitada vazia")
+            return NwtRoomIndexIdentityResult(
+                state = NwtRoomIndexIdentityState.REFERENCE_MISMATCH,
+                attachmentId = attachmentId,
+                attachment = attachment,
+                passage = null,
+                recordCount = 0,
+                unit = null,
+                issues = issues.distinctIssues(),
+            )
+        }
+
+        // 6b. P4 — claim.canonicalRef deve coincidir com a referência solicitada
+        if (claim != null && claim.canonicalRef.isNotBlank() && claim.canonicalRef != canonicalRef) {
+            issues += issue(
+                NwtIssueCode.ROOM_METADATA_MISMATCH,
+                "canonicalRef do claim (${claim.canonicalRef}) difere da referência solicitada ($canonicalRef)",
+            )
+            return NwtRoomIndexIdentityResult(
+                state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                attachmentId = attachmentId,
+                attachment = attachment,
+                passage = null,
+                recordCount = 0,
+                unit = null,
+                issues = issues.distinctIssues(),
+            )
+        }
+
+        // 7. consulta restrita ao anexo + ref (sem LIMIT 1, para detectar duplicatas)
         val records: List<PassageEntity> = try {
             passageDao.findByRefsIn(attachmentId, listOf(canonicalRef))
         } catch (e: CancellationException) {
@@ -209,7 +240,41 @@ object NwtRoomIndexIdentityAdapter {
 
         val passage = records.first()
 
-        // 7. referência canônica
+        // 7b. o registro persistido deve realmente pertencer ao anexo solicitado
+        if (passage.attachmentId != attachmentId) {
+            issues += issue(
+                NwtIssueCode.ATTACHMENT_MISMATCH,
+                "registro pertence a outro anexo: ${passage.attachmentId}",
+            )
+            return NwtRoomIndexIdentityResult(
+                state = NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH,
+                attachmentId = attachmentId,
+                attachment = attachment,
+                passage = passage,
+                recordCount = 1,
+                unit = null,
+                issues = issues.distinctIssues(),
+            )
+        }
+
+        // 7c. campos obrigatórios do registro persistido
+        if (passage.id.isBlank() || passage.text.isBlank()) {
+            issues += issue(
+                NwtIssueCode.ROOM_METADATA_MISMATCH,
+                "registro persistido com campos obrigatórios inválidos (id/texto)",
+            )
+            return NwtRoomIndexIdentityResult(
+                state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                attachmentId = attachmentId,
+                attachment = attachment,
+                passage = passage,
+                recordCount = 1,
+                unit = null,
+                issues = issues.distinctIssues(),
+            )
+        }
+
+        // 8. referência canônica persistida
         if (passage.ref.isNotBlank() && passage.ref != canonicalRef) {
             issues += issue(
                 NwtIssueCode.ROOM_REFERENCE_MISMATCH,
@@ -225,8 +290,23 @@ object NwtRoomIndexIdentityAdapter {
                 issues = issues.distinctIssues(),
             )
         }
+        if (passage.ref.isBlank()) {
+            issues += issue(
+                NwtIssueCode.ROOM_REFERENCE_MISMATCH,
+                "ref persistido vazio para ref=$canonicalRef",
+            )
+            return NwtRoomIndexIdentityResult(
+                state = NwtRoomIndexIdentityState.REFERENCE_MISMATCH,
+                attachmentId = attachmentId,
+                attachment = attachment,
+                passage = passage,
+                recordCount = 1,
+                unit = null,
+                issues = issues.distinctIssues(),
+            )
+        }
 
-        // 8. comparação com o claim (se fornecido) — não confiar cegamente
+        // 9. comparação com o claim (se fornecido) — não confiar cegamente
         var metadataMismatch = false
         if (claim != null) {
             if (!claim.passageId.isNullOrBlank() && claim.passageId != passage.id) {
@@ -270,44 +350,28 @@ object NwtRoomIndexIdentityAdapter {
             )
         }
 
-        // 9. ambiguidade entre anexos (mesmo ref em outro attachment)
-        val global: PassageEntity? = try {
-            passageDao.findByRef(canonicalRef)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        if (global != null && global.attachmentId != attachmentId) {
-            issues += issue(
-                NwtIssueCode.ROOM_AMBIGUOUS_RECORD,
-                "mesmo ref em outro anexo: ${global.attachmentId}",
-            )
-            return NwtRoomIndexIdentityResult(
-                state = NwtRoomIndexIdentityState.AMBIGUOUS_RECORD,
-                attachmentId = attachmentId,
-                attachment = attachment,
-                passage = passage,
-                recordCount = 1,
-                unit = null,
-                issues = issues.distinctIssues(),
-            )
-        }
-
-        // 10. ambiguidade de texto dentro do mesmo anexo (mesmo texto em >1 unidade)
+        // 10. P2 — ambiguidade de texto dentro do mesmo anexo, via consulta restrita (sem LIMIT 500)
         if (claim != null && claim.text.isNotBlank()) {
-            val all: List<PassageEntity> = try {
-                passageDao.forAttachment(attachmentId)
+            val sameText: List<PassageEntity> = try {
+                passageDao.findByTextInAttachment(attachmentId, claim.text, 2)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                emptyList()
+                issues += issue(NwtIssueCode.ROOM_READ_FAILED, "falha ao consultar duplicatas de texto: ${e.message}")
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.READ_FAILED,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = passage,
+                    recordCount = 1,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
             }
-            val sameTextCount = all.count { it.text == claim.text }
-            if (sameTextCount > 1) {
+            if (sameText.size >= 2) {
                 issues += issue(
                     NwtIssueCode.ROOM_AMBIGUOUS_RECORD,
-                    "mesmo texto em $sameTextCount unidades do anexo $attachmentId",
+                    "mesmo texto em ${sameText.size} unidades do anexo $attachmentId",
                 )
                 return NwtRoomIndexIdentityResult(
                     state = NwtRoomIndexIdentityState.AMBIGUOUS_RECORD,
@@ -325,7 +389,7 @@ object NwtRoomIndexIdentityAdapter {
         val unit = NwtIndexedUnit(
             attachmentId = attachment.id,
             passageId = passage.id,
-            canonicalRef = passage.ref.ifBlank { canonicalRef },
+            canonicalRef = passage.ref,
             ord = passage.ord,
             text = passage.text,
             section = passage.section.takeIf { it.isNotBlank() },

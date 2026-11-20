@@ -35,6 +35,8 @@ class BiblePassagesTest {
             rows.firstOrNull { it.attachmentId == attachmentId && it.ref == ref }
         override suspend fun findByRefsIn(attachmentId: String, refs: List<String>): List<PassageEntity> =
             rows.filter { it.attachmentId == attachmentId && it.ref in refs }
+        override suspend fun findByTextInAttachment(attachmentId: String, text: String, limit: Int): List<PassageEntity> =
+            rows.filter { it.attachmentId == attachmentId && it.text == text }.take(limit)
         override suspend fun findByRefPrefixIn(
             attachmentId: String,
             prefix: String,
