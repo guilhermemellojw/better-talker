@@ -206,30 +206,52 @@ internal fun publicationLinkUri(id: String): String =
  * mesma string usada na detecção, preservando o contrato B2 entre span visual
  * e trecho de validação.
  */
+
+/**
+ * Validação pura e reutilizável de um span de publicação contra o texto-fonte.
+ * Mesmas invariantes exigidas por PublicationReferenceResolver.validatedDetection():
+ *  - span dentro dos limites;
+ *  - texto no intervalo idêntico a [raw];
+ *  - offsets de validação ambos presentes ou ambos ausentes;
+ *  - validationStart == start;
+ *  - validationEndExclusive > endExclusive;
+ *  - validationEndExclusive <= sourceText.length.
+ */
+internal fun isValidPublicationSpan(
+    start: Int,
+    endExclusive: Int,
+    raw: String,
+    validationStart: Int?,
+    validationEndExclusive: Int?,
+    sourceText: String,
+): Boolean {
+    if (raw.isBlank()) return false
+    if (start < 0 || endExclusive <= start) return false
+    if (endExclusive > sourceText.length) return false
+    if (sourceText.substring(start, endExclusive) != raw) return false
+    if (validationStart != null || validationEndExclusive != null) {
+        if (validationStart == null || validationEndExclusive == null) return false
+        if (validationStart != start) return false
+        if (validationEndExclusive <= endExclusive) return false
+        if (validationEndExclusive > sourceText.length) return false
+    }
+    return true
+}
+
 internal fun publicationDisplayLinks(
     sourceText: String,
     occurrences: List<PublicationReferenceOccurrence>,
     blockIndex: Int = 0,
 ): List<PublicationDisplayLink> = occurrences.mapIndexedNotNull { index, occurrence ->
-    // Conservador: só cria descritor quando o span pode ser comprovado
-    // literalmente contra o texto-fonte. Ocorrências que não casam são
-    // descartadas silenciosamente (viram texto comum).
-    if (occurrence.raw.isBlank()) return@mapIndexedNotNull null
-    if (occurrence.start < 0 || occurrence.endExclusive <= occurrence.start) return@mapIndexedNotNull null
-    if (occurrence.endExclusive <= sourceText.length) {
-        if (sourceText.substring(occurrence.start, occurrence.endExclusive) != occurrence.raw) {
-            return@mapIndexedNotNull null
-        }
-    }
-    // Validação literal: se houver offsets de validação, precisam ser
-    // internamente consistentes com o texto-fonte.
-    val vs = occurrence.validationStart
-    val ve = occurrence.validationEndExclusive
-    if (vs != null || ve != null) {
-        if (vs == null || ve == null) return@mapIndexedNotNull null
-        if (vs < occurrence.start || ve <= occurrence.endExclusive) return@mapIndexedNotNull null
-        if (ve > sourceText.length) return@mapIndexedNotNull null
-    }
+    if (!isValidPublicationSpan(
+            occurrence.start,
+            occurrence.endExclusive,
+            occurrence.raw,
+            occurrence.validationStart,
+            occurrence.validationEndExclusive,
+            sourceText,
+        )
+    ) return@mapIndexedNotNull null
     PublicationDisplayLink(
         start = occurrence.start,
         endExclusive = occurrence.endExclusive,
@@ -355,44 +377,35 @@ fun buildInline(
         link.start >= 0 && link.endExclusive > link.start && link.endExclusive <= text.length
     }
     val validPublicationLinks = publicationLinks.filter { link ->
-        link.start >= 0 && link.endExclusive > link.start && link.endExclusive <= text.length &&
-            link.sourceText == text &&
-            runCatching { text.substring(link.start, link.endExclusive) == link.occurrence.raw }.getOrDefault(false) &&
-            (link.occurrence.validationStart == null ||
-                (link.occurrence.validationStart!! >= link.start &&
-                    link.occurrence.validationEndExclusive!! > link.endExclusive &&
-                    link.occurrence.validationEndExclusive!! <= text.length))
+        link.sourceText == text &&
+            isValidPublicationSpan(
+                link.start,
+                link.endExclusive,
+                link.occurrence.raw,
+                link.occurrence.validationStart,
+                link.occurrence.validationEndExclusive,
+                text,
+            )
     }
 
     // Resolução de conflitos (pura, determinística):
-    //  - spans idênticos: a publicação vence (mantém a bíblia fora);
-    //  - spans parcialmente sobrepostos: ambos são descartados (conservador);
     //  - spans disjuntos: ambos preservados.
+    //  - spans sobrepostos (inclusive idênticos) ou com mesmo id: descartar
+    //    os conflitantes (conservador, sem precedência automática).
     //  - sem links aninhados.
     val droppedBible = mutableSetOf<InlineBibleLink>()
     val droppedPublication = mutableSetOf<PublicationDisplayLink>()
-    // Identidade de spans coincidentes → publicação vence.
-    for (pub in validPublicationLinks) {
-        for (bible in validBibleLinks) {
-            if (pub.start == bible.start && pub.endExclusive == bible.endExclusive) {
-                droppedBible += bible
-            }
-        }
-    }
-    val remainingPubs = validPublicationLinks.filter { it !in droppedPublication }
-    val remainingBibles = validBibleLinks.filter { it !in droppedBible }
-    // Conflitos parciais (ou qualquer sobreposição não idêntica) descartam
-    // os dois spans envolvidos.
-    val allRemaining = remainingPubs.map { Triple(it.start, it.endExclusive, it) } +
-        remainingBibles.map { Triple(it.start, it.endExclusive, it) }
-    for (a in allRemaining) {
-        for (b in allRemaining) {
+    val allSpans = validPublicationLinks.map { Triple(it.start, it.endExclusive, it) } +
+        validBibleLinks.map { Triple(it.start, it.endExclusive, it) }
+    for (a in allSpans) {
+        for (b in allSpans) {
             if (a === b) continue
             val aStart = a.first; val aEnd = a.second
             val bStart = b.first; val bEnd = b.second
             val overlaps = aStart < bEnd && bStart < aEnd
-            val identical = aStart == bStart && aEnd == bEnd
-            if (overlaps && !identical) {
+            val sameId = a.third is PublicationDisplayLink && b.third is PublicationDisplayLink &&
+                (a.third as PublicationDisplayLink).id == (b.third as PublicationDisplayLink).id
+            if (overlaps || sameId) {
                 when (a.third) {
                     is PublicationDisplayLink -> droppedPublication += a.third as PublicationDisplayLink
                     is InlineBibleLink -> droppedBible += a.third as InlineBibleLink

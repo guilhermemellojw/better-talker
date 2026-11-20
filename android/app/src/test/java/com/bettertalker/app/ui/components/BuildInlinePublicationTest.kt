@@ -73,24 +73,20 @@ class BuildInlinePublicationTest {
     }
 
     @Test
-    fun mesmaPosicaoPublicacaoVence() {
+    fun spansIdenticosSaoRejeitados() {
         val text = "Achegue-se a Jeová"
-        val pub = publicationDisplayLinks(text, listOf(occurrence(text, text))).single()
+        val pub = publicationDisplayLinks(text, listOf(occurrence(text, text)))
         val bible = InlineBibleLink(
-            start = pub.start,
-            endExclusive = pub.endExclusive,
+            start = 0,
+            endExclusive = text.length,
             tag = "x",
             label = text,
         )
 
-        val annotated = buildInline(text, bibleLinks = listOf(bible), publicationLinks = listOf(pub))
+        val annotated = buildInline(text, bibleLinks = listOf(bible), publicationLinks = pub)
         val links = annotated.getLinkAnnotations(0, annotated.length)
 
-        assertEquals(1, links.size)
-        assertEquals(
-            PUBLICATION_LINK_URI_PREFIX + "0%3A0",
-            (links.single().item as LinkAnnotation.Url).url,
-        )
+        assertEquals(0, links.size)
         assertEquals(text, annotated.text)
     }
 
@@ -105,9 +101,10 @@ class BuildInlinePublicationTest {
             titleHint = "abc",
             editionKey = null,
         )
-        val link = publicationDisplayLinks(text, listOf(occ)).single()
+        val links = publicationDisplayLinks(text, listOf(occ))
+        assertEquals(0, links.size)
 
-        val annotated = buildInline(text, publicationLinks = listOf(link))
+        val annotated = buildInline(text, publicationLinks = links)
         assertEquals(0, annotated.getLinkAnnotations(0, annotated.length).size)
         assertEquals(text, annotated.text)
     }
@@ -124,7 +121,7 @@ class BuildInlinePublicationTest {
             publicationKey = "it",
             titleHint = "Estudo Perspicaz",
             editionKey = null,
-            validationStart = text.indexOf("1/24"),
+            validationStart = start,
             validationEndExclusive = text.length,
         )
 
