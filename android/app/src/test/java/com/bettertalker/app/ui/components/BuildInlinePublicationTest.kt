@@ -1,0 +1,139 @@
+package com.bettertalker.app.ui.components
+
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
+import com.bettertalker.app.data.publication.PublicationReferenceOccurrence
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * UX-REF-1B.3 / B0 — contrato puro dos links de publicação: identidade,
+ * offsets e coexistência com os links bíblicos. Nenhum Compose runtime aqui.
+ */
+class BuildInlinePublicationTest {
+
+    private fun occurrence(text: String, token: String): PublicationReferenceOccurrence {
+        val start = text.indexOf(token)
+        check(start >= 0) { "token ausente no texto de teste" }
+        return PublicationReferenceOccurrence(
+            raw = token,
+            start = start,
+            endExclusive = start + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+    }
+
+    @Test
+    fun publicacaoViraUriPropriaComOffsetsExatos() {
+        val text = "Veja Achegue-se a Jeová, capítulo 5."
+        val occ = occurrence(text, "Achegue-se a Jeová")
+        val link = publicationDisplayLinks(text, listOf(occ), blockIndex = 2).single()
+
+        assertEquals("2:0", link.id)
+        assertSame(occ, link.occurrence)
+        assertEquals(text, link.sourceText)
+
+        val annotated = buildInline(text, publicationLinks = listOf(link), linkColor = Color.Red)
+        assertEquals("texto renderizado não pode mudar", text, annotated.text)
+
+        val links = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(1, links.size)
+        val range = links.single()
+        val url = range.item as LinkAnnotation.Url
+        assertEquals("bettertalker-publication://open?i=2%3A0", url.url)
+        assertEquals(occ.start, range.start)
+        assertEquals(occ.endExclusive, range.end)
+        assertEquals(Color.Red, url.styles?.style?.color)
+    }
+
+    @Test
+    fun publicacaoEBibliaCoexistemEmSpansDisjuntos() {
+        val text = "Leia João 3:16 e Achegue-se a Jeová."
+        val bibleToken = "João 3:16"
+        val bibleStart = text.indexOf(bibleToken)
+        val bible = InlineBibleLink(
+            start = bibleStart,
+            endExclusive = bibleStart + bibleToken.length,
+            tag = "Jo%C3%A3o%203%3A16",
+            label = bibleToken,
+        )
+        val pub = publicationDisplayLinks(text, listOf(occurrence(text, "Achegue-se a Jeová"))).single()
+
+        val annotated = buildInline(text, bibleLinks = listOf(bible), publicationLinks = listOf(pub))
+        assertEquals(text, annotated.text)
+
+        val links = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(2, links.size)
+        assertTrue(links.any { (it.item as LinkAnnotation.Url).url.startsWith("bettertalker-bible://") })
+        assertTrue(links.any { (it.item as LinkAnnotation.Url).url.startsWith(PUBLICATION_LINK_URI_PREFIX) })
+    }
+
+    @Test
+    fun mesmaPosicaoPublicacaoVence() {
+        val text = "Achegue-se a Jeová"
+        val pub = publicationDisplayLinks(text, listOf(occurrence(text, text))).single()
+        val bible = InlineBibleLink(
+            start = pub.start,
+            endExclusive = pub.endExclusive,
+            tag = "x",
+            label = text,
+        )
+
+        val annotated = buildInline(text, bibleLinks = listOf(bible), publicationLinks = listOf(pub))
+        val links = annotated.getLinkAnnotations(0, annotated.length)
+
+        assertEquals(1, links.size)
+        assertEquals(
+            PUBLICATION_LINK_URI_PREFIX + "0%3A0",
+            (links.single().item as LinkAnnotation.Url).url,
+        )
+        assertEquals(text, annotated.text)
+    }
+
+    @Test
+    fun spanForaDoTextoIgnorado() {
+        val text = "abc"
+        val occ = PublicationReferenceOccurrence(
+            raw = "abc",
+            start = 0,
+            endExclusive = 99,
+            publicationKey = "lff",
+            titleHint = "abc",
+            editionKey = null,
+        )
+        val link = publicationDisplayLinks(text, listOf(occ)).single()
+
+        val annotated = buildInline(text, publicationLinks = listOf(link))
+        assertEquals(0, annotated.getLinkAnnotations(0, annotated.length).size)
+        assertEquals(text, annotated.text)
+    }
+
+    @Test
+    fun mapeamentoPreservaOffsetsDeValidacao() {
+        val token = "Estudo Perspicaz 1/24"
+        val text = "$token, pág. 6 §§ 8-9"
+        val start = text.indexOf(token)
+        val occ = PublicationReferenceOccurrence(
+            raw = token,
+            start = start,
+            endExclusive = start + token.length,
+            publicationKey = "it",
+            titleHint = "Estudo Perspicaz",
+            editionKey = null,
+            validationStart = text.indexOf("1/24"),
+            validationEndExclusive = text.length,
+        )
+
+        val links = publicationDisplayLinks(text, listOf(occ), blockIndex = 3)
+
+        assertEquals(1, links.size)
+        assertEquals("3:0", links.single().id)
+        assertEquals(occ.validationStart, links.single().occurrence.validationStart)
+        assertEquals(occ.validationEndExclusive, links.single().occurrence.validationEndExclusive)
+        assertEquals(text, links.single().sourceText)
+    }
+}
