@@ -5076,13 +5076,12 @@ class CopilotViewModel(
                         responseFormat = ResponseFormat.TEXT,
                         maxOutputTokens = oratoryBudget,
                         maxOutputTokensCap = OutputBudget.ORATORY_MAX,
-                        // O provider de oratória anexa o contextBlock ao
-                        // conteúdo do usuário; a memória entra ali (volátil),
-                        // nunca no system nem no corpus de evidências.
-                        contextBlock = listOfNotNull(oratoryContextBlock, resolvedPromptMemory.block)
-                            .filter { it.isNotBlank() }
-                            .joinToString("\n\n")
-                            .ifBlank { null },
+                        // P4: o dossiê (oratoryContextBlock) fica no contextBlock
+                        // (system, estável, cache preservado); a memória canônica
+                        // da seção resolvida entra SOMENTE no userContextBlock
+                        // (volátil, fora do system e do corpus de evidências).
+                        contextBlock = oratoryContextBlock?.takeIf { it.isNotBlank() },
+                        userContextBlock = resolvedPromptMemory.block,
                         structural = turnContext.structural,
                         oratory = turnContext.oratory,
                         blockTitle = section.title,

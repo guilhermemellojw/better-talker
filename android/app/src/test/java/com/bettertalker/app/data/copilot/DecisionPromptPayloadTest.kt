@@ -2,6 +2,7 @@ package com.bettertalker.app.data.copilot
 
 import com.bettertalker.app.data.domain.ContextPack
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -175,5 +176,49 @@ class DecisionPromptPayloadTest {
         // Requisição continua operacional.
         assertTrue(prompts.user.isNotBlank())
         assertTrue(prompts.system.isNotBlank())
+    }
+
+    @Test
+    fun geracaoOratoriaColocaMemoriaDaSecaoResolvidaNoUserEDossieNoSystem() {
+        // P4/P1: mesmo com dossiê do foco anterior (s1) no system, a memória
+        // canônica da seção resolvida (s2) entra SOMENTE no user (volátil).
+        val sectionDecision = DecisionRecord(
+            id = "c", noteId = "n1", scope = DecisionScope.SECTION,
+            kind = DecisionKind.CONFIRMED, decisionState = DecisionState.ACTIVE,
+            sectionLink = SectionLink.VALID, applicationState = ApplicationState.NOT_APPLIED,
+            text = "encerrar com uma aplicação prática", source = DecisionSource.EXPLICIT_USER,
+            sectionId = "s2", originalSectionId = "s2",
+            sectionTitleSnapshot = "Conclusão", sectionRoleSnapshot = com.bettertalker.app.domain.speech.SectionRole.CONCLUSION,
+            sectionOrderSnapshot = 2, sectionContentHashSnapshot = "hash-s2",
+            originalSectionTitleSnapshot = "Conclusão", originalSectionRoleSnapshot = com.bettertalker.app.domain.speech.SectionRole.CONCLUSION,
+            originalSectionOrderSnapshot = 2, originalSectionContentHashSnapshot = "hash-s2",
+            createdAt = 10L, updatedAt = 10L,
+        )
+        val canonical = DecisionPromptMemory.build(
+            decisions = listOf(sectionDecision),
+            noteId = "n1", focusSectionId = "s2", wholeNote = false,
+        )
+        val dossierDoFoco = "## SEÇÃO ATUAL\nPonto 1 (dossiê do foco anterior)"
+        val prompts = buildDeepSeekPrompts(
+            message = "prepare a conclusão",
+            history = emptyList(),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "Conclusão",
+            blockMinutes = 5,
+            blockText = "Texto da conclusão.",
+            contextBlock = dossierDoFoco,
+            userContextBlock = canonical.block,
+        )
+        // Memória da seção resolvida no user (volátil), não no system.
+        assertTrue(prompts.user.contains("encerrar com uma aplicação prática"))
+        assertTrue(prompts.user.contains("## CONTEXTO DESTE TURNO"))
+        assertFalse(prompts.system.contains("encerrar com uma aplicação prática"))
+        assertFalse(prompts.system.contains("## DECISÕES CONFIRMADAS"))
+        // Dossiê do foco permanece no system (estável), não duplicado no user.
+        assertTrue(prompts.system.contains("dossiê do foco anterior"))
+        assertFalse(prompts.user.contains("dossiê do foco anterior"))
+        // Sem duplicação da memória no user.
+        assertEquals(1, Regex("encerrar com uma aplicação prática").findAll(prompts.user).count())
     }
 }
