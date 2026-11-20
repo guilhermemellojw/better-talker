@@ -4984,20 +4984,48 @@ class CopilotViewModel(
         // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
         // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
         // a invariante do aceite (`block.contains(focus)`).
-        // 1C.2.2B0 P1: a memória da geração oratória deve acompanhar a seção
-        // efetivamente resolvida (section), e não o foco anterior do chat.
-        // Recarrega o ledger para o id persistido da seção resolvida; preserva
-        // a supressão do agreedApproach legado quando houver registros.
+        // 1C.2.2B0 P1+P5: a memória E o dossiê da geração oratória devem
+        // acompanhar a seção efetivamente resolvida (section), e não o foco
+        // anterior do chat. Recarrega o ledger para o id persistido da seção
+        // resolvida; obtém o dossiê da mesma seção via dossierProvider.
         val resolvedPromptMemory = loadDecisionPromptMemory(
             noteId = noteId,
             focusSectionId = section.id,
             wholeNote = false,
             load = { nid -> decisionMemory.forNote(nid) },
         )
-        val oratoryContextBlock = if (resolvedPromptMemory.suppressLegacyApproach) {
+        val resolvedDossier = try {
+            dossierProvider?.invoke(
+                DraftTarget.Section(section.id),
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        val dossierCompatible = resolvedDossier != null &&
+            resolvedDossier.currentSection.id == section.id
+        val resolvedExtraAuthorizedRefs = if (dossierCompatible) {
+            buildList {
+                resolvedDossier!!.bibleTexts.forEach { add(it.ref) }
+                resolvedDossier.publicationTexts.forEach { add(it.ref.symbol) }
+            }
+        } else {
+            // Nunca autorizar refs/evidências de um dossiê incompatível.
+            emptyList()
+        }
+        val oratoryContextBlock = if (dossierCompatible) {
+            contextBlockWithPractice(
+                dossier = resolvedDossier,
+                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                includeApproach = true,
+            )
+        } else if (resolvedPromptMemory.suppressLegacyApproach) {
+            // Degradação segura: sem dossiê compatível, suprime o legado do
+            // contexto do foco anterior (nunca o dossiê incompatível).
             stripLegacyApproachBlock(contextBlock)
         } else {
-            contextBlock
+            null
         }
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
@@ -5125,7 +5153,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready, extraAuthorizedRefs)
+                .check(cardText, ready, resolvedExtraAuthorizedRefs)
             // Fidelidade bloqueante para o card: se o verificador achou ref/
             // número sem apoio, remove as sentenças ofensoras ANTES de
             // publicar. Se sobrar vazio ou ainda houver ofensa, não entrega o
@@ -5140,7 +5168,7 @@ class CopilotViewModel(
                 fidelity
             } else {
                 com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                    .check(cleanedCardText, ready, extraAuthorizedRefs)
+                    .check(cleanedCardText, ready, resolvedExtraAuthorizedRefs)
             }
             if (cleanedCardText.isBlank() || !cleanedFidelity.ok) {
                 postText(

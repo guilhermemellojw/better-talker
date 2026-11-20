@@ -198,7 +198,7 @@ class DecisionPromptPayloadTest {
             decisions = listOf(sectionDecision),
             noteId = "n1", focusSectionId = "s2", wholeNote = false,
         )
-        val dossierDoFoco = "## SEÇÃO ATUAL\nPonto 1 (dossiê do foco anterior)"
+        val dossierDaSecaoResolvida = "## SEÇÃO ATUAL\nPonto 2 (dossiê da seção resolvida)"
         val prompts = buildDeepSeekPrompts(
             message = "prepare a conclusão",
             history = emptyList(),
@@ -207,7 +207,7 @@ class DecisionPromptPayloadTest {
             blockTitle = "Conclusão",
             blockMinutes = 5,
             blockText = "Texto da conclusão.",
-            contextBlock = dossierDoFoco,
+            contextBlock = dossierDaSecaoResolvida,
             userContextBlock = canonical.block,
         )
         // Memória da seção resolvida no user (volátil), não no system.
@@ -215,9 +215,11 @@ class DecisionPromptPayloadTest {
         assertTrue(prompts.user.contains("## CONTEXTO DESTE TURNO"))
         assertFalse(prompts.system.contains("encerrar com uma aplicação prática"))
         assertFalse(prompts.system.contains("## DECISÕES CONFIRMADAS"))
-        // Dossiê do foco permanece no system (estável), não duplicado no user.
-        assertTrue(prompts.system.contains("dossiê do foco anterior"))
-        assertFalse(prompts.user.contains("dossiê do foco anterior"))
+        // P5: dossiê da seção resolvida no system; dossiê do foco anterior
+        // NÃO é enviado (rejeitado).
+        assertTrue(prompts.system.contains("dossiê da seção resolvida"))
+        assertFalse(prompts.system.contains("dossiê do foco anterior"))
+        assertFalse(prompts.user.contains("dossiê da seção resolvida"))
         // Sem duplicação da memória no user.
         assertEquals(1, Regex("encerrar com uma aplicação prática").findAll(prompts.user).count())
     }
