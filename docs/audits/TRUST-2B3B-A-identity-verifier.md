@@ -72,9 +72,12 @@ com normalização estrita de espaços). **Não comprova** que `passageId`, `ord
 
 ### `COMPLETE_RELATIVE_TO_EPUB`
 
-Comprova que todos os recursos de spine relevantes foram lidos e processados,
-que os marcadores de versículo coincidem com o parser e que os 66 livros foram
-identificados. **Não comprova** completude canônica nem que a edição é oficial.
+Comprova que container, manifesto, spine, IDs e todos os recursos XHTML foram
+estruturalmente validados, que os recursos de spine relevantes foram lidos e
+processados, que os marcadores de versículo coincidem com o parser e que os 66
+livros foram identificados. IDs duplicados/vazios, `itemref` inválido ou XHTML
+malformado impedem esse estado. **Não comprova** completude canônica nem que a
+edição é oficial.
 
 ## Riscos investigados
 
@@ -107,6 +110,32 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
 - Testes: `spineResourceAusenteNaoViraComplete`,
   `spineResourceAcimaDoLimiteNaoViraComplete`,
   `spineBookMalformadoNaoViraComplete`.
+
+#### R3-A — XHTML malformado sem `docId`
+
+- Confirmado: um XHTML não fechado era lido como texto e, sem `docId`, era
+  contabilizado como capa/navegação legítima.
+- Correção: todo XHTML de spine é validado sintaticamente com o parser XML
+  seguro. XHTML inválido gera `XHTML_INVALID`, entra em `failedPaths` e impede
+  `COMPLETE_RELATIVE_TO_EPUB`.
+- Recursos XHTML não bíblicos sintaticamente válidos continuam aceitos.
+- Entidades internas são rejeitadas; DTDs externos e entidades externas não são
+  carregados; `DOCTYPE` XHTML comum é aceito.
+- Testes: `xhtmlMalformadoSemDocIdImpedeComplete`,
+  `xhtmlNaoBiblicoValidoContinuaAceito` (coberto por
+  `recursoNaoBiblicoLegitimoEhAceito`).
+
+#### R3-B — IDs duplicados ou vazios no manifesto
+
+- Confirmado: IDs duplicados sobrescreviam entradas no mapa do manifesto.
+- Correção: IDs vazios geram `MANIFEST_ID_MISSING`; IDs duplicados geram
+  `MANIFEST_ID_DUPLICATE`, mesmo com `href` igual. Itens ambíguos não entram no
+  mapa; a estrutura fica inconsistente, a unidade `UNIT_UNVERIFIABLE` e o
+  corpus `UNKNOWN`.
+- Testes: `manifestoComMesmoIdEHrefIgualContinuaInvalido`,
+  `manifestoComIdsDuplicadosHrefDiferenteImpedeComplete`,
+  `manifestoComIdVazioNaoEhIgnorado`,
+  `falhaEstruturalApareceNosDiagnosticosDoCorpus`.
 
 #### R3 residual — manifesto e spine inconsistentes
 
@@ -151,8 +180,12 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
 
 - `ZipFile` com limite de entradas e tamanho descomprimido;
 - leitura limitada de `container.xml`, OPF e XHTML;
-- XML com `FEATURE_SECURE_PROCESSING`, DOCTYPE desabilitado, entidades externas
-  desabilitadas e `EntityResolver` vazio;
+- XML/OPF com `FEATURE_SECURE_PROCESSING`, DOCTYPE desabilitado, entidades
+  externas desabilitadas e `EntityResolver` vazio;
+- XHTML validado como XML: `DOCTYPE` comum é aceito, mas entidades internas
+  (`<!ENTITY`) são rejeitadas, DTDs externos não são carregados e entidades
+  externas permanecem desabilitadas;
+- IDs de manifesto vazios ou duplicados invalidam a estrutura;
 - rejeição de caminhos absolutos, `..`, `//` e nomes duplicados;
 - EPUB tratado como entrada não confiável;
 - nenhum texto protegido é copiado, impresso ou persistido pelo verificador.
@@ -166,6 +199,10 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
 - Unidade de outro `attachmentId` não é resolvida globalmente.
 - Seção divergente e texto repetido em outra unidade impedem verificação plena.
 - Recurso de spine ausente/ilegível impede `COMPLETE_RELATIVE_TO_EPUB`.
+- XHTML malformado gera `XHTML_INVALID` e impede completude positiva.
+- IDs vazios ou duplicados no manifesto geram `MANIFEST_ID_MISSING`/
+  `MANIFEST_ID_DUPLICATE` e impedem completude positiva.
+- XHTML não bíblico sintaticamente válido (capa/navegação) continua aceito.
 - ZIP com nome duplicado impede verificação positiva.
 - Âncora com apenas identificador, ou mesmo com hash, não promove.
 - A promoção factual permanece bloqueada em todos os cenários deste BUILD.

@@ -69,6 +69,9 @@ class NwtDocumentIdentityVerifierTest {
         extraSpine: List<String> = emptyList(),
         additionalItemRefs: List<String> = emptyList(),
         manifestWithoutHrefIds: List<String> = emptyList(),
+        duplicateManifestId: Boolean = false,
+        duplicateManifestIdDifferentHref: Boolean = false,
+        manifestWithEmptyId: Boolean = false,
         extraEntries: Map<String, String> = emptyMap(),
     ) {
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
@@ -87,13 +90,26 @@ class NwtDocumentIdentityVerifierTest {
                 zip.closeEntry()
             }
             if (includeOpf) {
-                val manifest = docs.mapIndexed { index, doc ->
+                val manifest = (docs.mapIndexed { index, doc ->
                     val href = "${doc.book.docIdBase}-split${doc.chapter}.xhtml"
                     """<item id="doc$index" href="$href" media-type="application/xhtml+xml"/>"""
                 } + extraSpine.mapIndexed { index, href ->
                     """<item id="extra$index" href="$href" media-type="application/xhtml+xml"/>"""
                 } + manifestWithoutHrefIds.map { id ->
                     """<item id="$id" media-type="application/xhtml+xml"/>"""
+                }).toMutableList()
+                if (duplicateManifestId && docs.isNotEmpty()) {
+                    val first = docs.first()
+                    manifest +=
+                        """<item id="doc0" href="${first.book.docIdBase}-split${first.chapter}.xhtml" media-type="application/xhtml+xml"/>"""
+                }
+                if (duplicateManifestIdDifferentHref && docs.isNotEmpty()) {
+                    manifest +=
+                        """<item id="doc0" href="different.xhtml" media-type="application/xhtml+xml"/>"""
+                }
+                if (manifestWithEmptyId) {
+                    manifest +=
+                        """<item id="" href="empty.xhtml" media-type="application/xhtml+xml"/>"""
                 }
                 val manifestXml = manifest.joinToString("\n")
                 val spine = docs.indices.map { """<itemref idref="doc$it"/>""" } +
@@ -927,6 +943,114 @@ class NwtDocumentIdentityVerifierTest {
         assertEquals(NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB, result.corpus.state)
         assertEquals(0, result.corpus.failedResources)
         assertFalse(NwtIssueCode.SPINE_REFERENCE_INVALID in codes(result))
+    }
+
+    @Test
+    fun xhtmlMalformadoSemDocIdImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("malformed.xhtml"),
+            extraEntries = mapOf(
+                "OEBPS/malformed.xhtml" to "<html><body><h1>Capa não fechada",
+            ),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertEquals(NwtCorpusCompleteness.PARTIAL, result.corpus.state)
+        assertEquals(1, result.corpus.failedResources)
+        assertEquals(NwtUnitIdentityState.UNIT_TEXT_VERIFIED, result.unit.state)
+        assertTrue(NwtIssueCode.XHTML_INVALID in codes(result))
+        assertTrue(result.corpus.issues.any { it.code == NwtIssueCode.XHTML_INVALID })
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun manifestoComMesmoIdEHrefIgualContinuaInvalido() {
+        val file = temp.newFile("nwt.epub")
+        epub(file, docs = all66Docs(), duplicateManifestId = true)
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertEquals(NwtCorpusCompleteness.UNKNOWN, result.corpus.state)
+        assertEquals(NwtUnitIdentityState.UNIT_UNVERIFIABLE, result.unit.state)
+        assertTrue(NwtIssueCode.MANIFEST_ID_DUPLICATE in codes(result))
+        assertTrue(result.corpus.issues.any { it.code == NwtIssueCode.MANIFEST_ID_DUPLICATE })
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun manifestoComIdsDuplicadosHrefDiferenteImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(file, docs = all66Docs(), duplicateManifestIdDifferentHref = true)
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertEquals(NwtCorpusCompleteness.UNKNOWN, result.corpus.state)
+        assertTrue(NwtIssueCode.MANIFEST_ID_DUPLICATE in codes(result))
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun manifestoComIdVazioNaoEhIgnorado() {
+        val file = temp.newFile("nwt.epub")
+        epub(file, docs = all66Docs(), manifestWithEmptyId = true)
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertEquals(NwtCorpusCompleteness.UNKNOWN, result.corpus.state)
+        assertTrue(NwtIssueCode.MANIFEST_ID_MISSING in codes(result))
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun falhaEstruturalApareceNosDiagnosticosDoCorpus() {
+        val file = temp.newFile("nwt.epub")
+        epub(file, docs = all66Docs(), duplicateManifestIdDifferentHref = true)
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit("texto", ref = "Mt 1:1", section = "Mateus 1"),
+        )
+
+        assertTrue(result.corpus.issues.any { it.code == NwtIssueCode.MANIFEST_ID_DUPLICATE })
+        assertTrue(
+            result.promotion.blockers.any { it.code == NwtIssueCode.MANIFEST_ID_DUPLICATE }
+        )
     }
 
     @Test

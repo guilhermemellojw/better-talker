@@ -179,6 +179,7 @@ object NwtDocumentIdentityVerifier {
             )
             val corpus = corpusSummary(
                 scan = scan,
+                spineIssues = spine.issues,
                 usedSpine = spine.paths.isNotEmpty(),
                 structureValid = structureValid,
                 issues = issues,
@@ -515,6 +516,11 @@ object NwtDocumentIdentityVerifier {
                 failedPaths += path
                 continue
             }
+            if (!isWellFormedXhtml(html)) {
+                scanIssues += issue(NwtIssueCode.XHTML_INVALID, "XHTML malformado: $path")
+                failedPaths += path
+                continue
+            }
             val docId = DOC_ID_REGEX.find(html)?.groupValues?.get(1)
             if (docId == null) {
                 // Capa/navegação declarada no spine: lida, mas não é livro.
@@ -753,6 +759,7 @@ object NwtDocumentIdentityVerifier {
 
     private fun corpusSummary(
         scan: EpubScan,
+        spineIssues: List<NwtIdentityIssue>,
         usedSpine: Boolean,
         structureValid: Boolean,
         issues: MutableList<NwtIdentityIssue>,
@@ -761,7 +768,7 @@ object NwtDocumentIdentityVerifier {
         val raw = scan.rawKeys
         val parsed = scan.parsedKeys
         val rawMismatch = raw != parsed
-        val corpusIssues = scan.issues.toMutableList()
+        val corpusIssues = (spineIssues + scan.issues).toMutableList()
         if (missingBooks.isNotEmpty()) {
             val missing = issue(NwtIssueCode.BOOKS_MISSING, "livros ausentes=${missingBooks.size}")
             issues += missing
@@ -895,12 +902,14 @@ object NwtDocumentIdentityVerifier {
         val paths: List<String>,
         val invalidReferences: List<String>,
         val structurallyConsistent: Boolean,
+        val issues: List<NwtIdentityIssue>,
     ) {
         companion object {
             fun empty() = SpineAnalysis(
                 paths = emptyList(),
                 invalidReferences = emptyList(),
                 structurallyConsistent = false,
+                issues = emptyList(),
             )
         }
     }
@@ -915,10 +924,29 @@ object NwtDocumentIdentityVerifier {
         opfPath: String,
         issues: MutableList<NwtIdentityIssue>,
     ): SpineAnalysis {
-        val manifest = mutableMapOf<String, ManifestItem>()
-        doc.getElementsByTagNameNS("*", "item").toElements().forEach { item ->
+        val spineIssues = mutableListOf<NwtIdentityIssue>()
+        val items = doc.getElementsByTagNameNS("*", "item").toElements()
+        val idCounts = mutableMapOf<String, Int>()
+        var manifestInvalid = false
+        items.forEach { item ->
             val id = item.getAttribute("id").trim()
-            if (id.isBlank()) return@forEach
+            if (id.isBlank()) {
+                spineIssues += issue(NwtIssueCode.MANIFEST_ID_MISSING, "item de manifesto sem id")
+                manifestInvalid = true
+            } else {
+                idCounts[id] = (idCounts[id] ?: 0) + 1
+            }
+        }
+        val duplicateIds = idCounts.filterValues { it > 1 }.keys
+        duplicateIds.forEach { id ->
+            spineIssues += issue(NwtIssueCode.MANIFEST_ID_DUPLICATE, "id duplicado: $id")
+            manifestInvalid = true
+        }
+
+        val manifest = mutableMapOf<String, ManifestItem>()
+        items.forEach { item ->
+            val id = item.getAttribute("id").trim()
+            if (id.isBlank() || id in duplicateIds) return@forEach
             manifest[id] = ManifestItem(
                 href = item.getAttribute("href").trim(),
                 mediaType = item.getAttribute("media-type").trim(),
@@ -930,24 +958,24 @@ object NwtDocumentIdentityVerifier {
         doc.getElementsByTagNameNS("*", "itemref").toElements().forEach { itemref ->
             val idref = itemref.getAttribute("idref").trim()
             if (idref.isBlank()) {
-                issues += issue(NwtIssueCode.SPINE_IDREF_MISSING, "itemref com idref vazio")
+                spineIssues += issue(NwtIssueCode.SPINE_IDREF_MISSING, "itemref com idref vazio")
                 invalid += "<empty>"
                 return@forEach
             }
             val item = manifest[idref]
             if (item == null) {
-                issues += issue(NwtIssueCode.SPINE_IDREF_UNKNOWN, "idref inexistente: $idref")
+                spineIssues += issue(NwtIssueCode.SPINE_IDREF_UNKNOWN, "idref inexistente: $idref")
                 invalid += idref
                 return@forEach
             }
             if (item.href.isBlank()) {
-                issues += issue(NwtIssueCode.SPINE_HREF_MISSING, "item sem href: $idref")
+                spineIssues += issue(NwtIssueCode.SPINE_HREF_MISSING, "item sem href: $idref")
                 invalid += idref
                 return@forEach
             }
             val resolved = resolveRelativeZipPath(opfPath, item.href)
             if (resolved == null) {
-                issues += issue(NwtIssueCode.OPF_PATH_UNSAFE, "href inseguro: ${item.href}")
+                spineIssues += issue(NwtIssueCode.OPF_PATH_UNSAFE, "href inseguro: ${item.href}")
                 invalid += idref
                 return@forEach
             }
@@ -955,7 +983,7 @@ object NwtDocumentIdentityVerifier {
                 item.mediaType.contains("xhtml", ignoreCase = true)) &&
                 !isBinaryResource(resolved)
             if (!isContentDocument) {
-                issues += issue(
+                spineIssues += issue(
                     NwtIssueCode.SPINE_REFERENCE_INVALID,
                     "itemref não aponta para documento XHTML: $idref",
                 )
@@ -965,12 +993,16 @@ object NwtDocumentIdentityVerifier {
             paths += resolved
         }
         if (paths.isEmpty()) {
-            issues += issue(NwtIssueCode.SPINE_MISSING, "spine sem XHTML")
+            spineIssues += issue(NwtIssueCode.SPINE_MISSING, "spine sem XHTML")
         }
+        issues += spineIssues
         return SpineAnalysis(
             paths = paths.distinct(),
             invalidReferences = invalid.distinct(),
-            structurallyConsistent = paths.isNotEmpty() && invalid.isEmpty(),
+            structurallyConsistent = paths.isNotEmpty() &&
+                invalid.isEmpty() &&
+                !manifestInvalid,
+            issues = spineIssues.distinctIssues(),
         )
     }
 
@@ -1044,13 +1076,16 @@ object NwtDocumentIdentityVerifier {
         return out.toByteArray()
     }
 
-    private fun parseXml(bytes: ByteArray): Document? = try {
+    private fun parseXml(bytes: ByteArray, allowDoctype: Boolean = false): Document? = try {
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
             isXIncludeAware = false
             isExpandEntityReferences = false
             setFeatureQuietly(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            setFeatureQuietly("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeatureQuietly(
+                "http://apache.org/xml/features/disallow-doctype-decl",
+                !allowDoctype,
+            )
             setFeatureQuietly("http://xml.org/sax/features/external-general-entities", false)
             setFeatureQuietly("http://xml.org/sax/features/external-parameter-entities", false)
             setFeatureQuietly("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
@@ -1060,6 +1095,20 @@ object NwtDocumentIdentityVerifier {
         }.parse(ByteArrayInputStream(bytes))
     } catch (_: Exception) {
         null
+    }
+
+    /**
+     * XHTML é XML: validamos sintaxe com o parser seguro. DOCTYPE é aceito para
+     * EPUBs comuns, mas entidades internas são rejeitadas e DTDs externos não
+     * são carregados. Recursos não bíblicos válidos (capa/navegação) passam.
+     */
+    private fun isWellFormedXhtml(text: String): Boolean {
+        if (text.contains("<!ENTITY", ignoreCase = true)) return false
+        val doc = parseXml(text.toByteArray(Charsets.UTF_8), allowDoctype = true)
+            ?: return false
+        val root = doc.documentElement ?: return false
+        return root.localName.equals("html", ignoreCase = true) ||
+            root.tagName.equals("html", ignoreCase = true)
     }
 
     private fun DocumentBuilderFactory.setFeatureQuietly(name: String, value: Boolean) {
