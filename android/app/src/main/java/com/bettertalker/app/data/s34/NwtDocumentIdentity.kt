@@ -91,6 +91,10 @@ enum class NwtIssueCode {
     AMBIGUOUS_TEXT_IN_EPUB,
     DUPLICATE_AMBIGUITY,
     SPINE_RESOURCE_UNPROCESSED,
+    SPINE_IDREF_MISSING,
+    SPINE_IDREF_UNKNOWN,
+    SPINE_HREF_MISSING,
+    SPINE_REFERENCE_INVALID,
     SPINE_MISSING,
     XHTML_MISSING,
     XHTML_READ_FAILED,
@@ -247,7 +251,16 @@ data class NwtPromotionEligibility(
             corpusCompleteRelativeToEpub = false,
             canPromoteUnitToLocalFactual = false,
             canPromoteCorpusToLocalFactual = false,
-            blockers = issues,
+            blockers = (issues + listOf(
+                NwtIdentityIssue(
+                    NwtIssueCode.ANCHOR_PROVENANCE_UNVERIFIED,
+                    "procedência da âncora externa não demonstrável neste BUILD",
+                ),
+                NwtIdentityIssue(
+                    NwtIssueCode.INDEX_IDENTITY_UNVERIFIED,
+                    "índice persistido não consultado; passageId/ord/section não comprovados",
+                ),
+            )).distinctBy { it.code to it.detail },
         )
     }
 }

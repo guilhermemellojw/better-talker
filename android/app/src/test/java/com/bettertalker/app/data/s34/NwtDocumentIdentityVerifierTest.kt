@@ -67,6 +67,8 @@ class NwtDocumentIdentityVerifierTest {
         malformedOpf: Boolean = false,
         containerFullPath: String = "OEBPS/content.opf",
         extraSpine: List<String> = emptyList(),
+        additionalItemRefs: List<String> = emptyList(),
+        manifestWithoutHrefIds: List<String> = emptyList(),
         extraEntries: Map<String, String> = emptyMap(),
     ) {
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
@@ -90,10 +92,14 @@ class NwtDocumentIdentityVerifierTest {
                     """<item id="doc$index" href="$href" media-type="application/xhtml+xml"/>"""
                 } + extraSpine.mapIndexed { index, href ->
                     """<item id="extra$index" href="$href" media-type="application/xhtml+xml"/>"""
+                } + manifestWithoutHrefIds.map { id ->
+                    """<item id="$id" media-type="application/xhtml+xml"/>"""
                 }
                 val manifestXml = manifest.joinToString("\n")
                 val spine = docs.indices.map { """<itemref idref="doc$it"/>""" } +
-                    extraSpine.indices.map { """<itemref idref="extra$it"/>""" }
+                    extraSpine.indices.map { """<itemref idref="extra$it"/>""" } +
+                    manifestWithoutHrefIds.map { """<itemref idref="$it"/>""" } +
+                    additionalItemRefs.map { """<itemref idref="$it"/>""" }
                 val spineXml = spine.joinToString("\n")
                 val opf = if (malformedOpf) {
                     """<?xml version="1.0"?><package><metadata><dc:title>$title"""
@@ -270,6 +276,16 @@ class NwtDocumentIdentityVerifierTest {
         assertFalse(result.promotion.editorialConsistencyVerified)
         assertFalse(result.promotion.canPromoteUnitToLocalFactual)
         assertTrue(NwtIssueCode.FILE_MISSING in codes(result))
+        assertTrue(
+            result.promotion.blockers.any {
+                it.code == NwtIssueCode.ANCHOR_PROVENANCE_UNVERIFIED
+            }
+        )
+        assertTrue(
+            result.promotion.blockers.any {
+                it.code == NwtIssueCode.INDEX_IDENTITY_UNVERIFIED
+            }
+        )
     }
 
     @Test
@@ -766,6 +782,127 @@ class NwtDocumentIdentityVerifierTest {
         assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
         assertEquals(1, result.corpus.failedResources)
         assertTrue(NwtIssueCode.PARSER_NO_VERSES in codes(result))
+    }
+
+    @Test
+    fun spineIdrefInexistenteImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            additionalItemRefs = listOf("missing-document"),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertEquals(NwtUnitIdentityState.UNIT_UNVERIFIABLE, result.unit.state)
+        assertTrue(NwtIssueCode.SPINE_IDREF_UNKNOWN in codes(result))
+        assertFalse(result.promotion.canPromoteCorpusToLocalFactual)
+    }
+
+    @Test
+    fun spineIdrefVazioImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            additionalItemRefs = listOf(""),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertTrue(NwtIssueCode.SPINE_IDREF_MISSING in codes(result))
+    }
+
+    @Test
+    fun manifestoComItemSemHrefImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            manifestWithoutHrefIds = listOf("doc-sem-href"),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertTrue(NwtIssueCode.SPINE_HREF_MISSING in codes(result))
+    }
+
+    @Test
+    fun spineComCaminhoInseguroImpedeComplete() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("../outside.xhtml"),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertTrue(result.corpus.state != NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB)
+        assertTrue(NwtIssueCode.OPF_PATH_UNSAFE in codes(result))
+    }
+
+    @Test
+    fun recursoNaoBiblicoLegitimoEhAceito() {
+        val file = temp.newFile("nwt.epub")
+        epub(
+            file,
+            docs = all66Docs(),
+            extraSpine = listOf("cover.xhtml"),
+            extraEntries = mapOf(
+                "OEBPS/cover.xhtml" to "<html><body><h1>Capa</h1></body></html>",
+            ),
+        )
+        val mateus = NWT_BOOKS.getValue("1001061144")
+        val result = NwtDocumentIdentityVerifier.verify(
+            metadata = metadata(file),
+            file = file,
+            indexedUnit = unit(
+                "Texto sintético ${mateus.abbrev} 1:1.",
+                ref = "Mt 1:1",
+                section = "Mateus 1",
+            ),
+        )
+
+        assertEquals(NwtCorpusCompleteness.COMPLETE_RELATIVE_TO_EPUB, result.corpus.state)
+        assertEquals(0, result.corpus.failedResources)
+        assertFalse(NwtIssueCode.SPINE_REFERENCE_INVALID in codes(result))
     }
 
     @Test

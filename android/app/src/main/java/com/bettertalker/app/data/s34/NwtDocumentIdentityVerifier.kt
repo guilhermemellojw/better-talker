@@ -154,9 +154,10 @@ object NwtDocumentIdentityVerifier {
                 else -> evaluateEditorial(editorial, expected, issues)
             }
 
-            val spinePaths = opf?.let { parseSpinePaths(it.document, it.path, issues) }.orEmpty()
+            val spine = opf?.let { parseSpine(it.document, it.path, issues) }
+                ?: SpineAnalysis.empty()
             val targetRef = indexedUnit?.canonicalRef?.takeIf { it.isNotBlank() }
-            val scan = scanEpub(zip, spinePaths, targetRef, limits, issues)
+            val scan = scanEpub(zip, spine.paths, targetRef, limits, issues)
             val duplicateAmbiguity = opened.duplicateNames.isNotEmpty()
             if (duplicateAmbiguity) {
                 issues += issue(
@@ -166,7 +167,8 @@ object NwtDocumentIdentityVerifier {
             }
             val structureValid = container != null &&
                 opf != null &&
-                !duplicateAmbiguity
+                !duplicateAmbiguity &&
+                spine.structurallyConsistent
             val unit = verifyUnit(
                 metadata = metadata,
                 indexedUnit = indexedUnit,
@@ -177,7 +179,7 @@ object NwtDocumentIdentityVerifier {
             )
             val corpus = corpusSummary(
                 scan = scan,
-                usedSpine = spinePaths.isNotEmpty(),
+                usedSpine = spine.paths.isNotEmpty(),
                 structureValid = structureValid,
                 issues = issues,
             )
@@ -884,30 +886,91 @@ object NwtDocumentIdentityVerifier {
 
     // ---------- OPF / spine ----------
 
-    private fun parseSpinePaths(
+    private data class ManifestItem(
+        val href: String,
+        val mediaType: String,
+    )
+
+    private data class SpineAnalysis(
+        val paths: List<String>,
+        val invalidReferences: List<String>,
+        val structurallyConsistent: Boolean,
+    ) {
+        companion object {
+            fun empty() = SpineAnalysis(
+                paths = emptyList(),
+                invalidReferences = emptyList(),
+                structurallyConsistent = false,
+            )
+        }
+    }
+
+    /**
+     * Valida o spine contra o manifesto. Referências inválidas não podem
+     * desaparecer: elas tornam a estrutura inconsistente e impedem
+     * `COMPLETE_RELATIVE_TO_EPUB`.
+     */
+    private fun parseSpine(
         doc: Document,
         opfPath: String,
         issues: MutableList<NwtIdentityIssue>,
-    ): List<String> {
-        val manifest = mutableMapOf<String, String>()
+    ): SpineAnalysis {
+        val manifest = mutableMapOf<String, ManifestItem>()
         doc.getElementsByTagNameNS("*", "item").toElements().forEach { item ->
-            val id = item.getAttribute("id")
-            val href = item.getAttribute("href")
-            if (id.isNotBlank() && href.isNotBlank()) manifest[id] = href
+            val id = item.getAttribute("id").trim()
+            if (id.isBlank()) return@forEach
+            manifest[id] = ManifestItem(
+                href = item.getAttribute("href").trim(),
+                mediaType = item.getAttribute("media-type").trim(),
+            )
         }
-        val out = mutableListOf<String>()
+
+        val paths = mutableListOf<String>()
+        val invalid = mutableListOf<String>()
         doc.getElementsByTagNameNS("*", "itemref").toElements().forEach { itemref ->
-            val idref = itemref.getAttribute("idref")
-            val href = manifest[idref] ?: return@forEach
-            val resolved = resolveRelativeZipPath(opfPath, href)
-            if (resolved == null) {
-                issues += issue(NwtIssueCode.OPF_PATH_UNSAFE, "href inseguro: $href")
-            } else if (isXhtml(resolved)) {
-                out += resolved
+            val idref = itemref.getAttribute("idref").trim()
+            if (idref.isBlank()) {
+                issues += issue(NwtIssueCode.SPINE_IDREF_MISSING, "itemref com idref vazio")
+                invalid += "<empty>"
+                return@forEach
             }
+            val item = manifest[idref]
+            if (item == null) {
+                issues += issue(NwtIssueCode.SPINE_IDREF_UNKNOWN, "idref inexistente: $idref")
+                invalid += idref
+                return@forEach
+            }
+            if (item.href.isBlank()) {
+                issues += issue(NwtIssueCode.SPINE_HREF_MISSING, "item sem href: $idref")
+                invalid += idref
+                return@forEach
+            }
+            val resolved = resolveRelativeZipPath(opfPath, item.href)
+            if (resolved == null) {
+                issues += issue(NwtIssueCode.OPF_PATH_UNSAFE, "href inseguro: ${item.href}")
+                invalid += idref
+                return@forEach
+            }
+            val isContentDocument = isXhtml(resolved) ||
+                item.mediaType.contains("xhtml", ignoreCase = true)
+            if (!isContentDocument) {
+                issues += issue(
+                    NwtIssueCode.SPINE_REFERENCE_INVALID,
+                    "itemref não aponta para documento XHTML: $idref",
+                )
+                invalid += idref
+                return@forEach
+            }
+            paths += resolved
         }
-        if (out.isEmpty()) issues += issue(NwtIssueCode.SPINE_MISSING, "spine sem XHTML")
-        return out.distinct()
+        if (paths.isEmpty()) {
+            issues += issue(NwtIssueCode.SPINE_MISSING, "spine sem XHTML")
+        }
+        return SpineAnalysis(
+            paths = paths.distinct(),
+            invalidReferences = invalid.distinct(),
+            structurallyConsistent = paths.isNotEmpty() && invalid.isEmpty(),
+        )
     }
 
     private fun allXhtmlNames(zip: ZipFile): List<String> {

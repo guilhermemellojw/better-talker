@@ -108,6 +108,23 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
   `spineResourceAcimaDoLimiteNaoViraComplete`,
   `spineBookMalformadoNaoViraComplete`.
 
+#### R3 residual — manifesto e spine inconsistentes
+
+- Confirmado: `itemref` com `idref` inexistente era ignorado silenciosamente.
+- Correção: cada `itemref` é validado contra o manifesto. São inconsistentes:
+  - `idref` vazio;
+  - `idref` inexistente;
+  - item de manifesto sem `href`;
+  - caminho relativo inválido/inseguro;
+  - item de spine que não aponta para documento XHTML.
+- Uma referência inválida torna `structureValid=false`; a unidade fica
+  `UNIT_UNVERIFIABLE` e o corpus não retorna `COMPLETE_RELATIVE_TO_EPUB`.
+- Recursos XHTML legítimos não bíblicos (capa/navegação) são lidos e contam
+  como recursos processados; não precisam ser capítulos bíblicos.
+- Testes: `spineIdrefInexistenteImpedeComplete`,
+  `spineIdrefVazioImpedeComplete`, `manifestoComItemSemHrefImpedeComplete`,
+  `spineComCaminhoInseguroImpedeComplete`, `recursoNaoBiblicoLegitimoEhAceito`.
+
 ### R4 — Entradas ZIP duplicadas
 
 - Confirmado: duplicatas de XHTML podiam escapar da invalidação estrutural e
@@ -116,6 +133,17 @@ identificados. **Não comprova** completude canônica nem que a edição é ofic
   unidade fica `UNIT_UNVERIFIABLE`, o corpus não vira `COMPLETE` e a promoção
   permanece bloqueada. Um teste usa um ZIP bruto com entradas duplicadas.
 - Teste: `zipComXhtmlDuplicadoNaoVerificaUnidade`.
+
+## Diagnósticos de promoção
+
+- `NwtPromotionEligibility.blockers` sempre inclui
+  `ANCHOR_PROVENANCE_UNVERIFIED` e `INDEX_IDENTITY_UNVERIFIED`, inclusive em
+  retornos antecipados como arquivo ausente.
+- Em retornos antecipados, o `issues` de topo contém a causa específica
+  (`FILE_MISSING`, `HASH_MISSING`, etc.); os dois bloqueadores globais ficam em
+  `promotion.blockers`, sem exigir verificações impossíveis.
+- `canPromoteUnitToLocalFactual` e `canPromoteCorpusToLocalFactual` permanecem
+  `false` em todos os caminhos.
 
 ## Segurança
 
