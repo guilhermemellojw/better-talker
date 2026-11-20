@@ -68,10 +68,42 @@ class RoomReferenceResolver(
      * símbolo virava lixo). Com parágrafo indexado (T4) → RESOLVED exato;
      * senão → PARTIAL com o texto real da unidade.
      */
-    override suspend fun resolvePublication(ref: PublicationRef): ResolvedReference {
+    override suspend fun resolvePublication(ref: PublicationRef): ResolvedReference =
+        resolvePublication(ref, expectedAttachmentId = null)
+
+    /**
+     * UX-REF-1B.1 — resolve contra um anexo JÁ ESCOLHIDO pelo chamador.
+     *
+     * O toque numa referência não pode reabrir a seleção de edição: o alvo
+     * fixa [expectedAttachmentId] e esta sobrecarga só usa esse arquivo.
+     * Quando ele não existe/está indexado, devolve MISSING_CORPUS; o
+     * resolvedor de referências traduz o caso para `EditionChanged`.
+     *
+     * Mantém o algoritmo único de unidade/página/§ de [resolvePublication].
+     */
+    suspend fun resolvePublication(
+        ref: PublicationRef,
+        expectedAttachmentId: String?,
+    ): ResolvedReference {
         // 1. Edição: a coluna `symbol` fica vazia em quase todo o acervo —
         //    casa pelo mesmo caminho da UI (arquivo/tokens/baseSlot).
-        val editionRef = RefDetector.detect(ref.symbol).firstOrNull()
+        val editionRef = editionRefOf(ref)
+        val hit = if (expectedAttachmentId != null) {
+            attachmentDao.get(expectedAttachmentId)?.takeIf { attachment ->
+                attachment.indexed &&
+                    RefDetector.matchEdition(editionRef, listOf(attachment)) != null
+            }
+        } else {
+            RefDetector.matchEdition(editionRef, attachmentDao.all())
+        } ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.MISSING_CORPUS)
+        if (!hit.indexed) {
+            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        }
+        return resolvePublicationAgainst(ref, hit)
+    }
+
+    private fun editionRefOf(ref: PublicationRef): RefDetector.DetectedRef =
+        RefDetector.detect(ref.symbol).firstOrNull()
             ?: RefDetector.DetectedRef(
                 raw = ref.symbol,
                 kind = RefDetector.Kind.BOOK,
@@ -79,12 +111,11 @@ class RoomReferenceResolver(
                 editionKey = "book|${ref.symbol}",
                 label = ref.symbol,
             )
-        val hit = RefDetector.matchEdition(editionRef, attachmentDao.all())
-            ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.MISSING_CORPUS)
-        if (!hit.indexed) {
-            return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
-        }
 
+    private suspend fun resolvePublicationAgainst(
+        ref: PublicationRef,
+        hit: AttachmentEntity,
+    ): ResolvedReference {
         // 2. Unidade citada (artigo ou lição/capítulo/estudo).
         val rawNeedle = listOfNotNull(ref.article, ref.chapter)
             .firstOrNull { it.isNotBlank() }
@@ -477,7 +508,7 @@ internal suspend fun unitSliceOf(
     if (candidates.isEmpty()) return null
     val title = candidates.firstOrNull {
         it.text.startsWith("# ") &&
-            normalizeText(it.text.removePrefix("# ")).contains(needleNorm)
+            sectionMatchesNeedle(it.text.removePrefix("# "), needleNorm)
     }
     if (title != null) {
         val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
@@ -485,10 +516,36 @@ internal suspend fun unitSliceOf(
         if (slice.isNotEmpty()) return slice
     }
     val bySection = candidates.filter {
-        it.section.isNotBlank() && normalizeText(it.section).contains(needleNorm)
+        it.section.isNotBlank() && sectionMatchesNeedle(it.section, needleNorm)
     }
     if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
     return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+}
+
+/**
+ * Correspondência de unidade com limite de número/identificador.
+ *
+ * `Lição 1` casa com `Lição 1`, `Lição 1: ...` e `Lição 1 — ...`, mas não
+ * com `Lição 10`. O mesmo vale para capítulo, estudo, parte, seção e ponto.
+ * Usa [normalizeText] para comparar o rótulo sem acentos/pontuação.
+ */
+internal fun sectionMatchesNeedle(section: String, needle: String): Boolean {
+    val normalizedSection = normalizeText(section)
+    val normalizedNeedle = normalizeText(needle)
+    if (normalizedNeedle.isBlank()) return false
+    var from = 0
+    while (true) {
+        val index = normalizedSection.indexOf(normalizedNeedle, from)
+        if (index < 0) return false
+        val before = normalizedSection.getOrNull(index - 1)
+        val after = normalizedSection.getOrNull(index + normalizedNeedle.length)
+        if ((before == null || !before.isLetterOrDigit()) &&
+            (after == null || !after.isLetterOrDigit())
+        ) {
+            return true
+        }
+        from = index + 1
+    }
 }
 
 /**
