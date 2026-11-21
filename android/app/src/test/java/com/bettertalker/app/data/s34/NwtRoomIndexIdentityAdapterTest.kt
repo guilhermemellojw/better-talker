@@ -563,6 +563,90 @@ class NwtRoomIndexIdentityAdapterTest {
         assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_REFERENCE_MISMATCH })
     }
 
+    // ---------- P5 — fechamento do contrato RECORD_MATCH ----------
+    @Test
+    fun p5ClaimAusenteTextoUnicoRecordMatch() {
+        val (aDao, pDao) = newDaos()
+        val result = runAdapter(aDao, pDao, null)
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+    }
+
+    @Test
+    fun p5ClaimAusenteTextoDuplicadoAmbiguous() {
+        val p1 = passage(id = "p-1", ref = ref, text = "Texto sintético de Mateus 24:14.")
+        val p2 = passage(id = "p-2", ref = "Mt 24:15", text = "Texto sintético de Mateus 24:14.")
+        val (aDao, pDao) = newDaos(passages = listOf(p1, p2))
+        val result = runAdapter(aDao, pDao, null)
+        assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
+    }
+
+    @Test
+    fun p5ClaimAusenteFalhaConsultaDuplicatasReadFailed() {
+        val (aDao, pDao) = newDaos()
+        pDao.throwOnFindByTextInAttachment = true
+        val result = runAdapter(aDao, pDao, null)
+        assertEquals(NwtRoomIndexIdentityState.READ_FAILED, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_READ_FAILED })
+        assertNull(result.unit)
+    }
+
+    @Test
+    fun p5ClaimComTextoVazio() {
+        val (aDao, pDao) = newDaos()
+        val c = claim(text = "")
+        val result = runAdapter(aDao, pDao, c)
+        // texto-ambiguidade roda no texto persistido; claim.text vazio não contorna
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+    }
+
+    @Test
+    fun p5ClaimComCanonicalRefVazio() {
+        val (aDao, pDao) = newDaos()
+        val c = claim(canonicalRef = "")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_METADATA_MISMATCH })
+    }
+
+    @Test
+    fun p5ClaimComAttachmentIdVazio() {
+        val (aDao, pDao) = newDaos()
+        val c = claim(attachmentId = "")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ATTACHMENT_MISMATCH })
+    }
+
+    @Test
+    fun p5ClaimCompletoEValido() {
+        val (aDao, pDao) = newDaos()
+        val result = runAdapter(aDao, pDao, claim())
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+        assertNotNull(result.unit)
+    }
+
+    @Test
+    fun p5CancelamentoDuranteConsultaIndependenteDeClaim() {
+        val (aDao, pDao) = newDaos()
+        pDao.throwCancellationOnFindByTextInAttachment = true
+        try {
+            runAdapter(aDao, pDao, null)
+            org.junit.Assert.fail("deveria ter lançado CancellationException")
+        } catch (e: CancellationException) {
+            // esperado
+        }
+    }
+
+    @Test
+    fun p5HashFornecidoSemHashPersistidoConservador() {
+        val att = tnmAttachment(sha256 = null)
+        val (aDao, pDao) = newDaos(attachment = att)
+        val result = runAdapter(aDao, pDao, claim(), fileSha256 = "0".repeat(64))
+        assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_METADATA_MISMATCH })
+        assertNull(result.unit)
+    }
+
     // ---------- extras ----------
     @Test
     fun recordMatchConstróiUnitAPartirDoPersistido() {

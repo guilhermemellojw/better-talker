@@ -125,37 +125,71 @@ object NwtRoomIndexIdentityAdapter {
         }
 
         // 4b. compatibilidade do arquivo com o índice (opcional)
-        if (fileSha256 != null && !attachment.sha256.isNullOrBlank() && attachment.sha256 != fileSha256) {
-            issues += issue(
-                NwtIssueCode.ROOM_METADATA_MISMATCH,
-                "hash do arquivo difere do registrado: atual=$fileSha256 registrado=${attachment.sha256}",
-            )
-            return NwtRoomIndexIdentityResult(
-                state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
-                attachmentId = attachmentId,
-                attachment = attachment,
-                passage = null,
-                recordCount = 0,
-                unit = null,
-                issues = issues.distinctIssues(),
-            )
+        if (fileSha256 != null) {
+            if (attachment.sha256.isNullOrBlank()) {
+                issues += issue(
+                    NwtIssueCode.ROOM_METADATA_MISMATCH,
+                    "hash persistido ausente; compatibilidade do arquivo não verificada",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
+            if (attachment.sha256 != fileSha256) {
+                issues += issue(
+                    NwtIssueCode.ROOM_METADATA_MISMATCH,
+                    "hash do arquivo difere do registrado: atual=$fileSha256 registrado=${attachment.sha256}",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
         }
 
-        // 5. claim pertence ao mesmo anexo (se fornecido)
-        if (claim != null && claim.attachmentId.isNotBlank() && claim.attachmentId != attachmentId) {
-            issues += issue(
-                NwtIssueCode.ATTACHMENT_MISMATCH,
-                "unidade pertence a outro anexo: ${claim.attachmentId}",
-            )
-            return NwtRoomIndexIdentityResult(
-                state = NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH,
-                attachmentId = attachmentId,
-                attachment = attachment,
-                passage = null,
-                recordCount = 0,
-                unit = null,
-                issues = issues.distinctIssues(),
-            )
+        // 5. claim pertence ao mesmo anexo (se fornecido) — vazio não é ignorado
+        if (claim != null) {
+            if (claim.attachmentId.isBlank()) {
+                issues += issue(
+                    NwtIssueCode.ATTACHMENT_MISMATCH,
+                    "claim.attachmentId vazio",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
+            if (claim.attachmentId != attachmentId) {
+                issues += issue(
+                    NwtIssueCode.ATTACHMENT_MISMATCH,
+                    "unidade pertence a outro anexo: ${claim.attachmentId}",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
         }
 
         // 6. P4 — referência canônica solicitada não pode ser vazia
@@ -172,21 +206,38 @@ object NwtRoomIndexIdentityAdapter {
             )
         }
 
-        // 6b. P4 — claim.canonicalRef deve coincidir com a referência solicitada
-        if (claim != null && claim.canonicalRef.isNotBlank() && claim.canonicalRef != canonicalRef) {
-            issues += issue(
-                NwtIssueCode.ROOM_METADATA_MISMATCH,
-                "canonicalRef do claim (${claim.canonicalRef}) difere da referência solicitada ($canonicalRef)",
-            )
-            return NwtRoomIndexIdentityResult(
-                state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
-                attachmentId = attachmentId,
-                attachment = attachment,
-                passage = null,
-                recordCount = 0,
-                unit = null,
-                issues = issues.distinctIssues(),
-            )
+        // 6b. P4 — claim.canonicalRef deve coincidir com a referência solicitada (vazio não é ignorado)
+        if (claim != null) {
+            if (claim.canonicalRef.isBlank()) {
+                issues += issue(
+                    NwtIssueCode.ROOM_METADATA_MISMATCH,
+                    "claim.canonicalRef vazio",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
+            if (claim.canonicalRef != canonicalRef) {
+                issues += issue(
+                    NwtIssueCode.ROOM_METADATA_MISMATCH,
+                    "canonicalRef do claim (${claim.canonicalRef}) difere da referência solicitada ($canonicalRef)",
+                )
+                return NwtRoomIndexIdentityResult(
+                    state = NwtRoomIndexIdentityState.METADATA_MISMATCH,
+                    attachmentId = attachmentId,
+                    attachment = attachment,
+                    passage = null,
+                    recordCount = 0,
+                    unit = null,
+                    issues = issues.distinctIssues(),
+                )
+            }
         }
 
         // 7. consulta restrita ao anexo + ref (sem LIMIT 1, para detectar duplicatas)
@@ -350,10 +401,11 @@ object NwtRoomIndexIdentityAdapter {
             )
         }
 
-        // 10. P2 — ambiguidade de texto dentro do mesmo anexo, via consulta restrita (sem LIMIT 500)
-        if (claim != null && claim.text.isNotBlank()) {
+        // 10. P2/P5 — ambiguidade de texto dentro do mesmo anexo, via consulta restrita (sem LIMIT 500).
+        // Executada com o texto persistido, independentemente de existir claim (P5).
+        if (passage.text.isNotBlank()) {
             val sameText: List<PassageEntity> = try {
-                passageDao.findByTextInAttachment(attachmentId, claim.text, 2)
+                passageDao.findByTextInAttachment(attachmentId, passage.text, 2)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

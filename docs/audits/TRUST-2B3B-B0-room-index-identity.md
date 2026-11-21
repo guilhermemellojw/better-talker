@@ -118,7 +118,7 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 
 ## Testes
 
-34 casos JVM (fakes in-memory), todos verdes:
+43 casos JVM (fakes in-memory), todos verdes:
 
 1. `recordMatchQuandoPassagemPertenceAoAnexoCorreto`
 2. `recordMissingQuandoPassagemPertenceAOutroAnexo`
@@ -154,6 +154,22 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 32. `metadataMismatchQuandoClaimComOutraReferencia` (P4)
 33. `referenceMismatchQuandoRefSolicitadaVazia` (P4)
 34. `referenceMismatchQuandoRefPersistidaVazia` (P4)
+35. `p5ClaimAusenteTextoUnicoRecordMatch` (P5)
+36. `p5ClaimAusenteTextoDuplicadoAmbiguous` (P5)
+37. `p5ClaimAusenteFalhaConsultaDuplicatasReadFailed` (P5)
+38. `p5ClaimComTextoVazio` (P5)
+39. `p5ClaimComCanonicalRefVazio` (P5)
+40. `p5ClaimComAttachmentIdVazio` (P5)
+41. `p5ClaimCompletoEValido` (P5)
+42. `p5CancelamentoDuranteConsultaIndependenteDeClaim` (P5)
+43. `p5HashFornecidoSemHashPersistidoConservador` (P5)
+
+## Correções P5 — fechamento do contrato RECORD_MATCH
+
+1. **Duplicidade de texto independente do claim:** `findByTextInAttachment` agora executa com `passage.text` (persistido), independentemente de existir claim. Ausência/incompletude do claim não desativa a verificação.
+2. **Validação de campos obrigatórios do claim:** `claim.attachmentId` vazio → `ATTACHMENT_MISMATCH`; `claim.canonicalRef` vazio → `METADATA_MISMATCH`. Campos opcionais (`passageId`, `ord`, `section`) seguem política explícita: ausentes são ignorados, presentes devem coincidir.
+3. **Hash opcional conservador:** quando `fileSha256` é fornecido mas `attachment.sha256` está vazio, retorna `METADATA_MISMATCH` (não afirma compatibilidade do arquivo). Quando `attachment.sha256` está presente e difere → `METADATA_MISMATCH`.
+4. **Falha de leitura não vira ausência de duplicatas:** `findByTextInAttachment` propaga `READ_FAILED` + `ROOM_READ_FAILED`; `CancellationException` é repropagada. Nenhum caminho de falha produz `RECORD_MATCH`.
 
 ## Limitações
 
