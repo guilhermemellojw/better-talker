@@ -306,6 +306,12 @@ class DecisionMemoryTest {
         assertFalse(pending.isEligibleForPromptMemory())
         assertFalse(superseded.isEligibleForPromptMemory())
         assertFalse(removed.isEligibleForPromptMemory())
+        listOf(DecisionKind.PREFERENCE, DecisionKind.REJECTED, DecisionKind.OPEN).forEach {
+            assertFalse(
+                "1C.2.2B0: $it não pode orientar como decisão confirmada",
+                sectionDecision(kind = it).isEligibleForPromptMemory(),
+            )
+        }
         // Preservadas: o estado de associação não apaga o registro.
         assertEquals(DecisionState.ACTIVE, orphan.decisionState)
         assertEquals(DecisionState.ACTIVE, pending.decisionState)
@@ -316,6 +322,9 @@ class DecisionMemoryTest {
         val global = globalDecision()
         assertTrue(global.isEligibleForPromptMemory())
         assertFalse(globalDecision(state = DecisionState.REMOVED).isEligibleForPromptMemory())
+        assertFalse(
+            globalDecision(kind = DecisionKind.PREFERENCE).isEligibleForPromptMemory(),
+        )
     }
 
     @Test

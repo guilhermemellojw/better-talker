@@ -57,6 +57,18 @@ data class Dossier(
      */
     val noteTitle: String? = null,
     val discourseType: String? = null,
+    /**
+     * 1C.2.2B0: quando a nota já tem registros no ledger de decisões, o
+     * `agreedApproach` legado não pode reintroduzir consensos revogados.
+     * O prompt suprime o bloco sem apagar o campo persistido.
+     */
+    val suppressAgreedApproach: Boolean = false,
+    /**
+     * 1C.2.2B0: bloco canônico do ledger para o prompt de rascunho
+     * (`DossierPromptBuilder.build`/`buildPart`). O chat injeta o mesmo
+     * bloco no conteúdo volátil, por isso `buildContextBlock` o ignora.
+     */
+    val decisionMemoryBlock: String? = null,
 )
 
 /**

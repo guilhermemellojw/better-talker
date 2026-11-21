@@ -52,6 +52,8 @@ suspend fun buildDossierFrom(
     noteTitle: String? = null,
     discourseType: String? = null,
     speakerNote: String? = null,
+    suppressAgreedApproach: Boolean = false,
+    decisionMemoryBlock: String? = null,
 ): Dossier? {
     if (sectionId == null) return null
     if (sections.none { it.section.id == sectionId }) return null
@@ -65,5 +67,7 @@ suspend fun buildDossierFrom(
         noteTitle = noteTitle,
         discourseType = discourseType,
         speakerNote = speakerNote?.takeIf { it.isNotBlank() },
+        suppressAgreedApproach = suppressAgreedApproach,
+        decisionMemoryBlock = decisionMemoryBlock?.takeIf { it.isNotBlank() },
     )
 }

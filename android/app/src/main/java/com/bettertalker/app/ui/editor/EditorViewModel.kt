@@ -11,7 +11,9 @@ import com.bettertalker.app.data.prefs.SettingsStore
 import com.bettertalker.app.data.repo.DecisionMemoryRepository
 import com.bettertalker.app.data.repo.NotesRepository
 import com.bettertalker.app.data.repo.RoomTrainingRepository
+import com.bettertalker.app.data.copilot.DecisionPromptMemoryResult
 import com.bettertalker.app.data.copilot.asReconciliationHook
+import com.bettertalker.app.data.copilot.loadDecisionPromptMemory
 import com.bettertalker.app.domain.planning.DefaultDossierBuilder
 import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.DossierBuilder
@@ -607,6 +609,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             SectionWithSubPoints(section = it.section, subPoints = it.subPoints)
         }
         val note = db.noteDao().get(noteId)
+        val promptMemory = promptMemoryFor(sel.sectionId)
         return buildDossierFrom(
             sections = sectionsWithSubs,
             sectionId = sel.sectionId,
@@ -617,8 +620,23 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             noteTitle = note?.title,
             discourseType = note?.discourseType,
             speakerNote = outlineSpeakerNote(),
+            suppressAgreedApproach = promptMemory.suppressLegacyApproach,
+            decisionMemoryBlock = promptMemory.block,
         )
     }
+
+    /**
+     * 1C.2.2B0: memória canônica da seção para o dossiê. Com qualquer
+     * registro no ledger da nota, o prompt suprime o `agreedApproach` legado;
+     * falha de leitura também suprime (conservador).
+     */
+    private suspend fun promptMemoryFor(sectionId: String): DecisionPromptMemoryResult =
+        loadDecisionPromptMemory(
+            noteId = noteId,
+            focusSectionId = sectionId,
+            wholeNote = false,
+            load = { nid -> decisionMemory.forNote(nid) },
+        )
 
     /**
      * Fase 3.5e.2: gerador de discurso. Injetado pelo MainActivity via
@@ -877,6 +895,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             SectionWithSubPoints(section = it.section, subPoints = it.subPoints)
         }
         val note = db.noteDao().get(noteId)
+        val promptMemory = promptMemoryFor(target.sectionId)
         return when (target) {
             is DraftTarget.SubPoint -> buildDossierFrom(
                 sections = sectionsWithSubs,
@@ -888,6 +907,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 noteTitle = note?.title,
                 discourseType = note?.discourseType,
                 speakerNote = outlineSpeakerNote(),
+                suppressAgreedApproach = promptMemory.suppressLegacyApproach,
+                decisionMemoryBlock = promptMemory.block,
             )
             is DraftTarget.Section -> buildDossierFrom(
                 sections = sectionsWithSubs,
@@ -899,6 +920,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 noteTitle = note?.title,
                 discourseType = note?.discourseType,
                 speakerNote = outlineSpeakerNote(),
+                suppressAgreedApproach = promptMemory.suppressLegacyApproach,
+                decisionMemoryBlock = promptMemory.block,
             )
         }
     }

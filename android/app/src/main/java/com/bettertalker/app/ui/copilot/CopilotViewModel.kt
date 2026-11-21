@@ -9,8 +9,12 @@ import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
+import com.bettertalker.app.data.copilot.DecisionPromptMemory
+import com.bettertalker.app.data.copilot.DecisionPromptMemoryResult
 import com.bettertalker.app.data.copilot.DecisionRecord
+import com.bettertalker.app.data.copilot.MINIMAL_MEMORY_MAX_CHARS
 import com.bettertalker.app.data.copilot.asReconciliationHook
+import com.bettertalker.app.data.copilot.loadDecisionPromptMemory
 import com.bettertalker.app.data.copilot.NextStepSuggestion
 import com.bettertalker.app.data.copilot.NoteLensSection
 import com.bettertalker.app.data.copilot.SourceQuestionEvidence
@@ -4302,9 +4306,24 @@ class CopilotViewModel(
             // na pergunta genérica, mas tirava do modelo o TRECHO LITERAL da
             // publicação — que é exatamente o que o Web entrega. Sem dossiê
             // o modelo responde "a fonte não traz esse texto" (medido no A34).
+            // 1C.2.2B0: memória canônica do ledger. Carregada uma vez por
+            // turno; falha de leitura não inventa decisões e suprime o legado.
+            val promptMemory = loadDecisionPromptMemory(
+                noteId = noteId,
+                focusSectionId = noteFocusSectionId(),
+                wholeNote = _focusMode.value == FocusMode.WHOLE,
+                load = { nid -> decisionMemory.forNote(nid) },
+            )
+            if (!promptMemory.available) {
+                android.util.Log.w(
+                    "CopilotLLM",
+                    "decision prompt memory unavailable; legacy approach suppressed",
+                )
+            }
             val contextBlock = contextBlockWithPractice(
                 dossier = dossier,
                 includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+                includeApproach = !promptMemory.suppressLegacyApproach,
             )
             // 1C.2.0: o corpus do verificador não pode usar memória de
             // redação/abordagem como prova. O bloco de evidências omite só
@@ -4457,6 +4476,7 @@ class CopilotViewModel(
                             ?.let { DiscourseType.fromNameOrDefault(it) }
                         answerRemote(
                             text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                            promptMemory = promptMemory,
                             evidenceContextBlock = evidenceContextBlock,
                             noS34Warning = needsS34Warning(noteType),
                             blockMinutes = blockMinutes,
@@ -4470,6 +4490,7 @@ class CopilotViewModel(
                         contextBlock = contextBlock,
                         evidenceContextBlock = evidenceContextBlock,
                         turnContext = turnContext,
+                        promptMemory = promptMemory,
                         extraAuthorizedRefs = buildList {
                             dossier?.bibleTexts?.forEach { add(it.ref) }
                             dossier?.publicationTexts?.forEach { add(it.ref.symbol) }
@@ -4534,6 +4555,7 @@ class CopilotViewModel(
                 }
                 answerRemote(
                     text, turnContext, historyBefore, isFirst, blockText, remote, contextBlock,
+                    promptMemory = promptMemory,
                     evidenceContextBlock = evidenceContextBlock,
                     blockMinutes = blockMinutes,
                     allowCard = com.bettertalker.app.data.copilot.ChatRouter.allowsCard(route),
@@ -4631,6 +4653,14 @@ class CopilotViewModel(
     /** #14-fix: o foco de bloco/seleção só vale no escopo Tópico (SECTION). */
     private fun scopeBlockTitle(): String? =
         if (_focusMode.value == FocusMode.WHOLE) null else _activeBlockTitle.value
+
+    /**
+     * 1C.2.2B0: seção da NOTA usada para escopar decisões. O id do S-34 não
+     * serve aqui; só o escopo real do chat e o alvo empurrado. WHOLE = null.
+     */
+    private fun noteFocusSectionId(): String? =
+        if (_focusMode.value == FocusMode.WHOLE) null
+        else _chatScope.value ?: _pushedContext?.sectionId
 
     /**
      * "Texto total" no chat: NUNCA tenta um único texto gigante. Monta a fila
@@ -4855,6 +4885,8 @@ class CopilotViewModel(
         /** 1C.2.0: dossiê sem abordagem/memória, só para o corpus do gate. */
         evidenceContextBlock: String? = null,
         turnContext: com.bettertalker.app.data.copilot.ChatTurnContext,
+        /** 1C.2.2B0: memória canônica do ledger, no conteúdo volátil. */
+        promptMemory: DecisionPromptMemoryResult = DecisionPromptMemory.notApplicable(),
         // 6.0.5 — refs do dossiê da nota que também foram para o prompt. O
         // gate de fidelidade não pode chamar de "inventada" uma citação que
         // o modelo recebeu do dossiê (falso positivo Gênesis 5:5 na A34).
@@ -4937,6 +4969,34 @@ class CopilotViewModel(
         // pushedFirstFocus). O bloco real (título + contentHtml) alimenta o
         // request, os blocos da proposta e o ANTES/DEPOIS do card — e mantém
         // a invariante do aceite (`block.contains(focus)`).
+        // 1C.2.2B0 P1+P5: a memória E o dossiê da geração oratória devem
+        // acompanhar a seção efetivamente resolvida (section), e não o foco
+        // anterior do chat. Recarrega o ledger para o id persistido da seção
+        // resolvida; obtém o dossiê da mesma seção via dossierProvider.
+        val resolvedPromptMemory = loadDecisionPromptMemory(
+            noteId = noteId,
+            focusSectionId = section.id,
+            wholeNote = false,
+            load = { nid -> decisionMemory.forNote(nid) },
+        )
+        val resolvedDossier = try {
+            dossierProvider?.invoke(
+                DraftTarget.Section(section.id),
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        val oratoryResolution = com.bettertalker.app.data.copilot.OratoryContextResolver.resolve(
+            sectionId = section.id,
+            resolvedDossier = resolvedDossier,
+            includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+            practiceContext = _practiceContext.value,
+            promptBuilder = dossierPromptBuilder,
+        )
+        val resolvedExtraAuthorizedRefs = oratoryResolution.authorizedRefs
+        val oratoryContextBlock = oratoryResolution.contextBlock
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
             sectionContentHtml = section.contentHtml,
@@ -5014,9 +5074,19 @@ class CopilotViewModel(
                         responseFormat = ResponseFormat.TEXT,
                         maxOutputTokens = oratoryBudget,
                         maxOutputTokensCap = OutputBudget.ORATORY_MAX,
-                        contextBlock = contextBlock,
-                        structural = turnContext.structural,
-                        oratory = turnContext.oratory,
+                        // P4: o dossiê (oratoryContextBlock) fica no contextBlock
+                        // (system, estável, cache preservado); a memória canônica
+                        // da seção resolvida entra SOMENTE no userContextBlock
+                        // (volátil, fora do system e do corpus de evidências).
+                        // P7: structural/oratory do turnContext podem representar o
+                        // foco anterior (seção A) quando a geração é para a seção
+                        // resolvida (B). Omitir evita que a estrutura S-34 da
+                        // seção A vaze para o system; a estrutura correta já está
+                        // na mensagem (buildCardPrompt) e nas referências.
+                        contextBlock = oratoryContextBlock?.takeIf { it.isNotBlank() },
+                        userContextBlock = resolvedPromptMemory.block,
+                        structural = null,
+                        oratory = null,
                         blockTitle = section.title,
                         blockMinutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
                     )
@@ -5058,7 +5128,7 @@ class CopilotViewModel(
             // audita o texto do card, e remoções do verificador entram no
             // texto final (não no payload de conversa).
             val fidelity = com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                .check(cardText, ready, extraAuthorizedRefs)
+                .check(cardText, ready, resolvedExtraAuthorizedRefs)
             // Fidelidade bloqueante para o card: se o verificador achou ref/
             // número sem apoio, remove as sentenças ofensoras ANTES de
             // publicar. Se sobrar vazio ou ainda houver ofensa, não entrega o
@@ -5073,7 +5143,7 @@ class CopilotViewModel(
                 fidelity
             } else {
                 com.bettertalker.app.data.copilot.OratoryFidelityCheck
-                    .check(cleanedCardText, ready, extraAuthorizedRefs)
+                    .check(cleanedCardText, ready, resolvedExtraAuthorizedRefs)
             }
             if (cleanedCardText.isBlank() || !cleanedFidelity.ok) {
                 postText(
@@ -5198,18 +5268,18 @@ class CopilotViewModel(
             return
         }
         val provider = com.bettertalker.app.data.llm.ProviderFactory.createFor(remote, app)
-        // T1 (Fase 2.1): memória da construção TAMBÉM no modo colar. O fio
-        // (decisões/consenso + próximo passo) entra como CONTEÚDO da mensagem
-        // — o system segue minimalista. Sem resumo (conversa curta sem
-        // decisões) → mensagem inalterada (prompt igual ao anterior).
-        val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
-            com.bettertalker.app.data.copilot.buildRollingSummary(
-                history,
-                pushedSectionTitle() ?: scopeBlockTitle().orEmpty(),
-            )
+        // 1C.2.2B0: no modo colar, só o ledger confirmado vira memória. O
+        // resumo rolante não promove falas do histórico a decisão. O bloco
+        // entra como CONTEÚDO da mensagem; o system continua minimalista.
+        val promptMemory = loadDecisionPromptMemory(
+            noteId = noteId,
+            focusSectionId = noteFocusSectionId(),
+            wholeNote = _focusMode.value == FocusMode.WHOLE,
+            maxChars = MINIMAL_MEMORY_MAX_CHARS,
+            load = { nid -> decisionMemory.forNote(nid) },
         )
         val messageWithMemory =
-            com.bettertalker.app.data.copilot.minimalMemoryPrefix(memory) + text
+            com.bettertalker.app.data.copilot.minimalMemoryPrefix(promptMemory.block) + text
         val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             provider.generate(
                 com.bettertalker.app.data.llm.LlmRequest(
@@ -5317,6 +5387,8 @@ class CopilotViewModel(
         blockText: String,
         remote: ProviderFactory.RemoteConfig,
         contextBlock: String? = null,
+        /** 1C.2.2B0: memória canônica do ledger, no conteúdo volátil. */
+        promptMemory: DecisionPromptMemoryResult = DecisionPromptMemory.notApplicable(),
         /**
          * 1C.2.0: bloco de evidências sem abordagem/memória de redação.
          * Usado só pelo corpus do verificador; o prompt continua recebendo
@@ -5415,15 +5487,9 @@ class CopilotViewModel(
         } else {
             null
         }
-        // T1 (Fase 2): memória da construção — resumo rolante do fio da
-        // conversa, antes do dossiê. Null em conversa curta sem decisões =
-        // prompt idêntico ao anterior (cache preservado).
-        val memory = com.bettertalker.app.data.copilot.renderMemoryBlock(
-            com.bettertalker.app.data.copilot.buildRollingSummary(
-                history,
-                pushedSectionTitle() ?: scopeBlockTitle().orEmpty(),
-            )
-        )
+        // 1C.2.2B0: o resumo rolante não entra mais no prompt. Decisões
+        // confirmadas vêm do ledger, no conteúdo volátil (userContextBlock);
+        // o histórico continua disponível sem autoridade de consenso.
         // Fase 1 (contexto fiel): inventário COMPLETO das refs da nota, com
         // status do acervo. É metadado (não o texto) e entra no prefixo
         // estável; os trechos citados na pergunta atual vão no user.
@@ -5484,10 +5550,11 @@ class CopilotViewModel(
                 )
             }
         }
-        // Estável entre turnos (cache): memória + inventário + foco + dossiê.
+        // Estável entre turnos (cache): inventário + foco + dossiê. A memória
+        // do ledger é volátil e entra no userContextBlock.
         val waivedBlock = SourceGate.waivedBlock(activeWaivedRefs)
         val stableContextBlock = listOfNotNull(
-            memory, refsInventory, focusBlock, contextBlock, waivedBlock,
+            refsInventory, focusBlock, contextBlock, waivedBlock,
         )
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
@@ -5512,7 +5579,10 @@ class CopilotViewModel(
         val volatileContextBlock = if (sourceQuestionMode) {
             null
         } else {
-            combineContextBlocks(noteLens, questionVerses, questionPubs)
+            listOfNotNull(
+                combineContextBlocks(noteLens, questionVerses, questionPubs),
+                promptMemory.block,
+            ).joinToString("\n\n").ifBlank { null }
         }
         // Corpus do gate: tudo o que foi injetado, estável + volátil. No
         // modo fonte, só o bloco da fonte (o dossiê/S-34 não foi enviado).
