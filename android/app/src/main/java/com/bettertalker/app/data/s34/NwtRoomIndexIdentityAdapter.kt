@@ -381,7 +381,7 @@ object NwtRoomIndexIdentityAdapter {
                 )
                 metadataMismatch = true
             }
-            if (claim.text.isNotBlank() && claim.text != passage.text) {
+            if (claim.text != passage.text) {
                 issues += issue(
                     NwtIssueCode.ROOM_METADATA_MISMATCH,
                     "text: persistido difere do reivindicado",

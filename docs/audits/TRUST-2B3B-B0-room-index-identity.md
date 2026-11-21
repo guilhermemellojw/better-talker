@@ -171,6 +171,8 @@ O adaptador apresenta separadamente um resultado positivo de identidade do regis
 3. **Hash opcional conservador:** quando `fileSha256` é fornecido mas `attachment.sha256` está vazio, retorna `METADATA_MISMATCH` (não afirma compatibilidade do arquivo). Quando `attachment.sha256` está presente e difere → `METADATA_MISMATCH`.
 4. **Falha de leitura não vira ausência de duplicatas:** `findByTextInAttachment` propaga `READ_FAILED` + `ROOM_READ_FAILED`; `CancellationException` é repropagada. Nenhum caminho de falha produz `RECORD_MATCH`.
 
+**Ajuste final (último P5):** a comparação `claim.text` vs `passage.text` agora é obrigatória quando `claim != null` (sem gate `isNotBlank()`). Desigualdade (incluindo texto vazio ou só espaços) produz `METADATA_MISMATCH` + `ROOM_METADATA_MISMATCH`. `claim = null` permanece consulta válida de identidade do registro persistido.
+
 ## Limitações
 
 - A prova de persistência Room real depende de testes instrumentados (sem dispositivo/emulador neste ambiente). As garantias acima são verificadas por fakes in-memory.

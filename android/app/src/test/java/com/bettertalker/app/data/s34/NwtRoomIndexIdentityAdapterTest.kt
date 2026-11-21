@@ -595,8 +595,19 @@ class NwtRoomIndexIdentityAdapterTest {
         val (aDao, pDao) = newDaos()
         val c = claim(text = "")
         val result = runAdapter(aDao, pDao, c)
-        // texto-ambiguidade roda no texto persistido; claim.text vazio não contorna
-        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+        assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_METADATA_MISMATCH })
+        assertNull(result.unit)
+    }
+
+    @Test
+    fun p5ClaimComTextoApenasEspacos() {
+        val (aDao, pDao) = newDaos()
+        val c = claim(text = "   ")
+        val result = runAdapter(aDao, pDao, c)
+        assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_METADATA_MISMATCH })
+        assertNull(result.unit)
     }
 
     @Test
