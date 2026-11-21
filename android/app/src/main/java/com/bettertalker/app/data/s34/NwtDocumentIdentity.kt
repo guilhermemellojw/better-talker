@@ -116,6 +116,13 @@ enum class NwtIssueCode {
     BOOKS_MISSING,
     RAW_MARKER_MISMATCH,
     PROMOTION_BLOCKED,
+    // TRUST-2B3B-B0 — identidade do índice persistido (Room)
+    ROOM_ATTACHMENT_MISSING,
+    ROOM_RECORD_MISSING,
+    ROOM_REFERENCE_MISMATCH,
+    ROOM_METADATA_MISMATCH,
+    ROOM_AMBIGUOUS_RECORD,
+    ROOM_READ_FAILED,
 }
 
 data class NwtIdentityIssue(
@@ -289,4 +296,48 @@ data class NwtVerifierLimits(
     val maxXhtmlBytes: Int = 4_000_000,
     val maxEntries: Int = 20_000,
     val maxTotalUncompressedBytes: Long = 300_000_000,
+)
+
+// ---------- TRUST-2B3B-B0 — identidade do índice persistido (Room) ----------
+
+/**
+ * TRUST-2B3B-B0 — estado da verificação de identidade de um registro
+ * persistido no índice Room da TNM.
+ *
+ * O adaptador experimental consulta o Room (AttachmentDao/PassageDao) e
+ * compara o registro real com a unidade reivindicada. Nenhum destes estados
+ * promove a TNM a `VERIFIED_LOCAL`: a promoção factual permanece bloqueada.
+ */
+enum class NwtRoomIndexIdentityState {
+    /** Registro persistido coincide com a unidade reivindicada. */
+    RECORD_MATCH,
+    /** Nenhum registro persistido para o anexo/referência. */
+    RECORD_MISSING,
+    /** Anexo ausente, não TNM, incompatível ou não pronto. */
+    ATTACHMENT_MISMATCH,
+    /** Referência canônica diverge do registro persistido. */
+    REFERENCE_MISMATCH,
+    /** passageId/ord/section/texto divergem do registro persistido. */
+    METADATA_MISMATCH,
+    /** Registros duplicados ou ambíguos (mesmo ref/texto em múltiplas linhas). */
+    AMBIGUOUS_RECORD,
+    /** Anexo não indexado ou status != ready. */
+    INDEX_NOT_READY,
+    /** Falha ao consultar o Room. */
+    READ_FAILED,
+}
+
+/**
+ * TRUST-2B3B-B0 — resultado tipado da verificação de identidade do índice
+ * persistido. `unit` é construído exclusivamente a partir dos dados
+ * persistidos e somente quando `state == RECORD_MATCH`.
+ */
+data class NwtRoomIndexIdentityResult(
+    val state: NwtRoomIndexIdentityState,
+    val attachmentId: String,
+    val attachment: com.bettertalker.app.data.db.AttachmentEntity?,
+    val passage: com.bettertalker.app.data.db.PassageEntity?,
+    val recordCount: Int,
+    val unit: NwtIndexedUnit?,
+    val issues: List<NwtIdentityIssue>,
 )
