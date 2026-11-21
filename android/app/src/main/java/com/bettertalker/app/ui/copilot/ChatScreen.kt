@@ -148,6 +148,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bettertalker.app.data.bible.BibleReferenceOccurrence
 import com.bettertalker.app.data.bible.BibleReferenceSpanDetector
+import com.bettertalker.app.data.publication.PublicationReferenceSpanDetector
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.DiagnosisNextStep
 import com.bettertalker.app.data.copilot.PointCoachingNextStep
@@ -182,6 +183,9 @@ import com.bettertalker.app.data.voice.PttSttChoice
 import com.bettertalker.app.data.voice.VoiceInputState
 import com.bettertalker.app.ui.components.MdBlock
 import com.bettertalker.app.ui.components.PasteDestination
+import com.bettertalker.app.ui.components.PublicationDisplayLink
+import com.bettertalker.app.ui.components.PUBLICATION_LINK_URI_PREFIX
+import com.bettertalker.app.ui.components.publicationDisplayLinks
 import com.bettertalker.app.ui.components.PastePreviewSheet
 import com.bettertalker.app.ui.components.PasteSheetRequest
 import com.bettertalker.app.ui.components.inline
@@ -222,6 +226,8 @@ fun ChatScreen(
     onComposerFocusConsumed: () -> Unit = {},
     /** UX-REF-1A2: abre uma referência bíblica no leitor local. */
     onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
+    /** UX-REF-1B.3-B1: abre uma referência de publicação. */
+    onOpenPublicationReference: ((PublicationDisplayLink) -> Unit)? = null,
     /** v4.0: PTT; null mantém o microfone legado (sem uso nas rotas atuais). */
     pttState: PttState? = null,
     pttPartial: String = "",
@@ -1318,6 +1324,7 @@ fun ChatScreen(
                                         onOpenNote = onOpenNote ?: onOpenEditor,
                                         onAttachS34 = { showAttach = true },
                                         onOpenBibleReference = onOpenBibleReference,
+                                        onOpenPublicationReference = onOpenPublicationReference,
                                         // #26-fix-c: preenche o composer e marca a
                                         // pergunta — o envio substitui a antiga.
                                         onEdit = { edited ->
@@ -1780,6 +1787,8 @@ private fun MessageBubble(
     onAttachS34: () -> Unit = {},
     /** UX-REF-1A2: referências bíblicas clicáveis apenas em texto terminal. */
     onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
+    /** UX-REF-1B.3-B1: referências de publicação clicáveis. */
+    onOpenPublicationReference: ((PublicationDisplayLink) -> Unit)? = null,
     /** #22-fix (P2): ações da mensagem renderizadas DENTRO do item (canto). */
     actions: (@Composable (Modifier) -> Unit)? = null,
 ) {
@@ -1792,7 +1801,7 @@ private fun MessageBubble(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                     modifier = Modifier.widthIn(max = 320.dp)
                 ) {
-                    ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                    ChatMessageText(item.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), onOpenPublicationReference = onOpenPublicationReference)
                 }
                 // #26-fix-c: ⋮ discreto da pergunta (Editar pergunta).
                 if (onEdit != null) {
@@ -1893,6 +1902,7 @@ private fun MessageBubble(
                         },
                         leadingMark = assistantInlineMark(),
                         onOpenBibleReference = onOpenBibleReference,
+                        onOpenPublicationReference = onOpenPublicationReference,
                         cardActions = if (card != null) {
                             {
                                 // M2a: card aninhado entra com fade + expand
@@ -3133,6 +3143,8 @@ fun ChatMessageText(
     leadingMark: AnnotatedString? = null,
     /** UX-REF-1A2: referências bíblicas detectadas viram links. */
     onOpenBibleReference: ((BibleReferenceOccurrence) -> Unit)? = null,
+    /** UX-REF-1B.3-B1: referências de publicação detectadas viram links. */
+    onOpenPublicationReference: ((PublicationDisplayLink) -> Unit)? = null,
     /** Card-first: ações renderizadas dentro do disclosure `<texto-do-card>`. */
     cardActions: (@Composable () -> Unit)? = null,
 ) {
@@ -3142,7 +3154,27 @@ fun ChatMessageText(
     val hasSuggestion = remember(md) { stripSuggestionTags(md).hasSuggestion }
     val blocks = remember(md) { cleanBlocks(parseBlocks(md)) }
     val systemUriHandler = LocalUriHandler.current
-    val bibleUriHandler = remember(systemUriHandler, onOpenBibleReference) {
+    val publicationLinksById = remember(blocks, onOpenPublicationReference) {
+        if (onOpenPublicationReference == null) emptyMap()
+        else blocks.flatMapIndexed { blockIndex, block ->
+            val text = when (block) {
+                is MdBlock.Title -> block.text
+                is MdBlock.Quote -> block.text
+                is MdBlock.Bullet -> block.text
+                is MdBlock.Check -> block.text
+                is MdBlock.Para -> block.text
+                else -> ""
+            }
+            if (text.isBlank()) emptyList()
+            else publicationDisplayLinks(
+                sourceText = text,
+                occurrences = PublicationReferenceSpanDetector.detect(text),
+                blockIndex = blockIndex,
+            )
+        }.associateBy { it.id }
+    }
+    val hasPublicationLinks = publicationLinksById.isNotEmpty() && onOpenPublicationReference != null
+    val combinedUriHandler = remember(systemUriHandler, onOpenBibleReference, onOpenPublicationReference, publicationLinksById) {
         object : UriHandler {
             override fun openUri(uri: String) {
                 if (uri.startsWith("bettertalker-bible://open?ref=")) {
@@ -3156,6 +3188,15 @@ fun ChatMessageText(
                     } else {
                         systemUriHandler.openUri(uri)
                     }
+                } else if (uri.startsWith(PUBLICATION_LINK_URI_PREFIX)) {
+                    val rawId = runCatching {
+                        URLDecoder.decode(uri.substringAfter("i="), "UTF-8")
+                    }.getOrNull()
+                    val link = rawId?.let { publicationLinksById[it] }
+                    if (link != null && onOpenPublicationReference != null) {
+                        onOpenPublicationReference(link)
+                    }
+                    // id desconhecido ou callback ausente: não repassar ao sistema.
                 } else {
                     systemUriHandler.openUri(uri)
                 }
@@ -3175,6 +3216,7 @@ fun ChatMessageText(
             text.isNotBlank() && BibleReferenceSpanDetector.detect(text).isNotEmpty()
         }
     }
+    val hasLinks = hasBibleLinks || hasPublicationLinks
     val body: @Composable () -> Unit = {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             if (hasSuggestion) {
@@ -3186,7 +3228,7 @@ fun ChatMessageText(
             }
             var markPending = leadingMark
             var actionsPlaced = false
-            blocks.forEach { block ->
+            blocks.forEachIndexed { blockIndex, block ->
                 // #22-fix (P1): o selo entra no PRIMEIRO bloco de texto
                 // (Divider/TextForCard não consomem).
                 val isTextBlock = block is MdBlock.Title || block is MdBlock.Quote ||
@@ -3205,7 +3247,7 @@ fun ChatMessageText(
                     cardInnerBlocks(block.text).forEach { inner ->
                         RenderBlock(inner, mark = null, onUseInCard = null)
                     }
-                    return@forEach
+                    return@forEachIndexed
                 }
                 // #20-fix-a/3.4: o card é um disclosure; as ações só existem
                 // dentro dele e nunca aparecem antes do "Ver".
@@ -3231,6 +3273,18 @@ fun ChatMessageText(
                         )
                     }
                 }
+                val detectedPublicationRefs = remember(blockText) {
+                    if (blockText.isBlank()) emptyList()
+                    else PublicationReferenceSpanDetector.detect(blockText)
+                }
+                val publicationLinksForBlock = remember(detectedPublicationRefs, blockIndex) {
+                    if (blockText.isBlank()) emptyList()
+                    else publicationDisplayLinks(
+                        sourceText = blockText,
+                        occurrences = detectedPublicationRefs,
+                        blockIndex = blockIndex,
+                    )
+                }
                 RenderBlock(
                     block = block,
                     mark = mark,
@@ -3242,12 +3296,13 @@ fun ChatMessageText(
                         null
                     },
                     bibleLinks = if (onOpenBibleReference != null) bibleLinks else emptyList(),
+                    publicationLinks = if (onOpenPublicationReference != null) publicationLinksForBlock else emptyList(),
                 )
             }
         }
     }
-    if (hasBibleLinks) {
-        CompositionLocalProvider(LocalUriHandler provides bibleUriHandler) { body() }
+    if (hasLinks) {
+        CompositionLocalProvider(LocalUriHandler provides combinedUriHandler) { body() }
     } else {
         SelectionContainer { body() }
     }
@@ -3265,10 +3320,11 @@ internal fun RenderBlock(
     onUseInCard: ((String) -> Unit)?,
     cardActions: (@Composable () -> Unit)? = null,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ) {
     when (block) {
         is MdBlock.Title -> Text(
-            markInline(block.text, mark, bibleLinks),
+            markInline(block.text, mark, bibleLinks, publicationLinks),
             // P1: pesos e lineHeights vêm da AppTypography.
             style = if (block.level >= 3) MaterialTheme.typography.titleMedium
             else MaterialTheme.typography.titleLarge,
@@ -3276,16 +3332,16 @@ internal fun RenderBlock(
                 .padding(top = 4.dp)
                 .semantics { heading() },
         )
-        is MdBlock.Quote -> RenderQuote(block.text, mark, bibleLinks)
+        is MdBlock.Quote -> RenderQuote(block.text, mark, bibleLinks, publicationLinks)
         is MdBlock.Divider -> HorizontalDivider(
             modifier = Modifier.padding(vertical = 2.dp),
             thickness = 1.dp,
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
         )
-        is MdBlock.Bullet -> RenderBullet(block, mark, bibleLinks)
-        is MdBlock.Check -> RenderCheck(block, mark, bibleLinks)
+        is MdBlock.Bullet -> RenderBullet(block, mark, bibleLinks, publicationLinks)
+        is MdBlock.Check -> RenderCheck(block, mark, bibleLinks, publicationLinks)
         is MdBlock.Para -> Text(
-            markInline(block.text, mark, bibleLinks),
+            markInline(block.text, mark, bibleLinks, publicationLinks),
             style = MaterialTheme.typography.bodyLarge
         )
         is MdBlock.TextForCard -> RenderTextForCard(
@@ -3301,6 +3357,7 @@ private fun RenderQuote(
     text: String,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ) {
     Row(
         Modifier
@@ -3321,7 +3378,7 @@ private fun RenderQuote(
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            markInline(text, mark, bibleLinks),
+            markInline(text, mark, bibleLinks, publicationLinks),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -3334,6 +3391,7 @@ private fun RenderBullet(
     block: MdBlock.Bullet,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ) {
     Row(
         verticalAlignment = Alignment.Top,
@@ -3350,7 +3408,7 @@ private fun RenderBullet(
             modifier = Modifier.widthIn(min = 26.dp)
         )
         Text(
-            markInline(block.text, mark, bibleLinks),
+            markInline(block.text, mark, bibleLinks, publicationLinks),
             style = MaterialTheme.typography.bodyLarge,
         )
     }
@@ -3361,6 +3419,7 @@ private fun RenderCheck(
     block: MdBlock.Check,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ) {
     Row(
         verticalAlignment = Alignment.Top,
@@ -3375,7 +3434,7 @@ private fun RenderCheck(
             modifier = Modifier.widthIn(min = 26.dp)
         )
         Text(
-            markInline(block.text, mark, bibleLinks),
+            markInline(block.text, mark, bibleLinks, publicationLinks),
             style = MaterialTheme.typography.bodyLarge,
         )
     }
@@ -3470,9 +3529,11 @@ private fun markInline(
     text: String,
     mark: AnnotatedString?,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ): AnnotatedString = inline(
     text = text,
     bibleLinks = bibleLinks,
+    publicationLinks = publicationLinks,
     leading = mark,
 )
 
