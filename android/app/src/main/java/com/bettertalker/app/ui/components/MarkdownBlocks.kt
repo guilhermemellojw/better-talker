@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
+import com.bettertalker.app.data.publication.PublicationReferenceOccurrence
+import java.net.URLEncoder
 
 /** Blocos markdown (títulos, N/I, listas, checklist, citação). Compartilhado editor/chat. */
 sealed interface MdBlock {
@@ -174,6 +176,93 @@ data class InlineBibleLink(
     val label: String,
 )
 
+/** UX-REF-1B.3 — link de publicação inline já mapeado para o texto-fonte. */
+data class PublicationDisplayLink(
+    val start: Int,
+    val endExclusive: Int,
+    /** Identidade estável dentro da mensagem renderizada (índice do bloco : ocorrência). */
+    val id: String,
+    /** Ocorrência íntegra (inclusive validationStart/End); nunca é recomposta no clique. */
+    val occurrence: PublicationReferenceOccurrence,
+    /** Texto renderizado do bloco que originou os offsets — usado na revalidação. */
+    val sourceText: String,
+    /** Índice do bloco de origem (redundante com [id], mas explícito/testável). */
+    val blockIndex: Int = 0,
+    /** Índice da ocorrência dentro do bloco (redundante com [id]). */
+    val occurrenceIndex: Int = 0,
+)
+
+/** Scheme próprio, sem colisão com `bettertalker-bible://`. */
+const val PUBLICATION_LINK_URI_PREFIX = "bettertalker-publication://open?i="
+
+/** URI emitida nos spans; o id é codificado para sobreviver ao UriHandler. */
+internal fun publicationLinkUri(id: String): String =
+    PUBLICATION_LINK_URI_PREFIX + URLEncoder.encode(id, "UTF-8")
+
+/**
+ * Mapeia ocorrências detectadas em [sourceText] para links exibíveis.
+ *
+ * Os offsets são relativos ao texto renderizado do bloco; [sourceText] é a
+ * mesma string usada na detecção, preservando o contrato B2 entre span visual
+ * e trecho de validação.
+ */
+
+/**
+ * Validação pura e reutilizável de um span de publicação contra o texto-fonte.
+ * Mesmas invariantes exigidas por PublicationReferenceResolver.validatedDetection():
+ *  - span dentro dos limites;
+ *  - texto no intervalo idêntico a [raw];
+ *  - offsets de validação ambos presentes ou ambos ausentes;
+ *  - validationStart == start;
+ *  - validationEndExclusive > endExclusive;
+ *  - validationEndExclusive <= sourceText.length.
+ */
+internal fun isValidPublicationSpan(
+    start: Int,
+    endExclusive: Int,
+    raw: String,
+    validationStart: Int?,
+    validationEndExclusive: Int?,
+    sourceText: String,
+): Boolean {
+    if (raw.isBlank()) return false
+    if (start < 0 || endExclusive <= start) return false
+    if (endExclusive > sourceText.length) return false
+    if (sourceText.substring(start, endExclusive) != raw) return false
+    if (validationStart != null || validationEndExclusive != null) {
+        if (validationStart == null || validationEndExclusive == null) return false
+        if (validationStart != start) return false
+        if (validationEndExclusive <= endExclusive) return false
+        if (validationEndExclusive > sourceText.length) return false
+    }
+    return true
+}
+
+internal fun publicationDisplayLinks(
+    sourceText: String,
+    occurrences: List<PublicationReferenceOccurrence>,
+    blockIndex: Int = 0,
+): List<PublicationDisplayLink> = occurrences.mapIndexedNotNull { index, occurrence ->
+    if (!isValidPublicationSpan(
+            occurrence.start,
+            occurrence.endExclusive,
+            occurrence.raw,
+            occurrence.validationStart,
+            occurrence.validationEndExclusive,
+            sourceText,
+        )
+    ) return@mapIndexedNotNull null
+    PublicationDisplayLink(
+        start = occurrence.start,
+        endExclusive = occurrence.endExclusive,
+        id = "$blockIndex:$index",
+        occurrence = occurrence,
+        sourceText = sourceText,
+        blockIndex = blockIndex,
+        occurrenceIndex = index,
+    )
+}
+
 /**
  * T3 — só domínios oficiais (jw.org e subdomínios, ex.: wol.jw.org) são
  * clicáveis. Puro/testável.
@@ -190,18 +279,20 @@ internal fun isJwUrl(url: String): Boolean {
 fun inline(
     text: String,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
     leading: androidx.compose.ui.text.AnnotatedString? = null,
 ): androidx.compose.ui.text.AnnotatedString {
     // Cores lidas fora do remember (leitura composable não pode viver no lambda).
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant
     val linkColor = MaterialTheme.colorScheme.tertiary
-    return remember(text, codeBackground, linkColor, bibleLinks, leading) {
+    return remember(text, codeBackground, linkColor, bibleLinks, publicationLinks, leading) {
         buildInline(
             text = text,
             codeBackground = codeBackground,
             linkColor = linkColor,
             leading = leading,
             bibleLinks = bibleLinks,
+            publicationLinks = publicationLinks,
         )
     }
 }
@@ -211,8 +302,9 @@ fun inline(
  * `código` em monoespaçado (com fundo [codeBackground]) e links markdown
  * `[texto](url)` (clicáveis apenas para jw.org; outros domínios ficam
  * sublinhados e inertes). UX-REF-1A2: [bibleLinks] usam spans do texto-fonte
- * e viram `LinkAnnotation.Clickable`; [leading] entra antes do texto sem
- * deslocar os spans porque os links são aplicados durante a emissão.
+ * e viram links; UX-REF-1B.3: [publicationLinks] usam o mesmo mecanismo com
+ * URI própria (publicação vence em:start igual). [leading] entra antes do
+ * texto sem deslocar os spans porque os links são aplicados na emissão.
  * Puro/testável.
  */
 fun buildInline(
@@ -221,6 +313,7 @@ fun buildInline(
     linkColor: Color = Color.Unspecified,
     leading: androidx.compose.ui.text.AnnotatedString? = null,
     bibleLinks: List<InlineBibleLink> = emptyList(),
+    publicationLinks: List<PublicationDisplayLink> = emptyList(),
 ): androidx.compose.ui.text.AnnotatedString = buildAnnotatedString {
     leading?.let { append(it) }
     var i = 0
@@ -228,38 +321,47 @@ fun buildInline(
     var italic = false
     var mono = false
     val buf = StringBuilder()
-    fun appendWithLink(s: String, link: InlineBibleLink?) {
-        if (link == null) {
+    fun linkStyles() = if (linkColor.isSpecified) {
+        TextLinkStyles(
+            style = SpanStyle(
+                color = linkColor,
+                textDecoration = TextDecoration.Underline
+            )
+        )
+    } else {
+        null
+    }
+    fun appendWithLink(
+        s: String,
+        bible: InlineBibleLink? = null,
+        publication: PublicationDisplayLink? = null,
+    ) {
+        if (bible == null && publication == null) {
             append(s)
             return
         }
-        val styles = if (linkColor.isSpecified) {
-            TextLinkStyles(
-                style = SpanStyle(
-                    color = linkColor,
-                    textDecoration = TextDecoration.Underline
-                )
-            )
+        // Mesma posição: publicação vence (o detector já exclui spans bíblicos).
+        val url = if (publication != null) {
+            publicationLinkUri(publication.id)
         } else {
-            null
+            "bettertalker-bible://open?ref=${bible!!.tag}"
         }
-        withLink(
-            LinkAnnotation.Url(
-                url = "bettertalker-bible://open?ref=${link.tag}",
-                styles = styles,
-            )
-        ) { append(s) }
+        withLink(LinkAnnotation.Url(url, linkStyles())) { append(s) }
     }
-    fun emitStyled(s: String, link: InlineBibleLink? = null) {
+    fun emitStyled(
+        s: String,
+        bible: InlineBibleLink? = null,
+        publication: PublicationDisplayLink? = null,
+    ) {
         if (s.isEmpty()) return
         when {
             mono -> withStyle(
                 SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground)
-            ) { appendWithLink(s, link) }
-            bold && italic -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { appendWithLink(s, link) }
-            bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { appendWithLink(s, link) }
-            italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendWithLink(s, link) }
-            else -> appendWithLink(s, link)
+            ) { appendWithLink(s, bible, publication) }
+            bold && italic -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) { appendWithLink(s, bible, publication) }
+            bold -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { appendWithLink(s, bible, publication) }
+            italic -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendWithLink(s, bible, publication) }
+            else -> appendWithLink(s, bible, publication)
         }
     }
     fun emit() {
@@ -268,15 +370,81 @@ fun buildInline(
         buf.clear()
         emitStyled(s)
     }
-    val linksByStart = bibleLinks
-        .filter { it.start >= 0 && it.endExclusive > it.start && it.endExclusive <= text.length }
-        .associateBy { it.start }
+    // Validação defensiva + identidade literal: um link só é aplicado quando
+    // o span corresponde exatamente à ocorrência e ao texto-fonte. Spans
+    // inválidos viram texto comum (nunca link para conteúdo errado).
+    val validBibleLinks = bibleLinks.filter { link ->
+        link.start >= 0 && link.endExclusive > link.start && link.endExclusive <= text.length
+    }
+    val validPublicationLinks = publicationLinks.filter { link ->
+        // P5 — identidade exata da ocorrência: offsets visuais e identificador
+        // precisam corresponder à mesma ocorrência, mesmo com texto idêntico.
+        link.sourceText == text &&
+            link.start == link.occurrence.start &&
+            link.endExclusive == link.occurrence.endExclusive &&
+            link.blockIndex >= 0 &&
+            link.occurrenceIndex >= 0 &&
+            link.id == "${link.blockIndex}:${link.occurrenceIndex}" &&
+            isValidPublicationSpan(
+                link.start,
+                link.endExclusive,
+                link.occurrence.raw,
+                link.occurrence.validationStart,
+                link.occurrence.validationEndExclusive,
+                text,
+            )
+    }
+    // Rejeitar IDs duplicados no mesmo conjunto de renderização.
+    val idCounts = validPublicationLinks.groupingBy { it.id }.eachCount()
+    val uniquePublicationLinks = validPublicationLinks.filter { idCounts[it.id] == 1 }
+
+    // Resolução de conflitos (pura, determinística):
+    //  - spans disjuntos: ambos preservados.
+    //  - spans sobrepostos (inclusive idênticos) ou com mesmo id: descartar
+    //    os conflitantes (conservador, sem precedência automática).
+    //  - sem links aninhados.
+    val droppedBible = mutableSetOf<InlineBibleLink>()
+    val droppedPublication = mutableSetOf<PublicationDisplayLink>()
+    val allSpans = uniquePublicationLinks.map { Triple(it.start, it.endExclusive, it) } +
+        validBibleLinks.map { Triple(it.start, it.endExclusive, it) }
+    for (a in allSpans) {
+        for (b in allSpans) {
+            if (a === b) continue
+            val aStart = a.first; val aEnd = a.second
+            val bStart = b.first; val bEnd = b.second
+            val overlaps = aStart < bEnd && bStart < aEnd
+            val sameId = a.third is PublicationDisplayLink && b.third is PublicationDisplayLink &&
+                (a.third as PublicationDisplayLink).id == (b.third as PublicationDisplayLink).id
+            if (overlaps || sameId) {
+                when (a.third) {
+                    is PublicationDisplayLink -> droppedPublication += a.third as PublicationDisplayLink
+                    is InlineBibleLink -> droppedBible += a.third as InlineBibleLink
+                }
+                when (b.third) {
+                    is PublicationDisplayLink -> droppedPublication += b.third as PublicationDisplayLink
+                    is InlineBibleLink -> droppedBible += b.third as InlineBibleLink
+                }
+            }
+        }
+    }
+
+    val allowedPublicationLinks = uniquePublicationLinks.filter { it !in droppedPublication }
+    val allowedBibleLinks = validBibleLinks.filter { it !in droppedBible }
+
+    val bibleLinksByStart = allowedBibleLinks.associateBy { it.start }
+    val publicationLinksByStart = allowedPublicationLinks.associateBy { it.start }
     while (i < text.length) {
-        val bibleLink = linksByStart[i]
-        if (bibleLink != null) {
+        val publicationLink = publicationLinksByStart[i]
+        val bibleLink = bibleLinksByStart[i]
+        if (publicationLink != null || bibleLink != null) {
             emit()
-            emitStyled(text.substring(bibleLink.start, bibleLink.endExclusive), bibleLink)
-            i = bibleLink.endExclusive
+            val end = if (publicationLink != null) publicationLink.endExclusive else bibleLink!!.endExclusive
+            emitStyled(
+                text.substring(i, end),
+                bible = if (publicationLink == null) bibleLink else null,
+                publication = publicationLink,
+            )
+            i = end
             continue
         }
         when {
@@ -294,17 +462,7 @@ fun buildInline(
                     val url = text.substring(paren + 1, urlEnd)
                     if (isJwUrl(url)) {
                         // P1: estilo explícito (cor + sublinhado) quando informado.
-                        val styles = if (linkColor.isSpecified) {
-                            TextLinkStyles(
-                                style = SpanStyle(
-                                    color = linkColor,
-                                    textDecoration = TextDecoration.Underline
-                                )
-                            )
-                        } else {
-                            null
-                        }
-                        withLink(LinkAnnotation.Url(url, styles)) {
+                        withLink(LinkAnnotation.Url(url, linkStyles())) {
                             append(label)
                         }
                     } else {
