@@ -6,6 +6,7 @@ import com.bettertalker.app.data.copilot.DecisionRecord
 import com.bettertalker.app.data.copilot.DecisionScope
 import com.bettertalker.app.data.copilot.DecisionSource
 import com.bettertalker.app.data.copilot.DecisionState
+import com.bettertalker.app.data.copilot.RemoveDecisionResult
 import com.bettertalker.app.data.copilot.ReconcileOperation
 import com.bettertalker.app.data.copilot.SectionLink
 import com.bettertalker.app.data.copilot.SectionSnapshot
@@ -691,4 +692,84 @@ class DecisionMemoryRepositoryTest {
         assertEquals(20L, removed.removedAt)
         assertEquals(removed, dao.rows.single().toDomain())
     }
+
+    @Test
+    fun remocaoCondicionalRemoveConfirmadaAtivaDaMesmaNota() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Removed)
+        val removed = (result as RemoveDecisionResult.Removed).decision
+        assertEquals(DecisionState.REMOVED, removed.decisionState)
+        assertEquals(20L, removed.removedAt)
+        assertEquals(removed, dao.rows.single().toDomain())
+    }
+
+    @Test
+    fun remocaoCondicionalRejeitaDecisaoDeOutraNota() = runBlocking {
+        setUp()
+        repo.save(noteDecision(noteId = "n2"))
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Ineligible)
+        // Registro não alterado.
+        assertEquals(DecisionState.ACTIVE, dao.rows.single().toDomain().decisionState)
+    }
+
+    @Test
+    fun remocaoCondicionalRejeitaInexistente() = runBlocking {
+        setUp()
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.NotFound)
+    }
+
+    @Test
+    fun remocaoCondicionalRejeitaJaRemovida() = runBlocking {
+        setUp()
+        repo.save(noteDecision(state = DecisionState.REMOVED, updatedAt = 10L))
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Ineligible)
+    }
+
+    @Test
+    fun remocaoCondicionalRejeitaSubstituida() = runBlocking {
+        setUp()
+        repo.save(noteDecision(state = DecisionState.SUPERSEDED, updatedAt = 10L))
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Ineligible)
+    }
+
+    @Test
+    fun remocaoCondicionalRejeitaPreferencia() = runBlocking {
+        setUp()
+        repo.save(noteDecision(kind = DecisionKind.PREFERENCE))
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Ineligible)
+    }
+
+    @Test
+    fun remocaoCondicionalFalhaDePersistenciaPropaga() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+        dao.failOnIds = setOf("g1")
+
+        val thrown = runCatching {
+            repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+        }
+        assertTrue(thrown.isFailure)
+        // Registro não alterado.
+        assertEquals(DecisionState.ACTIVE, dao.rows.single().toDomain().decisionState)
+    }
 }
+

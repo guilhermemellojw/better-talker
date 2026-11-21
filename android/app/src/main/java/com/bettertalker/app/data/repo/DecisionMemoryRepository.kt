@@ -5,7 +5,9 @@ import com.bettertalker.app.data.copilot.DecisionRecord
 import com.bettertalker.app.data.copilot.DecisionRelationship
 import com.bettertalker.app.data.copilot.DecisionScope
 import com.bettertalker.app.data.copilot.DecisionSectionReconciler
+import com.bettertalker.app.data.copilot.DecisionKind
 import com.bettertalker.app.data.copilot.DecisionState
+import com.bettertalker.app.data.copilot.RemoveDecisionResult
 import com.bettertalker.app.data.copilot.DecisionTransitions
 import com.bettertalker.app.data.copilot.IneligibleReason
 import com.bettertalker.app.data.copilot.ReconcileOperation
@@ -185,6 +187,37 @@ class DecisionMemoryRepository(
         now: Long,
     ): DecisionRecord? = update(decisionId) {
         DecisionTransitions.removePermanently(it, now)
+    }
+
+    /**
+     * 1C.2.2B1a — remoção condicional e atômica.
+     *
+     * Valida nota, kind e estado DENTRO da transação, evitando corrida entre
+     * leitura e escrita. Retorna um resultado tipado que distingue sucesso
+     * efetivo de registro ausente ou inelegível.
+     */
+    suspend fun removePermanentlyIfEligible(
+        decisionId: String,
+        noteId: String,
+        now: Long = System.currentTimeMillis(),
+    ): RemoveDecisionResult {
+        require(decisionId.isNotBlank()) { "decision.id vazio" }
+        require(noteId.isNotBlank()) { "noteId vazio" }
+        return transactionRunner.run {
+            val current = dao.get(decisionId)?.toDomain()
+                ?: return@run RemoveDecisionResult.NotFound
+            if (current.noteId != noteId) {
+                return@run RemoveDecisionResult.Ineligible
+            }
+            if (current.kind != DecisionKind.CONFIRMED ||
+                current.decisionState != DecisionState.ACTIVE
+            ) {
+                return@run RemoveDecisionResult.Ineligible
+            }
+            val updated = DecisionTransitions.removePermanently(current, now)
+            if (updated != current) dao.upsert(updated.toEntity())
+            RemoveDecisionResult.Removed(updated)
+        }
     }
 
     /**

@@ -14,6 +14,7 @@ import com.bettertalker.app.data.copilot.DecisionPromptMemoryResult
 import com.bettertalker.app.data.copilot.DecisionKind
 import com.bettertalker.app.data.copilot.DecisionRecord
 import com.bettertalker.app.data.copilot.DecisionState
+import com.bettertalker.app.data.copilot.RemoveDecisionResult
 import com.bettertalker.app.data.copilot.MINIMAL_MEMORY_MAX_CHARS
 import com.bettertalker.app.data.copilot.asReconciliationHook
 import com.bettertalker.app.data.copilot.loadDecisionPromptMemory
@@ -252,6 +253,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 data class InsertRequest(
     val text: String,
@@ -3890,9 +3892,12 @@ class CopilotViewModel(
      * 1C.2.2A — carrega a memória persistida para a visão somente leitura.
      * Não altera ledger, abordagem, texto ou prompt.
      */
-    fun loadDecisionMemory() {
+    private val _decisionMemoryLoadToken = AtomicLong(0)
+
+    fun loadDecisionMemory(force: Boolean = false) {
         val nid = noteId ?: return
-        if (_decisionMemoryUi.value.isLoading) return
+        if (!force && _decisionMemoryUi.value.isLoading) return
+        val token = _decisionMemoryLoadToken.incrementAndGet()
         _decisionMemoryUi.value = _decisionMemoryUi.value.copy(
             isLoading = true,
             error = null,
@@ -3900,10 +3905,12 @@ class CopilotViewModel(
         viewModelScope.launch {
             try {
                 val decisions = decisionMemory.forNote(nid)
+                if (token != _decisionMemoryLoadToken.get() || noteId != nid) return@launch
                 _decisionMemoryUi.value = buildDecisionMemoryUi(decisions)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
+                if (token != _decisionMemoryLoadToken.get() || noteId != nid) return@launch
                 _decisionMemoryUi.value = DecisionMemoryUiState(
                     error = "Não consegui carregar as decisões agora.",
                 )
@@ -3926,22 +3933,26 @@ class CopilotViewModel(
         if (!removeDecisionInFlight.compareAndSet(false, true)) return
         viewModelScope.launch {
             try {
-                val decision = decisionMemory.get(decisionId)
-                if (decision == null || decision.noteId != nid) {
-                    _decisionMemoryNotice.value =
-                        "Não encontrei essa decisão. Atualize a lista."
-                    return@launch
+                val result = decisionMemory.removePermanentlyIfEligible(
+                    decisionId = decisionId,
+                    noteId = nid,
+                    now = System.currentTimeMillis(),
+                )
+                when (result) {
+                    is RemoveDecisionResult.Removed -> {
+                        loadDecisionMemory(force = true)
+                        _decisionMemoryNotice.value =
+                            "Decisão removida. Ela não orientará mais o Mentor."
+                    }
+                    RemoveDecisionResult.NotFound -> {
+                        _decisionMemoryNotice.value =
+                            "Não encontrei essa decisão. Atualize a lista."
+                    }
+                    RemoveDecisionResult.Ineligible -> {
+                        _decisionMemoryNotice.value =
+                            "Esta decisão não pode ser removida."
+                    }
                 }
-                if (decision.kind != DecisionKind.CONFIRMED ||
-                    decision.decisionState != DecisionState.ACTIVE
-                ) {
-                    _decisionMemoryNotice.value =
-                        "Esta decisão não pode ser removida."
-                    return@launch
-                }
-                decisionMemory.removePermanently(decisionId, System.currentTimeMillis())
-                loadDecisionMemory()
-                _decisionMemoryNotice.value = "Decisão removida da memória."
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {

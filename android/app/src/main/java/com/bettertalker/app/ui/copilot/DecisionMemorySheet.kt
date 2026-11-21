@@ -196,8 +196,9 @@ fun DecisionMemoryContent(
             title = { Text("Parar de lembrar esta decisão?") },
             text = {
                 Text(
-                    "Esta decisão deixará de orientar as respostas do Mentor. " +
-                        "Ela continuará aparecendo no histórico como removida.",
+                    "Esta decisão deixará de ser usada como orientação confirmada " +
+                        "pelo Mentor. Ela continuará no histórico da memória como " +
+                        "removida.",
                 )
             },
             confirmButton = {
