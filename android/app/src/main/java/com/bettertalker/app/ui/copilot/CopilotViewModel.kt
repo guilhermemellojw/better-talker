@@ -5078,10 +5078,15 @@ class CopilotViewModel(
                         // (system, estável, cache preservado); a memória canônica
                         // da seção resolvida entra SOMENTE no userContextBlock
                         // (volátil, fora do system e do corpus de evidências).
+                        // P7: structural/oratory do turnContext podem representar o
+                        // foco anterior (seção A) quando a geração é para a seção
+                        // resolvida (B). Omitir evita que a estrutura S-34 da
+                        // seção A vaze para o system; a estrutura correta já está
+                        // na mensagem (buildCardPrompt) e nas referências.
                         contextBlock = oratoryContextBlock?.takeIf { it.isNotBlank() },
                         userContextBlock = resolvedPromptMemory.block,
-                        structural = turnContext.structural,
-                        oratory = turnContext.oratory,
+                        structural = null,
+                        oratory = null,
                         blockTitle = section.title,
                         blockMinutes = ready.minutes ?: lastDossier?.currentSection?.minutes,
                     )
