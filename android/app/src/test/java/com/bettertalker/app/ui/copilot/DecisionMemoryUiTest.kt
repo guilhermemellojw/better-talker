@@ -103,6 +103,21 @@ class DecisionMemoryUiTest {
     }
 
     @Test
+    fun isRemovableApenasParaConfirmadaAtiva() {
+        val active = build(decision("a")).active.single()
+        assertTrue(active.isRemovable)
+
+        val attention = build(decision("b", link = SectionLink.ORPHANED)).attention.single()
+        assertTrue(attention.isRemovable)
+
+        val history = build(decision("c", state = DecisionState.SUPERSEDED)).history.single()
+        assertFalse(history.isRemovable)
+
+        val preference = build(decision("d", kind = DecisionKind.PREFERENCE, source = DecisionSource.EXPLICIT_USER)).history.single()
+        assertFalse(preference.isRemovable)
+    }
+
+    @Test
     fun orfaPendenteEAplicacaoStaleVaoParaAtencao() {
         val orphan = decision("a", link = SectionLink.ORPHANED)
         val pending = decision("b", link = SectionLink.PENDING_RECONFIRMATION)

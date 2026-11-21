@@ -11,7 +11,9 @@ import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.DecisionPromptMemory
 import com.bettertalker.app.data.copilot.DecisionPromptMemoryResult
+import com.bettertalker.app.data.copilot.DecisionKind
 import com.bettertalker.app.data.copilot.DecisionRecord
+import com.bettertalker.app.data.copilot.DecisionState
 import com.bettertalker.app.data.copilot.MINIMAL_MEMORY_MAX_CHARS
 import com.bettertalker.app.data.copilot.asReconciliationHook
 import com.bettertalker.app.data.copilot.loadDecisionPromptMemory
@@ -904,6 +906,10 @@ class CopilotViewModel(
     private val _decisionMemoryUi = MutableStateFlow(DecisionMemoryUiState())
     val decisionMemoryUi: StateFlow<DecisionMemoryUiState> =
         _decisionMemoryUi.asStateFlow()
+    // 1C.2.2B1a — feedback efêmero para ações na Memória do Mentor.
+    private val _decisionMemoryNotice = MutableStateFlow<String?>(null)
+    val decisionMemoryNotice: StateFlow<String?> = _decisionMemoryNotice.asStateFlow()
+    fun consumeDecisionMemoryNotice() { _decisionMemoryNotice.value = null }
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val _query = MutableStateFlow("")
@@ -3901,6 +3907,48 @@ class CopilotViewModel(
                 _decisionMemoryUi.value = DecisionMemoryUiState(
                     error = "Não consegui carregar as decisões agora.",
                 )
+            }
+        }
+    }
+
+    /**
+     * 1C.2.2B1a — "Parar de lembrar" uma decisão confirmada.
+     *
+     * Valida nota, pertencimento e elegibilidade (CONFIRMED + ACTIVE) antes
+     * de marcar como REMOVED. Preserva o ledger (sem exclusão física) e
+     * recarrega a memória. Guard contra toques concorrentes.
+     */
+    private val removeDecisionInFlight = AtomicBoolean(false)
+
+    fun removeDecision(decisionId: String) {
+        val nid = noteId ?: return
+        if (decisionId.isBlank()) return
+        if (!removeDecisionInFlight.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val decision = decisionMemory.get(decisionId)
+                if (decision == null || decision.noteId != nid) {
+                    _decisionMemoryNotice.value =
+                        "Não encontrei essa decisão. Atualize a lista."
+                    return@launch
+                }
+                if (decision.kind != DecisionKind.CONFIRMED ||
+                    decision.decisionState != DecisionState.ACTIVE
+                ) {
+                    _decisionMemoryNotice.value =
+                        "Esta decisão não pode ser removida."
+                    return@launch
+                }
+                decisionMemory.removePermanently(decisionId, System.currentTimeMillis())
+                loadDecisionMemory()
+                _decisionMemoryNotice.value = "Decisão removida da memória."
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _decisionMemoryNotice.value =
+                    "Não consegui concluir agora. A decisão continua salva."
+            } finally {
+                removeDecisionInFlight.set(false)
             }
         }
     }

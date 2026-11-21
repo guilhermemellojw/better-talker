@@ -30,6 +30,8 @@ data class DecisionMemoryItemUi(
     val applicationLabel: String,
     val replacesText: String? = null,
     val replacedByText: String? = null,
+    /** 1C.2.2B1a — elegível para "Parar de lembrar" (CONFIRMED + ACTIVE). */
+    val isRemovable: Boolean = false,
 )
 
 data class DecisionMemoryUiState(
@@ -87,6 +89,8 @@ fun buildDecisionMemoryUi(
             applicationLabel = applicationLabelOf(decision),
             replacesText = previous?.text,
             replacedByText = replacement?.text,
+            isRemovable = decision.kind == DecisionKind.CONFIRMED &&
+                decision.decisionState == DecisionState.ACTIVE,
         )
     }
 

@@ -55,6 +55,7 @@ internal fun DecisionMemorySheet(
     noteTitle: String,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
+    onRemoveDecision: (String) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         DecisionMemoryContent(
@@ -62,6 +63,7 @@ internal fun DecisionMemorySheet(
             noteTitle = noteTitle,
             onClose = onDismiss,
             onRetry = onRetry,
+            onRemoveDecision = onRemoveDecision,
         )
     }
 }
@@ -72,8 +74,10 @@ fun DecisionMemoryContent(
     noteTitle: String,
     onClose: () -> Unit,
     onRetry: () -> Unit,
+    onRemoveDecision: (String) -> Unit = {},
 ) {
     var selected by remember { mutableStateOf<DecisionMemoryItemUi?>(null) }
+    var confirmRemove by remember { mutableStateOf<DecisionMemoryItemUi?>(null) }
     val error = state.error
 
     Column(
@@ -175,7 +179,38 @@ fun DecisionMemoryContent(
     }
 
     selected?.let { item ->
-        DecisionMemoryDetailDialog(item = item, onDismiss = { selected = null })
+        DecisionMemoryDetailDialog(
+            item = item,
+            onDismiss = { selected = null },
+            onRemoveDecision = if (item.isRemovable) {
+                { confirmRemove = item }
+            } else {
+                null
+            },
+        )
+    }
+
+    confirmRemove?.let { item ->
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Parar de lembrar esta decisão?") },
+            text = {
+                Text(
+                    "Esta decisão deixará de orientar as respostas do Mentor. " +
+                        "Ela continuará aparecendo no histórico como removida.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRemoveDecision(item.id)
+                    confirmRemove = null
+                    selected = null
+                }) { Text("Parar de lembrar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = null }) { Text("Cancelar") }
+            },
+        )
     }
 }
 
@@ -270,6 +305,7 @@ private fun MemoryStatus(label: String, tone: DecisionMemoryTone) {
 private fun DecisionMemoryDetailDialog(
     item: DecisionMemoryItemUi,
     onDismiss: () -> Unit,
+    onRemoveDecision: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -297,7 +333,14 @@ private fun DecisionMemoryDetailDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fechar") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onRemoveDecision != null) {
+                    TextButton(onClick = onRemoveDecision) {
+                        Text("Parar de lembrar")
+                    }
+                }
+                TextButton(onClick = onDismiss) { Text("Fechar") }
+            }
         },
     )
 }
