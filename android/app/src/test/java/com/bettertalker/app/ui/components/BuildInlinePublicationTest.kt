@@ -142,24 +142,43 @@ class BuildInlinePublicationTest {
         check(occs.size >= 2) { "detector não produziu duas ocorrências" }
         val first = occs[0]
         val second = occs[1]
-        // Descritor inconsistente: offsets do segundo apontando para a primeira.
-        val swapped = publicationDisplayLinks(text, listOf(first, second)).mapIndexed { idx, link ->
+        val validLinks = publicationDisplayLinks(text, listOf(first, second))
+        assertEquals(2, validLinks.size)
+
+        // Descritor adulterado: offsets do segundo apontam para a primeira ocorrência.
+        val swapped = validLinks.mapIndexed { idx, link ->
             if (idx == 1) link.copy(start = first.start, endExclusive = first.endExclusive) else link
         }
         val annotated = buildInline(text, publicationLinks = swapped)
-        // O descritor trocado deve ser rejeitado; nenhum link inválido aplicado.
-        assertTrue(annotated.getLinkAnnotations(0, annotated.length).size <= occs.size)
+
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(1, rendered.size)
+        val range = rendered.single()
+        val url = range.item as LinkAnnotation.Url
+        assertEquals(publicationLinkUri(validLinks[0].id), url.url)
+        assertEquals(first.start, range.start)
+        assertEquals(first.endExclusive, range.end)
     }
 
     @Test
     fun detectorRealProduzLinks() {
         val text = "Veja Achegue-se a Jeová, capítulo 5."
         val occs = PublicationReferenceSpanDetector.detect(text)
+        assertTrue("detector deve reconhecer a referência", occs.isNotEmpty())
         val links = publicationDisplayLinks(text, occs)
+        assertTrue("deve haver descritor válido", links.isNotEmpty())
         val annotated = buildInline(text, publicationLinks = links)
         assertEquals(text, annotated.text)
-        // Pelo menos um link válido quando o detector reconhece a referência.
-        assertTrue(links.size >= 0)
+
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(links.size, rendered.size)
+        val occ = occs.first()
+        val link = links.first()
+        val range = rendered.first()
+        val url = range.item as LinkAnnotation.Url
+        assertEquals(publicationLinkUri(link.id), url.url)
+        assertEquals(occ.start, range.start)
+        assertEquals(occ.endExclusive, range.end)
     }
 
     @Test
@@ -171,6 +190,132 @@ class BuildInlinePublicationTest {
         val annotated = buildInline(text, publicationLinks = listOf(link, dup))
         assertEquals(0, annotated.getLinkAnnotations(0, annotated.length).size)
         assertEquals(text, annotated.text)
+    }
+
+
+    @Test
+    fun negritoPreservaOffsetsVisuais() {
+        val token = "Achegue-se a Jeová"
+        val text = "**$token**, capítulo 5."
+        val start = text.indexOf(token)
+        val occ = PublicationReferenceOccurrence(
+            raw = token,
+            start = start,
+            endExclusive = start + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+        val link = publicationDisplayLinks(text, listOf(occ)).single()
+        val annotated = buildInline(text, publicationLinks = listOf(link))
+
+        val expectedText = "$token, capítulo 5."
+        assertEquals(expectedText, annotated.text)
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(1, rendered.size)
+        val range = rendered.single()
+        val url = range.item as LinkAnnotation.Url
+        assertEquals(publicationLinkUri(link.id), url.url)
+        assertEquals(0, range.start)
+        assertEquals(token.length, range.end)
+    }
+
+    @Test
+    fun italicoPreservaOffsetsVisuais() {
+        val token = "Achegue-se a Jeová"
+        val text = "_${token}_, capítulo 5."
+        val start = text.indexOf(token)
+        val occ = PublicationReferenceOccurrence(
+            raw = token,
+            start = start,
+            endExclusive = start + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+        val link = publicationDisplayLinks(text, listOf(occ)).single()
+        val annotated = buildInline(text, publicationLinks = listOf(link))
+
+        val expectedText = "$token, capítulo 5."
+        assertEquals(expectedText, annotated.text)
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(1, rendered.size)
+        val range = rendered.single()
+        val url = range.item as LinkAnnotation.Url
+        assertEquals(publicationLinkUri(link.id), url.url)
+        assertEquals(0, range.start)
+        assertEquals(token.length, range.end)
+    }
+
+    @Test
+    fun referenciaRepetidaPreservaIdentidade() {
+        val token = "Achegue-se a Jeová"
+        val text = "$token, capítulo 5. $token, capítulo 10."
+        val firstStart = text.indexOf(token)
+        val secondStart = text.indexOf(token, firstStart + 1)
+        val firstOcc = PublicationReferenceOccurrence(
+            raw = token,
+            start = firstStart,
+            endExclusive = firstStart + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+        val secondOcc = PublicationReferenceOccurrence(
+            raw = token,
+            start = secondStart,
+            endExclusive = secondStart + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+        val links = publicationDisplayLinks(text, listOf(firstOcc, secondOcc))
+        assertEquals(2, links.size)
+        assertEquals(firstOcc, links[0].occurrence)
+        assertEquals(secondOcc, links[1].occurrence)
+        assertEquals("0:0", links[0].id)
+        assertEquals("0:1", links[1].id)
+
+        val annotated = buildInline(text, publicationLinks = links)
+        assertEquals(text, annotated.text)
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        assertEquals(2, rendered.size)
+        assertEquals(firstStart, rendered[0].start)
+        assertEquals(firstStart + token.length, rendered[0].end)
+        assertEquals(secondStart, rendered[1].start)
+        assertEquals(secondStart + token.length, rendered[1].end)
+    }
+
+    @Test
+    fun codigoInlineEhProtegido() {
+        val text = "Use `Achegue-se a Jeová` na frase."
+        val occs = PublicationReferenceSpanDetector.detect(text)
+        val links = publicationDisplayLinks(text, occs)
+        val annotated = buildInline(text, publicationLinks = links)
+        assertEquals("Use Achegue-se a Jeová na frase.", annotated.text)
+        assertTrue("código inline protegido", links.isEmpty())
+        assertTrue(annotated.getLinkAnnotations(0, annotated.length).isEmpty())
+    }
+
+    @Test
+    fun linkMarkdownExistenteNaoAninha() {
+        val token = "Achegue-se a Jeová"
+        val text = "Veja [fonte](https://www.jw.org) e $token."
+        val start = text.indexOf(token)
+        val occ = PublicationReferenceOccurrence(
+            raw = token,
+            start = start,
+            endExclusive = start + token.length,
+            publicationKey = "lff",
+            titleHint = token,
+            editionKey = null,
+        )
+        val link = publicationDisplayLinks(text, listOf(occ)).single()
+        val annotated = buildInline(text, publicationLinks = listOf(link))
+        assertEquals("Veja fonte e $token.", annotated.text)
+        val rendered = annotated.getLinkAnnotations(0, annotated.length)
+        // Publicação renderizada sem aninhar com o link Markdown.
+        assertEquals(1, rendered.count { (it.item as LinkAnnotation.Url).url.startsWith(PUBLICATION_LINK_URI_PREFIX) })
     }
 
 }
