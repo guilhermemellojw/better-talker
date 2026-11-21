@@ -223,4 +223,48 @@ class DecisionPromptPayloadTest {
         // Sem duplicação da memória no user.
         assertEquals(1, Regex("encerrar com uma aplicação prática").findAll(prompts.user).count())
     }
+
+    @Test
+    fun dossieIncompativelNaoEntraNoSystemEMemoriaPermaneceNoUser() {
+        // P6: quando o dossiê da seção resolvida é incompatível/indisponível, o
+        // dossiê do foco anterior NÃO é enviado; apenas a memória canônica da
+        // seção resolvida entra no user.
+        val canonical = DecisionPromptMemory.build(
+            decisions = listOf(
+                DecisionRecord(
+                    id = "c", noteId = "n1", scope = DecisionScope.SECTION,
+                    kind = DecisionKind.CONFIRMED, decisionState = DecisionState.ACTIVE,
+                    sectionLink = SectionLink.VALID, applicationState = ApplicationState.NOT_APPLIED,
+                    text = "encerrar com uma aplicação prática", source = DecisionSource.EXPLICIT_USER,
+                    sectionId = "s2", originalSectionId = "s2",
+                    sectionTitleSnapshot = "Conclusão", sectionRoleSnapshot = com.bettertalker.app.domain.speech.SectionRole.CONCLUSION,
+                    sectionOrderSnapshot = 2, sectionContentHashSnapshot = "hash-s2",
+                    originalSectionTitleSnapshot = "Conclusão", originalSectionRoleSnapshot = com.bettertalker.app.domain.speech.SectionRole.CONCLUSION,
+                    originalSectionOrderSnapshot = 2, originalSectionContentHashSnapshot = "hash-s2",
+                    createdAt = 10L, updatedAt = 10L,
+                ),
+            ),
+            noteId = "n1", focusSectionId = "s2", wholeNote = false,
+        )
+        val focusDossier = "## SEÇÃO ATUAL\nPonto 1 (dossiê do foco anterior)"
+        val prompts = buildDeepSeekPrompts(
+            message = "prepare a conclusão",
+            history = emptyList(),
+            isFirstMessage = false,
+            pack = ContextPack(emptyList(), emptyList()),
+            blockTitle = "Conclusão",
+            blockMinutes = 5,
+            blockText = "Texto da conclusão.",
+            contextBlock = null, // dossiê incompatível → ausente
+            userContextBlock = canonical.block,
+        )
+        // Memória da seção resolvida no user.
+        assertTrue(prompts.user.contains("encerrar com uma aplicação prática"))
+        assertTrue(prompts.user.contains("## CONTEXTO DESTE TURNO"))
+        // Dossiê do foco anterior ausente do system.
+        assertFalse(prompts.system.contains("dossiê do foco anterior"))
+        assertFalse(prompts.system.contains("## DECISÕES CONFIRMADAS"))
+        // Memória ausente do system.
+        assertFalse(prompts.system.contains("encerrar com uma aplicação prática"))
+    }
 }

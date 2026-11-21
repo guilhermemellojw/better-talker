@@ -4663,21 +4663,6 @@ class CopilotViewModel(
         else _chatScope.value ?: _pushedContext?.sectionId
 
     /**
-     * 1C.2.2B0 P1: remove os blocos de abordagem legada (CONFIRMADA/LEGADO)
-     * injetados pelo dossiê do foco anterior quando a memória canônica da
-     * seção efetivamente resolvida exige supressão, evitando que decisões
-     * substituídas de outra seção reapareçam como orientação.
-     */
-    internal fun stripLegacyApproachBlock(text: String?): String? {
-        if (text.isNullOrBlank()) return text
-        val regex = Regex(
-            """(?s)## (?:ABORDAGEM CONFIRMADA PELO USUÁRIO|REGISTRO LEGADO DE ABORDAGEM).*?(?=\n## |\n?\z)""",
-        )
-        val cleaned = regex.replace(text, "").replace(Regex("\n{3,}"), "\n\n").trim()
-        return cleaned.ifBlank { null }
-    }
-
-    /**
      * "Texto total" no chat: NUNCA tenta um único texto gigante. Monta a fila
      * por seção (20+ min por sub-ponto) e entrega ao DraftSheet do editor,
      * onde cada parte é revisada/aceita antes de aplicar.
@@ -5003,30 +4988,15 @@ class CopilotViewModel(
         } catch (_: Exception) {
             null
         }
-        val dossierCompatible = resolvedDossier != null &&
-            resolvedDossier.currentSection.id == section.id
-        val resolvedExtraAuthorizedRefs = if (dossierCompatible) {
-            buildList {
-                resolvedDossier!!.bibleTexts.forEach { add(it.ref) }
-                resolvedDossier.publicationTexts.forEach { add(it.ref.symbol) }
-            }
-        } else {
-            // Nunca autorizar refs/evidências de um dossiê incompatível.
-            emptyList()
-        }
-        val oratoryContextBlock = if (dossierCompatible) {
-            contextBlockWithPractice(
-                dossier = resolvedDossier,
-                includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
-                includeApproach = true,
-            )
-        } else if (resolvedPromptMemory.suppressLegacyApproach) {
-            // Degradação segura: sem dossiê compatível, suprime o legado do
-            // contexto do foco anterior (nunca o dossiê incompatível).
-            stripLegacyApproachBlock(contextBlock)
-        } else {
-            null
-        }
+        val oratoryResolution = com.bettertalker.app.data.copilot.OratoryContextResolver.resolve(
+            sectionId = section.id,
+            resolvedDossier = resolvedDossier,
+            includeSpeakerNote = dossierSpeakerNoteIncluded(turnContext.structural),
+            practiceContext = _practiceContext.value,
+            promptBuilder = dossierPromptBuilder,
+        )
+        val resolvedExtraAuthorizedRefs = oratoryResolution.authorizedRefs
+        val oratoryContextBlock = oratoryResolution.contextBlock
         val block = oratoryFocusBlock(
             sectionTitle = section.title,
             sectionContentHtml = section.contentHtml,
