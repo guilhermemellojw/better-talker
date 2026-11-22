@@ -1468,6 +1468,66 @@ private fun NoteChatHost(
     var bibleNotice by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.bible.BibleReferenceNotice?>(null)
     }
+    val publicationResolver = androidx.compose.runtime.remember(db) {
+        com.bettertalker.app.data.publication.PublicationReferenceResolver(
+            db.attachmentDao(),
+            db.passageDao(),
+            db.publicationUnitDao(),
+        )
+    }
+    var publicationNotice by androidx.compose.runtime.remember(session.noteId) {
+        androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.publication.PublicationReferenceNotice?>(null)
+    }
+    androidx.compose.runtime.LaunchedEffect(session.noteId) {
+        publicationNotice = null
+    }
+    val publicationOpenCoordinator = androidx.compose.runtime.remember(
+        session.noteId,
+        navScope,
+        publicationResolver,
+        ctx,
+    ) {
+        com.bettertalker.app.data.publication.PublicationReferenceOpenCoordinator(
+            scope = navScope,
+            onResolution = { result ->
+                publicationNotice = when (result) {
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Available ->
+                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                            title = "Referência disponível",
+                            message = "A publicação está disponível no acervo local. " +
+                                "Abra a Biblioteca para consultá-la.",
+                            openLibrary = true,
+                        )
+
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Partial ->
+                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                            title = "Referência parcial",
+                            message = result.warning,
+                            openLibrary = true,
+                        )
+
+                    else ->
+                        com.bettertalker.app.data.publication.publicationReferenceNotice(result)
+                            ?: com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                                title = "Não foi possível abrir",
+                                message = "Não foi possível abrir esta referência agora.",
+                                openLibrary = false,
+                            )
+                }
+            },
+            onFailure = {
+                publicationNotice = com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                    title = "Não foi possível abrir",
+                    message = "Não foi possível abrir esta referência agora.",
+                    openLibrary = false,
+                )
+            },
+        )
+    }
+    androidx.compose.runtime.DisposableEffect(publicationOpenCoordinator) {
+        onDispose { publicationOpenCoordinator.cancel() }
+    }
+
     val bibleOpenCoordinator = androidx.compose.runtime.remember(
         navScope,
         bibleVm,
@@ -1701,6 +1761,15 @@ private fun NoteChatHost(
         onOpenBibleReference = { occurrence ->
             bibleOpenCoordinator.open(occurrence) { bibleResolver.resolve(it) }
         },
+        onOpenPublicationReference = { link ->
+            publicationNotice = null
+            publicationOpenCoordinator.open(link.occurrence, link.sourceText) { occ, src ->
+                publicationResolver.resolve(
+                    occurrence = occ,
+                    sourceText = src,
+                )
+            }
+        },
         practiceContext = practiceContext,
         onBackToWalkie = if (walkieDefault) ({ walkie = true }) else null,
         focusComposerOnStart = fullFocusRequest,
@@ -1756,6 +1825,36 @@ private fun NoteChatHost(
                 {
                     androidx.compose.material3.TextButton(
                         onClick = { bibleNotice = null },
+                    ) { androidx.compose.material3.Text("Agora não") }
+                }
+            } else {
+                null
+            },
+        )
+    }
+    publicationNotice?.let { notice ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { publicationNotice = null },
+            title = { androidx.compose.material3.Text(notice.title) },
+            text = { androidx.compose.material3.Text(notice.message) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        publicationNotice = null
+                        if (notice.openLibrary) {
+                            nav.navigate(Routes.library(session.noteId))
+                        }
+                    },
+                ) {
+                    androidx.compose.material3.Text(
+                        if (notice.openLibrary) "Abrir Biblioteca" else "Fechar",
+                    )
+                }
+            },
+            dismissButton = if (notice.openLibrary) {
+                {
+                    androidx.compose.material3.TextButton(
+                        onClick = { publicationNotice = null },
                     ) { androidx.compose.material3.Text("Agora não") }
                 }
             } else {
