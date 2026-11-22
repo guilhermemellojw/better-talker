@@ -1,0 +1,97 @@
+name: Roadmap status (proposal)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, closed, ready_for_review]
+  workflow_run:
+    workflows: ['Build Android APK']
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: roadmap-status-proposal
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    # Only the trusted main-branch code is executed. No checkout of PR code.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify pure report generator
+        run: python3 -m unittest discover -s tests -p 'test_roadmap_status.py' -v
+
+      - name: Generate snapshot outside the checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/roadmap_status.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/ROADMAP_STATUS.md"
+
+      - name: Create or update the documentation proposal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/roadmap-status
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+            # Never force-push or discard a human's changes to the proposal branch.
+            git merge --no-edit origin/main
+          else
+            git checkout -b "$BRANCH" origin/main
+          fi
+
+          mkdir -p docs
+          cp "$RUNNER_TEMP/ROADMAP_STATUS.md" docs/ROADMAP_STATUS.md
+          git add docs/ROADMAP_STATUS.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'docs: refresh GitHub progress snapshot [automated]'
+          fi
+
+          # No PR is needed when main already contains the same report.
+          if git diff --quiet origin/main HEAD -- docs/ROADMAP_STATUS.md; then
+            echo 'Roadmap status already matches main; no proposal necessary.'
+            exit 0
+          fi
+
+          # Fail closed if the existing bot branch contains unrelated file changes.
+          changed=$(git diff --name-only origin/main HEAD)
+          if [ "$changed" != 'docs/ROADMAP_STATUS.md' ]; then
+            echo "::error::Automation branch has unexpected changes: $changed"
+            exit 1
+          fi
+
+          git push origin "HEAD:refs/heads/$BRANCH"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
+            --base main --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title 'docs: atualizar progresso do roadmap (automático)' \
+              --body 'Relatório factual de PRs e checks gerado pelo workflow. Não altera fases, prioridades ou critérios de aceite. Revisar e integrar manualmente quando desejado.'
+          else
+            echo "Proposta atualizada: PR #$pr"
+          fi
