@@ -6,6 +6,7 @@ import com.bettertalker.app.data.copilot.DecisionRecord
 import com.bettertalker.app.data.copilot.DecisionScope
 import com.bettertalker.app.data.copilot.DecisionSource
 import com.bettertalker.app.data.copilot.DecisionState
+import com.bettertalker.app.data.copilot.DecisionPromptMemory
 import com.bettertalker.app.data.copilot.RemoveDecisionResult
 import com.bettertalker.app.data.copilot.ReconcileOperation
 import com.bettertalker.app.data.copilot.SectionLink
@@ -15,6 +16,8 @@ import com.bettertalker.app.data.db.DecisionEntity
 import com.bettertalker.app.data.db.TransactionRunner
 import com.bettertalker.app.data.db.toDomain
 import com.bettertalker.app.domain.speech.SectionRole
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -26,13 +29,18 @@ private class FakeDecisionDao : DecisionDao {
     var upsertCalls = 0
     var upsertAllCalls = 0
     var failOnIds: Set<String> = emptySet()
+    var failOnGet: Set<String> = emptySet()
+    var onGet: (suspend (String) -> Unit)? = null
 
     override suspend fun forNote(noteId: String): List<DecisionEntity> =
         rows.filter { it.noteId == noteId }
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
 
-    override suspend fun get(id: String): DecisionEntity? =
-        rows.firstOrNull { it.id == id }
+    override suspend fun get(id: String): DecisionEntity? {
+        if (id in failOnGet) error("leitura falhou para ${id}")
+        onGet?.invoke(id)
+        return rows.firstOrNull { it.id == id }
+    }
 
     override suspend fun upsert(record: DecisionEntity) {
         if (record.id in failOnIds) error("falha simulada em ${record.id}")
@@ -769,6 +777,95 @@ class DecisionMemoryRepositoryTest {
         }
         assertTrue(thrown.isFailure)
         // Registro não alterado.
+        assertEquals(DecisionState.ACTIVE, dao.rows.single().toDomain().decisionState)
+    }
+
+    @Test
+    fun remocaoConcorrenteDeDoisPedidosResultaConsistencia() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+
+        val r1 = async { repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L) }
+        val r2 = async { repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 21L) }
+        val results = listOf(r1.await(), r2.await())
+
+        assertEquals(1, results.count { it is RemoveDecisionResult.Removed })
+        assertEquals(1, results.count { it is RemoveDecisionResult.Ineligible })
+        assertEquals(DecisionState.REMOVED, dao.rows.single().toDomain().decisionState)
+    }
+
+    @Test
+    fun substituicaoEntreLeituraEAtualizacaoNaoSobrescreveSuperceded() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+        val writesBefore = dao.upsertCalls
+        val insideGet = CompletableDeferred<Unit>()
+        val releaseGet = CompletableDeferred<Unit>()
+        dao.onGet = {
+            insideGet.complete(Unit)
+            releaseGet.await()
+        }
+
+        val r = async { repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L) }
+        insideGet.await()
+        dao.markSupersededIfActive("g1", updatedAt = 15L)
+        releaseGet.complete(Unit)
+        val result = r.await()
+
+        assertTrue(result is RemoveDecisionResult.Ineligible)
+        assertEquals(DecisionState.SUPERSEDED, dao.rows.single().toDomain().decisionState)
+        // Nenhuma escrita tardia: a transição SUPERSEDED não foi sobrescrita.
+        assertEquals(writesBefore, dao.upsertCalls)
+    }
+
+    @Test
+    fun segundaRemocaoCondicionalEhIneligible() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+
+        val first = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+        val second = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 30L)
+
+        assertTrue(first is RemoveDecisionResult.Removed)
+        assertTrue(second is RemoveDecisionResult.Ineligible)
+        assertEquals(DecisionState.REMOVED, dao.rows.single().toDomain().decisionState)
+        assertEquals(20L, dao.rows.single().toDomain().removedAt)
+    }
+
+    @Test
+    fun removidoPreservadoNoLedgerExcluidoDoPromptEDepuraAgreed() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+
+        val result = repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L)
+
+        assertTrue(result is RemoveDecisionResult.Removed)
+        // Histórico preservado: registro persistido, não deletado.
+        val persisted = dao.rows.single().toDomain()
+        assertEquals(DecisionState.REMOVED, persisted.decisionState)
+        assertEquals(20L, persisted.removedAt)
+        // Excluída da memória canônica do Mentor (bloco nulo) e suprime o
+        // agreedApproach legado (suporte ao histórico textual não reviver).
+        val memory = DecisionPromptMemory.build(
+            decisions = repo.forNote("n1"),
+            noteId = "n1",
+            focusSectionId = "s1",
+            wholeNote = false,
+        )
+        assertNull(memory.block)
+        assertTrue(memory.hasLedgerRecords)
+        assertTrue(memory.suppressLegacyApproach)
+    }
+
+    @Test
+    fun falhaLeituraNaRemocaoCondicionalPropaga() = runBlocking {
+        setUp()
+        repo.save(noteDecision())
+        dao.failOnGet = setOf("g1")
+
+        failureOf { repo.removePermanentlyIfEligible("g1", noteId = "n1", now = 20L) }
+
+        // Falha de leitura: registro inalterado, sem sucesso falso.
         assertEquals(DecisionState.ACTIVE, dao.rows.single().toDomain().decisionState)
     }
 }

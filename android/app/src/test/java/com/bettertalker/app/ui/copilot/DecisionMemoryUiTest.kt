@@ -254,4 +254,34 @@ class DecisionMemoryUiTest {
         assertFalse(labels.contains("hash"))
         assertNotNull(state.active.single().id)
     }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultAceitaTokenCorrenteESameNote() {
+        assertTrue(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 5, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultRecusaTokenDesatualizado() {
+        assertFalse(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 4, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultRecusaTrocaDeNota() {
+        assertFalse(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 5, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n2",
+            ),
+        )
+    }
 }

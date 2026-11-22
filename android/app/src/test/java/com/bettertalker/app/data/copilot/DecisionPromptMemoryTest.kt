@@ -391,4 +391,24 @@ class DecisionPromptMemoryTest {
         assertFalse(result.suppressLegacyApproach)
         assertTrue(result.available)
     }
+
+    @Test
+    fun decisaoRemovidaNaoViraBlocoEPreservaSinalDeLedger() {
+        val removed = noteDecision(state = DecisionState.REMOVED, text = "tom pastoral em toda a nota")
+
+        val result = DecisionPromptMemory.build(
+            decisions = listOf(removed),
+            noteId = "n1",
+            focusSectionId = "s1",
+            wholeNote = true,
+        )
+
+        // Ledger preservado: o registro REMOVED permanece, não orienta o
+        // prompt e o legado `agreedApproach` fica suprimido.
+        assertFalse(removed.isEligibleForPromptMemory())
+        assertNull(result.block)
+        assertEquals(0, result.includedCount)
+        assertTrue(result.hasLedgerRecords)
+        assertTrue(result.suppressLegacyApproach)
+    }
 }

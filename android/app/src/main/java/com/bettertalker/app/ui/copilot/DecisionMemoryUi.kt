@@ -169,3 +169,15 @@ private fun applicationLabelOf(decision: DecisionRecord): String = when {
         "Aplicada ao texto no histórico"
     else -> "Texto do discurso não alterado"
 }
+
+/**
+ * 1C.2.2B1a P4 — o resultado de um carregamento só aplica se o token
+ * ainda é o atual e a nota não mudou desde a chamada. Top-level:
+ * chamável de `DecisionMemoryUiTest` (mesmo pacote, sem instância).
+ */
+fun shouldApplyDecisionMemoryResult(
+    requestToken: Long,
+    currentToken: Long,
+    requestNoteId: String?,
+    currentNoteId: String?,
+): Boolean = requestToken == currentToken && requestNoteId == currentNoteId

@@ -3905,12 +3905,16 @@ class CopilotViewModel(
         viewModelScope.launch {
             try {
                 val decisions = decisionMemory.forNote(nid)
-                if (token != _decisionMemoryLoadToken.get() || noteId != nid) return@launch
+                if (!shouldApplyDecisionMemoryResult(token, _decisionMemoryLoadToken.get(), nid, noteId)) {
+                    return@launch
+                }
                 _decisionMemoryUi.value = buildDecisionMemoryUi(decisions)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
-                if (token != _decisionMemoryLoadToken.get() || noteId != nid) return@launch
+                if (!shouldApplyDecisionMemoryResult(token, _decisionMemoryLoadToken.get(), nid, noteId)) {
+                    return@launch
+                }
                 _decisionMemoryUi.value = DecisionMemoryUiState(
                     error = "Não consegui carregar as decisões agora.",
                 )
@@ -3942,7 +3946,7 @@ class CopilotViewModel(
                     is RemoveDecisionResult.Removed -> {
                         loadDecisionMemory(force = true)
                         _decisionMemoryNotice.value =
-                            "Decisão removida. Ela não orientará mais o Mentor."
+                            "Decisão removida da memória confirmada do Mentor."
                     }
                     RemoveDecisionResult.NotFound -> {
                         _decisionMemoryNotice.value =
@@ -9983,3 +9987,4 @@ internal fun pointReviewChatItem(
 /** IDs das revisões ativas que serão desativadas ao reanalisar. */
 internal fun reviewMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
     items.filter { it.kind == "review" }.map { it.id }
+
