@@ -103,11 +103,14 @@ class PublicationReferenceOpenCoordinatorTest {
             onFailure = { },
         )
         val l = link()
+        val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
         coordinator.open(l.occurrence, l.sourceText) { _, _ ->
+            started.complete(Unit)
             withContext(NonCancellable) { gate.await() }
             PublicationReferenceResolution.NotRecognized("tardio")
         }
+        started.await() // sinal determinístico: a primeira coroutine iniciou a resolução
         coordinator.cancel()
         gate.complete(Unit)
         assertTrue(results.isEmpty())
