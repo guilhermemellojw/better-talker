@@ -3273,15 +3273,11 @@ fun ChatMessageText(
                         )
                     }
                 }
-                val detectedPublicationRefs = remember(blockText) {
-                    if (blockText.isBlank()) emptyList()
-                    else PublicationReferenceSpanDetector.detect(blockText)
-                }
-                val publicationLinksForBlock = remember(detectedPublicationRefs, blockIndex) {
+                val publicationLinksForBlock = remember(blockText, blockIndex) {
                     if (blockText.isBlank()) emptyList()
                     else publicationDisplayLinks(
                         sourceText = blockText,
-                        occurrences = detectedPublicationRefs,
+                        occurrences = PublicationReferenceSpanDetector.detect(blockText),
                         blockIndex = blockIndex,
                     )
                 }
@@ -3301,10 +3297,12 @@ fun ChatMessageText(
             }
         }
     }
-    if (hasLinks) {
-        CompositionLocalProvider(LocalUriHandler provides combinedUriHandler) { body() }
-    } else {
-        SelectionContainer { body() }
+    SelectionContainer {
+        if (hasLinks) {
+            CompositionLocalProvider(LocalUriHandler provides combinedUriHandler) { body() }
+        } else {
+            body()
+        }
     }
 }
 

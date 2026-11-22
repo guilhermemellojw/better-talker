@@ -1486,15 +1486,29 @@ private fun NoteChatHost(
         com.bettertalker.app.data.publication.PublicationReferenceOpenCoordinator(
             scope = navScope,
             onResolution = { result ->
-                val notice = com.bettertalker.app.data.publication.publicationReferenceNotice(result)
-                if (notice != null) {
-                    publicationNotice = notice
-                } else {
-                    publicationNotice = com.bettertalker.app.data.publication.PublicationReferenceNotice(
-                        title = "Referência disponível",
-                        message = "A publicação está disponível no acervo. Abra a Biblioteca para consultá-la.",
-                        openLibrary = true,
-                    )
+                publicationNotice = when (result) {
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Available ->
+                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                            title = "Referência disponível",
+                            message = "A publicação está disponível no acervo local. " +
+                                "Abra a Biblioteca para consultá-la.",
+                            openLibrary = true,
+                        )
+
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Partial ->
+                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                            title = "Referência parcial",
+                            message = result.warning,
+                            openLibrary = true,
+                        )
+
+                    else ->
+                        com.bettertalker.app.data.publication.publicationReferenceNotice(result)
+                            ?: com.bettertalker.app.data.publication.PublicationReferenceNotice(
+                                title = "Não foi possível abrir",
+                                message = "Não foi possível abrir esta referência agora.",
+                                openLibrary = false,
+                            )
                 }
             },
             onFailure = {
@@ -1744,6 +1758,7 @@ private fun NoteChatHost(
             bibleOpenCoordinator.open(occurrence) { bibleResolver.resolve(it) }
         },
         onOpenPublicationReference = { link ->
+            publicationNotice = null
             publicationOpenCoordinator.open(link.occurrence, link.sourceText) { occ, src ->
                 publicationResolver.resolve(
                     occurrence = occ,
