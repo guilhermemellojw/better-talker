@@ -50,8 +50,15 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
     @After
     fun tearDown() {
         db.close()
-        dbFile?.delete()
+        dbFile?.let(::deleteTempDbFiles)
         dbFile = null
+    }
+
+    /** Remove somente o banco temporário do teste e seus sidecars SQLite. */
+    private fun deleteTempDbFiles(file: File) {
+        file.delete()
+        File(file.path + "-wal").delete()
+        File(file.path + "-shm").delete()
     }
 
     private fun tnmAttachment(
@@ -324,30 +331,43 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
 
     // ---------- 14. Reabertura de banco baseado em arquivo preserva registros ----------
     @Test
-    fun reaberturaBancoArquivoPreservaRegistros() = runBlocking {
+    fun reaberturaBancoArquivoPreservaRegistros(): Unit = runBlocking {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val file = File(ctx.cacheDir, "b1a-test.db")
-        file.delete()
-        var db1 = Room.databaseBuilder(ctx, AppDatabase::class.java, file.absolutePath)
-            .allowMainThreadQueries()
-            .build()
-        db1.attachmentDao().upsert(tnmAttachment())
-        db1.passageDao().insertAll(listOf(passage()))
-        db1.close()
+        dbFile = file
+        // Não reaproveita resíduos de execuções anteriores (db/wal/shm).
+        deleteTempDbFiles(file)
+        try {
+            val db1 = Room.databaseBuilder(ctx, AppDatabase::class.java, file.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                db1.attachmentDao().upsert(tnmAttachment())
+                db1.passageDao().insertAll(listOf(passage()))
+            } finally {
+                db1.close()
+            }
 
-        val db2 = Room.databaseBuilder(ctx, AppDatabase::class.java, file.absolutePath)
-            .allowMainThreadQueries()
-            .build()
-        val result = NwtRoomIndexIdentityAdapter.verify(
-            attachmentId = attachmentId,
-            canonicalRef = ref,
-            claim = claim(),
-            attachmentDao = db2.attachmentDao(),
-            passageDao = db2.passageDao(),
-        )
-        assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
-        db2.close()
-        file.delete()
+            val db2 = Room.databaseBuilder(ctx, AppDatabase::class.java, file.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                val result = NwtRoomIndexIdentityAdapter.verify(
+                    attachmentId = attachmentId,
+                    canonicalRef = ref,
+                    claim = claim(),
+                    attachmentDao = db2.attachmentDao(),
+                    passageDao = db2.passageDao(),
+                )
+                assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+            } finally {
+                db2.close()
+            }
+        } finally {
+            // Só remove depois de fechar os bancos; inclui -wal/-shm.
+            deleteTempDbFiles(file)
+            dbFile = null
+        }
     }
 
     // ---------- 15. Falha de leitura -> READ_FAILED ----------
