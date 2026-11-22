@@ -261,6 +261,9 @@ interface PassageDao {
     suspend fun insertAll(items: List<PassageEntity>)
     @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId LIMIT 500")
     suspend fun forAttachment(attachmentId: String): List<PassageEntity>
+    /** TRUST-2B3B-B0: retorna até [limit] passagens do anexo com o texto exato, para detectar duplicatas sem carregar toda a TNM. */
+    @Query("SELECT * FROM passages WHERE attachmentId = :attachmentId AND text = :text LIMIT :limit")
+    suspend fun findByTextInAttachment(attachmentId: String, text: String, limit: Int): List<PassageEntity>
     @Query("DELETE FROM passages WHERE attachmentId = :attachmentId")
     suspend fun deleteForAttachment(attachmentId: String)
     // Busca simples offline (LIKE sobre texto normalizado). FTS usado como índice futuro.

@@ -103,6 +103,21 @@ class DecisionMemoryUiTest {
     }
 
     @Test
+    fun isRemovableApenasParaConfirmadaAtiva() {
+        val active = build(decision("a")).active.single()
+        assertTrue(active.isRemovable)
+
+        val attention = build(decision("b", link = SectionLink.ORPHANED)).attention.single()
+        assertTrue(attention.isRemovable)
+
+        val history = build(decision("c", state = DecisionState.SUPERSEDED)).history.single()
+        assertFalse(history.isRemovable)
+
+        val preference = build(decision("d", kind = DecisionKind.PREFERENCE, source = DecisionSource.EXPLICIT_USER)).history.single()
+        assertFalse(preference.isRemovable)
+    }
+
+    @Test
     fun orfaPendenteEAplicacaoStaleVaoParaAtencao() {
         val orphan = decision("a", link = SectionLink.ORPHANED)
         val pending = decision("b", link = SectionLink.PENDING_RECONFIRMATION)
@@ -238,5 +253,35 @@ class DecisionMemoryUiTest {
         assertFalse(labels.contains("STRUCTURE_ACCEPT"))
         assertFalse(labels.contains("hash"))
         assertNotNull(state.active.single().id)
+    }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultAceitaTokenCorrenteESameNote() {
+        assertTrue(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 5, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultRecusaTokenDesatualizado() {
+        assertFalse(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 4, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n1",
+            ),
+        )
+    }
+
+    @Test
+    fun shouldApplyDecisionMemoryResultRecusaTrocaDeNota() {
+        assertFalse(
+            shouldApplyDecisionMemoryResult(
+                requestToken = 5, currentToken = 5,
+                requestNoteId = "n1", currentNoteId = "n2",
+            ),
+        )
     }
 }

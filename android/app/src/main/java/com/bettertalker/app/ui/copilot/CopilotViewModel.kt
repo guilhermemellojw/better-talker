@@ -11,7 +11,10 @@ import com.bettertalker.app.data.copilot.ChatNavAction
 import com.bettertalker.app.data.copilot.ChatTurn
 import com.bettertalker.app.data.copilot.DecisionPromptMemory
 import com.bettertalker.app.data.copilot.DecisionPromptMemoryResult
+import com.bettertalker.app.data.copilot.DecisionKind
 import com.bettertalker.app.data.copilot.DecisionRecord
+import com.bettertalker.app.data.copilot.DecisionState
+import com.bettertalker.app.data.copilot.RemoveDecisionResult
 import com.bettertalker.app.data.copilot.MINIMAL_MEMORY_MAX_CHARS
 import com.bettertalker.app.data.copilot.asReconciliationHook
 import com.bettertalker.app.data.copilot.loadDecisionPromptMemory
@@ -250,6 +253,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 data class InsertRequest(
     val text: String,
@@ -904,6 +908,10 @@ class CopilotViewModel(
     private val _decisionMemoryUi = MutableStateFlow(DecisionMemoryUiState())
     val decisionMemoryUi: StateFlow<DecisionMemoryUiState> =
         _decisionMemoryUi.asStateFlow()
+    // 1C.2.2B1a — feedback efêmero para ações na Memória do Mentor.
+    private val _decisionMemoryNotice = MutableStateFlow<String?>(null)
+    val decisionMemoryNotice: StateFlow<String?> = _decisionMemoryNotice.asStateFlow()
+    fun consumeDecisionMemoryNotice() { _decisionMemoryNotice.value = null }
     private val settings = SettingsStore(app)
     private val notes = NotesRepository(app, db)
     private val _query = MutableStateFlow("")
@@ -3884,9 +3892,12 @@ class CopilotViewModel(
      * 1C.2.2A — carrega a memória persistida para a visão somente leitura.
      * Não altera ledger, abordagem, texto ou prompt.
      */
-    fun loadDecisionMemory() {
+    private val _decisionMemoryLoadToken = AtomicLong(0)
+
+    fun loadDecisionMemory(force: Boolean = false) {
         val nid = noteId ?: return
-        if (_decisionMemoryUi.value.isLoading) return
+        if (!force && _decisionMemoryUi.value.isLoading) return
+        val token = _decisionMemoryLoadToken.incrementAndGet()
         _decisionMemoryUi.value = _decisionMemoryUi.value.copy(
             isLoading = true,
             error = null,
@@ -3894,13 +3905,65 @@ class CopilotViewModel(
         viewModelScope.launch {
             try {
                 val decisions = decisionMemory.forNote(nid)
+                if (!shouldApplyDecisionMemoryResult(token, _decisionMemoryLoadToken.get(), nid, noteId)) {
+                    return@launch
+                }
                 _decisionMemoryUi.value = buildDecisionMemoryUi(decisions)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (_: Exception) {
+                if (!shouldApplyDecisionMemoryResult(token, _decisionMemoryLoadToken.get(), nid, noteId)) {
+                    return@launch
+                }
                 _decisionMemoryUi.value = DecisionMemoryUiState(
                     error = "Não consegui carregar as decisões agora.",
                 )
+            }
+        }
+    }
+
+    /**
+     * 1C.2.2B1a — "Parar de lembrar" uma decisão confirmada.
+     *
+     * Valida nota, pertencimento e elegibilidade (CONFIRMED + ACTIVE) antes
+     * de marcar como REMOVED. Preserva o ledger (sem exclusão física) e
+     * recarrega a memória. Guard contra toques concorrentes.
+     */
+    private val removeDecisionInFlight = AtomicBoolean(false)
+
+    fun removeDecision(decisionId: String) {
+        val nid = noteId ?: return
+        if (decisionId.isBlank()) return
+        if (!removeDecisionInFlight.compareAndSet(false, true)) return
+        viewModelScope.launch {
+            try {
+                val result = decisionMemory.removePermanentlyIfEligible(
+                    decisionId = decisionId,
+                    noteId = nid,
+                    now = System.currentTimeMillis(),
+                )
+                when (result) {
+                    is RemoveDecisionResult.Removed -> {
+                        loadDecisionMemory(force = true)
+                        _decisionMemoryNotice.value =
+                            "Decisão removida da memória confirmada do Mentor."
+                    }
+                    RemoveDecisionResult.NotFound -> {
+                        _decisionMemoryNotice.value =
+                            "Não encontrei essa decisão. Atualize a lista."
+                    }
+                    RemoveDecisionResult.Ineligible -> {
+                        _decisionMemoryNotice.value =
+                            "Esta decisão não pode ser removida."
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _decisionMemoryNotice.value =
+                    "Não consegui concluir agora. A decisão continua salva."
+            } finally {
+                removeDecisionInFlight.set(false)
             }
         }
     }
@@ -9924,3 +9987,4 @@ internal fun pointReviewChatItem(
 /** IDs das revisões ativas que serão desativadas ao reanalisar. */
 internal fun reviewMessageIdsToDeactivate(items: List<ChatEntity>): List<String> =
     items.filter { it.kind == "review" }.map { it.id }
+

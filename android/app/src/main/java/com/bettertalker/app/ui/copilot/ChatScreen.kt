@@ -321,6 +321,7 @@ fun ChatScreen(
     val decisionSupersessionPrompt by vm.decisionSupersessionPrompt.collectAsState()
     // 1C.2.2A: visão somente leitura da memória persistida.
     val decisionMemoryUi by vm.decisionMemoryUi.collectAsState()
+    val decisionMemoryNotice by vm.decisionMemoryNotice.collectAsState()
     // F5b (Modo C): proposta de estrutura da NOTA inteira (texto colado).
     val noteStructureProposal by vm.noteStructureProposal.collectAsState()
     // #15d-escopo: sugestão de vincular publicações (RAG fraco por escopo).
@@ -1614,7 +1615,14 @@ fun ChatScreen(
             noteTitle = noteTitle,
             onDismiss = { showDecisionMemory = false },
             onRetry = vm::loadDecisionMemory,
+            onRemoveDecision = vm::removeDecision,
         )
+    }
+
+    LaunchedEffect(decisionMemoryNotice) {
+        val notice = decisionMemoryNotice ?: return@LaunchedEffect
+        scope.launch { snack.showSnackbar(notice) }
+        vm.consumeDecisionMemoryNotice()
     }
 
     if (showPasteSheet) {
