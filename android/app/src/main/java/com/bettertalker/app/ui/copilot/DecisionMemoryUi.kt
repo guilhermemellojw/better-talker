@@ -30,6 +30,8 @@ data class DecisionMemoryItemUi(
     val applicationLabel: String,
     val replacesText: String? = null,
     val replacedByText: String? = null,
+    /** 1C.2.2B1a — elegível para "Parar de lembrar" (CONFIRMED + ACTIVE). */
+    val isRemovable: Boolean = false,
 )
 
 data class DecisionMemoryUiState(
@@ -87,6 +89,8 @@ fun buildDecisionMemoryUi(
             applicationLabel = applicationLabelOf(decision),
             replacesText = previous?.text,
             replacedByText = replacement?.text,
+            isRemovable = decision.kind == DecisionKind.CONFIRMED &&
+                decision.decisionState == DecisionState.ACTIVE,
         )
     }
 
@@ -165,3 +169,15 @@ private fun applicationLabelOf(decision: DecisionRecord): String = when {
         "Aplicada ao texto no histórico"
     else -> "Texto do discurso não alterado"
 }
+
+/**
+ * 1C.2.2B1a P4 — o resultado de um carregamento só aplica se o token
+ * ainda é o atual e a nota não mudou desde a chamada. Top-level:
+ * chamável de `DecisionMemoryUiTest` (mesmo pacote, sem instância).
+ */
+fun shouldApplyDecisionMemoryResult(
+    requestToken: Long,
+    currentToken: Long,
+    requestNoteId: String?,
+    currentNoteId: String?,
+): Boolean = requestToken == currentToken && requestNoteId == currentNoteId

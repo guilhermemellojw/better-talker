@@ -520,6 +520,21 @@ fun DecisionRecord.isEligibleForPromptMemory(): Boolean =
         }
 
 /**
+ * 1C.2.2B1a — resultado condicional de "Parar de lembrar".
+ *
+ * Distingue sucesso efetivo de registro ausente ou inelegível, evitando
+ * sucesso falso e sobrescrita de estados históricos alterados concorrentemente.
+ */
+sealed interface RemoveDecisionResult {
+    /** Transição persistida com sucesso. */
+    data class Removed(val decision: DecisionRecord) : RemoveDecisionResult
+    /** Registro não encontrado. */
+    data object NotFound : RemoveDecisionResult
+    /** Registro existe, mas não é CONFIRMED/ACTIVE da nota informada. */
+    data object Ineligible : RemoveDecisionResult
+}
+
+/**
  * Aplicação atualmente válida, distinta da aplicação histórica. Uma decisão
  * órfã pode manter APPLIED como história, mas não conta como aplicada no texto
  * atual; uma aplicação STALE nunca conta.
