@@ -218,6 +218,7 @@ class PublicationReferenceResolver(
             paragraph = detected.paragraph,
             paragraphEnd = detected.paragraphEnd,
             sourcePassageId = resolved.passageId,
+            recoveredText = resolved.text,
             partial = resolved.status == ReferenceStatus.PARTIAL,
             // O resolvedor devolve `text` limitado e, em alguns caminhos,
             // `fullText` integral. Se o texto entregue é menor — ou bateu
