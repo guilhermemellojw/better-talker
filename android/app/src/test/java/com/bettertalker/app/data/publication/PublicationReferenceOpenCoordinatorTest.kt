@@ -1,11 +1,10 @@
 package com.bettertalker.app.data.publication
 
 import com.bettertalker.app.ui.components.PublicationDisplayLink
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,9 +34,8 @@ class PublicationReferenceOpenCoordinatorTest {
     @Test
     fun resolucaoBemSucedida() = runBlocking {
         val results = mutableListOf<PublicationReferenceResolution>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val coordinator = PublicationReferenceOpenCoordinator(
-            scope = scope,
+            scope = this,
             onResolution = { results += it },
             onFailure = { },
         )
@@ -45,64 +43,73 @@ class PublicationReferenceOpenCoordinatorTest {
         coordinator.open(l.occurrence, l.sourceText) { occ, _ ->
             PublicationReferenceResolution.NotRecognized(occ.raw)
         }
-        delay(50)
+        kotlinx.coroutines.yield()
         assertEquals(1, results.size)
+        val result = results.single() as PublicationReferenceResolution.NotRecognized
+        assertEquals(l.occurrence.raw, result.raw)
     }
 
     @Test
     fun doisCliquesRapidosMantemSomenteRecente() = runBlocking {
         val results = mutableListOf<PublicationReferenceResolution>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val coordinator = PublicationReferenceOpenCoordinator(
-            scope = scope,
+            scope = this,
             onResolution = { results += it },
             onFailure = { },
         )
         val l = link()
+        val firstGate = CompletableDeferred<Unit>()
         coordinator.open(l.occurrence, l.sourceText) { _, _ ->
-            delay(1000)
+            withContext(NonCancellable) { firstGate.await() }
             PublicationReferenceResolution.NotRecognized("antigo")
         }
+        kotlinx.coroutines.yield()
         coordinator.open(l.occurrence, l.sourceText) { _, _ ->
             PublicationReferenceResolution.NotRecognized("recente")
         }
-        delay(50)
-        assertTrue(results.isEmpty() || results.last().let { it is PublicationReferenceResolution.NotRecognized && it.raw == "recente" })
+        kotlinx.coroutines.yield()
+        firstGate.complete(Unit)
+        kotlinx.coroutines.yield()
+        assertEquals(1, results.size)
+        val result = results.single() as PublicationReferenceResolution.NotRecognized
+        assertEquals("recente", result.raw)
     }
 
     @Test
     fun excecaoNaResolucao() = runBlocking {
         val failures = mutableListOf<String>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val results = mutableListOf<PublicationReferenceResolution>()
         val coordinator = PublicationReferenceOpenCoordinator(
-            scope = scope,
-            onResolution = { },
+            scope = this,
+            onResolution = { results += it },
             onFailure = { failures += it },
         )
         val l = link()
         coordinator.open(l.occurrence, l.sourceText) { _, _ ->
             throw IllegalStateException("boom")
         }
-        delay(50)
+        kotlinx.coroutines.yield()
+        assertEquals(0, results.size)
         assertEquals(1, failures.size)
+        assertEquals("Não foi possível abrir esta referência agora.", failures.single())
     }
 
     @Test
     fun cancelamentoImpedeResultadoTardio() = runBlocking {
         val results = mutableListOf<PublicationReferenceResolution>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val coordinator = PublicationReferenceOpenCoordinator(
-            scope = scope,
+            scope = this,
             onResolution = { results += it },
             onFailure = { },
         )
         val l = link()
+        val gate = CompletableDeferred<Unit>()
         coordinator.open(l.occurrence, l.sourceText) { _, _ ->
-            delay(1000)
+            withContext(NonCancellable) { gate.await() }
             PublicationReferenceResolution.NotRecognized("tardio")
         }
         coordinator.cancel()
-        delay(50)
+        gate.complete(Unit)
         assertTrue(results.isEmpty())
     }
 }
