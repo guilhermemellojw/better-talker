@@ -5229,11 +5229,16 @@ class CopilotViewModel(
                         "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
                 )
             }
+            // P4: o gate de fidelidade recebe o dossiê do ALVO resolvido
+            // (oratoryResolution.contextBlock), não o dossiê do foco anterior
+            // (evidenceContextBlock); evidência exclusiva do ponto A não pode
+            // validar afirmações do ponto B. O texto do bloco resolvido
+            // permanece autorizado.
             val verified = verifyGeneratedText(
                 cleanedCardText,
                 turnContext,
                 listOfNotNull(
-                    evidenceContextBlock,
+                    oratoryResolution.contextBlock,
                     stripHtmlToText(block).takeIf { it.isNotBlank() },
                 ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
             )
