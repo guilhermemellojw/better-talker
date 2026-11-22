@@ -113,6 +113,8 @@ data class PublicationReaderTarget(
     val paragraphEnd: Int? = null,
     /** Id do trecho que sustenta o status; não é evidência do turno. */
     val sourcePassageId: String? = null,
+    /** Texto recuperado do índice local para o leitor mínimo de B2. */
+    val recoveredText: String? = null,
     val partial: Boolean = false,
     val truncated: Boolean = false,
     /** Só quando houver vínculo documental real com o turno. */
