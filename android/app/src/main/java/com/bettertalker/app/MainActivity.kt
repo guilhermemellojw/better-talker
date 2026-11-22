@@ -1475,10 +1475,14 @@ private fun NoteChatHost(
             db.publicationUnitDao(),
         )
     }
-    var publicationNotice by androidx.compose.runtime.remember {
+    var publicationNotice by androidx.compose.runtime.remember(session.noteId) {
         androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.publication.PublicationReferenceNotice?>(null)
     }
+    androidx.compose.runtime.LaunchedEffect(session.noteId) {
+        publicationNotice = null
+    }
     val publicationOpenCoordinator = androidx.compose.runtime.remember(
+        session.noteId,
         navScope,
         publicationResolver,
         ctx,
