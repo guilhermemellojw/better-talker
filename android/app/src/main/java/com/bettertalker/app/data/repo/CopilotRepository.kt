@@ -511,7 +511,7 @@ class CopilotRepository(private val db: AppDatabase) {
         // página/contexto) e o prompt re-resolvia por `RoomReferenceResolver`,
         // que podia não achar o livro e descartar o texto.
         val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
-            db.passageDao(), db.attachmentDao()
+            db.passageDao(), db.attachmentDao(), db.publicationUnitDao()
         )
         return statuses.map { st ->
             val resolved = resolver.resolvePublication(publicationRefOf(st.ref))
@@ -683,7 +683,7 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     suspend fun publicationPassages(text: String, limit: Int = 3): List<ScopedHit> {
         if (limit <= 0) return emptyList()
-        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao(), db.publicationUnitDao())
         val out = mutableListOf<ScopedHit>()
         for (detected in RefDetector.detect(text)) {
             if (isGuidePubRef(detected)) continue
@@ -734,7 +734,7 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     suspend fun citedSources(noteSources: NoteSources): CitedSources {
         if (!noteSources.hasRefs) return CitedSources(emptyList(), emptyList(), emptyList())
-        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao(), db.publicationUnitDao())
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()
         val unavailableDetails = mutableListOf<String>()
@@ -843,7 +843,7 @@ class CopilotRepository(private val db: AppDatabase) {
         }
         val all = db.attachmentDao().all()
         val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
-            db.passageDao(), db.attachmentDao()
+            db.passageDao(), db.attachmentDao(), db.publicationUnitDao()
         )
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()

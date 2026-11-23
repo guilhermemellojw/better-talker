@@ -585,6 +585,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             referenceResolver = RoomReferenceResolver(
                 passageDao = db.passageDao(),
                 attachmentDao = db.attachmentDao(),
+                unitDao = db.publicationUnitDao(),
             ),
             methodIndex = RoomMethodIndex(
                 trainingRepository = RoomTrainingRepository(
