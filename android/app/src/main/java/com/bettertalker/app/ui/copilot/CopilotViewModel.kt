@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.bettertalker.app.data.copilot.ChatBiblicalSupport
 import com.bettertalker.app.data.copilot.ChatRunState
 import com.bettertalker.app.data.copilot.CardMetrics
 import com.bettertalker.app.data.copilot.ChatNavAction
@@ -619,7 +620,17 @@ data class ChatVerificationOutcome(
  */
 fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome {
     val result = GroundednessVerifier.verify(text, corpus, warnOnly = true)
-    return ChatVerificationOutcome(result, chatVerificationNotice(text, corpus, result))
+    // TRUST-P0A — Fail-safe bíblico: citações bíblicas sem suporte em evidência
+    // documental elegantes são sinalizadas via `notice` — nunca reescritas no
+    // texto (regra de sempre: ambiente de chat = warn-only).
+    return ChatVerificationOutcome(
+        result = result,
+        notice = ChatBiblicalSupport.noticeWithBiblicalSafety(
+            existingNotice = chatVerificationNotice(text, corpus, result),
+            answer = text,
+            corpus = corpus,
+        ),
+    )
 }
 
 /**
@@ -5838,6 +5849,9 @@ class CopilotViewModel(
         } else {
             null
         }
+        // Aviso ÚNICO: substitui o REMOVAL_NOTICE e o citationRevisionNotice.
+        // 6.0.5: no modo fonte, sinaliza publicação estranha (ex.: w24.08
+        // numa pergunta sobre w17.10) em vez de deixar passar como apoio.
         val notice = listOfNotNull(outcome.notice, sourceDriftNotice)
             .joinToString("\n\n")
             .ifBlank { null }
