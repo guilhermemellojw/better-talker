@@ -384,4 +384,96 @@ class GenerationVerificationTest {
         assertFalse(r.hasRemovals)
         assertEquals(generated, r.text)
     }
+
+    // ---------- P7.1 — escopo documental por modo (regressão) ----------
+
+    private fun secP71(id: String, refs: List<OratoryGeneration.RefWithText> = emptyList()) = OratoryGeneration.CurrentSection(
+        sectionId = id, order = id.removePrefix("sec-").toInt(), title = "Ponto $id",
+        content = "Conteúdo de $id.", subsections = emptyList(), references = refs,
+    )
+
+    private fun specP71(
+        mode: OratoryGeneration.Mode,
+        current: OratoryGeneration.CurrentSection,
+        next: OratoryGeneration.CurrentSection? = null,
+    ) = OratoryGeneration.Spec(
+        mode = mode,
+        action = OratoryGeneration.Action.INSERT,
+        outlineId = "doc-1",
+        outlineTitle = "DISCURSO",
+        objective = null,
+        orderedSections = listOf(
+            OratoryGeneration.SectionLine("sec-1", 1, "Ponto sec-1", current.sectionId == "sec-1"),
+            OratoryGeneration.SectionLine("sec-2", 2, "Ponto sec-2", current.sectionId == "sec-2"),
+            OratoryGeneration.SectionLine("sec-3", 3, "Ponto sec-3", current.sectionId == "sec-3"),
+        ),
+        current = current,
+        previousSectionId = null,
+        nextSectionId = next?.sectionId,
+        next = next,
+        training = emptyList(),
+        contentSources = emptyList(),
+        target = OratoryGeneration.Target.AfterSection(current.sectionId),
+    )
+
+    @Test
+    fun development_refDoTopicoSeguinteNaoValidaCitacao() {
+        // P7.1 — DEVELOPMENT: o prompt não apresenta refs de spec.next; a
+        // fonte exclusiva de B não pode validar a citação no tópico A.
+        val textoB = "Texto exclusivo do topico seguinte."
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salpo 34", "Texto recuperado do topico atual.", ReferenceStatus.RESOLVED)))
+        val spec = specP71(
+            OratoryGeneration.Mode.DEVELOPMENT,
+            current = secP71("sec-1"),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec)
+        assertTrue(corpus.isNotEmpty())
+        assertFalse(corpus.any { it.text.contains(textoB) })
+        val r = verifyGeneratedText(text = "Citaríamos: \"$textoB\"", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains(textoB))
+    }
+
+    @Test
+    fun transition_refsDoAtualEdoSeguinteValem() {
+        // P7.1 — TRANSITION: o prompt apresenta refs de AMBOS os tópicos;
+        // ambos valem no corpus.
+        val textoA = "Texto exclusivo do topico atual."
+        val textoB = "Texto exclusivo do topico seguinte."
+        val spec = specP71(
+            OratoryGeneration.Mode.TRANSITION,
+            current = secP71("sec-1", refs = listOf(refP7("Ref A", textoA))),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        assertTrue(corpus.any { it.text.contains(textoA) })
+        assertTrue(corpus.any { it.text.contains(textoB) })
+    }
+
+    @Test
+    fun introduction_excludeRefsDoTopicoSeguinte() {
+        // P7.1 — INTRODUCTION: não recebe refs de outro tópico.
+        val textoB = "Texto exclusivo do topico seguinte."
+        val spec = specP71(
+            OratoryGeneration.Mode.INTRODUCTION,
+            current = secP71("sec-1"),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        assertFalse(corpus.any { it.text.contains(textoB) })
+    }
+
+    @Test
+    fun conclusion_excludeRefsDoTopicoSeguinte() {
+        // P7.1 — CONCLUSION: não recebe refs de outro tópico.
+        val textoB = "Texto exclusivo do topico seguinte."
+        val spec = specP71(
+            OratoryGeneration.Mode.CONCLUSION,
+            current = secP71("sec-3"),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        assertFalse(corpus.any { it.text.contains(textoB) })
+    }
 }

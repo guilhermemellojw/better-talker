@@ -97,7 +97,11 @@ object OratoryGeneration {
      *   não promove documento completo";
      * - textos recuperados dos refs do SPEC do S-34 (os textos que o
      *   modelo vê no `buildCardPrompt`), identificados pela rótulo do
-     *   S-34 (`recoveredDocumentFromPassage`).
+     *   S-34 (`recoveredDocumentFromPassage`), conforme o escopo por
+     *   modo (P7.1): DEVELOPMENT, INTRODUCTION e CONCLUSION levam refs
+     *   de `spec.current`; TRANSITION leva `spec.current` +
+     *   `spec.next` (o único modo onde o prompt apresenta refs de outro
+     *   tópico).
      *
      * Explicitamente NÃO é evidência factual: o dossiê inteiro como
      * texto (`contextBlock` — contém estrutura, nota editorial, memória
@@ -110,14 +114,23 @@ object OratoryGeneration {
     internal fun oruaryDocumentarySources(
         dossier: Dossier?,
         spec: Spec,
-    ): List<RecoveredDocument> =
-        dossier
+    ): List<RecoveredDocument> {
+        // P7.1 — escopo documental por modo: o prompt de gerção apresenta
+        // refs do tópico SEGUINTE somente no TRANSITION (`buildCardPrompt`);
+        // em outros modos, refs de outro tópico NÃO podem validar citações
+        // no atual — o corpus é do tópico efetivo (`spec.current`).
+        val specRefs = when (spec.mode) {
+            Mode.TRANSITION -> spec.current?.references.orEmpty() + spec.next?.references.orEmpty()
+            else -> spec.current?.references.orEmpty()
+        }
+        return dossier
             ?.let { recoveredDocumentsFromDossier(it).filter { d -> d.isDocumentaryEligible() } }
             .orEmpty() +
-            (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
+            specRefs
                 .filter { it.text != null }
                 .mapNotNull { r -> recoveredDocumentFromPassage(r.label, r.text!!) }
                 .distinctBy { it.sourceId }
+    }
 
     /**
      * Limite de palavras do prompt (#16-fix-c): duração REAL da seção ×
