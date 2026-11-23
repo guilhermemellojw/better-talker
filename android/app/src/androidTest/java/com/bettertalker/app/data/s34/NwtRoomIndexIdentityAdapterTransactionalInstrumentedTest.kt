@@ -9,7 +9,6 @@ import com.bettertalker.app.data.db.AttachmentDao
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
-import com.bettertalker.app.data.db.RoomTransactionRunner
 import com.bettertalker.app.data.db.TransactionRunner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
@@ -17,21 +16,29 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * TRUST-2B3B-B1b — validação instrumentada da consistência transacional do
- * adaptador de identidade do índice Room (cenários 17–18).
+ * TRUST-2B3B-B1b — cenários 17/18 do contrato transacional do adaptador,
+ * redevensados pelo QA-FIX-43 (INT-P4) para forçar **interleavings** entre
+ * leituras sucessivas do adaptador.
  *
- * Usa banco Room REAL (in-memory) com DAOs reais e coordenação determinística
- * (CompletableDeferred — sem sleeps). O isolamento transacional é demonstrado
- * somente por testes com Room/SQLite real: a verificação observa uma visão
- * consistente quando o anexo/passagem é alterado concorrentemente durante a
- * execução (mutações serializadas após a transação).
+ * Cenários POSITIVOS: [GatedTransactionRunner] (real — Room `withTransaction`),
+ * mutação concorrente iniciada quando o read acabou e pausada na barreira —
+ * verificação continua sob a ISO pela transação-tempo → `RECORD_MATCH`.
+ *
+ * Controles NEGATIVOS: [PassThroughRunner] (sem transação), a mesma mutação
+ * se aplica IMEDIATAMENTE entre reads — os testes ASSERTAM o estado EXPOSTO
+ * inconsistente — nunca `RECORD_MATCH` a partir de estados mistos.
+ *
+ * `gatedRunner.invocations` prova invocação efetiva do `TransactionRunner`.
  */
 @RunWith(AndroidJUnit4::class)
 class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
@@ -110,7 +117,26 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         section = section,
     )
 
-    /** DAO que sinaliza após o primeiro `get` retornar (dentro da transação). */
+    // ---------- runners & DAO-signals (barreiras determinísticas) ----------
+
+    private class GatedTransactionRunner(
+        private val db: AppDatabase,
+        private val releaseTx: CompletableDeferred<Unit>,
+    ) : TransactionRunner {
+        val invocations = AtomicBoolean(false)
+        override suspend fun <R> run(block: suspend () -> R): R =
+            db.withTransaction {
+                invocations.set(true)
+                val result = block()
+                releaseTx.await()
+                result
+            }
+    }
+
+    private class PassThroughRunner : TransactionRunner {
+        override suspend fun <R> run(block: suspend () -> R): R = block()
+    }
+
     private class SignalingAttachmentDao(
         private val delegate: AttachmentDao,
         private val readOne: CompletableDeferred<Unit>,
@@ -122,39 +148,23 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         }
     }
 
-    /** DAO que sinaliza após `findByRefsIn` retornar (dentro da transação). */
-    private class SignalingPassageDao(
+    /** DAO que sinaliza após `findByRefsIn` — e desbloqueia a verificação. */
+    private class GatedSignalingPassageDao(
         private val delegate: PassageDao,
-        private val readTwo: CompletableDeferred<Unit>,
+        private val afterFindByRefsIn: CompletableDeferred<Unit>,
+        private val releaseAfterFindByRefsIn: CompletableDeferred<Unit>,
     ) : PassageDao by delegate {
         override suspend fun findByRefsIn(
             attachmentId: String,
             refs: List<String>,
         ): List<PassageEntity> {
             val result = delegate.findByRefsIn(attachmentId, refs)
-            readTwo.complete(Unit)
+            afterFindByRefsIn.complete(Unit)
+            releaseAfterFindByRefsIn.await()
             return result
         }
     }
 
-    /**
-     * Runner que mantém a transação aberta (barreira suspensiva controlada)
-     * enquanto o teste confirma que a escrita concorrente foi iniciada —
-     * sem depender de `Thread.sleep`.
-     */
-    private class GatedTransactionRunner(
-        private val db: AppDatabase,
-        private val releaseTx: CompletableDeferred<Unit>,
-    ) : TransactionRunner {
-        override suspend fun <R> run(block: suspend () -> R): R =
-            db.withTransaction {
-                val result = block()
-                releaseTx.await() // transação aberta enquanto o teste inicia a escrita
-                result
-            }
-    }
-
-    /** DAO que sinaliza o início de `delete` antes de delegar. */
     private class DeletingAttachmentDao(
         private val delegate: AttachmentDao,
         private val deleteStarted: CompletableDeferred<Unit>,
@@ -165,7 +175,6 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         }
     }
 
-    /** DAO que sinaliza o início de `insertAll` antes de delegar. */
     private class SignalingUpdateDao(
         private val delegate: PassageDao,
         private val updateStarted: CompletableDeferred<Unit>,
@@ -176,9 +185,10 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         }
     }
 
-    // ---------- 17. Exclusão concorrente do anexo ----------
+    // ---------- 17 (positivo): exclusão concorrente, interleavar forçado ----------
+
     @Test
-    fun cenario17_exclusaoConcorrenteDoAnexoObservaEstadoConsistente() = runBlocking {
+    fun cenario17_exclusaoConcorrenteForçadaNãoCertificaUnidadeInconsistente() = runBlocking {
         db.attachmentDao().upsert(tnmAttachment())
         db.passageDao().insertAll(listOf(passage(id = "p-17")))
         val readOneDone = CompletableDeferred<Unit>()
@@ -187,8 +197,6 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         val adapterDao = SignalingAttachmentDao(db.attachmentDao(), readOneDone)
         val gatedRunner = GatedTransactionRunner(db, releaseTx)
 
-        // 1. Inicia a verificação dentro do RoomTransactionRunner com a
-        //    barreira que mantém a transação aberta.
         val resultDef = CompletableDeferred<NwtRoomIndexIdentityResult>()
         val verifyJob = launch {
             resultDef.complete(
@@ -202,50 +210,86 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
                 )
             )
         }
-        // 3. Primeira leitura concluída — a transação está aberta
-        //    (bloqueada na barreira, com o anexo e passagens lidos).
+        // Read 1 concluída — transação aberta.
         withTimeout(30_000) { readOneDone.await() }
 
-        // 5. Inicia a exclusão concorrente do anexo (escrita observável).
-        val deletingDao = DeletingAttachmentDao(db.attachmentDao(), deleteStarted)
+        // Escrita concorrente iniciada durante a transação.
         val deleteJob = launch {
-            deletingDao.delete(attachmentId)
+            DeletingAttachmentDao(db.attachmentDao(), deleteStarted).delete(attachmentId)
             db.passageDao().deleteForAttachment(attachmentId)
         }
-        // 6. Confirma que a tentativa de escrita foi iniciada
-        //    (CompletableDeferred — sem sleep, sem runCatching).
         withTimeout(30_000) { deleteStarted.await() }
-
-        // 7. Libera a verificação — a transação commita.
-        releaseTx.complete(Unit)
-        // 8. Aguarda a verificação e a exclusão.
-        val result = withTimeout(30_000) { resultDef.await() }
-        withTimeout(30_000) { verifyJob.join() }
         withTimeout(30_000) { deleteJob.join() }
 
-        // 9. Resultado consistente da verificação.
+        // Libera verificação; transação commita.
+        releaseTx.complete(Unit)
+        val result = withTimeout(30_000) { resultDef.await() }
+        withTimeout(30_000) { verifyJob.join() }
+
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
         assertNotNull(result.unit)
         assertEquals(attachmentId, result.unit!!.attachmentId)
         assertEquals("p-17", result.unit.passageId)
         assertEquals(text, result.unit.text)
-        // 10. Efeito final observável da exclusão (a exclusão deve ser
-        //     observavelmente bem-sucedida — caso contrário o assertNull falha).
+        assertTrue(gatedRunner.invocations.get())
         assertNull(db.attachmentDao().get(attachmentId))
     }
 
-    // ---------- 18. Alteração concorrente da passagem ----------
+    // ---------- 17 (negativo): sem transação, o estado inconsistente é EXPOSTO ----------
+
     @Test
-    fun cenario18_alteracaoConcorrenteDaPassagemNaoCertificaUnidadeIncompativel() = runBlocking {
+    fun cenario17negativo_runnerSemTransaçãoValidaEstadoInconsistente() = runBlocking {
+        db.attachmentDao().upsert(tnmAttachment())
+        db.passageDao().insertAll(listOf(passage(id = "p-17")))
+        val readTwo = CompletableDeferred<Unit>()
+        val adapterDao = SignalingPassageDao(db.passageDao(), readTwo)
+        val runner = PassThroughRunner()
+
+        val resultDef = CompletableDeferred<NwtRoomIndexIdentityResult>()
+        launch {
+            resultDef.complete(
+                NwtRoomIndexIdentityAdapter.verify(
+                    attachmentId = attachmentId,
+                    canonicalRef = ref,
+                    claim = claim(passageId = "p-17"),
+                    attachmentDao = db.attachmentDao(),
+                    passageDao = adapterDao,
+                    transactionRunner = runner,
+                )
+            )
+        }
+        // Read 1 (findByRefsIn) concluída; verificação continua.
+        withTimeout(30_000) { readTwo.await() }
+
+        // Escrita concorrente — observável IMEDIATAMENTE (sem transação).
+        val deleteJob = launch {
+            db.attachmentDao().delete(attachmentId)
+            db.passageDao().deleteForAttachment(attachmentId)
+        }
+        withTimeout(30_000) { deleteJob.join() }
+
+        val result = withTimeout(30_000) { resultDef.await() }
+
+        // Controle negativo: EXPÕE a inconsistência.
+        assertNotEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+        assertEquals(NwtRoomIndexIdentityState.RECORD_MISSING, result.state)
+    }
+
+    // ---------- 18 (positivo): alteração concorrente da passagem, interleavar forçado ----------
+
+    @Test
+    fun cenario18_alteracaoConcorrenteForçadaNãoCertificaUnidadeIncompativel() = runBlocking {
         db.attachmentDao().upsert(tnmAttachment())
         db.passageDao().insertAll(listOf(passage(id = "p-18", text = text)))
-        val readTwo = CompletableDeferred<Unit>()
+        val afterFindRefsIn = CompletableDeferred<Unit>()
+        val releaseAfterFindRefsIn = CompletableDeferred<Unit>()
         val updateStarted = CompletableDeferred<Unit>()
         val releaseTx = CompletableDeferred<Unit>()
-        val adapterDao = SignalingPassageDao(db.passageDao(), readTwo)
+        val adapterDao = GatedSignalingPassageDao(
+            db.passageDao(), afterFindRefsIn, releaseAfterFindRefsIn,
+        )
         val gatedRunner = GatedTransactionRunner(db, releaseTx)
 
-        // 2. Inicia a verificação transacional.
         val resultDef = CompletableDeferred<NwtRoomIndexIdentityResult>()
         val verifyJob = launch {
             resultDef.complete(
@@ -259,37 +303,73 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
                 )
             )
         }
-        // 3. Pausa depois de uma leitura relevante — a transação está
-        //    aberta (bloqueada na barreira).
-        withTimeout(30_000) { readTwo.await() }
+        // Verificação pausada imediatamente após findByRefsIn (dentro da tx aberta).
+        withTimeout(30_000) { afterFindRefsIn.await() }
 
-        // 4. Inicia a escrita concorrente com texto diferente.
-        val newText = "Texto alterado (T2)."
-        val updateDao = SignalingUpdateDao(db.passageDao(), updateStarted)
+        // Escrita concorrente iniciada durante a transação.
         val updateJob = launch {
-            updateDao.insertAll(listOf(passage(id = "p-18", text = newText)))
+            SignalingUpdateDao(db.passageDao(), updateStarted).insertAll(
+                listOf(passage(id = "p-18-dup", text = text)),
+            )
         }
-        // Iniciação confirmada da escrita (sem sleep).
         withTimeout(30_000) { updateStarted.await() }
 
-        // 5. Libera a transação.
+        // Libera verificação, transaction commita.
+        releaseAfterFindRefsIn.complete(Unit)
         releaseTx.complete(Unit)
-
-        // 6. Confirma que a unidade verificada corresponde a uma visão
-        //    consistente: RECORD_MATCH com o texto original.
         val result = withTimeout(30_000) { resultDef.await() }
         withTimeout(30_000) { verifyJob.join() }
-        // 7. Confirma que a atualização concorrente foi efetivamente
-        //    persistida.
-        withTimeout(30_000) { updateJob.join() }
+
+        // Visão consistente: RECORD_MATCH, texto original.
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
         assertNotNull(result.unit)
-        // Verificação negativa controlada: o resultado certifica a unidade
-        // formada pelas leituras da transação-tempo — `unit.text == text`
-        // (original) — e a atualização foi persistida após a transação
-        // concluir; sem o isolamento, o interleaving produziria o estado
-        // incoerente que este teste detecta (as asserts falhariam).
         assertEquals(text, result.unit!!.text)
-        assertEquals(newText, db.passageDao().findByRefIn(attachmentId, ref)?.text)
+        assertTrue(gatedRunner.invocations.get())
+        // Efeito final da escrita concorrente aplicada (aula final).
+        withTimeout(30_000) { updateJob.join() }
+        assertEquals(2, db.passageDao().findByTextInAttachment(attachmentId, text, 2).size)
+    }
+
+    // ---------- 18 (negativo): sem transação, unidade expande estados mistos ----------
+
+    @Test
+    fun cenario18negativo_runnerSemTransaçãoNãoCertificaUnitadeIncompativel() = runBlocking {
+        db.attachmentDao().upsert(tnmAttachment())
+        db.passageDao().insertAll(listOf(passage(id = "p-18", text = text)))
+        val afterFindRefsIn = CompletableDeferred<Unit>()
+        val releaseAfterFindRefsIn = CompletableDeferred<Unit>()
+        val adapterDao = GatedSignalingPassageDao(
+            db.passageDao(), afterFindRefsIn, releaseAfterFindRefsIn,
+        )
+        val runner = PassThroughRunner()
+
+        val resultDef = CompletableDeferred<NwtRoomIndexIdentityResult>()
+        launch {
+            resultDef.complete(
+                NwtRoomIndexIdentityAdapter.verify(
+                    attachmentId = attachmentId,
+                    canonicalRef = ref,
+                    claim = claim(passageId = "p-18"),
+                    attachmentDao = db.attachmentDao(),
+                    passageDao = adapterDao,
+                    transactionRunner = runner,
+                )
+            )
+        }
+        // Verificação pausada após findByRefsIn.
+        withTimeout(30_000) { afterFindRefsIn.await() }
+
+        // Escrita concorrente aplicável IMEDIATAMENTE (sem transação).
+        val insertJob = launch {
+            db.passageDao().insertAll(listOf(passage(id = "p-18-dup", text = text)))
+        }
+        withTimeout(30_000) { insertJob.join() }
+
+        releaseAfterFindRefsIn.complete(Unit)
+        val result = withTimeout(30_000) { resultDef.await() }
+
+        // Controle negativo: o estado inconsistente EXPOSTO (não RECORD_MATCH).
+        assertNotEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
+        assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
     }
 }
