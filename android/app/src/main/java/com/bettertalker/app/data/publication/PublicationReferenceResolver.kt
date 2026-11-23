@@ -39,7 +39,7 @@ class PublicationReferenceResolver(
     private val passageDao: PassageDao,
     private val unitDao: PublicationUnitDao? = null,
     private val referenceResolver: RoomReferenceResolver =
-        RoomReferenceResolver(passageDao, attachmentDao),
+        RoomReferenceResolver(passageDao, attachmentDao, unitDao),
 ) {
 
     /**

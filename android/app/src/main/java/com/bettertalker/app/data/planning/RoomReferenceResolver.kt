@@ -30,6 +30,7 @@ import com.bettertalker.app.domain.planning.ResolvedReference
 class RoomReferenceResolver(
     private val passageDao: PassageDao,
     private val attachmentDao: AttachmentDao,
+    private val unitDao: com.bettertalker.app.data.db.PublicationUnitDao? = null,
 ) : ReferenceResolver {
 
     override suspend fun resolveBible(ref: String): ResolvedReference {
@@ -128,7 +129,7 @@ class RoomReferenceResolver(
             return resolveByPageParagraph(ref, hit)
         }
 
-        val slice = unitSliceOf(passageDao, hit.id, needle, rawNeedle)
+        val slice = unitSliceOf(passageDao, hit.id, needle, rawNeedle, unitDao)
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
 
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
@@ -190,6 +191,7 @@ class RoomReferenceResolver(
             } else {
                 ReferenceStatus.PARTIAL
             },
+            fullText = chosen.joinToString(" ") { it.text }.trim(),
         )
     }
 
@@ -497,7 +499,35 @@ internal suspend fun unitSliceOf(
     attachmentId: String,
     needleNorm: String,
     rawNeedle: String,
+    unitDao: com.bettertalker.app.data.db.PublicationUnitDao? = null,
 ): List<PassageEntity>? {
+    // 0. Unidade estrutural indexada (publication_units): quando ela existe e
+    //    casa de forma inequívoca com o alvo, usa seus limites reais em vez
+    //    de considerar uma consulta bySection esparsa como conteúdo integral.
+    if (unitDao != null) {
+        val units = unitDao.forAttachment(attachmentId)
+        val matching = units.filter { unit ->
+            val title = unit.title?.takeIf { it.isNotBlank() }
+            val label = title ?: listOfNotNull(unit.kind, unit.number)
+                .joinToString(" ")
+            label.isNotBlank() && sectionMatchesNeedle(normalizeText(label), needleNorm)
+        }
+        if (matching.size == 1) {
+            val unit = matching.single()
+            val startOrd = unit.startOrd
+            val endOrd = unit.endOrd
+            if (startOrd != null && endOrd != null && startOrd <= endOrd) {
+                val rows = passageDao.betweenOrd(
+                    attachmentId,
+                    startOrd,
+                    endOrd,
+                    UNIT_PASSAGES,
+                )
+                if (rows.isNotEmpty()) return rows
+            }
+        }
+    }
+
     // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
     for (n in sectionNeedles(rawNeedle)) {
         val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES)
