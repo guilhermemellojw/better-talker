@@ -274,13 +274,12 @@ class PublicationReferenceResolver(
                 ?: unitNumberFromTitle(title)
             number == requestedNumber
         }
+        val exactTitleMatches = matches.filter { unit ->
+            needles.any { needle -> normalizeText(unit.title) == needle }
+        }
         val selected = when {
-            matches.size == 1 -> matches.single()
-            matches.size > 1 -> {
-                val largestSpan = matches.maxOf { it.endOrd - it.startOrd }
-                val largest = matches.filter { it.endOrd - it.startOrd == largestSpan }
-                if (largest.size == 1) largest.single() else null
-            }
+            exactTitleMatches.size == 1 -> exactTitleMatches.single()
+            exactTitleMatches.isEmpty() && matches.size == 1 -> matches.single()
             else -> null
         }
         if (selected == null) return null

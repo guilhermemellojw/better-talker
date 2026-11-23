@@ -523,15 +523,14 @@ internal suspend fun unitSliceOf(
                 number != null && number == requestedNumber
             }
         }
+        val exactTitleMatches = matching.filter { unit ->
+            unit.title?.let { title ->
+                needles.any { needle -> normalizeText(title) == needle }
+            } == true
+        }
         val selectedUnit = when {
-            matching.size == 1 -> matching.single()
-            matching.size > 1 -> {
-                val largestSpan = matching.maxOf { it.endOrd - it.startOrd }
-                val largestUnits = matching.filter {
-                    it.endOrd - it.startOrd == largestSpan
-                }
-                if (largestUnits.size == 1) largestUnits.single() else null
-            }
+            exactTitleMatches.size == 1 -> exactTitleMatches.single()
+            exactTitleMatches.isEmpty() && matching.size == 1 -> matching.single()
             else -> null
         }
         if (selectedUnit != null) {
