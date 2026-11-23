@@ -1478,8 +1478,12 @@ private fun NoteChatHost(
     var publicationNotice by androidx.compose.runtime.remember(session.noteId) {
         androidx.compose.runtime.mutableStateOf<com.bettertalker.app.data.publication.PublicationReferenceNotice?>(null)
     }
+    var publicationReaderState by androidx.compose.runtime.remember(session.noteId) {
+        androidx.compose.runtime.mutableStateOf<com.bettertalker.app.ui.components.NoteSourceReaderState?>(null)
+    }
     androidx.compose.runtime.LaunchedEffect(session.noteId) {
         publicationNotice = null
+        publicationReaderState = null
     }
     val publicationOpenCoordinator = androidx.compose.runtime.remember(
         session.noteId,
@@ -1490,29 +1494,75 @@ private fun NoteChatHost(
         com.bettertalker.app.data.publication.PublicationReferenceOpenCoordinator(
             scope = navScope,
             onResolution = { result ->
-                publicationNotice = when (result) {
-                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Available ->
-                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
-                            title = "Referência disponível",
-                            message = "A publicação está disponível no acervo local. " +
-                                "Abra a Biblioteca para consultá-la.",
-                            openLibrary = true,
+                when (result) {
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Available -> {
+                        publicationReaderState = com.bettertalker.app.ui.components.NoteSourceReaderState.Content(
+                            source = com.bettertalker.app.data.util.NoteSource(
+                                ref = result.target.displayRef,
+                                kind = com.bettertalker.app.data.util.SourceKind.PUBLICATION,
+                                citation = com.bettertalker.app.data.util.CitationStatus(
+                                    edition = com.bettertalker.app.data.util.EditionStatus.READY,
+                                    text = com.bettertalker.app.data.util.TextStatus.RESOLVED,
+                                ),
+                                publicationKey = result.target.publicationKey,
+                                publicationLabel = result.target.publicationTitle,
+                                fileName = result.target.fileName,
+                            ),
+                            content = com.bettertalker.app.data.planning.SourceReaderContent(
+                                publicationTitle = result.target.publicationTitle,
+                                referenceLabel = result.target.displayRef,
+                                locationLabel = buildString {
+                                    result.target.unit?.title?.takeIf { it.isNotBlank() }?.let { append(it) }
+                                    result.target.page?.let { append(" · p. ").append(it) }
+                                    result.target.paragraph?.let { append(" § ").append(it) }
+                                },
+                                body = result.target.recoveredText.orEmpty(),
+                                status = com.bettertalker.app.data.planning.SourceReaderStatus.READY,
+                                truncated = result.target.truncated,
+                            ),
                         )
+                        publicationNotice = null
+                    }
 
-                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Partial ->
-                        com.bettertalker.app.data.publication.PublicationReferenceNotice(
-                            title = "Referência parcial",
-                            message = result.warning,
-                            openLibrary = true,
+                    is com.bettertalker.app.data.publication.PublicationReferenceResolution.Partial -> {
+                        publicationReaderState = com.bettertalker.app.ui.components.NoteSourceReaderState.Content(
+                            source = com.bettertalker.app.data.util.NoteSource(
+                                ref = result.target.displayRef,
+                                kind = com.bettertalker.app.data.util.SourceKind.PUBLICATION,
+                                citation = com.bettertalker.app.data.util.CitationStatus(
+                                    edition = com.bettertalker.app.data.util.EditionStatus.READY,
+                                    text = com.bettertalker.app.data.util.TextStatus.PARTIAL,
+                                ),
+                                publicationKey = result.target.publicationKey,
+                                publicationLabel = result.target.publicationTitle,
+                                fileName = result.target.fileName,
+                            ),
+                            content = com.bettertalker.app.data.planning.SourceReaderContent(
+                                publicationTitle = result.target.publicationTitle,
+                                referenceLabel = result.target.displayRef,
+                                locationLabel = buildString {
+                                    result.target.unit?.title?.takeIf { it.isNotBlank() }?.let { append(it) }
+                                    result.target.page?.let { append(" · p. ").append(it) }
+                                    result.target.paragraph?.let { append(" § ").append(it) }
+                                },
+                                body = result.target.recoveredText.orEmpty(),
+                                status = com.bettertalker.app.data.planning.SourceReaderStatus.PARTIAL,
+                                reason = result.warning,
+                                truncated = result.target.truncated,
+                            ),
                         )
+                        publicationNotice = null
+                    }
 
-                    else ->
-                        com.bettertalker.app.data.publication.publicationReferenceNotice(result)
+                    else -> {
+                        publicationReaderState = null
+                        publicationNotice = com.bettertalker.app.data.publication.publicationReferenceNotice(result)
                             ?: com.bettertalker.app.data.publication.PublicationReferenceNotice(
                                 title = "Não foi possível abrir",
                                 message = "Não foi possível abrir esta referência agora.",
                                 openLibrary = false,
                             )
+                    }
                 }
             },
             onFailure = {
@@ -1763,6 +1813,7 @@ private fun NoteChatHost(
         },
         onOpenPublicationReference = { link ->
             publicationNotice = null
+            publicationReaderState = null
             publicationOpenCoordinator.open(link.occurrence, link.sourceText) { occ, src ->
                 publicationResolver.resolve(
                     occurrence = occ,
@@ -1859,6 +1910,16 @@ private fun NoteChatHost(
                 }
             } else {
                 null
+            },
+        )
+    }
+    publicationReaderState?.let { state ->
+        com.bettertalker.app.ui.components.NoteSourceReaderSheet(
+            state = state,
+            onDismiss = { publicationReaderState = null },
+            onOpenLibrary = {
+                publicationReaderState = null
+                nav.navigate(Routes.library(session.noteId))
             },
         )
     }
