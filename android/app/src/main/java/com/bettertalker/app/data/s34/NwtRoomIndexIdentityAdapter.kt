@@ -45,7 +45,7 @@ object NwtRoomIndexIdentityAdapter {
         }
 
     /**
-     * 1C.2.2B1b — verificação restrita ao `attachmentId`; todas as leituras
+     * TRUST-2B3B-B1b — verificação restrita ao `attachmentId`; todas as leituras
      * (anexo, referências e duplicatas) acontecem dentro de [transactionRunner]:
      * o resultado reflete um estado consistente — mudanças concorrentes de
      * anexo/passagem não produzem RECORD_MATCH de leituras incompatíveis.
