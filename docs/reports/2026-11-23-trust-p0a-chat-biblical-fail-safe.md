@@ -65,9 +65,20 @@ Novo objeto puro `ChatBiblicalSupport` (data/copilot) — P0:
 ## G. Dependências
 
 - PR #42 (Agente A, OPEN) — infra MEMORY — não bloqueia.
-- PR #43 (INT-P4 — B1b/adaptação) — integration base igual; B1a+B1b status abaixo (non-blocking).
+- PR #43 (INT-P4 — B1b/adaptação) — status: PRONTO; independente desta tarefa.
 - PR #44 (Agente D, OPEN) — desacoplado.
 - PRs #36/#37 (MERGED) — infra base.
+
+## H. Veredito
+
+**PRONTO PARA REVIEW.**
+
+- HEAD P0A: `b56715de585a50be67be6e5578b304b88348e359` — **CI push: success/completed** (id 45280022841).
+- Testes JVM + instrumentado compilado: PASS.
+- Repro negativo identificado (red) e corrigido (green).
+- PR: `feat/trust-p0a-fail-safe` — status aberto; aguarda review antes do merge (sem merge por scope de P0A).
+
+**Critério de sucesso (p/ review):** cenários QA-repro estão cobertos (cenário acima) + fallback (paráfrase pedagógica) + 1 citação destrutiva identificável.
 
 ## H. Riscos reais para o beta
 
