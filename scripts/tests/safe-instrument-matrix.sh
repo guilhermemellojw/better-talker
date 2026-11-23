@@ -139,6 +139,9 @@ run() { # <nome> <esperado> <apk> <test-apk> <execute 0|1> [env...]
       ./scripts/safe-instrument.sh "${BASE[@]}" --apk "$apk" --test-apk "$tst" \
       "${extra[@]}" --results "$WORK/results/$name" ) >"$WORK/out/$name.log" 2>&1
   LAST_RC=$?
+  if grep -qE "uninstall|pm clear|connected.*AndroidTest" "$WORK/calls.log" 2>/dev/null; then
+    echo "  FALHOU: comando destrutivo no log"; FAILS=$((FAILS + 1))
+  fi
   if [ "$LAST_RC" = "$exp" ]; then
     echo "PASS $name (exit=$LAST_RC)"
   else
