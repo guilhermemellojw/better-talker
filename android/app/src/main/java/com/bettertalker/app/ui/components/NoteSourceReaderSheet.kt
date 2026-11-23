@@ -168,6 +168,23 @@ private fun ReaderContent(
             TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
         }
 
+        if (content.status == SourceReaderStatus.PARTIAL) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Referência localizada parcialmente",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                content.reason ?: "Foi possível recuperar este trecho, mas a localização " +
+                    "não foi confirmada de forma completa. Confira a edição na Biblioteca.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+
         if (content.usedText != null) {
             Spacer(Modifier.height(14.dp))
             Text(
@@ -196,7 +213,11 @@ private fun ReaderContent(
         if (content.body.isNotBlank()) {
             Spacer(Modifier.height(14.dp))
             Text(
-                "Texto completo da referência",
+                if (content.status == SourceReaderStatus.PARTIAL || content.truncated) {
+                    "Texto recuperado da referência"
+                } else {
+                    "Texto completo da referência"
+                },
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
             )
