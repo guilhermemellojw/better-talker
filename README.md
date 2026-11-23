@@ -7,7 +7,7 @@ Better Talker é um app Android nativo. O código ativo está em `android/`. Os 
 
 ## Política de entrega — beta e produto final
 
-O beta é um marco funcional da **mesma arquitetura do produto final**. As entregas são organizadas em quatro frentes (Mentor, UX, TRUST e QA/integração), com PRs pequenos, gates de confiança e merges explicitamente autorizados. Consulte a [Política de entrega incremental com quatro agentes](docs/DELIVERY_POLICY.md) para responsabilidades, prioridades, caminho crítico e critérios de aceite. O roadmap estratégico mais amplo permanece em revisão no [PR #10](https://github.com/guilhermemellojw/better-talker/pull/10).
+O beta é um marco funcional da **mesma arquitetura do produto final**. A equipe trabalha com **cinco agentes colaborativos**, QA distribuído, revisão cruzada independente e coordenação central dos bloqueios/PRs. Consulte a [Coordenação integrada de cinco agentes](docs/TEAM_COORDINATION.md) para papéis, colaboração, WIP, certificação e fluxo de integração. A [política incremental anterior](docs/DELIVERY_POLICY.md) preserva critérios de produto e o histórico da organização com quatro agentes. O roadmap estratégico mais amplo permanece em revisão no [PR #10](https://github.com/guilhermemellojw/better-talker/pull/10).
 
 O fluxo central é: importar ou escrever um esboço dividido em blocos de minutos → desenvolver cada bloco no editor rico → consultar a Biblioteca local → pedir sugestões ao Copilot → treinar no Treino → exportar.
 
