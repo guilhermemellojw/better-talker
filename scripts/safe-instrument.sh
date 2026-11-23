@@ -35,7 +35,10 @@
 #   - em falha após instalar, tenta restaurar o APK anterior (rollback);
 #   - restaura IME e relança o app, se ele estava rodando;
 #   - congelamento exige force-stop 0 + pidof exit 1 sem PID; transporte ou
-#     resposta inválida falha (nunca vira "processo ausente");
+#     resposta inválida falha (nunca vira "processo ausente"), inclusive na
+#     leitura inicial de APP_WAS_RUNNING;
+#   - cobertura lógica conferida no snapshot inicial e no posterior; tabela
+#     desconhecida criada durante o teste aborta (74);
 #   - falha de congelamento → 78; dados lógicos alterados → 74; relançamento
 #     não confirmado → 77; IME não confirmado → 75;
 #   - qualquer erro aborta com código não-zero; nunca produz falso PASS.
@@ -61,7 +64,7 @@ EXECUTE=0
 ALLOW_DEBUG_A34=0
 FREEZE=1
 
-usage() { sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,44p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "ABORT: $*" >&2; exit "${2:-70}"; }
 
@@ -86,7 +89,8 @@ cleanup() {
 
   # 1. IME volta ao original; falha/leitura inválida é erro (nunca PASS).
   #    Em dry-run NÃO escreve nem lê para restaurar.
-  if [ "$EXECUTE" -eq 1 ] && [ -n "$SERIAL" ]; then
+  if [ "$EXECUTE" -eq 1 ] && [ -n "$SERIAL" ] \
+     && command -v read_ime >/dev/null 2>&1; then
     local now=""
     if ! now="$(read_ime)"; then
       echo "ERRO: não foi possível ler o IME no cleanup" >&2
@@ -420,7 +424,17 @@ prefs_fingerprint() { # <dir local>: hash de nomes + conteúdo
   ) | sha256sum | cut -d' ' -f1
 }
 mkdir -p "$RESULTS/snapshot"
-APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
+st=0
+pidof_state || st=$?
+case "$st" in
+  0) APP_WAS_RUNNING="$PID_VALUE" ;;
+  1) APP_WAS_RUNNING="" ;;
+  *)
+    FREEZE_ERROR="falha ao ler o estado inicial do app (transporte ou resposta inválida)"
+    write_freeze_evidence estado-inicial
+    die "não foi possível confirmar o estado inicial do app" 78
+    ;;
+esac
 if [ "$EXECUTE" -eq 1 ]; then
   if [ "$FREEZE" -eq 1 ]; then
     if freeze_app; then
@@ -630,6 +644,20 @@ for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
     *) die "falha ao reler databases/$f após o teste" 74 ;;
   esac
 done
+cov=0
+AFTER_COVERAGE_MISSING="$(logical_coverage_missing "$RESULTS/snapshot/after-better-talker.db")" || cov=$?
+case "$cov" in
+  0) : ;;
+  1)
+    {
+      echo "tabelas_sem_cobertura=$AFTER_COVERAGE_MISSING"
+      echo "fase=pos-instrumentacao"
+      echo "db=$RESULTS/snapshot/after-better-talker.db"
+    } >"$RESULTS/DATA-COBERTURA-FALHOU.txt"
+    die "cobertura lógica pós-teste incompleta:$AFTER_COVERAGE_MISSING" 74
+    ;;
+  *) die "não foi possível verificar a cobertura lógica pós-teste" 74 ;;
+esac
 N2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from notes;' 2>/dev/null || echo ERR)"
 P2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from passages;' 2>/dev/null || echo ERR)"
 if [ "$N2" != "$NOTES" ] || [ "$P2" != "$PASSAGES" ]; then

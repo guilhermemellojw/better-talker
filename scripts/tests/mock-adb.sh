@@ -75,6 +75,7 @@ case "$CMD" in
     exit 0
     ;;
   "shell pidof $PKG"*)
+    if [ "${MOCK_PIDOF_SIMPLE_FAIL:-0}" = "1" ]; then exit 1; fi
     if [ -f "$MOCK_DIR/running" ]; then echo 4242; exit 0; fi
     exit 1
     ;;

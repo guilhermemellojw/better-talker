@@ -70,6 +70,8 @@ sqlite3 "$AFTER/after-passages-edit.db" "update passages set text='alterado' whe
 mk_after after-passages-attachment.db
 sqlite3 "$AFTER/after-passages-attachment.db" "update passages set attachmentId='a2' where id='p1';"
 sqlite3 "$FIXTURE" "VACUUM INTO '$AFTER/after-vacuum.db';"
+mk_after after-extra-table.db
+sqlite3 "$AFTER/after-extra-table.db" "create table tabela_futura(id text); insert into tabela_futura values('x');"
 cp "$FIXTURE" "$WORK/fixture-extra.db"
 sqlite3 "$WORK/fixture-extra.db" "create table tabela_futura(id text); insert into tabela_futura values('x');"
 : >"$WORK/wal"; : >"$WORK/shm"
@@ -373,7 +375,26 @@ assert_file "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt"
 grep -q "tabela_futura" "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt" \
   || { echo "  FALHOU: tabela futura não identificada"; FAILS=$((FAILS + 1)); }
 
-# 44-45. pidof: transporte e resposta inválida
+# 44. tabela desconhecida criada só no banco posterior
+CASE=coverage-extra-after
+run "$CASE" 74 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok "MOCK_AFTER_DB=$AFTER/after-extra-table.db"
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt"
+grep -q "tabela_futura" "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt" \
+  || { echo "  FALHOU: tabela posterior não identificada"; FAILS=$((FAILS + 1)); }
+grep -q "fase=pos-instrumentacao" "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt" \
+  || { echo "  FALHOU: fase pós-instrumentação não registrada"; FAILS=$((FAILS + 1)); }
+
+# 45. leitura inicial do processo com falha de transporte
+CASE=init-pidof-transport
+run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1 MOCK_PIDOF_TRANSPORT_FAIL=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/FREEZE-FALHOU.txt"
+grep -q "estado-inicial" "$WORK/results/$CASE/FREEZE-FALHOU.txt" \
+  || { echo "  FALHOU: fase inicial não registrada"; FAILS=$((FAILS + 1)); }
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
+
+# 46-47. pidof: transporte e resposta inválida
 CASE=freeze-pidof-transport
 run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_PIDOF_TRANSPORT_FAIL=1
 assert_out_absent "== PASS"
