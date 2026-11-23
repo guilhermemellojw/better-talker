@@ -1,10 +1,12 @@
 # Better Talker — Roadmap estratégico e operacional
 
-**Referência de produto:** 17/11/2026 · **Estado deste documento:** proposta versionada para revisão no PR de documentação · **Owner do planejamento:** mantenedor do repositório
+**Referência de produto:** 17/11/2026 · **Revisão de governança:** 23/11/2026 · **Estado:** proposta estratégica no PR #10; integração pendente · **Owner:** mantenedor do repositório
 
 > **LEIA PRIMEIRO:** Este documento preserva a visão e a sequência de desenvolvimento. Não autoriza executar funcionalidades, fazer merge, criar release ou alterar versões. Antes de agir, consulte o estado *atual* de `main`, PRs e CI. O snapshot abaixo é histórico e pode ficar desatualizado em minutos.
 >
-> **Para retomar um trabalho sem o contexto do chat:** ler [AGENT_HANDOFF.md](AGENT_HANDOFF.md) e [FREEZE.md](FREEZE.md), depois verificar GitHub. A referência anterior [VISION.md](VISION.md) registra decisões históricas; em conflitos sobre a direção futura, este roadmap prevalece após sua aprovação/merge.
+> **Para retomar um trabalho sem o contexto do chat:** ler primeiro [TEAM_COORDINATION.md](TEAM_COORDINATION.md), já integrado à main via PR #46, e depois [AGENT_HANDOFF.md](AGENT_HANDOFF.md), [FREEZE.md](FREEZE.md) e o estado atual do GitHub. A referência [VISION.md](VISION.md) registra decisões históricas; o roadmap estratégico prevalece após aprovação/merge.
+>
+> **Governança vigente:** cinco agentes A–E, QA distribuído e revisão cruzada independente, seguindo [TEAM_COORDINATION.md](TEAM_COORDINATION.md). O PR #46 foi integrado à main no commit 52e75373 em 23/11/2026. Tabelas de atribuições datadas abaixo são histórico, não ordens atuais. Merge, release, schema e mudanças de política continuam sujeitos à autorização do mantenedor.
 
 ## 1. Visão e inegociáveis
 
@@ -70,7 +72,7 @@
 
 ## 4. Roadmap por marcos com gates
 
-> **Estimativas:** faixas exploratórias para dedicação coordenada de ~25–35 h/semana, com 2 agentes de implementação + 1 discovery, não compromissos. O caminho crítico é TRUST, especialmente suporte semântico. Tarefas concorrentes não são automaticamente independentes.
+> **Estimativas históricas:** as faixas originais foram formuladas para ~25–35 h/semana com 2 agentes de implementação + 1 discovery, organização substituída no PR #46. Não recalcular prazos apenas por existirem cinco agentes: reestimar com caminho crítico, dependências, QA e dados reais de integração. TRUST e suporte semântico permanecem riscos importantes; tarefas paralelas não são automaticamente independentes.
 
 | Marco | Frentes/ordem preferencial | Saída demonstrável / gate de conclusão |
 | --- | --- | --- |
@@ -180,10 +182,25 @@ Preservar um único documento por seção com **vistas Entender / Escrever / Ens
 
 **Operação:** instrumentar tokens/custos por **discurso preparado**, latência, retries, cache e consumo por voz; distinguir simulações de medições. Avaliar BYOK opcional, cota gratuita, contribuições voluntárias, quotas/antiabuso/backend somente depois de requisitos de privacidade, tributos e distribuição. Jamais incluir chave coletiva no APK. Não trocar provedor, implementar backend ou alterar prompts de produção apenas por esta decisão de roadmap.
 
-## 6. Regime de trabalho: dois agentes + um Discovery
+## 6. Regime atual: cinco agentes e QA distribuído
 
-> **Nota de atualização (20/11):** as atribuições da tabela a seguir refletem o plano inicial de 17/11 e **não devem ser executadas automaticamente**. Para o estado atual e o bloqueador P6 do Agente A, consulte a atualização de execução acima. Confirmar tarefa e PR atual antes de atuar.
+**Fonte normativa de operação:** [TEAM_COORDINATION.md](TEAM_COORDINATION.md), incorporada à main no [PR #46](https://github.com/guilhermemellojw/better-talker/pull/46). Este roadmap define os marcos do produto; a coordenação define distribuição de trabalho, QA e integração. Nenhum documento substitui autorização expressa do mantenedor.
 
+| Agente | Responsabilidade principal | Colaboração no QA |
+| --- | --- | --- |
+| **A** | Mentor, memória e geração oratória | QA primário do próprio código; revisão independente de E ou outro colega qualificado |
+| **B** | UX, leitores e referências | Revisão cruzada de scripts e QA operacional de D |
+| **C** | TRUST, Room e integridade factual | Revisão de referências de B; próprio código recertificado por outro agente |
+| **D** | Executor seguro, QA operacional e integração | Testes instrumentados e preservação dos dados com autorização |
+| **E** | QA especializado e testes adversariais | Auditoria crítica independente; não concentra todos os PRs |
+
+**Fluxo:** tarefa com autor e revisor diferentes → worktree/branch exclusiva → testes do autor e PR no SHA final → QA independente proporcional ao risco → correção pelo autor e recertificação do revisor → parecer → autorização de merge → CI e verificação pós-merge.
+
+**Sem gargalos:** o autor pode avançar em tarefa independente ou QA de colega enquanto aguarda análise, sem modificar branches alheias ou criar dependência oculta. Um BUILD principal por agente quando possível. Trabalho em arquivo compartilhado exige owner definido. Sem teste instrumentado no A34 ou outra ação que altere dados reais sem autorização específica. CI verde e compilação de instrumentados não são certificação funcional ou de atomicidade.
+
+### Snapshot de atribuições de 17/11/2026 — histórico, não executar
+
+A tabela abaixo registra o antigo protocolo de 2 BUILD + 1 Discovery, supersedido em 23/11/2026. PRs citados e seus estados refletem somente aquela data.
 
 | Frente | Atribuição imediata | Área exclusiva | Bloqueios |
 | --- | --- | --- | --- |
@@ -191,9 +208,7 @@ Preservar um único documento por seção com **vistas Entender / Escrever / Ens
 | **Agente B (UX)** | Encerrar [PR #9](https://github.com/guilhermemellojw/better-talker/pull/9) com revisão do head atual | `ChatScreen.kt`, `ChatMotionTest.kt` na branch exclusiva | Não começar UX-2.3 antes da integração da UX-2.2; não fazer merge |
 | **Agente C (discovery)** | TRUST-0 somente leitura | Análise de rotas/relatório e matriz | Sem mutações, Gradle, tablet, edit em branches A/B |
 
-Apenas um agente usa **o mesmo tablet** por vez; confirmar disponibilidade do A34 e do Xiaomi antes de executar testes. Não rodar tarefas pesadas Gradle em paralelo no mesmo ambiente. Os agentes não devem editar simultaneamente `docs/ROADMAP.md` nem `docs/AGENT_HANDOFF.md`. O **coordenador** atualiza o snapshot após revisão/integração, preferindo PR apenas de documentação.
-
-**Ritmo de revisão:** branch isolada → testes focados → JVM/lint/CI → dispositivo quando necessário → relatório (SHA/diff/evidências/limitações) → revisão → autorização explícita para merge. Nenhum release implícito.
+Consultar GitHub e [TEAM_COORDINATION.md](TEAM_COORDINATION.md) antes de atribuir trabalho ou atualizar o estado de qualquer marco.
 
 ## 7. Definition of Done (DoD) para qualquer BUILD
 
@@ -223,12 +238,14 @@ Apenas um agente usa **o mesmo tablet** por vez; confirmar disponibilidade do A3
 
 ## 9. Próximo checkpoint e manutenção do roadmap
 
-**Checkpoint atualizado (20/11/2026):** Agente A — executar somente o P6 no PR #33 (sem merge), garantindo que a indisponibilidade/incompatibilidade do dossiê não reintroduza contexto de outra seção; executar testes adversariais, JVM, lint, builds, CI no HEAD exato e declarar instrumentados não executados quando for o caso. Coordenador — revisar P6 e revalidar base, conflitos, CI e testes antes de qualquer autorização de merge. Em paralelo, revisar PR #34 pelos contratos e integração sem confundir código puro com leitor/UI implementados. TRUST-2B3B-A (#31) já está integrado; prosseguir nos próximos gates sem inferir verificação semântica concluída.
+**Coordenação oficial em 23/11/2026:** PR #46 integrado à main, commit 52e75373ceafb9e4c3ce09c6225ae057b6808369. Cinco agentes trabalham com QA distribuído, revisão cruzada, integração condicionada ao gate de risco e aprovação expressa. O próximo gate do PR #10 é revisão editorial do roadmap e reconciliação de sua base com a main atual; este ajuste não encerra marcos nem autoriza merge de código.
+
+**Checkpoint histórico de 20/11/2026 (não executar como instrução atual):** Agente A — executar somente o P6 no PR #33 (sem merge), garantindo que a indisponibilidade/incompatibilidade do dossiê não reintroduza contexto de outra seção; executar testes adversariais, JVM, lint, builds, CI no HEAD exato e declarar instrumentados não executados quando for o caso. Coordenador — revisar P6 e revalidar base, conflitos, CI e testes antes de qualquer autorização de merge. Em paralelo, revisar PR #34 pelos contratos e integração sem confundir código puro com leitor/UI implementados. TRUST-2B3B-A (#31) já está integrado; prosseguir nos próximos gates sem inferir verificação semântica concluída.
 
 **Checkpoint histórico de 17/11/2026 (não executar sem nova verificação):** revisar HEAD/CI do PR #8 e #9; solicitar apenas correções pontuais, integrar **somente com autorização**; lançar TRUST-0 como discovery independente; depois UX-2.3. Ao avançar, registrar **data UTC, base/main SHA, PR/head, CI, device, decisão de merge e evidências**. Nunca marcar “concluído” apenas porque um agente disse que executou; conferir GitHub e, quando relevante, artefatos.
 
 **Estimativa de esforço global, não compromisso:** piloto controlado de 8–12 semanas; beta da visão em 4–6 meses; operação ampliada em 6–12 meses ou mais. Replanejar após TRUST-0 e medições de custo.
 
-**Leituras de apoio:** [AGENT_HANDOFF.md](AGENT_HANDOFF.md) · [FREEZE.md](FREEZE.md) · [VISION.md](VISION.md) · [README](../README.md).
+**Leituras de apoio:** [TEAM_COORDINATION.md](TEAM_COORDINATION.md) · [AGENT_HANDOFF.md](AGENT_HANDOFF.md) · [FREEZE.md](FREEZE.md) · [VISION.md](VISION.md) · [README](../README.md).
 
 **Critério de norte:** “Agora eu entendo melhor como preparar e apresentar meu próprio discurso.”

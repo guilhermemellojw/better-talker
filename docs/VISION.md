@@ -1,6 +1,6 @@
 # Better Talker — Visão v2.0
 
-> **Nota de continuidade (17/11/2026):** este documento registra a visão histórica v2.0. Para o direcionamento estratégico mais recente — Mentor pedagógico, TRUST, voz, acessibilidade, prioridades e estado dos PRs — consulte [ROADMAP.md](ROADMAP.md) e [AGENT_HANDOFF.md](AGENT_HANDOFF.md). A documentação do roadmap é uma proposta em revisão até o merge do PR correspondente.
+> **Nota de continuidade (revisada em 23/11/2026):** este documento registra a visão histórica v2.0. A coordenação operacional vigente de cinco agentes está em [TEAM_COORDINATION.md](TEAM_COORDINATION.md), integrada à main pelo PR #46. Para o direcionamento estratégico mais recente — Mentor, TRUST, voz, acessibilidade e prioridades — consulte [ROADMAP.md](ROADMAP.md) e [AGENT_HANDOFF.md](AGENT_HANDOFF.md), ainda em revisão no PR #10. Snapshots históricos não substituem consulta atual ao GitHub.
 
 **Atualizado:** 2026-10-25 · **Build de referência:** v2.7.4 (versionCode 24)
 
