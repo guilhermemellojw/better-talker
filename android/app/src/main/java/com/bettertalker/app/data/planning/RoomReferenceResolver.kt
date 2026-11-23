@@ -505,12 +505,23 @@ internal suspend fun unitSliceOf(
     //    casa de forma inequívoca com o alvo, usa seus limites reais em vez
     //    de considerar uma consulta bySection esparsa como conteúdo integral.
     if (unitDao != null) {
+        val needles = sectionNeedles(rawNeedle)
+            .map(::normalizeText)
+            .filter { it.length >= 3 }
+            .distinct()
+        val requestedNumber = Regex("""\d{1,3}""")
+            .find(rawNeedle)
+            ?.value
+            ?.toIntOrNull()
         val units = unitDao.forAttachment(attachmentId)
         val matching = units.filter { unit ->
             val title = unit.title?.takeIf { it.isNotBlank() }
-            val label = title ?: listOfNotNull(unit.kind, unit.number)
-                .joinToString(" ")
-            label.isNotBlank() && sectionMatchesNeedle(normalizeText(label), needleNorm)
+            if (title != null) {
+                needles.any { needle -> sectionMatchesNeedle(normalizeText(title), needle) }
+            } else {
+                val number = unit.number?.trim()?.toIntOrNull()
+                number != null && number == requestedNumber
+            }
         }
         if (matching.size == 1) {
             val unit = matching.single()

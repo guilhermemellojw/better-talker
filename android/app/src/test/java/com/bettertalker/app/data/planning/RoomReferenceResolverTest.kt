@@ -6,6 +6,8 @@ import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
 import com.bettertalker.app.data.repo.publicationHitOf
 import com.bettertalker.app.data.repo.publicationRefOf
+import com.bettertalker.app.data.db.PublicationUnitEntity
+import com.bettertalker.app.data.publication.FakePublicationUnitDao
 import com.bettertalker.app.data.util.RefDetector
 import com.bettertalker.app.domain.planning.PublicationRef
 import com.bettertalker.app.domain.planning.ReferenceStatus
@@ -847,4 +849,39 @@ class RoomReferenceResolverTest {
         assertTrue(out.text!!.contains("parágrafo oito"))
         assertTrue(out.text!!.contains("parágrafo nove"))
     }
+
+    @Test
+    fun unitSliceOfUsaLimitesEstruturaisQuandoDisponiveis() = runBlocking {
+        val rows = (0..5).map { i ->
+            passage(
+                id = "p$i",
+                att = "att",
+                ref = "r$i",
+                text = if (i == 0) "# Capítulo 3" else "Texto $i do capítulo 3.",
+                normalized = if (i == 0) "capitulo 3" else "texto $i do capitulo 3",
+                section = if (i < 2) "Capítulo 3" else "Outro",
+                ord = i,
+            )
+        }
+        val dao = FakePassageDao(rows)
+        val unitDao = FakePublicationUnitDao(
+            listOf(
+                PublicationUnitEntity(
+                    id = "u3",
+                    attachmentId = "att",
+                    kind = "CHAPTER",
+                    number = "3",
+                    title = "Capítulo 3",
+                    canonicalKey = "cap3",
+                    ord = 0,
+                    startOrd = 0,
+                    endOrd = 5,
+                ),
+            ),
+        )
+        val slice = unitSliceOf(dao, "att", "cap 3", "cap. 3", unitDao)
+        assertEquals(6, slice?.size)
+        assertTrue(slice?.any { it.text == "Texto 5 do capítulo 3." } == true)
+    }
+
 }
