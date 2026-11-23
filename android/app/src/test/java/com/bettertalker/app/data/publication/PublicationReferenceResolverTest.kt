@@ -78,6 +78,7 @@ class PublicationReferenceResolverTest {
         assertFalse(target.truncated)
         assertNull(target.evidenceId)
         assertNull(target.usedText)
+        assertEquals("4 Texto real do ponto quatro.", target.recoveredText)
         assertNotNull(target.unit)
         assertEquals(PublicationUnitKind.LESSON, target.unit?.kind)
         assertEquals("3", target.unit?.number)
@@ -320,6 +321,7 @@ class PublicationReferenceResolverTest {
         assertTrue(target.partial)
         assertNull(target.evidenceId)
         assertNull(target.usedText)
+        assertEquals("Texto real da página 29.", target.recoveredText)
     }
 
     @Test
