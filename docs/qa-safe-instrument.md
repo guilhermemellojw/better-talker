@@ -53,6 +53,8 @@ Um snapshot só é aceito quando **todos** os itens abaixo valem:
 2. `better-talker.db`, `-wal` e `-shm` copiados juntos;
 3. `pragma integrity_check` = `ok` e `pragma journal_mode` registrado;
 4. contagens numéricas e não-zero de `notes` e `passages`;
+   após o teste, as contagens, o fingerprint de `shared_prefs`/`datastore` e o
+   inventário de `files/publicacoes` precisam ser **idênticos** aos de antes;
 5. `shared_prefs/` e `datastore/` copiados para `snapshot/prefs/` (arquivos
    pequenos; não são restaurados automaticamente);
 6. inventário de `files/publicacoes` em `snapshot/publicacoes.txt`, com aviso
@@ -98,6 +100,11 @@ sai não-zero. Nunca há PASS nesse caminho.
 | serial inválido | 70 | 70 |
 | transporte extra | 70 | 70 |
 | teste APK ausente | 66 | 66 |
+| `OK (0 tests)` | 73 | 73 |
+| pull do APK instalado falha | 70, sem instalar | 70 |
+| preferências/DataStore mudaram | 74 | 74 |
+| arquivos de publicações mudaram | 74 | 74 |
+| falha ao restaurar IME | 75 | 75 |
 
 Em todas as execuções simuladas: **0** chamadas a `uninstall`, `pm clear` ou
 `connected*AndroidTest`, e o pacote release nunca foi citado.

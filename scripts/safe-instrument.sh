@@ -74,9 +74,12 @@ cleanup() {
     local now
     now="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
     if [ -n "$now" ] && [ "$now" != "$IME_BEFORE" ]; then
-      adb -s "$SERIAL" shell ime set "$IME_BEFORE" >/dev/null 2>&1 \
-        && echo "IME restaurado: $now -> $IME_BEFORE" \
-        || echo "AVISO: falha ao restaurar IME ($now)" >&2
+      if adb -s "$SERIAL" shell ime set "$IME_BEFORE" >/dev/null 2>&1; then
+        echo "IME restaurado: $now -> $IME_BEFORE"
+      else
+        echo "ERRO: falha ao restaurar IME ($now)" >&2
+        if [ "$rc" -eq 0 ]; then rc=75; fi
+      fi
     fi
   fi
 
@@ -208,6 +211,9 @@ if [ -n "$INSTALLED_SHA" ] && [ "$INSTALLED_SHA" = "$APK_SHA" ]; then
 fi
 
 # ---------- 4. snapshot consistente ----------
+prefs_fingerprint() { # <dir>
+  find "$1" -type f -printf '%f %s\n' 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+}
 mkdir -p "$RESULTS/snapshot"
 APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')"
 if [ "$FREEZE" -eq 1 ]; then
@@ -246,10 +252,12 @@ for d in shared_prefs datastore; do
   done
 done
 PREFS_COUNT="$(find "$RESULTS/snapshot/prefs" -type f | wc -l | tr -d ' ')"
+PREFS_FP="$(prefs_fingerprint "$RESULTS/snapshot/prefs")"
 
 # inventário de publicações (metadados; não copia os arquivos grandes)
 adb -s "$SERIAL" shell run-as "$PKG" ls -l files/publicacoes 2>/dev/null | tr -d '\r' \
   >"$RESULTS/snapshot/publicacoes.txt" || true
+PUBS_FP="$(sha256sum "$RESULTS/snapshot/publicacoes.txt" | cut -d' ' -f1)"
 
 # anexos indexados sem arquivo presente
 MISSING_FILES="$(sqlite3 "$DB" 'select fileName from attachments where indexed=1;' | while read -r name; do
@@ -282,7 +290,8 @@ installed=$INSTALLED installed_versionCode=${INST_VCODE:-}
 installed_sha256=${INSTALLED_SHA:-} needs_install=$APP_NEEDS_INSTALL
 db_sha256=$DB_SHA integrity=$INTEG journal_mode=$JOURNAL
 notes=$NOTES decisions=$DECS attachments=$ATTS passages=$PASSAGES chat=$CHAT
-prefs_snapshot_files=$PREFS_COUNT
+prefs_snapshot_files=$PREFS_COUNT prefs_fingerprint=$PREFS_FP
+publicacoes_fingerprint=$PUBS_FP
 ime=$IME_BEFORE
 missing_attachment_files=${MISSING_FILES:-none}
 EOF
@@ -349,8 +358,26 @@ for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
 done
 N2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from notes;' 2>/dev/null || echo ERR)"
 P2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from passages;' 2>/dev/null || echo ERR)"
-[ "$N2" = "$NOTES" ] && [ "$P2" = "$PASSAGES" ] \
-  || die "dados mudaram (notes $NOTES->$N2, passages $PASSAGES->$P2)" 74
+if [ "$N2" != "$NOTES" ] || [ "$P2" != "$PASSAGES" ]; then
+  die "dados mudaram (notes $NOTES->$N2, passages $PASSAGES->$P2)" 74
+fi
+
+# preferências/DataStore e arquivos de publicações não podem mudar
+mkdir -p "$RESULTS/snapshot/prefs-after"
+for d in shared_prefs datastore; do
+  for name in $(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null | tr -d '\r'); do
+    adb -s "$SERIAL" exec-out run-as "$PKG" cat "$d/$name" \
+      >"$RESULTS/snapshot/prefs-after/$d-$name" 2>/dev/null || true
+  done
+done
+if [ "$(prefs_fingerprint "$RESULTS/snapshot/prefs-after")" != "$PREFS_FP" ]; then
+  die "preferências/DataStore mudaram durante o teste" 74
+fi
+adb -s "$SERIAL" shell run-as "$PKG" ls -l files/publicacoes 2>/dev/null | tr -d '\r' \
+  >"$RESULTS/snapshot/publicacoes-after.txt" || true
+if [ "$(sha256sum "$RESULTS/snapshot/publicacoes-after.txt" | cut -d' ' -f1)" != "$PUBS_FP" ]; then
+  die "arquivos de publicações mudaram durante o teste" 74
+fi
 
 PASSED=1
 echo
