@@ -148,6 +148,21 @@ class NwtRoomIndexIdentityAdapterTransactionalInstrumentedTest {
         }
     }
 
+    /** DAO que sinaliza após `findByRefsIn` retornar (em ambos os runners). */
+    private class SignalingPassageDao(
+        private val delegate: PassageDao,
+        private val readTwo: CompletableDeferred<Unit>,
+    ) : PassageDao by delegate {
+        override suspend fun findByRefsIn(
+            attachmentId: String,
+            refs: List<String>,
+        ): List<PassageEntity> {
+            val result = delegate.findByRefsIn(attachmentId, refs)
+            readTwo.complete(Unit)
+            return result
+        }
+    }
+
     /** DAO que sinaliza após `findByRefsIn` — e desbloqueia a verificação. */
     private class GatedSignalingPassageDao(
         private val delegate: PassageDao,
