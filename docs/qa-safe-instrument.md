@@ -49,10 +49,12 @@ apksigner verify --print-certs "$APK" | grep 'SHA-256 digest'
 
 Um snapshot só é aceito quando **todos** os itens abaixo valem:
 
-1. no modo `--execute`, app de QA parado (`am force-stop`) imediatamente antes
-   da cópia — sem isso (`--no-freeze`) a cópia é “best effort” e o script avisa.
-   No dry-run **não há parada**: a cópia é declarada **inspeção parcial** no
-   `preflight.txt` (`snapshot_kind=inspecao-parcial-somente-leitura`);
+1. no modo `--execute`, congelamento **verificado**: `am force-stop` precisa
+   retornar 0 e `pidof` precisa confirmar ausência do processo (exit 1 sem PID é
+   ausência normal). Falha aborta com **78** + `FREEZE-FALHOU.txt` **antes de
+   instalar**; o mesmo vale após a instrumentação. No dry-run **não há parada**:
+   a cópia é declarada **inspeção parcial** no `preflight.txt`
+   (`snapshot_kind=inspecao-parcial-somente-leitura`);
 2. `better-talker.db`, `-wal` e `-shm` copiados juntos;
 3. `pragma integrity_check` = `ok` e `pragma journal_mode` registrado;
 4. contagens numéricas e não-zero de `notes` e `passages`;
@@ -65,7 +67,14 @@ Um snapshot só é aceito quando **todos** os itens abaixo valem:
 6. inventário de `files/publicacoes` em `snapshot/publicacoes.txt`, com aviso
    para anexo indexado cujo arquivo não existe;
 7. `run-as ... test -w databases` (restauração é possível);
-8. SHA-256 do banco e metadados em `preflight.txt`.
+8. SHA-256 do banco e metadados em `preflight.txt`;
+9. **fingerprint lógico por tabela** (`notes`, `passages`, `chat_messages`,
+   `decision_records`, `attachments`, `note_images`, `image_backups`, `outlines`,
+   `folders`, `s34_*`, `speech_sections`, `sub_points`, `tombstones`,
+   `publication_units`): hash do `.dump` de cada tabela, independente do layout
+   físico do SQLite/WAL. Mudança de conteúdo, exclusão, edição com a mesma
+   contagem ou alteração de vínculo → exit **74** +
+   `DATA-FINGERPRINT-FALHOU.txt` com o nome da tabela (sem dados pessoais).
 
 Os snapshots ficam em `results/` (default `qa-results/`, ignorado pelo Git) com
 `umask 077`. **Não publique `qa-results/`**: as preferências podem conter chaves.
@@ -94,6 +103,10 @@ concluído e app relançado. Se qualquer etapa de cleanup falhar, o script impri
   (IME esperado/atual, serial e comando de restauração);
 - app parado pelo executor que não volta a rodar (falha do `am start` ou
   processo ausente) → exit **77** + `results/RELAUNCH-FALHOU.txt`;
+- falha ao congelar (force-stop ≠ 0 ou processo ainda ativo) → exit **78** +
+  `FREEZE-FALHOU.txt`, antes de qualquer instalação;
+- leitura do IME falha no cleanup → exit **75** + `IME-NAO-RESTAURADO.txt`
+  (restauração não confirmada);
 - rollback malsucedido → mensagem `ROLLBACK FALHOU` + exit não-zero (ou **76**
   se o resto estava OK) + `results/ROLLBACK-FALHOU.txt` com caminho, SHA-256,
   serial, comando de reinstalação e caminho do snapshot do banco.
@@ -110,6 +123,16 @@ app; o APK do app é restaurado pelo rollback em caso de falha.
 | dry-run com IME mudando no meio | 0, **sem** `ime set` | 0 |
 | preferências mudam com o mesmo tamanho | 74 | 74 |
 | falha de cópia de prefs / banco | 70, snapshot inválido | 70 |
+| `force-stop` falha | 78, sem instalar | 78 |
+| `force-stop` ok, processo ainda ativo | 78, sem instalar | 78 |
+| processo já parado | 0 | 0 |
+| congelamento correto | 0 + PASS | 0 |
+| exclusão de decisão | 74 + tabela | 74 |
+| edição de decisão (mesma contagem) | 74 + tabela | 74 |
+| edição de mensagem (mesma contagem) | 74 + tabela | 74 |
+| vínculo de anexo alterado | 74 + tabela | 74 |
+| banco idêntico com layout físico diferente (VACUUM) | 0 | 0 |
+| leitura do IME falha no cleanup | 75 | 75 |
 | relançamento falha ou processo fica ausente | 77 + `RELAUNCH-FALHOU.txt` | 77 |
 | A34 com `--execute --no-freeze` | 65 | 65 |
 | execução normal | 0 + `OK (2 tests)` | 0 |
@@ -148,7 +171,7 @@ scripts/tests/safe-instrument-matrix.sh
 Requer SDK (aapt2/apksigner), `sqlite3`, `keytool` e a debug keystore
 (`~/.android/debug.keystore` ou `DEBUG_KEYSTORE=...`). Os APKs de fixture são
 gerados no workdir (aapt2 + apksigner); o ADB é simulado por
-`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 30
+`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 40
 cenários e sai não-zero se qualquer expectativa falhar.
 
 ## 7. Pendência de recuperação

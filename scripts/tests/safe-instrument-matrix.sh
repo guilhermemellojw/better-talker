@@ -41,13 +41,31 @@ chmod +x "$WORK/bin/adb"
 # ---------- fixtures ----------
 FIXTURE="$WORK/fixture.db"
 sqlite3 "$FIXTURE" <<'SQL'
-create table notes(id text); insert into notes values('n1');
-create table passages(id text); insert into passages values('p1');
-create table chat_messages(id text); insert into chat_messages values('c1');
-create table decision_records(id text); insert into decision_records values('d1');
-create table attachments(id text, fileName text, indexed integer);
-insert into attachments values('a1','rr_T.jwpub',1);
+create table notes(id text, title text, updatedAt integer);
+insert into notes values('n1','Nota QA',1);
+create table passages(id text, text text);
+insert into passages values('p1','texto 1');
+insert into passages values('p2','texto 2');
+create table chat_messages(id text, payload text);
+insert into chat_messages values('c1','{"text":"oi"}');
+create table decision_records(id text, decisionState text, text text);
+insert into decision_records values('d1','ACTIVE','decisao');
+create table attachments(id text, fileName text, noteId text, indexed integer);
+insert into attachments values('a1','rr_T.jwpub','n1',1);
 SQL
+
+# variantes para os testes de preservação lógica
+AFTER="$WORK/after"; mkdir -p "$AFTER"
+mk_after() { cp "$FIXTURE" "$AFTER/$1"; }
+mk_after after-decision-delete.db
+sqlite3 "$AFTER/after-decision-delete.db" "delete from decision_records;"
+mk_after after-decision-edit.db
+sqlite3 "$AFTER/after-decision-edit.db" "update decision_records set text='alterada' where id='d1';"
+mk_after after-chat-edit.db
+sqlite3 "$AFTER/after-chat-edit.db" "update chat_messages set payload='{\"text\":\"alterada\"}' where id='c1';"
+mk_after after-attachment-edit.db
+sqlite3 "$AFTER/after-attachment-edit.db" "update attachments set noteId='n2' where id='a1';"
+sqlite3 "$FIXTURE" "VACUUM INTO '$AFTER/after-vacuum.db';"
 : >"$WORK/wal"; : >"$WORK/shm"
 
 APKDIR="$WORK/apk"
@@ -291,6 +309,54 @@ if [ "$LAST_RC" = "65" ]; then echo "PASS $CASE (exit=65)"; else
 fi
 assert_log_absent "install -r"
 assert_out_absent "== PASS"
+
+# 31-34. congelamento verificável
+CASE=freeze-fail-exit
+run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_FORCE_STOP_FAIL=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/FREEZE-FALHOU.txt"
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
+
+CASE=freeze-fail-alive
+run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1 MOCK_FORCE_STOP_NOOP=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/FREEZE-FALHOU.txt"
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
+
+CASE=freeze-already-stopped
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok
+assert_out_has "== PASS"
+
+CASE=freeze-ok
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1
+assert_out_has "== PASS"
+grep -q "shell am start" "$WORK/calls.log" || { echo "  FALHOU: sem am start após freeze"; FAILS=$((FAILS + 1)); }
+
+# 35-39. preservação lógica dos dados
+data_case() { # <nome> <arquivo-after> <tabela-esperada>
+  local n="$1" db="$2" tbl="$3"
+  CASE="$n"
+  run "$CASE" 74 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok "MOCK_AFTER_DB=$db"
+  assert_out_absent "== PASS"
+  assert_file "$WORK/results/$CASE/DATA-FINGERPRINT-FALHOU.txt"
+  if ! grep -q "$tbl" "$WORK/results/$CASE/DATA-FINGERPRINT-FALHOU.txt" 2>/dev/null; then
+    echo "  FALHOU: tabela $tbl não identificada"; FAILS=$((FAILS + 1))
+  fi
+}
+data_case data-decision-delete "$AFTER/after-decision-delete.db" decision_records
+data_case data-decision-edit "$AFTER/after-decision-edit.db" decision_records
+data_case data-chat-edit "$AFTER/after-chat-edit.db" chat_messages
+data_case data-attachment-edit "$AFTER/after-attachment-edit.db" attachments
+
+CASE=data-vacuum
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok "MOCK_AFTER_DB=$AFTER/after-vacuum.db"
+assert_out_has "== PASS"
+
+# 40. leitura do IME falha no cleanup
+CASE=ime-read-fail
+run "$CASE" 75 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_IME_READ_FAIL_AFTER=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/IME-NAO-RESTAURADO.txt"
 
 # 21-22. sinais
 signal_case() { # <nome> <sinal> <esperado> <job-control 0|1>

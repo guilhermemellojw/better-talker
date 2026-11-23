@@ -41,7 +41,15 @@ if has "test -d" && has "datastore"; then exit 1; fi
 if has "wc -c <"; then
   if has "databases/better-talker.db-wal"; then size_of "$MOCK_DIR/wal"; exit 0; fi
   if has "databases/better-talker.db-shm"; then size_of "$MOCK_DIR/shm"; exit 0; fi
-  if has "databases/better-talker.db"; then size_of "$FIXTURE_DB"; exit 0; fi
+  if has "databases/better-talker.db"; then
+    n=$(cat "$MOCK_DIR/db.counter" 2>/dev/null || echo 0)
+    if [ "$n" -gt 0 ] && [ -n "${MOCK_AFTER_DB:-}" ] && [ -f "${MOCK_AFTER_DB:-}" ]; then
+      size_of "$MOCK_AFTER_DB"
+    else
+      size_of "$FIXTURE_DB"
+    fi
+    exit 0
+  fi
   if has "shared_prefs/settings.xml"; then size_of "$MOCK_DIR/settings-a.xml"; exit 0; fi
   echo 0; exit 0
 fi
@@ -61,10 +69,12 @@ case "$CMD" in
     ;;
   "shell dumpsys package $PKG"*) echo "    versionCode=80 minSdk=26 targetSdk=36" ;;
   "shell pidof $PKG"*)
-    if [ -f "$MOCK_DIR/running" ]; then echo 4242; fi
-    exit 0
+    if [ -f "$MOCK_DIR/running" ]; then echo 4242; exit 0; fi
+    exit 1
     ;;
   "shell am force-stop "*)
+    if [ "${MOCK_FORCE_STOP_FAIL:-0}" = "1" ]; then exit 1; fi
+    if [ "${MOCK_FORCE_STOP_NOOP:-0}" = "1" ]; then exit 0; fi
     case "$CMD" in *"$PKG.test"*) : ;; *) rm -f "$MOCK_DIR/running" ;; esac
     exit 0
     ;;
@@ -75,6 +85,9 @@ case "$CMD" in
     exit 0
     ;;
   "shell settings get secure default_input_method")
+    ir=$(cat "$MOCK_DIR/imeRead.counter" 2>/dev/null || echo 0)
+    echo $((ir + 1)) >"$MOCK_DIR/imeRead.counter"
+    if [ "${MOCK_IME_READ_FAIL_AFTER:-0}" = "1" ] && [ "$ir" -gt 0 ]; then exit 1; fi
     if [ "${MOCK_IME_CHANGES:-0}" = "1" ]; then
       n=$(cat "$MOCK_DIR/ime.counter" 2>/dev/null || echo 0)
       echo $((n + 1)) >"$MOCK_DIR/ime.counter"
@@ -107,9 +120,12 @@ case "$CMD" in
     ;;
   exec-out\ run-as\ $PKG\ cat\ databases/better-talker.db-shm) cat "$MOCK_DIR/shm" 2>/dev/null || true ;;
   exec-out\ run-as\ $PKG\ cat\ databases/better-talker.db)
+    n=$(cat "$MOCK_DIR/db.counter" 2>/dev/null || echo 0)
+    echo $((n + 1)) >"$MOCK_DIR/db.counter"
     if [ "${MOCK_BAD_DB:-0}" = "1" ]; then printf 'not-a-sqlite-db'
     elif [ "${MOCK_EMPTY_DB:-0}" = "1" ]; then :
     elif [ "${MOCK_FAIL_DB_COPY:-0}" = "1" ]; then exit 1
+    elif [ "$n" -gt 0 ] && [ -n "${MOCK_AFTER_DB:-}" ] && [ -f "${MOCK_AFTER_DB:-}" ]; then cat "$MOCK_AFTER_DB"
     else cat "$FIXTURE_DB"; fi
     ;;
   exec-out\ run-as\ $PKG\ cat\ shared_prefs/*)

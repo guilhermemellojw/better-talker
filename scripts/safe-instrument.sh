@@ -25,12 +25,16 @@
 #   - exige serial explícito e recusa qualquer outro transporte ADB;
 #   - valida package, versionCode, targetPackage e assinatura dos APKs;
 #   - recusa downgrade e assinatura diferente da instalada;
-#   - exige snapshot consistente (db+wal+shm, integrity_check, counts) e
-#     guarda cópia do APK instalado para rollback;
+#   - exige snapshot consistente: congelamento verificado por `pidof`,
+#     db+wal+shm com cópia conferida, integrity_check e fingerprint lógico
+#     por tabela (detecta edição/exclusão mesmo com contagem igual);
+#   - guarda cópia do APK instalado para rollback;
 #   - instala o APK de teste ANTES do app; usa somente `adb install -r`;
 #   - roda `am instrument` por classe e exige "OK (N tests)";
 #   - em falha após instalar, tenta restaurar o APK anterior (rollback);
 #   - restaura IME e relança o app, se ele estava rodando;
+#   - falha de congelamento → 78; dados lógicos alterados → 74; relançamento
+#     não confirmado → 77; IME não confirmado → 75;
 #   - qualquer erro aborta com código não-zero; nunca produz falso PASS.
 set -euo pipefail
 umask 077
@@ -54,7 +58,7 @@ EXECUTE=0
 ALLOW_DEBUG_A34=0
 FREEZE=1
 
-usage() { sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "ABORT: $*" >&2; exit "${2:-70}"; }
 
@@ -77,11 +81,22 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
 
-  # 1. IME volta ao original; falha é erro (nunca PASS). Em dry-run NÃO escreve.
-  if [ "$EXECUTE" -eq 1 ] && [ -n "$IME_BEFORE" ] && [ -n "$SERIAL" ]; then
-    local now
-    now="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
-    if [ -n "$now" ] && [ "$now" != "$IME_BEFORE" ]; then
+  # 1. IME volta ao original; falha/leitura inválida é erro (nunca PASS).
+  #    Em dry-run NÃO escreve nem lê para restaurar.
+  if [ "$EXECUTE" -eq 1 ] && [ -n "$SERIAL" ]; then
+    local now=""
+    if ! now="$(read_ime)"; then
+      echo "ERRO: não foi possível ler o IME no cleanup" >&2
+      if [ -n "$RESULTS" ] && [ -d "$RESULTS" ]; then
+        {
+          echo "leitura_falhou=1"
+          echo "ime_esperado=$IME_BEFORE"
+          echo "serial=$SERIAL"
+          echo "restaurar: adb -s $SERIAL shell ime set $IME_BEFORE"
+        } >"$RESULTS/IME-NAO-RESTAURADO.txt"
+      fi
+      if [ "$rc" -eq 0 ]; then rc=75; fi
+    elif [ -n "$IME_BEFORE" ] && [ "$now" != "$IME_BEFORE" ]; then
       if adb -s "$SERIAL" shell ime set "$IME_BEFORE" >/dev/null 2>&1; then
         echo "IME restaurado: $now -> $IME_BEFORE"
       else
@@ -323,6 +338,49 @@ copy_prefs_dir() { # <dir no device> <dir local>; 0=ok, 1=ausente, 2=falha
   done
   return 0
 }
+LOGICAL_TABLES="notes attachments chat_messages decision_records note_images image_backups outlines folders s34_outlines s34_references s34_sections s34_subsections speech_sections sub_points tombstones publication_units"
+
+freeze_app() { # força parada e confirma ausência; 0=ok, 1=falha
+  FREEZE_ERROR=""
+  local rc=0 pid=""
+  adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    FREEZE_ERROR="am force-stop exit $rc"
+    return 1
+  fi
+  pid="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$pid" ]; then
+    FREEZE_ERROR="processo ainda ativo (pid $pid)"
+    return 1
+  fi
+  return 0
+}
+write_freeze_evidence() { # <fase>
+  { echo "fase=$1"; echo "motivo=$FREEZE_ERROR"; echo "serial=$SERIAL"; } \
+    >"$RESULTS/FREEZE-FALHOU.txt"
+}
+read_ime() {
+  local v
+  v="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
+  [ -n "$v" ] || return 1
+  printf '%s' "$v"
+}
+logical_table_hash() { # <db> <tabela>
+  local db="$1" t="$2"
+  if ! sqlite3 "$db" "select 1 from sqlite_master where type='table' and name='$t';" 2>/dev/null | grep -q 1; then
+    printf 'absent'
+    return 0
+  fi
+  sqlite3 "$db" ".dump $t" 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+logical_fingerprint() { # <db> <arquivo-de-saida>
+  local db="$1" out="$2" t h
+  : >"$out" || return 1
+  for t in $LOGICAL_TABLES; do
+    h="$(logical_table_hash "$db" "$t")" || return 1
+    printf '%s %s\n' "$t" "$h" >>"$out"
+  done
+}
 prefs_fingerprint() { # <dir local>: hash de nomes + conteúdo
   local dir="$1"
   (
@@ -337,9 +395,13 @@ mkdir -p "$RESULTS/snapshot"
 APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
 if [ "$EXECUTE" -eq 1 ]; then
   if [ "$FREEZE" -eq 1 ]; then
-    adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
-    APP_FROZEN=1
-    SNAPSHOT_KIND="consistente-app-parado"
+    if freeze_app; then
+      APP_FROZEN=1
+      SNAPSHOT_KIND="consistente-app-parado"
+    else
+      write_freeze_evidence snapshot
+      die "falha ao congelar o app ($FREEZE_ERROR); abortando antes de instalar" 78
+    fi
   else
     SNAPSHOT_KIND="parcial-sem-freeze"
     echo "AVISO: --no-freeze; snapshot parcial (sem parar o app)." >&2
@@ -415,8 +477,14 @@ fi
 adb -s "$SERIAL" shell "run-as $PKG sh -c 'test -w databases'" \
   || die "databases sem escrita; restauração não seria possível" 70
 
-IME_BEFORE="$(adb -s "$SERIAL" shell settings get secure default_input_method | tr -d '\r')"
+IME_BEFORE="$(read_ime || true)"
+if [ "$EXECUTE" -eq 1 ] && [ -z "$IME_BEFORE" ]; then
+  die "não foi possível ler o IME antes do teste" 69
+fi
 DB_SHA="$(sha256sum "$DB" | cut -d' ' -f1)"
+logical_fingerprint "$DB" "$RESULTS/snapshot/logical-before.txt" \
+  || die "não foi possível calcular o fingerprint lógico do banco" 70
+LOGICAL_BEFORE="$(sha256sum "$RESULTS/snapshot/logical-before.txt" | cut -d' ' -f1)"
 
 cat >"$RESULTS/preflight.txt" <<EOF
 timestamp=$(date -Is)
@@ -492,10 +560,15 @@ fi
 # ---------- 6. pós-condições ----------
 [ -n "$(qa_installed_path "$SERIAL" "$PKG")" ] || die "pacote $PKG desapareceu" 74
 # banco: o app não é relançado; se estiver rodando, congela antes da 2ª cópia
-if [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -eq 1 ] \
-   && [ -n "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')" ]; then
-  adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
-  APP_FROZEN=1
+if [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -eq 1 ]; then
+  if [ -n "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)" ]; then
+    if freeze_app; then
+      APP_FROZEN=1
+    else
+      write_freeze_evidence pos-instrumentacao
+      die "falha ao congelar o app após a instrumentação ($FREEZE_ERROR)" 78
+    fi
+  fi
 fi
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
   rc=0
@@ -510,6 +583,24 @@ N2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from n
 P2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from passages;' 2>/dev/null || echo ERR)"
 if [ "$N2" != "$NOTES" ] || [ "$P2" != "$PASSAGES" ]; then
   die "dados mudaram (notes $NOTES->$N2, passages $PASSAGES->$P2)" 74
+fi
+
+# comparação lógica por tabela (independe de layout físico do SQLite/WAL)
+logical_fingerprint "$RESULTS/snapshot/after-better-talker.db" \
+  "$RESULTS/snapshot/logical-after.txt" \
+  || die "não foi possível calcular o fingerprint lógico após o teste" 74
+if ! diff -u "$RESULTS/snapshot/logical-before.txt" \
+  "$RESULTS/snapshot/logical-after.txt" >"$RESULTS/snapshot/logical-diff.txt"; then
+  CHANGED="$(awk 'NR==FNR{b[$1]=$2;next} {if (b[$1]!=$2) print $1}' \
+    "$RESULTS/snapshot/logical-before.txt" \
+    "$RESULTS/snapshot/logical-after.txt" | tr '\n' ' ')"
+  {
+    echo "tabelas_alteradas=${CHANGED:-desconhecida}"
+    echo "diff=$RESULTS/snapshot/logical-diff.txt"
+    echo "snapshot_antes=$RESULTS/snapshot/better-talker.db"
+    echo "snapshot_depois=$RESULTS/snapshot/after-better-talker.db"
+  } >"$RESULTS/DATA-FINGERPRINT-FALHOU.txt"
+  die "dados lógicos mudaram (${CHANGED:-tabela desconhecida})" 74
 fi
 
 # preferências/DataStore e arquivos de publicações não podem mudar
