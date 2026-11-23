@@ -514,6 +514,8 @@ class CopilotRepository(private val db: AppDatabase) {
             db.passageDao(), db.attachmentDao(), db.publicationUnitDao()
         )
         return statuses.map { st ->
+            val rawNeedle = listOfNotNull(st.ref.article, st.ref.chapter)
+                .firstOrNull { it.isNotBlank() }
             val resolved = resolver.resolvePublication(publicationRefOf(st.ref))
             val resolvedText = resolved.text?.trim().orEmpty()
             val resolvedFull = resolved.fullText?.trim()
@@ -538,6 +540,11 @@ class CopilotRepository(private val db: AppDatabase) {
                     fullText = resolvedFull,
                     contentWarning = null,
                 )
+            } else if (rawNeedle != null && (resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.UNRESOLVED ||
+                    resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.MISSING_CORPUS)) {
+                // Recusa estrutural (ambiguidade, unidade inválida ou
+                // incompatibilidade) não pode ser contornada pelo fallback.
+                st
             } else {
                 // Fallback do checklist: página/§, página, contexto ou o
                 // anexo inteiro. Se achar texto, a UI é PARTIAL e o prompt

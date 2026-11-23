@@ -153,7 +153,13 @@ class SourceReaderLoader(
             )
         }
 
-        val body = assemble(rows)
+        val fullBody = assemble(rows)
+        val truncated = fullBody.length > MAX_READER_CHARS
+        val body = if (truncated) {
+            fullBody.take(MAX_READER_CHARS).substringBeforeLast(' ').trim()
+        } else {
+            fullBody
+        }
         if (body.isBlank()) {
             return SourceReaderContent(
                 publicationTitle = title,
@@ -179,6 +185,7 @@ class SourceReaderLoader(
             usedText = usedText,
             interpretation = interpretation,
             status = status,
+            truncated = truncated,
         )
     }
 
@@ -253,10 +260,7 @@ class SourceReaderLoader(
         } else {
             rows.joinToString(" ") { it.text.trim() }
         }
-        return body.trim().let { text ->
-            if (text.length <= MAX_READER_CHARS) text
-            else text.take(MAX_READER_CHARS).substringBeforeLast(' ').trim()
-        }
+        return body.trim()
     }
 
     private fun locationLabel(ref: RefDetector.DetectedRef?): String {

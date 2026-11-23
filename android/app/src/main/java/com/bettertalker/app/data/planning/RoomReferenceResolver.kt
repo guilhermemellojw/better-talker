@@ -529,6 +529,7 @@ internal suspend fun unitSliceOf(
         val canonicalMatches = matching.filter { unit ->
             !unit.canonicalKey.contains("#")
         }
+        val hasStructuralCandidate = matching.isNotEmpty()
         val selectedUnit = when {
             canonicalMatches.size == 1 -> canonicalMatches.single()
             canonicalMatches.isEmpty() && matching.size == 1 -> matching.single()
@@ -537,7 +538,10 @@ internal suspend fun unitSliceOf(
         if (selectedUnit != null) {
             val startOrd = selectedUnit.startOrd
             val endOrd = selectedUnit.endOrd
-            if (startOrd != null && endOrd != null && startOrd <= endOrd) {
+            if (startOrd == null || endOrd == null || startOrd > endOrd) {
+                // Unidade estrutural inválida: não cair em fallback esparso.
+                if (hasStructuralCandidate) return null
+            } else {
                 val rows = passageDao.betweenOrd(
                     attachmentId,
                     startOrd,
@@ -545,8 +549,13 @@ internal suspend fun unitSliceOf(
                     UNIT_PASSAGES,
                 )
                 if (rows.isNotEmpty()) return rows
+                // Intervalo estrutural sem passagens: não mascarar com fallback.
+                if (hasStructuralCandidate) return null
             }
         }
+        // Sem unidade estrutural confiável: fallback legado apenas se não
+        // houve candidato estrutural.
+        if (hasStructuralCandidate) return null
     }
 
     // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
