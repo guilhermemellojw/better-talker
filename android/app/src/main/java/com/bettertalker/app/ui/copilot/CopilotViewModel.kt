@@ -5236,11 +5236,32 @@ class CopilotViewModel(
             // permanece autorizado.
             val verified = verifyGeneratedText(
                 cleanedCardText,
-                turnContext,
-                listOfNotNull(
-                    oratoryResolution.contextBlock,
-                    stripHtmlToText(block).takeIf { it.isNotBlank() },
-                ) + com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready),
+                turnContext = null,
+                documentarySources = buildList {
+                    oratoryResolution.contextBlock
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { b ->
+                            add(
+                                com.bettertalker.app.data.copilot.RecoveredDocument(
+                                    sourceId = section.id, reference = section.title, text = b,
+                                ),
+                            )
+                        }
+                    stripHtmlToText(block).takeIf { it.isNotBlank() }?.let { b ->
+                        add(
+                            com.bettertalker.app.data.copilot.RecoveredDocument(
+                                sourceId = section.id, reference = section.title, text = b,
+                            ),
+                        )
+                    }
+                    com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready).forEach { ref ->
+                        add(
+                            com.bettertalker.app.data.copilot.RecoveredDocument(
+                                sourceId = "spec-ref", reference = ref, text = ref,
+                            ),
+                        )
+                    }
+                },
             )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text

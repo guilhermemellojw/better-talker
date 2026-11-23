@@ -56,6 +56,49 @@ class GenerationVerificationTest {
     }
 
     @Test
+    fun corpusB_fatoExclusivoDeA_ehSinalizadoETeliminado() {
+        // P6 — Cenário A→B: o corpus de B (evidências do dossiê resolvido +
+        // refs autorizados do S-34) não contém "fato exclusivo de A".
+        val corpusB = listOf(
+            "O discurso de B termina com o exemplo do Apóstolo Paulo.",
+            "Referência Y — texto autorizado do S-34.",
+        )
+        val generated = "Citaríamos: \"fato exclusivo de A: o campeonamento de crescimento acontece apenas em Maio de 2023\"."
+        val r = verifyGeneratedText(
+            text = generated,
+            turnContext = null,
+            documentarySources = corpusB.mapIndexed { i, t ->
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "B-$i", reference = "B-$i", text = t,
+                )
+            },
+        )
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("fato exclusivo de A"))
+        assertFalse(r.text.contains("campeonamento de crescimento"))
+        // Nenhum trecho do corpus de B é removido.
+        assertFalse(r.text.contains("Apóstolo Paulo"))
+    }
+
+    @Test
+    fun corpusB_fatoLegitimo_aceitoSemSinalizacao() {
+        // P6 — Cenário B: evidência do ponto B no corpus; texto sem citação é aceito.
+        val corpusB = listOf("O discurso de B termina com o exemplo do Apóstolo Paulo.")
+        val generated = "O discurso de B termina com o exemplo do Apóstolo Paulo."
+        val r = verifyGeneratedText(
+            text = generated,
+            turnContext = null,
+            documentarySources = corpusB.mapIndexed { i, t ->
+                com.bettertalker.app.data.copilot.RecoveredDocument(
+                    sourceId = "B-$i", reference = "B-$i", text = t,
+                )
+            },
+        )
+        assertFalse(r.hasRemovals)
+        assertEquals(generated, r.text)
+    }
+
+    @Test
     fun insiraTudo_citacaoSemApoio_removidaComAviso() {
         val markdown = "# INTRODUÇÃO\n\n" +
             "A Bíblia diz: \"a terra permanecerá para sempre e jamais passará\".\n\n" +
