@@ -1,35 +1,31 @@
 # QA seguro no A34 — testes instrumentados sem perda de dados
 
-Documento operacional criado no QA-OPS-P1 depois que
-`connectedPublicAppDebugAndroidTest` desinstalou `com.bettertalker.app.debug`
-e apagou os dados do pacote de QA (23/11/2026).
+Documento operacional do QA-OPS-P1/P2. Substitui o uso de
+`connectedPublicAppDebugAndroidTest` em aparelho com dados.
 
 ## 1. Por que o incidente aconteceu
 
-- A task `connected*AndroidTest` do AGP executa instalação, testes e **uninstall**
-  do APK do app e do APK de teste no mesmo device.
-- No AGP 8.13 esse comportamento é controlado pela opção
+- A task `connected*AndroidTest` do AGP instala, roda e **desinstala** o APK do
+  app e o APK de teste no fim da execução.
+- No AGP 8.13 isso é controlado por
   `android.injected.androidTest.leaveApksInstalledAfterRun`
-  (`BooleanOption.ANDROID_TEST_LEAVE_APKS_INSTALLED_AFTER_RUN`), com **default
-  false** — ou seja, uninstall ao final.
+  (`BooleanOption.ANDROID_TEST_LEAVE_APKS_INSTALLED_AFTER_RUN`), **default
+  false** — foi o que apagou os dados de `com.bettertalker.app.debug`.
 - Existe também `android.experimental.testOptions.uninstallIncompatibleApks`,
-  que pode desinstalar um app incompatível (assinatura/versão) antes de instalar.
-- `adb install -r` **não** desinstala e preserva os dados, desde que:
-  - o package seja o mesmo;
-  - a assinatura seja a mesma;
-  - o `versionCode` não seja downgrade.
+  que pode desinstalar APK incompatível (assinatura/versão) antes de instalar.
+- `adb install -r` preserva dados quando package, assinatura e versionCode são
+  compatíveis. Não existe “install -r seguro” com assinatura diferente.
 
-## 2. Procedimento seguro (preferido)
+## 2. Procedimento seguro
 
 1. `scripts/preflight-install.sh <apk> --allow-debug-on-a34` (inspeção).
 2. `scripts/safe-instrument.sh --serial <serial> --class <classe> --allow-debug-on-a34`
-   (dry-run; mostra tudo que faria).
+   (dry-run: snapshot + plano, sem instalar nem rodar).
 3. Repetir com `--execute` **somente com autorização**.
-4. O script usa `adb install -r` e `adb shell am instrument`, nunca
-   `connectedAndroidTest`, nunca `uninstall`, nunca `pm clear`.
+4. O executor usa `adb install -r` e `adb shell am instrument`; nunca
+   `connectedAndroidTest`, nunca uninstall, nunca `pm clear`.
 
-Se por algum motivo for inevitável usar o Gradle, a única forma conhecida de
-evitar o uninstall é passar
+Se o Gradle for inevitável, a única mitigação conhecida é
 `-Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true`; ainda assim
 o risco de `uninstallIncompatibleApks` permanece. Prefira `am instrument`.
 
@@ -40,38 +36,75 @@ aapt2 dump badging "$APK" | head -1
 apksigner verify --print-certs "$APK" | grep 'SHA-256 digest'
 ```
 
-- `.debug` deve ter package `com.bettertalker.app.debug` e cert
+- `.debug` exige package `com.bettertalker.app.debug` e cert
   `1389b756e137d59de009375ba366e0bc41318fbca5cf1d427adc39246dfd62a8`.
-- O script também puxa o `base.apk` instalado e confere o mesmo digest antes
-  de qualquer instalação.
-- Cert divergente = **abortar**. Instalar com assinatura diferente apaga os dados.
+- O APK de teste precisa ser `com.bettertalker.app.debug.test`, ter
+  `targetPackage=com.bettertalker.app.debug` e runner
+  `androidx.test.runner.AndroidJUnitRunner`.
+- O executor salva o `base.apk` instalado, confere o certificado e recusa
+  downgrade. Cert divergente = abort antes de escrever.
 
-## 4. Snapshot e restauração
+## 4. Snapshot válido (definição)
 
-Antes de qualquer escrita o script:
+Um snapshot só é aceito quando **todos** os itens abaixo valem:
 
-1. extrai `databases/better-talker.db` (+ WAL) via `run-as`;
-2. roda `pragma integrity_check` (precisa ser `ok`);
-3. exige `notes > 0` e `passages > 0`;
-4. confirma que `databases/` é gravável (restauração possível);
-5. registra SHA-256, counts, IME e transporte em `preflight.txt`.
+1. app de QA parado (`am force-stop`) imediatamente antes da cópia —
+   sem isso, a cópia é “best effort” e o modo `--no-freeze` emite aviso;
+2. `better-talker.db`, `-wal` e `-shm` copiados juntos;
+3. `pragma integrity_check` = `ok` e `pragma journal_mode` registrado;
+4. contagens numéricas e não-zero de `notes` e `passages`;
+5. `shared_prefs/` e `datastore/` copiados para `snapshot/prefs/` (arquivos
+   pequenos; não são restaurados automaticamente);
+6. inventário de `files/publicacoes` em `snapshot/publicacoes.txt`, com aviso
+   para anexo indexado cujo arquivo não existe;
+7. `run-as ... test -w databases` (restauração é possível);
+8. SHA-256 do banco e metadados em `preflight.txt`.
 
-Depois do teste ele relê o banco e compara counts. Divergência = falha.
+**Preservado no snapshot:** banco + WAL/SHM, preferências/DataStore, metadados
+do acervo, APK instalado (rollback). **Não preservado:** os arquivos grandes de
+publicações (`files/publicacoes/*`), imagens da nota e qualquer dado fora do
+pacote. Copiar somente o `bt.db` **não** é suficiente com WAL ativo.
 
-## 5. Testes não destrutivos do próprio executor
+## 5. Falha após substituir o APK
 
-- `bash -n scripts/safe-instrument.sh`
-- `shellcheck scripts/safe-instrument.sh` (quando disponível)
-- dry-run no A34: não instala, não roda, não muda IME
-- serial inválido → aborta com código 70
-- múltiplos transportes → aborta com código 70
-- APK com cert errado / downgrade → aborta com código 65
-- saída de instrumentação sem `OK (N tests)` → falha (nunca PASS)
+Antes de instalar, o executor salva o `base.apk` atual em
+`results/rollback/base-antes.apk`. Se algo falhar depois da instalação
+(testes, timeout, SIGINT/SIGTERM), o `cleanup`:
 
-## 6. Pendência de recuperação
+1. para o pacote de teste;
+2. reinstala o APK anterior com `adb install -r` (rollback);
+3. restaura o IME original;
+4. relança o app se ele estava rodando antes.
 
-O arquivo original `nwt_T.epub` do pacote debug continua ausente.
-Caminho esperado (registrado no banco):
+Se o rollback falhar, o script imprime `ROLLBACK FALHOU` com o caminho do APK e
+sai não-zero. Nunca há PASS nesse caminho.
+
+## 6. Testes adversariais do executor
+
+| Cenário | Esperado | Obtido |
+|---|---|---|
+| execução normal | 0 + `OK (2 tests)` | 0 |
+| falha ao instalar o teste | 71, app intacto | 71 |
+| falha ao instalar o app | 71 + rollback | 71 |
+| `FAILURES!!!` | 73 + rollback | 73 |
+| saída sem `OK (N tests)` | 73 + rollback | 73 |
+| timeout | 72 + rollback | 72 |
+| assinatura instalada divergente | 65 | 65 |
+| banco corrompido | 70 | 70 |
+| banco vazio | 70 | 70 |
+| APK com package errado | 65 | 65 |
+| `INSTRUMENTATION_FAILED` | 73 + rollback | 73 |
+| SIGINT durante o teste | 130 + rollback + IME | 130 |
+| serial inválido | 70 | 70 |
+| transporte extra | 70 | 70 |
+| teste APK ausente | 66 | 66 |
+
+Em todas as execuções simuladas: **0** chamadas a `uninstall`, `pm clear` ou
+`connected*AndroidTest`, e o pacote release nunca foi citado.
+
+## 7. Pendência de recuperação
+
+O original `nwt_T.epub` do pacote debug continua ausente. Caminho esperado:
 
 ```
 /data/user/0/com.bettertalker.app.debug/files/publicacoes/\
@@ -82,6 +115,6 @@ att-4ae5e709-0004-457d-80f1-3902931fb4ae-nwt_T.epub
 - SHA-256 registrado: `cce5efdc4767dbf1ca92a3f20886425fe26a3e7fdbb91262eecb8ee2bee6b052`
 
 As 31.078 passagens TNM seguem indexadas; o arquivo só é necessário para
-re-indexar ou abrir o original. A restauração consiste em copiar um EPUB
-verificado para o caminho acima — **sem tocar no banco** — e é reversível.
-Não executar sem autorização do coordenador.
+re-indexar/reutilizar o anexo ou abrir o original. Restauração = copiar um EPUB
+verificado para o caminho acima, **sem tocar no banco**; reversível apagando o
+arquivo. Requer autorização do coordenador.

@@ -34,18 +34,22 @@ done
 
 [ -f "$APK" ] || { echo "APK não encontrado: $APK" >&2; exit 66; }
 
-SDK="${ANDROID_HOME:-$HOME/Android/Sdk}"
-AAPT="$(ls -1 "$SDK"/build-tools/*/aapt2 2>/dev/null | tail -1 || true)"
-APKSIGNER="$(ls -1 "$SDK"/build-tools/*/apksigner 2>/dev/null | tail -1 || true)"
-[ -n "$AAPT" ] && [ -n "$APKSIGNER" ] || {
-  echo "aapt2/apksigner não encontrados em $SDK/build-tools" >&2
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/qa-common.sh
+. "$HERE/lib/qa-common.sh"
+
+AAPT2="$(qa_find_tool aapt2)"
+APKSIGNER="$(qa_find_tool apksigner)"
+export AAPT2 APKSIGNER
+[ -n "$AAPT2" ] && [ -n "$APKSIGNER" ] || {
+  echo "aapt2/apksigner não encontrados em $(qa_sdk_dir)/build-tools" >&2
   exit 69
 }
 
-PKG="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-CERT="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
-RELEASE_CERT="ad1b0a302256a66aa083d76b767291eb2e3c8c4b07f07ae741dd99716233bba4"
-DEBUG_CERT="1389b756e137d59de009375ba366e0bc41318fbca5cf1d427adc39246dfd62a8"
+PKG="$(qa_apk_package "$APK")"
+CERT="$(qa_apk_cert "$APK")"
+RELEASE_CERT="$QA_CERT_RELEASE"
+DEBUG_CERT="$QA_CERT_DEBUG"
 
 echo "APK:      $APK"
 echo "package:  $PKG"
@@ -79,7 +83,7 @@ echo "--- aparelhos"
 adb devices -l || true
 
 if [ -n "${ADB_SERIAL:-}" ]; then
-  MODEL="$(adb -s "$ADB_SERIAL" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
+  MODEL="$(qa_readprop "$ADB_SERIAL" ro.product.model || true)"
   echo "target:   $ADB_SERIAL (model=$MODEL)"
   if [ "$MODEL" = "SM-A346M" ] && [ "$PKG" = "com.bettertalker.app.debug" ] && [ "$ALLOW_DEBUG_A34" -ne 1 ]; then
     echo "ABORT: A34 é release-only; para teste de app limpo use --allow-debug-on-a34." >&2
