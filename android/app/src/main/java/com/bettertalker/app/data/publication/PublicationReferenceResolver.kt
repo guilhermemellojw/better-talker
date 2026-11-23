@@ -274,12 +274,12 @@ class PublicationReferenceResolver(
                 ?: unitNumberFromTitle(title)
             number == requestedNumber
         }
-        val exactTitleMatches = matches.filter { unit ->
-            needles.any { needle -> normalizeText(unit.title) == needle }
+        val canonicalMatches = matches.filter { unit ->
+            !unit.canonicalKey.contains("#")
         }
         val selected = when {
-            exactTitleMatches.size == 1 -> exactTitleMatches.single()
-            exactTitleMatches.isEmpty() && matches.size == 1 -> matches.single()
+            canonicalMatches.size == 1 -> canonicalMatches.single()
+            canonicalMatches.isEmpty() && matches.size == 1 -> matches.single()
             else -> null
         }
         if (selected == null) return null

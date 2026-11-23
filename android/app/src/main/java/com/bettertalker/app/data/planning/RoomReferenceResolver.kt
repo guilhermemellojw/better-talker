@@ -523,14 +523,15 @@ internal suspend fun unitSliceOf(
                 number != null && number == requestedNumber
             }
         }
-        val exactTitleMatches = matching.filter { unit ->
-            unit.title?.let { title ->
-                needles.any { needle -> normalizeText(title) == needle }
-            } == true
+        // A identidade estrutural confiável é o canonicalKey sem repetição
+        // (#2, #3...). A unidade canônica é a primeira ocorrência; fragmentos
+        // posteriores não podem substituir o capítulo principal.
+        val canonicalMatches = matching.filter { unit ->
+            !unit.canonicalKey.contains("#")
         }
         val selectedUnit = when {
-            exactTitleMatches.size == 1 -> exactTitleMatches.single()
-            exactTitleMatches.isEmpty() && matching.size == 1 -> matching.single()
+            canonicalMatches.size == 1 -> canonicalMatches.single()
+            canonicalMatches.isEmpty() && matching.size == 1 -> matching.single()
             else -> null
         }
         if (selectedUnit != null) {
