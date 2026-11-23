@@ -20,7 +20,8 @@ Documento operacional do QA-OPS-P1/P2. Substitui o uso de
 
 1. `scripts/preflight-install.sh <apk> --allow-debug-on-a34` (inspeção).
 2. `scripts/safe-instrument.sh --serial <serial> --class <classe> --allow-debug-on-a34`
-   (dry-run: snapshot + plano, sem instalar nem rodar).
+   (dry-run: **somente leitura** no aparelho — não para o app, não instala, não
+   altera IME e não executa teste; o banco é apenas inspecionado).
 3. Repetir com `--execute` **somente com autorização**.
 4. O executor usa `adb install -r` e `adb shell am instrument`; nunca
    `connectedAndroidTest`, nunca uninstall, nunca `pm clear`.
@@ -48,8 +49,10 @@ apksigner verify --print-certs "$APK" | grep 'SHA-256 digest'
 
 Um snapshot só é aceito quando **todos** os itens abaixo valem:
 
-1. app de QA parado (`am force-stop`) imediatamente antes da cópia —
-   sem isso, a cópia é “best effort” e o modo `--no-freeze` emite aviso;
+1. no modo `--execute`, app de QA parado (`am force-stop`) imediatamente antes
+   da cópia — sem isso (`--no-freeze`) a cópia é “best effort” e o script avisa.
+   No dry-run **não há parada**: a cópia é declarada **inspeção parcial** no
+   `preflight.txt` (`snapshot_kind=inspecao-parcial-somente-leitura`);
 2. `better-talker.db`, `-wal` e `-shm` copiados juntos;
 3. `pragma integrity_check` = `ok` e `pragma journal_mode` registrado;
 4. contagens numéricas e não-zero de `notes` e `passages`;
@@ -78,14 +81,27 @@ Antes de instalar, o executor salva o `base.apk` atual em
 3. restaura o IME original;
 4. relança o app se ele estava rodando antes.
 
-Se o rollback falhar, o script imprime `ROLLBACK FALHOU` com o caminho do APK e
-sai não-zero. Nunca há PASS nesse caminho.
+O `PASS` só é impresso **pelo cleanup**, depois de IME restaurado, rollback
+concluído e app relançado. Se qualquer etapa de cleanup falhar, o script imprime
+`FALHOU NO CLEANUP` e sai não-zero — nunca há PASS.
+
+- falha ao restaurar IME → exit **75** + `results/IME-NAO-RESTAURADO.txt`
+  (IME esperado/atual, serial e comando de restauração);
+- rollback malsucedido → mensagem `ROLLBACK FALHOU` + exit não-zero (ou **76**
+  se o resto estava OK) + `results/ROLLBACK-FALHOU.txt` com caminho, SHA-256,
+  serial, comando de reinstalação e caminho do snapshot do banco.
+
+Instalar o APK de teste com `adb install -r` **substitui** o APK de teste
+instalado (versão/hash podem mudar). Isso é esperado e não afeta os dados do
+app; o APK do app é restaurado pelo rollback em caso de falha.
 
 ## 6. Testes adversariais do executor
 
 | Cenário | Esperado | Obtido |
 |---|---|---|
+| dry-run (app parado ou rodando) | 0, **nenhuma** chamada de estado | 0 |
 | execução normal | 0 + `OK (2 tests)` | 0 |
+| sucesso com IME alterado | `IME restaurado` antes de `== PASS` | 0 |
 | falha ao instalar o teste | 71, app intacto | 71 |
 | falha ao instalar o app | 71 + rollback | 71 |
 | `FAILURES!!!` | 73 + rollback | 73 |
@@ -97,6 +113,8 @@ sai não-zero. Nunca há PASS nesse caminho.
 | APK com package errado | 65 | 65 |
 | `INSTRUMENTATION_FAILED` | 73 + rollback | 73 |
 | SIGINT durante o teste | 130 + rollback + IME | 130 |
+| SIGTERM durante o teste | 143 + rollback + IME | 143 |
+| rollback malsucedido | não-zero + `ROLLBACK FALHOU` + arquivo | 73 |
 | serial inválido | 70 | 70 |
 | transporte extra | 70 | 70 |
 | teste APK ausente | 66 | 66 |
@@ -108,6 +126,18 @@ sai não-zero. Nunca há PASS nesse caminho.
 
 Em todas as execuções simuladas: **0** chamadas a `uninstall`, `pm clear` ou
 `connected*AndroidTest`, e o pacote release nunca foi citado.
+
+### Reprodução da matriz (host-only)
+
+```bash
+scripts/tests/safe-instrument-matrix.sh
+```
+
+Requer SDK (aapt2/apksigner), `sqlite3`, `keytool` e a debug keystore
+(`~/.android/debug.keystore` ou `DEBUG_KEYSTORE=...`). Os APKs de fixture são
+gerados no workdir (aapt2 + apksigner); o ADB é simulado por
+`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 22
+cenários e sai não-zero se qualquer expectativa falhar.
 
 ## 7. Pendência de recuperação
 

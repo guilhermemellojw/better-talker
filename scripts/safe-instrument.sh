@@ -15,7 +15,11 @@
 #   --results <dir>       diretório de evidências (default: qa-results/<ts>)
 #   --execute             executa de verdade; sem esta flag é dry-run
 #   --allow-debug-on-a34  permite .debug no A34 (política do preflight)
-#   --no-freeze           não força parada do app antes do snapshot (menos seguro)
+#   --no-freeze           só em --execute: não para o app antes do snapshot (menos seguro)
+#
+# Dry-run (padrão) é SOMENTE LEITURA no aparelho: não para o app, não instala,
+# não altera IME e não executa teste. O snapshot do dry-run é uma inspeção
+# parcial — não é anunciado como consistente.
 #
 # Garantias:
 #   - exige serial explícito e recusa qualquer outro transporte ADB;
@@ -49,7 +53,7 @@ EXECUTE=0
 ALLOW_DEBUG_A34=0
 FREEZE=1
 
-usage() { sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "ABORT: $*" >&2; exit "${2:-70}"; }
 
@@ -58,7 +62,9 @@ IME_BEFORE=""
 APP_INSTALL_ATTEMPTED=0
 INSTRUMENT_STARTED=0
 APP_REPLACED=0
-PASSED=0
+PASS_PENDING=0
+APP_FROZEN=0
+SNAPSHOT_KIND="nao-inspecionado"
 ROLLBACK_APK=""
 APP_WAS_RUNNING=""
 CLEANUP_DONE=0
@@ -70,6 +76,7 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
 
+  # 1. IME volta ao original; falha é erro (nunca PASS)
   if [ -n "$IME_BEFORE" ] && [ -n "$SERIAL" ]; then
     local now
     now="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
@@ -78,29 +85,60 @@ cleanup() {
         echo "IME restaurado: $now -> $IME_BEFORE"
       else
         echo "ERRO: falha ao restaurar IME ($now)" >&2
+        if [ -n "$RESULTS" ] && [ -d "$RESULTS" ]; then
+          {
+            echo "ime_esperado=$IME_BEFORE"
+            echo "ime_atual=$now"
+            echo "serial=$SERIAL"
+            echo "restaurar: adb -s $SERIAL shell ime set $IME_BEFORE"
+          } >"$RESULTS/IME-NAO-RESTAURADO.txt"
+        fi
         if [ "$rc" -eq 0 ]; then rc=75; fi
       fi
     fi
   fi
 
-  if [ "$INSTRUMENT_STARTED" -eq 1 ] && [ "$PASSED" -ne 1 ] && [ -n "$SERIAL" ]; then
+  # 2. para o processo de teste, se chegou a rodar e não há PASS pendente
+  if [ "$INSTRUMENT_STARTED" -eq 1 ] && [ "$PASS_PENDING" -ne 1 ] && [ -n "$SERIAL" ]; then
     adb -s "$SERIAL" shell am force-stop "$TEST_PKG" >/dev/null 2>&1 || true
   fi
 
-  if [ "$APP_INSTALL_ATTEMPTED" -eq 1 ] && [ "$PASSED" -ne 1 ] \
+  # 3. rollback do APK quando falhou antes do PASS
+  if [ "$APP_INSTALL_ATTEMPTED" -eq 1 ] && [ "$PASS_PENDING" -ne 1 ] \
      && [ -n "$ROLLBACK_APK" ] && [ -s "$ROLLBACK_APK" ] && [ -n "$SERIAL" ]; then
     if adb -s "$SERIAL" install -r --no-streaming "$ROLLBACK_APK" >/dev/null 2>&1; then
       echo "ROLLBACK: APK anterior reinstalado ($ROLLBACK_APK)" >&2
     else
       echo "ROLLBACK FALHOU: restaure manualmente $ROLLBACK_APK" >&2
+      if [ -n "$RESULTS" ] && [ -d "$RESULTS" ]; then
+        {
+          echo "rollback_apk=$ROLLBACK_APK"
+          echo "rollback_sha256=$(sha256sum "$ROLLBACK_APK" 2>/dev/null | cut -d' ' -f1)"
+          echo "serial=$SERIAL"
+          echo "restaurar: adb -s $SERIAL install -r --no-streaming $ROLLBACK_APK"
+          echo "snapshot_banco=$RESULTS/snapshot/better-talker.db"
+          echo "resultados=$RESULTS"
+        } >"$RESULTS/ROLLBACK-FALHOU.txt"
+      fi
+      if [ "$rc" -eq 0 ]; then rc=76; fi
     fi
   fi
 
-  # devolve o app ao primeiro plano se ele estava rodando antes do snapshot
-  if [ -n "$APP_WAS_RUNNING" ] && [ -n "$SERIAL" ]; then
+  # 4. devolve o app ao primeiro plano se ele foi parado pelo executor
+  if [ "$APP_FROZEN" -eq 1 ] && [ -n "$APP_WAS_RUNNING" ] && [ -n "$SERIAL" ]; then
     if [ -z "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')" ]; then
       adb -s "$SERIAL" shell am start -n "$PKG/com.bettertalker.app.MainActivity" >/dev/null 2>&1 || true
     fi
+  fi
+
+  # 5. PASS só depois de todo o cleanup acima
+  if [ "$PASS_PENDING" -eq 1 ] && [ "$rc" -eq 0 ]; then
+    echo
+    echo "== PASS: $KLASS"
+    echo "   resultados: $RESULTS"
+  elif [ "$PASS_PENDING" -eq 1 ] && [ "$rc" -ne 0 ]; then
+    echo
+    echo "== FALHOU NO CLEANUP (código $rc); NÃO é PASS" >&2
   fi
 
   exit "$rc"
@@ -133,12 +171,24 @@ APK="${APK:-$REPO/android/app/build/outputs/apk/publicApp/debug/app-publicApp-de
 TEST_APK="${TEST_APK:-$REPO/android/app/build/outputs/apk/androidTest/publicApp/debug/app-publicApp-debug-androidTest.apk}"
 RESULTS="${RESULTS:-$REPO/qa-results/$(date +%Y%m%d-%H%M%S)}"
 
-AAPT2="$(qa_find_tool aapt2)"
-APKSIGNER="$(qa_find_tool apksigner)"
+AAPT2="$(qa_find_tool aapt2 || true)"
+APKSIGNER="$(qa_find_tool apksigner || true)"
 [ -n "$AAPT2" ] && [ -n "$APKSIGNER" ] || die "aapt2/apksigner ausentes em $(qa_sdk_dir)/build-tools" 69
 export AAPT2 APKSIGNER
 command -v adb >/dev/null || die "adb não encontrado" 69
 command -v sqlite3 >/dev/null || die "sqlite3 não encontrado (necessário para validar snapshot)" 69
+
+# apksigner pode falhar sob carga (saída vazia); 3 tentativas antes de concluir
+# que a assinatura é incompatível.
+apk_cert_retry() {
+  local apk="$1" c="" i
+  for i in 1 2 3; do
+    c="$(qa_apk_cert "$apk" 2>/dev/null || true)"
+    if [ -n "$c" ]; then printf '%s' "$c"; return 0; fi
+    sleep 0.2
+  done
+  return 1
+}
 
 # ---------- 1. transporte ADB ----------
 mapfile -t DEV_SERIALS < <(qa_devices_all | cut -f1)
@@ -160,13 +210,15 @@ fi
 [ -f "$APK" ] || die "APK não encontrado: $APK" 66
 [ -f "$TEST_APK" ] || die "test APK não encontrado: $TEST_APK" 66
 
-APP_INFO_PKG="$(qa_apk_package "$APK")"
-APP_VCODE="$(qa_apk_version_code "$APK")"
-APP_CERT="$(qa_apk_cert "$APK")"
-TST_PKG="$(qa_apk_package "$TEST_APK")"
-TST_CERT="$(qa_apk_cert "$TEST_APK")"
-TST_TARGET="$(qa_apk_target_package "$TEST_APK")"
-TST_RUNNER="$(qa_apk_instrumentation_runner "$TEST_APK")"
+APP_INFO_PKG="$(qa_apk_package "$APK" || true)"
+APP_VCODE="$(qa_apk_version_code "$APK" || true)"
+APP_CERT="$(apk_cert_retry "$APK")" \
+  || die "não foi possível verificar a assinatura do APK do app (apksigner falhou)" 69
+TST_PKG="$(qa_apk_package "$TEST_APK" || true)"
+TST_CERT="$(apk_cert_retry "$TEST_APK")" \
+  || die "não foi possível verificar a assinatura do APK de teste (apksigner falhou)" 69
+TST_TARGET="$(qa_apk_target_package "$TEST_APK" || true)"
+TST_RUNNER="$(qa_apk_instrumentation_runner "$TEST_APK" || true)"
 
 [ -n "$APP_INFO_PKG" ] || die "aapt2 não leu o APK do app" 65
 [ -n "$APP_VCODE" ] || die "APK do app sem versionCode" 65
@@ -186,12 +238,14 @@ INSTALLED=0
 INST_VCODE=""
 if [ -n "$APP_PATH" ]; then
   INSTALLED=1
-  INST_VCODE="$(qa_installed_version_code "$SERIAL" "$PKG")"
+  INST_VCODE="$(qa_installed_version_code "$SERIAL" "$PKG" || true)"
   mkdir -p "$RESULTS/rollback"
   ROLLBACK_APK="$RESULTS/rollback/base-antes.apk"
   qa_pull_installed_apk "$SERIAL" "$PKG" "$ROLLBACK_APK" \
     || die "não foi possível salvar o APK instalado para rollback" 70
-  [ "$(qa_apk_cert "$ROLLBACK_APK")" = "$DEBUG_CERT" ] \
+  ROLLBACK_CERT="$(apk_cert_retry "$ROLLBACK_APK")" \
+    || die "não foi possível verificar a assinatura do APK instalado (apksigner falhou)" 69
+  [ "$ROLLBACK_CERT" = "$DEBUG_CERT" ] \
     || die "APK instalado não tem a debug key; instalar -r apagaria dados" 65
   if [ -n "$INST_VCODE" ] && [ "$APP_VCODE" -lt "$INST_VCODE" ]; then
     die "APK ($APP_VCODE) é downgrade do instalado ($INST_VCODE); -d é proibido" 65
@@ -216,10 +270,19 @@ prefs_fingerprint() { # <dir>
 }
 mkdir -p "$RESULTS/snapshot"
 APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')"
-if [ "$FREEZE" -eq 1 ]; then
-  adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+if [ "$EXECUTE" -eq 1 ]; then
+  if [ "$FREEZE" -eq 1 ]; then
+    adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+    APP_FROZEN=1
+    SNAPSHOT_KIND="consistente-app-parado"
+  else
+    SNAPSHOT_KIND="parcial-sem-freeze"
+    echo "AVISO: --no-freeze; snapshot parcial (sem parar o app)." >&2
+  fi
 else
-  echo "AVISO: --no-freeze; snapshot pode não ser consistente." >&2
+  # dry-run NUNCA altera estado: sem force-stop, sem instalação, sem IME
+  SNAPSHOT_KIND="inspecao-parcial-somente-leitura"
+  echo "dry-run: inspeção parcial do banco (app NÃO é parado)." >&2
 fi
 
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
@@ -288,7 +351,7 @@ test_apk_sha256=$(sha256sum "$TEST_APK" | cut -d' ' -f1)
 test_pkg=$TST_PKG test_target=$TST_TARGET runner=$TST_RUNNER
 installed=$INSTALLED installed_versionCode=${INST_VCODE:-}
 installed_sha256=${INSTALLED_SHA:-} needs_install=$APP_NEEDS_INSTALL
-db_sha256=$DB_SHA integrity=$INTEG journal_mode=$JOURNAL
+db_sha256=$DB_SHA integrity=$INTEG journal_mode=$JOURNAL snapshot_kind=$SNAPSHOT_KIND
 notes=$NOTES decisions=$DECS attachments=$ATTS passages=$PASSAGES chat=$CHAT
 prefs_snapshot_files=$PREFS_COUNT prefs_fingerprint=$PREFS_FP
 publicacoes_fingerprint=$PUBS_FP
@@ -300,13 +363,13 @@ echo "== preflight OK"
 echo "   device: $MODEL (SDK $SDK_INT) serial=$SERIAL"
 echo "   apk:    $APP_INFO_PKG v$APP_VCODE sha=${APK_SHA:0:16}…"
 echo "   teste:  $TST_PKG -> $TST_TARGET"
-echo "   banco:  integrity=$INTEG journal=$JOURNAL notes=$NOTES passages=$PASSAGES"
+echo "   banco:  $SNAPSHOT_KIND integrity=$INTEG journal=$JOURNAL notes=$NOTES passages=$PASSAGES"
 echo "   prefs:  $PREFS_COUNT arquivo(s) no snapshot"
 echo "   IME:    $IME_BEFORE"
 
 if [ "$EXECUTE" -ne 1 ]; then
   echo
-  echo "== DRY-RUN (nenhuma instalação, nenhum teste)"
+  echo "== DRY-RUN (somente leitura: sem force-stop, instalação, IME ou teste)"
   if [ "$APP_NEEDS_INSTALL" -eq 1 ]; then
     echo "   instalaria o app: adb install -r (sha divergente)"
   else
@@ -349,8 +412,10 @@ fi
 # ---------- 6. pós-condições ----------
 [ -n "$(qa_installed_path "$SERIAL" "$PKG")" ] || die "pacote $PKG desapareceu" 74
 # banco: o app não é relançado; se estiver rodando, congela antes da 2ª cópia
-if [ -n "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')" ] && [ "$FREEZE" -eq 1 ]; then
+if [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -eq 1 ] \
+   && [ -n "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')" ]; then
   adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
+  APP_FROZEN=1
 fi
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
   adb -s "$SERIAL" exec-out run-as "$PKG" cat "databases/$f" \
@@ -379,7 +444,5 @@ if [ "$(sha256sum "$RESULTS/snapshot/publicacoes-after.txt" | cut -d' ' -f1)" !=
   die "arquivos de publicações mudaram durante o teste" 74
 fi
 
-PASSED=1
-echo
-echo "== PASS: $KLASS"
-echo "   resultados: $RESULTS"
+# Sucesso só é anunciado no cleanup, depois de IME/rollback/relançamento.
+PASS_PENDING=1
