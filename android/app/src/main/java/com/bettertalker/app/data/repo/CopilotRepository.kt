@@ -594,7 +594,7 @@ class CopilotRepository(private val db: AppDatabase) {
         if (rawNeedle != null) {
             val needle = normalizeText(rawNeedle).takeIf { it.length >= 3 }
             val slice = needle?.let {
-                com.bettertalker.app.data.planning.unitSliceOf(db.passageDao(), hit.id, it, rawNeedle)
+                com.bettertalker.app.data.planning.unitSliceOf(db.passageDao(), hit.id, it, rawNeedle, db.publicationUnitDao())
             }
             if (!slice.isNullOrEmpty()) return ContentCandidates(slice, true)
         }

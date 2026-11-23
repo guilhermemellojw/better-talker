@@ -523,10 +523,20 @@ internal suspend fun unitSliceOf(
                 number != null && number == requestedNumber
             }
         }
-        if (matching.size == 1) {
-            val unit = matching.single()
-            val startOrd = unit.startOrd
-            val endOrd = unit.endOrd
+        val selectedUnit = when {
+            matching.size == 1 -> matching.single()
+            matching.size > 1 -> {
+                val largestSpan = matching.maxOf { it.endOrd - it.startOrd }
+                val largestUnits = matching.filter {
+                    it.endOrd - it.startOrd == largestSpan
+                }
+                if (largestUnits.size == 1) largestUnits.single() else null
+            }
+            else -> null
+        }
+        if (selectedUnit != null) {
+            val startOrd = selectedUnit.startOrd
+            val endOrd = selectedUnit.endOrd
             if (startOrd != null && endOrd != null && startOrd <= endOrd) {
                 val rows = passageDao.betweenOrd(
                     attachmentId,

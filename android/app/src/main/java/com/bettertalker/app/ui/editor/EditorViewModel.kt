@@ -234,7 +234,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             },
             unitSlice = { id, needle, raw ->
                 com.bettertalker.app.data.planning.unitSliceOf(
-                    db.passageDao(), id, needle, raw,
+                    db.passageDao(), id, needle, raw, db.publicationUnitDao(),
                 )
             },
         )

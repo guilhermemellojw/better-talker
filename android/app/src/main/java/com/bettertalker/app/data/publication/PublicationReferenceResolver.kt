@@ -274,8 +274,17 @@ class PublicationReferenceResolver(
                 ?: unitNumberFromTitle(title)
             number == requestedNumber
         }
-        if (matches.size != 1) return null
-        return matches.single().toDocumentUnit()
+        val selected = when {
+            matches.size == 1 -> matches.single()
+            matches.size > 1 -> {
+                val largestSpan = matches.maxOf { it.endOrd - it.startOrd }
+                val largest = matches.filter { it.endOrd - it.startOrd == largestSpan }
+                if (largest.size == 1) largest.single() else null
+            }
+            else -> null
+        }
+        if (selected == null) return null
+        return selected.toDocumentUnit()
     }
 
     /**
