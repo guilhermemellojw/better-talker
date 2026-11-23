@@ -44,3 +44,5 @@ android/.kotlin/
 # Node (firestore rules tests)
 node_modules/
 firestore-tests/node_modules/
+# QA local: snapshots/evidências (podem conter preferências)
+qa-results/

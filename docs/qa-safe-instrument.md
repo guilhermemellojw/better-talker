@@ -58,12 +58,17 @@ Um snapshot só é aceito quando **todos** os itens abaixo valem:
 4. contagens numéricas e não-zero de `notes` e `passages`;
    após o teste, as contagens, o fingerprint de `shared_prefs`/`datastore` e o
    inventário de `files/publicacoes` precisam ser **idênticos** aos de antes;
-5. `shared_prefs/` e `datastore/` copiados para `snapshot/prefs/` (arquivos
-   pequenos; não são restaurados automaticamente);
+5. `shared_prefs/` e `datastore/` copiados com verificação de tamanho para
+   `snapshot/prefs/`; o fingerprint é **hash do conteúdo** de cada arquivo
+   (nome + SHA-256), detectando mudança de bytes com o mesmo tamanho,
+   criação, exclusão e renomeação; falha de leitura/cópia invalida o snapshot;
 6. inventário de `files/publicacoes` em `snapshot/publicacoes.txt`, com aviso
    para anexo indexado cujo arquivo não existe;
 7. `run-as ... test -w databases` (restauração é possível);
 8. SHA-256 do banco e metadados em `preflight.txt`.
+
+Os snapshots ficam em `results/` (default `qa-results/`, ignorado pelo Git) com
+`umask 077`. **Não publique `qa-results/`**: as preferências podem conter chaves.
 
 **Preservado no snapshot:** banco + WAL/SHM, preferências/DataStore, metadados
 do acervo, APK instalado (rollback). **Não preservado:** os arquivos grandes de
@@ -87,6 +92,8 @@ concluído e app relançado. Se qualquer etapa de cleanup falhar, o script impri
 
 - falha ao restaurar IME → exit **75** + `results/IME-NAO-RESTAURADO.txt`
   (IME esperado/atual, serial e comando de restauração);
+- app parado pelo executor que não volta a rodar (falha do `am start` ou
+  processo ausente) → exit **77** + `results/RELAUNCH-FALHOU.txt`;
 - rollback malsucedido → mensagem `ROLLBACK FALHOU` + exit não-zero (ou **76**
   se o resto estava OK) + `results/ROLLBACK-FALHOU.txt` com caminho, SHA-256,
   serial, comando de reinstalação e caminho do snapshot do banco.
@@ -100,6 +107,11 @@ app; o APK do app é restaurado pelo rollback em caso de falha.
 | Cenário | Esperado | Obtido |
 |---|---|---|
 | dry-run (app parado ou rodando) | 0, **nenhuma** chamada de estado | 0 |
+| dry-run com IME mudando no meio | 0, **sem** `ime set` | 0 |
+| preferências mudam com o mesmo tamanho | 74 | 74 |
+| falha de cópia de prefs / banco | 70, snapshot inválido | 70 |
+| relançamento falha ou processo fica ausente | 77 + `RELAUNCH-FALHOU.txt` | 77 |
+| A34 com `--execute --no-freeze` | 65 | 65 |
 | execução normal | 0 + `OK (2 tests)` | 0 |
 | sucesso com IME alterado | `IME restaurado` antes de `== PASS` | 0 |
 | falha ao instalar o teste | 71, app intacto | 71 |
@@ -136,7 +148,7 @@ scripts/tests/safe-instrument-matrix.sh
 Requer SDK (aapt2/apksigner), `sqlite3`, `keytool` e a debug keystore
 (`~/.android/debug.keystore` ou `DEBUG_KEYSTORE=...`). Os APKs de fixture são
 gerados no workdir (aapt2 + apksigner); o ADB é simulado por
-`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 22
+`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 30
 cenários e sai não-zero se qualquer expectativa falhar.
 
 ## 7. Pendência de recuperação

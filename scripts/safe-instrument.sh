@@ -33,6 +33,7 @@
 #   - restaura IME e relança o app, se ele estava rodando;
 #   - qualquer erro aborta com código não-zero; nunca produz falso PASS.
 set -euo pipefail
+umask 077
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/qa-common.sh
@@ -76,8 +77,8 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
 
-  # 1. IME volta ao original; falha é erro (nunca PASS)
-  if [ -n "$IME_BEFORE" ] && [ -n "$SERIAL" ]; then
+  # 1. IME volta ao original; falha é erro (nunca PASS). Em dry-run NÃO escreve.
+  if [ "$EXECUTE" -eq 1 ] && [ -n "$IME_BEFORE" ] && [ -n "$SERIAL" ]; then
     local now
     now="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
     if [ -n "$now" ] && [ "$now" != "$IME_BEFORE" ]; then
@@ -124,10 +125,29 @@ cleanup() {
     fi
   fi
 
-  # 4. devolve o app ao primeiro plano se ele foi parado pelo executor
+  # 4. devolve o app ao primeiro plano se ele foi parado pelo executor.
+  #    Falha ou processo ainda ausente => erro (nunca PASS).
   if [ "$APP_FROZEN" -eq 1 ] && [ -n "$APP_WAS_RUNNING" ] && [ -n "$SERIAL" ]; then
-    if [ -z "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')" ]; then
-      adb -s "$SERIAL" shell am start -n "$PKG/com.bettertalker.app.MainActivity" >/dev/null 2>&1 || true
+    local started=0 pid="" i
+    if adb -s "$SERIAL" shell am start -n "$PKG/com.bettertalker.app.MainActivity" >/dev/null 2>&1; then
+      started=1
+    fi
+    for i in 1 2 3 4 5 6; do
+      pid="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')"
+      [ -n "$pid" ] && break
+      sleep 0.5
+    done
+    if [ "$started" -ne 1 ] || [ -z "$pid" ]; then
+      echo "ERRO: app não foi relançado (am_start_ok=$started pid=${pid:-vazio})" >&2
+      if [ -n "$RESULTS" ] && [ -d "$RESULTS" ]; then
+        {
+          echo "am_start_ok=$started"
+          echo "pid=${pid:-vazio}"
+          echo "serial=$SERIAL"
+          echo "comando: adb -s $SERIAL shell am start -n $PKG/com.bettertalker.app.MainActivity"
+        } >"$RESULTS/RELAUNCH-FALHOU.txt"
+      fi
+      if [ "$rc" -eq 0 ]; then rc=77; fi
     fi
   fi
 
@@ -205,6 +225,9 @@ SDK_INT="$(qa_readprop "$SERIAL" ro.build.version.sdk)"
 if [ "$MODEL" = "$QA_A34_MODEL" ] && [ "$ALLOW_DEBUG_A34" -ne 1 ]; then
   die "A34 com pacote .debug exige --allow-debug-on-a34 (política do preflight)" 65
 fi
+if [ "$MODEL" = "$QA_A34_MODEL" ] && [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -ne 1 ]; then
+  die "A34 exige snapshot consistente; --no-freeze é proibido em --execute neste aparelho" 65
+fi
 
 # ---------- 2. APKs: package, versionCode, target e assinatura ----------
 [ -f "$APK" ] || die "APK não encontrado: $APK" 66
@@ -265,11 +288,53 @@ if [ -n "$INSTALLED_SHA" ] && [ "$INSTALLED_SHA" = "$APK_SHA" ]; then
 fi
 
 # ---------- 4. snapshot consistente ----------
-prefs_fingerprint() { # <dir>
-  find "$1" -type f -printf '%f %s\n' 2>/dev/null | sort | sha256sum | cut -d' ' -f1
+dev_size() { # <caminho no device> -> tamanho em bytes
+  local s
+  s="$(adb -s "$SERIAL" shell run-as "$PKG" sh -c "wc -c < '$1'" 2>/dev/null | tr -dc '0-9')"
+  [ -n "$s" ] || return 1
+  printf '%s' "$s"
+}
+copy_if_present() { # <dev> <local>; 0=ok, 1=ausente, 2=falha
+  local dev="$1" loc="$2" want
+  if ! want="$(dev_size "$dev")"; then return 1; fi
+  adb -s "$SERIAL" exec-out run-as "$PKG" cat "$dev" >"$loc" 2>/dev/null || return 2
+  [ "$(stat -c %s "$loc" 2>/dev/null || echo x)" = "$want" ] || return 2
+  return 0
+}
+copy_prefs_dir() { # <dir no device> <dir local>; 0=ok, 1=ausente, 2=falha
+  local d="$1" out="$2" name files rc
+  mkdir -p "$out" || return 2
+  if ! adb -s "$SERIAL" shell run-as "$PKG" sh -c "test -d '$d'" >/dev/null 2>&1; then
+    printf '%s=ausente\n' "$d" >>"$RESULTS/snapshot/prefs-manifest.txt"
+    return 1
+  fi
+  if ! files="$(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null)"; then
+    return 2
+  fi
+  for name in $files; do
+    name="$(printf '%s' "$name" | tr -d '\r')"
+    [ -n "$name" ] || continue
+    copy_if_present "$d/$name" "$out/$d-$name"; rc=$?
+    case "$rc" in
+      0) printf '%s/%s\n' "$d" "$name" >>"$RESULTS/snapshot/prefs-manifest.txt" ;;
+      1) return 2 ;;
+      *) return 2 ;;
+    esac
+  done
+  return 0
+}
+prefs_fingerprint() { # <dir local>: hash de nomes + conteúdo
+  local dir="$1"
+  (
+    cd "$dir" || return 1
+    find . -type f -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' f; do
+      printf '%s ' "${f#./}"
+      sha256sum "$f" | cut -d' ' -f1
+    done
+  ) | sha256sum | cut -d' ' -f1
 }
 mkdir -p "$RESULTS/snapshot"
-APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r')"
+APP_WAS_RUNNING="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
 if [ "$EXECUTE" -eq 1 ]; then
   if [ "$FREEZE" -eq 1 ]; then
     adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || true
@@ -285,8 +350,18 @@ else
   echo "dry-run: inspeção parcial do banco (app NÃO é parado)." >&2
 fi
 
+: >"$RESULTS/snapshot/arquivos-ausentes.txt"
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
-  adb -s "$SERIAL" exec-out run-as "$PKG" cat "databases/$f" >"$RESULTS/snapshot/$f" 2>/dev/null || true
+  rc=0
+  copy_if_present "databases/$f" "$RESULTS/snapshot/$f" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1)
+      : >"$RESULTS/snapshot/$f"
+      printf 'databases/%s ausente\n' "$f" >>"$RESULTS/snapshot/arquivos-ausentes.txt"
+      ;;
+    *) die "falha ao copiar databases/$f (snapshot incompleto)" 70 ;;
+  esac
 done
 [ -s "$RESULTS/snapshot/better-talker.db" ] || die "snapshot vazio (app não debuggable?)" 70
 
@@ -306,16 +381,21 @@ if [ "$NOTES" -le 0 ] || [ "$PASSAGES" -le 0 ]; then
   die "snapshot sem dados esperados (notes=$NOTES passages=$PASSAGES)" 70
 fi
 
-# prefs/datastore (pequenos): copia para o snapshot
+# prefs/datastore (pequenos): cópia verificada; falha invalida o snapshot
 mkdir -p "$RESULTS/snapshot/prefs"
+: >"$RESULTS/snapshot/prefs-manifest.txt"
 for d in shared_prefs datastore; do
-  for name in $(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null | tr -d '\r'); do
-    adb -s "$SERIAL" exec-out run-as "$PKG" cat "$d/$name" \
-      >"$RESULTS/snapshot/prefs/$d-$name" 2>/dev/null || true
-  done
+  rc=0
+  copy_prefs_dir "$d" "$RESULTS/snapshot/prefs" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1) : ;;
+    *) die "falha ao copiar $d (snapshot incompleto)" 70 ;;
+  esac
 done
 PREFS_COUNT="$(find "$RESULTS/snapshot/prefs" -type f | wc -l | tr -d ' ')"
-PREFS_FP="$(prefs_fingerprint "$RESULTS/snapshot/prefs")"
+PREFS_FP="$(prefs_fingerprint "$RESULTS/snapshot/prefs" || true)"
+[ -n "$PREFS_FP" ] || die "não foi possível calcular o fingerprint das preferências" 70
 
 # inventário de publicações (metadados; não copia os arquivos grandes)
 adb -s "$SERIAL" shell run-as "$PKG" ls -l files/publicacoes 2>/dev/null | tr -d '\r' \
@@ -418,8 +498,13 @@ if [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -eq 1 ] \
   APP_FROZEN=1
 fi
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
-  adb -s "$SERIAL" exec-out run-as "$PKG" cat "databases/$f" \
-    >"$RESULTS/snapshot/after-$f" 2>/dev/null || true
+  rc=0
+  copy_if_present "databases/$f" "$RESULTS/snapshot/after-$f" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1) : >"$RESULTS/snapshot/after-$f" ;;
+    *) die "falha ao reler databases/$f após o teste" 74 ;;
+  esac
 done
 N2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from notes;' 2>/dev/null || echo ERR)"
 P2="$(sqlite3 "$RESULTS/snapshot/after-better-talker.db" 'select count(*) from passages;' 2>/dev/null || echo ERR)"
@@ -430,12 +515,15 @@ fi
 # preferências/DataStore e arquivos de publicações não podem mudar
 mkdir -p "$RESULTS/snapshot/prefs-after"
 for d in shared_prefs datastore; do
-  for name in $(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null | tr -d '\r'); do
-    adb -s "$SERIAL" exec-out run-as "$PKG" cat "$d/$name" \
-      >"$RESULTS/snapshot/prefs-after/$d-$name" 2>/dev/null || true
-  done
+  rc=0
+  copy_prefs_dir "$d" "$RESULTS/snapshot/prefs-after" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1) : ;;
+    *) die "falha ao reler $d após o teste" 74 ;;
+  esac
 done
-if [ "$(prefs_fingerprint "$RESULTS/snapshot/prefs-after")" != "$PREFS_FP" ]; then
+if [ "$(prefs_fingerprint "$RESULTS/snapshot/prefs-after" || true)" != "$PREFS_FP" ]; then
   die "preferências/DataStore mudaram durante o teste" 74
 fi
 adb -s "$SERIAL" shell run-as "$PKG" ls -l files/publicacoes 2>/dev/null | tr -d '\r' \

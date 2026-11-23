@@ -109,7 +109,10 @@ FAILS=0
 run() { # <nome> <esperado> <apk> <test-apk> <execute 0|1> [env...]
   local name="$1" exp="$2" apk="$3" tst="$4" ex="$5"
   shift 5
-  rm -f "$WORK/calls.log" "$WORK"/*.counter
+  rm -f "$WORK/calls.log" "$WORK"/*.counter "$WORK/running"
+  local a initial=0
+  for a in "$@"; do [ "$a" = "MOCK_INITIAL_RUNNING=1" ] && initial=1; done
+  [ "$initial" = "1" ] && : >"$WORK/running"
   local extra=()
   [ "$ex" = "1" ] && extra=(--execute)
   ( cd "$REPO" && env PATH="$WORK/bin:$PATH" ANDROID_HOME="$SDK" \
@@ -236,6 +239,58 @@ run "$CASE" 73 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=failures MOCK_FAIL_RO
 assert_out_absent "== PASS"
 assert_out_has "ROLLBACK FALHOU"
 assert_file "$WORK/results/$CASE/ROLLBACK-FALHOU.txt"
+
+# 23. dry-run com IME mudando: continua somente leitura
+CASE=dryrun-ime
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 0 MOCK_IME_CHANGES=1
+assert_log_absent "ime set" "am force-stop" "install -r" "am start"
+assert_out_has "DRY-RUN"
+assert_out_absent "== PASS"
+
+# 24. preferências: bytes mudam com o mesmo tamanho
+CASE=prefs-same-size
+run "$CASE" 74 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_PREFS_SAME_SIZE=1
+assert_out_absent "== PASS"
+
+# 25-26. falhas de cópia invalidam o snapshot
+CASE=prefs-copy-fail
+run "$CASE" 70 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_FAIL_PREFS_COPY=1
+assert_out_absent "== PASS"
+
+CASE=db-copy-fail
+run "$CASE" 70 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_FAIL_DB_COPY=1
+assert_out_absent "== PASS"
+
+# 27-29. relançamento do app
+CASE=relaunch-ok
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1
+assert_out_has "== PASS"
+grep -q "shell am start" "$WORK/calls.log" || { echo "  FALHOU: sem am start"; FAILS=$((FAILS + 1)); }
+
+CASE=relaunch-fail
+run "$CASE" 77 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1 MOCK_START_FAIL=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/RELAUNCH-FALHOU.txt"
+
+CASE=relaunch-noop
+run "$CASE" 77 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_INITIAL_RUNNING=1 MOCK_START_NOOP=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/RELAUNCH-FALHOU.txt"
+
+# 30. A34 recusa --execute --no-freeze
+CASE=a34-nofreeze
+rm -f "$WORK/calls.log" "$WORK"/*.counter "$WORK/running"
+( cd "$REPO" && env PATH="$WORK/bin:$PATH" ANDROID_HOME="$SDK" MOCK_DIR="$WORK" \
+    MOCK_LOG="$WORK/calls.log" APP_APK="$BASE_APK" FIXTURE_DB="$FIXTURE" \
+    ./scripts/safe-instrument.sh "${BASE[@]}" --apk "$TARGET_APK" \
+    --test-apk "$TEST_APK" --execute --no-freeze --results "$WORK/results/$CASE" ) \
+  >"$WORK/out/$CASE.log" 2>&1
+LAST_RC=$?
+if [ "$LAST_RC" = "65" ]; then echo "PASS $CASE (exit=65)"; else
+  echo "FAIL $CASE (esperado=65 obtido=$LAST_RC)"; FAILS=$((FAILS + 1))
+fi
+assert_log_absent "install -r"
+assert_out_absent "== PASS"
 
 # 21-22. sinais
 signal_case() { # <nome> <sinal> <esperado> <job-control 0|1>
