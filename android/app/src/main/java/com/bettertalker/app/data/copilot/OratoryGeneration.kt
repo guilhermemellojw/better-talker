@@ -6,6 +6,7 @@ import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.s34.S34StructuralRetrieval
 import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.SpeechPacing
 
 /**
@@ -85,6 +86,38 @@ object OratoryGeneration {
         (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
             .mapNotNull { it.text?.takeIf { t -> t.isNotBlank() } }
             .distinct()
+
+    /**
+     * P7 — fontes documentais ELEGÍVEIS para o corpus factual do gate
+     * oratório. O corpus factual de um gate oratório só aceita fonte
+     * tipada e recuperada:
+     * - textos de Bíblia/publicações recuperados no dossiê compatível
+     *   (`recoveredDocumentsFromDossier`); passagens marcadas como
+     *   PARCIAIS ficam FORA do corpus integral — "uma passagem parcial
+     *   não promove documento completo";
+     * - textos recuperados dos refs do SPEC do S-34 (os textos que o
+     *   modelo vê no `buildCardPrompt`), identificados pela rótulo do
+     *   S-34 (`recoveredDocumentFromPassage`).
+     *
+     * Explicitamente NÃO é evidência factual: o dossiê inteiro como
+     * texto (`contextBlock` — contém estrutura, nota editorial, memória
+     * canônica, acordos com o usuário, memória de redação, contexto de
+     * prática), o texto do editor e o contexto de prática — todos
+     * continuam no prompt como contexto (`userContextBlock`/
+     * `structural`), nunca como prova. Puro/testável: sem rede, LLM,
+     * Room.
+     */
+    internal fun oruaryDocumentarySources(
+        dossier: Dossier?,
+        spec: Spec,
+    ): List<RecoveredDocument> =
+        dossier
+            ?.let { recoveredDocumentsFromDossier(it).filter { d -> d.isDocumentaryEligible() } }
+            .orEmpty() +
+            (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
+                .filter { it.text != null }
+                .mapNotNull { r -> recoveredDocumentFromPassage(r.label, r.text!!) }
+                .distinctBy { it.sourceId }
 
     /**
      * Limite de palavras do prompt (#16-fix-c): duração REAL da seção ×

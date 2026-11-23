@@ -218,6 +218,7 @@ import com.bettertalker.app.domain.planning.longTextRequestFor
 import com.bettertalker.app.domain.planning.minutesMismatchNotice
 import com.bettertalker.app.domain.planning.requestedMinutesIn
 import com.bettertalker.app.data.copilot.generationTelemetry
+import com.bettertalker.app.data.copilot.OratoryGeneration
 import com.bettertalker.app.ui.editor.ChatContext
 import com.bettertalker.app.ui.editor.DraftTarget
 import com.bettertalker.app.ui.editor.SectionUiState
@@ -5229,39 +5230,19 @@ class CopilotViewModel(
                         "leaked=${fidelity.leakedReferences.size} unsupported=${fidelity.unsupportedNumbers.size})"
                 )
             }
-            // P4: o gate de fidelidade recebe o dossiê do ALVO resolvido
-            // (oratoryResolution.contextBlock), não o dossiê do foco anterior
-            // (evidenceContextBlock); evidência exclusiva do ponto A não pode
-            // validar afirmações do ponto B. O texto do bloco resolvido
-            // permanece autorizado.
+            // P7: o corpus factual do gate é SÓ fonte tipada e recuperada
+            // (`oruaryDocumentarySources`): textos do dossiê compatível (RESOLVED;
+            // passagens PARCIAIS ficam fora do corpus integral) + textos
+            // recuperados dos refs do spec do S-34. Contexto estrutural
+            // (dossiê inteiro), texto do editor, memória canônica e
+            // contexto de prática continuam no prompt como contexto
+            // (userContextBlock/structural), nunca como evidência.
+            // turnContext do foco (A) permanece null: evidência exclusiva
+            // de A não valida afirmações de B.
             val verified = verifyGeneratedText(
                 cleanedCardText,
                 turnContext = null,
-                documentarySources = buildList {
-                    oratoryResolution.contextBlock
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { b ->
-                            add(
-                                com.bettertalker.app.data.copilot.RecoveredDocument(
-                                    sourceId = section.id, reference = section.title, text = b,
-                                ),
-                            )
-                        }
-                    stripHtmlToText(block).takeIf { it.isNotBlank() }?.let { b ->
-                        add(
-                            com.bettertalker.app.data.copilot.RecoveredDocument(
-                                sourceId = section.id, reference = section.title, text = b,
-                            ),
-                        )
-                    }
-                    com.bettertalker.app.data.copilot.OratoryGeneration.authorizedRefTexts(ready).forEach { ref ->
-                        add(
-                            com.bettertalker.app.data.copilot.RecoveredDocument(
-                                sourceId = "spec-ref", reference = ref, text = ref,
-                            ),
-                        )
-                    }
-                },
+                documentarySources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready),
             )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text

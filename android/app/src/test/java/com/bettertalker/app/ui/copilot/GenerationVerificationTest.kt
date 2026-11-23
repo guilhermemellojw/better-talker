@@ -6,6 +6,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import com.bettertalker.app.data.copilot.OratoryGeneration
+import com.bettertalker.app.data.copilot.OratoryContextResolver
+import com.bettertalker.app.data.planning.DefaultDossierPromptBuilder
+import com.bettertalker.app.data.s34.S34RefType
+import com.bettertalker.app.domain.planning.Dossier
+import com.bettertalker.app.domain.planning.ReferenceStatus
+import com.bettertalker.app.domain.planning.ResolvedBibleText
+import com.bettertalker.app.domain.speech.SectionRole
+import com.bettertalker.app.domain.speech.SpeechSection
 import org.junit.Test
 
 /**
@@ -232,5 +241,147 @@ class GenerationVerificationTest {
         val (clean, notice) = stripRemovalNotice(text)
         assertFalse(clean.contains("Observação"))
         assertEquals(GroundednessVerifier.REMOVAL_NOTICE.trim(), notice)
+    }
+
+    // ---------- P7 — adversarial: corpus factual = fontes tipadas/recuperadas ----------
+
+    private fun dirP7(
+        bibleTexts: List<ResolvedBibleText> = emptyList(),
+        selectedText: String? = null,
+        speakerNote: String? = null,
+        methodPrinciples: List<String> = emptyList(),
+        fullContentHtml: String = "",
+    ) = Dossier(
+        currentSection = SpeechSection(
+            id = "sec-1", noteId = "n1", order = 0, role = SectionRole.BODY,
+            title = "Ponto", minutes = 5, contentHtml = "", bibleRefs = emptyList(),
+            publicationRefs = emptyList(), methodPrinciple = null,
+            createdAt = 10L, updatedAt = 10L,
+        ),
+        currentSubPoint = null,
+        selectedText = selectedText,
+        fullContentHtml = fullContentHtml,
+        overview = emptyList(),
+        bibleTexts = bibleTexts,
+        publicationTexts = emptyList(),
+        methodPrinciples = methodPrinciples,
+        unresolvedRefs = emptyList(),
+        transitionContext = null,
+        speakerNote = speakerNote,
+    )
+
+    private fun specP7(refs: List<OratoryGeneration.RefWithText> = emptyList()) = OratoryGeneration.Spec(
+        mode = OratoryGeneration.Mode.DEVELOPMENT,
+        action = OratoryGeneration.Action.INSERT,
+        outlineId = "doc-1",
+        outlineTitle = "DISCURSO",
+        objective = null,
+        orderedSections = listOf(OratoryGeneration.SectionLine("sec-1", 1, "PONTO", true)),
+        current = OratoryGeneration.CurrentSection(
+            sectionId = "sec-1", order = 1, title = "PONTO",
+            content = "Corpo do ponto.", subsections = emptyList(),
+            references = refs,
+        ),
+        previousSectionId = null,
+        nextSectionId = null,
+        training = emptyList(),
+        contentSources = emptyList(),
+        target = OratoryGeneration.Target.AfterSection("sec-1"),
+    )
+
+    private fun refP7(label: String, text: String?) = OratoryGeneration.RefWithText(
+        type = S34RefType.BIBLE, label = label, ownerId = "sec-1", text = text
+    )
+
+    @Test
+    fun focusA_naoValidaAfirmacaoDeB() {
+        // A→B: afirmação X recuperada do dossiê do ponto A não valida a
+        // afirmação do ponto B — evidência exclusiva de A não entra no corpus.
+        val xA = "\"Esta é uma verdade recuperada apenas do ponto A.\""
+        val dossierA = dirP7(listOf(ResolvedBibleText("A", xA, ReferenceStatus.RESOLVED)))
+        val dossierB = dirP7(listOf(ResolvedBibleText("B", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specP7())
+        assertFalse(corpus.any { it.text.contains("verdade recuperada apenas do ponto A") })
+        val r = verifyGeneratedText(text = "Repetiríamos: $xA", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("verdade recuperada apenas do ponto A"))
+    }
+
+    @Test
+    fun editor_textoInventadoNaoValidaCitacao() {
+        // B — texto do editor: inventado na redação; nenhuma fonte recuperada
+        // o contém; o texto editorial não pode validar a citação.
+        val inventado = "\"João era o aluno de Jesus, que preferia a vinha da Maria.\""
+        val d = dirP7(
+            selectedText = "João era o aluno de Jesus, que preferia a vinha da Maria.",
+            methodPrinciples = listOf("Princípio X de oratória."),
+            speakerNote = "Nota do orador X.",
+            bibleTexts = listOf(ResolvedBibleText("B", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        assertFalse(corpus.any { it.text.contains("João") })
+        val r = verifyGeneratedText(text = "Concluo assim: $inventado", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains("João"))
+    }
+
+    @Test
+    fun contextoDePratica_naoEntraNoCorpusFactual() {
+        // C — contexto de prática inclui X; a geração repete X como citação;
+        // contexto de prática não pode servir como prova factual.
+        val pratica = "O tema nasce em conversas informais da comunidade."
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("B", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)))
+        val resolution = OratoryContextResolver.resolve(
+            sectionId = "sec-1",
+            resolvedDossier = d,
+            includeSpeakerNote = true,
+            practiceContext = pratica,
+            promptBuilder = DefaultDossierPromptBuilder(),
+        )
+        assertTrue(resolution.contextBlock!!.contains(pratica))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        assertFalse(corpus.any { it.text.contains(pratica) })
+        val r = verifyGeneratedText(text = "Dizíamos: \"$pratica\", claro?", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+    }
+
+    @Test
+    fun D_fonteLegitimaPassaLiteralNoCorpus() {
+        // D — dossiê da seção B possui trecho documental recuperado;
+        // citação literal correspondente passa sem remoção.
+        val verso = "Louvem a Jeová, todos os seus anjos, fortes e poderosos, que cumprem a sua palavra, obedecendo ao que ele diz."
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salpo 103:20", "[Salpo 103:20] $verso", ReferenceStatus.RESOLVED)))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        assertTrue(corpus.any { it.text.contains(verso) })
+        val r = verifyGeneratedText(text = "O Salmo 103:20 diz: \"$verso\"", turnContext = null, documentarySources = corpus)
+        assertFalse(r.hasRemovals)
+        assertTrue(r.text.contains(verso))
+    }
+
+    @Test
+    fun E_passagemPartialNaoValidaCitacao() {
+        // E — passagem parcial: não promove documento completo; citação dele
+        // não é aceita por apoio integral.
+        val parcial = "[Salpo 103:20] Trecho da recuperação aproximada."
+        val d = dirP7(bibleTexts = listOf(
+            ResolvedBibleText("Salpo 103:20", parcial, ReferenceStatus.PARTIAL),
+            ResolvedBibleText("Salpo 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED),
+        ))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        assertFalse(corpus.any { it.text.contains("Trecho da recuperação aproximada") })
+        val r = verifyGeneratedText(text = "Citaríamos: \"Trecho da recuperação aproximada.\"", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+    }
+
+    @Test
+    fun F_corpusVazioNaoDeclaraAfirmacoes() {
+        // F — sem evidência elegível: o gate não declara afirmação verificada.
+        val d = dirP7(methodPrinciples = listOf("Princípio prático X."))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        assertTrue(corpus.isEmpty())
+        val generated = "Confirmo que o tema é fidelidade absoluta."
+        val r = verifyGeneratedText(text = generated, turnContext = null, documentarySources = corpus)
+        assertFalse(r.hasRemovals)
+        assertEquals(generated, r.text)
     }
 }
