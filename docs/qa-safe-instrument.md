@@ -50,8 +50,9 @@ apksigner verify --print-certs "$APK" | grep 'SHA-256 digest'
 Um snapshot só é aceito quando **todos** os itens abaixo valem:
 
 1. no modo `--execute`, congelamento **verificado**: `am force-stop` precisa
-   retornar 0 e `pidof` precisa confirmar ausência do processo (exit 1 sem PID é
-   ausência normal). Falha aborta com **78** + `FREEZE-FALHOU.txt` **antes de
+   retornar 0 e `pidof` precisa confirmar ausência com contrato estrito —
+   exit 0 + PID = ainda ativo; exit 1 sem PID = ausente; qualquer outro exit,
+   falha de transporte ou resposta inválida = falha de confirmação. Falha aborta com **78** + `FREEZE-FALHOU.txt` **antes de
    instalar**; o mesmo vale após a instrumentação. No dry-run **não há parada**:
    a cópia é declarada **inspeção parcial** no `preflight.txt`
    (`snapshot_kind=inspecao-parcial-somente-leitura`);
@@ -68,13 +69,18 @@ Um snapshot só é aceito quando **todos** os itens abaixo valem:
    para anexo indexado cujo arquivo não existe;
 7. `run-as ... test -w databases` (restauração é possível);
 8. SHA-256 do banco e metadados em `preflight.txt`;
-9. **fingerprint lógico por tabela** (`notes`, `passages`, `chat_messages`,
+9. **cobertura lógica obrigatória**: toda tabela persistente do banco precisa
+   estar em `LOGICAL_TABLES`; se surgir uma tabela nova sem cobertura, o script
+   aborta com **70** + `DATA-COBERTURA-FALHOU.txt` (nunca ignora em silêncio);
+10. **fingerprint lógico por tabela** (`notes`, `passages`, `chat_messages`,
    `decision_records`, `attachments`, `note_images`, `image_backups`, `outlines`,
    `folders`, `s34_*`, `speech_sections`, `sub_points`, `tombstones`,
    `publication_units`): hash do `.dump` de cada tabela, independente do layout
    físico do SQLite/WAL. Mudança de conteúdo, exclusão, edição com a mesma
    contagem ou alteração de vínculo → exit **74** +
    `DATA-FINGERPRINT-FALHOU.txt` com o nome da tabela (sem dados pessoais).
+   `passages` está incluído: edição de texto ou de `attachmentId` com a mesma
+   contagem é detectada.
 
 Os snapshots ficam em `results/` (default `qa-results/`, ignorado pelo Git) com
 `umask 077`. **Não publique `qa-results/`**: as preferências podem conter chaves.
@@ -127,6 +133,11 @@ app; o APK do app é restaurado pelo rollback em caso de falha.
 | `force-stop` ok, processo ainda ativo | 78, sem instalar | 78 |
 | processo já parado | 0 | 0 |
 | congelamento correto | 0 + PASS | 0 |
+| `pidof` com erro de transporte | 78, sem instalar | 78 |
+| `pidof` com resposta inválida | 78, sem instalar | 78 |
+| edição de passagem (mesma contagem) | 74 + `passages` | 74 |
+| vínculo `attachmentId` de passagem alterado | 74 + `passages` | 74 |
+| tabela persistente sem cobertura | 70 + `DATA-COBERTURA-FALHOU.txt` | 70 |
 | exclusão de decisão | 74 + tabela | 74 |
 | edição de decisão (mesma contagem) | 74 + tabela | 74 |
 | edição de mensagem (mesma contagem) | 74 + tabela | 74 |
@@ -171,7 +182,7 @@ scripts/tests/safe-instrument-matrix.sh
 Requer SDK (aapt2/apksigner), `sqlite3`, `keytool` e a debug keystore
 (`~/.android/debug.keystore` ou `DEBUG_KEYSTORE=...`). Os APKs de fixture são
 gerados no workdir (aapt2 + apksigner); o ADB é simulado por
-`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 40
+`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 45
 cenários e sai não-zero se qualquer expectativa falhar.
 
 ## 7. Pendência de recuperação

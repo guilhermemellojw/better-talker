@@ -68,6 +68,12 @@ case "$CMD" in
     fi
     ;;
   "shell dumpsys package $PKG"*) echo "    versionCode=80 minSdk=26 targetSdk=36" ;;
+  "shell pidof $PKG; echo __rc="*)
+    if [ "${MOCK_PIDOF_TRANSPORT_FAIL:-0}" = "1" ]; then exit 1; fi
+    if [ "${MOCK_PIDOF_INVALID:-0}" = "1" ]; then printf '__rc=2\n'; exit 0; fi
+    if [ -f "$MOCK_DIR/running" ]; then printf '4242\n__rc=0\n'; else printf '__rc=1\n'; fi
+    exit 0
+    ;;
   "shell pidof $PKG"*)
     if [ -f "$MOCK_DIR/running" ]; then echo 4242; exit 0; fi
     exit 1

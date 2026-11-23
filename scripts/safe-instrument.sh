@@ -26,13 +26,16 @@
 #   - valida package, versionCode, targetPackage e assinatura dos APKs;
 #   - recusa downgrade e assinatura diferente da instalada;
 #   - exige snapshot consistente: congelamento verificado por `pidof`,
-#     db+wal+shm com cópia conferida, integrity_check e fingerprint lógico
-#     por tabela (detecta edição/exclusão mesmo com contagem igual);
+#     db+wal+shm com cópia conferida, integrity_check, cobertura de todas as
+#     tabelas persistentes e fingerprint lógico por tabela (inclui passages;
+#     detecta edição/exclusão mesmo com contagem igual);
 #   - guarda cópia do APK instalado para rollback;
 #   - instala o APK de teste ANTES do app; usa somente `adb install -r`;
 #   - roda `am instrument` por classe e exige "OK (N tests)";
 #   - em falha após instalar, tenta restaurar o APK anterior (rollback);
 #   - restaura IME e relança o app, se ele estava rodando;
+#   - congelamento exige force-stop 0 + pidof exit 1 sem PID; transporte ou
+#     resposta inválida falha (nunca vira "processo ausente");
 #   - falha de congelamento → 78; dados lógicos alterados → 74; relançamento
 #     não confirmado → 77; IME não confirmado → 75;
 #   - qualquer erro aborta com código não-zero; nunca produz falso PASS.
@@ -58,7 +61,7 @@ EXECUTE=0
 ALLOW_DEBUG_A34=0
 FREEZE=1
 
-usage() { sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'; }
 
 die() { echo "ABORT: $*" >&2; exit "${2:-70}"; }
 
@@ -338,22 +341,37 @@ copy_prefs_dir() { # <dir no device> <dir local>; 0=ok, 1=ausente, 2=falha
   done
   return 0
 }
-LOGICAL_TABLES="notes attachments chat_messages decision_records note_images image_backups outlines folders s34_outlines s34_references s34_sections s34_subsections speech_sections sub_points tombstones publication_units"
+LOGICAL_TABLES="notes passages attachments chat_messages decision_records note_images image_backups outlines folders s34_outlines s34_references s34_sections s34_subsections speech_sections sub_points tombstones publication_units"
+EXCLUDED_TABLES="android_metadata room_master_table sqlite_sequence"
 
+PID_VALUE=""
+pidof_state() { # 0=rodando (PID_VALUE), 1=ausente, 2=erro de transporte/resposta
+  PID_VALUE=""
+  local out rc_line pid
+  out="$(adb -s "$SERIAL" shell "pidof $PKG; echo __rc=\$?" 2>/dev/null)" || return 2
+  rc_line="$(printf '%s\n' "$out" | sed -n 's/^__rc=//p' | tr -d '\r' | head -1)"
+  pid="$(printf '%s\n' "$out" | sed '/^__rc=/d' | tr -d '\r' | head -1)"
+  case "$rc_line" in
+    0) [ -n "$pid" ] || return 2; PID_VALUE="$pid"; return 0 ;;
+    1) [ -z "$pid" ] || return 2; return 1 ;;
+    *) return 2 ;;
+  esac
+}
 freeze_app() { # força parada e confirma ausência; 0=ok, 1=falha
   FREEZE_ERROR=""
-  local rc=0 pid=""
+  local rc=0 st
   adb -s "$SERIAL" shell am force-stop "$PKG" >/dev/null 2>&1 || rc=$?
   if [ "$rc" -ne 0 ]; then
     FREEZE_ERROR="am force-stop exit $rc"
     return 1
   fi
-  pid="$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)"
-  if [ -n "$pid" ]; then
-    FREEZE_ERROR="processo ainda ativo (pid $pid)"
-    return 1
-  fi
-  return 0
+  st=0
+  pidof_state || st=$?
+  case "$st" in
+    0) FREEZE_ERROR="processo ainda ativo (pid $PID_VALUE)"; return 1 ;;
+    1) return 0 ;;
+    *) FREEZE_ERROR="falha ao confirmar pidof (transporte ou resposta inválida)"; return 1 ;;
+  esac
 }
 write_freeze_evidence() { # <fase>
   { echo "fase=$1"; echo "motivo=$FREEZE_ERROR"; echo "serial=$SERIAL"; } \
@@ -364,6 +382,16 @@ read_ime() {
   v="$(adb -s "$SERIAL" shell settings get secure default_input_method 2>/dev/null | tr -d '\r')"
   [ -n "$v" ] || return 1
   printf '%s' "$v"
+}
+logical_coverage_missing() { # <db> -> imprime tabelas persistentes sem cobertura
+  local db="$1" t missing="" tables
+  tables="$(sqlite3 "$db" "select name from sqlite_master where type='table';" 2>/dev/null)" || return 2
+  for t in $tables; do
+    case " $EXCLUDED_TABLES " in *" $t "*) continue ;; esac
+    case " $LOGICAL_TABLES " in *" $t "*) : ;; *) missing="$missing $t" ;; esac
+  done
+  printf '%s' "$missing"
+  [ -z "$missing" ]
 }
 logical_table_hash() { # <db> <tabela>
   local db="$1" t="$2"
@@ -482,6 +510,19 @@ if [ "$EXECUTE" -eq 1 ] && [ -z "$IME_BEFORE" ]; then
   die "não foi possível ler o IME antes do teste" 69
 fi
 DB_SHA="$(sha256sum "$DB" | cut -d' ' -f1)"
+cov=0
+COVERAGE_MISSING="$(logical_coverage_missing "$DB")" || cov=$?
+case "$cov" in
+  0) : ;;
+  1)
+    {
+      echo "tabelas_sem_cobertura=$COVERAGE_MISSING"
+      echo "db=$DB"
+    } >"$RESULTS/DATA-COBERTURA-FALHOU.txt"
+    die "cobertura lógica incompleta:$COVERAGE_MISSING" 70
+    ;;
+  *) die "não foi possível verificar a cobertura lógica do banco" 70 ;;
+esac
 logical_fingerprint "$DB" "$RESULTS/snapshot/logical-before.txt" \
   || die "não foi possível calcular o fingerprint lógico do banco" 70
 LOGICAL_BEFORE="$(sha256sum "$RESULTS/snapshot/logical-before.txt" | cut -d' ' -f1)"
@@ -561,14 +602,24 @@ fi
 [ -n "$(qa_installed_path "$SERIAL" "$PKG")" ] || die "pacote $PKG desapareceu" 74
 # banco: o app não é relançado; se estiver rodando, congela antes da 2ª cópia
 if [ "$EXECUTE" -eq 1 ] && [ "$FREEZE" -eq 1 ]; then
-  if [ -n "$(adb -s "$SERIAL" shell pidof "$PKG" 2>/dev/null | tr -d '\r' || true)" ]; then
-    if freeze_app; then
-      APP_FROZEN=1
-    else
+  st=0
+  pidof_state || st=$?
+  case "$st" in
+    0)
+      if freeze_app; then
+        APP_FROZEN=1
+      else
+        write_freeze_evidence pos-instrumentacao
+        die "falha ao congelar o app após a instrumentação ($FREEZE_ERROR)" 78
+      fi
+      ;;
+    1) : ;;
+    *)
+      FREEZE_ERROR="falha ao confirmar pidof após a instrumentação (transporte ou resposta inválida)"
       write_freeze_evidence pos-instrumentacao
-      die "falha ao congelar o app após a instrumentação ($FREEZE_ERROR)" 78
-    fi
-  fi
+      die "não foi possível confirmar o estado do app após a instrumentação" 78
+      ;;
+  esac
 fi
 for f in better-talker.db better-talker.db-wal better-talker.db-shm; do
   rc=0

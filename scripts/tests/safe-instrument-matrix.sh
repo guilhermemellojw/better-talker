@@ -43,9 +43,9 @@ FIXTURE="$WORK/fixture.db"
 sqlite3 "$FIXTURE" <<'SQL'
 create table notes(id text, title text, updatedAt integer);
 insert into notes values('n1','Nota QA',1);
-create table passages(id text, text text);
-insert into passages values('p1','texto 1');
-insert into passages values('p2','texto 2');
+create table passages(id text, attachmentId text, text text);
+insert into passages values('p1','a1','texto 1');
+insert into passages values('p2','a1','texto 2');
 create table chat_messages(id text, payload text);
 insert into chat_messages values('c1','{"text":"oi"}');
 create table decision_records(id text, decisionState text, text text);
@@ -65,7 +65,13 @@ mk_after after-chat-edit.db
 sqlite3 "$AFTER/after-chat-edit.db" "update chat_messages set payload='{\"text\":\"alterada\"}' where id='c1';"
 mk_after after-attachment-edit.db
 sqlite3 "$AFTER/after-attachment-edit.db" "update attachments set noteId='n2' where id='a1';"
+mk_after after-passages-edit.db
+sqlite3 "$AFTER/after-passages-edit.db" "update passages set text='alterado' where id='p1';"
+mk_after after-passages-attachment.db
+sqlite3 "$AFTER/after-passages-attachment.db" "update passages set attachmentId='a2' where id='p1';"
 sqlite3 "$FIXTURE" "VACUUM INTO '$AFTER/after-vacuum.db';"
+cp "$FIXTURE" "$WORK/fixture-extra.db"
+sqlite3 "$WORK/fixture-extra.db" "create table tabela_futura(id text); insert into tabela_futura values('x');"
 : >"$WORK/wal"; : >"$WORK/shm"
 
 APKDIR="$WORK/apk"
@@ -354,6 +360,30 @@ data_case data-attachment-edit "$AFTER/after-attachment-edit.db" attachments
 CASE=data-vacuum
 run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok "MOCK_AFTER_DB=$AFTER/after-vacuum.db"
 assert_out_has "== PASS"
+
+# 41-42. passages: texto e vínculo (mesma contagem)
+data_case data-passages-edit "$AFTER/after-passages-edit.db" passages
+data_case data-passages-attachment "$AFTER/after-passages-attachment.db" passages
+
+# 43. tabela persistente sem cobertura lógica
+CASE=coverage-extra-table
+run "$CASE" 70 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok "FIXTURE_DB=$WORK/fixture-extra.db"
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt"
+grep -q "tabela_futura" "$WORK/results/$CASE/DATA-COBERTURA-FALHOU.txt" \
+  || { echo "  FALHOU: tabela futura não identificada"; FAILS=$((FAILS + 1)); }
+
+# 44-45. pidof: transporte e resposta inválida
+CASE=freeze-pidof-transport
+run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_PIDOF_TRANSPORT_FAIL=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/FREEZE-FALHOU.txt"
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
+
+CASE=freeze-pidof-invalid
+run "$CASE" 78 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_PIDOF_INVALID=1
+assert_out_absent "== PASS"
+assert_file "$WORK/results/$CASE/FREEZE-FALHOU.txt"
 
 # 40. leitura do IME falha no cleanup
 CASE=ime-read-fail

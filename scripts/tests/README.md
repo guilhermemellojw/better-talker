@@ -22,13 +22,14 @@ scripts/tests/safe-instrument-matrix.sh
 
 ## Cobertura
 
-40 cenários: dry-run sem chamadas de estado (app parado, rodando e com IME
+45 cenários: dry-run sem chamadas de estado (app parado, rodando e com IME
 mudando), preferências alteradas com o mesmo tamanho, falha de cópia de
 prefs/banco, relançamento ok/falho/processo ausente, A34 recusando
 `--execute --no-freeze`, congelamento verificado (falha, processo vivo, já
 parado, sucesso), alterações lógicas em decisões/mensagens/anexos detectadas
-por tabela, banco fisicamente diferente e logicamente igual, leitura de IME
-falhando no cleanup, sucesso com
+por tabela (incluindo texto e vínculo de `passages`), tabela persistente sem
+cobertura, banco fisicamente diferente e logicamente igual, `pidof` com erro de
+transporte/resposta inválida, leitura de IME falhando no cleanup, sucesso com
 IME restaurado antes do PASS, falha de IME (75), falha de instalação do teste e
 do app, `FAILURES`, saída incompleta, `OK (0 tests)`, crash, timeout, assinatura
 divergente, banco corrompido/vazio, APK errado, test APK ausente, prefs e
