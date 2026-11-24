@@ -87,7 +87,15 @@ object OratoryFidelityCheck {
         spec: OratoryGeneration.Spec,
         extraAuthorizedRefs: List<String> = emptyList(),
     ): Report {
-        val allowedRefs = spec.current?.references.orEmpty().map { it.label }
+        // F2 — escopo de refs por modo: `spec.next` entra no corpus do
+        // gate factual/fidelidade apenas no TRANSITION (o prompt
+        // `buildCardPrompt` apresenta refs de outro tópico apenas lá).
+        val allowedRefs = when (spec.mode) {
+            com.bettertalker.app.data.copilot.OratoryGeneration.Mode.TRANSITION ->
+                spec.current?.references.orEmpty().map { it.label } +
+                    spec.next?.references.orEmpty().map { it.label }
+            else -> spec.current?.references.orEmpty().map { it.label }
+        }
         val leaked = spec.orderedSections
             .filter { it.sectionId != spec.current?.sectionId }
             .map { it.sectionId }
