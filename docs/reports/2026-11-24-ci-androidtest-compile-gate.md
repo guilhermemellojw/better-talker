@@ -8,8 +8,8 @@
 
 - Branch: `ci/androidtest-compile-gate` (a partir de `origin/main`).
 - Base: `52e75373ceafb9e4c3ce09c6225ae057b6808369`.
-- HEAD final: verificado em `git rev-parse HEAD` pós-commit.
-- PR: Draft, apenas `.github/workflows/android-build.yml` + este relatório. PR #43 NÃO alterado.
+- HEAD final: `376eb81e3b57a302091dd2afa2c91cd7b328d1d4`.
+- PR: Draft #49, apenas `.github/workflows/android-build.yml` + este relatório. PR #43 NÃO alterado.
 
 ## B. Diff
 
@@ -43,11 +43,14 @@ BUILD FAILED in 23s   EXIT=1
 
 Após remover o arquivo: `BUILD SUCCESSFUL` (EXIT=0). **Conclusão:** a task de compilação androidTest detecta o erro; no workflow o step é bloqueante (falha → job vermelho).
 
-## E. CI
+## E. CI (SHA final `376eb81e`)
 
-- Um PR Draft será aberto; o próprio workflow `Build Android APK` roda em `pull_request` (paths incluem `.github/workflows/android-build.yml`) e em `push` (branches `**`).
-- Verificar no SHA final: `gh run list --workflow "Build Android APK" --limit ...`.
+- PR #49 — Draft, OPEN, status CLEAN.
+- `push` (id 45383914621): **success/completed** — os steps "Compile androidTest (publicApp)" e "Compile androidTest (syncBeta)" concluíram **success** no GitHub Actions.
+- `pull_request` (id 45383924701): **success/completed após rerun**.
+- Primeira execução do `pull_request` falhou no step **pré-existente** "Show test failure log" (testes JVM) por `OutOfMemoryError: Java heap space` intermitente do compilador Kotlin — **não** no gate androidTest; o rerun passou sem alteração de código. Documentado como flakiness pré-existente do runner (não mascarado).
 - Não usar CI do PR #43 como prova do gate — é trabalho prévio.
+- HEAD final da branch inclui `201c2f22` (QA D): mesmo heap conservador aplicado ao step pré-existente `Run unit tests`, preservando `continue-on-error` e log de falha. CI do HEAD final verificado abaixo.
 
 ## F. Impacto estimado no tempo do workflow
 
@@ -60,6 +63,7 @@ Após remover o arquivo: `BUILD SUCCESSFUL` (EXIT=0). **Conclusão:** a task de 
 - Ambiente JVM local flutuante: houve um crash SIGSEGV do compilador Kotlin durante a primeira execução; retentativa bem-sucedida. Source error não era — IR dump do compilador.
 - O gate compila testes instrumentados; **não os executa**. Execução em dispositivo continua fora deste escopo (sem autorização).
 - `lintPublicAppRelease` falhou localmente por crash do daemon JVM — pré-existente e fora do escopo do gate (não alterado).
+- OOM intermitente no step de testes JVM do GitHub Actions observado na primeira execução do PR — pré-existente; o gate em si passou em ambos os runs.
 - A main atual compila os dois flavors androidTest (após retentativas) — não bloqueou a publicação.
 
 ## H. Consolidação (QA/automação — 24/11)
