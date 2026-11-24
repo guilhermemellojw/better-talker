@@ -108,6 +108,31 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest/
           if-no-files-found: ignore
 
+      # Gate androidTest: `assemble*Debug` NÃO compila os source sets
+      # instrumentados. Sem este passo, um erro de compilação em androidTest
+      # passa no workflow (ocorrido no PR #43). Compilar não exige device.
+      - name: Compile instrumented tests (androidTest)
+        id: androidtest_compile
+        working-directory: android
+        run: |
+          set -o pipefail
+          ./gradlew \
+            :app:compilePublicAppDebugAndroidTestKotlin \
+            :app:compileSyncBetaDebugAndroidTestKotlin \
+            --no-daemon --max-workers=2 --stacktrace --console=plain 2>&1 | tee gradle-androidtest-compile.log
+
+      - name: Show androidTest compile failure log
+        if: failure() && steps.androidtest_compile.outcome == 'failure'
+        working-directory: android
+        run: |
+          echo "::group::androidTest compile log (last 100 lines)"
+          tail -100 gradle-androidtest-compile.log || true
+          echo "::endgroup::"
+          echo "::group::Errors only"
+          grep -iE "error|FAILURE|what went wrong|Caused by|cannot|unable" gradle-androidtest-compile.log | tail -40 || true
+          echo "::endgroup::"
+          exit 1
+
       - name: Run Firestore rules tests
         working-directory: firestore-tests
         run: |
