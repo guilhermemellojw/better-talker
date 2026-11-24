@@ -79,8 +79,11 @@ internal fun verifyGeneratedText(
     val corpus = buildList {
         turnContext?.let { addAll(verificationCorpus(it)) }
         addAll(
+            // F3 — contrato compartilhado: `isDocumentaryEligible()` exclui
+            // PARTIAL (rejeita passagem parcial como evidência integral) e
+            // mantém a exclusão de waived/não resolvidos/texto vazio.
             documentarySources
-                .filter { it.resolved && !it.waived && it.text.isNotBlank() }
+                .filter { it.isDocumentaryEligible() }
                 .map { it.text }
         )
     }.filter { it.isNotBlank() }

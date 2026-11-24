@@ -143,12 +143,14 @@ class GenerationVerificationTest {
         text: String,
         resolved: Boolean = true,
         waived: Boolean = false,
+        partial: Boolean = false,
     ) = com.bettertalker.app.data.copilot.RecoveredDocument(
         sourceId = id,
         reference = id,
         text = text,
         resolved = resolved,
         waived = waived,
+        partial = partial,
     )
 
     @Test
@@ -475,5 +477,67 @@ class GenerationVerificationTest {
         )
         val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
         assertFalse(corpus.any { it.text.contains(textoB) })
+    }
+
+    // ---------- F1 — compatibilidade de dossiê no corpus do gate (P2-FIX) ----------
+
+    @Test
+    fun f1_dossierIncompativelComSpec_excluiCorpusDeA() {
+        // F1 — dossiê de outra seção NÃO entra no corpus (seção
+        // efetivamente desenvolvida = spec.current).
+        val dossierA = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref A", "X exclusivo do ponto A", ReferenceStatus.RESOLVED)))
+        val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-2"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB)
+        assertFalse(corpus.any { it.text.contains("X exclusivo do ponto A") })
+    }
+
+    @Test
+    fun f1_dossierCompativelComSpec_trazCorpusDeB() {
+        val dossierB = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref B", "Texto de B.", ReferenceStatus.RESOLVED)))
+        val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-1"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specB)
+        assertTrue(corpus.any { it.text.contains("Texto de B.") })
+    }
+
+    @Test
+    fun f1_dossiersNulo_somenteFontesDoSpec() {
+        val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-1", refs = listOf(refP7("Ref B", "Texto do spec B."))))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(null, specB)
+        assertTrue(corpus.any { it.text.contains("Texto do spec B.") })
+    }
+
+    @Test
+    fun f4_dossierAIncompativelComSpecB_naoSustentaAfirmacaoDeB() {
+        // F4 — A→B: corpus compatível com B não aceita X exclusivo de A.
+        // Controle negativo: falha ao reintroduzir o defeito.
+        val xA = "X exclusivo do ponto A."
+        val dossierA = dirP7(bibleTexts = listOf(ResolvedBibleText("sec-A", xA, ReferenceStatus.RESOLVED)))
+        val specB = specP71(
+            OratoryGeneration.Mode.DEVELOPMENT,
+            current = secP71("sec-2", refs = listOf(refP7("Ref B", "Texto de B."))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB)
+        assertFalse(corpus.any { it.text.contains(xA) })
+        val r = verifyGeneratedText(text = "Citaríamos: \"$xA\".", turnContext = null, documentarySources = corpus)
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains(xA))
+    }
+
+    // ---------- F3 — PARTIAL como evidência integral (P2-FIX) ----------
+
+    @Test
+    fun f3_documentoPartial_rejeitadoComoEvidenciaIntegral() {
+        // F3 — PARTIAL não entra no corpus compartilhado (isDocumentaryEligible).
+        val t = "Trecho recuperado, recuperação aproximada."
+        val r = verifyGeneratedText(
+            text = "Citaríamos: \"$t\".",
+            turnContext = null,
+            documentarySources = listOf(
+                document("valid", "Texto de B."),
+                document("parcial", t, partial = true),
+            ),
+        )
+        assertTrue(r.hasRemovals)
+        assertFalse(r.text.contains(t))
     }
 }

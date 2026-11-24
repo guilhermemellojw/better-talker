@@ -123,9 +123,15 @@ object OratoryGeneration {
             Mode.TRANSITION -> spec.current?.references.orEmpty() + spec.next?.references.orEmpty()
             else -> spec.current?.references.orEmpty()
         }
-        return dossier
+        // F1 — validar compatibilidade entre dossiê e a seção efetivamente
+        // desenvolvida (`spec.current`): dossiê de outra seção NÃO pode
+        // entrar no corpus factual. Proteção também no call site (o gate
+        // passa sempre o dossiê resolvido da seção corrente).
+        val dossierDocs = dossier
+            ?.takeIf { d -> d.currentSection.id == spec.current?.sectionId }
             ?.let { recoveredDocumentsFromDossier(it).filter { d -> d.isDocumentaryEligible() } }
-            .orEmpty() +
+            .orEmpty()
+        return dossierDocs +
             specRefs
                 .filter { it.text != null }
                 .mapNotNull { r -> recoveredDocumentFromPassage(r.label, r.text!!) }
