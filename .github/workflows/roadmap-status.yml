@@ -1,0 +1,161 @@
+name: Roadmap status (proposal)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+  push:
+    branches: [main]
+    # A merge que só integra o relatório gerado não deve disparar nova proposta.
+    paths-ignore:
+      - 'docs/ROADMAP_STATUS.md'
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, closed, ready_for_review]
+  workflow_run:
+    workflows: ['Build Android APK']
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+concurrency:
+  group: roadmap-status-proposal
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    # Only the trusted main-branch code is executed. No checkout of PR code.
+    if: >-
+      (github.event_name != 'pull_request_target' ||
+       github.event.pull_request.head.ref != 'automation/roadmap-status') &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch != 'automation/roadmap-status'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify pure report generator
+        run: python3 -m unittest discover -s tests -p 'test_roadmap_status.py' -v
+
+      - name: Generate snapshot outside the checkout
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/roadmap_status.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/ROADMAP_STATUS.md"
+
+      - name: Ignore provenance-only changes
+        id: material
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          # 1) Árvore consultada precisa existir: estado inválido do Git é ERRO.
+          if ! git rev-parse --verify --quiet 'origin/main^{commit}' >/dev/null; then
+            echo "::error::origin/main indisponível para comparar o relatório anterior"
+            exit 2
+          fi
+          # 2) Diferenciar ausência legítima do arquivo de falha de consulta.
+          set +e
+          git rev-parse --verify --quiet \
+            'origin/main:docs/ROADMAP_STATUS.md' >/dev/null 2>&1
+          path_code=$?
+          set -e
+          case "$path_code" in
+            0)
+              if ! git show 'origin/main:docs/ROADMAP_STATUS.md' > "$RUNNER_TEMP/current.md"; then
+                echo "::error::Falha de leitura do relatório anterior em origin/main"
+                exit 2
+              fi
+              ;;
+            1)
+              echo 'Relatório anterior ausente na árvore consultada; inicialização permitida.'
+              : > "$RUNNER_TEMP/current.md"
+              ;;
+            *)
+              echo "::error::Falha de consulta do relatório anterior (git rev-parse exit $path_code)"
+              exit "$path_code"
+              ;;
+          esac
+          # --compare: 0=CHANGE, 1=NO_CHANGE, 2=ERROR (leitura/comparação).
+          # Qualquer outro código também é erro — nunca é interpretado como
+          # "sem mudança". Erro deixa o job vermelho.
+          set +e
+          verdict_output=$(python3 scripts/roadmap_status.py --compare \
+            "$RUNNER_TEMP/ROADMAP_STATUS.md" "$RUNNER_TEMP/current.md" 2>&1)
+          code=$?
+          set -e
+          echo "$verdict_output"
+          case "$code" in
+            0) verdict=CHANGE ;;
+            1) verdict=NO_CHANGE ;;
+            *) echo "::error::Falha de leitura/comparação do snapshot (exit $code)"; exit "$code" ;;
+          esac
+          if [ "$verdict_output" != "$verdict" ]; then
+            echo "::error::Saída inesperada de --compare: $verdict_output"
+            exit 2
+          fi
+          if [ "$verdict" = "CHANGE" ]; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Sem mudança material além da proveniência; nenhuma proposta.'
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update the documentation proposal
+        if: steps.material.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/roadmap-status
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+            # Never force-push or discard a human's changes to the proposal branch.
+            git merge --no-edit origin/main
+          else
+            git checkout -b "$BRANCH" origin/main
+          fi
+
+          mkdir -p docs
+          cp "$RUNNER_TEMP/ROADMAP_STATUS.md" docs/ROADMAP_STATUS.md
+          git add docs/ROADMAP_STATUS.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'docs: refresh GitHub progress snapshot [automated]'
+          fi
+
+          # No PR is needed when main already contains the same report.
+          if git diff --quiet origin/main HEAD -- docs/ROADMAP_STATUS.md; then
+            echo 'Roadmap status already matches main; no proposal necessary.'
+            exit 0
+          fi
+
+          # Fail closed if the existing bot branch contains unrelated file changes.
+          changed=$(git diff --name-only origin/main HEAD)
+          if [ "$changed" != 'docs/ROADMAP_STATUS.md' ]; then
+            echo "::error::Automation branch has unexpected changes: $changed"
+            exit 1
+          fi
+
+          git push origin "HEAD:refs/heads/$BRANCH"
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
+            --base main --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+              --title 'docs: atualizar progresso do roadmap (automático)' \
+              --body 'Relatório factual de PRs e checks gerado pelo workflow. Não altera fases, prioridades ou critérios de aceite. Revisar e integrar manualmente quando desejado.'
+          else
+            echo "Proposta atualizada: PR #$pr"
+          fi
