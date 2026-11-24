@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.bettertalker.app.data.db.AppDatabase
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.db.RoomTransactionRunner
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -127,6 +128,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
         assertNotNull(result.unit)
@@ -143,6 +145,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(canonicalRef = "Mt 99:99"),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.RECORD_MISSING, result.state)
         assertNull(result.unit)
@@ -162,6 +165,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
         assertNull(result.unit)
@@ -182,6 +186,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(attachmentId = "att-A", passageId = "p-A"),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, rA.state)
     }
@@ -200,6 +205,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(text = text),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.AMBIGUOUS_RECORD, result.state)
     }
@@ -214,6 +220,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.ATTACHMENT_MISMATCH, result.state)
     }
@@ -228,6 +235,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.INDEX_NOT_READY, result.state)
     }
@@ -246,6 +254,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         // findByRefsIn filters by ref, so empty -> RECORD_MISSING (conservative)
         assertTrue(
@@ -265,6 +274,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(text = "Texto diferente."),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
     }
@@ -280,6 +290,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(text = ""),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
     }
@@ -295,6 +306,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(text = "   "),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
     }
@@ -311,6 +323,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             fileSha256 = "0".repeat(64),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.METADATA_MISMATCH, result.state)
     }
@@ -325,6 +338,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
             claim = claim(),
             attachmentDao = db.attachmentDao(),
             passageDao = db.passageDao(),
+            transactionRunner = RoomTransactionRunner(db),
         )
         assertEquals(NwtRoomIndexIdentityState.INDEX_NOT_READY, result.state)
     }
@@ -358,6 +372,7 @@ class NwtRoomIndexIdentityAdapterInstrumentedTest {
                     claim = claim(),
                     attachmentDao = db2.attachmentDao(),
                     passageDao = db2.passageDao(),
+                    transactionRunner = RoomTransactionRunner(db2),
                 )
                 assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, result.state)
             } finally {

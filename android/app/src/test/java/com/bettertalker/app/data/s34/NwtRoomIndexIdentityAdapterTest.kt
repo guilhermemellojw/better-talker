@@ -4,6 +4,7 @@ import com.bettertalker.app.data.db.AttachmentDao
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.db.TransactionRunner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -86,6 +87,12 @@ class NwtRoomIndexIdentityAdapterTest {
         text = text,
         section = section,
     )
+
+    // TRUST-2B3B-B1b — runner pass-through para DAOs simulados (não demonstra
+    // garantias transacionais; o isolamento é comprovado por instrumentados).
+    private val passthroughRunner = object : TransactionRunner {
+        override suspend fun <R> run(block: suspend () -> R): R = block()
+    }
 
     private fun newDaos(
         attachment: AttachmentEntity? = tnmAttachment(),
@@ -267,6 +274,7 @@ class NwtRoomIndexIdentityAdapterTest {
                 claim = claim(attachmentId = "att-A", passageId = "p-A"),
                 attachmentDao = aDao,
                 passageDao = pDao,
+                transactionRunner = passthroughRunner,
             )
         }
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, rA.state)
@@ -278,6 +286,7 @@ class NwtRoomIndexIdentityAdapterTest {
                 claim = claim(attachmentId = "att-B", passageId = "p-B"),
                 attachmentDao = aDao,
                 passageDao = pDao,
+                transactionRunner = passthroughRunner,
             )
         }
         assertEquals(NwtRoomIndexIdentityState.RECORD_MATCH, rB.state)
@@ -547,6 +556,7 @@ class NwtRoomIndexIdentityAdapterTest {
                 claim = claim(),
                 attachmentDao = aDao,
                 passageDao = pDao,
+                transactionRunner = passthroughRunner,
             )
         }
         assertEquals(NwtRoomIndexIdentityState.REFERENCE_MISMATCH, r.state)
@@ -698,6 +708,28 @@ class NwtRoomIndexIdentityAdapterTest {
         assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_READ_FAILED })
     }
 
+    // ---------- TRUST-2B3B-B1b — cenário 15: falha de leitura → READ_FAILED sem unidade verificada ----------
+    @Test
+    fun cenario15_falhaDeLeituraResultaReadFailedSemUnidadeVerificada() {
+        val (aDao, pDao) = newDaos(throwOnGet = true)
+        val result = runAdapter(aDao, pDao, claim())
+        assertEquals(NwtRoomIndexIdentityState.READ_FAILED, result.state)
+        assertTrue(result.issues.any { it.code == NwtIssueCode.ROOM_READ_FAILED })
+        assertNull(result.unit)
+    }
+
+    // ---------- TRUST-2B3B-B1b — cenário 16: cancelamento → CancellationException sem sucesso ----------
+    @Test
+    fun cenario16_cancelamentoPropagaCancellationExceptionSemResultado() {
+        val (aDao, pDao) = newDaos(throwCancellationOnGet = true)
+        try {
+            runAdapter(aDao, pDao, claim())
+            org.junit.Assert.fail("deveria ter lançado CancellationException")
+        } catch (e: CancellationException) {
+            // esperado: propaga sem produzir resultado verificado
+        }
+    }
+
     // ---------- helpers ----------
 
     private fun runAdapter(
@@ -715,6 +747,7 @@ class NwtRoomIndexIdentityAdapterTest {
             fileSha256 = fileSha256,
             attachmentDao = aDao,
             passageDao = pDao,
+            transactionRunner = passthroughRunner,
         )
     }
 
