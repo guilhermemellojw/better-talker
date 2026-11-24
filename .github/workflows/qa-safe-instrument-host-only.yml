@@ -132,6 +132,14 @@ jobs:
             echo "===== $(basename "$f")"
             head -20 "$f"
           done
+          echo "===== ferramentas"
+          java -version 2>&1 | head -2
+          "$APKSIGNER" --version 2>&1 | head -2
+          ls -l "$W/apk" 2>&1 | head -10
+          echo "===== apksigner verify (fixture)"
+          "$APKSIGNER" verify --print-certs "$W/apk/app-base.apk" 2>&1 | head -12
+          echo "===== keystore fixture"
+          keytool -list -v -keystore "$DEBUG_KEYSTORE" -storepass android 2>&1 | grep -i SHA256 | head -2
 
       - name: Controle negativo de propagação de falha
         run: |
