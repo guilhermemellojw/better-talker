@@ -498,7 +498,7 @@ internal const val MAX_UNIT_CHARS = 4000
  * conteúdo) — antes o chat carregava o anexo inteiro (LIMIT 500) e dava
  * falso aviso "sem fonte".
  */
-internal data class UnitSliceResult(
+data class UnitSliceResult(
     val rows: List<PassageEntity>,
     val truncated: Boolean,
 )
