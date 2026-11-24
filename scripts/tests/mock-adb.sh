@@ -34,24 +34,49 @@ CMD="$*"
 has() { case "$CMD" in *"$1"*) return 0 ;; esac; return 1; }
 size_of() { stat -c %s "$1" 2>/dev/null || echo 0; }
 
-# ---- consultas genéricas (test -d, wc -c) ----
+# ---- consultas genéricas (run-as: test -d / sentinela de arquivo) ----
 if has "test -w databases"; then exit 0; fi
-if has "test -d" && has "shared_prefs"; then exit 0; fi
-if has "test -d" && has "datastore"; then exit 1; fi
-if has "wc -c <"; then
-  if has "databases/better-talker.db-wal"; then size_of "$MOCK_DIR/wal"; exit 0; fi
-  if has "databases/better-talker.db-shm"; then size_of "$MOCK_DIR/shm"; exit 0; fi
+if has "if [ -d "; then
+  if has "shared_prefs"; then echo __DIR__; else echo __ABSENT__; fi
+  exit 0
+fi
+if has "if [ -f "; then
+  if [ "${MOCK_DEV_SIZE_TRANSPORT_FAIL:-0}" = "1" ]; then exit 1; fi
+  if [ "${MOCK_DEV_SIZE_PERMISSION_FAIL:-0}" = "1" ]; then
+    echo "wc: databases/better-talker.db: Permission denied" >&2
+    exit 1
+  fi
+  if has "databases/better-talker.db-wal"; then
+    if [ "${MOCK_WAL_SHM_ABSENT:-0}" = "1" ]; then echo __ABSENT__
+    else printf '%s %s\n' "$(size_of "$MOCK_DIR/wal")" "databases/better-talker.db-wal"; fi
+    exit 0
+  fi
+  if has "databases/better-talker.db-shm"; then
+    if [ "${MOCK_WAL_SHM_ABSENT:-0}" = "1" ]; then echo __ABSENT__
+    else printf '%s %s\n' "$(size_of "$MOCK_DIR/shm")" "databases/better-talker.db-shm"; fi
+    exit 0
+  fi
   if has "databases/better-talker.db"; then
     n=$(cat "$MOCK_DIR/db.counter" 2>/dev/null || echo 0)
     if [ "$n" -gt 0 ] && [ -n "${MOCK_AFTER_DB:-}" ] && [ -f "${MOCK_AFTER_DB:-}" ]; then
-      size_of "$MOCK_AFTER_DB"
+      size="$(size_of "$MOCK_AFTER_DB")"
     else
-      size_of "$FIXTURE_DB"
+      size="$(size_of "$FIXTURE_DB")"
     fi
+    printf '%s %s\n' "$size" "databases/better-talker.db"
     exit 0
   fi
-  if has "shared_prefs/settings.xml"; then size_of "$MOCK_DIR/settings-a.xml"; exit 0; fi
-  echo 0; exit 0
+  if has "shared_prefs/settings.xml"; then
+    printf '%s %s\n' "$(size_of "$MOCK_DIR/settings-a.xml")" "shared_prefs/settings.xml"
+    exit 0
+  fi
+  echo __ABSENT__
+  exit 0
+fi
+if has "wc -c <"; then
+  # Forma antiga (multi-arg): falha no Android real; manter a semântica.
+  echo "sh: can't open: No such file or directory" >&2
+  exit 1
 fi
 
 case "$CMD" in

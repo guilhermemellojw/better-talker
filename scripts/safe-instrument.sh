@@ -310,33 +310,49 @@ if [ -n "$INSTALLED_SHA" ] && [ "$INSTALLED_SHA" = "$APK_SHA" ]; then
 fi
 
 # ---------- 4. snapshot consistente ----------
-dev_size() { # <caminho no device> -> tamanho em bytes
-  local s
-  s="$(adb -s "$SERIAL" shell run-as "$PKG" sh -c "wc -c < '$1'" 2>/dev/null | tr -dc '0-9')"
-  [ -n "$s" ] || return 1
-  printf '%s' "$s"
+dev_size() { # <caminho no device>; 0=presente (imprime tamanho), 1=ausente, 2=erro
+  local out rc size path
+  out="$(adb -s "$SERIAL" shell "run-as $PKG sh -c 'if [ -f \"$1\" ]; then wc -c \"$1\"; else echo __ABSENT__; fi'" 2>/dev/null)"; rc=$?
+  [ "$rc" -eq 0 ] || return 2
+  case "$out" in *__ABSENT__*) return 1 ;; esac
+  size="$(printf '%s\n' "$out" | awk 'NR==1 {print $1}')"
+  path="$(printf '%s\n' "$out" | sed -E 's/^[[:space:]]*[0-9]+[[:space:]]+//')"
+  case "$size" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$path" = "$1" ] || return 2
+  printf '%s' "$size"
 }
 copy_if_present() { # <dev> <local>; 0=ok, 1=ausente, 2=falha
-  local dev="$1" loc="$2" want
-  if ! want="$(dev_size "$dev")"; then return 1; fi
+  local dev="$1" loc="$2" want rc=0
+  want="$(dev_size "$dev")" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1) return 1 ;;
+    *) return 2 ;;
+  esac
   adb -s "$SERIAL" exec-out run-as "$PKG" cat "$dev" >"$loc" 2>/dev/null || return 2
   [ "$(stat -c %s "$loc" 2>/dev/null || echo x)" = "$want" ] || return 2
   return 0
 }
 copy_prefs_dir() { # <dir no device> <dir local>; 0=ok, 1=ausente, 2=falha
-  local d="$1" out="$2" name files rc
+  local d="$1" out="$2" name files rc drc dout lsrc
   mkdir -p "$out" || return 2
-  if ! adb -s "$SERIAL" shell run-as "$PKG" sh -c "test -d '$d'" >/dev/null 2>&1; then
-    printf '%s=ausente\n' "$d" >>"$RESULTS/snapshot/prefs-manifest.txt"
-    return 1
-  fi
-  if ! files="$(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null)"; then
-    return 2
-  fi
+  dout="$(adb -s "$SERIAL" shell "run-as $PKG sh -c 'if [ -d \"$d\" ]; then echo __DIR__; else echo __ABSENT__; fi'" 2>/dev/null)"; drc=$?
+  [ "$drc" -eq 0 ] || return 2
+  case "$dout" in
+    *__DIR__*) : ;;
+    *__ABSENT__*)
+      printf '%s=ausente\n' "$d" >>"$RESULTS/snapshot/prefs-manifest.txt"
+      return 1
+      ;;
+    *) return 2 ;;
+  esac
+  files="$(adb -s "$SERIAL" shell run-as "$PKG" ls -1 "$d" 2>/dev/null)"; lsrc=$?
+  [ "$lsrc" -eq 0 ] || return 2
   for name in $files; do
     name="$(printf '%s' "$name" | tr -d '\r')"
     [ -n "$name" ] || continue
-    copy_if_present "$d/$name" "$out/$d-$name"; rc=$?
+    rc=0
+    copy_if_present "$d/$name" "$out/$d-$name" || rc=$?
     case "$rc" in
       0) printf '%s/%s\n' "$d" "$name" >>"$RESULTS/snapshot/prefs-manifest.txt" ;;
       1) return 2 ;;

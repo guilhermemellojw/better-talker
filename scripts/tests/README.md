@@ -22,7 +22,7 @@ scripts/tests/safe-instrument-matrix.sh
 
 ## Cobertura
 
-47 cenários: dry-run sem chamadas de estado (app parado, rodando e com IME
+50 cenários + 1 autoteste do mock: dry-run sem chamadas de estado (app parado, rodando e com IME
 mudando), preferências alteradas com o mesmo tamanho, falha de cópia de
 prefs/banco, relançamento ok/falho/processo ausente, A34 recusando
 `--execute --no-freeze`, congelamento verificado (falha, processo vivo, já

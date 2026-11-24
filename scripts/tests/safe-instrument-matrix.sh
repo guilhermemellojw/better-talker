@@ -132,6 +132,17 @@ keytool -genkeypair -keystore "$WORK/other.jks" -storepass otherpass \
 
 BASE=(--serial RQCX209WR1Z --class com.test.X --allow-debug-on-a34)
 FAILS=0
+
+echo "== mock: quoting antigo (multi-arg) deve falhar"
+rm -f "$WORK/calls.log"
+if env MOCK_DIR="$WORK" MOCK_LOG="$WORK/calls.log" APP_APK="$BASE_APK" FIXTURE_DB="$FIXTURE" \
+   "$WORK/bin/adb" -s RQCX209WR1Z shell run-as com.bettertalker.app.debug \
+   sh -c "wc -c < 'databases/better-talker.db'" >/dev/null 2>&1; then
+  echo "FAIL mock-old-quoting"
+  FAILS=$((FAILS + 1))
+else
+  echo "PASS mock-old-quoting"
+fi
 run() { # <nome> <esperado> <apk> <test-apk> <execute 0|1> [env...]
   local name="$1" exp="$2" apk="$3" tst="$4" ex="$5"
   shift 5
@@ -194,6 +205,13 @@ CASE=ok
 run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok
 assert_out_has "== PASS"
 assert_log_absent "ROLLBACK"
+if grep -q "wc -c <" "$WORK/calls.log"; then
+  echo "  FALHOU: quoting antigo (wc -c <) em uso"; FAILS=$((FAILS + 1))
+fi
+[ -f "$WORK/results/$CASE/snapshot/prefs/shared_prefs-settings.xml" ] \
+  || { echo "  FALHOU: prefs não copiadas"; FAILS=$((FAILS + 1)); }
+grep -q "shared_prefs/settings.xml" "$WORK/results/$CASE/snapshot/prefs-manifest.txt" 2>/dev/null \
+  || { echo "  FALHOU: manifest de prefs sem settings.xml"; FAILS=$((FAILS + 1)); }
 
 CASE=ok-ime
 run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_IME_CHANGES=1
@@ -411,6 +429,25 @@ CASE=ime-read-fail
 run "$CASE" 75 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_IME_READ_FAIL_AFTER=1
 assert_out_absent "== PASS"
 assert_file "$WORK/results/$CASE/IME-NAO-RESTAURADO.txt"
+
+# 48-50. semântica run-as (sentinela de arquivo/diretório)
+CASE=wal-absent
+run "$CASE" 0 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_WAL_SHM_ABSENT=1
+assert_out_has "== PASS"
+grep -q "databases/better-talker.db-wal" "$WORK/results/$CASE/snapshot/arquivos-ausentes.txt" 2>/dev/null \
+  || { echo "  FALHOU: WAL ausente não registrado"; FAILS=$((FAILS + 1)); }
+grep -q "databases/better-talker.db-shm" "$WORK/results/$CASE/snapshot/arquivos-ausentes.txt" 2>/dev/null \
+  || { echo "  FALHOU: SHM ausente não registrado"; FAILS=$((FAILS + 1)); }
+
+CASE=dev-size-transport-fail
+run "$CASE" 70 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_DEV_SIZE_TRANSPORT_FAIL=1
+assert_out_absent "== PASS"
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
+
+CASE=dev-size-permission-fail
+run "$CASE" 70 "$TARGET_APK" "$TEST_APK" 1 MOCK_INSTRUMENT=ok MOCK_DEV_SIZE_PERMISSION_FAIL=1
+assert_out_absent "== PASS"
+[ "$(grep -c 'install -r' "$WORK/calls.log")" = "0" ] || { echo "  FALHOU: não deveria instalar"; FAILS=$((FAILS + 1)); }
 
 # 21-22. sinais
 signal_case() { # <nome> <sinal> <esperado> <job-control 0|1>

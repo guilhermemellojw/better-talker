@@ -59,13 +59,18 @@ Um snapshot só é aceito quando **todos** os itens abaixo valem:
    instalar**; o mesmo vale após a instrumentação. No dry-run **não há parada**:
    a cópia é declarada **inspeção parcial** no `preflight.txt`
    (`snapshot_kind=inspecao-parcial-somente-leitura`);
-2. `better-talker.db`, `-wal` e `-shm` copiados juntos;
+2. `better-talker.db`, `-wal` e `-shm` copiados e verificados por tamanho
+   com `run-as wc -c` (sentinela); ao abrir o DB com `sqlite3`, o WAL é
+   integrado ao arquivo principal e os arquivos `-wal`/`-shm` são removidos
+   pelo próprio SQLite (checkpoint) — o snapshot final é um DB único e
+   íntegro;
 3. `pragma integrity_check` = `ok` e `pragma journal_mode` registrado;
 4. contagens numéricas e não-zero de `notes` e `passages`;
    após o teste, as contagens, o fingerprint de `shared_prefs`/`datastore` e o
    inventário de `files/publicacoes` precisam ser **idênticos** aos de antes;
-5. `shared_prefs/` e `datastore/` copiados com verificação de tamanho para
-   `snapshot/prefs/`; o fingerprint é **hash do conteúdo** de cada arquivo
+5. `shared_prefs/` e `datastore/` copiados com existência confirmada por
+   sentinela executada **dentro** do `run-as` (`__DIR__`/`__ABSENT__`) e com
+   verificação de tamanho; o fingerprint é **hash do conteúdo** de cada arquivo
    (nome + SHA-256), detectando mudança de bytes com o mesmo tamanho,
    criação, exclusão e renomeação; falha de leitura/cópia invalida o snapshot;
 6. inventário de `files/publicacoes` em `snapshot/publicacoes.txt`, com aviso
@@ -151,6 +156,10 @@ app; o APK do app é restaurado pelo rollback em caso de falha.
 | vínculo de anexo alterado | 74 + tabela | 74 |
 | banco idêntico com layout físico diferente (VACUUM) | 0 | 0 |
 | leitura do IME falha no cleanup | 75 | 75 |
+| WAL/SHM ausentes | registrados como ausentes, DB íntegro | 0 |
+| `dev_size` com falha de transporte | 70, sem instalar | 70 |
+| `dev_size` com falha de permissão | 70, sem instalar | 70 |
+| prefs existentes inventariadas e copiadas | manifest + fingerprint | 0 |
 | relançamento falha ou processo fica ausente | 77 + `RELAUNCH-FALHOU.txt` | 77 |
 | A34 com `--execute --no-freeze` | 65 | 65 |
 | execução normal | 0 + `OK (2 tests)` | 0 |
@@ -189,8 +198,8 @@ scripts/tests/safe-instrument-matrix.sh
 Requer SDK (aapt2/apksigner), `sqlite3`, `keytool` e a debug keystore
 (`~/.android/debug.keystore` ou `DEBUG_KEYSTORE=...`). Os APKs de fixture são
 gerados no workdir (aapt2 + apksigner); o ADB é simulado por
-`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 47
-cenários e sai não-zero se qualquer expectativa falhar.
+`scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 50
+cenários (+1 autoteste do mock) e sai não-zero se qualquer expectativa falhar.
 
 ## 7. Pendência de recuperação
 
