@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `bc46d546af45993b804a8417b930671e6bb96d97`
-- Checks da `main` consultada: **Pendente**
+- Checks da `main` consultada: **Verde**
 - PRs encontrados na janela de consulta: **53** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-24.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#56 — ci(android): compilacao Kotlin in-process nos gates (experimental) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/56) | Beta e infraestrutura | `e16c03cec407` | Pendente |
+| [#56 — ci(android): compilacao Kotlin in-process nos gates (experimental) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/56) | Beta e infraestrutura | `f4750911b5dd` | Pendente |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | `5fd8e54005eb` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 | [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker (Draft)](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | `acaee7143368` | Não verificado |
