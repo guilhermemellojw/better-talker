@@ -233,8 +233,8 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
                 db.passageDao().byPage(id, start, end, limit)
             },
             unitSlice = { id, needle, raw ->
-                com.bettertalker.app.data.planning.unitSliceOf(
-                    db.passageDao(), id, needle, raw,
+                com.bettertalker.app.data.planning.unitSliceOfDetailed(
+                    db.passageDao(), id, needle, raw, db.publicationUnitDao(),
                 )
             },
         )
@@ -585,6 +585,7 @@ class EditorViewModel(private val appCtx: android.content.Context, private val d
             referenceResolver = RoomReferenceResolver(
                 passageDao = db.passageDao(),
                 attachmentDao = db.attachmentDao(),
+                unitDao = db.publicationUnitDao(),
             ),
             methodIndex = RoomMethodIndex(
                 trainingRepository = RoomTrainingRepository(

@@ -24,11 +24,12 @@ class PublicationReferenceResolverTest {
     ): PublicationReferenceResolver {
         val attachmentDao = FakeAttachmentDao(attachments).also { it.failAll = failAll }
         val passageDao = FakePassageDao(passages)
+        val unitDao = FakePublicationUnitDao(units)
         return PublicationReferenceResolver(
             attachmentDao = attachmentDao,
             passageDao = passageDao,
-            unitDao = FakePublicationUnitDao(units),
-            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+            unitDao = unitDao,
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao, unitDao),
         )
     }
 
@@ -510,7 +511,7 @@ class PublicationReferenceResolverTest {
             attachmentDao = attachmentDao,
             passageDao = passageDao,
             unitDao = null,
-            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao, null),
         ).resolve(occurrence("lmd lição 1 ponto 1"))
 
         assertTrue(out is PublicationReferenceResolution.TextNotFound)
@@ -535,7 +536,7 @@ class PublicationReferenceResolverTest {
             attachmentDao = attachmentDao,
             passageDao = passageDao,
             unitDao = null,
-            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao, null),
         ).resolve(occurrence("lmd lição 1 ponto 1"))
 
         assertTrue(
@@ -573,7 +574,7 @@ class PublicationReferenceResolverTest {
                     ),
                 ),
             ),
-            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao),
+            referenceResolver = RoomReferenceResolver(passageDao, attachmentDao, null),
         ).resolve(occurrence("lmd lição 1 ponto 1"))
 
         assertTrue(out is PublicationReferenceResolution.TextNotFound)
@@ -1207,11 +1208,12 @@ class PublicationReferenceResolverTest {
         val attDao = FakeAttachmentDao(listOf(attachment("a-lmd", "lmd_T.jwpub")))
             .also { it.getReturnsNull = true }
         val passageDao = FakePassageDao(lmdRows())
+        val unitDao = FakePublicationUnitDao()
         val resolver = PublicationReferenceResolver(
             attachmentDao = attDao,
             passageDao = passageDao,
-            unitDao = FakePublicationUnitDao(),
-            referenceResolver = RoomReferenceResolver(passageDao, attDao),
+            unitDao = unitDao,
+            referenceResolver = RoomReferenceResolver(passageDao, attDao, unitDao),
         )
         val out = resolver.resolve(occurrence("lmd lição 3 ponto 4"))
         assertTrue(out is PublicationReferenceResolution.EditionChanged)
@@ -1258,11 +1260,12 @@ class PublicationReferenceResolverTest {
     fun resolucaoNaoEscreveNoBanco() = runBlocking {
         val attDao = FakeAttachmentDao(listOf(attachment("a-lmd", "lmd_T.jwpub")))
         val passageDao = FakePassageDao(lmdRows())
+        val unitDao = FakePublicationUnitDao()
         val resolver = PublicationReferenceResolver(
             attachmentDao = attDao,
             passageDao = passageDao,
-            unitDao = FakePublicationUnitDao(),
-            referenceResolver = RoomReferenceResolver(passageDao, attDao),
+            unitDao = unitDao,
+            referenceResolver = RoomReferenceResolver(passageDao, attDao, unitDao),
         )
         val out = resolver.resolve(occurrence("lmd lição 3 ponto 4"))
         assertTrue(out is PublicationReferenceResolution.Available)
@@ -1285,4 +1288,49 @@ class PublicationReferenceResolverTest {
             (out as PublicationReferenceResolution.Ambiguous).candidates.isNotEmpty(),
         )
     }
+
+    @Test
+    fun capituloDuplicadoSelecionaUnidadePrincipal() = runBlocking {
+        val att = attachment("a-rr", "rr_T.jwpub", symbol = "rr")
+        val passages = listOf(
+            passage("p376", "a-rr", "Título do capítulo 4", section = "Capítulo 4", ord = 376),
+            passage("p400", "a-rr", "Texto principal do capítulo 4.", section = "Capítulo 4", ord = 400),
+            passage("p448", "a-rr", "Fim do capítulo 4.", section = "Capítulo 4", ord = 448),
+            passage("p0", "a-rr", "Fragmento #2 do capítulo 4.", section = "Capítulo 4", ord = 0),
+        )
+        val units = listOf(
+            com.bettertalker.app.data.db.PublicationUnitEntity(
+                id = "a-rr-u4",
+                attachmentId = "a-rr",
+                kind = "CHAPTER",
+                number = "4",
+                title = "Capítulo 4",
+                canonicalKey = "rr:chapter:capitulo-4",
+                ord = 0,
+                startOrd = 376,
+                endOrd = 448,
+            ),
+            com.bettertalker.app.data.db.PublicationUnitEntity(
+                id = "a-rr-u4-2",
+                attachmentId = "a-rr",
+                kind = "CHAPTER",
+                number = "4",
+                title = "Capítulo 4",
+                canonicalKey = "rr:chapter:capitulo-4#2",
+                ord = 1,
+                startOrd = 0,
+                endOrd = 594,
+            ),
+        )
+        val out = resolver(
+            attachments = listOf(att),
+            passages = passages,
+            units = units,
+        ).resolve(occurrence("rr cap. 4"))
+
+        assertTrue(out is PublicationReferenceResolution.Partial)
+        val target = (out as PublicationReferenceResolution.Partial).target
+        assertEquals(376, target.unit?.startOrd)
+    }
+
 }

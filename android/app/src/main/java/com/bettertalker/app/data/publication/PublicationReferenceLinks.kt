@@ -115,6 +115,8 @@ data class PublicationReaderTarget(
     val sourcePassageId: String? = null,
     /** Texto recuperado do índice local para o leitor mínimo de B2. */
     val recoveredText: String? = null,
+    /** truncamento comprovado pela sentinela estrutural. */
+    val structuralTruncated: Boolean = false,
     val partial: Boolean = false,
     val truncated: Boolean = false,
     /** Só quando houver vínculo documental real com o turno. */

@@ -511,9 +511,11 @@ class CopilotRepository(private val db: AppDatabase) {
         // página/contexto) e o prompt re-resolvia por `RoomReferenceResolver`,
         // que podia não achar o livro e descartar o texto.
         val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
-            db.passageDao(), db.attachmentDao()
+            db.passageDao(), db.attachmentDao(), db.publicationUnitDao()
         )
         return statuses.map { st ->
+            val rawNeedle = listOfNotNull(st.ref.article, st.ref.chapter)
+                .firstOrNull { it.isNotBlank() }
             val resolved = resolver.resolvePublication(publicationRefOf(st.ref))
             val resolvedText = resolved.text?.trim().orEmpty()
             val resolvedFull = resolved.fullText?.trim()
@@ -538,6 +540,11 @@ class CopilotRepository(private val db: AppDatabase) {
                     fullText = resolvedFull,
                     contentWarning = null,
                 )
+            } else if (rawNeedle != null && (resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.UNRESOLVED ||
+                    resolved.status == com.bettertalker.app.domain.planning.ReferenceStatus.MISSING_CORPUS)) {
+                // Recusa estrutural (ambiguidade, unidade inválida ou
+                // incompatibilidade) não pode ser contornada pelo fallback.
+                st
             } else {
                 // Fallback do checklist: página/§, página, contexto ou o
                 // anexo inteiro. Se achar texto, a UI é PARTIAL e o prompt
@@ -594,7 +601,7 @@ class CopilotRepository(private val db: AppDatabase) {
         if (rawNeedle != null) {
             val needle = normalizeText(rawNeedle).takeIf { it.length >= 3 }
             val slice = needle?.let {
-                com.bettertalker.app.data.planning.unitSliceOf(db.passageDao(), hit.id, it, rawNeedle)
+                com.bettertalker.app.data.planning.unitSliceOf(db.passageDao(), hit.id, it, rawNeedle, db.publicationUnitDao())
             }
             if (!slice.isNullOrEmpty()) return ContentCandidates(slice, true)
         }
@@ -683,7 +690,7 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     suspend fun publicationPassages(text: String, limit: Int = 3): List<ScopedHit> {
         if (limit <= 0) return emptyList()
-        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao(), db.publicationUnitDao())
         val out = mutableListOf<ScopedHit>()
         for (detected in RefDetector.detect(text)) {
             if (isGuidePubRef(detected)) continue
@@ -734,7 +741,7 @@ class CopilotRepository(private val db: AppDatabase) {
      */
     suspend fun citedSources(noteSources: NoteSources): CitedSources {
         if (!noteSources.hasRefs) return CitedSources(emptyList(), emptyList(), emptyList())
-        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao())
+        val resolver = RoomReferenceResolver(db.passageDao(), db.attachmentDao(), db.publicationUnitDao())
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()
         val unavailableDetails = mutableListOf<String>()
@@ -843,7 +850,7 @@ class CopilotRepository(private val db: AppDatabase) {
         }
         val all = db.attachmentDao().all()
         val resolver = com.bettertalker.app.data.planning.RoomReferenceResolver(
-            db.passageDao(), db.attachmentDao()
+            db.passageDao(), db.attachmentDao(), db.publicationUnitDao()
         )
         val sources = mutableListOf<EvidenceSource>()
         val unavailable = mutableListOf<String>()

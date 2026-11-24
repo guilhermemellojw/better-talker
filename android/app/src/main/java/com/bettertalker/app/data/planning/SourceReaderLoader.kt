@@ -65,7 +65,7 @@ class SourceReaderLoader(
         attachmentId: String,
         needleNorm: String,
         rawNeedle: String,
-    ) -> List<PassageEntity>?,
+    ) -> UnitSliceResult?,
 ) {
 
     suspend fun load(source: NoteSource): SourceReaderContent {
@@ -138,7 +138,7 @@ class SourceReaderLoader(
             )
         }
 
-        val rows = loadRows(attachment.id, ref)
+        val (rows, structuralTruncated) = loadRows(attachment.id, ref)
         if (rows.isEmpty()) {
             return SourceReaderContent(
                 publicationTitle = title,
@@ -153,7 +153,14 @@ class SourceReaderLoader(
             )
         }
 
-        val body = assemble(rows)
+        val fullBody = assemble(rows)
+        val charTruncated = fullBody.length > MAX_READER_CHARS
+        val truncated = structuralTruncated || charTruncated
+        val body = if (charTruncated) {
+            fullBody.take(MAX_READER_CHARS).substringBeforeLast(' ').trim()
+        } else {
+            fullBody
+        }
         if (body.isBlank()) {
             return SourceReaderContent(
                 publicationTitle = title,
@@ -166,10 +173,15 @@ class SourceReaderLoader(
                 reason = "O índice não tem texto para esta faixa.",
             )
         }
-        val status = if (source.citation.text == TextStatus.PARTIAL) {
+        val status = if (source.citation.text == TextStatus.PARTIAL || truncated) {
             SourceReaderStatus.PARTIAL
         } else {
             SourceReaderStatus.READY
+        }
+        val reason = when {
+            structuralTruncated -> "Recuperação limitada pelo índice da unidade; o texto pode estar incompleto."
+            charTruncated -> "Texto cortado pelo limite de leitura; consulte a edição completa na Biblioteca."
+            else -> null
         }
         return SourceReaderContent(
             publicationTitle = title,
@@ -179,6 +191,8 @@ class SourceReaderLoader(
             usedText = usedText,
             interpretation = interpretation,
             status = status,
+            reason = reason,
+            truncated = truncated,
         )
     }
 
@@ -202,13 +216,14 @@ class SourceReaderLoader(
     private suspend fun loadRows(
         attachmentId: String,
         ref: RefDetector.DetectedRef,
-    ): List<PassageEntity> {
+    ): Pair<List<PassageEntity>, Boolean> {
         val page = ref.page
         val pageEnd = RefDetector.fullPageEnd(page, ref.pageEnd)
             ?.takeIf { page != null && it > page }
         val start = ref.paragraph
         val end = ref.paragraphEnd?.takeIf { start != null && it > start } ?: start
 
+        var structuralTruncated = false
         val rows = when {
             page != null && start != null -> {
                 (page..(pageEnd ?: page)).flatMap { p ->
@@ -227,14 +242,20 @@ class SourceReaderLoader(
                 val raw = ref.article?.takeIf { it.isNotBlank() }
                     ?: ref.chapter.orEmpty()
                 val needle = normalizeText(raw)
-                if (needle.isBlank()) emptyList()
-                else unitSlice(attachmentId, needle, raw).orEmpty()
+                if (needle.isBlank()) {
+                    emptyList()
+                } else {
+                    val slice = unitSlice(attachmentId, needle, raw)
+                    structuralTruncated = slice?.truncated == true
+                    slice?.rows.orEmpty()
+                }
             }
 
             else -> emptyList()
         }
-        return rows.distinctBy { it.id }
+        val ordered = rows.distinctBy { it.id }
             .sortedWith(compareBy({ it.page ?: 0 }, { it.ord }))
+        return ordered to structuralTruncated
     }
 
     private fun assemble(rows: List<PassageEntity>): String {
@@ -253,10 +274,7 @@ class SourceReaderLoader(
         } else {
             rows.joinToString(" ") { it.text.trim() }
         }
-        return body.trim().let { text ->
-            if (text.length <= MAX_READER_CHARS) text
-            else text.take(MAX_READER_CHARS).substringBeforeLast(' ').trim()
-        }
+        return body.trim()
     }
 
     private fun locationLabel(ref: RefDetector.DetectedRef?): String {
