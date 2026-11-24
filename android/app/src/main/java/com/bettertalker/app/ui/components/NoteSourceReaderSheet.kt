@@ -25,11 +25,29 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bettertalker.app.data.planning.SourceReaderContent
 import com.bettertalker.app.data.planning.SourceReaderStatus
 import com.bettertalker.app.data.util.NoteSource
+
+/** Rótulo curto e honesto do estado documental exibido no leitor. */
+internal fun sourceReaderStatusLabel(content: SourceReaderContent): String = when {
+    content.status == SourceReaderStatus.PARTIAL || content.truncated -> "Fonte parcial"
+    content.status in setOf(
+        SourceReaderStatus.MISSING,
+        SourceReaderStatus.INDEXING,
+        SourceReaderStatus.TEXT_NOT_FOUND,
+    ) -> "Fonte indisponível"
+
+    content.status == SourceReaderStatus.READY -> "Fonte completa"
+    else -> "Fonte não verificada"
+}
+
+/** Ação primária do leitor, com nomenclatura consistente. */
+internal fun sourceReaderActionLabel(): String = "Consultar fonte"
 
 /** Estado do reader aberto a partir do sheet de fontes da nota/S-34. */
 sealed interface NoteSourceReaderState {
@@ -101,7 +119,7 @@ fun NoteSourceReaderSheet(
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
-                    TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
+                    TextButton(onClick = onOpenLibrary) { Text(sourceReaderActionLabel()) }
                 }
 
                 is NoteSourceReaderState.Content -> {
@@ -111,6 +129,9 @@ fun NoteSourceReaderSheet(
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Voltar à conversa")
             }
         }
     }
@@ -129,6 +150,17 @@ private fun ReaderContent(
             content.publicationTitle,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            sourceReaderStatusLabel(content),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = if (content.status == SourceReaderStatus.READY && !content.truncated) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.semantics { heading() },
         )
         if (content.referenceLabel.isNotBlank()) {
             Text(
@@ -165,7 +197,7 @@ private fun ReaderContent(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(top = 10.dp),
             )
-            TextButton(onClick = onOpenLibrary) { Text("Abrir Biblioteca") }
+            TextButton(onClick = onOpenLibrary) { Text(sourceReaderActionLabel()) }
         }
 
         if (content.status == SourceReaderStatus.PARTIAL) {
@@ -233,10 +265,17 @@ private fun ReaderContent(
         if (content.truncated) {
             Spacer(Modifier.height(10.dp))
             Text(
-                "Unidade muito extensa: o reader mostra o limite de segurança. " +
-                    "Use a Biblioteca para consultar a edição completa.",
-                style = MaterialTheme.typography.labelSmall,
+                "Conteúdo incompleto",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.tertiary,
+            )
+            Text(
+                "A recuperação foi limitada. Este trecho não representa a unidade " +
+                    "integral; consulte a edição completa na Biblioteca.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
         Spacer(Modifier.height(10.dp))
