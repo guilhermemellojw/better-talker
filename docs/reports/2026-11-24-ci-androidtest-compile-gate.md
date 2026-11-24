@@ -61,3 +61,18 @@ Após remover o arquivo: `BUILD SUCCESSFUL` (EXIT=0). **Conclusão:** a task de 
 - O gate compila testes instrumentados; **não os executa**. Execução em dispositivo continua fora deste escopo (sem autorização).
 - `lintPublicAppRelease` falhou localmente por crash do daemon JVM — pré-existente e fora do escopo do gate (não alterado).
 - A main atual compila os dois flavors androidTest (após retentativas) — não bloqueou a publicação.
+
+## H. Consolidação (QA/automação — 24/11)
+
+O CI do HEAD `376eb81e` falhou **antes** dos gates novos: o step pré-existente
+`Run unit tests` estourou o heap em `:app:compilePublicAppDebugKotlin`
+(`OutOfMemoryError: Java heap space` no compilador Kotlin) e o step
+`Show test failure log` encerrou o job com `exit 1`. Os steps
+`Compile androidTest (publicApp/syncBeta)` nunca chegaram a executar.
+
+Correção mínima aplicada no mesmo step: `--max-workers=1` e os mesmos parâmetros
+de heap usados nos gates (`-Dorg.gradle.jvmargs="-Xmx3072m …"` e
+`-Dkotlin.daemon.jvmargs="-Xmx2048m …"`). `continue-on-error: true` e o step de
+log de falha foram **preservados** — nenhuma proteção foi removida ou relaxada.
+
+Próximo gate: CI verde no SHA final, mantendo o PR em Draft.

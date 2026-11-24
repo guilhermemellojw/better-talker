@@ -86,7 +86,13 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew :app:testPublicAppDebugUnitTest --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-test.log
+          # Memória/paralelismo conservadores: o compile Kotlin do unit test
+          # estourou o heap com o padrão do gradle.properties no runner.
+          ./gradlew :app:testPublicAppDebugUnitTest \
+            --no-daemon --max-workers=1 --stacktrace --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            2>&1 | tee gradle-test.log
 
       - name: Show test failure log
         if: steps.unit_tests.outcome == 'failure'
