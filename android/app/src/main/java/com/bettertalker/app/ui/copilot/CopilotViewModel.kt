@@ -4235,65 +4235,20 @@ class CopilotViewModel(
             // Histórico e first ANTES do post: a pergunta atual não contamina
             // a continuidade, e a primeira mensagem é detectada de verdade.
             // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
-            val historyBefore = historyOverride ?: conversationTurnsScoped()
+            var historyBefore: List<ChatTurn>
+            var historyFailure: Exception?
+            try {
+                historyBefore = historyOverride ?: conversationTurnsScoped()
+                historyFailure = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                historyBefore = historyOverride.orEmpty()
+                historyFailure = e
+            }
             val isFirst = historyBefore.none { it.fromMe }
 
-            // ---- P9 — integração conversacional (contratos puros #47/#51) ----
-            // Coleta estado real; composição e decisão são puras e testáveis.
-            // Nada aqui transforma histórico/memória em evidência documental.
-            val continuity = runCatching {
-                val nid = noteId ?: return@runCatching null
-                val focus = if (_focusMode.value == FocusMode.WHOLE)
-                    ConversationalReferentResolver.Focus.WHOLE
-                else ConversationalReferentResolver.Focus.SECTION
-                val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
-                    null else (turnScope ?: _chatScope.value)
-                val persisted = db.chatDao().all(nid).map { e ->
-                    ConversationalReferentRecovery.Message(
-                        id = e.id, noteId = e.noteId, sectionId = e.sectionId,
-                        payload = ChatCodec.unescMap(e.payload),
-                        createdAt = e.createdAt, active = e.isActive,
-                    )
-                }
-                val targetStates = buildMap {
-                    persisted.forEach { m ->
-                        val card = CardPayload.fromMap(m.payload) ?: return@forEach
-                        val key = cardTargetKey(card) ?: return@forEach
-                        val id = card.targetId ?: return@forEach
-                        val hash = when (card.targetKind) {
-                            CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let { hashText(it.contentHtml) }
-                            CardTargetKind.NOTE -> db.noteDao().get(id)?.let { hashText(it.richHtml) }
-                            else -> null
-                        }
-                        put(key, ConversationalReferentRecovery.TargetState(exists = hash != null, currentHash = hash))
-                    }
-                }
-                MentorContinuityRouting.plan(
-                    request = text, noteId = nid, scope = scope, focus = focus,
-                    messages = persisted, targets = targetStates,
-                    suggestion = pendingSuggestion,
-                    suggestionNoteId = pendingSuggestionNoteId,
-                    suggestionSectionId = pendingSuggestionScope,
-                    lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
-                    sectionTitles = _guideSections.value.associate { it.id to it.title },
-                )
-            }.getOrNull()
-            when (val action = continuity?.action) {
-                is MentorContinuityRouting.Action.DeepenCard ->
-                    answerAsk(action.topic).also { return@launch }
-                is MentorContinuityRouting.Action.ExplainSuggestion -> {
-                    postText("Próximo passo: ${action.detail.ifBlank { action.label }}.", MessageOrigin.LOCAL)
-                    return@launch
-                }
-                is MentorContinuityRouting.Action.ExplainActiveSection ->
-                    answerAsk(action.title).also { return@launch }
-                is MentorContinuityRouting.Action.Clarify -> {
-                    postText("Não identifiquei com segurança o que aprofundar. ${action.reason}", MessageOrigin.LOCAL)
-                    return@launch
-                }
-                else -> Unit // ProceedNormal — fluxo existente integralmente preservado
-            }
-            // ---- fim P9 ----
+
 
             // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
@@ -4684,6 +4639,100 @@ class CopilotViewModel(
                 // (precisa do S-34/esboço vinculado); route() nunca emite.
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.PasteAndChat -> Unit
             }
+
+            // ---- P9/P12 — continuidade dentro do ciclo canônico do turno ----
+            // A pergunta já foi postada, _chatBusy = true e estamos dentro do
+            // try/finally: qualquer retorno daqui finaliza turno/composer.
+            if (historyFailure != null) {
+                if (MentorContinuityRouting.needsReferent(text)) {
+                    post(
+                        false, "text",
+                        ChatCodec.escMap(mapOf("text" to
+                            "Não consegui recuperar o histórico deste tópico. " +
+                                "Qual card ou ponto você quer aprofundar?")),
+                        MessageOrigin.LOCAL,
+                    )
+                    return@launch
+                }
+                throw historyFailure
+            }
+            val nid = noteId
+            val focus = if (_focusMode.value == FocusMode.WHOLE)
+                ConversationalReferentResolver.Focus.WHOLE
+            else ConversationalReferentResolver.Focus.SECTION
+            val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
+                null else (turnScope ?: _chatScope.value)
+            val resolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
+                request = text, noteId = nid, scope = scope, focus = focus,
+                suggestion = pendingSuggestion,
+                suggestionNoteId = pendingSuggestionNoteId,
+                suggestionSectionId = pendingSuggestionScope,
+                lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
+                sectionTitles = _guideSections.value.associate { it.id to it.title },
+                loadMessages = {
+                    db.chatDao().all(nid).map { e ->
+                        ConversationalReferentRecovery.Message(
+                            id = e.id, noteId = e.noteId, sectionId = e.sectionId,
+                            payload = ChatCodec.unescMap(e.payload),
+                            createdAt = e.createdAt, active = e.isActive,
+                        )
+                    }
+                },
+                loadTargetState = { kind, id ->
+                    when (kind) {
+                        CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
+                        }
+                        CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
+                        }
+                    }
+                },
+            ) else MentorContinuityRouting.Resolution.Unavailable(
+                "sem nota", IllegalStateException("sem nota"),
+            )
+            when (resolution) {
+                is MentorContinuityRouting.Resolution.Unavailable -> {
+                    android.util.Log.w("MentorContinuity", "contexto indisponível: ${resolution.reason}")
+                    if (MentorContinuityRouting.needsReferent(text)) {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não consegui recuperar o contexto deste tópico. " +
+                                    "Qual card ou ponto você quer aprofundar?")),
+                            MessageOrigin.LOCAL,
+                        )
+                        return@launch
+                    }
+                    throw resolution.cause
+                }
+                is MentorContinuityRouting.Resolution.Ok -> when (val action = resolution.plan.action) {
+                    is MentorContinuityRouting.Action.DeepenCard ->
+                        answerAsk(action.topic).also { return@launch }
+                    is MentorContinuityRouting.Action.ExplainSuggestion -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Próximo passo: ${action.detail.ifBlank { action.label }}.")),
+                            MessageOrigin.LOCAL,
+                        )
+                        return@launch
+                    }
+                    is MentorContinuityRouting.Action.ExplainActiveSection ->
+                        answerAsk(action.title).also { return@launch }
+                    is MentorContinuityRouting.Action.Clarify -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não identifiquei com segurança o que aprofundar. ${action.reason}")),
+                            MessageOrigin.LOCAL,
+                        )
+                        return@launch
+                    }
+                    else -> Unit // ProceedNormal — fluxo existente preservado
+                }
+            }
+            // ---- fim P9/P12 ----
 
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).

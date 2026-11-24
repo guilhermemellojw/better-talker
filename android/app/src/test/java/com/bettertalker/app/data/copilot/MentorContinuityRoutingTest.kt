@@ -196,4 +196,35 @@ class MentorContinuityRoutingTest {
         assertFalse(topic.contains("decisão"))
         assertEquals(CardStatus.APPLIED, (p.action as Action.DeepenCard).card.status)
     }
+
+
+    // ---- P12 / F5 — precedência da intenção sobre ambiguidade ----
+
+    private fun ambiguous() = listOf(
+        cardMsg(id = "a", createdAt = 100L),
+        cardMsg(id = "b", createdAt = 100L),
+    )
+
+    @Test
+    fun f5_ambiguidadeComSaudacao_naoSeqestra() {
+        assertEquals(Action.ProceedNormal, plan(request = "Oi", messages = ambiguous()).action)
+        assertEquals(Action.ProceedNormal, plan(request = "Bom dia", messages = ambiguous()).action)
+    }
+
+    @Test
+    fun f5_ambiguidadeComRedacaoExplicita_preservada() {
+        assertEquals(Action.ProceedNormal, plan(request = "Desenvolva o ponto 1", messages = ambiguous()).action)
+    }
+
+    @Test
+    fun f5_ambiguidadeComConsentimento_preservada() {
+        assertEquals(Action.ProceedNormal, plan(request = "Sim", messages = ambiguous()).action)
+    }
+
+    @Test
+    fun f5_cardSemCorpoUtilizavel_naoAprofunda() {
+        val base = cardMsg()
+        val semCorpo = base.copy(payload = base.payload.toMutableMap().apply { put("text", "") })
+        assertTrue(plan(messages = listOf(semCorpo)).action is Action.Clarify)
+    }
 }

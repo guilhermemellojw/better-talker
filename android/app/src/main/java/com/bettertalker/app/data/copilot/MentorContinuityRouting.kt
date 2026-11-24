@@ -1,5 +1,7 @@
 package com.bettertalker.app.data.copilot
 
+import kotlinx.coroutines.CancellationException
+
 import com.bettertalker.app.data.copilot.ConversationalReferentRecovery.Capabilities
 import com.bettertalker.app.data.copilot.ConversationalReferentRecovery.Message
 import com.bettertalker.app.data.copilot.ConversationalReferentRecovery.Outcome
@@ -34,6 +36,66 @@ object MentorContinuityRouting {
         val capabilities: Capabilities? = null,
     )
 
+    /** Resultado da fronteira produtiva — falha nunca vira ProceedNormal silencioso. */
+    sealed interface Resolution {
+        data class Ok(val plan: Plan) : Resolution
+        /** Motivo é apenas a classe da exceção — sem conteúdo pessoal. */
+        data class Unavailable(val reason: String, val cause: Exception) : Resolution
+    }
+
+    /**
+     * Fronteira efetivamente chamada por `send()`. A coleta de contexto é
+     * injetada (testável); falha de leitura é explícita, cancelamento é
+     * propagado e nenhum LLM é chamado com contexto não resolvido.
+     */
+    suspend fun resolveFromContext(
+        request: String,
+        noteId: String?,
+        scope: String?,
+        focus: Focus,
+        suggestion: NextStepSuggestion?,
+        suggestionNoteId: String?,
+        suggestionSectionId: String?,
+        lastResponse: String?,
+        sectionTitles: Map<String, String>,
+        loadMessages: suspend () -> List<Message>,
+        loadTargetState: suspend (CardTargetKind, String) -> TargetState?,
+    ): Resolution = try {
+        val persisted = loadMessages()
+        val targets = buildMap {
+            persisted.forEach { m ->
+                val card = CardPayload.fromMap(m.payload) ?: return@forEach
+                val key = cardTargetKey(card) ?: return@forEach
+                val id = card.targetId ?: return@forEach
+                val kind = card.targetKind ?: return@forEach
+                put(key, loadTargetState(kind, id) ?: TargetState(exists = false))
+            }
+        }
+        Resolution.Ok(
+            plan(
+                request = request, noteId = noteId, scope = scope, focus = focus,
+                messages = persisted, targets = targets,
+                suggestion = suggestion, suggestionNoteId = suggestionNoteId,
+                suggestionSectionId = suggestionSectionId, lastResponse = lastResponse,
+                sectionTitles = sectionTitles,
+            ),
+        )
+    } catch (e: CancellationException) {
+        throw e // cancelamento nunca é mascarado como falha comum
+    } catch (e: Exception) {
+        Resolution.Unavailable(e::class.simpleName ?: "erro", e)
+    }
+
+    /**
+     * Detecta pedido referencial SEM duplicar a regra do resolvedor:
+     * um pedido não-referencial devolve ProceedNormal mesmo com contexto vazio.
+     */
+    fun needsReferent(request: String): Boolean =
+        ConversationalReferentResolver.resolve(
+            request,
+            ConversationalReferentResolver.Context(noteId = null, chatScope = null),
+        ) !is Referent.ProceedNormal
+
     /**
      * Compõe recuperação → resolvedor → tradução de saída.
      *
@@ -54,6 +116,10 @@ object MentorContinuityRouting {
         lastResponse: String?,
         sectionTitles: Map<String, String>,
     ): Plan {
+        // F5 — precedência da intenção: saudações, comandos, consentimentos e
+        // rascunhos explícitos nunca disparam recuperação de referente.
+        // Reutiliza o contrato certificado do resolvedor (sem regex duplicada).
+        if (!needsReferent(request)) return Plan(Action.ProceedNormal)
         val resolvedScope = if (focus == Focus.WHOLE) null else scope
         val recovered = ConversationalReferentRecovery.recover(
             messages = messages,
@@ -118,6 +184,11 @@ object MentorContinuityRouting {
             is Referent.RequestClarification -> Action.Clarify(referent.reason)
             Referent.ProceedNormal -> Action.ProceedNormal
         }
-        return Plan(action = action, capabilities = found?.capabilities)
+        val effective = if (action is Action.DeepenCard &&
+            found?.capabilities?.deepenable == false
+        ) {
+            Action.Clarify("card sem texto utilizável para aprofundamento")
+        } else action
+        return Plan(action = effective, capabilities = found?.capabilities)
     }
 }
