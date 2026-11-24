@@ -3776,6 +3776,8 @@ class CopilotViewModel(
         targetScope: String? = turnScope ?: _chatScope.value,
         /** M1: id estável do turno; só o texto final vira o item do turno. */
         turnId: String? = currentTurnId,
+        /** F4 — resposta final local explícita (vincula turnId e fecha o turno). */
+        finalResponse: Boolean = false,
         /** Card-first: origem do card (CHAT na geração; TRANSFORM na seleção). */
         cardOrigin: CardOrigin = CardOrigin.CHAT,
         /** Fase 4: reescrita sugere REPLACE; geração sugere APPEND. */
@@ -3800,9 +3802,9 @@ class CopilotViewModel(
         }
         // M1: a pergunta e a resposta final compartilham o turnId; avisos
         // intermediários não recebem a chave para não colidirem no LazyColumn.
-        val effectiveTurnId = turnId?.takeIf {
-            fromMe || (kind == "text" && durationMs != null)
-        }
+        val effectiveTurnId = MentorContinuityRouting.finalTurnId(
+            turnId, fromMe, kind, durationMs, finalResponse,
+        )
         if (effectiveTurnId != null) withOrigin["turnId"] = effectiveTurnId
         val reasoningSeconds = if (!fromMe && effectiveTurnId != null) {
             _activeTurn.value?.reasoningSeconds() ?: 0
@@ -4241,6 +4243,12 @@ class CopilotViewModel(
                 historyBefore = historyOverride ?: conversationTurnsScoped()
                 historyFailure = null
             } catch (e: kotlinx.coroutines.CancellationException) {
+                // F4 — leitura suspensa após startTurnProgress: finalização canônica
+                activeTurnProgressJob?.cancel()
+                activeTurnProgressJob = null
+                _activeTurn.value = _activeTurn.value?.cancelled()
+                _runState.value = ChatRunState.Cancelled()
+                _chatBusy.value = false
                 throw e
             } catch (e: Exception) {
                 historyBefore = historyOverride.orEmpty()
@@ -4497,6 +4505,104 @@ class CopilotViewModel(
                 "ChatRouter",
                 com.bettertalker.app.data.copilot.ChatRouter.describe(route),
             )
+            // ---- P9/P12 — continuidade dentro do ciclo canônico do turno ----
+            // A pergunta já foi postada, _chatBusy = true e estamos dentro do
+            // try/finally: qualquer retorno daqui finaliza turno/composer.
+            if (historyFailure != null) {
+                if (MentorContinuityRouting.needsReferent(text)) {
+                    post(
+                        false, "text",
+                        ChatCodec.escMap(mapOf("text" to
+                            "Não consegui recuperar o histórico deste tópico. " +
+                                "Qual card ou ponto você quer aprofundar?")),
+                        MessageOrigin.LOCAL,
+                        finalResponse = true,
+                    )
+                    return@launch
+                }
+                throw historyFailure
+            }
+            val nid = noteId
+            val focus = if (_focusMode.value == FocusMode.WHOLE)
+                ConversationalReferentResolver.Focus.WHOLE
+            else ConversationalReferentResolver.Focus.SECTION
+            val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
+                null else (turnScope ?: _chatScope.value)
+            val resolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
+                request = text, noteId = nid, scope = scope, focus = focus,
+                suggestion = pendingSuggestion,
+                suggestionNoteId = pendingSuggestionNoteId,
+                suggestionSectionId = pendingSuggestionScope,
+                lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
+                sectionTitles = _guideSections.value.associate { it.id to it.title },
+                loadMessages = {
+                    db.chatDao().all(nid).map { e ->
+                        ConversationalReferentRecovery.Message(
+                            id = e.id, noteId = e.noteId, sectionId = e.sectionId,
+                            payload = ChatCodec.unescMap(e.payload),
+                            createdAt = e.createdAt, active = e.isActive,
+                        )
+                    }
+                },
+                loadTargetState = { kind, id ->
+                    when (kind) {
+                        CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
+                        }
+                        CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
+                        }
+                    }
+                },
+            ) else MentorContinuityRouting.Resolution.Unavailable(
+                "sem nota", IllegalStateException("sem nota"),
+            )
+            when (resolution) {
+                is MentorContinuityRouting.Resolution.Unavailable -> {
+                    android.util.Log.w("MentorContinuity", "contexto indisponível: ${resolution.reason}")
+                    if (MentorContinuityRouting.needsReferent(text)) {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não consegui recuperar o contexto deste tópico. " +
+                                    "Qual card ou ponto você quer aprofundar?")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    throw resolution.cause
+                }
+                is MentorContinuityRouting.Resolution.Ok -> when (val action = resolution.plan.action) {
+                    is MentorContinuityRouting.Action.DeepenCard ->
+                        answerAsk(action.topic, finalResponse = true).also { return@launch }
+                    is MentorContinuityRouting.Action.ExplainSuggestion -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Próximo passo: ${action.detail.ifBlank { action.label }}.")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    is MentorContinuityRouting.Action.ExplainActiveSection ->
+                        answerAsk(action.title, finalResponse = true).also { return@launch }
+                    is MentorContinuityRouting.Action.Clarify -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não identifiquei com segurança o que aprofundar. ${action.reason}")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    else -> Unit // ProceedNormal — fluxo existente preservado
+                }
+            }
+            // ---- fim P9/P12 ----
+
             // Gate determinístico de fontes: só rotas que consultam o LLM.
             // Comando de refs/estrutura já retornou antes; aqui a pergunta
             // específica sobre ref bloqueante espera a decisão do usuário.
@@ -4640,99 +4746,6 @@ class CopilotViewModel(
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.PasteAndChat -> Unit
             }
 
-            // ---- P9/P12 — continuidade dentro do ciclo canônico do turno ----
-            // A pergunta já foi postada, _chatBusy = true e estamos dentro do
-            // try/finally: qualquer retorno daqui finaliza turno/composer.
-            if (historyFailure != null) {
-                if (MentorContinuityRouting.needsReferent(text)) {
-                    post(
-                        false, "text",
-                        ChatCodec.escMap(mapOf("text" to
-                            "Não consegui recuperar o histórico deste tópico. " +
-                                "Qual card ou ponto você quer aprofundar?")),
-                        MessageOrigin.LOCAL,
-                    )
-                    return@launch
-                }
-                throw historyFailure
-            }
-            val nid = noteId
-            val focus = if (_focusMode.value == FocusMode.WHOLE)
-                ConversationalReferentResolver.Focus.WHOLE
-            else ConversationalReferentResolver.Focus.SECTION
-            val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
-                null else (turnScope ?: _chatScope.value)
-            val resolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
-                request = text, noteId = nid, scope = scope, focus = focus,
-                suggestion = pendingSuggestion,
-                suggestionNoteId = pendingSuggestionNoteId,
-                suggestionSectionId = pendingSuggestionScope,
-                lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
-                sectionTitles = _guideSections.value.associate { it.id to it.title },
-                loadMessages = {
-                    db.chatDao().all(nid).map { e ->
-                        ConversationalReferentRecovery.Message(
-                            id = e.id, noteId = e.noteId, sectionId = e.sectionId,
-                            payload = ChatCodec.unescMap(e.payload),
-                            createdAt = e.createdAt, active = e.isActive,
-                        )
-                    }
-                },
-                loadTargetState = { kind, id ->
-                    when (kind) {
-                        CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
-                            ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
-                        }
-                        CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
-                            ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
-                        }
-                    }
-                },
-            ) else MentorContinuityRouting.Resolution.Unavailable(
-                "sem nota", IllegalStateException("sem nota"),
-            )
-            when (resolution) {
-                is MentorContinuityRouting.Resolution.Unavailable -> {
-                    android.util.Log.w("MentorContinuity", "contexto indisponível: ${resolution.reason}")
-                    if (MentorContinuityRouting.needsReferent(text)) {
-                        post(
-                            false, "text",
-                            ChatCodec.escMap(mapOf("text" to
-                                "Não consegui recuperar o contexto deste tópico. " +
-                                    "Qual card ou ponto você quer aprofundar?")),
-                            MessageOrigin.LOCAL,
-                        )
-                        return@launch
-                    }
-                    throw resolution.cause
-                }
-                is MentorContinuityRouting.Resolution.Ok -> when (val action = resolution.plan.action) {
-                    is MentorContinuityRouting.Action.DeepenCard ->
-                        answerAsk(action.topic).also { return@launch }
-                    is MentorContinuityRouting.Action.ExplainSuggestion -> {
-                        post(
-                            false, "text",
-                            ChatCodec.escMap(mapOf("text" to
-                                "Próximo passo: ${action.detail.ifBlank { action.label }}.")),
-                            MessageOrigin.LOCAL,
-                        )
-                        return@launch
-                    }
-                    is MentorContinuityRouting.Action.ExplainActiveSection ->
-                        answerAsk(action.title).also { return@launch }
-                    is MentorContinuityRouting.Action.Clarify -> {
-                        post(
-                            false, "text",
-                            ChatCodec.escMap(mapOf("text" to
-                                "Não identifiquei com segurança o que aprofundar. ${action.reason}")),
-                            MessageOrigin.LOCAL,
-                        )
-                        return@launch
-                    }
-                    else -> Unit // ProceedNormal — fluxo existente preservado
-                }
-            }
-            // ---- fim P9/P12 ----
 
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).
@@ -7850,11 +7863,11 @@ class CopilotViewModel(
             "“remover o 2”, “fundir 1 e 2”, “sincronizar esboço”, “desenvolva a introdução”. Exemplos:\n" +
             "• “ideias para a conclusão”\n• “exemplo para a conclusão”\n• “como introduzir?”\n• “o que dizem sobre fé?”\n• “o que diz Gênesis 1:26?”\n• “insere a segunda”\n• “quais refs faltam?”\n• “refs do esboço”\n• “mostre as seções”"
 
-    private suspend fun answerAsk(topic: String) {
+    private suspend fun answerAsk(topic: String, finalResponse: Boolean = false) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Para responder com base nos materiais, toque no + e vincule um esboço.")),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             return
         }
         lastTopic = topic
@@ -7866,7 +7879,7 @@ class CopilotViewModel(
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não encontrei trechos sobre “$topic” nos materiais baixados." +
                     (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             val slots = repo.missingBases()
             if (slots.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
@@ -7882,7 +7895,7 @@ class CopilotViewModel(
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria). " +
                     "Baixe no site a matéria citada no esboço para eu responder com ela.")),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             val missing = repo.missingBases()
             if (missing.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
@@ -7906,7 +7919,7 @@ class CopilotViewModel(
             sb.append("\n${i + 1}. [${h.source}] ${h.passage.text.take(180)}\n")
         }
         sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
-        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL, finalResponse = finalResponse)
     }
 
     /**

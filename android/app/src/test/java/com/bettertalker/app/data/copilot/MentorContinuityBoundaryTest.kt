@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -95,5 +96,47 @@ class MentorContinuityBoundaryTest {
             propagated = true
         }
         assertTrue(propagated)
+    }
+
+
+    // ---- P13 — reprodução F2: pedido não referencial não deve tocar loaders ----
+
+    @Test
+    fun f2_pedidoNaoReferencial_naoChamaLoaders() = runBlocking {
+        var calls = 0
+        val r = MentorContinuityRouting.resolveFromContext(
+            request = "Desenvolva o ponto 1", noteId = "n1", scope = "sec-1", focus = Focus.SECTION,
+            suggestion = null, suggestionNoteId = null, suggestionSectionId = null,
+            lastResponse = null, sectionTitles = titles,
+            loadMessages = { calls++; throw IllegalStateException("loader não devia ser chamado") },
+            loadTargetState = { _, _ -> calls++; TargetState(true) },
+        )
+        assertTrue(r is Resolution.Ok)
+        assertEquals(Action.ProceedNormal, (r as Resolution.Ok).plan.action)
+        assertEquals(0, calls)
+    }
+
+
+    // ---- P13 / F4 — turnId da resposta final local ----
+
+    @Test
+    fun f4_finalTurnId_apenasRespostaFinalOuUsuario() {
+        assertEquals("t", MentorContinuityRouting.finalTurnId("t", false, "text", null, true))
+        assertEquals("t", MentorContinuityRouting.finalTurnId("t", false, "text", 12L, false))
+        assertEquals("t", MentorContinuityRouting.finalTurnId("t", true, "text", null, false))
+        assertNull(MentorContinuityRouting.finalTurnId("t", false, "text", null, false))
+        assertNull(MentorContinuityRouting.finalTurnId("t", false, "bases", null, false))
+    }
+
+    // ---- P13 / F5 — somente pedidos referenciais chegam ao despacho ----
+
+    @Test
+    fun f5_precedenciaPorIntencao() {
+        assertTrue(MentorContinuityRouting.needsReferent("Explique melhor"))
+        assertTrue(MentorContinuityRouting.needsReferent("Não entendi"))
+        assertTrue(MentorContinuityRouting.needsReferent("Vamos continuar de onde paramos"))
+        assertFalse(MentorContinuityRouting.needsReferent("Desenvolva o ponto 1"))
+        assertFalse(MentorContinuityRouting.needsReferent("Sim"))
+        assertFalse(MentorContinuityRouting.needsReferent("Oi"))
     }
 }

@@ -60,7 +60,10 @@ object MentorContinuityRouting {
         sectionTitles: Map<String, String>,
         loadMessages: suspend () -> List<Message>,
         loadTargetState: suspend (CardTargetKind, String) -> TargetState?,
-    ): Resolution = try {
+    ): Resolution {
+        // F2 — pedidos independentes NÃO leem histórico/cards/alvos.
+        if (!needsReferent(request)) return Resolution.Ok(Plan(Action.ProceedNormal))
+        return try {
         val persisted = loadMessages()
         val targets = buildMap {
             persisted.forEach { m ->
@@ -80,10 +83,19 @@ object MentorContinuityRouting {
                 sectionTitles = sectionTitles,
             ),
         )
-    } catch (e: CancellationException) {
-        throw e // cancelamento nunca é mascarado como falha comum
-    } catch (e: Exception) {
-        Resolution.Unavailable(e::class.simpleName ?: "erro", e)
+        } catch (e: CancellationException) {
+            throw e // cancelamento nunca é mascarado como falha comum
+        } catch (e: Exception) {
+            Resolution.Unavailable(e::class.simpleName ?: "erro", e)
+        }
+    }
+
+    /** Regra pura do turnId final — compartilhada por `post()`. */
+    fun finalTurnId(
+        turnId: String?, fromMe: Boolean, kind: String,
+        durationMs: Long?, explicitFinal: Boolean,
+    ): String? = turnId?.takeIf {
+        fromMe || explicitFinal || (kind == "text" && durationMs != null)
     }
 
     /**
