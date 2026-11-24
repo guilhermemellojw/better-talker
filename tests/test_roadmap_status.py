@@ -196,6 +196,43 @@ class RoadmapStatusTest(unittest.TestCase):
         self.assertNotIn("utcnow", generator)
         self.assertIn('path.write_text(result, encoding="utf-8")', generator)
 
+    # --- P4 (auditoria focal): carregamento do relatório anterior ---
+
+    def test_workflow_distinguishes_absent_report_from_git_error(self):
+        self.assertIn("git fetch origin main --quiet", WORKFLOW)
+        self.assertIn("origin/main indisponível para comparar", WORKFLOW)
+        self.assertIn("Relatório anterior ausente na árvore consultada; inicialização permitida.", WORKFLOW)
+        self.assertIn("Falha de leitura do relatório anterior", WORKFLOW)
+        self.assertIn("Falha de consulta do relatório anterior", WORKFLOW)
+        self.assertNotIn('|| : > "$RUNNER_TEMP/current.md"', WORKFLOW)
+
+    def test_compare_read_error_on_directory(self):
+        script = ROOT / "scripts" / "roadmap_status.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "um-diretorio"
+            directory.mkdir()
+            good = Path(tmp) / "good.md"
+            good.write_text("- PRs abertos: **3**\n", encoding="utf-8")
+            erro = subprocess.run(
+                [sys.executable, str(script), "--compare", str(directory), str(good)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(2, erro.returncode)
+            self.assertIn("ERROR", erro.stdout)
+
+    def test_main_checks_snapshot_is_current_not_historical(self):
+        prs = [{"number": 80, "title": "aberta", "state": "open",
+                "head": {"ref": "x", "sha": "a"}}]
+        falhou = render_status("owner/repo", "f" * 40,
+                               [{"status": "completed", "conclusion": "failure"}], prs, {})
+        self.assertIn("- Checks da `main` consultada: **Falhou**", falhou)
+        self.assertIn(f"- `main` consultada: `{'f' * 40}`", falhou)
+        vazio = render_status("owner/repo", "f" * 40, [], prs, {})
+        self.assertIn("- Checks da `main` consultada: **Não verificado**", vazio)
+        # checa o SHA consultado, não um histórico de conclusões antigas
+        generator = (ROOT / "scripts" / "roadmap_status.py").read_text(encoding="utf-8")
+        self.assertIn('commits/{sha}/check-runs?per_page=100', generator)
+
 
 if __name__ == "__main__":
     unittest.main()

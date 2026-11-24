@@ -57,7 +57,33 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin main --quiet
-          git show origin/main:docs/ROADMAP_STATUS.md > "$RUNNER_TEMP/current.md" || : > "$RUNNER_TEMP/current.md"
+          # 1) Árvore consultada precisa existir: estado inválido do Git é ERRO.
+          if ! git rev-parse --verify --quiet 'origin/main^{commit}' >/dev/null; then
+            echo "::error::origin/main indisponível para comparar o relatório anterior"
+            exit 2
+          fi
+          # 2) Diferenciar ausência legítima do arquivo de falha de consulta.
+          set +e
+          git rev-parse --verify --quiet \
+            'origin/main:docs/ROADMAP_STATUS.md' >/dev/null 2>&1
+          path_code=$?
+          set -e
+          case "$path_code" in
+            0)
+              if ! git show 'origin/main:docs/ROADMAP_STATUS.md' > "$RUNNER_TEMP/current.md"; then
+                echo "::error::Falha de leitura do relatório anterior em origin/main"
+                exit 2
+              fi
+              ;;
+            1)
+              echo 'Relatório anterior ausente na árvore consultada; inicialização permitida.'
+              : > "$RUNNER_TEMP/current.md"
+              ;;
+            *)
+              echo "::error::Falha de consulta do relatório anterior (git rev-parse exit $path_code)"
+              exit "$path_code"
+              ;;
+          esac
           # --compare: 0=CHANGE, 1=NO_CHANGE, 2=ERROR (leitura/comparação).
           # Qualquer outro código também é erro — nunca é interpretado como
           # "sem mudança". Erro deixa o job vermelho.

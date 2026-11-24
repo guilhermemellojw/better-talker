@@ -39,6 +39,13 @@ continua registrando o SHA e o CI reais; mudança legítima no estado de check d
 um PR é conteúdo material e gera proposta. Nenhum timestamp é introduzido e
 nenhuma informação material é removida para evitar churn.
 
+O relatório anterior é lido com distinção explícita: árvore `origin/main` inválida
+ou falha de leitura → workflow vermelho; arquivo realmente ausente na árvore →
+inicialização permitida; arquivo presente → comparação normal. Não há fallback
+indiscriminado para arquivo vazio. Os checks exibidos são os atuais do SHA
+consultado (`commits/{sha}/check-runs`), nunca conclusões históricas de outros
+SHAs; ausência de checks permanece **Não verificado**, nunca aprovação.
+
 ## Validação
 
 ```bash
