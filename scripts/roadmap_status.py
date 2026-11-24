@@ -29,7 +29,13 @@ MAX_PRS = 300
 APPROVED = {"success"}
 IGNORED = {"neutral", "skipped"}
 FAILED = {"failure", "timed_out", "cancelled", "action_required"}
-VOLATILE_LINE_PREFIX = "- `main` consultada:"
+# Linhas que registram proveniência da consulta (SHA da main e estado dos
+# checks dessa main). Mudam após merges documentais sem alterar o conteúdo
+# material do painel — nunca são usadas para promover "sem checks" a aprovação.
+VOLATILE_LINE_PREFIXES = (
+    "- `main` consultada:",
+    "- Checks da `main` consultada:",
+)
 
 
 def github_get(repo: str, path: str, token: str) -> Any:
@@ -279,8 +285,16 @@ def render_status(
 
 
 def normalize_report(text: str) -> str:
-    """Strip the provenance line whose only change is the merged main SHA."""
-    return "\n".join(line for line in text.splitlines() if not line.startswith(VOLATILE_LINE_PREFIX))
+    """Strip provenance-only lines (merged main SHA and its check state).
+
+    The generated report always keeps the true SHA and CI state; normalization
+    is used ONLY to decide whether a material rewrite is warranted. Check
+    states of open PRs are material and are never stripped.
+    """
+    return "\n".join(
+        line for line in text.splitlines()
+        if not any(line.startswith(prefix) for prefix in VOLATILE_LINE_PREFIXES)
+    )
 
 
 def has_material_change(new_text: str, old_text: str) -> bool:
@@ -297,12 +311,17 @@ def main() -> int:
 
     if args.compare:
         new_path, old_path = (Path(p) for p in args.compare)
-        new_text = new_path.read_text(encoding="utf-8")
         try:
-            old_text = old_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            old_text = ""
-        changed = has_material_change(new_text, old_text)
+            new_text = new_path.read_text(encoding="utf-8")
+            try:
+                old_text = old_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                old_text = ""
+            changed = has_material_change(new_text, old_text)
+        except (OSError, UnicodeError, ValueError) as exc:
+            # ERROR is never NO_CHANGE: exit 2 is distinct from 1/0.
+            print(f"ERROR: falha ao ler/comparar snapshot: {exc}")
+            return 2
         print("CHANGE" if changed else "NO_CHANGE")
         return 0 if changed else 1
 

@@ -1,4 +1,6 @@
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -136,6 +138,63 @@ class RoadmapStatusTest(unittest.TestCase):
         self.assertIn("docs/ROADMAP.md", generator)  # apenas referência textual no relatório
         self.assertNotIn("open(ACTIVE_TASKS", generator)
         self.assertNotIn("write_text(ACTIVE_TASKS", generator)
+
+
+    # --- P1/P2 (auditoria do Agente E) ---
+
+    def test_material_change_is_detected(self):
+        old = "- PRs abertos: **3**\n- Estados de check dos PRs abertos: Verde=2\n"
+        new = old.replace("Verde=2", "Falhou=1, Verde=1")
+        self.assertTrue(has_material_change(new, old))
+
+    def test_documental_main_merge_only_provenance(self):
+        # Merge documental muda SHA da main e o estado dos checks da main.
+        # Nada disso é conteúdo material do painel.
+        old = (
+            "- `main` consultada: `aaa`\n"
+            "- Checks da `main` consultada: **Pendente**\n"
+            "- PRs abertos: **3**\n"
+            "- Estados de check dos PRs abertos: Não verificado=1\n"
+        )
+        new = old.replace("`aaa`", "`bbb`").replace("**Pendente**", "**Verde**")
+        self.assertFalse(has_material_change(new, old))
+
+    def test_pr_check_state_change_is_material(self):
+        # CI de PR é fato material: ausência de checks nunca vira aprovação.
+        old = "- PRs abertos: **3**\n- Estados de check dos PRs abertos: Não verificado=1\n"
+        new = old.replace("Não verificado=1", "Verde=1")
+        self.assertTrue(has_material_change(new, old))
+
+    def test_compare_error_is_distinct_from_no_change(self):
+        script = ROOT / "scripts" / "roadmap_status.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            good = Path(tmp) / "good.md"
+            good.write_text("- PRs abertos: **3**\n", encoding="utf-8")
+            missing = Path(tmp) / "inexistente" / "new.md"
+            erro = subprocess.run(
+                [sys.executable, str(script), "--compare", str(missing), str(good)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(2, erro.returncode)
+            self.assertIn("ERROR", erro.stdout)
+            sem_mudanca = subprocess.run(
+                [sys.executable, str(script), "--compare", str(good), str(good)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(1, sem_mudanca.returncode)
+            self.assertEqual("NO_CHANGE", sem_mudanca.stdout.strip())
+
+    def test_workflow_treats_compare_error_as_failure(self):
+        self.assertIn("0=CHANGE, 1=NO_CHANGE, 2=ERROR", WORKFLOW)
+        self.assertIn('echo "::error::Falha de leitura/comparação do snapshot', WORKFLOW)
+        self.assertIn('exit "$code"', WORKFLOW)
+        self.assertIn("changed=false", WORKFLOW)
+
+    def test_no_wall_clock_and_write_scope_preserved(self):
+        generator = (ROOT / "scripts" / "roadmap_status.py").read_text(encoding="utf-8")
+        self.assertNotIn("datetime.now", generator)
+        self.assertNotIn("utcnow", generator)
+        self.assertIn('path.write_text(result, encoding="utf-8")', generator)
 
 
 if __name__ == "__main__":

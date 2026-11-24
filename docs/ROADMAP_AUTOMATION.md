@@ -27,6 +27,18 @@ O sistema **não** transforma contagem de PRs em percentual de beta, não marca 
 5. **Configuração necessária:** em *Settings → Actions → General → Workflow permissions*, permitir criação de pull requests pelo GitHub Actions, além das permissões necessárias de conteúdo/PR. Se a política do repositório impedir essa opção, o workflow falhará ao publicar a proposta; nesse caso, revisar logs e conceder apenas as permissões exigidas. Não inserir PAT nem segredos adicionais.
 6. O relatório usa uma janela de até 300 PRs atualizados. Estados/checks não disponíveis são marcados como **Não verificado**, não como sucesso.
 
+## Idempotência e propagação de erro
+
+A comparação `--compare` distingue三个 estados: `CHANGE` (exit 0), `NO_CHANGE` (exit 1)
+e `ERROR` (exit 2). Falha de leitura/comparação deixa o workflow **vermelho** —
+nunca é interpretada como "sem mudança".
+
+A idempotência ignora apenas proveniência da consulta (SHA da `main` e estado dos
+checks da `main`) ao decidir se vale a pena propor uma revisão. O painel gerado
+continua registrando o SHA e o CI reais; mudança legítima no estado de check de
+um PR é conteúdo material e gera proposta. Nenhum timestamp é introduzido e
+nenhuma informação material é removida para evitar churn.
+
 ## Validação
 
 ```bash

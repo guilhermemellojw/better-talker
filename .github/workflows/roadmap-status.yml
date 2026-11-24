@@ -58,8 +58,25 @@ jobs:
           set -euo pipefail
           git fetch origin main --quiet
           git show origin/main:docs/ROADMAP_STATUS.md > "$RUNNER_TEMP/current.md" || : > "$RUNNER_TEMP/current.md"
-          if python3 scripts/roadmap_status.py --compare \
-              "$RUNNER_TEMP/ROADMAP_STATUS.md" "$RUNNER_TEMP/current.md"; then
+          # --compare: 0=CHANGE, 1=NO_CHANGE, 2=ERROR (leitura/comparação).
+          # Qualquer outro código também é erro — nunca é interpretado como
+          # "sem mudança". Erro deixa o job vermelho.
+          set +e
+          verdict_output=$(python3 scripts/roadmap_status.py --compare \
+            "$RUNNER_TEMP/ROADMAP_STATUS.md" "$RUNNER_TEMP/current.md" 2>&1)
+          code=$?
+          set -e
+          echo "$verdict_output"
+          case "$code" in
+            0) verdict=CHANGE ;;
+            1) verdict=NO_CHANGE ;;
+            *) echo "::error::Falha de leitura/comparação do snapshot (exit $code)"; exit "$code" ;;
+          esac
+          if [ "$verdict_output" != "$verdict" ]; then
+            echo "::error::Saída inesperada de --compare: $verdict_output"
+            exit 2
+          fi
+          if [ "$verdict" = "CHANGE" ]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
             echo 'Sem mudança material além da proveniência; nenhuma proposta.'
