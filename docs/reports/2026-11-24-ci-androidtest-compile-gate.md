@@ -15,10 +15,10 @@
 
 `.github/workflows/android-build.yml` — inserido após "Upload test reports (failure)" e antes de "Run Firestore rules tests":
 
-- Step **"Compile instrumented tests (androidTest)"** (bloqueante, sem `continue-on-error`):
-  `./gradlew :app:compilePublicAppDebugAndroidTestKotlin :app:compileSyncBetaDebugAndroidTestKotlin --no-daemon --max-workers=2 --stacktrace --console=plain 2>&1 | tee gradle-androidtest-compile.log`.
-- Step **"Show androidTest compile failure log"** (`if: failure() && steps.androidtest_compile.outcome == 'failure'`): imprime últimas 100 linhas + filtro de erros, `exit 1`.
+- Steps **"Compile androidTest (publicApp)"** e **"Compile androidTest (syncBeta)"** (bloqueantes, sem `continue-on-error`), um flavor por invocação, `--no-daemon --max-workers=1`, heap via `-Dorg.gradle.jvmargs="-Xmx3072m ..."` e `-Dkotlin.daemon.jvmargs="-Xmx2048m ..."`, logs em `gradle-androidtest-{public,sync}.log`.
+- Step **"Show androidTest compile failure log"** (`if: failure()` + outcomes dos dois steps): imprime últimas 100 linhas + filtro de erros, `exit 1`.
 - Nenhum step existente foi substituído (JVM/lint/APK/Firestore/Storage/Firebase preservados).
+- **Ajuste após CI real:** primeira tentativa (ambos flavors juntos, 2 workers) falhou no GitHub com `OutOfMemoryError: Java heap space` no compilador Kotlin (`gradle.properties` fixa Kotlin daemon em 1 GB). Versão final: execução sequencial, 1 worker e heap ampliado — o step de gate continua bloqueante; OOM é tratado como falha legítima (não mascarada).
 
 ## C. Resultados das compilações (executadas localmente, sem dispositivo)
 

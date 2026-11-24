@@ -111,26 +111,42 @@ jobs:
       # Gate androidTest: `assemble*Debug` NÃO compila os source sets
       # instrumentados. Sem este passo, um erro de compilação em androidTest
       # passa no workflow (ocorrido no PR #43). Compilar não exige device.
-      - name: Compile instrumented tests (androidTest)
-        id: androidtest_compile
+      # Flavors seqüenciais e 1 worker: compilar ambos em paralelo estourou
+      # o heap do compilador Kotlin no runner (gradle.properties fixa 1 GB).
+      - name: Compile androidTest (publicApp)
+        id: androidtest_public
         working-directory: android
         run: |
           set -o pipefail
-          ./gradlew \
-            :app:compilePublicAppDebugAndroidTestKotlin \
-            :app:compileSyncBetaDebugAndroidTestKotlin \
-            --no-daemon --max-workers=2 --stacktrace --console=plain 2>&1 | tee gradle-androidtest-compile.log
+          ./gradlew :app:compilePublicAppDebugAndroidTestKotlin \
+            --no-daemon --max-workers=1 --stacktrace --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            2>&1 | tee gradle-androidtest-public.log
 
-      - name: Show androidTest compile failure log
-        if: failure() && steps.androidtest_compile.outcome == 'failure'
+      - name: Compile androidTest (syncBeta)
+        id: androidtest_sync
         working-directory: android
         run: |
-          echo "::group::androidTest compile log (last 100 lines)"
-          tail -100 gradle-androidtest-compile.log || true
-          echo "::endgroup::"
-          echo "::group::Errors only"
-          grep -iE "error|FAILURE|what went wrong|Caused by|cannot|unable" gradle-androidtest-compile.log | tail -40 || true
-          echo "::endgroup::"
+          set -o pipefail
+          ./gradlew :app:compileSyncBetaDebugAndroidTestKotlin \
+            --no-daemon --max-workers=1 --stacktrace --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            2>&1 | tee gradle-androidtest-sync.log
+
+      - name: Show androidTest compile failure log
+        if: failure() && (steps.androidtest_public.outcome == 'failure' || steps.androidtest_sync.outcome == 'failure')
+        working-directory: android
+        run: |
+          for log in gradle-androidtest-public.log gradle-androidtest-sync.log; do
+            echo "::group::$log (last 100 lines)"
+            tail -100 "$log" 2>/dev/null || true
+            echo "::endgroup::"
+            echo "::group::$log (errors only)"
+            grep -iE "error|FAILURE|what went wrong|Caused by|cannot|unable|OutOfMemory" "$log" 2>/dev/null | tail -40 || true
+            echo "::endgroup::"
+          done
           exit 1
 
       - name: Run Firestore rules tests
