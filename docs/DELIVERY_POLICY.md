@@ -1,8 +1,10 @@
-# Better Talker — Política de entrega incremental com quatro agentes
+# Better Talker — Política de entrega incremental (histórico: quatro agentes)
 
 **Decisão de direcionamento:** 22/11/2026 — mantenedor do projeto.  
-**Estado documental:** proposta em PR até revisão e merge; não é evidência de que um marco, beta ou release já foi concluído.  
+**Estado documental:** documento histórico já presente na `main`; o modelo de cinco agentes foi aprovado pelo mantenedor em 23/11/2026 e está definido em [TEAM_COORDINATION.md](TEAM_COORDINATION.md). Os snapshots abaixo não comprovam o estado atual de PRs, builds ou releases.  
 **Escopo:** estratégia de execução e integração, sem mudar a visão do produto, os critérios de confiança, código Android ou calendário prometido.
+
+> **Atualização operacional — 23/11/2026:** a coordenação passa a ser de **cinco agentes com QA distribuído e revisão cruzada**, conforme [TEAM_COORDINATION.md](TEAM_COORDINATION.md), após integração da atualização documental. As seções abaixo sobre **quatro agentes**, a fila do D e checkpoints datados são **históricas**, não instruções operacionais vigentes. As regras de produto, segurança, caminho crítico e autorização explícita de merge permanecem válidas.
 
 > **Princípio central:** o beta é o primeiro marco utilizável do **mesmo Better Talker final**. Não manter dois produtos, duas arquiteturas ou um beta descartável. Construir funcionalidades definitivas em incrementos verificáveis, com a menor jornada funcional segura possível.
 
@@ -148,7 +150,7 @@ Não inferir prazos a partir de quantidade de PRs. Revisar o **caminho crítico*
 
 ## 8. Critério para oficialização e controle de mudança
 
-Esta decisão define **como** entregar, sem criar autorização implícita para **o quê** implementar. Adoção oficial no repositório requer revisão e merge deste PR, reconciliação do protocolo antigo do PR #10 e registro do SHA de merge.
+Esta decisão histórica define **como** entregar sem autorização implícita para implementação ou merge. O modelo atual de cinco agentes está em [TEAM_COORDINATION.md](TEAM_COORDINATION.md), sujeito a revisão e merge da atualização documental. Reconciliar o protocolo antigo do PR #10 antes de sua integração.
 
 Não alterar prioridades estratégicas, regras TRUST, modelo financeiro, distribuição ou garantia de prazo apenas por adotar quatro agentes.
 

@@ -4,6 +4,7 @@ import com.bettertalker.app.data.db.AttachmentDao
 import com.bettertalker.app.data.db.AttachmentEntity
 import com.bettertalker.app.data.db.PassageDao
 import com.bettertalker.app.data.db.PassageEntity
+import com.bettertalker.app.data.db.TransactionRunner
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -13,6 +14,12 @@ import kotlinx.coroutines.CancellationException
  * registro persistido no índice local da TNM. Consulta [AttachmentDao] e
  * [PassageDao] restritos a um `attachmentId` específico; não usa consultas
  * globais para comprovar identidade.
+ *
+ * TRUST-2B3B-B1b — consistência transacional: todas as leituras (anexo,
+ * referências e duplicatas) rodam dentro do [TransactionRunner] passado —
+ * o resultado reflete um estado consistente do banco; mudanças concorrentes
+ * de anexo/passagem não produzem RECORD_MATCH de leituras que nunca
+ * coexistiram.
  *
  * Componente experimental: puro (sem UI, Room migration, LLM ou rede),
  * não conectado a produção e sem promoção factual.
@@ -25,6 +32,25 @@ import kotlinx.coroutines.CancellationException
 object NwtRoomIndexIdentityAdapter {
 
     suspend fun verify(
+        attachmentId: String,
+        canonicalRef: String,
+        claim: NwtIndexedUnit? = null,
+        fileSha256: String? = null,
+        attachmentDao: AttachmentDao,
+        passageDao: PassageDao,
+        transactionRunner: TransactionRunner,
+    ): NwtRoomIndexIdentityResult =
+        transactionRunner.run {
+            verifyLocked(attachmentId, canonicalRef, claim, fileSha256, attachmentDao, passageDao)
+        }
+
+    /**
+     * TRUST-2B3B-B1b — verificação restrita ao `attachmentId`; todas as leituras
+     * (anexo, referências e duplicatas) acontecem dentro de [transactionRunner]:
+     * o resultado reflete um estado consistente — mudanças concorrentes de
+     * anexo/passagem não produzem RECORD_MATCH de leituras incompatíveis.
+     */
+    private suspend fun verifyLocked(
         attachmentId: String,
         canonicalRef: String,
         claim: NwtIndexedUnit? = null,

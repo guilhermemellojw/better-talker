@@ -116,11 +116,14 @@ class OratoryFidelityTest {
         // Reprodução pura do bug real exposto pela validação com o modelo:
         // `belongsToOtherSection` comparava a chave normalizada com rótulos
         // crus, então `leaked` era inalcançável e tudo virava invenção.
-        val trans = (OratoryGeneration.spec(
-            Mode.TRANSITION, doc, view2, Action.INSERT
+        // F2: em TRANSITION os refs do próximo ponto são autorizados;
+        // o vazamento (ref de outro tópico não autorizado) é testado em
+        // DEVELOPMENT, onde `spec.next` não entra no escopo do gate.
+        val dev = (OratoryGeneration.spec(
+            Mode.DEVELOPMENT, doc, view2, Action.INSERT
         ) as Result.Ready).spec
         val r = OratoryFidelityCheck.check(
-            "Vamos de Tiago 2:17 para Hebreus 10:23.", trans
+            "Vamos de Tiago 2:17 para Hebreus 10:23.", dev
         )
         assertTrue(r.leakedReferences.contains("Hebreus 10:23"))
         assertTrue(r.inventedReferences.isEmpty())
@@ -227,4 +230,32 @@ Testar refs abreviadas.
         assertTrue(r.inventedReferences.contains("Gênesis 1:1"))
     }
 
+    // ---------- F2 — escopo de refs por modo (P2-FIX): `spec.next` só em TRANSITION ----------
+
+    @Test
+    fun f2_development_naoAutorizaRefsDoTopicoSeguinte() {
+        // F2 — DEVELOPMENT: refs de spec.next NÃO são autorizados pelo gate.
+        val r = OratoryFidelityCheck.check("Ele leu Hebreus 10:23 na parte de Jeová.", spec(Mode.DEVELOPMENT))
+        assertFalse(r.ok)
+    }
+
+    @Test
+    fun f2_introduction_conclusion_restringemEscopo() {
+        // F2 — INTRODUCTION: refs de outros tópicos não são autorizados.
+        val rInt = OratoryFidelityCheck.check("Ele leu Hebreus 10:23.", spec(Mode.INTRODUCTION))
+        assertFalse(rInt.ok)
+        // F2 — CONCLUSION: refs de outros tópicos (incl. next) não são autorizados.
+        val rCon = OratoryFidelityCheck.check("Tiago 2:17 mostra que a fé age.", spec(Mode.CONCLUSION))
+        assertFalse(rCon.ok)
+    }
+
+    @Test
+    fun f2_transition_autorizaAmbosTopicos() {
+        // F2 — TRANSITION: refs de current + next são autorizados (escopo do prompt).
+        val r = OratoryFidelityCheck.check(
+            "Tiago 2:17 mostra que a fé age. Ele leu Hebreus 10:23 no ponto seguinte.",
+            spec(Mode.TRANSITION),
+        )
+        assertTrue(r.ok)
+    }
 }

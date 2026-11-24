@@ -6,6 +6,7 @@ import com.bettertalker.app.data.s34.S34RefType
 import com.bettertalker.app.data.s34.S34Section
 import com.bettertalker.app.data.s34.S34StructuralRetrieval
 import com.bettertalker.app.data.util.normalizeText
+import com.bettertalker.app.domain.planning.Dossier
 import com.bettertalker.app.domain.planning.SpeechPacing
 
 /**
@@ -85,6 +86,59 @@ object OratoryGeneration {
         (spec.current?.references.orEmpty() + spec.next?.references.orEmpty())
             .mapNotNull { it.text?.takeIf { t -> t.isNotBlank() } }
             .distinct()
+
+    /**
+     * P7 — fontes documentais ELEGÍVEIS para o corpus factual do gate
+     * oratório. O corpus factual de um gate oratório só aceita fonte
+     * tipada e recuperada:
+     * - textos de Bíblia/publicações recuperados no dossiê compatível
+     *   (`recoveredDocumentsFromDossier`); passagens marcadas como
+     *   PARCIAIS ficam FORA do corpus integral — "uma passagem parcial
+     *   não promove documento completo";
+     * - textos recuperados dos refs do SPEC do S-34 (os textos que o
+     *   modelo vê no `buildCardPrompt`), identificados pela rótulo do
+     *   S-34 (`recoveredDocumentFromPassage`), conforme o escopo por
+     *   modo (P7.1): DEVELOPMENT, INTRODUCTION e CONCLUSION levam refs
+     *   de `spec.current`; TRANSITION leva `spec.current` +
+     *   `spec.next` (o único modo onde o prompt apresenta refs de outro
+     *   tópico).
+     *
+     * Explicitamente NÃO é evidência factual: o dossiê inteiro como
+     * texto (`contextBlock` — contém estrutura, nota editorial, memória
+     * canônica, acordos com o usuário, memória de redação, contexto de
+     * prática), o texto do editor e o contexto de prática — todos
+     * continuam no prompt como contexto (`userContextBlock`/
+     * `structural`), nunca como prova. Puro/testável: sem rede, LLM,
+     * Room.
+     */
+    internal fun oruaryDocumentarySources(
+        dossier: Dossier?,
+        spec: Spec,
+        /** Identidade explícita da seção resolvida no call site (P4-FIX). */
+        resolvedSectionId: String?,
+    ): List<RecoveredDocument> {
+        // P7.1 — escopo documental por modo: o prompt de gerção apresenta
+        // refs do tópico SEGUINTE somente no TRANSITION (`buildCardPrompt`);
+        // em outros modos, refs de outro tópico NÃO podem validar citações
+        // no atual — o corpus é do tópico efetivo (`spec.current`).
+        val specRefs = when (spec.mode) {
+            Mode.TRANSITION -> spec.current?.references.orEmpty() + spec.next?.references.orEmpty()
+            else -> spec.current?.references.orEmpty()
+        }
+        // P4-FIX — identidade documental = seção RESOLVIDA, explicitada
+        // pelo call site; NÃO `spec.current` (em INTRO/CONCLUSION ele é o
+        // primeiro/último ponto, enquanto o dossiê é da intro/conclusão).
+        // Fail-closed: sem id resolvido, nenhum documento de dossiê entra.
+        val dossierDocs = dossier
+            ?.takeIf { d -> resolvedSectionId != null && d.currentSection.id == resolvedSectionId }
+            ?.let { recoveredDocumentsFromDossier(it).filter { d -> d.isDocumentaryEligible() } }
+            .orEmpty()
+        return dossierDocs +
+            specRefs
+                .filter { it.text != null }
+                .mapNotNull { r -> recoveredDocumentFromPassage(r.label, r.text!!) }
+                .distinctBy { it.sourceId }
+    }
 
     /**
      * Limite de palavras do prompt (#16-fix-c): duração REAL da seção ×
