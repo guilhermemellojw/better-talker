@@ -3,6 +3,8 @@
 
 This script never edits the strategic roadmap, marks milestones as completed,
 or performs GitHub writes. The workflow proposes the generated result as a PR.
+Operational metrics use only fields already returned by the GitHub API and a
+fixed reference derived from the dataset itself (never the wall clock).
 """
 
 from __future__ import annotations
@@ -11,15 +13,23 @@ import argparse
 import json
 import os
 import re
+import statistics
 import urllib.error
 import urllib.request
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 AUTOMATION_BRANCH = "automation/roadmap-status"
 TRACKS = ("Mentor", "Referências e UX", "TRUST", "Beta e infraestrutura", "Documentação", "Outros")
+MAX_PRS = 300
+
+APPROVED = {"success"}
+IGNORED = {"neutral", "skipped"}
+FAILED = {"failure", "timed_out", "cancelled", "action_required"}
+VOLATILE_LINE_PREFIX = "- `main` consultada:"
 
 
 def github_get(repo: str, path: str, token: str) -> Any:
@@ -79,20 +89,106 @@ def classify(pr: dict) -> str:
 
 
 def check_status(check_runs: list[dict] | None) -> str:
+    """Five distinct states; neutral/skipped are never counted as approval."""
     if not check_runs:
         return "Não verificado"
     if any(run.get("status") != "completed" for run in check_runs):
         return "Pendente"
     results = {run.get("conclusion") for run in check_runs}
-    if results <= {"success", "neutral", "skipped"}:
-        return "Verde"
-    if results & {"failure", "timed_out", "cancelled", "action_required"}:
+    if results & FAILED:
         return "Falhou"
+    if results <= IGNORED:
+        return "Ignorado (sem aprovação)"
+    if results <= APPROVED | IGNORED and results & APPROVED:
+        return "Verde" if results == APPROVED else "Verde (com ignorados)"
     return "Indefinido"
 
 
 def escape_cell(value: str) -> str:
     return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ").replace("`", "'").replace("<", "&lt;")
+
+
+def is_draft(pr: dict) -> bool:
+    return bool(pr.get("draft"))
+
+
+def parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def collection_window(pulls: list[dict]) -> tuple[datetime | None, datetime | None]:
+    stamps = [s for s in (parse_timestamp(p.get("updated_at")) for p in pulls) if s is not None]
+    if not stamps:
+        return None, None
+    return min(stamps), max(stamps)
+
+
+def window_text(pulls: list[dict]) -> str:
+    start, end = collection_window(pulls)
+    if start is None or end is None:
+        return "indisponível (datas de atualização ausentes)"
+    return f"{start.date().isoformat()} a {end.date().isoformat()}"
+
+
+def _median_days(values: list[float]) -> str:
+    if not values:
+        return "indisponível"
+    return f"{statistics.median(values):.1f} dias"
+
+
+def render_metrics(pulls: list[dict], pr_checks: dict[str, list[dict]], window: str) -> list[str]:
+    """Only dataset-derived fields; no wall clock and no invented estimates."""
+    open_prs = [p for p in pulls if p.get("state") == "open"]
+    drafts = [p for p in open_prs if is_draft(p)]
+    merged = [p for p in pulls if p.get("merged_at")]
+
+    periods: Counter[str] = Counter()
+    for pr in merged:
+        stamp = parse_timestamp(pr.get("merged_at"))
+        if stamp:
+            periods[stamp.strftime("%Y-%m")] += 1
+
+    durations: list[float] = []
+    for pr in merged:
+        created = parse_timestamp(pr.get("created_at"))
+        finished = parse_timestamp(pr.get("merged_at"))
+        if created and finished and finished >= created:
+            durations.append((finished - created).total_seconds() / 86400)
+
+    _, reference = collection_window(pulls)
+    ages: list[float] = []
+    for pr in open_prs:
+        created = parse_timestamp(pr.get("created_at"))
+        if created and reference and reference >= created:
+            ages.append((reference - created).total_seconds() / 86400)
+
+    states: Counter[str] = Counter(
+        check_status(pr_checks.get((pr.get("head") or {}).get("sha") or "")) for pr in open_prs
+    )
+
+    lines = [
+        "## Métricas operacionais observáveis", "",
+        f"- Janela efetiva da coleta: {window} (até {MAX_PRS} PRs, ordenados por `updated_at`).",
+        f"- PRs abertos: **{len(open_prs)}**; desses, Drafts: **{len(drafts)}**.",
+        f"- Integrações por período (mês UTC, somente períodos presentes na janela): "
+        + (", ".join(f"{month}={periods[month]}" for month in sorted(periods, reverse=True)) if periods else "indisponível")
+        + ".",
+        f"- Mediana abertura → merge: {_median_days(durations)} (PRs com ambas as datas).",
+        f"- Mediana de idade dos PRs abertos: {_median_days(ages)} "
+        + (f"(referência fixa: {reference.date().isoformat()})." if reference else "(referência indisponível)."),
+        "- Estados de check dos PRs abertos: "
+        + (", ".join(f"{state}={states[state]}" for state in sorted(states)) if states else "indisponível")
+        + ".",
+        "- Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.",
+        "- Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.",
+        "",
+    ]
+    return lines
 
 
 def render_status(
@@ -115,6 +211,8 @@ def render_status(
         state = "Aberto" if p.get("state") == "open" else "Integrado" if p.get("merged_at") else "Fechado sem merge"
         by_track[classify(p)][state] += 1
 
+    report_window = window_text(all_pulls)
+
     lines = [
         "# Better Talker — Progresso do GitHub",
         "",
@@ -125,7 +223,7 @@ def render_status(
         f"- `main` consultada: `{main_sha}`",
         f"- Checks da `main` consultada: **{check_status(main_runs)}**",
         f"- PRs encontrados na janela de consulta: **{len(all_pulls)}** "
-        "(até 300, ordenados por atualização; não é histórico completo se houver mais)",
+        f"(até {MAX_PRS}, ordenados por atualização; não é histórico completo se houver mais), {report_window}.",
         "- PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.",
         "- CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.",
         "",
@@ -143,8 +241,9 @@ def render_status(
         number = p["number"]
         sha = (p.get("head") or {}).get("sha") or ""
         title = escape_cell(p.get("title", ""))
+        draft = " (Draft)" if is_draft(p) else ""
         status = check_status(pr_checks.get(sha))
-        lines.append(f"| [#{number} — {title}](https://github.com/{repo}/pull/{number}) | {classify(p)} | `{sha[:12]}` | {status} |")
+        lines.append(f"| [#{number} — {title}{draft}](https://github.com/{repo}/pull/{number}) | {classify(p)} | `{sha[:12]}` | {status} |")
     if not opened:
         lines.append("| Nenhum na janela consultada | — | — | — |")
 
@@ -157,17 +256,20 @@ def render_status(
     if not merged:
         lines.append("| Nenhuma na janela consultada | — | — |")
 
-    lines.extend([
-        "", "## Interpretação e próximos gates", "",
+    lines.extend(["", "## Interpretação e próximos gates", "",
         "- **Em andamento:** PR aberto exige revisão de diff, checks no HEAD e decisão do mantenedor.",
         "- **Integrado:** merge confirmado; conferir CI no SHA da `main` e, quando pertinente, smoke test Android.",
         "- **Beta:** readiness, qualidade factual da TNM/jw.org, acessibilidade, custos e distribuição "
         "exigem critérios de aceite próprios. Não são inferidos de contagens de PRs.",
         "- **Fonte de planejamento:** `docs/ROADMAP.md` (quando aprovado e integrado). "
         "Este arquivo é um painel factual auxiliar; ele não muda prioridades, estimativas ou marcos.",
-        "", "## Limitações da coleta", "",
+        "",
+    ])
+    lines.extend(render_metrics(all_pulls, pr_checks, report_window))
+    lines.extend([
+        "## Limitações da coleta", "",
         "- Classificação de frente é heurística, salvo label `roadmap:*`; confirmar na revisão.",
-        "- Checks não encontrados são marcados *Não verificado*, nunca como aprovação.",
+        "- Checks não encontrados são marcados *Não verificado*, nunca como aprovação; `neutral`/`skipped` são *Ignorado (sem aprovação)*.",
         f"- Fechados sem merge na janela: {len(abandoned)}. "
         "O histórico completo e os resultados por execução estão no GitHub Actions.",
         "- O conteúdo só é atualizado quando uma proposta automática é revisada e integrada.",
@@ -176,11 +278,36 @@ def render_status(
     return "\n".join(lines)
 
 
+def normalize_report(text: str) -> str:
+    """Strip the provenance line whose only change is the merged main SHA."""
+    return "\n".join(line for line in text.splitlines() if not line.startswith(VOLATILE_LINE_PREFIX))
+
+
+def has_material_change(new_text: str, old_text: str) -> bool:
+    return normalize_report(new_text) != normalize_report(old_text)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--compare", nargs=2, metavar=("NEW", "OLD"),
+                        help="exit 0 only when NEW differs materially from OLD")
     args = parser.parse_args()
+
+    if args.compare:
+        new_path, old_path = (Path(p) for p in args.compare)
+        new_text = new_path.read_text(encoding="utf-8")
+        try:
+            old_text = old_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            old_text = ""
+        changed = has_material_change(new_text, old_text)
+        print("CHANGE" if changed else "NO_CHANGE")
+        return 0 if changed else 1
+
+    if not args.output:
+        parser.error("--output é obrigatório fora do modo --compare")
     if not REPOSITORY_PATTERN.fullmatch(args.repo):
         parser.error("--repo deve usar o formato owner/repo")
     token = os.environ.get("GITHUB_TOKEN", "")

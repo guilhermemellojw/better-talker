@@ -6,6 +6,9 @@ on:
     - cron: '17 4 * * *'
   push:
     branches: [main]
+    # A merge que só integra o relatório gerado não deve disparar nova proposta.
+    paths-ignore:
+      - 'docs/ROADMAP_STATUS.md'
   pull_request_target:
     types: [opened, reopened, synchronize, edited, closed, ready_for_review]
   workflow_run:
@@ -25,8 +28,11 @@ jobs:
   propose:
     # Only the trusted main-branch code is executed. No checkout of PR code.
     if: >-
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event_name != 'pull_request_target' ||
+       github.event.pull_request.head.ref != 'automation/roadmap-status') &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch != 'automation/roadmap-status'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout trusted main
@@ -46,7 +52,22 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --output "$RUNNER_TEMP/ROADMAP_STATUS.md"
 
+      - name: Ignore provenance-only changes
+        id: material
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet
+          git show origin/main:docs/ROADMAP_STATUS.md > "$RUNNER_TEMP/current.md" || : > "$RUNNER_TEMP/current.md"
+          if python3 scripts/roadmap_status.py --compare \
+              "$RUNNER_TEMP/ROADMAP_STATUS.md" "$RUNNER_TEMP/current.md"; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Sem mudança material além da proveniência; nenhuma proposta.'
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create or update the documentation proposal
+        if: steps.material.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: automation/roadmap-status
