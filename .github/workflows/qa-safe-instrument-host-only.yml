@@ -89,6 +89,9 @@ jobs:
             "$OVERLAY/scripts/lib/qa-common.sh"
           echo "DEBUG_KEYSTORE=$KS" >> "$GITHUB_ENV"
           echo "QA_OVERLAY=$OVERLAY" >> "$GITHUB_ENV"
+          # Mesmas ferramentas usadas pela matriz, exportadas para o executor.
+          echo "AAPT2=$(ls -1 "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | tail -1)" >> "$GITHUB_ENV"
+          echo "APKSIGNER=$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -1)" >> "$GITHUB_ENV"
           echo "certificado da fixture: $CERT"
 
       - name: Matriz host-only (50 cenários + autoteste do mock)
@@ -99,6 +102,18 @@ jobs:
             2>&1 | tee matrix-host-only.log
           grep -qF 'MATRIZ OK: todos os cenários passaram' matrix-host-only.log
           grep -qF 'PASS mock-old-quoting' matrix-host-only.log
+
+      - name: Diagnóstico em caso de falha da matriz
+        if: failure()
+        run: |
+          set -uo pipefail
+          W="$(grep -m1 '^workdir:' matrix-host-only.log 2>/dev/null | awk '{print $2}')"
+          [ -n "$W" ] || exit 0
+          for f in "$W"/out/*.log; do
+            [ -f "$f" ] || continue
+            echo "===== $(basename "$f")"
+            head -20 "$f"
+          done
 
       - name: Controle negativo de propagação de falha
         run: |
