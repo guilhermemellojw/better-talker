@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#55 — docs(governance): carta do coordenador e registro de decisões (COORD-02) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/55) | Documentação | `23d4b2d82eab` | Pendente |
+| [#55 — docs(governance): carta do coordenador e registro de decisões (COORD-02) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/55) | Documentação | `224964b01ad5` | Pendente |
 | [#53 — feat(ux-simple-p1): simplificar consulta documental no leitor](https://github.com/guilhermemellojw/better-talker/pull/53) | Referências e UX | `3164206919e0` | Verde |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | `4de613aceb6d` | Falhou |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
@@ -73,7 +73,7 @@
 - PRs abertos: **5**; desses, Drafts: **3**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=47.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-24).
+- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-24).
 - Estados de check dos PRs abertos: Falhou=1, Não verificado=2, Pendente=1, Verde=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
