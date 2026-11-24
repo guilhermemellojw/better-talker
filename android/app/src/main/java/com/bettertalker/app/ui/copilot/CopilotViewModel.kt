@@ -39,6 +39,10 @@ import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
 import com.bettertalker.app.data.copilot.CardOrigin
 import com.bettertalker.app.data.copilot.CardPayload
+import com.bettertalker.app.data.copilot.cardTargetKey
+import com.bettertalker.app.data.copilot.ConversationalReferentRecovery
+import com.bettertalker.app.data.copilot.ConversationalReferentResolver
+import com.bettertalker.app.data.copilot.MentorContinuityRouting
 import com.bettertalker.app.data.copilot.CardStatus
 import com.bettertalker.app.data.copilot.CardSuggestedAction
 import com.bettertalker.app.data.copilot.CardTarget
@@ -1785,6 +1789,9 @@ class CopilotViewModel(
     private var currentTurnId: String? = null
     /** Card-first: alvo capturado no início da geração, nunca no clique. */
     private var activeCardTarget: CardTarget? = null
+    /** P9 — origem volátil da sugestão; nunca persiste nem é reconstruída. */
+    private var lastSuggestionNoteId: String? = null
+    private var lastSuggestionScopeId: String? = null
     private data class CardUndoSnapshot(
         val targetKind: CardTargetKind,
         val targetId: String,
@@ -2443,6 +2450,8 @@ class CopilotViewModel(
 
     fun dismissNextStepSuggestion() {
         _nextStepSuggestion.value = null
+        lastSuggestionNoteId = null
+        lastSuggestionScopeId = null
     }
 
     /**
@@ -3215,6 +3224,9 @@ class CopilotViewModel(
             return
         }
         _nextStepSuggestion.value = suggestion
+        // P9 — origem volátil: sem estes metadados a sugestão não é referente.
+        lastSuggestionNoteId = nid
+        lastSuggestionScopeId = _chatScope.value
         postText("Próximo passo: ${suggestion.label.lowercase()}.", MessageOrigin.LOCAL)
     }
 
@@ -4189,8 +4201,16 @@ class CopilotViewModel(
             _sourcesNeeded.value = null
         }
         lastUserMessage = text
+        // P9 — capta a sugestão ANTES de invalidá-la: origem é volátil.
+        val pendingSuggestion = if (postUserMessage) _nextStepSuggestion.value else null
+        val pendingSuggestionNoteId = lastSuggestionNoteId
+        val pendingSuggestionScope = lastSuggestionScopeId
         // Fatia 4: uma nova fala invalida a sugestão de próximo passo.
-        if (postUserMessage) _nextStepSuggestion.value = null
+        if (postUserMessage) {
+            _nextStepSuggestion.value = null
+            lastSuggestionNoteId = null
+            lastSuggestionScopeId = null
+        }
         currentGenerationJob = viewModelScope.launch {
             // 6.0.2: pedido explícito (“desenvolva o ponto 2”) nasce no ponto
             // 2 — o chip, o Contexto, o histórico e o card usam o mesmo escopo.
@@ -4217,6 +4237,64 @@ class CopilotViewModel(
             // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
             val historyBefore = historyOverride ?: conversationTurnsScoped()
             val isFirst = historyBefore.none { it.fromMe }
+
+            // ---- P9 — integração conversacional (contratos puros #47/#51) ----
+            // Coleta estado real; composição e decisão são puras e testáveis.
+            // Nada aqui transforma histórico/memória em evidência documental.
+            val continuity = runCatching {
+                val nid = noteId ?: return@runCatching null
+                val focus = if (_focusMode.value == FocusMode.WHOLE)
+                    ConversationalReferentResolver.Focus.WHOLE
+                else ConversationalReferentResolver.Focus.SECTION
+                val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
+                    null else (turnScope ?: _chatScope.value)
+                val persisted = db.chatDao().all(nid).map { e ->
+                    ConversationalReferentRecovery.Message(
+                        id = e.id, noteId = e.noteId, sectionId = e.sectionId,
+                        payload = ChatCodec.unescMap(e.payload),
+                        createdAt = e.createdAt, active = e.isActive,
+                    )
+                }
+                val targetStates = buildMap {
+                    persisted.forEach { m ->
+                        val card = CardPayload.fromMap(m.payload) ?: return@forEach
+                        val key = cardTargetKey(card) ?: return@forEach
+                        val id = card.targetId ?: return@forEach
+                        val hash = when (card.targetKind) {
+                            CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let { hashText(it.contentHtml) }
+                            CardTargetKind.NOTE -> db.noteDao().get(id)?.let { hashText(it.richHtml) }
+                            else -> null
+                        }
+                        put(key, ConversationalReferentRecovery.TargetState(exists = hash != null, currentHash = hash))
+                    }
+                }
+                MentorContinuityRouting.plan(
+                    request = text, noteId = nid, scope = scope, focus = focus,
+                    messages = persisted, targets = targetStates,
+                    suggestion = pendingSuggestion,
+                    suggestionNoteId = pendingSuggestionNoteId,
+                    suggestionSectionId = pendingSuggestionScope,
+                    lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
+                    sectionTitles = _guideSections.value.associate { it.id to it.title },
+                )
+            }.getOrNull()
+            when (val action = continuity?.action) {
+                is MentorContinuityRouting.Action.DeepenCard ->
+                    answerAsk(action.topic).also { return@launch }
+                is MentorContinuityRouting.Action.ExplainSuggestion -> {
+                    postText("Próximo passo: ${action.detail.ifBlank { action.label }}.", MessageOrigin.LOCAL)
+                    return@launch
+                }
+                is MentorContinuityRouting.Action.ExplainActiveSection ->
+                    answerAsk(action.title).also { return@launch }
+                is MentorContinuityRouting.Action.Clarify -> {
+                    postText("Não identifiquei com segurança o que aprofundar. ${action.reason}", MessageOrigin.LOCAL)
+                    return@launch
+                }
+                else -> Unit // ProceedNormal — fluxo existente integralmente preservado
+            }
+            // ---- fim P9 ----
+
             // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
             // que o rótulo anuncia — sem rotular bloco de "seleção".
             // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
