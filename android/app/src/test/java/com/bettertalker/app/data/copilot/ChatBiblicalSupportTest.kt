@@ -105,8 +105,22 @@ class ChatBiblicalSupportTest {
         val notice = ChatBiblicalSupport.noticeWithBiblicalSafety("⚠️ Revise: x", "Em Mateus 27:26 disse", emptyList())
         assertNotNull(notice)
         assertTrue(notice!!.startsWith("⚠️ Revise: x"))
+        assertTrue(notice.contains("bíblicas sem retorno do acervo local"))
         val noticeBible = ChatBiblicalSupport.noticeWithBiblicalSafety(null, "Em Mateus 27:26 disse", emptyList())
         assertNotNull(noticeBible)
+    }
+
+    @Test
+    fun controle10_avisoPrevioNaoSuprimeAvisoBiblico() {
+        // Parecer QA-TRUST-P0A-48: com aviso prévio o aviso bíblico era
+        // suprimido (2 falhas em 3 sondas). Ambos devem ser exibidos.
+        val answer = "Em Mateus 27:26, \"trecho sem apoio no acervo com mais de vinte caracteres\"."
+        val corpus = listOf("Texto de outra fonte sem relação com a citação")
+        val outcome = verifyChatText(answer, corpus)
+        assertNotNull(outcome.notice)
+        assertTrue(outcome.notice!!.contains("⚠️ Revise"))
+        assertTrue(outcome.notice!!.contains("bíblicas sem retorno do acervo local"))
+        assertTrue(outcome.notice!!.contains("Mateus 27:26"))
     }
 
     // ---------- Repro P0 (fails BEFORE the integration, passes after) ----------

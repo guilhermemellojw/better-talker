@@ -68,7 +68,10 @@ object ChatBiblicalSupport {
         answer: String,
         corpus: List<String>,
     ): String? {
-        val biblicalNotice = if (existingNotice == null) notice(biblicalGaps(answer, corpus)) else null
+        // QA-TRUST-P0A-48 (controle 10): o aviso bíblico NÃO pode ser
+        // suprimido quando já existe outro aviso no turno — sempre calcular
+        // e concatenar (um único separador).
+        val biblicalNotice = notice(biblicalGaps(answer, corpus))
         return listOfNotNull(existingNotice, biblicalNotice).joinToString("\n\n").ifBlank { null }
     }
 }

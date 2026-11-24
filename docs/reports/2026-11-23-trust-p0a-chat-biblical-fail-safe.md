@@ -69,9 +69,17 @@ Novo objeto puro `ChatBiblicalSupport` (data/copilot) — P0:
 - PR #44 (Agente D, OPEN) — desacoplado.
 - PRs #36/#37 (MERGED) — infra base.
 
+## P0A-FIX-48 — correção do parecer QA-TRUST-P0A-48 (controle 10)
+
+- Falha reproduzida pelo auditor: `noticeWithBiblicalSafety()` só calculava o aviso bíblico quando `existingNotice == null` — com aviso prévio o texto determinístico era suprimido (2 falhas em 3 sondas).
+- Correção mínima: `val biblicalNotice = notice(biblicalGaps(answer, corpus))` (sem condicional) + concatenação com `existingNotice` (separador `\n\n`).
+- Testes: `noticeWithBiblicalSafety_uneAvisos` reforçado (ambos os avisos presentes) + `controle10_avisoPrevioNaoSuprimeAvisoBiblico` (via `verifyChatText` com corpus não vazio que gera aviso prévio). `ChatBiblicalSupportTest`: 16/16 PASS.
+- Sincronização: `origin/main` mergeado na branch (merge convencional, sem rebase) — inclui PR #43 certificado e gate androidTest do CI.
+- Recertificação: solicitar ao Agente E/QA independente; não autocertificar.
+
 ## H. Veredito
 
-**PRONTO PARA REVIEW.**
+**CORRIGIDO — AGUARDANDO REVALIDAÇÃO INDEPENDENTE.**
 
 - HEAD P0A: `b56715de585a50be67be6e5578b304b88348e359` — **CI push: success/completed** (id 45280022841).
 - Testes JVM + instrumentado compilado: PASS.
