@@ -1,0 +1,85 @@
+name: QA safe instrument (host-only)
+
+# Validação do executor seguro SEM dispositivo: ADB simulado, APKs de fixture
+# gerados no workdir e nenhuma chamada a connected*AndroidTest.
+
+on:
+  push:
+    paths:
+      - 'scripts/safe-instrument.sh'
+      - 'scripts/lib/**'
+      - 'scripts/preflight-install.sh'
+      - 'scripts/tests/**'
+      - '.github/workflows/qa-safe-instrument-host-only.yml'
+      - 'docs/qa-safe-instrument.md'
+  pull_request:
+    paths:
+      - 'scripts/safe-instrument.sh'
+      - 'scripts/lib/**'
+      - 'scripts/preflight-install.sh'
+      - 'scripts/tests/**'
+      - '.github/workflows/qa-safe-instrument-host-only.yml'
+      - 'docs/qa-safe-instrument.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-safe-instrument-host-only
+  cancel-in-progress: false
+
+jobs:
+  host-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17 (keytool/apksigner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Verificar ferramentas e ausência de ADB real
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-ausente}"
+          command -v sqlite3
+          command -v keytool
+          # A matriz usa exclusivamente $WORK/bin/adb (mock). Falhar se o
+          # executor tentar usar um ADB do PATH do runner.
+          if command -v adb >/dev/null 2>&1; then
+            echo "AVISO: adb no PATH; a matriz substitui PATH por \$WORK/bin/adb (mock)."
+          fi
+
+      - name: Sintaxe bash dos scripts do executor
+        run: |
+          set -euo pipefail
+          bash -n scripts/safe-instrument.sh
+          bash -n scripts/lib/qa-common.sh
+          bash -n scripts/preflight-install.sh
+          bash -n scripts/tests/mock-adb.sh
+          bash -n scripts/tests/safe-instrument-matrix.sh
+          bash -n scripts/tests/host-only-negative-control.sh
+
+      - name: Matriz host-only (50 cenários + autoteste do mock)
+        run: |
+          set -o pipefail
+          scripts/tests/safe-instrument-matrix.sh 2>&1 | tee matrix-host-only.log
+          grep -qF 'MATRIZ OK: todos os cenários passaram' matrix-host-only.log
+          grep -qF 'PASS mock-old-quoting' matrix-host-only.log
+
+      - name: Controle negativo de propagação de falha
+        run: |
+          set -euo pipefail
+          scripts/tests/host-only-negative-control.sh
+
+      - name: Upload do log host-only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-safe-instrument-host-only
+          path: matrix-host-only.log
+          if-no-files-found: ignore

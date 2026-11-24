@@ -131,6 +131,26 @@ Instalar o APK de teste com `adb install -r` **substitui** o APK de teste
 instalado (versão/hash podem mudar). Isso é esperado e não afeta os dados do
 app; o APK do app é restaurado pelo rollback em caso de falha.
 
+### 5.1 O que o rollback recupera — e o que não recupera
+
+**Recupera:** o APK debug anterior (`results/rollback/base-antes.apk`, reinstalado
+com `install -r`), o IME original, o estado de execução do app (relançado quando
+estava rodando) e os arquivos de evidência do próprio executor (snapshots,
+fingerprints, logs de cleanup e os marcadores `*-FALHOU.txt`).
+
+**Não recupera:** arquivos grandes de publicações (`files/publicacoes/*`), imagens
+da nota, preferências/DataStore sobrescritos, banco modificado por terceiros
+durante a janela, nem qualquer dado fora do pacote debug. O snapshot é uma
+**cópia de verificação**: ele detecta divergência pelo fingerprint lógico e
+aborta, mas não restaura o banco automaticamente. A restauração de dados do
+acervo depende do backup próprio do aplicativo e está fora do escopo do executor.
+O APK de teste substituído não é restaurado — apenas o APK do app é objeto do
+rollback. A release `com.bettertalker.app` nunca é instalada, limpa ou
+substituída; nenhuma ação de recuperação a modifica.
+
+**Fail-closed:** rollback malsucedido produz `ROLLBACK FALHOU`, exit não-zero e
+`results/ROLLBACK-FALHOU.txt`; falha de cleanup nunca gera `PASS`.
+
 ## 6. Testes adversariais do executor
 
 | Cenário | Esperado | Obtido |
