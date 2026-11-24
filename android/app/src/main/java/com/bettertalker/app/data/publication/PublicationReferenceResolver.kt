@@ -219,6 +219,7 @@ class PublicationReferenceResolver(
             paragraphEnd = detected.paragraphEnd,
             sourcePassageId = resolved.passageId,
             recoveredText = resolved.text,
+            structuralTruncated = wasTruncated(resolved),
             partial = resolved.status == ReferenceStatus.PARTIAL,
             // O resolvedor devolve `text` limitado e, em alguns caminhos,
             // `fullText` integral. Se o texto entregue é menor — ou bateu

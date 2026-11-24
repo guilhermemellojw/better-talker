@@ -1518,7 +1518,7 @@ private fun NoteChatHost(
                                 },
                                 body = result.target.recoveredText.orEmpty(),
                                 status = com.bettertalker.app.data.planning.SourceReaderStatus.READY,
-                                truncated = result.target.truncated,
+                                truncated = result.target.truncated || result.target.structuralTruncated,
                             ),
                         )
                         publicationNotice = null
@@ -1548,7 +1548,7 @@ private fun NoteChatHost(
                                 body = result.target.recoveredText.orEmpty(),
                                 status = com.bettertalker.app.data.planning.SourceReaderStatus.PARTIAL,
                                 reason = result.warning,
-                                truncated = result.target.truncated,
+                                truncated = result.target.truncated || result.target.structuralTruncated,
                             ),
                         )
                         publicationNotice = null
