@@ -115,7 +115,7 @@ jobs:
       - name: Matriz host-only (50 cenários + autoteste do mock)
         run: |
           set -o pipefail
-          ( cd "$QA_OVERLAY" && DEBUG_KEYSTORE="$DEBUG_KEYSTORE" \
+          ( cd "$QA_OVERLAY" && KEEP=1 DEBUG_KEYSTORE="$DEBUG_KEYSTORE" \
               ./scripts/tests/safe-instrument-matrix.sh ) \
             2>&1 | tee matrix-host-only.log
           grep -qF 'MATRIZ OK: todos os cenários passaram' matrix-host-only.log
