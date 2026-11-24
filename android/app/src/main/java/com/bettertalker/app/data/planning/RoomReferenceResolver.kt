@@ -162,7 +162,11 @@ class RoomReferenceResolver(
             null
         }
         val finalRows = focused ?: chosen
-        val text = if (focused == null && chosen.joinToString(" ").length > MAX_UNIT_CHARS) {
+        val sliceText = chosen.joinToString(" ") { it.text }.trim()
+        val structuralTruncated = slice.size >= UNIT_PASSAGES &&
+            (unitDao?.unitAt(hit.id, slice.last().ord)?.endOrd ?: slice.lastOrNull()?.ord ?: 0) > (slice.lastOrNull()?.ord ?: 0)
+        val fullTextValue = if (structuralTruncated) "$sliceText …" else sliceText
+        val text = if (focused == null && sliceText.length > MAX_UNIT_CHARS) {
             headTailText(chosen)
         } else {
             finalRows.joinToString(" ") { it.text }.trim().take(MAX_UNIT_CHARS)
@@ -191,7 +195,7 @@ class RoomReferenceResolver(
             } else {
                 ReferenceStatus.PARTIAL
             },
-            fullText = chosen.joinToString(" ") { it.text }.trim(),
+            fullText = fullTextValue,
         )
     }
 
