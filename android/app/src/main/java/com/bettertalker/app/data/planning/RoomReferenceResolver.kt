@@ -129,8 +129,9 @@ class RoomReferenceResolver(
             return resolveByPageParagraph(ref, hit)
         }
 
-        val slice = unitSliceOf(passageDao, hit.id, needle, rawNeedle, unitDao)
+        val sliceResult = unitSliceOfDetailed(passageDao, hit.id, needle, rawNeedle, unitDao)
             ?: return ResolvedReference(ref.symbol, null, null, null, ReferenceStatus.UNRESOLVED)
+        val slice = sliceResult.rows
 
         // 3. Parágrafo: exato quando o índice tem numeração (T4); senão a
         //    unidade inteira (PARTIAL — texto real, recorte aproximado).
@@ -163,11 +164,7 @@ class RoomReferenceResolver(
         }
         val finalRows = focused ?: chosen
         val sliceText = chosen.joinToString(" ") { it.text }.trim()
-        val structuralTruncated = slice.size >= UNIT_PASSAGES && (
-            unitDao == null ||
-                (unitDao.unitAt(hit.id, slice.last().ord)?.endOrd
-                    ?: slice.lastOrNull()?.ord ?: 0) > (slice.lastOrNull()?.ord ?: 0)
-        )
+        val structuralTruncated = sliceResult.truncated
         val fullTextValue = if (structuralTruncated) "$sliceText …" else sliceText
         val text = if (focused == null && sliceText.length > MAX_UNIT_CHARS) {
             headTailText(chosen)
@@ -501,16 +498,22 @@ internal const val MAX_UNIT_CHARS = 4000
  * conteúdo) — antes o chat carregava o anexo inteiro (LIMIT 500) e dava
  * falso aviso "sem fonte".
  */
-internal suspend fun unitSliceOf(
+internal data class UnitSliceResult(
+    val rows: List<PassageEntity>,
+    val truncated: Boolean,
+)
+
+/**
+ * Versão detalhada de [unitSliceOf]: carrega até UNIT_PASSAGES+1 passagens
+ * (sentinela) para distinguir recuperação completa de recuperação limitada.
+ */
+internal suspend fun unitSliceOfDetailed(
     passageDao: PassageDao,
     attachmentId: String,
     needleNorm: String,
     rawNeedle: String,
     unitDao: com.bettertalker.app.data.db.PublicationUnitDao? = null,
-): List<PassageEntity>? {
-    // 0. Unidade estrutural indexada (publication_units): quando ela existe e
-    //    casa de forma inequívoca com o alvo, usa seus limites reais em vez
-    //    de considerar uma consulta bySection esparsa como conteúdo integral.
+): UnitSliceResult? {
     if (unitDao != null) {
         val needles = sectionNeedles(rawNeedle)
             .map(::normalizeText)
@@ -530,16 +533,11 @@ internal suspend fun unitSliceOf(
                 number != null && number == requestedNumber
             }
         }
-        // A identidade estrutural confiável é o canonicalKey sem repetição
-        // (#2, #3...). A unidade canônica é a primeira ocorrência; fragmentos
-        // posteriores não podem substituir o capítulo principal.
         val canonicalMatches = matching.filter { unit ->
             !unit.canonicalKey.contains("#")
         }
         val hasStructuralCandidate = matching.isNotEmpty()
         val selectedUnit = when {
-            // Referência sem número: não selecionar silenciosamente entre
-            // unidades homônimas; exige correspondência única.
             requestedNumber == null -> if (matching.size == 1) matching.single() else null
             canonicalMatches.size == 1 -> canonicalMatches.single()
             canonicalMatches.isEmpty() && matching.size == 1 -> matching.single()
@@ -549,31 +547,36 @@ internal suspend fun unitSliceOf(
             val startOrd = selectedUnit.startOrd
             val endOrd = selectedUnit.endOrd
             if (startOrd == null || endOrd == null || startOrd > endOrd) {
-                // Unidade estrutural inválida: não cair em fallback esparso.
                 if (hasStructuralCandidate) return null
             } else {
                 val rows = passageDao.betweenOrd(
                     attachmentId,
                     startOrd,
                     endOrd,
-                    UNIT_PASSAGES,
+                    UNIT_PASSAGES + 1,
                 )
-                if (rows.isNotEmpty()) return rows
-                // Intervalo estrutural sem passagens: não mascarar com fallback.
-                if (hasStructuralCandidate) return null
+                if (rows.isEmpty()) {
+                    if (hasStructuralCandidate) return null
+                } else {
+                    return UnitSliceResult(
+                        rows = rows.take(UNIT_PASSAGES),
+                        truncated = rows.size > UNIT_PASSAGES,
+                    )
+                }
             }
         }
-        // Sem unidade estrutural confiável: fallback legado apenas se não
-        // houve candidato estrutural.
         if (hasStructuralCandidate) return null
     }
 
-    // 1. Seção indexada (pós-T4: "# Título" e capítulos por extenso).
     for (n in sectionNeedles(rawNeedle)) {
-        val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES)
-        if (bySection.isNotEmpty()) return bySection
+        val bySection = passageDao.bySection(attachmentId, n, UNIT_PASSAGES + 1)
+        if (bySection.isNotEmpty()) {
+            return UnitSliceResult(
+                rows = bySection.take(UNIT_PASSAGES),
+                truncated = bySection.size > UNIT_PASSAGES,
+            )
+        }
     }
-    // 2. Passagem-título ("# Título") contendo o alvo.
     val candidates = passageDao.searchLikeIn(listOf(attachmentId), needleNorm, UNIT_CANDIDATES)
     if (candidates.isEmpty()) return null
     val title = candidates.firstOrNull {
@@ -582,15 +585,42 @@ internal suspend fun unitSliceOf(
     }
     if (title != null) {
         val end = passageDao.nextTitleAfter(attachmentId, title.ord)?.ord ?: Int.MAX_VALUE
-        val slice = passageDao.betweenOrd(attachmentId, title.ord, end - 1, UNIT_PASSAGES)
-        if (slice.isNotEmpty()) return slice
+        val slice = passageDao.betweenOrd(attachmentId, title.ord, end - 1, UNIT_PASSAGES + 1)
+        if (slice.isNotEmpty()) {
+            return UnitSliceResult(
+                rows = slice.take(UNIT_PASSAGES),
+                truncated = slice.size > UNIT_PASSAGES,
+            )
+        }
     }
     val bySection = candidates.filter {
         it.section.isNotBlank() && sectionMatchesNeedle(it.section, needleNorm)
     }
-    if (bySection.isNotEmpty()) return bySection.sortedBy { it.ord }.take(UNIT_PASSAGES)
-    return candidates.firstOrNull { normalizeText(it.text) == needleNorm }?.let { listOf(it) }
+    if (bySection.isNotEmpty()) {
+        val sorted = bySection.sortedBy { it.ord }
+        return UnitSliceResult(
+            rows = sorted.take(UNIT_PASSAGES),
+            truncated = sorted.size > UNIT_PASSAGES,
+        )
+    }
+    val exact = candidates.firstOrNull { normalizeText(it.text) == needleNorm }
+        ?: return null
+    return UnitSliceResult(rows = listOf(exact), truncated = false)
 }
+
+internal suspend fun unitSliceOf(
+    passageDao: PassageDao,
+    attachmentId: String,
+    needleNorm: String,
+    rawNeedle: String,
+    unitDao: com.bettertalker.app.data.db.PublicationUnitDao? = null,
+): List<PassageEntity>? = unitSliceOfDetailed(
+    passageDao,
+    attachmentId,
+    needleNorm,
+    rawNeedle,
+    unitDao,
+)?.rows
 
 /**
  * Correspondência de unidade com limite de número/identificador.
