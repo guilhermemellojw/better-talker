@@ -107,6 +107,16 @@ jobs:
             yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "platforms;android-36" >/dev/null 2>&1
           fi
           [ -f "$JAR" ] || { echo "::error::android.jar 36 ausente"; exit 1; }
+
+          # O executor redescobre as ferramentas com `ls .../build-tools/* | tail -1`,
+          # ignorando AAPT2/APKSIGNER do ambiente. Para que ele nunca escolha a
+          # versao 37 (formato de certificado incompativel), apresentamos um SDK
+          # de teste com links simbolicos APENAS para a versao 36.
+          TEST_SDK="$RUNNER_TEMP/qa-fixture/sdk"
+          mkdir -p "$TEST_SDK/build-tools" "$TEST_SDK/platforms"
+          ln -sfn "$BT_DIR" "$TEST_SDK/build-tools/$BT"
+          ln -sfn "$(dirname "$JAR")" "$TEST_SDK/platforms/android-36"
+          echo "ANDROID_HOME=$TEST_SDK" >> "$GITHUB_ENV"
           echo "AAPT2=$BT_DIR/aapt2" >> "$GITHUB_ENV"
           echo "APKSIGNER=$BT_DIR/apksigner" >> "$GITHUB_ENV"
           echo "ANDROID_JAR=$JAR" >> "$GITHUB_ENV"
