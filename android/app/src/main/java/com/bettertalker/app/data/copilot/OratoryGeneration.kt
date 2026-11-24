@@ -114,6 +114,8 @@ object OratoryGeneration {
     internal fun oruaryDocumentarySources(
         dossier: Dossier?,
         spec: Spec,
+        /** Identidade explícita da seção resolvida no call site (P4-FIX). */
+        resolvedSectionId: String?,
     ): List<RecoveredDocument> {
         // P7.1 — escopo documental por modo: o prompt de gerção apresenta
         // refs do tópico SEGUINTE somente no TRANSITION (`buildCardPrompt`);
@@ -123,12 +125,12 @@ object OratoryGeneration {
             Mode.TRANSITION -> spec.current?.references.orEmpty() + spec.next?.references.orEmpty()
             else -> spec.current?.references.orEmpty()
         }
-        // F1 — validar compatibilidade entre dossiê e a seção efetivamente
-        // desenvolvida (`spec.current`): dossiê de outra seção NÃO pode
-        // entrar no corpus factual. Proteção também no call site (o gate
-        // passa sempre o dossiê resolvido da seção corrente).
+        // P4-FIX — identidade documental = seção RESOLVIDA, explicitada
+        // pelo call site; NÃO `spec.current` (em INTRO/CONCLUSION ele é o
+        // primeiro/último ponto, enquanto o dossiê é da intro/conclusão).
+        // Fail-closed: sem id resolvido, nenhum documento de dossiê entra.
         val dossierDocs = dossier
-            ?.takeIf { d -> d.currentSection.id == spec.current?.sectionId }
+            ?.takeIf { d -> resolvedSectionId != null && d.currentSection.id == resolvedSectionId }
             ?.let { recoveredDocumentsFromDossier(it).filter { d -> d.isDocumentaryEligible() } }
             .orEmpty()
         return dossierDocs +

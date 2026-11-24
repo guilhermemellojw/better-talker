@@ -5242,7 +5242,7 @@ class CopilotViewModel(
             val verified = verifyGeneratedText(
                 cleanedCardText,
                 turnContext = null,
-                documentarySources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready),
+                documentarySources = OratoryGeneration.oruaryDocumentarySources(resolvedDossier, ready, section.id),
             )
             if (verified.metrics.hasFlags) {
                 val strictChars = verified.text

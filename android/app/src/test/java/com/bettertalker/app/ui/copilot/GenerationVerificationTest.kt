@@ -302,7 +302,7 @@ class GenerationVerificationTest {
         val xA = "\"Esta é uma verdade recuperada apenas do ponto A.\""
         val dossierA = dirP7(listOf(ResolvedBibleText("A", xA, ReferenceStatus.RESOLVED)))
         val dossierB = dirP7(listOf(ResolvedBibleText("B", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specP7(), "sec-1")
         assertFalse(corpus.any { it.text.contains("verdade recuperada apenas do ponto A") })
         val r = verifyGeneratedText(text = "Repetiríamos: $xA", turnContext = null, documentarySources = corpus)
         assertTrue(r.hasRemovals)
@@ -320,7 +320,7 @@ class GenerationVerificationTest {
             speakerNote = "Nota do orador X.",
             bibleTexts = listOf(ResolvedBibleText("B", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED)),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertFalse(corpus.any { it.text.contains("João") })
         val r = verifyGeneratedText(text = "Concluo assim: $inventado", turnContext = null, documentarySources = corpus)
         assertTrue(r.hasRemovals)
@@ -341,7 +341,7 @@ class GenerationVerificationTest {
             promptBuilder = DefaultDossierPromptBuilder(),
         )
         assertTrue(resolution.contextBlock!!.contains(pratica))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertFalse(corpus.any { it.text.contains(pratica) })
         val r = verifyGeneratedText(text = "Dizíamos: \"$pratica\", claro?", turnContext = null, documentarySources = corpus)
         assertTrue(r.hasRemovals)
@@ -353,7 +353,7 @@ class GenerationVerificationTest {
         // citação literal correspondente passa sem remoção.
         val verso = "Louvem a Jeová, todos os seus anjos, fortes e poderosos, que cumprem a sua palavra, obedecendo ao que ele diz."
         val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Salpo 103:20", "[Salpo 103:20] $verso", ReferenceStatus.RESOLVED)))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertTrue(corpus.any { it.text.contains(verso) })
         val r = verifyGeneratedText(text = "O Salmo 103:20 diz: \"$verso\"", turnContext = null, documentarySources = corpus)
         assertFalse(r.hasRemovals)
@@ -369,7 +369,7 @@ class GenerationVerificationTest {
             ResolvedBibleText("Salpo 103:20", parcial, ReferenceStatus.PARTIAL),
             ResolvedBibleText("Salpo 34", "Texto recuperado do ponto B.", ReferenceStatus.RESOLVED),
         ))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertFalse(corpus.any { it.text.contains("Trecho da recuperação aproximada") })
         val r = verifyGeneratedText(text = "Citaríamos: \"Trecho da recuperação aproximada.\"", turnContext = null, documentarySources = corpus)
         assertTrue(r.hasRemovals)
@@ -379,7 +379,7 @@ class GenerationVerificationTest {
     fun F_corpusVazioNaoDeclaraAfirmacoes() {
         // F — sem evidência elegível: o gate não declara afirmação verificada.
         val d = dirP7(methodPrinciples = listOf("Princípio prático X."))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7())
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), "sec-1")
         assertTrue(corpus.isEmpty())
         val generated = "Confirmo que o tema é fidelidade absoluta."
         val r = verifyGeneratedText(text = generated, turnContext = null, documentarySources = corpus)
@@ -429,7 +429,7 @@ class GenerationVerificationTest {
             current = secP71("sec-1"),
             next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec, "sec-1")
         assertTrue(corpus.isNotEmpty())
         assertFalse(corpus.any { it.text.contains(textoB) })
         val r = verifyGeneratedText(text = "Citaríamos: \"$textoB\"", turnContext = null, documentarySources = corpus)
@@ -448,7 +448,7 @@ class GenerationVerificationTest {
             current = secP71("sec-1", refs = listOf(refP7("Ref A", textoA))),
             next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec, "sec-1")
         assertTrue(corpus.any { it.text.contains(textoA) })
         assertTrue(corpus.any { it.text.contains(textoB) })
     }
@@ -462,7 +462,7 @@ class GenerationVerificationTest {
             current = secP71("sec-1"),
             next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec, "sec-1")
         assertFalse(corpus.any { it.text.contains(textoB) })
     }
 
@@ -475,7 +475,7 @@ class GenerationVerificationTest {
             current = secP71("sec-3"),
             next = secP71("sec-2", refs = listOf(refP7("Ref B", textoB))),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dirP7(), spec, "sec-1")
         assertFalse(corpus.any { it.text.contains(textoB) })
     }
 
@@ -487,7 +487,7 @@ class GenerationVerificationTest {
         // efetivamente desenvolvida = spec.current).
         val dossierA = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref A", "X exclusivo do ponto A", ReferenceStatus.RESOLVED)))
         val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-2"))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB, "sec-2")
         assertFalse(corpus.any { it.text.contains("X exclusivo do ponto A") })
     }
 
@@ -495,14 +495,14 @@ class GenerationVerificationTest {
     fun f1_dossierCompativelComSpec_trazCorpusDeB() {
         val dossierB = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref B", "Texto de B.", ReferenceStatus.RESOLVED)))
         val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-1"))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specB)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierB, specB, "sec-1")
         assertTrue(corpus.any { it.text.contains("Texto de B.") })
     }
 
     @Test
     fun f1_dossiersNulo_somenteFontesDoSpec() {
         val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-1", refs = listOf(refP7("Ref B", "Texto do spec B."))))
-        val corpus = OratoryGeneration.oruaryDocumentarySources(null, specB)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(null, specB, "sec-1")
         assertTrue(corpus.any { it.text.contains("Texto do spec B.") })
     }
 
@@ -516,7 +516,7 @@ class GenerationVerificationTest {
             OratoryGeneration.Mode.DEVELOPMENT,
             current = secP71("sec-2", refs = listOf(refP7("Ref B", "Texto de B."))),
         )
-        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB)
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB, "sec-2")
         assertFalse(corpus.any { it.text.contains(xA) })
         val r = verifyGeneratedText(text = "Citaríamos: \"$xA\".", turnContext = null, documentarySources = corpus)
         assertTrue(r.hasRemovals)
@@ -539,5 +539,88 @@ class GenerationVerificationTest {
         )
         assertTrue(r.hasRemovals)
         assertFalse(r.text.contains(t))
+    }
+
+    // ---------- P4-FIX — identidade documental da seção resolvida ----------
+
+    @Test
+    fun p4_introducao_dossierLegitimoEntraNoCorpusFactual() {
+        // INTRO: spec.current é o primeiro ponto, mas o dossiê resolvido é
+        // da introdução — a identidade documental é "intro".
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref intro", "Texto da introdução.", ReferenceStatus.RESOLVED)))
+            .copy(currentSection = dirP7().currentSection.copy(id = "intro"))
+        val spec = specP71(OratoryGeneration.Mode.INTRODUCTION, current = secP71("sec-1"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec, "intro")
+        assertTrue(corpus.any { it.text.contains("Texto da introdução.") })
+    }
+
+    @Test
+    fun p4_conclusao_dossierLegitimoEntraNoCorpusFactual() {
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref conclusao", "Texto da conclusão.", ReferenceStatus.RESOLVED)))
+            .copy(currentSection = dirP7().currentSection.copy(id = "conclusao"))
+        val spec = specP71(OratoryGeneration.Mode.CONCLUSION, current = secP71("sec-3"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec, "conclusao")
+        assertTrue(corpus.any { it.text.contains("Texto da conclusão.") })
+    }
+
+    @Test
+    fun p4_dossierAIncompativelComB_rejeitado() {
+        val dossierA = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref A", "Texto exclusivo de A.", ReferenceStatus.RESOLVED)))
+        val specB = specP71(OratoryGeneration.Mode.DEVELOPMENT, current = secP71("sec-2"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(dossierA, specB, "sec-2")
+        assertFalse(corpus.any { it.text.contains("Texto exclusivo de A.") })
+    }
+
+    @Test
+    fun p4_introducao_dossierIncompativel_rejeitado() {
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref intro", "Texto da introdução.", ReferenceStatus.RESOLVED)))
+            .copy(currentSection = dirP7().currentSection.copy(id = "intro"))
+        val spec = specP71(OratoryGeneration.Mode.INTRODUCTION, current = secP71("sec-1"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec, "sec-1") // id resolvido errado
+        assertFalse(corpus.any { it.text.contains("Texto da introdução.") })
+    }
+
+    @Test
+    fun p4_conclusao_dossierIncompativel_rejeitado() {
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref conclusao", "Texto da conclusão.", ReferenceStatus.RESOLVED)))
+            .copy(currentSection = dirP7().currentSection.copy(id = "conclusao"))
+        val spec = specP71(OratoryGeneration.Mode.CONCLUSION, current = secP71("sec-3"))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, spec, "sec-3") // id resolvido errado
+        assertFalse(corpus.any { it.text.contains("Texto da conclusão.") })
+    }
+
+    @Test
+    fun p4_transition_mantemRefsAutorizadas() {
+        val atual = "Texto autorizado do ponto atual."
+        val seguinte = "Texto autorizado do ponto seguinte."
+        val spec = specP71(
+            OratoryGeneration.Mode.TRANSITION,
+            current = secP71("sec-1", refs = listOf(refP7("Ref A", atual))),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", seguinte))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(null, spec, "sec-1")
+        assertTrue(corpus.any { it.text.contains(atual) })
+        assertTrue(corpus.any { it.text.contains(seguinte) })
+    }
+
+    @Test
+    fun p4_development_naoHerdaFontesDeOutroTopico() {
+        val atual = "Texto autorizado do ponto atual."
+        val outro = "Texto exclusivo do outro tópico."
+        val spec = specP71(
+            OratoryGeneration.Mode.DEVELOPMENT,
+            current = secP71("sec-1", refs = listOf(refP7("Ref A", atual))),
+            next = secP71("sec-2", refs = listOf(refP7("Ref B", outro))),
+        )
+        val corpus = OratoryGeneration.oruaryDocumentarySources(null, spec, "sec-1")
+        assertTrue(corpus.any { it.text.contains(atual) })
+        assertFalse(corpus.any { it.text.contains(outro) })
+    }
+
+    @Test
+    fun p4_semIdResolvido_failClosed() {
+        val d = dirP7(bibleTexts = listOf(ResolvedBibleText("Ref", "Texto do dossiê.", ReferenceStatus.RESOLVED)))
+        val corpus = OratoryGeneration.oruaryDocumentarySources(d, specP7(), null)
+        assertFalse(corpus.any { it.text.contains("Texto do dossiê.") })
     }
 }
