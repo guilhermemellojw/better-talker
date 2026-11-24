@@ -221,6 +221,17 @@ gerados no workdir (aapt2 + apksigner); o ADB é simulado por
 `scripts/tests/mock-adb.sh`; **nenhum aparelho é acessado**. A matriz cobre 50
 cenários (+1 autoteste do mock) e sai não-zero se qualquer expectativa falhar.
 
+**CI host-only:** o runner não possui a debug key local. O workflow
+`.github/workflows/qa-safe-instrument-host-only.yml` gera uma keystore
+**sintética e efêmera** no job e executa a matriz numa **cópia temporária** do
+repositório, alterando nela apenas a constante `QA_CERT_DEBUG` para o
+certificado dessa keystore. O executor versionado permanece idêntico ao HEAD
+certificado e continua fixando a debug key real em execuções normais. A proteção
+de assinatura segue ativa na matriz: o cenário `sigbad` (certificado divergente)
+continua sendo rejeitado com exit 65. A verificação de integridade da matriz é
+reforçada pelo controle negativo `scripts/tests/host-only-negative-control.sh`,
+que exige propagação de falha e sinalização de `ABORT`.
+
 ## 7. Pendência de recuperação
 
 O original `nwt_T.epub` do pacote debug continua ausente. Caminho esperado:

@@ -64,10 +64,39 @@ jobs:
           bash -n scripts/tests/safe-instrument-matrix.sh
           bash -n scripts/tests/host-only-negative-control.sh
 
+      - name: Preparar keystore sintética e overlay de teste
+        run: |
+          set -euo pipefail
+          # Keystore efêmera, gerada no job, sem segredos e sem reaproveitar
+          # a chave de assinatura de produção ou a debug key local.
+          KS="$RUNNER_TEMP/qa-fixture/debug.keystore"
+          mkdir -p "$(dirname "$KS")"
+          keytool -genkeypair -keystore "$KS" -alias androiddebugkey \
+            -storepass android -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname 'CN=Android Debug,O=Android,C=US' >/dev/null 2>&1
+          CERT="$(keytool -list -v -keystore "$KS" -storepass android 2>/dev/null \
+            | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr 'A-F' 'a-f')"
+          [ -n "$CERT" ] || { echo "::error::não foi possível ler o certificado da fixture"; exit 1; }
+
+          # O executor versionado permanece idêntico ao HEAD certificado. A
+          # única alteração é numa CÓPIA efêmera: a constante do certificado
+          # esperado passa a apontar para a keystore sintética deste job.
+          OVERLAY="$RUNNER_TEMP/qa-fixture/overlay"
+          mkdir -p "$OVERLAY"
+          tar -C "$GITHUB_WORKSPACE" --exclude=.git -cf - . | tar -C "$OVERLAY" -xf -
+          printf 'gitdir: %s\n' "$(git -C "$GITHUB_WORKSPACE" rev-parse --absolute-git-dir)" > "$OVERLAY/.git"
+          sed -i "s|^QA_CERT_DEBUG=.*|QA_CERT_DEBUG=\"$CERT\"|" \
+            "$OVERLAY/scripts/lib/qa-common.sh"
+          echo "DEBUG_KEYSTORE=$KS" >> "$GITHUB_ENV"
+          echo "QA_OVERLAY=$OVERLAY" >> "$GITHUB_ENV"
+          echo "certificado da fixture: $CERT"
+
       - name: Matriz host-only (50 cenários + autoteste do mock)
         run: |
           set -o pipefail
-          scripts/tests/safe-instrument-matrix.sh 2>&1 | tee matrix-host-only.log
+          ( cd "$QA_OVERLAY" && DEBUG_KEYSTORE="$DEBUG_KEYSTORE" \
+              ./scripts/tests/safe-instrument-matrix.sh ) \
+            2>&1 | tee matrix-host-only.log
           grep -qF 'MATRIZ OK: todos os cenários passaram' matrix-host-only.log
           grep -qF 'PASS mock-old-quoting' matrix-host-only.log
 
