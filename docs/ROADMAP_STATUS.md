@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#55 — docs(governance): carta do coordenador e registro de decisões (COORD-02) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/55) | Documentação | `f2bb349dd954` | Pendente |
+| [#55 — docs(governance): carta do coordenador e registro de decisões (COORD-02) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/55) | Documentação | `23d4b2d82eab` | Pendente |
 | [#53 — feat(ux-simple-p1): simplificar consulta documental no leitor](https://github.com/guilhermemellojw/better-talker/pull/53) | Referências e UX | `3164206919e0` | Verde |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | `4de613aceb6d` | Falhou |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
