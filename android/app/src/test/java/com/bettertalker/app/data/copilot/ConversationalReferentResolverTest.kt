@@ -1,20 +1,29 @@
 package com.bettertalker.app.data.copilot
 
+import com.bettertalker.app.data.copilot.ConversationalReferentResolver.Context
+import com.bettertalker.app.data.copilot.ConversationalReferentResolver.Focus
+import com.bettertalker.app.data.copilot.ConversationalReferentResolver.Referent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * PEDAGOGY-0A / P3 — cenários adversariais do resolvedor de referente
- * conversacional. Deterministas, sem LLM/rede.
+ * PEDAGOGY-0A / P3 + P2-FIX — cenários adversariais do resolvedor de
+ * referente conversacional. Deterministas, sem LLM/rede.
  */
 class ConversationalReferentResolverTest {
 
-    private fun card(targetId: String? = "sec-1", targetLabel: String = "Romanos 8") =
-        CardPayload(
-            targetKind = CardTargetKind.SECTION,
-            targetId = targetId,
-            targetLabel = targetLabel,
-        )
+    private fun card(
+        targetId: String? = "sec-1",
+        targetLabel: String = "Romanos 8",
+        status: CardStatus = CardStatus.AVAILABLE,
+        kind: CardTargetKind = CardTargetKind.SECTION,
+    ) = CardPayload(
+        targetKind = kind,
+        targetId = targetId,
+        targetLabel = targetLabel,
+        status = status,
+    )
 
     private fun suggestion(label: String = "Desenvolva o ponto 1") =
         NextStepSuggestion(
@@ -23,157 +32,221 @@ class ConversationalReferentResolverTest {
             action = ResolvedChatNav.DevelopCurrent(sectionId = "sec-1", title = "Ponto 1"),
         )
 
-    // ---- Cenário A: "Explique melhor" após um card ----
+    /** Contexto com origem confirmada (F3 — P2-FIX). */
+    private fun ctxCard(
+        note: String = "n1",
+        scope: String? = "sec-1",
+        c: CardPayload = card(),
+        cardNote: String? = note,
+        cardSection: String? = "sec-1",
+        focus: Focus = Focus.SECTION,
+    ) = Context(
+        noteId = note, chatScope = scope, focus = focus,
+        lastCard = c, lastCardNoteId = cardNote, lastCardSectionId = cardSection,
+    )
+
+    private fun ctxSuggestion(
+        note: String = "n1",
+        scope: String? = "sec-1",
+        s: NextStepSuggestion = suggestion(),
+        sNote: String? = note,
+        sSection: String? = "sec-1",
+        focus: Focus = Focus.SECTION,
+    ) = Context(
+        noteId = note, chatScope = scope, focus = focus,
+        lastSuggestion = s, lastSuggestionNoteId = sNote, lastSuggestionSectionId = sSection,
+    )
+
+    // ---- 14 cenários originais (P3) ----
 
     @Test
     fun a_expliqueMelhor_aposCard_aprofundaCard() {
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Explique melhor", ctx))
+        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Explique melhor", ctxCard()))
     }
-
-    // ---- Cenário B: "Explique melhor" após uma sugestão ----
 
     @Test
     fun b_expliqueMelhor_aposSugestao_explicaSugestao() {
         val s = suggestion()
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = null, lastSuggestion = s, lastResponse = null,
-        )
-        assertEquals(Referent.ExplainSuggestion(s), ConversationalReferentResolver.resolve("Explique melhor", ctx))
+        assertEquals(Referent.ExplainSuggestion(s), ConversationalReferentResolver.resolve("Explique melhor", ctxSuggestion(s = s)))
     }
-
-    // ---- Cenário C: "Explique melhor" sem referente inequívoco ----
 
     @Test
     fun c_expliqueMelhor_semReferente_pedeEsclarecimento() {
-        val ctx = Context(noteId = "n1", chatScope = null, lastCard = null, lastSuggestion = null, lastResponse = null)
-        val r = ConversationalReferentResolver.resolve("Explique melhor", ctx)
-        assertEquals(true, r is Referent.RequestClarification)
+        val r = ConversationalReferentResolver.resolve("Explique melhor", Context(noteId = "n1", chatScope = null))
+        assertTrue(r is Referent.RequestClarification)
     }
-
-    // ---- Cenário D: "Não entendi" após uma explicação ----
 
     @Test
     fun d_naoEntendi_aposExplicacao_aprofundaCard() {
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null,
-            lastResponse = "Então o ponto é ...",
-        )
+        val ctx = ctxCard().copy(lastResponse = "Então o ponto é ...")
         assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Não entendi", ctx))
     }
 
-    // ---- Cenário E: "Dá outro exemplo" preservando o assunto ----
-
     @Test
     fun e_daoOutroExemplo_preservaAssunto_aprofundaCard() {
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Dá outro exemplo", ctx))
+        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Dá outro exemplo", ctxCard()))
     }
 
-    // ---- Cenário F: troca da seção A para B ----
-
     @Test
-    fun f_trocaSecao_A_para_B_explicaTópicoAtivo() {
-        // Card antigo do tópico A; usuário passou ao tópico B (chatScope = sec-2).
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-2",
-            lastCard = card(targetId = "sec-1"), lastSuggestion = null, lastResponse = null,
-        )
+    fun f_trocaSecao_A_para_B_explicaTopicoAtivo() {
+        // Card antigo do ponto A; o card é rejeitado, o tópico B é o referente.
+        val ctx = ctxCard(scope = "sec-2", c = card(targetId = "sec-1"), cardSection = "sec-1")
         assertEquals(Referent.ExplainActiveSection("sec-2"), ConversationalReferentResolver.resolve("Explique melhor", ctx))
     }
 
-    // ---- Cenário G: troca de nota ----
-
     @Test
     fun g_trocaNota_comSecaoAtiva_explicaSecaoAtiva() {
-        // Nota nova (noteId = n2), card do notes anterior, seção ativa = sec-5.
-        val ctx = Context(
-            noteId = "n2", chatScope = "sec-5",
-            lastCard = card(targetId = "sec-1"), lastSuggestion = null, lastResponse = null,
-        )
+        val ctx = ctxCard(note = "n2", scope = "sec-5", cardNote = "n1", cardSection = "sec-1")
         assertEquals(Referent.ExplainActiveSection("sec-5"), ConversationalReferentResolver.resolve("Explique melhor", ctx))
     }
 
     @Test
     fun g2_trocaNota_semSecaoAtiva_pedeEsclarecimento() {
-        val ctx = Context(noteId = "n2", chatScope = null, lastCard = card(targetId = "sec-1"), lastResponse = null)
+        // F4 — corrigido na lógica: card sem origem confirmada e sem seção
+        // ativa não pode ser aprofundado.
+        val ctx = Context(noteId = "n2", chatScope = null, lastCard = card(targetId = "sec-1"))
         val r = ConversationalReferentResolver.resolve("Explique melhor", ctx)
-        assertEquals(true, r is Referent.RequestClarification)
+        assertTrue(r is Referent.RequestClarification)
     }
-
-    // ---- Cenário H: mensagem mista — "Explique melhor Romanos 8" (referência explícita) ----
 
     @Test
     fun h_explicarMelhorRomanos8_casaCard_aprofundaCard() {
         val c = card(targetId = "sec-1", targetLabel = "Romanos 8")
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = c, lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.DeepenCard(c), ConversationalReferentResolver.resolve("Explique melhor Romanos 8", ctx))
+        assertEquals(Referent.DeepenCard(c), ConversationalReferentResolver.resolve("Explique melhor Romanos 8", ctxCard(c = c)))
     }
-
-    // ---- Cenário I: conversa retomada após interrupção ----
 
     @Test
     fun i_retomadaAposInterrupcao_resumeReferente() {
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Vamos continuar de onde paramos", ctx))
+        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Vamos continuar de onde paramos", ctxCard()))
     }
-
-    // ---- Cenário J: último referente removido ou indisponível ----
 
     @Test
     fun j_referenteRemovido_pedeEsclarecimento() {
-        val ctx = Context(noteId = "n1", chatScope = null, lastCard = null, lastSuggestion = null, lastResponse = null)
-        val r = ConversationalReferentResolver.resolve("Explique melhor", ctx)
-        assertEquals(true, r is Referent.RequestClarification)
+        val r = ConversationalReferentResolver.resolve("Explique melhor", Context(noteId = "n1", chatScope = null))
+        assertTrue(r is Referent.RequestClarification)
     }
-
-    // ---- Cenário K: ausência de fontes documentais (corpus factual vazio) ----
 
     @Test
     fun k_ausenciaFontesDocumentais_resolveReferente() {
-        // Sem evidência documental: o resolvedor resolve o referente — DeepenCard —
-        // sem declarar verificação.
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Explique melhor", ctx))
+        // Sem fontes documentais o resolvedor resolve o referente — sem
+        // declarar verificação factual.
+        assertEquals(Referent.DeepenCard(card()), ConversationalReferentResolver.resolve("Explique melhor", ctxCard()))
     }
-
-    // ---- Cenário L: pedido explícito de produzir um rascunho ----
 
     @Test
     fun l_pedidoExplicitoRascunho_prossegueFluxoNormal() {
-        val ctx = Context(
-            noteId = "n1", chatScope = "sec-1",
-            lastCard = card(), lastSuggestion = null, lastResponse = null,
-        )
-        assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Desenvolva o ponto 1", ctx))
+        assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Desenvolva o ponto 1", ctxCard()))
     }
-
-    // ---- P4: não presume que toda mensagem curta é solicitação simples ----
 
     @Test
     fun p4_mensagensCurtasSemVerboDeAprofundamento_prossegueFluxoNormal() {
-        val ctx = Context(noteId = "n1", chatScope = null, lastCard = null, lastSuggestion = null, lastResponse = null)
+        val ctx = Context(noteId = "n1", chatScope = null)
         assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Ok", ctx))
         assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Sim", ctx))
         assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Entendi", ctx))
         assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Qual a próxima?", ctx))
         assertEquals(Referent.ProceedNormal, ConversationalReferentResolver.resolve("Mensagem curta sem verbo", ctx))
+    }
+
+    // ---- F2 — DEEPEN: frases, acentuação/espaçamento e controles negativos ----
+
+    @Test
+    fun f2_deepeningFrasesReconhecidas() {
+        val requests = listOf(
+            "Explique melhor", "  EXPLIQUE   MELHOR  ", "Não entendi", "Nao entendi",
+            "Dá outro exemplo", "Dê outro exemplo", "Fale mais",
+            "Vamos continuar de onde paramos", "continuar de onde paramos",
+        )
+        requests.forEach { req ->
+            assertTrue("esperava aprofundamento: $req", ConversationalReferentResolver.resolve(req, ctxCard()) is Referent.DeepenCard)
+        }
+    }
+
+    @Test
+    fun f2_controlesNegativos_saudacoesEConfirmacoes() {
+        val ctx = ctxCard()
+        listOf("Oi", "Olá", "Bom dia", "Sim", "Ok", "Entendi", "Valeu").forEach { req ->
+            assertEquals("esperava ProceedNormal: $req", Referent.ProceedNormal, ConversationalReferentResolver.resolve(req, ctx))
+        }
+    }
+
+    // ---- F3 — identidade do referente (metadados de origem no Context) ----
+
+    @Test
+    fun f3_CompatibilidadeDeNota_cardDeOutraNotaNaoEAprofundado() {
+        val ctx = ctxCard(note = "n2", cardNote = "n1")
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) !is Referent.DeepenCard)
+    }
+
+    @Test
+    fun f3_CompatibilidadeDeSecao_cardDeOutraSecaoNaoEAprofundado() {
+        val ctx = ctxCard(scope = "sec-2", cardSection = "sec-1")
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) !is Referent.DeepenCard)
+    }
+
+    @Test
+    fun f3_focoWhole_semSecaoAtiva_pedeEsclarecimento() {
+        val ctx = ctxCard(focus = Focus.WHOLE, scope = "sec-1")
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) is Referent.RequestClarification)
+    }
+
+    @Test
+    fun f3_cardInvalido_naoEAprofundado() {
+        val ctx = ctxCard(c = card(status = CardStatus.APPLIED))
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) !is Referent.DeepenCard)
+    }
+
+    @Test
+    fun f3_sugestaoDeSecaoAntiga_naoEExplicada() {
+        val ctx = ctxSuggestion(scope = "sec-2", sSection = "sec-1")
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) !is Referent.ExplainSuggestion)
+    }
+
+    @Test
+    fun f3_origemNaoConfirmada_pedeEsclarecimento() {
+        // Sem metadados de origem, nem card nem sugestão podem ser usados.
+        val ctx = Context(noteId = "n1", chatScope = null, lastCard = card())
+        assertTrue(ConversationalReferentResolver.resolve("Explique melhor", ctx) is Referent.RequestClarification)
+    }
+
+    // ---- F4 — troca de nota com IDs de seção iguais ----
+
+    @Test
+    fun f4_trocaNota_mesmoIdDeSecao_pedeEsclarecimento() {
+        // Mesmo ID de seção, nota diferente: o card antigo não é referente.
+        val ctx = ctxCard(note = "n2", scope = "sec-1", cardNote = "n1", cardSection = "sec-1")
+        val r = ConversationalReferentResolver.resolve("Explique melhor", ctx)
+        assertTrue(r is Referent.RequestClarification)
+    }
+
+    // ---- F5 — referência explícita por identidade inequívoca ----
+
+    @Test
+    fun f5_ponto1_naoESelecionadoPorPonto10() {
+        val c = card(targetLabel = "Ponto 1")
+        val r = ConversationalReferentResolver.resolve("Explique melhor Ponto 10", ctxCard(c = c))
+        assertTrue(r is Referent.RequestClarification)
+        assertTrue(r !is Referent.DeepenCard)
+    }
+
+    // ---- F6 — conjugações de rascunho e pedido misto ----
+
+    @Test
+    fun f6_conjugacoesDeRascunho_prossegueFluxoNormal() {
+        listOf(
+            "Desenvolva o ponto 1", "Desenvolver o ponto 1",
+            "Escreva um texto", "Escrever um texto",
+            "Redija o ponto 1", "Redigir o ponto 1",
+        ).forEach { req ->
+            assertEquals("esperava ProceedNormal: $req", Referent.ProceedNormal, ConversationalReferentResolver.resolve(req, ctxCard()))
+        }
+    }
+
+    @Test
+    fun f6_pedidoMisto_explicacaoERedacao_respeitaIntencaoExplicita() {
+        assertEquals(
+            Referent.ProceedNormal,
+            ConversationalReferentResolver.resolve("Explique melhor e escreva um rascunho", ctxCard()),
+        )
     }
 }
