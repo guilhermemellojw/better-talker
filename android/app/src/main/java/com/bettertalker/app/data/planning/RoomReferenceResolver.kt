@@ -163,8 +163,11 @@ class RoomReferenceResolver(
         }
         val finalRows = focused ?: chosen
         val sliceText = chosen.joinToString(" ") { it.text }.trim()
-        val structuralTruncated = slice.size >= UNIT_PASSAGES &&
-            (unitDao?.unitAt(hit.id, slice.last().ord)?.endOrd ?: slice.lastOrNull()?.ord ?: 0) > (slice.lastOrNull()?.ord ?: 0)
+        val structuralTruncated = slice.size >= UNIT_PASSAGES && (
+            unitDao == null ||
+                (unitDao.unitAt(hit.id, slice.last().ord)?.endOrd
+                    ?: slice.lastOrNull()?.ord ?: 0) > (slice.lastOrNull()?.ord ?: 0)
+        )
         val fullTextValue = if (structuralTruncated) "$sliceText …" else sliceText
         val text = if (focused == null && sliceText.length > MAX_UNIT_CHARS) {
             headTailText(chosen)
@@ -535,6 +538,9 @@ internal suspend fun unitSliceOf(
         }
         val hasStructuralCandidate = matching.isNotEmpty()
         val selectedUnit = when {
+            // Referência sem número: não selecionar silenciosamente entre
+            // unidades homônimas; exige correspondência única.
+            requestedNumber == null -> if (matching.size == 1) matching.single() else null
             canonicalMatches.size == 1 -> canonicalMatches.single()
             canonicalMatches.isEmpty() && matching.size == 1 -> matching.single()
             else -> null

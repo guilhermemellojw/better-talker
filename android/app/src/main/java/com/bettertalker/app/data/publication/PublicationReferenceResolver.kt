@@ -278,6 +278,7 @@ class PublicationReferenceResolver(
             !unit.canonicalKey.contains("#")
         }
         val selected = when {
+            requestedNumber == null -> if (matches.size == 1) matches.single() else null
             canonicalMatches.size == 1 -> canonicalMatches.single()
             canonicalMatches.isEmpty() && matches.size == 1 -> matches.single()
             else -> null
