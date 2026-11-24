@@ -89,9 +89,27 @@ jobs:
             "$OVERLAY/scripts/lib/qa-common.sh"
           echo "DEBUG_KEYSTORE=$KS" >> "$GITHUB_ENV"
           echo "QA_OVERLAY=$OVERLAY" >> "$GITHUB_ENV"
-          # Mesmas ferramentas usadas pela matriz, exportadas para o executor.
-          echo "AAPT2=$(ls -1 "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | tail -1)" >> "$GITHUB_ENV"
-          echo "APKSIGNER=$(ls -1 "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -1)" >> "$GITHUB_ENV"
+          # Fixar build-tools 36.0.0: o apksigner 37 troca o prefixo de saída
+          # para "V2 Signer: certificate ..." e o executor (inalterado) espera
+          # "Signer #1 certificate SHA-256 digest:". Nenhuma proteção é relaxed.
+          BT=36.0.0
+          BT_DIR="$ANDROID_HOME/build-tools/$BT"
+          if [ ! -x "$BT_DIR/apksigner" ] || [ ! -x "$BT_DIR/aapt2" ]; then
+            SDKMGR="$(command -v sdkmanager || ls -1 "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)"
+            [ -n "$SDKMGR" ] || { echo "::error::sdkmanager ausente"; exit 1; }
+            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "build-tools;$BT" >/dev/null 2>&1
+          fi
+          [ -x "$BT_DIR/apksigner" ] && [ -x "$BT_DIR/aapt2" ] \
+            || { echo "::error::build-tools $BT indisponíveis"; exit 1; }
+          JAR="$ANDROID_HOME/platforms/android-36/android.jar"
+          if [ ! -f "$JAR" ]; then
+            SDKMGR="$(command -v sdkmanager || ls -1 "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)"
+            yes | "$SDKMGR" --sdk_root="$ANDROID_HOME" "platforms;android-36" >/dev/null 2>&1
+          fi
+          [ -f "$JAR" ] || { echo "::error::android.jar 36 ausente"; exit 1; }
+          echo "AAPT2=$BT_DIR/aapt2" >> "$GITHUB_ENV"
+          echo "APKSIGNER=$BT_DIR/apksigner" >> "$GITHUB_ENV"
+          echo "ANDROID_JAR=$JAR" >> "$GITHUB_ENV"
           echo "certificado da fixture: $CERT"
 
       - name: Matriz host-only (50 cenários + autoteste do mock)
