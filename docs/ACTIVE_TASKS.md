@@ -1,8 +1,8 @@
 # Better Talker — Missões ativas (ACTIVE_TASKS)
 
 **Ciclo:** SPRINT-BETA-01  
-**Revisão:** 2026-11-24 / R05 — QA #51, delta #48, automação #39 e planos físicos  
-**Baseline observado da main:** `1e1b7a9fd5b3aa1ea5a0c09789965909a590c73c`  
+**Revisão:** 2026-11-24 / R06 — integração #47 e encerramento da preparação física  
+**Baseline observado da main:** `cba5526bf8df4312fdad333189c47f31ac847b41`  
 **Responsável pela coordenação:** coordenação técnica; decisões reservadas ao mantenedor.
 
 > Registro operacional de atribuições, não relatório automático de progresso, não autorização de merge, release, alteração de dados ou uso de dispositivo. Enquanto esta revisão estiver em PR, é uma proposta; sua publicação não substitui a missão mais recente expressamente enviada pela coordenação. Os estados e HEADs abaixo são um snapshot, não uma leitura em tempo real.
@@ -28,7 +28,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 | A | MENTOR-CONTINUITY / integração | APROVADA PARA MERGE (#51) | QA/CI #51 verdes; aguardar autorização e integração das dependências; sem BUILD produtivo |
 | B | BUG-REF-D1 / P6 | BLOQUEADA (#44) | Corrigir truncamento reader e fallback TextNotFound; UX-SIMPLE-P1 adiada |
 | C | TRUST-P0A-FIX / #48 | PRONTO PARA QA | Delta a2eb8d69 publicado; CI/recertificação E pendentes |
-| D | QA-OPS-P6 | ATRIBUÍDA | P5 concluída; preservar #39, disponibilizar plano físico sanitizado e revisar R05 por delta |
+| D | QA-OPS / prontidão física | CONCLUÍDA (P6) | Plano e parecer R05 publicados; preservar #39; aguardar QA e autorização específica #45/dispositivo |
 | E | QA-VERTICAL-P3 | ATRIBUÍDA | Recertificar #48; #44 quando delta disponível; QA #39 se livre; critérios físicos entregues |
 
 ### A — Mentor e continuidade conversacional (P1)
@@ -59,16 +59,16 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 - P3 concluída: [#47](https://github.com/guilhermemellojw/better-talker/pull/47#issuecomment-7130769068) recertificado (37 PASS, 1 SKIP justificado, 0 FAIL); [#49](https://github.com/guilhermemellojw/better-talker/pull/49#issuecomment-7130812431) CI 2/2 PASS, revisão independente B pendente; [#39](https://github.com/guilhermemellojw/better-talker/pull/39#issuecomment-7130832785) parecer com ressalvas; [#45](https://github.com/guilhermemellojw/better-talker/pull/45#issuecomment-7130848707) proposta host-only, fechado sem merge. Não repetir esses testes.
 - P4/P5 concluídas. [Parecer R04](https://github.com/guilhermemellojw/better-talker/pull/50#issuecomment-7131949726) aprovado com ressalvas menores. #39 delta publicado em `c6cffe04ab9c693c08195e976aebfcdabcf150b9` ([evidências](https://github.com/guilhermemellojw/better-talker/pull/39#issuecomment-7131924709)), 11/11 testes relatados; sem workflow CI no HEAD observado. Preservar SHA; E revisa quando livre, B alternativa somente após #44; D não autocertifica.
-- P6: disponibilizar resumo sanitizado do plano físico e critérios E (sem dados pessoais/IDs/segredos), no comentário do #50 ou relatório já existente, sem novo PR administrativo. Revisar delta R04→R05; não alterar registro. Preparar checklist focal de prontidão do primeiro smoke; sem ADB. Apoiar recertificação #39 apenas se reproduções retornarem.
+- P6 concluída: [resumo sanitizado e checklist físico](https://github.com/guilhermemellojw/better-talker/pull/50#issuecomment-7132103202), [parecer R05 aprovado sem correções indispensáveis](https://github.com/guilhermemellojw/better-talker/pull/50#issuecomment-7132119530). Não repetir revisão ampla; reconciliação R06 é factual e restrita. Aguardar QA #39 e autorização específica para #45/dispositivo; preparar somente lacuna concreta. Sem ADB.
 - #45: aguardar decisão expressa de reabertura; sem ADB/instrumentação. #43 não depende de #49.
-- QA-PHYSICAL-PREP-01: plano operacional entregue conforme relato D; coordenação ainda não leu o arquivo local. Preparação documental/host-only concluída; execução física depende de autorização específica.
+- QA-PHYSICAL-PREP-01: plano operacional entregue conforme relato D; resumo sanitizado publicado no PR #50 (7132103202); arquivo local completo não conferido pela coordenação. Preparação documental/host-only concluída; execução física depende de autorização específica.
 - Pronto: parecer #50, proposta mínima de #39 com critérios de aceite, dependências/ownership confirmados. Apoio a merges apenas com autorização do mantenedor.
 
 ### E — QA especializado (P1; riscos P0 prioritários)
 
 - #44 P5 concluída; dois bloqueadores encaminhados a B. Recertificar somente deltas/sondas afetadas após novo HEAD.
 - #48: parecer publicado; recertificar prioritariamente delta a2eb8d69 (controle 10, avisos simultâneos, integração verifyChatText e preservação #42). #51 aprovado em 72fd2286; não repetir. Enquanto aguarda #44, revisar #39 c6cffe04 de modo independente, se capacidade permitir; atenção à segurança dos triggers, não mascarar erro de comparação como NO_CHANGE, idempotência e métricas. B alternativa somente após #44, sem QA duplicado.
-- #42 integrado, CI pós-merge pendente; #43 integrado e CI pós-merge verde. Reutilizar evidências sem nova instrumentação. #47 QA D consolidado, não repetir.
+- #42/#43 integrados com CI pós-merge SUCCESS; #47 integrado, CI pós-merge em execução. Reutilizar evidências sem nova instrumentação; não repetir QA #47.
 - QA-PHYSICAL-ACCEPTANCE-01: critérios entregues conforme relato E (CP-SMOKE/INSTR/SOURCE/CONTEXT/CONSENT/DIALOG/A11Y/JOURNEY); disponibilizar matriz sanitizada junto a D. Não executar testes físicos nesta missão.
 - Manter matriz BT-E2E-001 já relatada (14 etapas, 16 cenários adversariais), atualizando somente estados comprovados. Relatório local ainda não conferido pela coordenação.
 - Pronto: pareceres por SHA e bloqueadores reproduzíveis; matriz não promove testes isolados a aprovação da jornada completa.
@@ -77,16 +77,16 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 | PR | HEAD observado | Estado de coordenação (snapshot) | Ação |
 | --- | --- | --- | --- |
-| [#42](https://github.com/guilhermemellojw/better-talker/pull/42) | `e3389251` | Integrado em `1e1b7a9f`; CI pós-merge em execução | [Validar pós-merge](https://github.com/guilhermemellojw/better-talker/actions/runs/45395381894) |
+| [#42](https://github.com/guilhermemellojw/better-talker/pull/42) | `e3389251` | Integrado em `1e1b7a9f`; CI pós-merge SUCCESS | [Evidência](https://github.com/guilhermemellojw/better-talker/actions/runs/45395381894) |
 | [#43](https://github.com/guilhermemellojw/better-talker/pull/43) | `85e189a2` | Integrado em `66cc571f`; CI pós-merge SUCCESS | [Evidência](https://github.com/guilhermemellojw/better-talker/actions/runs/45389996766) |
 | [#44](https://github.com/guilhermemellojw/better-talker/pull/44) | `d2698ee0` | CI 2/2 verde; BLOQUEADO (2 defeitos) | B corrige; E recertifica |
-| [#47](https://github.com/guilhermemellojw/better-talker/pull/47) | `e7e0a350` | Draft, CI 2/2 verde; QA D positivo | [Autorização registrada](https://github.com/guilhermemellojw/better-talker/pull/47#issuecomment-7132009596); após gate #42, preflight e retirada de Draft |
+| [#47](https://github.com/guilhermemellojw/better-talker/pull/47) | `e7e0a350` | Integrado em `cba5526b`; CI pós-merge em execução | [Validar pós-merge](https://github.com/guilhermemellojw/better-talker/actions/runs/45398656121) |
 | [#48](https://github.com/guilhermemellojw/better-talker/pull/48) | `a2eb8d69` | Correção publicada; CI/QA pendentes | E recertifica |
 | [#49](https://github.com/guilhermemellojw/better-talker/pull/49) | `117e14c5` | Draft; QA D/B positivo no HEAD anterior 201c2f22; delta só relatório, CI final SUCCESS | B recertifica delta; autorização ainda necessária |
 | [#39](https://github.com/guilhermemellojw/better-talker/pull/39) | `c6cffe04` | Delta D publicado, 11/11 testes relatados, sem CI observado | E QA independente, B alternativa |
 | [#45](https://github.com/guilhermemellojw/better-talker/pull/45) | `8924799a` | Fechado sem merge; proposta host-only publicada | Decisão futura sobre reabertura |
 | [#51](https://github.com/guilhermemellojw/better-talker/pull/51) | `72fd2286` | Draft; CI 2/2 verde, QA E aprovado | Autorização do mantenedor |
-| [#50](https://github.com/guilhermemellojw/better-talker/pull/50) | Revisão R05 deste documento | Draft documental | D revisa |
+| [#50](https://github.com/guilhermemellojw/better-talker/pull/50) | Revisão R06 deste documento | Draft documental; R05 aprovado, R06 reconciliação factual | Conferência focal e autorização do mantenedor |
 
 **CopilotViewModel.kt:** #42 já integrado e #48 altera o mesmo arquivo. C deve reconferir compatibilidade com main; correção preferencial no helper/testes. Se necessário editar ViewModel, C tem exclusividade nesta correção após preflight; A não inicia integração produtiva até #48 resolvido. A será dono da futura integração do resolvedor quando liberada. Ownership dos arquivos compartilhados deve ser confirmado antes de cada edição, não inferido a partir deste snapshot.
 
@@ -107,7 +107,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 - E define casos positivos/negativos, expected/observed, PASS/FAIL/BLOQUEADO/NÃO EXECUTADO/NÃO IMPLEMENTADO/NÃO APLICÁVEL, evidência sanitizada e severidade P0–P3. D/E reutilizam provas anteriores; fingerprint lógico não é igualdade byte a byte. CI de compilação não certifica execução física; teste experimental não certifica rota produtiva.
 - Medir fluidez, latência percebida, estabilidade, acessibilidade/TalkBack, voz e consumo de recursos quando pertinentes ao APK e à missão; registrar método e limitações. Nenhuma métrica inventada ou inferida somente de CI.
 - Proteções: sem uninstall, pm clear, downgrade, substituição de release, destruição de dados ou connectedAndroidTest indiscriminado. Nenhuma execução real sem autorização específica, preflight aprovado e plano de recuperação. Não repetir os quatro testes instrumentados do #43 sem mudança material ou necessidade demonstrada.
-- Estado dos dois checkpoints: **NÃO EXECUTADO / preparação operacional e critérios entregues conforme relatos D/E**. Coordenação ainda não teve acesso aos relatórios locais completos. #43 já possui evidência instrumentada própria, que não equivale à validação integrada da jornada.
+- Estado dos dois checkpoints: **NÃO EXECUTADO / preparação operacional e critérios entregues conforme relatos D/E**. [Resumo sanitizado publicado](https://github.com/guilhermemellojw/better-talker/pull/50#issuecomment-7132103202); relatórios locais completos ainda não conferidos. Smoke sem LLM pago: usar fixture/local se disponível; geração remota não autorizada deve ficar NÃO EXECUTADA. Snapshot/rollback precisam esclarecer restauração de dados, não apenas APK/IME; ausência de WAL/SHM exige verificar estado SQLite consistente, não presumir corrupção. #43 já possui evidência instrumentada própria, que não equivale à validação integrada da jornada.
 
 ## 5. Checkpoint mínimo
 
