@@ -1,6 +1,7 @@
 # Better Talker — Registro de decisões (DECISIONS)
 
 - **Criação:** 24/11/2026 — direção da coordenação (COORD-02/P1), sob autoridade do mantenedor.
+- **Revisão:** 24/11/2026 — correções focais F1–F5 (COORD-02/P2); entradas D-001–D-003 preservadas intactas (append-only).
 - **Estado de publicação:** proposta em PR Draft; vigência após revisão e merge expressamente autorizados.
 
 > Registro incremental, **somente acréscimo**, de decisões técnicas e operacionais da coordenação do Better Talker. Não substitui fontes primárias: corpos de PR, [TEAM_COORDINATION.md](TEAM_COORDINATION.md), [DELIVERY_POLICY.md](DELIVERY_POLICY.md) e [ACTIVE_TASKS.md](ACTIVE_TASKS.md) continuam sendo a origem das decisões ali registradas. Decisões anteriores à criação deste registro **não são recriadas aqui** — são referenciadas onde ocorreram. Inferências não são convertidas em fatos.
@@ -12,6 +13,7 @@
 3. Estados possíveis: `PROPOSTA` · `VIGENTE` · `SUPERSEDED` · `REVOGADA` · `SUSPENSA`.
 4. Revisão/superação não apaga histórico: a nova entrada referencia a anterior.
 5. Datas em UTC; SHAs completos quando relevantes; autoridade sempre identificada; sem dados sensíveis.
+6. O registro cobre **decisões relevantes e mudanças de autoridade**; consultas, mensagens e eventos de sessão de rotina pertencem aos checkpoints e ao ledger operacional da missão, não a este arquivo (D-006).
 
 ## Índice
 
@@ -19,7 +21,12 @@
 | --- | --- | --- | --- |
 | D-001 | 2026-11-24 | Aprovação do discovery COORD-01 e direção incremental via API local | VIGENTE |
 | D-002 | 2026-11-24 | Criação da governança documental do coordenador | PROPOSTA (este PR) |
-| D-003 | 2026-11-24 | Estratégia inicial de modelos e franquia OpenCode Go | PROPOSTA |
+| D-003 | 2026-11-24 | Estratégia inicial de modelos e franquia OpenCode Go | SUPERSEDED (D-007) |
+| D-004 | 2026-11-24 | Contrato real de prevenção de duplicidade e recuperação (F1) | PROPOSTA |
+| D-005 | 2026-11-24 | Modos de coordenação SHADOW / ASSISTED / DELEGATED (F2) | PROPOSTA |
+| D-006 | 2026-11-24 | Autorização proporcional e contrato de delegação operacional (F3) | PROPOSTA |
+| D-007 | 2026-11-24 | Estratégia de modelos e custos — três categorias (F4) | PROPOSTA (substitui D-003) |
+| D-008 | 2026-11-24 | Permissões efetivas: política × configuração × controle testado (F5) | PROPOSTA |
 
 ---
 
@@ -55,3 +62,58 @@
 - **Evidências:** catálogo de modelos consultado via API em 24/11 (41 modelos correntes: 26 OpenCode Go + 10 OpenCode + 5 Groq; 48 incluindo versões anteriores; 10 modelos gratuitos no provedor OpenCode, incluindo `deepseek-v4.1-flash-free` e `hy4-flash-free`); campo `model` das sessões A–E verificado em 24/11 22:49Z (`hy4-flash-free`, `big-pickle`); `usage/limits` nulo.
 - **Escopo:** política de consumo da coordenação; sem alteração de configuração ou de sessões nesta rodada.
 - **Condições para revisão:** deliberação do mantenedor; baseline de tokens coletada nos primeiros ciclos de checkpoint; disponibilidade futura de endpoint de uso.
+
+## D-004 — Contrato real de prevenção de duplicidade e recuperação (F1)
+
+- **Data:** 24/11/2026 · **Autoridade:** direção da coordenação (COORD-02/P2 §2), sob autoridade do mantenedor · **Estado:** PROPOSTA
+- **Contexto:** a carta P1 afirmava que "o ID da missão no texto do prompt garante idempotência verificável". A auditoria independente apontou que um identificador permite correlação e detecção de duplicidade, mas **não impede automaticamente duas execuções da mesma missão**.
+- **Decisão:** corrigir o contrato documental (§6.1 da carta): ID de missão único e imutável; registro persistente anterior ao despacho; identidade da sessão e da instância de serviço; hash ou identidade estável do payload; ciclo de vida `PROPOSED → AUTHORIZED → DISPATCHING → DELIVERED → RUNNING → COMPLETED | FAILED | UNKNOWN` (ou equivalentes justificados); timeout definido antes do despacho; reconciliação após reinício por consulta a mensagens e inbox; bloqueio de reenvio quando o resultado da entrega for desconhecido; ausência de garantia *exactly-once* sem suporte técnico comprovado. Nenhuma implementação de código nesta rodada; não se presume suporte a chaves de idempotência na API OpenCode.
+- **Fundamentação:** idempotência é propriedade de sistema, não convenção de texto; o contrato torna a prevenção auditável e a recuperação determinística, distinguindo entregue, executado e desconhecido.
+- **Alternativas consideradas:** manter a afirmação original (rejeitada: promessa sem prova); exigir *exactly-once* imediato (rejeitada: sem suporte técnico comprovado).
+- **Evidências:** direcionamento COORD-02/P2 §2 (F1); auditoria independente do diff do PR #55 pela coordenação; COORDINATOR.md §6/§12/§14 na versão P1 (HEAD `23d4b2d82eab59853c77ba63dac7077932a29a46`).
+- **Escopo:** exclusivamente documental; sem código, sem configuração, sem armazenamento novo.
+- **Condições para revisão:** implementação futura do ledger e dos controles; prova de suporte (ou não) a chaves de idempotência na API; auditoria independente do contrato.
+
+## D-005 — Modos de coordenação SHADOW, ASSISTED e DELEGATED (F2)
+
+- **Data:** 24/11/2026 · **Autoridade:** direção da coordenação (COORD-02/P2 §3), sob autoridade do mantenedor · **Estado:** PROPOSTA (SHADOW descreve o estado atual; nenhum modo novo entra em vigor por este PR)
+- **Contexto:** a hierarquia P1 era adequada ao período de transição, mas não devia constituir dependência permanente do ChatGPT.
+- **Decisão:** formalizar três modos (§2.1 da carta): **SHADOW** — ChatGPT e mantenedor exercem a coordenação operacional; Agente S observa, verifica e propõe; despacho não autorizado. **ASSISTED** — Agente S executa despachos específicos previamente autorizados, sob supervisão humana e limites estritos de escopo. **DELEGATED** — somente após certificação e autorização explícita do mantenedor; Agente S assume a coordenação operacional dentro de escopos delegados, podendo organizar e distribuir missões elegíveis sem aprovação individual do ChatGPT; ChatGPT torna-se consultor e auditor opcional; mantenedor conserva a autoridade final. A transição entre modos exige decisão registrada do mantenedor.
+- **Fundamentação:** elimina a dependência permanente de assinatura externa sem salto de risco; cada modo tem pré-condições verificáveis e o mantenedor mantém autoridade final em todos.
+- **Alternativas consideradas:** dependência permanente do ChatGPT (rejeitada: contraria o objetivo de independência); salto direto para DELEGATED (rejeitada: sem certificação prévia nem contrato de delegação).
+- **Evidências:** direcionamento COORD-02/P2 §3 (F2); parecer P2 §0 (avaliação favorável com correções focais pendentes).
+- **Escopo:** documental; nenhuma autorização de despacho concedida; nenhuma mudança de modo efetivada.
+- **Condições para revisão:** decisão do mantenedor sobre piloto ASSISTED; certificação para DELEGATED; contramandamento.
+
+## D-006 — Autorização proporcional e contrato de delegação operacional (F3)
+
+- **Data:** 24/11/2026 · **Autoridade:** direção da coordenação (COORD-02/P2 §4), sob autoridade do mantenedor · **Estado:** PROPOSTA
+- **Contexto:** a carta P1 exigia registro em DECISIONS.md para toda transição relevante, o que poderia burocratizar despachos rotineiros futuros e inflar o registro com eventos de rotina.
+- **Decisão:** distinguir cinco categorias (§10 da carta): ações críticas (autorização específica do mantenedor); autorizações operacionais delegadas (contrato §10.1); decisões estratégicas e mudanças de autoridade (DECISIONS.md); missões e despachos (ledger operacional + checkpoints, **sem PR documental por despacho**); checkpoints e telemetria de rotina (sem autorização adicional). DECISIONS.md registra decisões relevantes e mudanças de autoridade — não cada consulta, mensagem ou evento de sessão. Definir contrato de delegação com: escopo, agentes elegíveis, tipos de tarefa permitidos, limites de custo, limites temporais ou condições de encerramento, operações proibidas, critérios de suspensão, autoridade concedente e procedimento de revogação. A existência do contrato não autoriza nenhuma ação nesta fase; nenhum armazenamento novo é criado nesta rodada.
+- **Fundamentação:** controle proporcional ao risco; o mantenedor delega escopos delimitados sem perder autoridade crítica nem capacidade de revogação imediata.
+- **Alternativas consideradas:** autorização individual por despacho para sempre (rejeitada: burocracia excessiva); delegação irrestrita (rejeitada: perda de controle e de rastreabilidade).
+- **Evidências:** direcionamento COORD-02/P2 §4 (F3).
+- **Escopo:** documental; nenhum contrato de delegação concedido até a presente data.
+- **Condições para revisão:** concessão do primeiro contrato pelo mantenedor; revisão após o primeiro ciclo delegado; revogação a qualquer tempo.
+
+## D-007 — Estratégia de modelos e custos: três categorias (F4; substitui D-003)
+
+- **Data:** 24/11/2026 · **Autoridade:** estratégia estabelecida pelo mantenedor, formalizada pela direção COORD-02/P2 §5 · **Estado:** PROPOSTA (substitui D-003; D-003 preservado intacto)
+- **Contexto:** D-003 tratava "gratuito" e "sem custo adicional" como equivalentes, não distinguia modelo incluído na franquia OpenCode Go de consumo extraordinário e não previa o fallback DeepSeek Flash na variante Go.
+- **Decisão:** preservar a estratégia de utilização estabelecida pelo mantenedor: agentes A–E com modelos gratuitos como primeira opção; ao atingirem limites ou houver indisponibilidade, **DeepSeek Flash como fallback, inclusive a variante OpenCode Go quando disponível e autorizada**; GLM-5.3 como coordenador em avaliação; modelos premium adicionais apenas em uso excepcional e controlado. Distinguir três categorias: (1) modelo gratuito; (2) modelo incluído na franquia OpenCode Go — uso **não equivale necessariamente a cobrança adicional**; (3) consumo extraordinário com cobrança adicional — **não autorizado**. Não assumir disponibilidade permanente de variantes gratuitas. Não alterar modelos de sessões; nenhum custo adicional autorizado.
+- **Fundamentação:** precisão de custo evita tanto cobrança não autorizada quanto bloqueio indevido de uso legítimo da franquia; a estratégia do mantenedor é preservada, não substituída.
+- **Alternativas consideradas:** manter D-003 sem distinção (rejeitada: imprecisa quanto à franquia); proibir toda variante Go (rejeitada: contraria a estratégia estabelecida pelo mantenedor).
+- **Evidências:** direcionamento COORD-02/P2 §5 (F4); catálogo de modelos consultado em 24/11 (`opencode-go/deepseek-v4.1-flash` presente, custo nominal US$ 0,15/0,60 por 1M; `opencode/deepseek-v4.1-flash-free` custo 0); sessões A–E em modelos gratuitos verificadas em 24/11.
+- **Escopo:** política de consumo documental; sem alteração de sessões, configuração ou custo.
+- **Condições para revisão:** deliberação do mantenedor; baseline de tokens nos primeiros checkpoints; disponibilidade dos modelos; conclusão da avaliação do coordenador.
+
+## D-008 — Permissões efetivas: política × configuração × controle testado (F5)
+
+- **Data:** 24/11/2026 · **Autoridade:** direção da coordenação (COORD-02/P2 §6), sob autoridade do mantenedor · **Estado:** PROPOSTA
+- **Contexto:** a carta P1 listava comandos proibidos e permissões propostas sem distinguir claramente política documental de controle técnico efetivo. Listas de proibições e instruções ao modelo **não constituem, por si, barreira de segurança** — são contornáveis por execução indireta.
+- **Decisão:** reforçar a distinção em três camadas (§12 da carta): política documental, permissão configurada e controle técnico efetivamente testado. Documentar requisitos futuros (§12.1): privilégio mínimo; bloqueio configurado de mutações não autorizadas; restrição de acesso a credenciais; proteção contra execução indireta por shell, scripts e subagentes; validação da identidade do destinatário; despachos limitados ao escopo autorizado; falha segura diante de ambiguidade. Nenhuma configuração ou permissão real é modificada nesta rodada; nenhum controle está configurado ou testado.
+- **Fundamentação:** segurança efetiva exige controles verificáveis, não apenas instruções; a distinção evita falsa sensação de proteção e orienta a implementação futura.
+- **Alternativas consideradas:** tratar a lista de proibições como barreira (rejeitada: contornável por execução indireta); implementar permissões agora (rejeitada: proibido nesta rodada).
+- **Evidências:** direcionamento COORD-02/P2 §6 (F5); nenhuma permissão salva no ambiente (tabela `permission` com 0 linhas, verificada em COORD-01); configuração global do OpenCode sem agentes personalizados (verificada em COORD-01).
+- **Escopo:** documental; sem alteração de configuração ou permissões reais.
+- **Condições para revisão:** implementação autorizada dos controles; testes de efetividade incluindo caminhos indiretos (shell, scripts, subagentes); auditoria independente.
