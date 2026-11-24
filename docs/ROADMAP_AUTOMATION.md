@@ -29,7 +29,7 @@ O sistema **não** transforma contagem de PRs em percentual de beta, não marca 
 
 ## Idempotência e propagação de erro
 
-A comparação `--compare` distingue三个 estados: `CHANGE` (exit 0), `NO_CHANGE` (exit 1)
+A comparação `--compare` distingue três estados: `CHANGE` (exit 0), `NO_CHANGE` (exit 1)
 e `ERROR` (exit 2). Falha de leitura/comparação deixa o workflow **vermelho** —
 nunca é interpretada como "sem mudança".
 
