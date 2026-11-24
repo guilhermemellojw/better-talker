@@ -1,7 +1,7 @@
 # Better Talker — Missões ativas (ACTIVE_TASKS)
 
 **Ciclo:** SPRINT-BETA-01  
-**Revisão:** 2026-11-24 / R01 — proposta inicial para revisão  
+**Revisão:** 2026-11-24 / R02 — reconciliação de entregas e missões para revisão  
 **Baseline observado da main:** `52e75373ceafb9e4c3ce09c6225ae057b6808369`  
 **Responsável pela coordenação:** coordenação técnica; decisões reservadas ao mantenedor.
 
@@ -9,7 +9,7 @@
 
 ## 1. Como usar
 
-- Antes de agir, ler este registro, [TEAM_COORDINATION.md](TEAM_COORDINATION.md) e [DELIVERY_POLICY.md](DELIVERY_POLICY.md), conferir a arquitetura Android atual, a main, PR/HEAD/CI e ownership. Usar o roadmap estratégico do [PR #10](https://github.com/guilhermemellojw/better-talker/pull/10) até sua integração e, depois, ROADMAP.md.
+- Antes de agir, ler este registro, [TEAM_COORDINATION.md](TEAM_COORDINATION.md) e [DELIVERY_POLICY.md](DELIVERY_POLICY.md), conferir a arquitetura Android atual, a main, PR/HEAD/CI e ownership. Se documentos faltarem no checkout local, consultar a main remota (git show origin/main:docs/TEAM_COORDINATION.md e git show origin/main:docs/DELIVERY_POLICY.md após fetch, ou links GitHub); ausência local não significa ausência no repositório. Não atualizar worktree alheia. Usar o roadmap estratégico do [PR #10](https://github.com/guilhermemellojw/better-talker/pull/10) até sua integração e, depois, ROADMAP.md.
 - Identificar agente, ID/revisão da missão, baseline e escopo. Um prompt posterior explicitamente atribuído pela coordenação pode atualizar a missão; informar a divergência no checkpoint para reconciliar o registro. Em conflito material, interromper somente a atividade afetada; não restaurar specs antigas ou presumir autorização.
 - Specs/anexos históricos são referência, não tarefas ativas. FASE 15 web (baseline `b69c6be`) está obsoleta para o produto Android. Não reconstruir a superfície web v1.
 - Até um BUILD principal por agente, em branch/worktree exclusiva. QA focal independente pode ocorrer em paralelo. Não escrever em branch de colega nem assumir ownership de arquivo compartilhado.
@@ -25,18 +25,19 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 | Agente | Missão primária | Estado observado | Dependências / próxima ação |
 | --- | --- | --- | --- |
-| A | MENTOR-CONTINUITY-P6 | ATRIBUÍDA | BUILD puro e independente; sem editar ViewModel; encaminhar resultado antes de abrir PR |
-| B | BUG-REF-D1 / #44 | PRONTO PARA QA | Novo delta em #44; aguardar QA focal de E, corrigir apenas reproduções |
+| A | MENTOR-CONTINUITY-P7 / #51 | PRONTO PARA QA | Componente publicado; CI/QA pendentes; integração futura após dependências |
+| B | UX-QA-CONSOLIDATION-P2 | ATRIBUÍDA | #44 em QA E; revisão independente #49; preparar UX-SIMPLE-P1 |
 | C | TRUST / fechamento #43 e #48 | EM EXECUÇÃO (a reconfirmar) | #43 certificado, autorização pendente; #48 QA por E; propor sequência mínima de TRUST restante |
-| D | QA-OPS-CONSOLIDATION-P3 | ATRIBUÍDA | Consolidar QA #47, CI #49, revisar #39; proposta #45 separada |
+| D | QA-ACTIVE-TASKS-50 / OPS-P4 | ATRIBUÍDA | P3 concluída; revisar R02; preparar correções mínimas #39 sem duplicar autoria |
 | E | QA-REF-44-P5 + TRUST-P0A | ATRIBUÍDA | Recertificar delta #44 e auditar #48; atualizar matriz beta pontualmente |
 
 ### A — Mentor e continuidade conversacional (P1)
 
 - Objetivo: seletor puro e testável de referente recuperável de histórico existente, com identidade nota/seção/mensagem/estado/escopo, ordenação determinística e falha segura.
 - Escopo: novos componentes/testes puros isolados da main, somente se não dependerem de PRs pendentes. Distinguir recuperação, aprofundamento e inserção; card aceito pode ser referente sem autorização de reinsertar. Preservar consentimento e autoria.
-- Fora do escopo: `CopilotViewModel.kt`, integração produtiva do #47, nova persistência, mudança de schema ou gate factual; não abrir novo PR antes do parecer da coordenação.
-- Dependências para integração futura: #47 e resolução dos contratos/ownership de #42/#48. QA independente: E ou D/C conforme capacidade e independência (a designar para o novo BUILD).
+- P6 concluída; P7 publicada como [#51](https://github.com/guilhermemellojw/better-talker/pull/51), HEAD `72fd228648887d0686cb4ef0590c3c777a2dd0f0`, dois arquivos novos; 18 testes focados PASS relatados, CI e QA independente pendentes. Não apresentar como funcionalidade já integrada.
+- Fora do escopo: `CopilotViewModel.kt`, integração produtiva do #47/#51, nova persistência, mudança de schema ou gate factual; não abrir outro BUILD sem coordenação.
+- Dependências para integração futura: #47/#51 e resolução dos contratos/ownership de #42/#48. QA do #51: E preferencial após #44/#48; alternativa C/D se formalmente redistribuído e independente. Não duplicar auditoria.
 - Pronto: diff e testes de isolamento, estado, ambiguidade, histórico e ausência de autorização implícita; provar independência e entregar checkpoint.
 
 ### B — Referências e UX (P1; risco factual P0 quando aplicável)
@@ -45,6 +46,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 - Objetivo: recuperar unidades estruturais inequívocas e sinalizar truncamento corretamente. Última auditoria em `f3c987a3` registrou unitAt vazio, limite de passagens sem aviso e fallback TextNotFound. Novo delta em RoomReferenceResolver.kt ainda requer recertificação.
 - Escopo: resolutor/reader/fallback e testes estritamente afetados, mediante reproduções. Revisor E; C como alternativa se independente. Não modificar gates TRUST nem arquivos compartilhados sem ownership.
 - Pronto: três sondas e regressões pertinentes, CI no HEAD final e parecer independente; documentação de limitações.
+- Atividade paralela: revisão independente do #49 (se não contribuiu), consolidar parecer host-only #45 sem nova execução física; preparar UX-SIMPLE-P1 (rótulos de fonte, avisos de parcialidade, hierarquia de card e semântica acessível), sem editar ChatScreen/CopilotViewModel ou iniciar BUILD sem escopo.
 
 ### C — TRUST e identidade documental (P0)
 
@@ -55,11 +57,11 @@ As atribuições representam o último direcionamento conhecido; execução efet
 
 ### D — QA operacional e automação (P1)
 
-- #47: consolidar evidências F1–F6 e motivo do SKIP, confirmar independência e SHA; não repetir auditoria certificada. Publicar parecer.
-- #49: confirmar execução dos dois gates androidTest e testes anteriores, controles negativos, CI e duração. Se contribuiu materialmente, solicitar revisão B/E/C independente, sem autocertificar.
-- #39: depois dos gates anteriores, revisão focal de segurança, permissões, ciclos, estados e métricas do roadmap; não duplicar a implementação ou automatizar atribuições.
-- #45: encerrado sem merge; preservar executor validado e propor CI host-only/reabertura apenas mediante decisão explícita. Sem nova instrumentação.
-- Pronto: pareceres/links por SHA, bloqueadores e próximas decisões; #43 não depende de #49.
+- P3 concluída: [#47](https://github.com/guilhermemellojw/better-talker/pull/47#issuecomment-7130769068) recertificado (37 PASS, 1 SKIP justificado, 0 FAIL); [#49](https://github.com/guilhermemellojw/better-talker/pull/49#issuecomment-7130812431) CI 2/2 PASS, revisão independente B pendente; [#39](https://github.com/guilhermemellojw/better-talker/pull/39#issuecomment-7130832785) parecer com ressalvas; [#45](https://github.com/guilhermemellojw/better-talker/pull/45#issuecomment-7130848707) proposta host-only, fechado sem merge. Não repetir esses testes.
+- Prioridade: revisão documental do #50 R02, preflight dos documentos na main remota e confirmação das missões/ownership. Publicar parecer no SHA novo; não alterar o registro da coordenação.
+- OPS-P4: encaminhar ao dono do #39 correções mínimas de Draft, janela e métricas observáveis; verificar especialmente classificação de checks somente skipped/neutral e prevenção de regeneração autorreferente após merge de ROADMAP_STATUS.md. Timestamp não deve causar churn. Se for autor ou receber ownership explícito, preparar delta no próprio PR, sem criar workflow paralelo; recertificação independente obrigatória.
+- #45: aguardar decisão expressa de reabertura; sem ADB/instrumentação. #43 não depende de #49.
+- Pronto: parecer #50, proposta mínima de #39 com critérios de aceite, dependências/ownership confirmados. Apoio a merges apenas com autorização do mantenedor.
 
 ### E — QA especializado (P1; riscos P0 prioritários)
 
@@ -76,11 +78,13 @@ As atribuições representam o último direcionamento conhecido; execução efet
 | [#42](https://github.com/guilhermemellojw/better-talker/pull/42) | `e3389251` | QA E positivo, CI push/PR verde | Autorização do mantenedor, preflight |
 | [#43](https://github.com/guilhermemellojw/better-talker/pull/43) | `85e189a2` | QA D positivo, CI verde | Autorização do mantenedor, preflight |
 | [#44](https://github.com/guilhermemellojw/better-talker/pull/44) | `d2698ee0` | Novo delta; QA/CI a reconfirmar | E recertifica |
-| [#47](https://github.com/guilhermemellojw/better-talker/pull/47) | `e7e0a350` | Draft, CI 2/2 verde; parecer formal pendente | D consolida evidências |
+| [#47](https://github.com/guilhermemellojw/better-talker/pull/47) | `e7e0a350` | Draft, CI 2/2 verde; QA D positivo | Autorização do mantenedor, preflight |
 | [#48](https://github.com/guilhermemellojw/better-talker/pull/48) | `d0ad009e` | QA independente pendente | E audita |
-| [#49](https://github.com/guilhermemellojw/better-talker/pull/49) | `201c2f22` | Draft; push verde, PR em execução na última consulta | D consolida CI; revisor independente |
-| [#39](https://github.com/guilhermemellojw/better-talker/pull/39) | `c3acba18` | Revisão pendente | D revisa |
-| [#45](https://github.com/guilhermemellojw/better-talker/pull/45) | `8924799a` | Fechado sem merge | Decisão futura sobre reabertura |
+| [#49](https://github.com/guilhermemellojw/better-talker/pull/49) | `201c2f22` | Draft; CI 2/2 verde, parecer operacional D | QA independente B |
+| [#39](https://github.com/guilhermemellojw/better-talker/pull/39) | `c3acba18` | Parecer D com ressalvas; riscos de classificação/churn a esclarecer | Delta mínimo com owner |
+| [#45](https://github.com/guilhermemellojw/better-talker/pull/45) | `8924799a` | Fechado sem merge; proposta host-only publicada | Decisão futura sobre reabertura |
+| [#51](https://github.com/guilhermemellojw/better-talker/pull/51) | `72fd2286` | Draft; CI/QA pendentes na última consulta | QA E ou alternativa designada |
+| [#50](https://github.com/guilhermemellojw/better-talker/pull/50) | Revisão R02 deste documento | Draft documental | D revisa |
 
 **CopilotViewModel.kt:** #42 e #48 alteram o mesmo arquivo. Nenhum novo BUILD nele nesta rodada; integrar em sequência após autorização e reconferir compatibilidade, QA e CI afetados. A será dono da futura integração do resolvedor quando liberada. Ownership dos arquivos compartilhados deve ser confirmado antes de cada edição, não inferido a partir deste snapshot.
 
