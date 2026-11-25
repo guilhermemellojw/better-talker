@@ -1,0 +1,50 @@
+name: Roadmap status — gate host-only
+
+# Gate pré-merge, INDEPENDENTE do workflow privilegiado `roadmap-status.yml`.
+# Somente leitura: sem segredos, sem GITHUB_TOKEN, sem `gh`, sem push e sem
+# chamada ao workflow que cria PR. Não substitui a validação privilegiada
+# posterior na main — apenas barra deltas que já falham em host.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/roadmap-status.yml'
+      - '.github/workflows/roadmap-status-host-tests.yml'
+      - 'scripts/roadmap_status.py'
+      - 'tests/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (somente leitura)
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sintaxe Python
+        run: python3 -m py_compile scripts/roadmap_status.py tests/*.py
+
+      - name: Validar YAML dos dois workflows
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import yaml
+          for path in (
+              '.github/workflows/roadmap-status.yml',
+              '.github/workflows/roadmap-status-host-tests.yml',
+          ):
+              with open(path, encoding='utf-8') as handle:
+                  yaml.safe_load(handle)
+          print('YAML-OK')
+          PY
+
+      - name: Testes host-only (Python + Git em repositório temporário)
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v

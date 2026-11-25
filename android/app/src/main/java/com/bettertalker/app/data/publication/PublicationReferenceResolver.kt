@@ -39,7 +39,7 @@ class PublicationReferenceResolver(
     private val passageDao: PassageDao,
     private val unitDao: PublicationUnitDao? = null,
     private val referenceResolver: RoomReferenceResolver =
-        RoomReferenceResolver(passageDao, attachmentDao),
+        RoomReferenceResolver(passageDao, attachmentDao, unitDao),
 ) {
 
     /**
@@ -219,6 +219,7 @@ class PublicationReferenceResolver(
             paragraphEnd = detected.paragraphEnd,
             sourcePassageId = resolved.passageId,
             recoveredText = resolved.text,
+            structuralTruncated = wasTruncated(resolved),
             partial = resolved.status == ReferenceStatus.PARTIAL,
             // O resolvedor devolve `text` limitado e, em alguns caminhos,
             // `fullText` integral. Se o texto entregue é menor — ou bateu
@@ -274,8 +275,17 @@ class PublicationReferenceResolver(
                 ?: unitNumberFromTitle(title)
             number == requestedNumber
         }
-        if (matches.size != 1) return null
-        return matches.single().toDocumentUnit()
+        val canonicalMatches = matches.filter { unit ->
+            !unit.canonicalKey.contains("#")
+        }
+        val selected = when {
+            requestedNumber == null -> if (matches.size == 1) matches.single() else null
+            canonicalMatches.size == 1 -> canonicalMatches.single()
+            canonicalMatches.isEmpty() && matches.size == 1 -> matches.single()
+            else -> null
+        }
+        if (selected == null) return null
+        return selected.toDocumentUnit()
     }
 
     /**
