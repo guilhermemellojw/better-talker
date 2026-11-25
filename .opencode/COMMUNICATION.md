@@ -175,3 +175,50 @@ A blacklist de termos proibidos é filtro auxiliar, não barreira de segurança 
 autorização. Antes de um piloto real serão necessários autoridade configurada efetiva,
 transporte real revisado, persistência/ledger, revogação distribuída, exclusão mútua e
 reconciliação entre processos. Nada disso está implementado ou ativado aqui.
+
+## Correções COORD-04/P2.1
+
+### R2 — requisição preparada
+
+Antes de `prepare()` o motor captura um snapshot imutável da missão autorizada. Após
+`prepare()`, o `PreparedRequest` é validado integralmente: estrutura, `request_id`, identidade
+canônica, IDs, projeto/repositório, destinatário, objetivo, payload/hash, escopo, entregáveis,
+critérios, ownership, HEAD/branch, validade, timeout, referência/identidade da autorização,
+expiração e revogação. Cópia profunda é transmitida no lugar do objeto compartilhado.
+
+Falha de validação ou falha classificada como `pre_transmit` produz `FAILED` com
+`transmit_called=false` e zero chamadas ao transporte. Falha durante/pós transmissão ou receipt
+contraditório produz `UNKNOWN`, sem reenvio automático.
+
+### R1 — evidência positiva
+
+São exigidos: `SessionStatus.target` coerente; receipt com `operation_id`, `message_id` e
+evidência de projeto/repositório/destinatário/payload; observação com target, nível de evidência
+e sinais positivos (`recorded`, `executing`, `result_available`, `report_available`). Inbox não
+é entrega; ausência em `/api/session/active` não é disponibilidade; campos ausentes impedem
+promoção a `DELIVERED`/`RUNNING`.
+
+### R3 — consistência terminal
+
+O lote é validado antes de qualquer transição. Conclusão terminal não é substituída por
+relatório posterior divergente; mesmo `message_id` não pode mudar de conteúdo entre consultas;
+`IN_PROGRESS`/`FAILED` posteriores a `COMPLETED` são rejeitados; `FAILED → COMPLETED` é
+rejeitado; relatório recebido quando a missão está apenas no inbox não conclui. `IN_PROGRESS → COMPLETED` legítimo e
+duplicidade idêntica permanecem válidos. Estado, relatório, assessment e eventos são mantidos
+coerentes.
+
+### Requisitos mínimos para o piloto real (COORD-04/P3, não implementados)
+
+1. Uma missão experimental com objetivo, escopo e critérios verificáveis.
+2. Autorização humana específica, registrada e vinculada à identidade canônica.
+3. Destinatário experimental confirmado por ID de sessão, instância, location e agente.
+4. Registro persistente anterior ao envio, com operação, payload, autorização e estado inicial.
+5. Reserva exclusiva da operação e consumidor único; nenhuma operação concorrente.
+6. Reconstrução/verificação do estado antes de reenviar; `UNKNOWN` bloqueia reenvio.
+7. Adaptador OpenCode restrito ao conjunto autorizado, sem ampliar permissões do supervisor.
+8. Limites efetivos de ferramentas, destinatários, tempo, custo e escopo.
+9. Reconciliação após timeout/interrupção com evidência positiva, nunca presunção.
+10. Recertificação independente do delta e decisão registrada do mantenedor.
+
+Infraestrutura distribuída, orquestrador completo e reutilização multiprojeto não são
+requisitos deste piloto. O HealthAgentForms segue como requisito arquitetural futuro apenas.
