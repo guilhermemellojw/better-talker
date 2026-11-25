@@ -7,7 +7,7 @@ Níveis:
   --reports: implica detail; coleta paginada e limitada do último relatório concluído
              apenas de sessões explicitamente autorizadas no mapa local.
 
-Mapa local (não versionado): BT_COORD_SESSION_MAP ou /tmp/opencode/coord-sessions.json.
+Mapa local (não versionado): ~/.local/state/better-talker/coord-sessions.json.
 Identificadores de sessão são locais e transitórios; nunca identidade permanente da equipe.
 Sem mapa, títulos AGENTE são apenas candidatos e NENHUMA mensagem é consultada.
 
@@ -19,14 +19,19 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 from datetime import datetime, timezone
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-DEFAULT_MAP = "/tmp/opencode/coord-sessions.json"
+REPO = "guilhermemellojw/better-talker"
+DEFAULT_MAP = os.path.expanduser("~/.local/state/better-talker/coord-sessions.json")
+REPORT_CONTRACT = "<!-- BT-COORD-REPORT:v1 -->"
 REPORT_MARKERS = ("##", "HEAD", "PR #", "Parecer", "Resultado", "Bloqueio",
                   "Missão", "QA", "Recertificação", "Status")
+KNOWN_CI_EVENTS = {"push", "pull_request", "pull_request_target", "workflow_run",
+                   "workflow_dispatch", "schedule"}
 QUERY_COUNT = 0
 
 
@@ -61,16 +66,59 @@ def local_head():
     return out if ok else None
 
 
+def verify_script(require_clean=False):
+    """Falha fechada se o checkpoint for symlink, não regular ou de outro proprietário."""
+    try:
+        st = os.lstat(__file__)
+        if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+            return {"ok": False, "reason": "script não regular ou symlink"}
+        if st.st_uid != os.getuid():
+            return {"ok": False, "reason": "proprietário inesperado"}
+        if require_clean:
+            rel = os.path.relpath(__file__, os.getcwd())
+            ok_tracked, _ = sh(["git", "ls-files", "--error-unmatch", rel])
+            ok_clean, status = sh(["git", "status", "--porcelain", "--", rel])
+            if not ok_tracked:
+                return {"ok": False, "reason": "script não rastreado pelo Git"}
+            if not ok_clean or status:
+                return {"ok": False, "reason": "script modificado/não limpo"}
+        return {"ok": True, "owner_uid": st.st_uid, "git_clean": bool(require_clean)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "reason": str(e)}
+
+
+def _private_regular_file(path):
+    """Arquivo regular, não-symlink, do proprietário atual e sem acesso grupo/outros."""
+    st = os.lstat(path)
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise ValueError("mapa local não é arquivo regular")
+    if st.st_uid != os.getuid():
+        raise ValueError("mapa local não pertence ao usuário atual")
+    if stat.S_IMODE(st.st_mode) & 0o077:
+        raise ValueError("mapa local com permissões amplas")
+    parent = os.path.dirname(path)
+    pst = os.lstat(parent)
+    if stat.S_ISLNK(pst.st_mode) or not stat.S_ISDIR(pst.st_mode):
+        raise ValueError("diretório do mapa inválido")
+    if pst.st_uid != os.getuid() or stat.S_IMODE(pst.st_mode) & 0o077:
+        raise ValueError("diretório do mapa não é privado do usuário")
+
+
 def load_session_map(path=None):
-    """Carrega mapa local; None = ausente. Levanta ValueError se inválido/ambíguo."""
-    path = path or os.environ.get("BT_COORD_SESSION_MAP", DEFAULT_MAP)
-    if not os.path.exists(path):
+    """Carrega mapa local privado; None = ausente. Sem autoridade via variável de ambiente."""
+    path = path or DEFAULT_MAP
+    if not os.path.lexists(path):
         return None
+    _private_regular_file(path)
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
     project = cfg.get("project") or {}
-    if not project.get("id") or not isinstance(project.get("allowed_directories"), list):
-        raise ValueError("mapa local sem project.id/allowed_directories")
+    if not isinstance(project.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", project["id"]):
+        raise ValueError("project.id inválido")
+    if not isinstance(project.get("allowed_directories"), list) or not project["allowed_directories"]:
+        raise ValueError("allowed_directories ausente")
+    if any(not isinstance(d, str) or not os.path.isabs(d) for d in project["allowed_directories"]):
+        raise ValueError("allowed_directories inválidos")
     agents = cfg.get("agents")
     if not isinstance(agents, dict) or not agents:
         raise ValueError("mapa local sem agentes")
@@ -80,8 +128,8 @@ def load_session_map(path=None):
             raise ValueError(f"agente inválido no mapa: {agent}")
         for e in entries:
             sid = e.get("session_id")
-            if not sid:
-                raise ValueError(f"entrada sem session_id: {agent}")
+            if not isinstance(sid, str) or not re.fullmatch(r"ses_[A-Za-z0-9_-]{8,128}", sid):
+                raise ValueError(f"session_id inválido: {agent}")
             if sid in seen:
                 raise ValueError(f"session_id duplicado/ambíguo: {sid}")
             seen.add(sid)
@@ -132,17 +180,21 @@ def active_sessions():
 
 
 def authorize_sessions(candidates, cfg):
-    """Autoriza somente IDs do mapa + projeto/diretório observáveis.
+    """Autoriza somente IDs válidos do mapa + projeto/diretório exatos observados.
 
-    Retorna (authorized, rejected, unknown). Título nunca é usado como autorização.
+    Retorna (authorized, rejected, unknown). Rejeitados não expõem títulos/IDs.
     """
     if candidates is None:
         return [], [], [{"reason": "consulta de sessões falhou"}]
     if cfg is None:
-        return [], [{"id": c.get("id"), "title": c.get("title"),
-                     "reason": "mapa local ausente; candidato não autorizado"}
-                    for c in candidates], []
-    by_id = {c.get("id"): c for c in candidates}
+        return [], [{"reason": "mapa local ausente; candidato não autorizado"}
+                    for _ in candidates], []
+    counts = {}
+    for c in candidates:
+        cid = c.get("id")
+        counts[cid] = counts.get(cid, 0) + 1
+    duplicate_ids = {cid for cid, n in counts.items() if cid and n > 1}
+    by_id = {c.get("id"): c for c in candidates if c.get("id") not in duplicate_ids}
     project = cfg["project"]
     allowed = set(project["allowed_directories"])
     authorized, rejected, unknown, mapped = [], [], [], set()
@@ -150,31 +202,33 @@ def authorize_sessions(candidates, cfg):
         for e in entries:
             sid = e["session_id"]
             mapped.add(sid)
+            if sid in duplicate_ids:
+                rejected.append({"agent": agent, "reason": "sessionID duplicado na resposta da API"})
+                continue
             c = by_id.get(sid)
             if not c:
-                unknown.append({"agent": agent, "session_id": sid,
-                                "reason": "sessionID do mapa não observado"})
+                unknown.append({"agent": agent, "reason": "sessionID do mapa não observado"})
                 continue
-            if c.get("project_id") and c["project_id"] != project["id"]:
-                rejected.append({"agent": agent, "id": sid, "title": c.get("title"),
-                                 "reason": "projectID divergente"})
+            if c.get("project_id") != project["id"]:
+                rejected.append({"agent": agent, "reason": "projectID ausente/divergente"})
                 continue
-            if c.get("directory") not in allowed:
-                rejected.append({"agent": agent, "id": sid, "title": c.get("title"),
-                                 "reason": "diretório não permitido"})
+            if c.get("directory") != e.get("directory") or c.get("directory") not in allowed:
+                rejected.append({"agent": agent, "reason": "diretório divergente da entrada/não permitido"})
                 continue
             authorized.append({**c, "agent": agent, "mission_local": e.get("mission_id"),
                                "expected_pr": e.get("expected_pr"),
                                "expected_branch": e.get("expected_branch"),
                                "expected_worktree": e.get("expected_worktree")})
     for c in candidates:
-        if c.get("id") not in mapped:
-            rejected.append({"id": c.get("id"), "title": c.get("title"),
-                             "reason": "sessionID não está no mapa local"})
+        cid = c.get("id")
+        if cid in duplicate_ids:
+            rejected.append({"reason": "sessionID duplicado na resposta da API"})
+        elif cid not in mapped:
+            rejected.append({"reason": "sessionID não está no mapa local"})
     return authorized, rejected, unknown
 
 
-def fetch_assistant_messages(sid, max_pages=2, page_size=5):
+def fetch_assistant_messages(sid, max_pages=2, page_size=3):
     """Paginação seletiva e limitada; retorna (mensagens, cursor, erro)."""
     messages, cursor, err = [], None, None
     for _ in range(max_pages):
@@ -197,8 +251,33 @@ def fetch_assistant_messages(sid, max_pages=2, page_size=5):
     return messages, cursor, err
 
 
+def sanitize_text(text):
+    """Redação conservadora de segredos sintéticos/reaais antes de qualquer saída."""
+    text = re.sub(r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
+                  "[PRIVATE_KEY_REDACTED]", text, flags=re.DOTALL)
+    text = re.sub(r"(?i)\b(api[_-]?key|token|password|secret)\b\s*[:=]\s*[^\s,;]+",
+                  r"\1=[REDACTED]", text)
+    text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [REDACTED]", text)
+    return text
+
+
+def parse_report_contract(text):
+    if REPORT_CONTRACT not in text:
+        return None
+    mission = re.search(r"(?im)^mission_id:\s*(\S+)\s*$", text)
+    head = re.search(r"(?im)^head_sha:\s*([0-9a-f]{40})\s*$", text)
+    status = re.search(r"(?im)^status:\s*(COMPLETED|BLOCKED|FAILED|IN_PROGRESS)\s*$", text)
+    if not (mission and head and status):
+        return None
+    return {"mission_id": mission.group(1), "head_sha": head.group(1).lower(),
+            "status": status.group(1)}
+
+
 def select_completed_report(messages, max_chars=4000):
-    """Seleciona relatório concluído; ignora tool-calls, interrompidos e status sem marcadores."""
+    """Classifica mensagens; só contrato explícito vira relatório identificado.
+
+    Marcadores genéricos produzem candidato não certificado, nunca conclusão de missão.
+    """
     skipped = []
     for m in messages:
         finish = m.get("finish")
@@ -210,15 +289,22 @@ def select_completed_report(messages, max_chars=4000):
         if len(text) < 120:
             skipped.append({"id": m.get("id"), "reason": "texto insuficiente"})
             continue
-        if not any(marker in text for marker in REPORT_MARKERS):
-            skipped.append({"id": m.get("id"), "reason": "sem marcadores de relatório"})
+        contract = parse_report_contract(text)
+        if contract:
+            classification = "identified_report"
+        elif any(marker in text for marker in REPORT_MARKERS):
+            classification = "candidate_unverified"
+        else:
+            skipped.append({"id": m.get("id"), "reason": "status intermediário/sem contrato"})
             continue
         t = m.get("time") or {}
+        safe = sanitize_text(text)
         return {
             "message_id": m.get("id"), "created_utc": utc(t.get("created")),
             "completed_utc": utc(t.get("completed")), "finish": finish,
-            "chars_total": len(text), "text": text[:max_chars],
-            "truncated": len(text) > max_chars, "verification": "dado não confiável",
+            "classification": classification, "contract": contract,
+            "chars_total": len(text), "text": safe[:max_chars],
+            "truncated": len(safe) > max_chars, "verification": "dado não confiável",
         }, skipped
     return None, skipped
 
@@ -234,7 +320,7 @@ def extract_hints(text):
 
 
 def open_prs():
-    ok, out = sh(["gh", "pr", "list", "--state", "open", "--limit", "30",
+    ok, out = sh(["gh", "pr", "list", "--repo", REPO, "--state", "open", "--limit", "30",
                   "--json", "number,title,headRefName,isDraft,headRefOid"])
     if not ok:
         return None
@@ -245,7 +331,7 @@ def open_prs():
 
 
 def get_pr(number):
-    ok, out = sh(["gh", "pr", "view", str(number), "--json",
+    ok, out = sh(["gh", "pr", "view", str(number), "--repo", REPO, "--json",
                   "number,state,headRefName,headRefOid,url"])
     if not ok:
         return None
@@ -258,6 +344,8 @@ def get_pr(number):
 def check_state(check):
     if check.get("status") in {"IN_PROGRESS", "QUEUED", "PENDING"}:
         return "pending"
+    if check.get("status") != "COMPLETED":
+        return "unknown"
     c = check.get("conclusion")
     if c == "SUCCESS":
         return "success"
@@ -266,38 +354,45 @@ def check_state(check):
     return "unknown"
 
 
-def latest_checks(roll, detail=False):
+def valid_sha(value):
+    return isinstance(value, str) and bool(re.fullmatch(r"[0-9a-f]{40}", value))
+
+
+def summarize_checks(checks, detail=False):
     if detail:
-        return roll
+        return checks
     latest = {}
-    for c in roll:
-        name = c.get("name") or "?"
-        key = c.get("completedAt") or c.get("startedAt") or ""
-        if name not in latest or key >= (latest[name].get("completedAt") or
-                                          latest[name].get("startedAt") or ""):
-            latest[name] = c
+    for c in checks:
+        key = (c.get("name"), c.get("event"))
+        stamp = c.get("completed_at") or c.get("started_at") or ""
+        if key not in latest or stamp >= (latest[key].get("completed_at") or
+                                           latest[key].get("started_at") or ""):
+            latest[key] = c
     return list(latest.values())
 
 
 def pr_checks(number, pr_head, detail=False, run_cache=None):
-    """Checks com run/SHA/evento; nunca certifica HEAD diferente."""
+    """Checks por evento/SHA; sucesso push não esconde falha pull_request."""
     run_cache = run_cache if run_cache is not None else {}
-    ok, out = sh(["gh", "pr", "view", str(number), "--json", "statusCheckRollup"])
+    ok, out = sh(["gh", "pr", "view", str(number), "--repo", REPO,
+                  "--json", "statusCheckRollup"])
     if not ok:
-        return {"query_status": "error", "checks": []}
+        return {"query_status": "error", "checks": [], "readiness": "unknown"}
     try:
         roll = json.loads(out).get("statusCheckRollup", [])
+        if not isinstance(roll, list):
+            raise ValueError("rollup inválido")
     except Exception:  # noqa: BLE001
-        return {"query_status": "error", "checks": []}
+        return {"query_status": "error", "checks": [], "readiness": "unknown"}
     checks = []
-    for c in latest_checks(roll, detail=detail):
+    for c in roll:
         url = c.get("detailsUrl") or ""
         match = re.search(r"/actions/runs/(\d+)", url)
         run_id = match.group(1) if match else None
         meta = None
         if run_id:
             if run_id not in run_cache:
-                ok2, out2 = sh(["gh", "run", "view", run_id, "--json",
+                ok2, out2 = sh(["gh", "run", "view", run_id, "--repo", REPO, "--json",
                                 "headSha,event,url,conclusion,status"])
                 if ok2:
                     try:
@@ -310,16 +405,38 @@ def pr_checks(number, pr_head, detail=False, run_cache=None):
         head_sha = (meta or {}).get("headSha")
         event = (meta or {}).get("event")
         state = check_state(c)
+        sha_ok = valid_sha(head_sha) and valid_sha(pr_head)
+        event_ok = event in KNOWN_CI_EVENTS
+        matches = bool(sha_ok and head_sha == pr_head)
         checks.append({
             "name": c.get("name"), "status": c.get("status"),
             "conclusion": c.get("conclusion"), "state": state,
             "run_id": run_id, "run_url": (meta or {}).get("url") or url,
             "head_sha": head_sha, "event": event,
             "started_at": c.get("startedAt"), "completed_at": c.get("completedAt"),
-            "observed_utc": now(), "matches_pr_head": bool(head_sha and pr_head and head_sha == pr_head),
-            "certifies_current_head": bool(state == "success" and head_sha and pr_head and head_sha == pr_head),
+            "observed_utc": now(), "matches_pr_head": matches,
+            "certifies_current_head": bool(state == "success" and matches and event_ok),
         })
-    return {"query_status": "ok", "checks": checks,
+    visible = summarize_checks(checks, detail)
+    current = [c for c in checks if c["matches_pr_head"]]
+    if not roll:
+        readiness = "no_checks"
+    elif any(not valid_sha(c["head_sha"]) or c["event"] not in KNOWN_CI_EVENTS for c in checks):
+        readiness = "unknown"
+    elif not current:
+        readiness = "unknown"
+    elif any(c["state"] == "failure" for c in current):
+        readiness = "red"
+    elif any(c["state"] == "pending" for c in current):
+        readiness = "pending"
+    elif all(c["state"] == "success" for c in current):
+        readiness = "green"
+    else:
+        readiness = "unknown"
+    return {"query_status": "ok", "checks": visible, "all_checks_count": len(checks),
+            "events": sorted({c["event"] or "DESCONHECIDO" for c in checks}),
+            "readiness": readiness, "ready_for_merge": False,
+            "authorization": "não_avaliada_pelo_checkpoint",
             "note": "sem checks" if not roll else None}
 
 
@@ -358,10 +475,45 @@ def relevant_worktrees(all_trees, prs, cfg):
     return selected[:12]
 
 
-def governance(local_sha, main):
+def remote_governance(detail=False):
+    """Obtém documentos da main por API, com repositório explícito e somente leitura."""
+    names = {"COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
+             "ACTIVE_TASKS.md", "DELIVERY_POLICY.md"}
+    ok, out = sh(["gh", "api", f"repos/{REPO}/contents/docs?ref=main"])
+    if not ok:
+        return {"query_status": "error", "documents": []}
+    try:
+        entries = json.loads(out)
+        if not isinstance(entries, list):
+            raise ValueError("resposta inválida")
+    except Exception:  # noqa: BLE001
+        return {"query_status": "error", "documents": []}
+    docs = []
+    for e in entries:
+        if e.get("name") not in names:
+            continue
+        item = {"path": f"docs/{e['name']}", "sha": e.get("sha"), "url": e.get("html_url")}
+        if detail:
+            ok2, out2 = sh(["gh", "api", f"repos/{REPO}/contents/{item['path']}?ref=main",
+                            "-H", "Accept: application/vnd.github.raw"])
+            item["text"] = out2 if ok2 else None
+        docs.append(item)
+    return {"query_status": "ok", "repo": REPO, "ref": "main", "documents": docs}
+
+
+def governance(local_sha, main, detail=False):
     docs = ["docs/COORDINATOR.md", "docs/DECISIONS.md", "docs/TEAM_COORDINATION.md",
             "docs/ACTIVE_TASKS.md", "docs/DELIVERY_POLICY.md"]
     present = {d: os.path.exists(d) for d in docs}
+    ok_tree, tree = sh(["git", "ls-tree", "HEAD", *docs])
+    local_blobs = {d: None for d in docs}
+    if ok_tree:
+        for line in tree.splitlines():
+            try:
+                meta, path = line.split("\t", 1)
+                local_blobs[path] = meta.split()[2]
+            except Exception:  # noqa: BLE001
+                continue
     revision = None
     if present.get("docs/ACTIVE_TASKS.md"):
         try:
@@ -372,13 +524,20 @@ def governance(local_sha, main):
                         break
         except Exception:  # noqa: BLE001
             pass
+    remote = remote_governance(detail)
+    remote_by_path = {d["path"]: d for d in remote.get("documents", [])}
+    comparison = {d: {"local_blob": local_blobs.get(d),
+                      "remote_blob": (remote_by_path.get(d) or {}).get("sha"),
+                      "matches_remote": local_blobs.get(d) == (remote_by_path.get(d) or {}).get("sha")}
+                  for d in docs}
     return {"present": present, "active_tasks_revision_local": revision,
             "local_head": local_sha, "main_sha": main,
-            "alignment": "aligned" if local_sha and main and local_sha == main else "divergent_local_branch"}
+            "alignment": "aligned" if local_sha and main and local_sha == main else "divergent_local_branch",
+            "remote": remote, "comparison": comparison}
 
 
 def association(entry, report, prs, trees):
-    """Separa declarado, existência e associação de missão (mapa local explícito)."""
+    """Separa declarado, existência, associação local e atualidade do relatório."""
     hints = extract_hints(report["text"]) if report else {}
     pr = None
     if hints.get("pr_hint"):
@@ -388,28 +547,42 @@ def association(entry, report, prs, trees):
     wt = None
     if hints.get("worktree_hint"):
         wt = next((w for w in (trees or []) if w["path"].rstrip("/").endswith("/" + hints["worktree_hint"])), None)
-    mission_confirmed = False
-    if entry.get("mission_local"):
-        tests = []
-        if entry.get("expected_pr"):
-            tests.append(bool(pr and pr.get("number") == entry["expected_pr"]))
-        if entry.get("expected_branch"):
-            tests.append(bool(pr and pr.get("headRefName") == entry["expected_branch"]))
-        if entry.get("expected_worktree"):
-            tests.append(bool(wt and os.path.basename(wt["path"].rstrip("/")) == entry["expected_worktree"]))
-        mission_confirmed = bool(tests) and all(tests)
+    contract = report.get("contract") if report else None
+    classification = report.get("classification") if report else "unknown"
+    mission_state = "desconhecida"
+    if classification == "identified_report" and contract and entry.get("mission_local"):
+        if contract["mission_id"] != entry["mission_local"]:
+            mission_state = "desatualizado_ou_outra_missao"
+        else:
+            tests = []
+            if entry.get("expected_pr"):
+                tests.append(bool(pr and pr.get("number") == entry["expected_pr"]))
+            if entry.get("expected_branch"):
+                tests.append(bool(pr and pr.get("headRefName") == entry["expected_branch"]))
+            if entry.get("expected_worktree"):
+                tests.append(bool(wt and os.path.basename(wt["path"].rstrip("/")) == entry["expected_worktree"]))
+            if contract.get("head_sha") and pr and pr.get("headRefOid"):
+                tests.append(contract["head_sha"] == pr["headRefOid"])
+            mission_state = "associada_ao_mapa_local" if tests and all(tests) else "desatualizado_ou_divergente"
+    elif classification == "candidate_unverified":
+        mission_state = "candidato_nao_certificado"
     return {
         "declared_by_agent": hints,
         "pr_existence": pr,
         "worktree_existence": wt,
         "mission_id_local": entry.get("mission_local"),
-        "mission_association": "confirmada_pelo_mapa_local" if mission_confirmed else "desconhecida",
+        "report_classification": classification,
+        "contract": contract,
+        "mission_association": mission_state,
     }
 
 
 def build(detail=False, reports=False):
     global QUERY_COUNT
     QUERY_COUNT = 0
+    integrity = verify_script(require_clean=True)
+    if not integrity["ok"]:
+        raise RuntimeError(f"integridade do checkpoint inválida: {integrity['reason']}")
     cfg, map_error = None, None
     try:
         cfg = load_session_map()
@@ -449,7 +622,8 @@ def build(detail=False, reports=False):
         "active_query": "ok" if isinstance(active, dict) else "error",
         "open_prs": prs, "worktrees": all_trees if detail or reports else relevant_worktrees(all_trees, prs, cfg),
         "worktrees_total_count": len(all_trees) if all_trees is not None else None,
-        "governance": governance(local, main),
+        "script_integrity": integrity,
+        "governance": governance(local, main, detail or reports),
         "notes": [
             "Checkpoint informativo; não autoriza ações automaticamente.",
             "Título AGENTE é candidato; só sessionID + projeto/diretório do mapa local autoriza coleta.",
@@ -469,7 +643,9 @@ def render_text(cp):
          f"Consultas de leitura: {cp.get('query_count', 'DESCONHECIDO')}",
          f"Main: {cp['main_sha'] or 'DESCONHECIDO'} | HEAD local: {short(cp['local_head'])}",
          f"Governança local: {cp['governance']['alignment']} | mapa de sessões: "
-         f"{'carregado' if cp['session_map_loaded'] else 'ausente/inválido'}"]
+         f"{'carregado' if cp['session_map_loaded'] else 'ausente/inválido'}",
+         f"Integridade do script: {cp.get('script_integrity')} | governança remota: "
+         f"{cp['governance'].get('remote_query')}"]
     if cp["session_map_error"]:
         L.append(f"  ERRO mapa: {cp['session_map_error']}")
     L.append("Agentes autorizados:")
@@ -482,8 +658,8 @@ def render_text(cp):
         r = a.get("report")
         if r:
             if r.get("message_id"):
-                L.append(f"    relatório concluído: {r['message_id']} | {r['completed_utc']} | "
-                         f"{r['chars_total']} chars | truncado={r['truncated']}")
+                L.append(f"    mensagem: {r['message_id']} | classe={r.get('classification')} | "
+                         f"{r['completed_utc']} | {r['chars_total']} chars | truncado={r['truncated']}")
                 p = a.get("provenance", {})
                 L.append(f"    declarado={p.get('declared_by_agent')} | PR_existe={bool(p.get('pr_existence'))} | "
                          f"WT_existe={bool(p.get('worktree_existence'))} | missão={p.get('mission_association')}")
@@ -500,6 +676,8 @@ def render_text(cp):
             L.append("    checks: ERRO DE CONSULTA (não é 'sem checks')")
         elif not cq.get("checks"):
             L.append("    checks: sem checks reportados")
+        else:
+            L.append(f"    prontidão técnica dos checks: {cq.get('readiness')} | merge_autorizado=NÃO AVALIADO")
         for c in cq.get("checks", []):
             L.append(f"    {c['name']}={c['state']} run={c['run_id'] or 'DESCONHECIDO'} "
                      f"evento={c['event'] or 'DESCONHECIDO'} sha={short(c['head_sha'])} "
@@ -507,6 +685,10 @@ def render_text(cp):
     L.append(f"Worktrees exibidas: {len(cp['worktrees'] or [])}/{cp['worktrees_total_count']}")
     for w in cp["worktrees"] or []:
         L.append(f"  - {w.get('branch','?')} @ {short(w.get('head'))} | {w['path']}")
+    gov = cp["governance"]
+    L.append(f"Governança remota: {gov.get('remote_query')} | docs da main: "
+             f"{[d.get('path') for d in gov.get('remote_documents', [])]}")
+    L.append(f"Integridade do script: {cp.get('script_integrity')}")
     L.append("Evidências pendentes: campos DESCONHECIDO/ERRO acima; CI em curso não é resultado.")
     for n in cp["notes"]:
         L.append(f"nota: {n}")
@@ -521,7 +703,11 @@ def main():
     ap.add_argument("--reports", action="store_true", help="coleta limitada de relatórios concluídos; implica detail")
     ap.add_argument("--json", action="store_true", help="saída JSON")
     args = ap.parse_args()
-    cp = build(detail=args.detail or args.reports, reports=args.reports)
+    try:
+        cp = build(detail=args.detail or args.reports, reports=args.reports)
+    except RuntimeError as e:
+        print(f"ERRO DE SEGURANÇA: {e}", file=sys.stderr)
+        sys.exit(2)
     print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_text(cp))
     if not cp["main_sha"] or cp["session_map_error"]:
         print("\nAVISO: campos críticos desconhecidos; não usar para decisões sem reverificar.", file=sys.stderr)
