@@ -208,15 +208,30 @@ fun SectionCardEditor(
                 // (tablet/A34: editor rico consome o toque). O clique já
                 // ativa a seção e empurra o contexto antes de abrir o chat.
                 if (!readOnly) {
-                    IconButton(
-                        onClick = onCopilot,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = "Copilot deste ponto",
-                            modifier = Modifier.size(20.dp),
-                        )
+                    if (isActiveSection) {
+                        TextButton(
+                            onClick = onCopilot,
+                            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.size(4.dp))
+                            Text(mentorHelpLabel())
+                        }
+                    } else {
+                        IconButton(
+                            onClick = onCopilot,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = mentorHelpLabel(),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
                 SectionMenuButton(
