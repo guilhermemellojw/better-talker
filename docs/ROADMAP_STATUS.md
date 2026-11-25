@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#65 — docs(coord): ACTIVE_TASKS R07 — reconciliação operacional pós-#60 (Draft)](https://github.com/guilhermemellojw/better-talker/pull/65) | Documentação | `afd8269856d0` | Pendente |
+| [#65 — docs(coord): ACTIVE_TASKS R07 — reconciliação operacional pós-#60](https://github.com/guilhermemellojw/better-talker/pull/65) | Documentação | `13ee6ae8de48` | Pendente |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `e8b027988d7e` | Verde |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `7476cf79b4ae` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
@@ -69,7 +69,7 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **4**; desses, Drafts: **3**.
+- PRs abertos: **4**; desses, Drafts: **2**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=58.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
