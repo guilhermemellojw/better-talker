@@ -35,11 +35,20 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
   prova; symlink, submódulo, executável, entrada ambígua, árvore truncada, documento ausente ou
   blob divergente deixa `documents_complete=false`.
 - O comando devolve apenas um **manifesto compacto**: SHA da main, `snapshot_id`, hashes dos
-  blobs, tamanhos, quantidade de páginas e completude. Para receber o conteúdo, execute
-  repetidamente `--context-next --json` até `last_page=true`/`all_pages_delivered=true`.
+  blobs, tamanhos, quantidade de páginas e completude do snapshot. Para receber o conteúdo,
+  execute repetidamente `--context-next --json` até `last_page=true`/`all_pages_emitted=true`.
 - Cada página identifica snapshot, main, documento, blob, número global/local, hash da página,
   bytes, linhas e última página. O cursor não aceita argumentos e não consulta a main novamente;
   todas as páginas pertencem ao mesmo snapshot.
+- `all_pages_emitted` não comprova recebimento. O consumidor deve verificar páginas únicas e
+  contíguas `1..N`, mesmo snapshot/main, documentos/blobs, `truncated=false` e total do
+  manifesto. Duplicidade idêntica é descartável; divergência, salto ou ausência exige reiniciar
+  manifesto e recuperação integral, sem combinar snapshots.
+- O cursor é persistido somente após serialização, emissão e flush bem-sucedidos. Uma interrupção
+  anterior à persistência pode repetir a página, mas não a perde silenciosamente. A perda durante
+  o transporte continua possível e não é confirmada pelo checkpoint.
+- Restrição operacional: uma sessão consumidora por vez, chamadas sequenciais, nenhuma criação
+  concorrente de manifesto e nenhum compartilhamento de cursor entre projetos/supervisores.
 - O cache é um único arquivo privado `0600` em diretório `0700`, limitado a 2 MiB e expira em
   uma hora. Não é daemon nem banco externo. Falha de cache, cursor, hash ou página deixa o
   contexto incompleto.

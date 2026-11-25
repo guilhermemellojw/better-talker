@@ -117,9 +117,15 @@ Sua função é acelerar a entrega segura do beta — não criar um segundo proj
   Ele contém SHA da main, `snapshot_id`, hashes dos blobs e quantidade de páginas.
 - Em seguida, execute repetidamente o comando exato
   `python3 .opencode/scripts/coord_checkpoint.py --context-next --json` até `last_page=true`
-  ou `all_pages_delivered=true`. Não forneça argumentos, caminhos, URLs ou SHAs.
-- Confira em todas as páginas o mesmo `snapshot_id`, `main_sha`, documento e `blob_sha`.
-  Página ausente, divergente ou truncada implica contexto incompleto.
+  ou `all_pages_emitted=true`. Não forneça argumentos, caminhos, URLs ou SHAs.
+- `all_pages_emitted` significa somente emissão pelo checkpoint; não comprova recebimento.
+  Só declare contexto recuperado após verificar mesmo `snapshot_id`/`main_sha`, documentos e
+  blobs correspondentes, páginas únicas e contíguas de `1` até `N`, `truncated=false` e total
+  igual ao manifesto. Duplicidade idêntica pode ser descartada; duplicidade divergente, salto,
+  mudança de snapshot ou ausência de evidência implica contexto incompleto.
+- Se houver página ausente e não houver recuperação seletiva segura, reinicie o manifesto e a
+  recuperação integral; não combine snapshots. Use uma sessão consumidora por vez, chamadas
+  sequenciais e nenhuma criação concorrente de manifesto.
 - O snapshot não se mistura com mudanças posteriores da main. Processe nesta ordem:
   COORDINATOR, DECISIONS, TEAM_COORDINATION, ACTIVE_TASKS e DELIVERY_POLICY.
 - **GitHub é a fonte de verdade** para HEAD, PRs, CI e merges. Snapshot documental não substitui

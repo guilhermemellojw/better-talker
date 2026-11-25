@@ -12,8 +12,10 @@ Uso: python3 .opencode/scripts/test_supervisor.py [--live]
 """
 import argparse
 import base64
+import contextlib
 import fnmatch
 import hashlib
+import io
 import json
 import os
 import py_compile
@@ -665,23 +667,30 @@ def test_context_pagination():
         cc.main_sha = main_changed
         try:
             cc._store_context_snapshot(snapshot)
-            delivered = []
+            emitted = []
             for _ in range(len(all_pages)):
-                page = cc.next_context_page()
-                delivered.append(page)
-            complete = cc.next_context_page()
+                output = io.StringIO()
+                if not cc.emit_context_next(json_output=True, stdout=output):
+                    raise AssertionError("emissão falhou")
+                emitted.append(json.loads(output.getvalue()))
+            output = io.StringIO()
+            if not cc.emit_context_next(json_output=True, stdout=output):
+                raise AssertionError("conclusão falhou")
+            complete = json.loads(output.getvalue())
         finally:
             cc.CONTEXT_CACHE, cc.verify_script, cc.main_sha = old_cache, old_verify, old_main
     check("cursor entrega páginas únicas e sequenciais",
-          [p.get("page_number") for p in delivered] == list(range(1, len(all_pages) + 1)))
-    check("última página e completude são explícitas", delivered[-1]["last_page"]
-          and delivered[-1]["all_pages_delivered"] and complete["all_pages_delivered"])
+          [p.get("page_number") for p in emitted] == list(range(1, len(all_pages) + 1)))
+    check("última página e emissão completa são explícitas", emitted[-1]["last_page"]
+          and complete["all_pages_emitted"] and complete["emitted_pages"] == len(all_pages))
+    check("emissão não confirma recebimento", complete["receipt_confirmed"] is False
+          and complete["context_recovered"] is False)
     check("chamada extra não repete página", complete["mode"] == "context_complete"
           and "text" not in complete)
     check("mudança da main não mistura o snapshot", all(p["main_sha"] == "a" * 40
-          and p["snapshot_id"] == snapshot["snapshot_id"] for p in delivered))
+          and p["snapshot_id"] == snapshot["snapshot_id"] for p in emitted))
     check("páginas do cache não fazem chamadas externas", all(p["external_calls"] == 0
-          and p["query_count"] == 0 for p in delivered))
+          and p["query_count"] == 0 for p in emitted))
 
 
 def test_context_manifest_cache():
@@ -708,8 +717,14 @@ def test_context_manifest_cache():
             cc.main_sha = lambda: (_ for _ in ()).throw(AssertionError("main consultada na paginação"))
             pages = []
             for _ in range(manifest["total_pages"]):
-                pages.append(cc.next_context_page())
-            complete = cc.next_context_page()
+                output = io.StringIO()
+                if not cc.emit_context_next(json_output=True, stdout=output):
+                    raise AssertionError("emissão falhou")
+                pages.append(json.loads(output.getvalue()))
+            output = io.StringIO()
+            if not cc.emit_context_next(json_output=True, stdout=output):
+                raise AssertionError("conclusão falhou")
+            complete = json.loads(output.getvalue())
         finally:
             cc.CONTEXT_CACHE, cc.sh, cc.verify_script, cc.main_sha = old_cache, old_sh, old_verify, old_main
     check("manifesto criado com oito GETs Git e tamanho compacto",
@@ -720,8 +735,178 @@ def test_context_manifest_cache():
           and p["query_count"] == 0 for p in pages))
     check("snapshot permanece o mesmo após a criação", all(p["snapshot_id"] == manifest["snapshot_id"]
           and p["main_sha"] == "a" * 40 for p in pages))
-    check("completude só aparece após todas as páginas", complete["all_pages_delivered"]
-          and complete["delivered_pages"] == manifest["total_pages"])
+    check("emissão completa só aparece após todas as páginas", complete["all_pages_emitted"]
+          and complete["emitted_pages"] == manifest["total_pages"]
+          and complete["receipt_confirmed"] is False)
+
+
+def test_context_delivery_cli():
+    print("[OP2/P2] Emissão, flush e persistência do cursor")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    docs = []
+    for index, name in enumerate(cc.GOVERNANCE_DOCS):
+        text = f"# {name}\n" + ("".join(f"linha {n}\n" for n in range(40)) if index == 0 else "pequeno\n")
+        raw = text.encode("utf-8")
+        docs.append({"path": f"docs/{name}", "blob_sha": hashlib.sha1(
+            f"blob {len(raw)}\0".encode("ascii") + raw).hexdigest(),
+            "mode": "100644", "type": "blob", "status": "verified",
+            "git_sha_verified": True, "text": text})
+    snapshot = cc._make_context_snapshot("a" * 40, docs)
+    total = len(cc._flatten_context_pages(snapshot))
+    old_cache, old_verify, old_commit = cc.CONTEXT_CACHE, cc.verify_script, cc.commit_context_cursor
+
+    class FailingStdout:
+        def __init__(self, failure):
+            self.failure, self.text = failure, ""
+        def write(self, value):
+            if self.failure == "write":
+                raise OSError("stdout indisponível")
+            self.text += value
+        def flush(self):
+            if self.failure == "flush":
+                raise OSError("flush indisponível")
+
+    class SinkStdout:
+        def write(self, value):
+            return len(value)
+        def flush(self):
+            return None
+
+    class SimulatedCrash(BaseException):
+        pass
+
+    with tempfile.TemporaryDirectory() as td:
+        os.chmod(td, 0o700)
+        cc.CONTEXT_CACHE = os.path.join(td, "context.json")
+        cc.verify_script = lambda require_clean=False: {"ok": True, "git_clean": True}
+        def reset():
+            cc._store_context_snapshot(snapshot)
+        def emit(stdout=None, serializer=None):
+            return cc.emit_context_next(json_output=True, stdout=stdout, serializer=serializer)
+        try:
+            reset()
+            output = io.StringIO()
+            with contextlib.redirect_stderr(io.StringIO()):
+                ok = emit(output, serializer=lambda value: (_ for _ in ()).throw(ValueError("serialização")))
+            check("falha de serialização não avança cursor", not ok and output.getvalue() == ""
+                  and cc._read_context_cache()["next_index"] == 0)
+
+            reset()
+            old_argv, old_dumps = sys.argv, cc.json.dumps
+            def fail_dumps(*args, **kwargs):
+                raise ValueError("serialização CLI")
+            cc.json.dumps = fail_dumps
+            sys.argv = ["coord_checkpoint.py", "--context-next", "--json"]
+            cli_output = io.StringIO()
+            exit_code = None
+            try:
+                with contextlib.redirect_stdout(cli_output), contextlib.redirect_stderr(io.StringIO()):
+                    try:
+                        cc.main()
+                    except SystemExit as e:
+                        exit_code = e.code
+            finally:
+                sys.argv, cc.json.dumps = old_argv, old_dumps
+            check("caminho main da CLI falha sem avançar cursor", exit_code == 2
+                  and cli_output.getvalue() == "" and cc._read_context_cache()["next_index"] == 0)
+
+            reset()
+            with contextlib.redirect_stderr(io.StringIO()):
+                ok = emit(FailingStdout("write"))
+            check("falha de escrita em stdout não avança cursor", not ok
+                  and cc._read_context_cache()["next_index"] == 0)
+
+            reset()
+            with contextlib.redirect_stderr(io.StringIO()):
+                ok = emit(FailingStdout("flush"))
+            check("falha de flush não avança cursor", not ok
+                  and cc._read_context_cache()["next_index"] == 0)
+
+            reset()
+            output = io.StringIO()
+            try:
+                emit(output, serializer=lambda value: (_ for _ in ()).throw(SimulatedCrash()))
+            except SimulatedCrash:
+                pass
+            check("interrupção antes da emissão não avança cursor", output.getvalue() == ""
+                  and cc._read_context_cache()["next_index"] == 0)
+
+            reset()
+            output = io.StringIO()
+            def crash_commit(*args):
+                raise SimulatedCrash()
+            cc.commit_context_cursor = crash_commit
+            try:
+                emit(output)
+            except SimulatedCrash:
+                pass
+            finally:
+                cc.commit_context_cursor = old_commit
+            first = json.loads(output.getvalue())
+            cursor_before_repeat = cc._read_context_cache()["next_index"]
+            repeated_output = io.StringIO()
+            if not emit(repeated_output):
+                raise AssertionError("reemissão falhou")
+            repeated = json.loads(repeated_output.getvalue())
+            identity = ("snapshot_id", "main_sha", "page_number", "page_sha256")
+            check("interrupção após emissão repete página sem perdê-la",
+                  cursor_before_repeat == 0 and cc._read_context_cache()["next_index"] == 1
+                  and all(first[k] == repeated[k] for k in identity)
+                  and first["document"]["blob_sha"] == repeated["document"]["blob_sha"])
+
+            reset()
+            received = []
+            for _ in range(total - 1):
+                output = io.StringIO()
+                if not emit(output):
+                    raise AssertionError("emissão sequencial falhou")
+                received.append(json.loads(output.getvalue()))
+            if not emit(SinkStdout()):
+                raise AssertionError("última emissão falhou")
+            output = io.StringIO()
+            if not emit(output):
+                raise AssertionError("conclusão falhou")
+            complete = json.loads(output.getvalue())
+            verification = cc.verify_received_context_pages({
+                "snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
+                "documents_complete": True, "total_pages": total,
+                "documents": [{"path": d["path"], "blob_sha": d["blob_sha"], "pages": len(d["pages"])}
+                              for d in snapshot["documents"]]}, received)
+            check("página final não recebida impede conclusão do consumidor",
+                  complete["all_pages_emitted"] and complete["receipt_confirmed"] is False
+                  and complete["context_recovered"] is False and not verification["context_recovered"])
+
+            reset()
+            received = []
+            for _ in range(total):
+                output = io.StringIO()
+                if not emit(output):
+                    raise AssertionError("emissão completa falhou")
+                received.append(json.loads(output.getvalue()))
+            manifest = {"snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
+                        "documents_complete": True, "total_pages": total,
+                        "documents": [{"path": d["path"], "blob_sha": d["blob_sha"], "pages": len(d["pages"])}
+                                      for d in snapshot["documents"]]}
+            full = cc.verify_received_context_pages(manifest, received)
+            duplicate = cc.verify_received_context_pages(manifest, received + [received[1]])
+            missing = cc.verify_received_context_pages(manifest, received[:2] + received[3:])
+            divergent = [dict(page) for page in received]
+            divergent[1] = {**divergent[1], "snapshot_id": "b" * 40}
+            changed = cc.verify_received_context_pages(manifest, divergent)
+            truncated = [dict(page) for page in received]
+            truncated[0] = {**truncated[0], "truncated": True}
+            cut = cc.verify_received_context_pages(manifest, truncated)
+            forged = [dict(page) for page in received]
+            forged[1] = {**forged[1], "text": forged[1]["text"] + "forjado"}
+            forged_result = cc.verify_received_context_pages(manifest, forged)
+            check("recuperação sequencial completa é verificável pelo consumidor", full["context_recovered"])
+            check("duplicidade idêntica pode ser descartada", duplicate["context_recovered"])
+            check("página ausente ou divergente impede recuperação", not missing["context_recovered"]
+                  and not changed["context_recovered"] and not cut["context_recovered"]
+                  and not forged_result["context_recovered"])
+        finally:
+            cc.CONTEXT_CACHE, cc.verify_script, cc.commit_context_cursor = old_cache, old_verify, old_commit
 
 
 def test_fixture():
@@ -836,6 +1021,7 @@ def main():
     test_context()
     test_context_pagination()
     test_context_manifest_cache()
+    test_context_delivery_cli()
     test_fixture()
     test_docs()
     if args.live:

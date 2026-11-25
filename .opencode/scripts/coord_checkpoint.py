@@ -882,9 +882,11 @@ def _make_context_snapshot(main_sha, documents, fixture=False):
 def _context_failure(reason, status="incomplete", fixture=False):
     return {"checkpoint_utc": now(), "mode": "context_manifest", "fixture": fixture,
             "main_sha": None, "snapshot_id": None, "query_status": status,
-            "documents_complete": False, "document_count": 0, "total_pages": 0,
-            "documents": [], "query_count": QUERY_COUNT, "external_calls": 0,
-            "reason": reason, "notes": ["Contexto incompleto; execute --context novamente."]}
+            "documents_complete": False, "snapshot_complete": False,
+            "receipt_confirmed": False, "context_recovered": False,
+            "document_count": 0, "total_pages": 0, "documents": [],
+            "query_count": QUERY_COUNT, "external_calls": 0, "reason": reason,
+            "notes": ["Contexto incompleto; execute --context novamente."]}
 
 
 def _context_manifest(snapshot):
@@ -898,7 +900,9 @@ def _context_manifest(snapshot):
     return {"checkpoint_utc": snapshot["created_utc"], "mode": "context_manifest",
             "fixture": snapshot["fixture"], "main_sha": snapshot["main_sha"],
             "snapshot_id": snapshot["snapshot_id"], "query_status": "ok",
-            "documents_complete": True, "document_count": len(docs),
+            "documents_complete": True, "snapshot_complete": True,
+            "receipt_confirmed": False, "context_recovered": False,
+            "document_count": len(docs),
             "total_pages": sum(len(d["pages"]) for d in snapshot["documents"]),
             "page_limits": {"max_bytes": CONTEXT_PAGE_MAX_BYTES,
                             "max_lines": CONTEXT_PAGE_MAX_LINES},
@@ -1030,6 +1034,9 @@ def _context_page(snapshot, index):
     return {"mode": "context_page", "fixture": snapshot["fixture"],
             "snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
             "query_status": "ok", "documents_complete": True,
+            "snapshot_complete": True, "page_prepared": True,
+            "cursor_persisted_before_emission": False,
+            "receipt_confirmed": False, "transport_receipt": "unknown",
             "document": {"path": d["path"], "blob_sha": d["blob_sha"],
                          "content_sha256": d["content_sha256"],
                          "git_sha_verified": d["git_sha_verified"]},
@@ -1090,8 +1097,8 @@ def build_context_manifest(fixture=False):
     return manifest
 
 
-def next_context_page():
-    """Avança o cursor sem argumentos; nunca consulta uma referência mutável."""
+def prepare_context_page():
+    """Lê e valida o snapshot, mas não avança o cursor."""
     global QUERY_COUNT
     QUERY_COUNT = 0
     integrity = verify_script(require_clean=True)
@@ -1100,34 +1107,127 @@ def next_context_page():
     try:
         snapshot = _read_context_cache()
     except (OSError, ValueError, json.JSONDecodeError) as e:
-        return _context_failure(f"cache de contexto inválido: {e}")
+        return {"kind": "failure", "page": _context_failure(f"cache de contexto inválido: {e}")}
     if snapshot is None:
-        return _context_failure("snapshot ausente; execute --context")
+        return {"kind": "failure", "page": _context_failure("snapshot ausente; execute --context")}
     if time.time() - snapshot.get("created_epoch", 0) > CONTEXT_CACHE_TTL_SECONDS:
-        return _context_failure("snapshot expirado; execute --context")
+        return {"kind": "failure", "page": _context_failure("snapshot expirado; execute --context")}
     if not _validate_context_snapshot(snapshot):
-        return _context_failure("snapshot inconsistente; execute --context")
+        return {"kind": "failure", "page": _context_failure("snapshot inconsistente; execute --context")}
     pages = _flatten_context_pages(snapshot)
     if snapshot["next_index"] >= len(pages):
-        return {"checkpoint_utc": now(), "mode": "context_complete", "fixture": False,
+        page = {"checkpoint_utc": now(), "mode": "context_complete", "fixture": False,
                 "snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
                 "query_status": "ok", "documents_complete": True,
-                "all_pages_delivered": True, "delivered_pages": len(pages),
+                "snapshot_complete": True, "all_pages_emitted": True,
+                "emitted_pages": len(pages), "cursor_persisted": True,
+                "receipt_confirmed": False, "context_recovered": False,
                 "total_pages": len(pages), "query_count": QUERY_COUNT,
                 "external_calls": 0, "script_integrity": integrity}
-    page = _context_page(snapshot, snapshot["next_index"])
+        return {"kind": "complete", "page": page}
+    index = snapshot["next_index"]
+    page = _context_page(snapshot, index)
     if not page.get("documents_complete"):
-        return page
-    snapshot["next_index"] += 1
-    try:
-        _store_context_snapshot(snapshot)
-    except (OSError, ValueError) as e:
-        return _context_failure(f"cursor não persistido: {e}")
-    page.update({"delivered_pages": snapshot["next_index"],
-                 "all_pages_delivered": snapshot["next_index"] == len(pages),
-                 "cache_hit": True, "query_count": QUERY_COUNT, "external_calls": 0,
+        return {"kind": "failure", "page": page}
+    page.update({"cache_hit": True, "query_count": QUERY_COUNT, "external_calls": 0,
                  "script_integrity": integrity})
-    return page
+    return {"kind": "page", "page": page, "snapshot_id": snapshot["snapshot_id"],
+            "expected_index": index}
+
+
+def commit_context_cursor(snapshot_id, expected_index):
+    """Persiste o avanço somente após emissão e flush bem-sucedidos."""
+    try:
+        snapshot = _read_context_cache()
+        if snapshot is None or not _validate_context_snapshot(snapshot):
+            return {"ok": False, "reason": "cache inválido"}
+        if snapshot.get("snapshot_id") != snapshot_id or snapshot.get("next_index") != expected_index:
+            return {"ok": False, "reason": "snapshot/cursor mudou durante a emissão"}
+        snapshot["next_index"] += 1
+        _store_context_snapshot(snapshot)
+        return {"ok": True, "next_index": snapshot["next_index"]}
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        return {"ok": False, "reason": str(e)}
+
+
+def emit_context_next(json_output=True, stdout=None, serializer=None):
+    """Caminho CLI: prepara, serializa, emite, faz flush e só então persiste."""
+    stdout = stdout or sys.stdout
+    prepared = prepare_context_page()
+    page = prepared["page"]
+    serializer = serializer or (lambda value: json.dumps(value, ensure_ascii=False, indent=2))
+    try:
+        rendered = serializer(page) if json_output else render_context(page)
+    except Exception as e:  # noqa: BLE001
+        print(f"ERRO DE SERIALIZAÇÃO: {e}", file=sys.stderr)
+        return False
+    try:
+        payload = rendered + "\n"
+        written = stdout.write(payload)
+        if written is not None and written != len(payload):
+            raise OSError("escrita parcial em stdout")
+        stdout.flush()
+    except Exception as e:  # noqa: BLE001
+        print(f"ERRO DE EMISSÃO/FLUSH: {e}", file=sys.stderr)
+        return False
+    if prepared["kind"] == "page":
+        committed = commit_context_cursor(prepared["snapshot_id"], prepared["expected_index"])
+        if not committed.get("ok"):
+            print(f"ERRO DE PERSISTÊNCIA APÓS EMISSÃO: {committed.get('reason')}; "
+                  "a página poderá repetir-se", file=sys.stderr)
+            return False
+    return True
+
+
+def verify_received_context_pages(manifest, pages):
+    """Verificação do consumidor; não comprova recepção no transporte."""
+    errors, unique, by_document = [], {}, {}
+    if not isinstance(manifest, dict) or not manifest.get("documents_complete"):
+        errors.append("manifesto incompleto")
+    total = manifest.get("total_pages") if isinstance(manifest, dict) else None
+    docs = {d.get("path"): d for d in (manifest.get("documents", []) if isinstance(manifest, dict) else [])}
+    if isinstance(total, int) and sum(d.get("pages", 0) for d in docs.values()) != total:
+        errors.append("total do manifesto diverge dos documentos")
+    for page in pages or []:
+        if not isinstance(page, dict) or page.get("truncated") is not False:
+            errors.append("página ausente ou truncada")
+            continue
+        number = page.get("page_number")
+        doc = page.get("document") or {}
+        identity = (page.get("snapshot_id"), page.get("main_sha"), number,
+                    doc.get("path"), doc.get("blob_sha"), page.get("page_sha256"))
+        if not isinstance(number, int) or not isinstance(total, int) or not 1 <= number <= total:
+            errors.append("numeração fora do intervalo")
+            continue
+        text = page.get("text")
+        if not isinstance(text, str) or hashlib.sha256(text.encode("utf-8")).hexdigest() != page.get("page_sha256"):
+            errors.append(f"hash de conteúdo divergente na página {number}")
+        if number in unique:
+            if unique[number] == identity:
+                continue
+            errors.append(f"duplicidade divergente na página {number}")
+            continue
+        unique[number] = identity
+        if page.get("snapshot_id") != manifest.get("snapshot_id") or page.get("main_sha") != manifest.get("main_sha"):
+            errors.append(f"snapshot/main divergente na página {number}")
+        expected = docs.get(doc.get("path"))
+        if not expected or expected.get("blob_sha") != doc.get("blob_sha"):
+            errors.append(f"documento/blob divergente na página {number}")
+        local_page = page.get("document_page")
+        if (not expected or not isinstance(local_page, int)
+                or not 1 <= local_page <= expected.get("pages", 0)
+                or page.get("document_pages") != expected.get("pages")):
+            errors.append(f"numeração do documento divergente na página {number}")
+        else:
+            by_document.setdefault(doc.get("path"), []).append(local_page)
+    if isinstance(total, int) and sorted(unique) != list(range(1, total + 1)):
+        errors.append("páginas não únicas/contíguas de 1 até N")
+    for path, expected in docs.items():
+        if sorted(by_document.get(path, [])) != list(range(1, expected.get("pages", 0) + 1)):
+            errors.append(f"páginas incompletas do documento {path}")
+    return {"context_recovered": not errors, "consumer_verified": not errors,
+            "receipt_confirmed": not errors, "unique_pages": len(unique),
+            "expected_pages": total, "errors": errors}
 
 
 def build(detail=False, reports=False, fixture=False):
@@ -1203,9 +1303,9 @@ def render_context(cp):
              f"Hash da página: {cp.get('page_sha256')} | bytes={cp.get('bytes')} | linhas={cp.get('lines')}",
              cp.get("text") or "[TEXTO INDISPONÍVEL]"]
     elif mode == "context_complete":
-        L = [f"CONTEXTO SHADOW COMPLETO — {cp.get('delivered_pages')}/{cp.get('total_pages')} páginas",
+        L = [f"CONTEXTO SHADOW — {cp.get('emitted_pages')}/{cp.get('total_pages')} páginas emitidas",
              f"Snapshot: {cp.get('snapshot_id')} | main: {cp.get('main_sha')}",
-             "Todas as páginas únicas foram entregues."]
+             "Todas as páginas foram emitidas; recebimento pelo consumidor não é confirmado."]
     else:
         L = [f"MANIFESTO CONTEXTO SHADOW — {cp.get('checkpoint_utc')}",
              f"Main fixada: {cp.get('main_sha') or 'DESCONHECIDO'} | snapshot={cp.get('snapshot_id')}",
@@ -1291,15 +1391,17 @@ def main():
     args = ap.parse_args()
     try:
         if args.context_next:
-            cp = next_context_page()
-        elif args.context:
+            if not emit_context_next(json_output=args.json):
+                sys.exit(2)
+            return
+        if args.context:
             cp = build_context_manifest(fixture=args.fixture)
         else:
             cp = build(detail=args.detail or args.reports, reports=args.reports, fixture=args.fixture)
     except RuntimeError as e:
         print(f"ERRO DE SEGURANÇA: {e}", file=sys.stderr)
         sys.exit(2)
-    if args.context or args.context_next:
+    if args.context:
         print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_context(cp))
         return
     print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_text(cp))
