@@ -71,18 +71,17 @@ private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
     ) to "$1",
 )
 
-// P8/F9 — LISTA POSITIVA: só marcadores de reformulação/condensação
-// discursiva são removidos. `basicamente` permanece aqui porque os testes
-// certificados P6/P7 (i02, i02b, i08, f8e) o definem como marcador de
-// condensação, não como qualificador da proposição.
+// P9 — CONGELAMENTO DO BETA: apenas marcadores de REFORMULAÇÃO inequívoca
+// são removíveis. `basicamente` foi RETIRADO: exprime grau/abrangência e
+// preservar o sentido tem precedência sobre reduzir texto. Nenhuma nova
+// regex ou guarda contextual foi adicionada.
 //
-// Fora desta lista — e portanto PRESERVADOS — estão todos os qualificadores
-// de precisão, intensidade, abrangência, modalidade, condição ou sentido:
-// em geral, de certa forma, literalmente, simplesmente, na verdade,
-// por assim dizer, em suma, em resumo. Na dúvida, o texto original permanece.
+// Também permanecem preservados: em geral, de certa forma, literalmente,
+// simplesmente, na verdade, por assim dizer, em suma, em resumo, além de
+// todo conectivo lógico (se, porque, portanto, mas, exceto, não, talvez).
 private val PEDAGOGICAL_SAFE_FILLERS = listOf(
     Regex(
-        """(?iuU)\b(basicamente|ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""",
+        """(?iuU)\b(ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""",
     ) to "",
 )
 

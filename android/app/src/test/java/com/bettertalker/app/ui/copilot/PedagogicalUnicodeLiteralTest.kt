@@ -99,7 +99,7 @@ class PedagogicalUnicodeLiteralTest {
         val raw = "Basicamente, “amor paciente”João 3:16 — Simplifique."
         val out = simplifyPedagogicalText(raw)
         assertTrue(out.contains("“amor paciente”João 3:16"))
-        assertFalse(out.contains("Basicamente"))
+        assertTrue("P9/beta: qualificador preservado com citação adjacente", out.contains("Basicamente"))
         assertFalse(out.contains('\u0000'))
     }
 }

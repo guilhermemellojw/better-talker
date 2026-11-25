@@ -79,7 +79,10 @@ class PedagogicalIntegrationTest {
         val out = simplifyPedagogicalText(raw)
         assertTrue(out.contains("“O amor é paciente”"))
         assertTrue(out.contains("João 3:16"))
-        assertFalse(out.contains("basicamente"))
+        // P9/beta: `basicamente` exprime grau e é preservado (redução deliberada
+        // do escopo, autorizada pela coordenação); `em outras palavras` é
+        // marcador de reformulação e continua removível.
+        assertTrue(out.contains("basicamente"))
         assertFalse(out.contains("em outras palavras"))
         assertFalse(out.contains("É importante ressaltar"))
         assertTrue("simplificação precisa encurtar de verdade: $out", out.length < raw.length)
@@ -94,7 +97,7 @@ class PedagogicalIntegrationTest {
         val out = simplifyPedagogicalText(raw)
         assertTrue(out.contains(rotulo!!))
         assertTrue(out.contains("João 3:16"))
-        assertFalse(out.contains("Basicamente"))
+        assertTrue("P9/beta: grau/abrangência preservado", out.contains("Basicamente"))
     }
 
     @Test
@@ -190,7 +193,7 @@ class PedagogicalIntegrationTest {
         val simplified = simplifyPedagogicalText("Basicamente, João 3:16 diz: “texto literal”.")
         val out = verifyChatText(simplified, listOf("texto literal recuperado"))
         assertTrue(out.text.contains("“texto literal”"))
-        assertFalse(out.text.contains("Basicamente"))
+        assertTrue("P9/beta: qualificador preservado; TRUST #60 intacto", out.text.contains("Basicamente"))
     }
 
     @Test

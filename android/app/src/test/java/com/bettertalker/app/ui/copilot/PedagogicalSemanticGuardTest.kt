@@ -9,8 +9,9 @@ import org.junit.Test
  */
 class PedagogicalSemanticGuardTest {
 
-    // `Basicamente` não entra: é marcador de condensação certificado nos
-    // testes P6/P7 (i02, i02b, i08, f8e), não qualificador semântico.
+    // P9/beta: `basicamente` também é qualificador (grau/abrangência) e foi
+    // retirado da lista removível; os testes que exigiam sua remoção foram
+    // revisados explicitamente e registrados no PR.
     private val qualificadores = listOf(
         "Em geral", "De certa forma", "Literalmente",
         "Simplesmente", "Na verdade", "Por assim dizer", "Em suma", "Em resumo",
@@ -50,7 +51,7 @@ class PedagogicalSemanticGuardTest {
 
     @Test
     fun f9d_marcadoresDiscursivosSegurosContinuamEfetivos() {
-        assertEquals("o texto fala do amor.", simplifyPedagogicalText("Basicamente, o texto fala do amor."))
+        assertEquals("Basicamente, o texto fala do amor.", simplifyPedagogicalText("Basicamente, o texto fala do amor."))
         assertEquals("o texto fala do amor.", simplifyPedagogicalText("Em outras palavras, o texto fala do amor."))
         assertEquals("o texto fala do amor.", simplifyPedagogicalText("Ou seja, o texto fala do amor."))
         assertEquals("o texto fala do amor.", simplifyPedagogicalText("Dito de outra forma, o texto fala do amor."))
@@ -64,6 +65,6 @@ class PedagogicalSemanticGuardTest {
     fun f9e_preservacaoF8SegueIntacta() {
         val rotulo = "Trecho recuperado: “amor paciente” — João 3:16"
         val out = simplifyPedagogicalText("Basicamente, em outras palavras, $rotulo.")
-        assertEquals("$rotulo.", out)
+        assertEquals("Basicamente, $rotulo.", out)
     }
 }
