@@ -176,7 +176,12 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          ./gradlew :app:lintPublicAppRelease --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-lint.log
+          ./gradlew :app:lintPublicAppRelease \
+            --no-daemon --max-workers=1 --stacktrace --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            2>&1 | tee gradle-lint.log
 
       - name: Show lint failure log
         if: steps.lint_release.outcome == 'failure'
@@ -204,7 +209,12 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          ./gradlew :app:assemblePublicAppDebug --no-daemon --stacktrace --console=plain 2>&1 | tee gradle-build.log
+          ./gradlew :app:assemblePublicAppDebug \
+            --no-daemon --max-workers=1 --stacktrace --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process \
+            2>&1 | tee gradle-build.log
 
       - name: Show Gradle failure log
         if: steps.build_apk.outcome == 'failure'
@@ -243,7 +253,12 @@ jobs:
       # O flavor beta precisa compilar mesmo sem o secret (sync fica inativo).
       - name: Build syncBeta debug APK
         working-directory: android
-        run: ./gradlew :app:assembleSyncBetaDebug --no-daemon --console=plain
+        run: |
+          ./gradlew :app:assembleSyncBetaDebug \
+            --no-daemon --max-workers=1 --console=plain \
+            -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
+            -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process
 
       - name: Upload syncBeta debug APK
         uses: actions/upload-artifact@v4
