@@ -25,9 +25,9 @@
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `3bd4dc770013` | Pendente |
-| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `0a7ddf71b714` | Verde |
+| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `0f534662fc59` | Não verificado |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
-| [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker (Draft)](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | `3389a0b48660` | Pendente |
+| [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker (Draft)](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | `3389a0b48660` | Verde |
 
 ## Integrações recentes
 
@@ -73,7 +73,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=52.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 3.9 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=2, Verde=1.
+- Estados de check dos PRs abertos: Não verificado=2, Pendente=1, Verde=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
