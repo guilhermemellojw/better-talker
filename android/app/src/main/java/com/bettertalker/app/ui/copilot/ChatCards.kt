@@ -171,6 +171,10 @@ class DownloadCtl internal constructor(
 internal fun generateActionLabel(busy: Boolean): String =
     if (busy) "Gerando…" else "Gerar"
 
+/** Rótulo acessível da geração por seção no checklist do Mentor. */
+internal fun generateIdeasActionLabel(busy: Boolean): String =
+    if (busy) "Gerando ideias…" else "Gerar ideias"
+
 @Composable
 fun rememberDownloadCtl(vm: CopilotViewModel, snack: SnackbarHostState): DownloadCtl {
     return remember(vm, snack) { DownloadCtl(vm, snack) }

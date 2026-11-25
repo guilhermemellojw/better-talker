@@ -3586,7 +3586,13 @@ private fun SectionsBody(
             modifier = Modifier.padding(start = (s.level * 12).dp)
         ) {
             Column(Modifier.weight(1f)) {
-                Text("${i + 1}. ${s.title}", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${i + 1}. ${s.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    softWrap = true,
+                )
                 if (s.minutes != null) {
                     Text(
                         "${s.minutes} min",
@@ -3605,7 +3611,7 @@ private fun SectionsBody(
             TextButton(
                 onClick = { vm.generateForSectionTitle(s.title) },
                 enabled = sectionBusy != s.title
-            ) { Text(if (sectionBusy == s.title) "…" else "Gerar ideias") }
+            ) { Text(generateIdeasActionLabel(sectionBusy == s.title)) }
         }
         if (i < item.secItems.lastIndex) Spacer(Modifier.height(6.dp))
     }
