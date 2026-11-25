@@ -56,6 +56,9 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
   usam somente o cache, sem novas chamadas ao GitHub.
 - O checkpoint real exige seu próprio arquivo regular, rastreado e limpo no Git antes de qualquer
   consulta. A revisão local de `ACTIVE_TASKS.md` vem do objeto Git do HEAD, não da worktree.
+- O motor ainda é específico do Better Talker (`REPO`, `GOVERNANCE_DOCS` e cache privado).
+  A extração futura para o HealthAgentForms deve parametrizar esses elementos sem permitir
+  que o modelo escolha repositório, caminho ou projeto; multiprojeto não é suportado agora.
 - O checkpoint é uma operação confiável separada da sessão do modelo. Git limpo/rastreado é
   apenas um sinal de integridade; **não é prova suficiente de autorização**.
 - A configuração não é um sandbox forte. O script ainda executa subprocessos com autoridade do
