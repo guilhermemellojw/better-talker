@@ -90,7 +90,7 @@ Nenhum comando real contra o OpenCode foi executado nesta missão.
 
 Ajustes feitos sobre o trabalho herdado não commitado: (i) `test_pilot_adapter` — dois testes de evidência de transporte passaram a exercitar o caminho protegido via guarda mínima, preservando a checagem de `accepted`/timeout sem reabrir `transmit()` direto; (ii) `test_pilot_executor` — a fixture de sucesso passou a incluir o prompt observado, e a asserção de relatório divergente passou a exigir apenas ausência de `COMPLETED` (o avanço `DISPATCHING→DELIVERED` por prompt observado é legítimo); (iii) duas proteções adicionais: evidência de fixture não aplicável a registro real e exigência de manifesto vinculado no `execute`. Nenhuma dessas alterações reabriu a fundação certificada (`coord_communication.py` e `coord_checkpoint.py` intactos).
 
-CI: no SHA final o check `propose` estava `in_progress` no momento do relatório (sem `build-apk` neste HEAD, como observado no parecer pré-piloto). Consumo: somente Python offline, sem LLM pago, sem build, sem ADB, sem sessões, sem serviços; artefatos em `/tmp/opencode`. `__pycache__` gerado permanece untracked e não foi commitado.
+CI: no HEAD de código `2a04ab93` o check `propose` concluiu `SUCCESS` (`run 45708520256`); sem `build-apk` neste HEAD, como observado no parecer pré-piloto. Consumo: somente Python offline, sem LLM pago, sem build, sem ADB, sem sessões, sem serviços; artefatos em `/tmp/opencode`. `__pycache__` gerado permanece untracked e não foi commitado.
 
 ## J. Comandos exatos para o preflight posterior (documentados, NÃO executados)
 
