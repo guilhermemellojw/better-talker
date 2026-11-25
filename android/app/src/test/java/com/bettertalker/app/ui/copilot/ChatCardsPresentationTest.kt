@@ -10,4 +10,11 @@ class ChatCardsPresentationTest {
         assertEquals("Gerar", generateActionLabel(false))
         assertEquals("Gerando…", generateActionLabel(true))
     }
+
+    @Test
+    fun gerarIdeiasMantemRotuloDuranteCarregamento() {
+        assertEquals("Gerar ideias", generateIdeasActionLabel(false))
+        assertEquals("Gerando ideias…", generateIdeasActionLabel(true))
+    }
+
 }
