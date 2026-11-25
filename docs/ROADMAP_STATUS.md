@@ -3,8 +3,8 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `cc88ff9b27cc79ba13ccaf3bece9680badcc9207`
-- Checks da `main` consultada: **Pendente**
+- `main` consultada: `8e74ac18ccc21f42c6a60a5351f315efc42a031d`
+- Checks da `main` consultada: **Não verificado**
 - PRs encontrados na janela de consulta: **59** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -18,7 +18,7 @@
 | TRUST | 1 | 10 | 0 |
 | Beta e infraestrutura | 1 | 2 | 0 |
 | Documentação | 1 | 7 | 0 |
-| Outros | 1 | 2 | 0 |
+| Outros | 0 | 3 | 0 |
 
 ## PRs abertos
 
@@ -28,13 +28,13 @@
 | [#61 — ci(android): estabiliza lint e assemblies com in-process (Draft)](https://github.com/guilhermemellojw/better-talker/pull/61) | Beta e infraestrutura | `55f79a69fadb` | Verde |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `3acc07d7d570` | Falhou |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `652beb5bca24` | Verde |
-| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `c9253a90da62` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
 ## Integrações recentes
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | 2026-11-25 14:08 |
 | [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | 2026-11-25 11:17 |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | 2026-11-25 09:35 |
 | [#58 — feat(ux-simple-p2a): orientação do Preparo e ajuda explícita do Mentor](https://github.com/guilhermemellojw/better-talker/pull/58) | Mentor | 2026-11-25 00:53 |
@@ -59,7 +59,6 @@
 | [#35 — feat(trust): adaptador experimental de identidade do índice Room (TRUST-2B3B-B0)](https://github.com/guilhermemellojw/better-talker/pull/35) | TRUST | 2026-11-21 18:46 |
 | [#34 — feat(ux-ref-1b3-b0): contratos puros de links de publicação](https://github.com/guilhermemellojw/better-talker/pull/34) | Referências e UX | 2026-11-21 16:13 |
 | [#33 — feat(mentor): memória canônica do ledger no prompt do Mentor (1C.2.2B0)](https://github.com/guilhermemellojw/better-talker/pull/33) | Mentor | 2026-11-21 15:21 |
-| [#31 — feat(trust): verificador experimental de identidade documental da TNM (2B3B-A)](https://github.com/guilhermemellojw/better-talker/pull/31) | TRUST | 2026-11-20 18:33 |
 
 ## Interpretação e próximos gates
 
@@ -71,11 +70,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **6**; desses, Drafts: **5**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=53.
+- PRs abertos: **5**; desses, Drafts: **4**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=54.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.1 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Falhou=1, Não verificado=1, Verde=4.
+- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Falhou=1, Não verificado=1, Verde=3.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
