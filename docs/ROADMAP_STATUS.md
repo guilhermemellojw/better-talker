@@ -3,7 +3,7 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `5e65e562cd9fde41a4a5d70965c3a4fc69f4cd00`
+- `main` consultada: `55056c7323065631350ba0565886f2c374ca4a59`
 - Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **63** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
@@ -16,7 +16,7 @@
 | Mentor | 1 | 21 | 0 |
 | Referências e UX | 0 | 12 | 0 |
 | TRUST | 0 | 11 | 0 |
-| Beta e infraestrutura | 1 | 3 | 0 |
+| Beta e infraestrutura | 0 | 4 | 0 |
 | Documentação | 1 | 8 | 0 |
 | Outros | 1 | 4 | 0 |
 
@@ -24,7 +24,6 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#66 — fix(beta-a11y): rótulos acessíveis na jornada beta (Draft)](https://github.com/guilhermemellojw/better-talker/pull/66) | Beta e infraestrutura | `6075b917680a` | Verde |
 | [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `07abca5320e3` | Verde |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `7476cf79b4ae` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
@@ -33,6 +32,7 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#66 — fix(beta-a11y): rótulos acessíveis na jornada beta](https://github.com/guilhermemellojw/better-talker/pull/66) | Beta e infraestrutura | 2026-11-25 19:50 |
 | [#65 — docs(coord): ACTIVE_TASKS R07 — reconciliação operacional pós-#60](https://github.com/guilhermemellojw/better-talker/pull/65) | Documentação | 2026-11-25 19:17 |
 | [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | 2026-11-25 17:45 |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | 2026-11-25 17:23 |
@@ -57,7 +57,6 @@
 | [#46 — docs(governance): coordenação colaborativa de cinco agentes e QA distribuído](https://github.com/guilhermemellojw/better-talker/pull/46) | Documentação | 2026-11-23 19:02 |
 | [#38 — test(trust): testes instrumentados da identidade do índice Room (TRUST-2B3B-B1a)](https://github.com/guilhermemellojw/better-talker/pull/38) | TRUST | 2026-11-23 16:29 |
 | [#40 — feat(ux-ref-1b3-b2): abertura direta de referências de publicações](https://github.com/guilhermemellojw/better-talker/pull/40) | Referências e UX | 2026-11-23 11:45 |
-| [#41 — docs(strategy): politica incremental beta-final com quatro agentes](https://github.com/guilhermemellojw/better-talker/pull/41) | Documentação | 2026-11-22 16:33 |
 
 ## Interpretação e próximos gates
 
@@ -69,11 +68,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **4**; desses, Drafts: **3**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=59.
+- PRs abertos: **3**; desses, Drafts: **2**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=60.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Verde=4.
+- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Verde=3.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
