@@ -4,8 +4,8 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `4ae783759086353d55edcf31b587d51a491b0ebd`
-- Checks da `main` consultada: **Pendente**
-- PRs encontrados na janela de consulta: **60** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
+- Checks da `main` consultada: **Verde**
+- PRs encontrados na janela de consulta: **61** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -18,12 +18,13 @@
 | TRUST | 0 | 11 | 0 |
 | Beta e infraestrutura | 0 | 3 | 0 |
 | Documentação | 1 | 7 | 0 |
-| Outros | 0 | 4 | 0 |
+| Outros | 1 | 4 | 0 |
 
 ## PRs abertos
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `64b80f9db968` | Pendente |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `2957943a5e5e` | Falhou |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
@@ -67,11 +68,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **2**; desses, Drafts: **1**.
+- PRs abertos: **3**; desses, Drafts: **2**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=58.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 4.0 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Falhou=1, Não verificado=1.
+- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Falhou=1, Não verificado=1, Pendente=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
