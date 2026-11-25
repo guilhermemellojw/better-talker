@@ -1,6 +1,8 @@
 package com.bettertalker.app.data.llm
 
+import com.bettertalker.app.data.ai.isRolePlayQuote
 import com.bettertalker.app.data.util.RefCanonicalizer
+import com.bettertalker.app.data.util.RefDetector
 
 /**
  * Verificador de apoio factual pós-geração (universal).
@@ -138,21 +140,37 @@ object GroundednessVerifier {
      */
     const val WARN_ONLY_NOTICE = "⚠️ Revise: há trecho sem apoio no esboço colado."
 
+    /** Citações literais longas da resposta — sem juízo de apoio (detecção literal). */
+    fun factualQuotes(text: String): List<String> =
+        QUOTE.findAll(text).mapNotNull { match ->
+            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
+            quote.takeIf { it.length >= MIN_QUOTE_CHARS }
+        }.distinct().toList()
+
     /**
      * TRUST-P0A-2 (S1/S2) — citações LITERAIS da resposta sem correspondência
      * no corpus documental. Não é verificação semântica: paráfrases não são
      * avaliadas por esta regra (non liquet, nunca "verificado").
+     *
+     * - comparação POR FONTE: a concatenação de fontes diferentes nunca cria
+     *   uma correspondência artificial;
+     * - falas de role-play (Morador/Publicador) usam o auxiliar certificado de
+     *   `CitationCheck`, não são citações factuais;
+     * - 〈sugestão〉 isenta prosa criativa, mas NÃO afirmação factual com
+     *   referência bíblica explícita.
      */
     fun unsupportedQuotes(text: String, sources: List<String>): List<String> {
         if (text.isBlank()) return emptyList()
-        val corpusFlat = normalizeForComparison(sources.joinToString(" "))
+        val perSource = sources.map(::normalizeForComparison)
         val spans = suggestionSpans(text)
+        val hasBiblicalRef = RefDetector.detectBible(text).isNotEmpty()
         return QUOTE.findAll(text).mapNotNull { match ->
-            if (inSuggestion(match.range.first, spans)) return@mapNotNull null
+            if (isRolePlayQuote(text, match.range.first)) return@mapNotNull null
+            if (!hasBiblicalRef && inSuggestion(match.range.first, spans)) return@mapNotNull null
             val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
-            if (quote.length >= MIN_QUOTE_CHARS &&
-                !corpusFlat.contains(normalizeForComparison(quote))
-            ) quote else null
+            if (quote.length < MIN_QUOTE_CHARS) return@mapNotNull null
+            val flat = normalizeForComparison(quote)
+            quote.takeIf { perSource.none { source -> source.contains(flat) } }
         }.distinct().toList()
     }
 

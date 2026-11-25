@@ -65,10 +65,38 @@ object ChatBiblicalSupport {
         if (sourceLabel.isBlank() || excerpt.isBlank()) null
         else "$sourceLabel — trecho recuperado: “$excerpt”"
 
+    /**
+     * Citações que aparecem em OUTRA fonte, mas não no documento que contém a
+     * referência atribuída pela resposta: presença em outra fonte não prova a
+     * atribuição. Comparação por documento — nunca por corpus concatenado.
+     */
+    fun misattributedQuotes(
+        answer: String,
+        documentaryCorpus: List<String>,
+    ): List<String> {
+        val forms = RefDetector.detectBible(answer)
+            .map { RefCanonicalizer.canonicalBook("${it.label} ${it.chapter}:${it.verse}") }
+            .toSet()
+        if (forms.isEmpty()) return emptyList()
+        return GroundednessVerifier.factualQuotes(answer).filter { quote ->
+            val flat = GroundednessVerifier.normalizeForComparison(quote)
+            val withQuote = documentaryCorpus.filter { source ->
+                GroundednessVerifier.normalizeForComparison(source).contains(flat)
+            }
+            val formsInSources = withQuote.flatMap(RefCanonicalizer::canonicalize).toSet()
+            withQuote.isNotEmpty() && formsInSources.none { src -> forms.any { src.contains(it) } }
+        }.distinct()
+    }
+
     /** Aviso determinístico de suporte ausente — refs e citações literais. */
-    fun supportNotice(answer: String, documentaryCorpus: List<String>): String? {
+    fun supportNotice(
+        answer: String,
+        documentaryCorpus: List<String>,
+        includeQuoteNotices: Boolean = true,
+    ): String? {
         val gaps = biblicalGaps(answer, documentaryCorpus)
-        val quotes = unsupportedQuotes(answer, documentaryCorpus)
+        val quotes = if (includeQuoteNotices) unsupportedQuotes(answer, documentaryCorpus) else emptyList()
+        val misattributed = if (includeQuoteNotices) misattributedQuotes(answer, documentaryCorpus) else emptyList()
         return buildList {
             notice(gaps)?.let(::add)
             if (quotes.isNotEmpty()) {
@@ -76,6 +104,12 @@ object ChatBiblicalSupport {
                     "⚠️ Trecho(s) citado(s) sem retorno do acervo local: " +
                         quotes.joinToString(", ") { "“$it”" } +
                         ". Não os apresente como verificado.",
+                )
+            }
+            if (misattributed.isNotEmpty()) {
+                add(
+                    "⚠️ Citação(ões) atribuída(s) a referência sem fonte correspondente: " +
+                        misattributed.joinToString(", ") { "“$it”" } + ".",
                 )
             }
         }.joinToString("\n\n").ifBlank { null }
@@ -102,9 +136,14 @@ object ChatBiblicalSupport {
         // QA-TRUST-P0A-48 (controle 10): o aviso bíblico NÃO pode ser
         // suprimido quando já existe outro aviso no turno — sempre calcular
         // e concatenar (um único separador).
-        // P0A-2: cobre referências sem retorno E citações literais incompatíveis
-        // com o trecho recuperado — sem tocar no texto da resposta (warn-only).
-        val biblicalNotice = supportNotice(answer, corpus)
+        // P0A-2: cobre referências sem retorno E citações literais incompatíveis.
+        // Se o aviso existente JÁ fala em citação/trecho sinalizado, não repetir
+        // o mesmo sinal (aviso único do chat) — contratos #48 preservados.
+        val existingCoversQuotes = existingNotice?.let {
+            it.contains("citação", ignoreCase = true) ||
+                it.contains("trecho sinalizado", ignoreCase = true)
+        } == true
+        val biblicalNotice = supportNotice(answer, corpus, includeQuoteNotices = !existingCoversQuotes)
         return listOfNotNull(existingNotice, biblicalNotice).joinToString("\n\n").ifBlank { null }
     }
 }

@@ -110,4 +110,39 @@ class FactualSupportProtectionTest {
             ).isDocumentaryEvidence(),
         )
     }
+
+    // ---------- controles adicionais do BUILD P2 ----------
+
+    @Test
+    fun citacaoEmOutraFonteNaoComprovaAReferenciaAtribuida() {
+        val answer = "Em Mateus 27:26, a Bíblia diz que \"$quote\"."
+        val corpus = listOf(
+            "Romanos 8:1 — documento sem a frase.",
+            "Outra publicação — $quote",
+        )
+        // A frase existe em outra fonte, mas não no documento da ref atribuída.
+        assertFalse(ChatBiblicalSupport.unsupportedQuotes(answer, corpus).contains(quote))
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).contains(quote))
+        val notice = ChatBiblicalSupport.supportNotice(answer, corpus)
+        assertNotNull(notice)
+        assertTrue(notice!!.contains("atribuída(s) a referência sem fonte correspondente"))
+    }
+
+    @Test
+    fun concatenacaoDeFontesNaoCriaCorrespondencia() {
+        val left = "AlphaAlphaAlpha"
+        val right = "BetaBetaBeta"
+        val quote = "$left $right" // 29 caracteres — existe só no texto concatenado
+        assertTrue(quote.length >= 20)
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes("Fonte: \"$quote\"", listOf(left, right)).contains(quote))
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes("Fonte: \"$quote\"", listOf("$left $right")).isEmpty())
+    }
+
+    @Test
+    fun marcadorDeSugestaoNaoDispensaAfirmacaoFactual() {
+        val answer = "〈sugestão〉\"$quote\"〈/sugestão〉 — como em João 3:16."
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes(answer, emptyList()).contains(quote))
+        // Prosa criativa sem ref continua isenta.
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes("〈sugestão〉\"$quote\"〈/sugestão〉", emptyList()).isEmpty())
+    }
 }
