@@ -1,6 +1,6 @@
 # Better Talker — Roadmap estratégico e operacional
 
-**Referência de produto:** 17/11/2026 · **Revisão de governança:** 23/11/2026 · **Estado:** proposta estratégica no PR #10; integração pendente · **Owner:** mantenedor do repositório
+**Referência de produto:** 17/11/2026 · **Revisão de governança:** 23/11/2026 · **Reconciliação estratégica:** 25/11/2026 (ROADMAP-STRATEGIC-P2) · **Estado:** proposta estratégica no PR #10; integração pendente · **Owner:** mantenedor do repositório
 
 > **LEIA PRIMEIRO:** Este documento preserva a visão e a sequência de desenvolvimento. Não autoriza executar funcionalidades, fazer merge, criar release ou alterar versões. Antes de agir, consulte o estado *atual* de `main`, PRs e CI. O snapshot abaixo é histórico e pode ficar desatualizado em minutos.
 >
@@ -22,6 +22,41 @@
 - **Viabilidade e experiência antes do modelo:** a experiência de mentoria (conversa natural, paciência, autonomia, continuidade e fidelidade) é o produto; a marca/potência do LLM é um meio substituível. Adotar o **modelo mínimo suficiente**: o de menor custo total que passe os gates de qualidade em tarefas reais. DeepSeek permanece como provedor principal nesta fase, sem migração antecipada. Não distribuir chave compartilhada no APK. Acesso gratuito financiado por contribuições voluntárias é uma *visão condicionada* à medição e a backend seguro.
 - **Evolução incremental:** preservar Android/Compose, Room, Biblioteca, editor por introdução/tópicos/conclusão, Treino, Palco e mecanismos existentes; não reescrever o app.
 - **Governança:** nenhum agente faz merge, tag, release, version bump, migração de schema ou mudança de roadmap sem autorização explícita do mantenedor.
+
+## 1.1 Reconciliação estratégica — 25/11/2026 (ROADMAP-STRATEGIC-P2)
+
+> Esta seção reconcilia a visão acima (preservada integralmente) com a arquitetura, a governança de cinco agentes e as evidências atuais do GitHub. **Não altera os inegociáveis de §1, a arquitetura única, a autoria nem a política factual.** Não autoriza merge, release ou execução; é proposta documental no PR #10.
+
+### Níveis de liberação — três destinos distintos
+
+| Nível | O que é | Gate de entrada | O que NÃO exige |
+|---|---|---|---|
+| **Beta controlado** | Jornada S-34 controlada, demonstrável e avaliada, em APK identificado por SHA | DELIVERY_POLICY §2 completo; **segurança factual nas rotas habilitadas**; aceite/consentimento íntegro; sem P0/P1 de dados/privacidade; jornada com texto/toque quando voz indisponível | **Conclusão de toda a pesquisa semântica TRUST-2**; funcionalidades experimentais (podem permanecer desativadas) |
+| **Beta ampliado** | Visão ampliada (mais rotas, vozes, dispositivos) | Beta controlado estável + medição de custo + A11y validada + gates TRUST das rotas adicionadas | Prova de autenticidade editorial absoluta; modelo mínimo definitivo |
+| **Produto final / operação sustentada** | Operação sustentada e evolução definitiva do produto | Beta ampliado sustentado + TRUST/A11Y/custo estáveis + viabilidade/privacidade/legal verificados | — |
+
+**Regra TRUST reconciliada:** o gate do beta é **comportamento seguro e honesto nas rotas habilitadas** — nenhuma afirmação bíblica/doutrinária sem fonte efetivamente recuperada é apresentada como verificada; ausência é dita explicitamente. Funcionalidades experimentais (ex.: avaliação semântica ampla, roteamento adaptativo, backend) podem permanecer **indisponíveis** enquanto não atendem esse critério. **TRUST-2 amplo não bloqueia o beta controlado; defeitos semânticos P0/P1 nas rotas habilitadas — afirmação sem fonte como verificada, paráfrase inventada, contaminação por memória/usuário — continuam bloqueantes e exigem correção antes da liberação.** TRUST-3/4 (proveniência, controles adversariais, avaliação das rotas expostas) permanece obrigatório onde necessário à segurança da rota.
+
+### Classificação de prioridade
+
+| Classe | Significado | Exemplos |
+|---|---|---|
+| **P0 — obrigatório (bloqueante)** | Segurança/integridade: autoria, aceite/consentimento, falha segura de fontes nas rotas expostas, privacidade, persistência sem perda/vazamento | Gate DELIVERY_POLICY §2; TRUST-P0A; 1C.2.0; #48 |
+| **P1 — obrigatório (beta)** | Necessário para a jornada vertical do beta controlado | #52 (continuidade do Mentor); leitor/estados honestos; jornada física BT-E2E-001; A11y mínima; #11 TRUST-1A |
+| **P2 — evolutivo (pós-beta)** | Melhora qualidade sem bloquear o beta controlado | TRUST-2 semântico completo; COST-UX/COST-EVAL; vistas unificadas Entender/Escrever/Ensaiar; voz integral |
+| **P3 — experimental** | Pesquisa/protótipo, mantido fora das rotas do beta | Backend/quotas/contribuições; comparação de provedores; automações de coordenação aplicadas ao produto |
+
+### Cinco camadas de maturidade (distinguir sempre)
+
+1. **Implementação** — código escrito em branch/worktree.
+2. **Integração** — merge confirmado na `main` (ex.: #53, #58, #55).
+3. **Certificação host-only** — JVM/CI no SHA exato; não prova comportamento em dispositivo.
+4. **Validação física** — jornada em APK com SHA + autorização de dispositivo (BT-E2E-001: `MAN NÃO EXECUTADO` até hoje).
+5. **Prontidão para distribuição** — gate do beta satisfeito; **não inferida de contagem de PRs nem de CI verde**.
+
+### Automação de desenvolvimento ≠ funcionalidade do produto
+
+Ferramentas de coordenação/CI — #39/#54 (status do roadmap), #45/#49/#56 (executor e gates de build), #57 (supervisor SHADOW) — automatizam **o desenvolvimento**, não o aplicativo. Não contam como entrega de funcionalidade nem como progresso de beta. [ROADMAP_STATUS.md](ROADMAP_STATUS.md) é painel factual gerado automaticamente; não é fonte de prioridades, autorizações ou marcos e não é editado manualmente.
 
 ## Atualização de execução — 20/11/2026 (fotografia verificável, não substitui a revisão do GitHub)
 
@@ -72,34 +107,55 @@
 
 ## 4. Roadmap por marcos com gates
 
-> **Estimativas históricas:** as faixas originais foram formuladas para ~25–35 h/semana com 2 agentes de implementação + 1 discovery, organização substituída no PR #46. Não recalcular prazos apenas por existirem cinco agentes: reestimar com caminho crítico, dependências, QA e dados reais de integração. TRUST e suporte semântico permanecem riscos importantes; tarefas paralelas não são automaticamente independentes.
+> **Duas naturezas de estimativa — não misturar.** (a) **Esforço global histórico:** as faixas originais (piloto 8–12 semanas, beta ampliado 4–6 meses, operação 6–12+ meses) foram formuladas para ~25–35 h/semana com 2 agentes de implementação + 1 discovery; são **hipóteses de horizonte históricas**, não prazos vigentes e não compromissos — permanecem registradas em §9 como referência, **sem converter 8–12 semanas em prazo atual**. (b) **Trabalho restante:** estimar por caminho crítico, dependências, QA proporcional e dados reais de integração; **cinco agentes não dividem prazos por cinco** e paralelismo não implica independência (ex.: `CopilotViewModel` exige ownership coordenado). A complexidade restante concentra-se na segurança factual das rotas habilitadas (S1/S2/S4), na pedagogia mínima, na validação física e nas correções de regressão — **não** no número de PRs já integrados.
 
 | Marco | Frentes/ordem preferencial | Saída demonstrável / gate de conclusão |
 | --- | --- | --- |
 | **M0 — Estabilidade e integridade** (agora) | Revisar/fechar 1C.2.0 (#8) e UX-2.2 (#9); **depois** UX-2.3; TRUST-0 em paralelo apenas como discovery | Sem consenso gravado pelo modelo; aceites curtos e íntegros; streaming/scroll/handoff sem salto; testes JVM/CI + A34/Xiaomi onde pertinente |
 | **M1 — Contrato de confiança** | TRUST-0 → TRUST-1 | Matriz de rotas; fontes autoritativas identificadas; falhas sem fonte não viram explicações factuais; contexto e evidência separados |
-| **M2 — Explicação fundamentada** | TRUST-2 + PEDAGOGY-0 (discovery) | Claims avaliados contra trechos e não só contra marcadores; resposta explicativa simples, com fonte inspecionável e limitação honesta |
-| **M3 — Diálogo com memória** | 1C.2.1 → 1C.2.2; PEDAGOGY-1; COST-UX (discovery antecipado, BUILD após contratos de Mentor/TRUST) | Decisões somente do usuário, por seção, rejeição/substituição, controle de apagar; Mentor conduz tópico a tópico sem perguntas infinitas |
+| **M2 — Explicação fundamentada** | TRUST-1/1A (contrato) + PEDAGOGY-0 (discovery); TRUST-2 amplo é P2/pós-beta | **Gate do beta:** falha segura e ausência honesta nas rotas habilitadas; nenhuma afirmação bíblica/doutrinária sem fonte recuperada apresentada como verificada. Avaliação semântica ampla é evolutiva, não bloqueante do beta controlado |
+| **M3 — Diálogo com memória** | 1C.2.1 → 1C.2.2; **PEDAGOGY-1 mínima (P1, beta)**: um tópico por vez, explicar com fontes e confirmar antes de aplicar; pedagogia avançada é P2; COST-UX (discovery antecipado) | Decisões somente do usuário, por seção, rejeição/substituição, controle de apagar; Mentor conduz tópico a tópico sem perguntas infinitas; **pedagogia avançada/diálogos de proficiência não bloqueiam o beta** |
 | **M4 — Voz e compreensão** | VOICE-FIRST + A11Y + feedback visual honesto (UX-3) | Voz aciona tarefas reais; leitura/repetição/pausa, transcrição verificável, TalkBack/fonte grande; texto e toque equivalentes |
-| **M5 — Preparação simples integrada** | EDITOR-SIMPLE → vertical S-34; TRUST-3/4 | Abrir/importar S-34 → compreender → conversar → rascunhar → ouvir/revisar → confirmar → editor → ensaiar, sem perda de autoria |
+| **M5 — Preparação simples integrada** | EDITOR-SIMPLE → vertical S-34; TRUST-3/4 **na medida necessária às rotas expostas** | Abrir/importar S-34 → compreender → conversar → rascunhar → ouvir/revisar → confirmar → editor → ensaiar, sem perda de autoria; proveniência e controle adversarial presentes onde a rota depende deles |
 | **M6 — Operação sustentável** | COST-EVAL (comparação cega após baseline estável de Mentor/TRUST) → COST e eventual backend/quotas/contribuições | Escolha do modelo mínimo suficiente com qualidade, fidelidade, latência e custo por jornada medidos; nenhuma chave central no APK; testes de segurança/privacidade, viabilidade e requisitos legais verificados |
 
-**Gate de piloto de 8–12 semanas:** uma jornada S-34 controlada demonstrável e avaliada; NÃO implica conformidade total nem segurança factual absoluta. **Beta com visão ampliada:** horizonte exploratório de 4–6 meses. **Expansão sustentada:** 6–12 meses ou mais, condicionada a TRUST, A11Y e custo.
+**Três destinos (detalhados em §1.1):** **beta controlado** — jornada S-34 controlada demonstrável e avaliada em APK com SHA, segurança factual nas rotas habilitadas; **não** exige conformidade total, não implica segurança absoluta nem conclusão de TRUST-2. **Beta ampliado** — visão ampliada, com gates TRUST/A11y/custo das rotas adicionadas. **Produto final / operação sustentada** — condicionado a TRUST, A11y, custo, privacidade e viabilidade medidos. Os horizontes originais são registro histórico (§9), não prazos restantes.
 
 ### Dependências (respeitar a ordem)
 
 ```text
 1C.2.0 (integridade) ───────► 1C.2.1 (ledger) ───► 1C.2.2 (controle)
 UX-2.1 (integrado) ─► UX-2.2 (PR #9) ─► UX-2.3 ─► UX-3 (polimento)
-TRUST-0 (discovery) ─► TRUST-1 (fontes) ─► TRUST-2 (claims) ─► TRUST-3/4
+TRUST-0 (#11, discovery) ─► TRUST-1/1A (fontes/contrato) ─► [GATE BETA: falha segura nas rotas]
+                                             ├─► TRUST-2 amplo (claims, P2/pós-beta) ─────────┐
+                                             └─► TRUST-3/4 (proveniência/adversarial, P0/P1
+                                                 onde a rota exposta depende) ────────────────┴─► rotas expostas seguras
                                              │
-PEDAGOGY-0 (discovery) ─────────────────────► PEDAGOGY-1
+PEDAGOGY-0 (discovery) ─► PEDAGOGY-1 mínima (P1, beta) ─► pedagogia avançada (P2)
                                                │
 VOICE-FIRST + A11Y (discovery cedo) ──────────┤
 EDITOR-SIMPLE (discovery cedo) ────────────────┴──► PILOTO S-34
 COST-UX (discovery cedo) ─► roteamento local + orçamento adaptativo (BUILD com gates de Mentor/TRUST)
 COST (instrumentação desde já) ─► COST-EVAL (após baseline estável de Mentor/TRUST/COST-UX) ─► backend opcional após viabilidade e segurança
 ```
+
+### Sequência restante de entregas para o beta controlado (reconciliação 25/11)
+
+Ordem por dependência real, não por contagem de PRs. Cada item registra **dependência** e **critério de aceite**; nenhum implica merge sem autorização.
+
+| # | Entrega | Classe | Dependência | Critério de aceite |
+|---|---|---|---|---|
+| 1 | #52 — continuidade do Mentor em `CopilotViewModel.send()` (integrada) | P1 | #47/#51 integrados; HEAD certificado `197560b1`; CI pré-merge 4/4 SUCCESS; equivalência 6/6 confirmada por C | Merge convencional `b23d3344`; CI Android pós-merge pendente ([run 45586822028](https://github.com/guilhermemellojw/better-talker/actions/runs/45586822028)); validação física da continuidade ainda pendente |
+| 2 | #11 — TRUST-0/1A (inventário de rotas + contrato de evidência) | P1 | Revisão do contrato; sem BUILD | Matriz de rotas e casos; nenhuma fonte de usuário/memória promovida a evidência |
+| 3 | Rotas expostas com falha segura — TRUST-P0A-2 (S1/S2/S4) | P0/P1 | #48 integrado; contrato #11; discovery TRUST-BETA-READINESS-P2 | S1: referência correta não certifica afirmação incompatível; rótulo limitado ao trecho recuperado. S2: ausência de apoio não pode parecer fato confiável. S4: corpus factual vazio, memória e conhecimento paramétrico não substituem evidência autorizada. Reproduções fail-first, controles positivos de oratória e testes da fronteira produtiva; heurística não equivale a verificação semântica |
+| 4 | Jornada BT-E2E-001 em APK com SHA | P1 | 1–3 + APK beta identificado + autorização de dispositivo | 14 etapas + 16 adversariais executadas; P0/P1 de dados/consentimento/vazamento/fato sem fonte = 0 |
+| 5 | A11y mínima e caminho sem voz | P1 | Texto/toque equivalentes já em código | TalkBack/fonte ampliada validados no dispositivo; #58 ressalva de largura estreita confirmada |
+| 6 | Estabilização de CI/gates (#49/#56) e executor #45 | P2 (infra) | Já integrados | Build reproduzível sem OOM; instrumentados compilam; nenhum ADB de rotina |
+
+**Classificação de lacunas (reconciliação P3) — não presumir natureza sem diagnóstico:**
+- **Lacunas prioritárias identificadas (discovery, ainda não corrigidas):** S1 (referência correta com afirmação incompatível), S2 (warn-only/ausência de aviso pode induzir confiança indevida) e S4 (memória/paramétrico sem evidência autorizada), classificadas P1 para as rotas beta. A reprodução produtiva e a menor correção segura são gates de TRUST-P0A-2. S3 (fonte parcial) permanece P2, salvo escape demonstrável. O contrato TRUST-1A (#11) aguarda reconciliação documental; TRUST-2 semântico amplo, vistas unificadas e COST-UX/COST-EVAL são evoluções a diagnosticar conforme prioridade.
+- **Pendentes de diagnóstico (classificação não presumida):** funcionalidades cuja maturidade real não foi verificada no SHA/escopo atual não devem ser rotuladas como "precisam apenas de validação física" — exigem primeiro leitura de código/PR/evidência para decidir se falta implementação, integração, certificação host-only ou validação. Exemplos a diagnosticar: cobertura de TRUST-3/4 nas rotas expostas; completes da 1C.2.2 (controle visível da memória); fidelidade semântica em casos adversariais; disponibilidade de caminho sem voz em todos os fluxos.
+- **Já implementadas e integradas, com certificação host-only (não reauditar no mesmo SHA):** autoria e aceite (1C.2.0/#42); memória e dossiê correto (#33/#36/#42); identidade/atomicidade TRUST (#31/#38/#43); fail-safe bíblico (#48); links/leitor/estados honestos (#34/#37/#40/#44/#53); Preparo e entrada do Mentor (#58); persistência e recuperação de referente (#47/#51/#43 IE); integração da continuidade conversacional (#52, CI pré-merge 4/4 e equivalência independente). **A validação física/jornada ainda é necessária para todas** — isso não significa que a única lacuna seja física; cada item requer diagnóstico da camada de maturidade faltante.
 
 ## 5. Backlog detalhado e critérios de aceitação
 
@@ -111,7 +167,7 @@ COST (instrumentação desde já) ─► COST-EVAL (após baseline estável de M
 
 **1C.2.2 — CONTROLE.** Expor ao usuário o que foi lembrado, origem e onde vale; permitir corrigir, reconfirmar ou remover. Definir política de “limpar conversa” e de edições manuais. **Aceite:** após reinício e troca de foco, decisão correta persiste; substituição não mantém duas decisões conflitantes; usuário controla cada uma.
 
-**1C.2.2B0 — SUBETAPA DE INJEÇÃO DA MEMÓRIA CANÔNICA (PR #33, OPEN em 20/11).** Seleção de decisões confirmadas do ledger por nota e seção resolvida, supressão do `agreedApproach` legado inclusive com registros superseded/falha de leitura, conteúdo volátil no canal user e separação do dossiê system/corpus de evidências. P1/P4/P5 corrigiram seleção de seção e canal da geração oratória; **P6 ainda pendente** por fallback que pode reutilizar contexto do foco anterior sem dossiê compatível. **Gate específico:** nenhum texto/orientação/referência de A entra no prompt da seção B quando o dossiê de B falhar; manter referências globais autorizadas, fidelidade e transições, verificar testes adversariais/CI/head exato e documentar ausência de androidTest. Só após revisão e autorização explícita integrar. Esta subetapa **não substitui** o aceite completo de 1C.2.2 (controle visível da memória pelo usuário).
+**1C.2.2B0 — INJEÇÃO DA MEMÓRIA CANÔNICA (histórico; PR #33 MERGED em 21/11, correção P4 em #42 integrada em 24/11).** Seleção de decisões confirmadas do ledger por nota e seção resolvida, supressão do `agreedApproach` legado, conteúdo volátil no canal user e separação do dossiê system/corpus de evidências. Gate já aplicado: nenhum texto/orientação/referência de A entra no prompt da seção B quando o dossiê de B falhar; dossiê do foco correto no gate oratório (#42). **Estado reconciliado:** implementado e integrado; permanece a validação da maturidade física/jornada (não reauditar P4/P6 certificados no mesmo SHA). Esta subetapa **não substitui** o aceite completo de 1C.2.2 (controle visível da memória pelo usuário), que depende de validação na jornada.
 
 ### B. UX — previsibilidade do chat e feedback visual
 
@@ -141,15 +197,15 @@ COST (instrumentação desde já) ─► COST-EVAL (após baseline estável de M
 - **Matriz de aceite:** negativos com TNM ausente, outra Bíblia indexada, corpus vazio, referência sem trecho, capítulos, paráfrases sem aspas, interpretação inventada, memória, S-34, modo colar, respostas mistas e geração de discurso; positivos com TNM/publicação recuperada e mentoria puramente pedagógica. Gate: nenhuma afirmação bíblica/doutrinária apresentada como verificada sem vínculo real à evidência autorizada; medir escapes, falsos bloqueios, regressões de UX/acessibilidade e autoria.
 - **Sequência:** discovery e reprodução com mapa arquivo:linha → contrato e testes → BUILD em branch isolada somente após autorização → JVM/CI e aparelho conforme rota → revisão de interação com TRUST-2B3B. Sem merge, release, migração Room, troca de provedor ou mudança de PRs existentes implícitos.
 
-**TRUST-2 — AVALIAÇÃO SEMÂNTICA:** testar correspondência de afirmação→trecho específico; usar método conservador e mensurável, não assumir infalibilidade de outro modelo. Monitorar cobertura, explicações indevidas, recusas erradas, custo e latência. Liberar rota pedagógica ampliada apenas após critérios experimentais acordados.
+**TRUST-2 — AVALIAÇÃO SEMÂNTICA (P2, evolutiva — NÃO é gate do beta controlado):** testar correspondência de afirmação→trecho específico; usar método conservador e mensurável, não assumir infalibilidade de outro modelo. Monitorar cobertura, explicações indevidas, recusas erradas, custo e latência. **Esclarecimento (reconciliação 25/11, refinado em P3):** o beta exige segurança factual nas **rotas habilitadas** — falha segura, ausência honesta e nenhum fato sem fonte apresentado como verificado —, não a conclusão da pesquisa semântica. TRUST-2 amplo permanece **experimental/pós-beta**: a rota pedagógica ampliada e a avaliação semântica irrestrita só são habilitadas após critérios experimentais acordados; até lá, funcionalidades que dependem dela podem permanecer **indisponíveis**, com comportamento seguro e honesto no caminho suportado. **Defeitos semânticos P0/P1 nas rotas habilitadas (afirmação sem fonte como verificada, paráfrase inventada, contaminação por memória/usuário) continuam bloqueantes**, ainda que TRUST-2 amplo não seja gate.
 
-**TRUST-3/4:** mostrar/ler proveniência do trecho utilizado, avaliação adversarial e piloto com discurso real. Auditoria de claims sem fonte; falha do detector não é certificado de correção.
+**TRUST-3/4 — controles obrigatórios quando necessários à segurança das rotas expostas (reconciliação P3):** mostrar/ler proveniência do trecho utilizado, controles adversariais e avaliação das rotas expostas **permanecem obrigatórios** — inclusive no beta controlado — sempre que a rota habilitada depende deles para falhar de modo seguro; não são discriminados como "pós-beta" por rótulo. O que é evolutivo é a **cobertura ampla** (piloto com discurso real em todas as variantes). Auditoria de claims sem fonte; falha do detector não é certificado de correção. **Critério:** proveniência e controle adversarial suficientes para a rota exposta = gate; cobertura integral = P2.
 
 ### D. PEDAGOGY e aprendizado
 
 **PEDAGOGY-0 — DISCOVERY:** estados de intenção (entender/organizar/rascunhar/revisar/ensaiar), pergunta única e útil, adaptação de profundidade, escolha de explicar de outro jeito, respeitar autoria e recusas; roteamento de “Explique melhor” em card × sugestão × tópico. Desenhar diálogos curtos de várias proficiências, sem exigir uma aula quando o usuário pede um rascunho.
 
-**PEDAGOGY-1 — BUILD APÓS TRUST-1/avaliação de TRUST-2:** um tópico S-34 por vez; explicar com fontes; ouvir raciocínio próprio; sugerir melhoria explícita; entregar rascunho somente quando adequado; confirmar antes de aplicar. Métrica: usuário consegue explicar o tópico, encontrar apoio e preservar seu estilo.
+**PEDAGOGY-1 — separar mínima (beta) de avançada (pós-beta).** **PEDAGOGY-1 mínima (P1, necessária ao beta controlado):** BUILD após TRUST-1/1A (contrato), **sem exigir TRUST-2 amplo** — um tópico S-34 por vez; explicar com fontes efetivamente recuperadas; falha segura/ausência honesta quando não há fonte; entregar rascunho somente quando adequado; confirmar antes de aplicar. Métrica de aceite: usuário consegue explicar o tópico, encontrar apoio e preservar seu estilo, sem afirmação não fundamentada apresentada como verificada. **Pedagogia avançada (P2, posterior ao beta):** diálogos de múltiplas proficiências, adaptação fina de profundidade, "explique de outro jeito" rico e roteamento sofisticado de intenção — evolutiva, não bloqueante.
 
 ### E. VOICE-FIRST / A11Y
 
@@ -238,13 +294,13 @@ Consultar GitHub e [TEAM_COORDINATION.md](TEAM_COORDINATION.md) antes de atribui
 
 ## 9. Próximo checkpoint e manutenção do roadmap
 
-**Coordenação oficial em 23/11/2026:** PR #46 integrado à main, commit 52e75373ceafb9e4c3ce09c6225ae057b6808369. Cinco agentes trabalham com QA distribuído, revisão cruzada, integração condicionada ao gate de risco e aprovação expressa. O próximo gate do PR #10 é revisão editorial do roadmap e reconciliação de sua base com a main atual; este ajuste não encerra marcos nem autoriza merge de código.
+**Coordenação oficial em 23/11/2026, reconciliada em 25/11/2026:** PR #46 integrado à main no commit 52e75373; governança #55 (carta do coordenador + DECISIONS) integrada em 24/11. Cinco agentes A–E com QA distribuído, revisão cruzada, integração condicionada ao gate de risco e aprovação expressa. `main` observada em `b23d334418cf0c615e4d7cc7f981441b9197dfff`; #53/#58 integrados e #52 integrado convencionalmente com HEAD certificado `197560b1`, CI pré-merge 4/4 SUCCESS, [equivalência 6/6 aprovada por C](https://github.com/guilhermemellojw/better-talker/pull/52#issuecomment-7158439623) e CI Android pós-merge pendente; #11 e #54 abertos. S1/S2/S4 identificados como P1 de segurança factual, pendentes de reprodução e correção. **Estado real das cinco camadas:** integração ampla; certificação host_only predominante; validação física (BT-E2E-001) `MAN NÃO EXECUTADO`, instrumentado apenas #43 4/4; prontidão de distribuição **não demonstrada**. O gate do PR #10 é a revisão editorial reconciliada (esta proposta) e a autorização expressa do mantenedor; este ajuste não encerra marcos nem autoriza merge de código.
 
 **Checkpoint histórico de 20/11/2026 (não executar como instrução atual):** Agente A — executar somente o P6 no PR #33 (sem merge), garantindo que a indisponibilidade/incompatibilidade do dossiê não reintroduza contexto de outra seção; executar testes adversariais, JVM, lint, builds, CI no HEAD exato e declarar instrumentados não executados quando for o caso. Coordenador — revisar P6 e revalidar base, conflitos, CI e testes antes de qualquer autorização de merge. Em paralelo, revisar PR #34 pelos contratos e integração sem confundir código puro com leitor/UI implementados. TRUST-2B3B-A (#31) já está integrado; prosseguir nos próximos gates sem inferir verificação semântica concluída.
 
 **Checkpoint histórico de 17/11/2026 (não executar sem nova verificação):** revisar HEAD/CI do PR #8 e #9; solicitar apenas correções pontuais, integrar **somente com autorização**; lançar TRUST-0 como discovery independente; depois UX-2.3. Ao avançar, registrar **data UTC, base/main SHA, PR/head, CI, device, decisão de merge e evidências**. Nunca marcar “concluído” apenas porque um agente disse que executou; conferir GitHub e, quando relevante, artefatos.
 
-**Estimativa de esforço global, não compromisso:** piloto controlado de 8–12 semanas; beta da visão em 4–6 meses; operação ampliada em 6–12 meses ou mais. Replanejar após TRUST-0 e medições de custo.
+**Esforço global — registro histórico, não prazo atual:** as faixas de 8–12 semanas (piloto controlado), 4–6 meses (beta da visão) e 6–12+ meses (operação ampliada) foram formuladas no contexto original e **não devem ser lidas como cronograma vigente**. O trabalho restante é estimado separadamente em §4 por dependências e complexidade, não por contagem de PRs. Replanejar após TRUST-0 e medições de custo, com autorização do mantenedor.
 
 **Leituras de apoio:** [TEAM_COORDINATION.md](TEAM_COORDINATION.md) · [AGENT_HANDOFF.md](AGENT_HANDOFF.md) · [FREEZE.md](FREEZE.md) · [VISION.md](VISION.md) · [README](../README.md).
 
