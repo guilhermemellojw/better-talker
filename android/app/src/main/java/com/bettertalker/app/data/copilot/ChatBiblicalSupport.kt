@@ -70,42 +70,58 @@ object ChatBiblicalSupport {
      * referência atribuída pela resposta: presença em outra fonte não prova a
      * atribuição. Comparação por documento — nunca por corpus concatenado.
      */
-    fun misattributedQuotes(
+    /** Identidades de referência EXTRAÍDAS do documento — não o texto inteiro canonicalizado. */
+    private fun refFormsInSource(source: String): Set<String> =
+        RefDetector.detectBible(source)
+            .map { RefCanonicalizer.canonicalBook("${it.label} ${it.chapter}:${it.verse}") }
+            .toSet()
+
+    /**
+     * F1.1/F1.2 — ocorrências com a posição original preservada: a mesma frase
+     * citada duas vezes pode ter atribuições distintas; role-play e afirmação
+     * factual são tratadas por ocorrência, nunca por texto deduplicado.
+     */
+    fun misattributedQuoteOccurrences(
         answer: String,
         documentaryCorpus: List<String>,
-    ): List<String> {
-        val quotes = GroundednessVerifier.factualQuoteCandidates(answer)
+    ): List<GroundednessVerifier.QuoteOccurrence> {
+        val occurrences = GroundednessVerifier.factualQuoteOccurrences(answer)
         val refs = RefDetector.detectBible(answer)
-        if (quotes.isEmpty() || refs.isEmpty()) return emptyList()
-        return quotes.filter { quote ->
-            val at = answer.indexOf(quote)
-            val flat = GroundednessVerifier.normalizeForComparison(quote)
+        if (occurrences.isEmpty() || refs.isEmpty()) return emptyList()
+        return occurrences.filter { occ ->
+            val flat = GroundednessVerifier.normalizeForComparison(occ.text)
             val withQuote = documentaryCorpus.filter { source ->
                 GroundednessVerifier.normalizeForComparison(source).contains(flat)
             }
-            if (withQuote.isEmpty()) return@filter false // ausência é tratada por unsupportedQuotes
+            if (withQuote.isEmpty()) return@filter false // ausência: unsupportedQuotes
 
-            // F1: vínculo por proximidade — a referência mais próxima ANTES da
-            // citação. Presença global da ref em outra parte não certifica.
+            // Vínculo por proximidade: ref mais próxima ANTES desta ocorrência.
+            val prefix = answer.substring(0, occ.start.coerceAtMost(answer.length))
             val linked = refs.mapNotNull { ref ->
                 val forms = listOf(
                     "${ref.label} ${ref.chapter}:${ref.verse}",
                     "${ref.bookNorm} ${ref.chapter}:${ref.verse}",
                 )
-                val prefix = answer.substring(0, at.coerceAtMost(answer.length))
                 val refAt = forms.mapNotNull { form ->
                     prefix.lastIndexOf(form).takeIf { it >= 0 }
                 }.maxOrNull()
-                refAt?.takeIf { at - it <= 160 }?.let { ref to it }
+                refAt?.takeIf { occ.start - it <= 160 }?.let { ref to it }
             }.maxByOrNull { it.second }?.first
-                ?: return@filter true // vínculo ambíguo: não certificar atribuição
+                ?: return@filter true // vínculo ambíguo: não certificar
 
-            // Comparação EXATA de forma canônica: João 3:1 não casa com João 3:10.
-            val wanted = RefCanonicalizer.canonicalBook("${linked.label} ${linked.chapter}:${linked.verse}")
-            val formsInSources = withQuote.flatMap(RefCanonicalizer::canonicalize).toSet()
-            wanted !in formsInSources
-        }.distinct()
+            val wanted = RefCanonicalizer.canonicalBook(
+                "${linked.label} ${linked.chapter}:${linked.verse}",
+            )
+            wanted !in withQuote.flatMap(::refFormsInSource).toSet()
+        }
     }
+
+    /** API legada por texto — mantém P2/P3. */
+    fun misattributedQuotes(
+        answer: String,
+        documentaryCorpus: List<String>,
+    ): List<String> = misattributedQuoteOccurrences(answer, documentaryCorpus)
+        .map { it.text }.distinct()
 
     /** Aviso determinístico de suporte ausente — refs e citações literais. */
     fun supportNotice(
@@ -113,9 +129,14 @@ object ChatBiblicalSupport {
         documentaryCorpus: List<String>,
         includeUnsupportedQuotes: Boolean = true,
         includeMisattributed: Boolean = true,
+        /** F2.1 — deduplicação TIPADA: citações já cobertas pelo aviso anterior. */
+        existingUnsupportedQuotes: Set<String> = emptySet(),
     ): String? {
         val gaps = biblicalGaps(answer, documentaryCorpus)
-        val quotes = if (includeUnsupportedQuotes) unsupportedQuotes(answer, documentaryCorpus) else emptyList()
+        val quotes = if (includeUnsupportedQuotes) {
+            unsupportedQuotes(answer, documentaryCorpus)
+                .filterNot { it in existingUnsupportedQuotes }
+        } else emptyList()
         // F2: atribuição incorreta é achado DISTINTO de citação sem apoio —
         // nunca suprimida só porque já existe aviso de citação no turno.
         val misattributed = if (includeMisattributed) misattributedQuotes(answer, documentaryCorpus) else emptyList()
@@ -154,6 +175,8 @@ object ChatBiblicalSupport {
         existingNotice: String?,
         answer: String,
         corpus: List<String>,
+        /** F2.1 — quando o chamador conhece as citações já sinalizadas. */
+        existingUnsupportedQuotes: Set<String> = emptySet(),
     ): String? {
         // QA-TRUST-P0A-48 (controle 10): o aviso bíblico NÃO pode ser
         // suprimido quando já existe outro aviso no turno — sempre calcular
@@ -165,11 +188,14 @@ object ChatBiblicalSupport {
             it.contains("citação", ignoreCase = true) ||
                 it.contains("trecho sinalizado", ignoreCase = true)
         } == true
+        // Sem a lista tipada, o chamador legado (verifyChatText) só declara a
+        // categoria — deduplicação exata não é possível e é documentada.
         val biblicalNotice = supportNotice(
             answer = answer,
             documentaryCorpus = corpus,
-            includeUnsupportedQuotes = !existingCoversQuotes,
+            includeUnsupportedQuotes = !existingCoversQuotes || existingUnsupportedQuotes.isNotEmpty(),
             includeMisattributed = true,
+            existingUnsupportedQuotes = existingUnsupportedQuotes,
         )
         return listOfNotNull(existingNotice, biblicalNotice).joinToString("\n\n").ifBlank { null }
     }

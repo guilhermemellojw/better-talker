@@ -203,4 +203,76 @@ class FactualSupportProtectionTest {
         assertTrue(unsupported.contains(q2))
         assertTrue(unsupported.contains(q1)) // sugestão com ref bíblica não é isenção
     }
+
+    // ---------- BUILD P4 FOCAL — F1.1 / F1.2 / F2.1 ----------
+
+    private val qA = "trecho A suficientemente longo para deteccao literal"
+    private val qB = "trecho B suficientemente longo para deteccao literal"
+
+    @Test
+    fun f1_1_atribuicaoCorretaSemAvisoIndevido() {
+        val answer = "Em João 3:16 diz \"$qA\"."
+        val corpus = listOf("João 3:16 — $qA")
+        assertTrue(ChatBiblicalSupport.biblicalGaps(answer, corpus).isEmpty())
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes(answer, corpus).isEmpty())
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).isEmpty())
+        assertNull(ChatBiblicalSupport.noticeWithBiblicalSafety(null, answer, corpus))
+    }
+
+    @Test
+    fun f1_1_versiculo1E10NosDoisSentidos() {
+        val answer1 = "Em João 3:1 diz \"$qA\"."
+        val answer10 = "Em João 3:10 diz \"$qA\"."
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer1, listOf("João 3:1 — $qA")).isEmpty())
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer10, listOf("João 3:1 — $qA")).isNotEmpty())
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer1, listOf("João 3:10 — $qA")).isNotEmpty())
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer10, listOf("João 3:10 — $qA")).isEmpty())
+    }
+
+    @Test
+    fun f1_2_mesmaFraseDuasOcorrenciasComAtribuicoesDistintas() {
+        val answer = "Em João 3:16 diz \"$qA\". Em João 3:17 diz \"$qA\"."
+        val occurrences = ChatBiblicalSupport.misattributedQuoteOccurrences(
+            answer, listOf("João 3:16 — $qA"),
+        )
+        assertEquals(1, occurrences.size)
+        assertEquals(answer.lastIndexOf(qA), occurrences.first().start)
+    }
+
+    @Test
+    fun f1_2_rolePlayPrimeiroEAfirmacaoDepois() {
+        val answer = "<p><b>Morador:</b> “$qA”</p> Em João 3:17 diz \"$qA\"."
+        val occurrences = ChatBiblicalSupport.misattributedQuoteOccurrences(
+            answer, listOf("João 3:16 — $qA"),
+        )
+        assertEquals(1, occurrences.size)
+        assertEquals(answer.lastIndexOf(qA), occurrences.first().start)
+    }
+
+    @Test
+    fun f2_1_deduplicacaoTipadaApenasUmaCitacao() {
+        val answer = "Sem fonte: \"$qA\" e também \"$qB\"."
+        val existing = "⚠️ Revise: 1 citação fora dos trechos."
+        val notice = ChatBiblicalSupport.noticeWithBiblicalSafety(
+            existingNotice = existing,
+            answer = answer,
+            corpus = emptyList(),
+            existingUnsupportedQuotes = setOf(qA),
+        )
+        assertNotNull(notice)
+        assertTrue(notice!!.contains("“$qB”"))
+        assertFalse(notice.contains("“$qA”"))
+        assertTrue(notice.contains(existing))
+    }
+
+    @Test
+    fun f3_consistenciaDasOcorrenciasLiterais() {
+        val text = "\"$qA\" e \"$qB\""
+        val raw = com.bettertalker.app.data.llm.GroundednessVerifier.factualQuoteOccurrences(text)
+        assertEquals(listOf(qA, qB), raw.map { it.text })
+        val unsupported = com.bettertalker.app.data.llm.GroundednessVerifier.unsupportedQuoteOccurrences(
+            text, listOf(qA),
+        )
+        assertEquals(listOf(qB), unsupported.map { it.text })
+    }
 }

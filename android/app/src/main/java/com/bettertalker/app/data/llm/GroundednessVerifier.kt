@@ -140,47 +140,59 @@ object GroundednessVerifier {
      */
     const val WARN_ONLY_NOTICE = "⚠️ Revise: há trecho sem apoio no esboço colado."
 
-    /** Citações literais longas da resposta — sem juízo de apoio (detecção literal). */
-    fun factualQuotes(text: String): List<String> =
-        QUOTE.findAll(text).mapNotNull { match ->
-            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
-            quote.takeIf { it.length >= MIN_QUOTE_CHARS }
-        }.distinct().toList()
+    /** Ocorrência literal com a posição ORIGINAL na resposta (sem distinct()). */
+    data class QuoteOccurrence(
+        val text: String,
+        val start: Int,
+        val endExclusive: Int,
+    )
 
     /**
-     * TRUST-P0A-2 (S1/S2) — citações LITERAIS da resposta sem correspondência
-     * no corpus documental. Não é verificação semântica: paráfrases não são
-     * avaliadas por esta regra (non liquet, nunca "verificado").
-     *
-     * - comparação POR FONTE: a concatenação de fontes diferentes nunca cria
-     *   uma correspondência artificial;
-     * - falas de role-play (Morador/Publicador) usam o auxiliar certificado de
-     *   `CitationCheck`, não são citações factuais;
-     * - 〈sugestão〉 isenta prosa criativa, mas NÃO afirmação factual com
-     *   referência bíblica explícita.
+     * Citações literais longas, com posição, sem juízo de apoio.
+     * Regras de exceção (role-play/sugestão) usam a posição da ABERTURA da
+     * aspa, contrato de `CitationCheck.isRolePlayQuote`.
      */
-    fun factualQuoteCandidates(text: String): List<String> {
+    fun factualQuoteOccurrences(text: String): List<QuoteOccurrence> {
         if (text.isBlank()) return emptyList()
         val spans = suggestionSpans(text)
         val hasBiblicalRef = RefDetector.detectBible(text).isNotEmpty()
-        return factualQuotes(text).filter { quote ->
-            // Posição da ABERTURA da aspa — contrato de isRolePlayQuote/CitationCheck.
-            val at = listOf("\"$quote\"", "“$quote”")
-                .mapNotNull { text.indexOf(it).takeIf { p -> p >= 0 } }
-                .minOrNull() ?: text.indexOf(quote)
-            at >= 0 && !isRolePlayQuote(text, at) &&
-                (hasBiblicalRef || !inSuggestion(at, spans))
+        return QUOTE.findAll(text).mapNotNull { match ->
+            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
+            if (quote.length < MIN_QUOTE_CHARS) return@mapNotNull null
+            val opening = match.range.first
+            if (isRolePlayQuote(text, opening)) return@mapNotNull null
+            if (!hasBiblicalRef && inSuggestion(opening, spans)) return@mapNotNull null
+            val start = opening + 1 // uma aspa de abertura
+            QuoteOccurrence(quote, start, start + quote.length)
+        }.toList()
+    }
+
+    /** API legada por texto — mantém contratos #48/P2/P3. */
+    fun factualQuotes(text: String): List<String> =
+        factualQuoteOccurrences(text).map { it.text }.distinct()
+
+    /** API legada por texto — mantém contratos #48/P2/P3. */
+    fun factualQuoteCandidates(text: String): List<String> = factualQuotes(text)
+
+    /**
+     * TRUST-P0A-2 (S1/S2) — ocorrências sem correspondência no corpus
+     * documental. Não é verificação semântica (paráfrases: non liquet).
+     * Comparação POR FONTE: concatenação artificial não cria apoio.
+     */
+    fun unsupportedQuoteOccurrences(
+        text: String,
+        sources: List<String>,
+    ): List<QuoteOccurrence> {
+        if (text.isBlank()) return emptyList()
+        val perSource = sources.map(::normalizeForComparison)
+        return factualQuoteOccurrences(text).filter { occ ->
+            val flat = normalizeForComparison(occ.text)
+            perSource.none { source -> source.contains(flat) }
         }
     }
 
-    fun unsupportedQuotes(text: String, sources: List<String>): List<String> {
-        if (text.isBlank()) return emptyList()
-        val perSource = sources.map(::normalizeForComparison)
-        return factualQuoteCandidates(text).filter { quote ->
-            val flat = normalizeForComparison(quote)
-            perSource.none { source -> source.contains(flat) }
-        }.distinct()
-    }
+    fun unsupportedQuotes(text: String, sources: List<String>): List<String> =
+        unsupportedQuoteOccurrences(text, sources).map { it.text }.distinct()
 
     fun verify(text: String, sources: List<String>, warnOnly: Boolean = false): VerificationResult {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())

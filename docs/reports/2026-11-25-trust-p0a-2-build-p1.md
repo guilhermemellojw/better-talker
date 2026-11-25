@@ -69,3 +69,15 @@ Antes da implementação, `FactualSupportProtectionTest` não compilava (`unsupp
 **Evidências:** testes focados (16 novos + GateWarnings) **BUILD SUCCESSFUL**; regressão JVM completa **BUILD SUCCESSFUL**. Gradle com daemon já ativo no host (coordenação com D: única execução por vez). Sem verificação semântica geral, merge, ADB, schema, provider, release, bump ou LLM pago.
 
 **Status:** S1/S2/S4 seguem **parcialmente cobertos** até a ligação produtiva; o contrato continua estritamente literal, nunca afirma fidelidade semântica.
+
+---
+
+## BUILD P4 FOCAL — F1.1 / F1.2 / F2.1
+
+**Fail-first:** 6 testes novos; primeira execução falhou por APIs ausentes (`QuoteOccurrence`, ocorrências e parâmetro tipado). P3 preservado integralmente.
+
+- **F1.1 (controle positivo):** `refFormsInSource()` compara **identidades extraídas** (`RefDetector.detectBible(documento)` → `canonicalBook`) em vez da string canonicalizada do documento inteiro. "João 3:16 — trecho A" com a mesma citação na resposta não gera aviso. Testes `3:1` vs `3:10` nos **dois sentidos** — nenhum casamento por prefixo.
+- **F1.2 (identidade de ocorrência):** `QuoteOccurrence(texto, start, endExclusive)` preserva a posição original; `factualQuoteOccurrences`/`unsupportedQuoteOccurrences`/`misattributedQuoteOccurrences` não deduplicam por texto. Mesma frase citada duas vezes (1ª correta, 2ª trocada) → apenas a 2ª é sinalizada, com `start` da segunda ocorrência; frase em role-play primeiro e afirmação factual depois → a ocorrência factual é a sinalizada, sem perda por `distinct`/`indexOf`. APIs legadas por texto permanecem para #48/P2/P3.
+- **F2.1 (deduplicação):** parâmetro tipado `existingUnsupportedQuotes: Set<String>` em `supportNotice`/`noticeWithBiblicalSafety` permite suprimir **apenas** a citação já coberta e manter as demais. **Limitação documentada:** o chamador legado (`verifyChatText`, em `CopilotViewModel`) ainda não fornece esse conjunto, então a deduplicação exata não está ativa em produção — menor ajuste tipado necessário: passar as citações já sinalizadas (derivadas de `result.removed`, com filtro de role-play) como `existingUnsupportedQuotes`, mediante coordenação de ownership com A. Nenhuma edição em `CopilotViewModel` nesta fatia.
+
+**Evidências:** testes focados (novos + GateWarningsTest + #48) **BUILD SUCCESSFUL**; regressão JVM completa com `--rerun-tasks` **BUILD SUCCESSFUL** (5m56). Gradle com daemon existente, uma execução por vez. CI do novo HEAD a verificar. Sem verificação semântica geral, merge, ADB, schema, provider, release, bump ou LLM pago.
