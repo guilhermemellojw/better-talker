@@ -10,6 +10,14 @@ import com.bettertalker.app.domain.speech.SubPoint
  * muda; só a linguagem mostrada ao usuário e a agregação de fontes.
  */
 
+/** Rótulo explícito da entrada do Mentor (evita depender só do ícone ✨). */
+fun mentorHelpLabel(): String = "Pedir ajuda ao Mentor"
+
+/** Orientação da tela de Preparo sem nota aberta. */
+fun prepareEmptyGuidance(): String =
+    "Abra um esboço que já existe ou crie um novo. " +
+        "Você poderá desenvolver o discurso com ajuda do Mentor."
+
 /** Nome amigável do papel (para cabeçalhos/menus). */
 fun friendlyRoleName(role: SectionRole): String = when (role) {
     SectionRole.INTRO -> "Introdução"

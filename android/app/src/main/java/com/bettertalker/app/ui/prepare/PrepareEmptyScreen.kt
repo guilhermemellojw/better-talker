@@ -14,6 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -35,10 +37,11 @@ fun PrepareEmptyScreen(
             "Preparo",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.semantics { heading() },
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Escolha um esboço para editar ou crie um novo.",
+            com.bettertalker.app.ui.editor.prepareEmptyGuidance(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -47,14 +50,14 @@ fun PrepareEmptyScreen(
             onClick = onPickNote,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Escolher esboço")
+            Text("Abrir esboço existente")
         }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = onCreateNote,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Criar esboço")
+            Text("Criar esboço do zero")
         }
     }
 }
