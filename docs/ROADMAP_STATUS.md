@@ -4,8 +4,8 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `bc46d546af45993b804a8417b930671e6bb96d97`
-- Checks da `main` consultada: **Pendente**
-- PRs encontrados na janela de consulta: **54** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-24.
+- Checks da `main` consultada: **Verde**
+- PRs encontrados na janela de consulta: **55** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -13,7 +13,7 @@
 
 | Frente | Abertos | Integrados | Fechados sem merge |
 | --- | ---: | ---: | ---: |
-| Mentor | 1 | 19 | 0 |
+| Mentor | 2 | 19 | 0 |
 | Referências e UX | 0 | 11 | 0 |
 | TRUST | 0 | 10 | 0 |
 | Beta e infraestrutura | 1 | 1 | 0 |
@@ -24,6 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
+| [#58 — feat(ux-simple-p2a): orientação do Preparo e ajuda explícita do Mentor](https://github.com/guilhermemellojw/better-talker/pull/58) | Mentor | `bb3ac15f85b5` | Pendente |
 | [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `d5e2d706e74c` | Verde |
 | [#56 — ci(android): compilacao Kotlin in-process nos gates (experimental) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/56) | Beta e infraestrutura | `f4750911b5dd` | Verde |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | `5fd8e54005eb` | Falhou |
@@ -69,12 +70,12 @@
 
 ## Métricas operacionais observáveis
 
-- Janela efetiva da coleta: 2026-11-16 a 2026-11-24 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **5**; desses, Drafts: **4**.
+- Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
+- PRs abertos: **6**; desses, Drafts: **4**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=49.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-24).
-- Estados de check dos PRs abertos: Falhou=1, Não verificado=2, Verde=2.
+- Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Falhou=1, Não verificado=2, Pendente=1, Verde=2.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
