@@ -238,3 +238,35 @@ Hipóteses não verificadas:
 - Corpus vazio continua sem proteção factual (comportamento atual preservado por requisito).
 
 **Fim da proposta TRUST-1A.**
+
+---
+
+## 10. Reconciliação documental — 25/11/2026 (append-only)
+
+Baseline anterior (`origin/main` `4210233`, PR #8 `26f9541`) preservado como histórico nas seções 1–9. **Baseline vigente:** `origin/main` = `5e65e562cd9fde41a4a5d70965c3a4fc69f4cd00`; HEAD auditado do #11 = `d917df70be1f614baaf60a4784dc5af725e05c07`. Desde a proposta, a main integrou #42, #43, #48, #52 e #60 (parecer independente E, comentário 7172233017). Nenhuma auditoria certificada foi repetida nesta reconciliação.
+
+### 10.1 Classificação vigente dos requisitos
+
+| Requisito | Estado vigente | Referência estável (função; sem número de linha) |
+|---|---|---|
+| §2.1/§2.2 conversa e memória fora do corpus | **SATISFEITO** | `verificationCorpus()`, `EvidenceCorpus.documentaryTexts()`, `buildEvidenceBlock(includeApproach = false)` |
+| §2.3 S-34 não autoriza conteúdo | **SATISFEITO** | `s34CorpusTexts`, itens STRUCTURAL com `resolved = false` |
+| §2.4/§2.5 proveniência mínima | **SATISFEITO** | `EvidenceItem`, `EvidenceProvenance.isDocumentaryEvidence()` |
+| §2.6 be/th como TRAINING | **SATISFEITO** | categoria TRAINING separada; `contentHits()` exclui guias |
+| §2.7 esboço ≠ ref ≠ texto recuperado | **SATISFEITO** | `documentaryTexts()` exige `resolved`, texto não vazio e `!partial` |
+| §3.1 citação atribuída ao usuário | **PARCIAL** | `isRolePlayQuote()`/`rolePlayQuoteCount()` e `ChatBilingualSupport.noticeWithBiblicalSafety()` — atribuição indireta ainda depende de prompt + heurística, sem marcador por construção |
+| §4 remover `userText`/`history` do corpus | **SATISFEITO** | `sourceQuestionVerificationCorpus()`, `chatVerificationCorpus()` (#60) |
+| Gate oratório / atomicidade / fail-safe / rótulo | **SATISFEITO** | `SourceGate.decide()`, `NwtRoomIndexIdentityAdapter.verify()` com `RoomTransactionRunner`, `GroundednessVerifier.verify()`, `ChatBiblicalSupport.retrievedExcerpt()` (#42/#43/#48/#60) |
+| TRUST-2 semântico amplo e cobertura ampla de paráfrases | **PÓS-BETA** | `SemanticVerification.hasDocumentarySupport()` permanece domínio puro, sem integração; paráfrase é `non liquet`, nunca "verificado" |
+
+### 10.2 Substituição de referências de linha por funções estáveis
+
+As referências `arquivo:linha` das seções anteriores são históricas e não devem ser usadas para localizar código na main atual. Substituições vigentes: `chatVerificationCorpus` → `verificationCorpus()`; `verifyChatText` → `verifyChatText()` com deduplicação tipada; `SourceGate.decide` → `SourceGate.decide()`; `CitationContract.check` → `CitationContract.check()`; `GroundednessVerifier.verify` → `GroundednessVerifier.verify()`; `buildEvidenceBlock(false)` → `DossierPromptBuilder.buildEvidenceBlock()`; `biblePassages/publicationPassages` → `CopilotRepository.biblePassages()/publicationPassages()`; `answerAsk` → `CopilotViewModel.answerAsk()` com `retrievedExcerpt()`.
+
+### 10.3 Limitações preservadas
+
+- Atribuição indireta depende de prompt e heurística certificada — **não** é garantia por construção.
+- Corpus vazio segue sem proteção sintática adicional por requisito explícito; ausência de aviso não é aprovação factual.
+- Validação em aparelho/checkpoint físico permanece **gate obrigatório do beta controlado** (BT-E2E-001, matriz de E, preparação de D); nenhum marco foi promovido a certificado físico.
+- O adiamento de TRUST-2 semântico amplo **não** torna aceitáveis afirmações factuais sem apoio documental elegível.
+- Reconciliação estritamente documental, sem código, nova política TRUST, interferência em #62 ou reauditoria de #48/#52/#60.

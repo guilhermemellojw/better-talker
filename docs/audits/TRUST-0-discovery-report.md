@@ -450,3 +450,21 @@ Desempenho/custo:
 4. Não iniciar TRUST-1 sem autorização do mantenedor.
 
 **Fim do relatório TRUST-0.**
+
+---
+
+## 14. Reconciliação documental — 25/11/2026 (append-only)
+
+O corpo deste relatório (baseline `4210233`, PR #8 `26f9541`, 17/11) permanece como registro histórico. **Baseline vigente:** `origin/main` = `5e65e562cd9fde41a4a5d70965c3a4fc69f4cd00`; HEAD do #11 = `d917df70be1f614baaf60a4784dc5af725e05c07`. Integrações desde então: #42, #43, #48, #52 e #60; parecer independente de E em 7172233017. Requisitos antes descritos como pendentes foram satisfitos por essas integrações; nenhuma certificação foi repetida.
+
+**Estado vigente por frente (funções estáveis, sem números de linha):**
+- Isolamento de conversa/memória/S-34 do corpus: **SATISFEITO** — `verificationCorpus()`, `EvidenceCorpus.documentaryTexts()`, `buildEvidenceBlock(includeApproach = false)`, `s34CorpusTexts` com `resolved = false`.
+- Proveniência mínima e be/th: **SATISFEITO** — `EvidenceProvenance.isDocumentaryEvidence()`, `contentHits()` (TRAINING separado).
+- Rotas do usuário/assistente: **SATISFEITO** — `sourceQuestionVerificationCorpus()`, `chatVerificationCorpus()`, `CitationContract.check()`.
+- Atribuição indireta por prompt/heurística: **PARCIAL** — `isRolePlayQuote()`/`rolePlayQuoteCount()` e `ChatBilingualSupport.noticeWithBiblicalSafety()`; sem marcador por construção.
+- Atomicidade/fail-safe/rótulo de trecho: **SATISFEITO** — `NwtRoomIndexIdentityAdapter.verify()` com `RoomTransactionRunner`, `GroundednessVerifier.verify()`, `retrievedExcerpt()`.
+- TRUST-2 semântico amplo e paráfrases: **PÓS-BETA** — `SemanticVerification.hasDocumentarySupport()` fora das rotas; paráfrase `non liquet`.
+
+**Substituição das tabelas `arquivo:linha` das seções 2–4:** usar apenas os nomes de função acima e os do apêndice §10 do contrato TRUST-1A. Números de linha antigos são históricos.
+
+**Limites preservados:** a atribuição indireta não é garantia por construção; ausência de aviso não é fundamentação; homologação física/checkpoint permanece gate obrigatório do beta controlado e não foi executada; o adiamento de TRUST-2 não aceita afirmação factual sem apoio documental elegível. Sem código, política TRUST, schema, ADB, release, bump, LLM pago ou interferência na integração pedagógica #62.
