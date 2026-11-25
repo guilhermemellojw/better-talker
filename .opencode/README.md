@@ -8,67 +8,111 @@ Escopo: supervisão técnica operacional em modo **SHADOW** (observar, verificar
 
 | Arquivo | Função |
 | --- | --- |
-| `agents/supervisor.md` | Agente `supervisor` (primary): identidade, sistema de instruções, permissões de privilégio mínimo. **Sem modelo fixado** — a sessão conserva seu modelo; identidade ≠ modelo. |
-| `scripts/coord_checkpoint.py` | Checkpoint somente leitura, reproduzível (git + gh + opencode api). `--reports` coleta seletiva do último relatório de A–E; `--json` saída estruturada. |
-| `scripts/test_supervisor.py` | Testes isolados: parsing, simulação de permissões, sintaxe, ambiguidade. `--live` acrescenta reconhecimento pelo serviço e checkpoint real. |
+| `agents/supervisor.md` | Agente `supervisor` (primary), instruções SHADOW e permissões de privilégio mínimo. **Sem modelo fixado** — identidade operacional ≠ modelo. |
+| `scripts/coord_checkpoint.py` | Checkpoint somente leitura em dois níveis; coleta de relatórios apenas de sessões autorizadas por mapa local. |
+| `scripts/test_supervisor.py` | Testes A–C com fixtures sintéticas; categoria D (imposição real) permanece pendente. |
 
 ## Utilização
 
-1. Em uma sessão de coordenação, selecione o agente `supervisor` (ele **não** é o padrão;
-   `default_agent` permanece `build`, logo A–E não são afetados).
-2. Recupere contexto lendo, na main vigente: `docs/COORDINATOR.md`, `docs/DECISIONS.md`,
+1. Selecione o agente `supervisor` (ele **não** é o padrão; `default_agent` permanece `build`).
+2. Recupere contexto na main vigente: `docs/COORDINATOR.md`, `docs/DECISIONS.md`,
    `docs/TEAM_COORDINATION.md`, `docs/ACTIVE_TASKS.md`, `docs/DELIVERY_POLICY.md`.
-3. Produza o checkpoint: `python3 .opencode/scripts/coord_checkpoint.py [--reports]`.
-4. Produza pareceres e propostas como **texto**. Nenhuma proposta é enviada automaticamente.
+3. Checkpoint **resumido** (rotina): `python3 .opencode/scripts/coord_checkpoint.py`.
+4. Checkpoint **detalhado**: `python3 .opencode/scripts/coord_checkpoint.py --detail`.
+5. Relatórios concluídos: `python3 .opencode/scripts/coord_checkpoint.py --reports`.
+   `--json` pode ser combinado. Nenhuma proposta é enviada automaticamente.
+
+## Mapa local de sessões autorizadas (F1)
+
+O checkpoint **não autoriza sessões por título**. `AGENTE` é apenas candidato para descoberta
+de metadados. Mensagens só são consultadas quando o `sessionID` está em um mapa local explícito,
+com projeto e diretório observáveis conferidos.
+
+Caminho padrão: `/tmp/opencode/coord-sessions.json`; para testes/admin, `BT_COORD_SESSION_MAP`.
+O arquivo é **local, transitório e não versionado** — IDs de sessão não são identidade permanente
+da equipe. Sem mapa, o checkpoint funciona em modo resumido, mas **nenhuma mensagem é lida**.
+
+Esquema ilustrativo (sem IDs reais):
+
+```json
+{
+  "project": {
+    "id": "<projectID observável>",
+    "allowed_directories": ["/caminho/better-talker", "/caminho/better-talker-worktree"]
+  },
+  "agents": {
+    "A": [{
+      "session_id": "<sessionID local>",
+      "directory": "/caminho/better-talker",
+      "mission_id": "MISS-...",
+      "expected_pr": 52,
+      "expected_branch": "feat/...",
+      "expected_worktree": "better-talker-..."
+    }]
+  }
+}
+```
+
+- Múltiplas sessões do mesmo agente são permitidas somente se todas estiverem explicitamente mapeadas.
+- SessionID desconhecido, projeto/diretório divergente ou mapa ambíguo ⇒ rejeição/DESCONHECIDO.
+- `expected_*` é associação **local**; não substitui verificação no GitHub.
+
+## Relatório concluído e proveniência (F3)
+
+- Paginação limitada: até 2 páginas × 5 mensagens assistant.
+- Elegível: `finish=stop`, texto ≥120 caracteres e marcadores de relatório (`##`, HEAD, PR, Parecer,
+  Resultado, Bloqueio, Missão, QA, Recertificação, Status).
+- Tool-calls, respostas interrompidas e status intermediários não viram relatório final.
+- Texto limitado a 4.000 caracteres; ID e timestamps da mensagem são preservados.
+- Quatro níveis separados: **declarado pelo agente** → **PR/worktree existe** → **associação à missão
+  confirmada pelo mapa local** → **desconhecido**. A segunda categoria não prova a terceira.
+
+## Checkpoint e evidências (F4/F6)
+
+- SHAs completos são preservados internamente; abreviações só na apresentação.
+- Estado de atividade vem de `GET /api/session/active`.
+- CI registra evento, run ID/URL, SHA do check e observação; verde em outro SHA **não** certifica
+  o HEAD atual. Checks sem SHA/evento verificáveis ficam desconhecidos.
+- Ausência de checks ≠ falha de consulta.
+- Governança local é rotulada como branch local; divergência da main é explícita.
+- Resumo exibe no máximo 12 worktrees relevantes; detalhado exibe todas.
+- Checkpoint é informativo e **não autoriza ações automaticamente**.
 
 ## Permissões: política × configuração × controle testado
 
-- **Política documental:** `docs/COORDINATOR.md` §5/§12 (o que é prescrito).
-- **Permissão configurada:** `agents/supervisor.md` (negar por padrão; allowlist de leitura;
-  shell somente leitura; edit/subagent/execute/skill negados; credenciais negadas).
-- **Controle técnico efetivamente testado:** apenas a **lógica** das regras é testada
-  (`test_supervisor.py`, simulação). A **imposição em execução** exige uma sessão supervisor
-  e permanece **gate pendente** (não criada nesta rodada, sem autorização).
+- **Política:** `docs/COORDINATOR.md` §5/§12.
+- **Configuração:** `agents/supervisor.md` — negar por padrão; allowlist de caminhos de leitura/glob;
+  `grep` negado; shell com comandos exatos de consulta; `edit`, `subagent`, `execute`, `skill` e
+  `generate_image` negados; credenciais negadas em profundidade.
+- **Testado:** parsing, matcher, fixtures sintéticos e reconhecimento pela API. A **imposição real
+  em execução** exige sessão supervisor e permanece **PENDENTE**.
 
-### Lacunas técnicas conhecidas (não declarar segurança efetiva)
+### Lacunas conhecidas (não declarar sandbox forte)
 
-- O scanner de shell é **best-effort**: comandos compostos, `eval`, scripts e execução indireta
-  podem contornar padrões. Um script liberado (`coord_checkpoint.py`) executa subprocessos que
-  **não** são reavaliados pelas regras de shell — confiança no conteúdo versionado do script.
-- `subagent`/`execute` negados reduzem, mas não eliminam, caminhos indiretos; MCP e ferramentas
-  de rede podem ampliar superfície (nenhum MCP configurado; webfetch restrito a opencode.ai).
-- Lista de proibições **não é barreira de segurança** por si (COORDINATOR.md §12, F5).
-- A cota da franquia OpenCode Go **não é observável localmente**; `cost: 0` não prova ausência
-  de consumo. Métrica aceita: tokens por sessão (`GET /api/session`).
+- O scanner de shell é best-effort; `eval`, comandos compostos e scripts podem contornar padrões.
+- O checkpoint executado pelo shell chama subprocessos que não são reavaliados pelas regras de shell;
+  confia-se no código versionado e somente leitura. O mapa local é lido pelo script sem sandbox.
+- Permissões de caminho não protegem contra symlinks/canonicalização maliciosa em todos os casos.
+- MCP não está configurado; ferramentas de rede futuras podem ampliar superfície.
+- Lista de proibições e instruções ao modelo **não são barreira de segurança por si**.
 
 ## Modelos (Free First — D-007 vigente, D-009 proposta)
 
-- O modelo **não** é fixado no agente; a sessão preserva o modelo selecionado. Troca exige
-  autorização do mantenedor; nunca automática.
-- Modelo efetivo observado na sessão S: preflight 24/11 23:32Z = `opencode-go/qwen4-max#xhigh`
-  (não glm-5.3 do cabeçalho de criação); fechamento 24/11 ~23:50Z =
-  **`opencode-go/hungerg-free#default`** (gratuito, cost 0). A troca foi observada, **não executada
-  pelo Agente S**. O modelo atual foi preservado; resultados anteriores não são atribuídos ao
-  modelo atual. Inclusão na franquia vs cobrança adicional não é observável localmente.
-- Free First (D-009, proposta): gratuitos primeiro; DeepSeek Flash fallback econômico;
-  GLM-5.3/DeepSeek Pro para escalonamento mediante autorização. Nenhum custo adicional autorizado.
+- O modelo não é fixado; a sessão preserva o modelo selecionado. Troca exige autorização.
+- Free First: gratuitos primeiro; DeepSeek Flash fallback econômico; GLM-5.3/DeepSeek Pro para
+  escalonamento mediante autorização. Nenhum custo adicional.
+- Tokens acumulados não medem diretamente a franquia; `cost: 0` não prova consumo zero.
+- Resultados de um ciclo com mudança de modelo não são atribuídos exclusivamente ao modelo final.
 
 ## Requisitos para despacho futuro (COORD-04/05 — não implementados)
 
-Reserva atômica de missão; ledger persistente; ID imutável; hash do payload; validação mecânica
-do destinatário (sessionID × título × diretório × instância); proteção contra concorrência e
-duplicidade; bloqueio de reenvio em UNKNOWN; revogação efetiva de autorização; revalidação de
-HEAD e ownership; proibição de entrega inesperada a sessão ocupada; reconciliação após reinício;
-evidência positiva de entrega ou não entrega; **sem garantia exactly-once sem suporte comprovado**.
-A ausência de mensagem no histórico **não** é, isoladamente, prova conclusiva de não entrega.
-Ver `docs/COORDINATOR.md` §6.1.
+Reserva atômica; ledger persistente; ID imutável; hash do payload; validação mecânica do destinatário;
+proteção contra concorrência/duplicidade; bloqueio em UNKNOWN; revogação efetiva; revalidação de HEAD
+e ownership; sessão ocupada; reconciliação após reinício; evidência positiva de entrega/não entrega;
+**sem exactly-once sem suporte comprovado**. Ver `docs/COORDINATOR.md` §6.1.
 
 ## Limitações desta entrega
 
-- Reconhecimento da configuração pelo serviço OpenCode **validado na worktree** via
-  `GET /api/agent?location[directory]=<worktree>` (carregamento assíncrono; retentativa foi
-  necessária). A lógica das permissões e o checkpoint real foram testados.
-- A **imposição de permissões em execução, o carregamento completo de instruções e a recuperação
-  de contexto em sessão nova** continuam sendo gates pendentes (exigiriam sessão supervisor —
-  não criada nesta rodada; reinício não executado para não afetar A–E).
+- Reconhecimento nativo e checkpoint são validados; imposição real, carregamento completo de
+  instruções e recuperação em sessão nova exigem autorização para sessão isolada.
 - Nenhum daemon, agendamento, banco ou orquestrador externo foi criado.
