@@ -3,8 +3,8 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `252bba6cb3969c26f3e70d9832546d2b0807ada8`
-- Checks da `main` consultada: **Pendente**
+- `main` consultada: `4ae783759086353d55edcf31b587d51a491b0ebd`
+- Checks da `main` consultada: **Não verificado**
 - PRs encontrados na janela de consulta: **60** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -18,13 +18,12 @@
 | TRUST | 0 | 11 | 0 |
 | Beta e infraestrutura | 0 | 3 | 0 |
 | Documentação | 1 | 7 | 0 |
-| Outros | 1 | 3 | 0 |
+| Outros | 0 | 4 | 0 |
 
 ## PRs abertos
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | `8f14a13ae51b` | Verde |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `2957943a5e5e` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
@@ -32,6 +31,7 @@
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | 2026-11-25 17:45 |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | 2026-11-25 17:23 |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | 2026-11-25 15:27 |
 | [#61 — ci(android): estabiliza lint e assemblies com in-process](https://github.com/guilhermemellojw/better-talker/pull/61) | Beta e infraestrutura | 2026-11-25 14:20 |
@@ -56,7 +56,6 @@
 | [#40 — feat(ux-ref-1b3-b2): abertura direta de referências de publicações](https://github.com/guilhermemellojw/better-talker/pull/40) | Referências e UX | 2026-11-23 11:45 |
 | [#41 — docs(strategy): politica incremental beta-final com quatro agentes](https://github.com/guilhermemellojw/better-talker/pull/41) | Documentação | 2026-11-22 16:33 |
 | [#37 — feat(ux-ref-1b3-b1): links de publicações clicáveis no chat](https://github.com/guilhermemellojw/better-talker/pull/37) | Referências e UX | 2026-11-22 10:13 |
-| [#36 — feat(mentor): controle 'Parar de lembrar' na Memória do Mentor (1C.2.2B1a)](https://github.com/guilhermemellojw/better-talker/pull/36) | Mentor | 2026-11-22 09:22 |
 
 ## Interpretação e próximos gates
 
@@ -68,11 +67,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **3**; desses, Drafts: **2**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=57.
+- PRs abertos: **2**; desses, Drafts: **1**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=58.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.3 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=1, Verde=1.
+- Mediana de idade dos PRs abertos: 4.0 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
