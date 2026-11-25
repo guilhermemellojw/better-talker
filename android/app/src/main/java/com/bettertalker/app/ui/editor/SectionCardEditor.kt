@@ -236,7 +236,10 @@ fun SectionCardEditor(
                 ) {
                     TextButton(
                         onClick = onCopilot,
-                        modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 4.dp),
                     ) {
                         Icon(
                             Icons.Default.AutoAwesome,
@@ -244,9 +247,11 @@ fun SectionCardEditor(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.size(4.dp))
-                        Text(mentorHelpLabel())
+                        Text(
+                            mentorHelpLabel(),
+                            softWrap = true,
+                        )
                     }
-                    Spacer(Modifier.weight(1f))
                     SectionMenuButton(
                         sectionId = state.section.id,
                         readOnly = readOnly,
@@ -261,6 +266,7 @@ fun SectionCardEditor(
                         showUnapprove = state.section.approvedAt != null,
                         onUnapprove = onUnapproveSection,
                         onOpenImages = onOpenImages,
+                        modifier = Modifier.width(48.dp),
                     )
                 }
             }
