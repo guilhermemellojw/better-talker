@@ -71,11 +71,19 @@ private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
     ) to "$1",
 )
 
-// Marcadores leves: remoção tolerada no meio da frase, mas nunca depois de
-// negação, condição ou qualificador (guarda em `simplifySegment`).
-private val PEDAGOGICAL_LIGHT_FILLERS = listOf(
-    Regex("""(?iuU)\b(ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""") to "",
-    Regex("""(?iuU)\b(basicamente|simplesmente|na verdade|de certa forma|por assim dizer|literalmente|em suma|em resumo|em geral)\b[,\s]*""") to "",
+// P8/F9 — LISTA POSITIVA: só marcadores de reformulação/condensação
+// discursiva são removidos. `basicamente` permanece aqui porque os testes
+// certificados P6/P7 (i02, i02b, i08, f8e) o definem como marcador de
+// condensação, não como qualificador da proposição.
+//
+// Fora desta lista — e portanto PRESERVADOS — estão todos os qualificadores
+// de precisão, intensidade, abrangência, modalidade, condição ou sentido:
+// em geral, de certa forma, literalmente, simplesmente, na verdade,
+// por assim dizer, em suma, em resumo. Na dúvida, o texto original permanece.
+private val PEDAGOGICAL_SAFE_FILLERS = listOf(
+    Regex(
+        """(?iuU)\b(basicamente|ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""",
+    ) to "",
 )
 
 private val PEDAGOGICAL_PHRASES = listOf(
@@ -100,7 +108,7 @@ private fun simplifySegment(segment: String): String {
             if (PEDAGOGICAL_RISK_PREFIX.containsMatchIn(before)) match.value else replacement
         }
     }
-    PEDAGOGICAL_LIGHT_FILLERS.forEach { (pattern, replacement) ->
+    PEDAGOGICAL_SAFE_FILLERS.forEach { (pattern, replacement) ->
         guardedReplace(pattern, replacement)
     }
     PEDAGOGICAL_PHRASES.forEach { (pattern, replacement) ->
