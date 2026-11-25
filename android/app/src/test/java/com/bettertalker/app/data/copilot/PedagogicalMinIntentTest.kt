@@ -165,4 +165,61 @@ class PedagogicalMinIntentTest {
         assertTrue(r is Outcome.Reformulate)
         assertTrue((r as Outcome.Reformulate).referent is Referent.ExplainSuggestion)
     }
+
+
+    // ---- P2 / F1 — simplify=true para verbos de simplificação ----
+
+    @Test
+    fun f1_simplifiqueEEquivalentes_campoSimplifyVerdadeiro() {
+        listOf("Simplifique.", "Simplificar.", "Simplifique essa explicação.", "Explique mais simples.")
+            .forEach { req ->
+                val r = resolve(req)
+                assertTrue("$req -> $r", r is Outcome.Reformulate)
+                assertTrue("$req deve simplificar", (r as Outcome.Reformulate).simplify)
+            }
+    }
+
+    // ---- P2 / F2 — feedback positivo exige ausência de negação/misto ----
+
+    @Test
+    fun f2_negacaoENaoAprovacao_nFeedbackPositivo() {
+        listOf(
+            "Não gostei dessa sugestão.",
+            "Não concordo.",
+            "Isso não ficou legal.",
+            "Gostei, mas escreva outra introdução.",
+        ).forEach { req ->
+            assertEquals("$req -> $req", Outcome.Delegate, resolve(req))
+        }
+    }
+
+    // ---- P2 / F3 — referência explícita não pode ser eliminada ----
+
+    @Test
+    fun f3_referenciaExplicitaIncompativel_naoSelecionaCardAnterior() {
+        val divergente = ctx(c = card(label = "Gênesis 1:1"))
+        listOf("Simplifique Romanos 8.", "Explique de outra maneira João 3:16.")
+            .forEach { req ->
+                val r = resolve(req, divergente)
+                assertFalse("$req -> $r", r is Outcome.Reformulate &&
+                    r.referent is Referent.DeepenCard)
+            }
+        assertEquals(Outcome.Delegate, resolve("Reformule o ponto 2.", divergente))
+    }
+
+    // ---- P2 / F4 — aprofundar ≠ desenvolver ----
+
+    @Test
+    fun f4_aprofundeEssaIdeia_naoEhDesenvolvimento() {
+        assertEquals(Outcome.Delegate, resolve("Aprofunde essa ideia."))
+        assertTrue(resolve("Desenvolva essa ideia.") is Outcome.DevelopReferent)
+    }
+
+    @Test
+    fun f3_referenciaExplicitaCompativel_reformulaCardCorreto() {
+        val r = resolve("Simplifique Romanos 8.", ctx(c = card(label = "Romanos 8")))
+        assertTrue(r is Outcome.Reformulate)
+        assertTrue((r as Outcome.Reformulate).referent is Referent.DeepenCard)
+        assertTrue((r.referent as Referent.DeepenCard).card.targetLabel == "Romanos 8")
+    }
 }

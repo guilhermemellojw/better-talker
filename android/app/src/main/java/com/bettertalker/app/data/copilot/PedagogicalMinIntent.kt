@@ -50,13 +50,37 @@ object PedagogicalMinIntent {
         """\b(reformul\w*|simplific\w*|simplifiq\w*|parafrase\w*|reexplique|explique[\s]+de[\s]+outra[\s]+(maneira|forma)|explique[\s]+com[\s]+outras[\s]+palavras|explique[\s]+mais[\s]+simples|diga[\s]+de[\s]+outro[\s]+jeito|de[\s]+outra[\s]+(maneira|forma))\b"""
     )
 
+    private val SIMPLIFY = Regex(
+        """\b(simplific\w*|simplifiq\w*|mais[\s]+simples|de[\s]+forma[\s]+simples)\b"""
+    )
+
     private val DEVELOP_REFERENT = Regex(
-        """\b(desenvolv\w*|aprofund\w*)\b.*\b(essa|esta|est[eé]|isso|isto)\b|\bcomo[\s]+posso[\s]+desenvolver[\s]+essa[\s]+ideia\b"""
+        """\b(desenvolv\w*)\b.*\b(essa|esta|est[eé]|isso|isto)\b|\bcomo[\s]+posso[\s]+desenvolver[\s]+essa[\s]+ideia\b"""
     )
 
     private val POSITIVE = Regex(
         """\b(gostei|achei[\s]+(bom|boa|ótimo|otimo)|boa[\s]+sugest[aã]o|ótimo|otimo|legal|excelente|concordo)\b"""
     )
+
+    private val NEGATION = Regex("""\b(nao|nunca|nem)\b""")
+    private val DRAFT_MIXED = Regex(
+        """\b(escrev\w*|redig\w*|crie|criar|desenvolv\w*|redefin\w*)\b"""
+    )
+    /** Referência explícita ao tema (ex.: "Romanos 8", "João 3:16"). */
+    private val EXPLICIT_REF = Regex(
+        """\b(\d?\s*[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?)\b"""
+    )
+
+    private fun hasUnmatchedExplicitRef(t: String, context: Context): Boolean {
+        val known = listOfNotNull(
+            context.lastCard?.targetLabel, context.lastCard?.targetId,
+            context.lastSuggestion?.label,
+        ).map(::normalizeText)
+        return EXPLICIT_REF.findAll(t).any { m ->
+            val ref = normalizeText(m.value)
+            known.none { k -> k.contains(ref) || ref.contains(k) }
+        }
+    }
 
     /** Pedidos de inserção e seções explícitas pertencem aos fluxos certificados. */
     private val EXPLICIT_FLOW = Regex(
@@ -86,17 +110,24 @@ object PedagogicalMinIntent {
         if (t.isBlank()) return Outcome.Delegate
         // Inserção e seção explícita pertencem aos fluxos certificados.
         if (EXPLICIT_FLOW.containsMatchIn(t)) return Outcome.Delegate
+        // Aprofundamento/"melhorar" pertence ao contrato certificado (#52).
+        if (Regex("""\b(aprofund\w*|melhor\w*|refin\w*)\b""").containsMatchIn(t)) {
+            return Outcome.Delegate
+        }
         val reformulates = REFORMULATE.containsMatchIn(t)
         val develops = DEVELOP_REFERENT.containsMatchIn(t)
         if (!reformulates && !develops) {
             // Feedback positivo é apenas reconhecido — sem aceite persistido.
-            return if (POSITIVE.containsMatchIn(t)) Outcome.PositiveFeedback else Outcome.Delegate
+            return if (POSITIVE.containsMatchIn(t) &&
+                !NEGATION.containsMatchIn(t) && !DRAFT_MIXED.containsMatchIn(t)
+            ) Outcome.PositiveFeedback else Outcome.Delegate
         }
+        if (hasUnmatchedExplicitRef(t, context)) return Outcome.Clarify
         return when (val referent = resolveReferent(context)) {
             is Referent.RequestClarification -> Outcome.Clarify
             Referent.ProceedNormal -> Outcome.Delegate
             else -> when {
-                reformulates -> Outcome.Reformulate(referent, t.contains("simples"))
+                reformulates -> Outcome.Reformulate(referent, SIMPLIFY.containsMatchIn(t))
                 develops -> Outcome.DevelopReferent(referent)
                 else -> Outcome.Delegate
             }
