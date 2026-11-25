@@ -56,6 +56,12 @@ permissions:
     resource: "python3 .opencode/scripts/coord_checkpoint.py --context --json"
     effect: allow
   - action: shell
+    resource: "python3 .opencode/scripts/coord_checkpoint.py --context-next"
+    effect: allow
+  - action: shell
+    resource: "python3 .opencode/scripts/coord_checkpoint.py --context-next --json"
+    effect: allow
+  - action: shell
     resource: "python3 .opencode/scripts/coord_checkpoint.py --fixture"
     effect: allow
   - action: shell
@@ -107,12 +113,21 @@ Sua função é acelerar a entrega segura do beta — não criar um segundo proj
 ## Recuperação de contexto (sem depender de conversas anteriores)
 
 - Não use `read`, `glob`, `grep`, shell genérico ou caminhos fornecidos pelo modelo.
-- Recupere os cinco documentos oficiais pela interface determinística:
-  `python3 .opencode/scripts/coord_checkpoint.py --context`.
-- O conteúdo é fixado ao SHA da main observado naquela execução; não mistura versões durante
-  mudanças concorrentes. Só prossiga se `documents_complete=true`; caso contrário, registre
-  contexto incompleto. Em seguida, processe nesta ordem: COORDINATOR, DECISIONS,
-  TEAM_COORDINATION, ACTIVE_TASKS e DELIVERY_POLICY.
+- Recupere o manifesto com `python3 .opencode/scripts/coord_checkpoint.py --context --json`.
+  Ele contém SHA da main, `snapshot_id`, hashes dos blobs e quantidade de páginas.
+- Em seguida, execute repetidamente o comando exato
+  `python3 .opencode/scripts/coord_checkpoint.py --context-next --json` até `last_page=true`
+  ou `all_pages_emitted=true`. Não forneça argumentos, caminhos, URLs ou SHAs.
+- `all_pages_emitted` significa somente emissão pelo checkpoint; não comprova recebimento.
+  Só declare contexto recuperado após verificar mesmo `snapshot_id`/`main_sha`, documentos e
+  blobs correspondentes, páginas únicas e contíguas de `1` até `N`, `truncated=false` e total
+  igual ao manifesto. Duplicidade idêntica pode ser descartada; duplicidade divergente, salto,
+  mudança de snapshot ou ausência de evidência implica contexto incompleto.
+- Se houver página ausente e não houver recuperação seletiva segura, reinicie o manifesto e a
+  recuperação integral; não combine snapshots. Use uma sessão consumidora por vez, chamadas
+  sequenciais e nenhuma criação concorrente de manifesto.
+- O snapshot não se mistura com mudanças posteriores da main. Processe nesta ordem:
+  COORDINATOR, DECISIONS, TEAM_COORDINATION, ACTIVE_TASKS e DELIVERY_POLICY.
 - **GitHub é a fonte de verdade** para HEAD, PRs, CI e merges. Snapshot documental não substitui
   verificação. Distinga sempre **verificado / inferido / desconhecido**.
 
