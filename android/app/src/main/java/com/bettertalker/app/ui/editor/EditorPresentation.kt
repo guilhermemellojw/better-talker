@@ -13,6 +13,9 @@ import com.bettertalker.app.domain.speech.SubPoint
 /** Rótulo explícito da entrada do Mentor (evita depender só do ícone ✨). */
 fun mentorHelpLabel(): String = "Pedir ajuda ao Mentor"
 
+/** Rótulo do menu de ações secundárias do card de seção. */
+fun moreOptionsLabel(): String = "Mais opções"
+
 /** Orientação da tela de Preparo sem nota aberta. */
 fun prepareEmptyGuidance(): String =
     "Abra um esboço que já existe ou crie um novo. " +

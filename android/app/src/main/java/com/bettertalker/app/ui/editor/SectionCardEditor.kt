@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -202,53 +201,74 @@ fun SectionCardEditor(
                         }
                     }
                 }
-                // Fase 1/2: o ✨ vive no cabeçalho do card, junto ao título.
-                // Mostrar em TODO card (não só no ativo) garante a porta do
-                // Copilot mesmo quando o toque no corpo do card não o ativa
-                // (tablet/A34: editor rico consome o toque). O clique já
-                // ativa a seção e empurra o contexto antes de abrir o chat.
-                if (!readOnly) {
-                    if (isActiveSection) {
-                        TextButton(
-                            onClick = onCopilot,
-                            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 4.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.size(4.dp))
-                            Text(mentorHelpLabel())
-                        }
-                    } else {
-                        IconButton(
-                            onClick = onCopilot,
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.AutoAwesome,
-                                contentDescription = mentorHelpLabel(),
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                if (!readOnly && !isActiveSection) {
+                    IconButton(
+                        onClick = onCopilot,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = mentorHelpLabel(),
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
+                    SectionMenuButton(
+                        sectionId = state.section.id,
+                        readOnly = readOnly,
+                        isFirst = isFirstSection,
+                        isLast = isLastSection,
+                        isDemonstration = isDemonstration,
+                        showRoleChange = true,
+                        onRoleChange = onRoleChange,
+                        onMoveUp = onMoveSectionUp,
+                        onMoveDown = onMoveSectionDown,
+                        onRemove = { confirmDelete = true },
+                        showUnapprove = state.section.approvedAt != null,
+                        onUnapprove = onUnapproveSection,
+                        onOpenImages = onOpenImages,
+                    )
                 }
-                SectionMenuButton(
-                    sectionId = state.section.id,
-                    readOnly = readOnly,
-                    isFirst = isFirstSection,
-                    isLast = isLastSection,
-                    isDemonstration = isDemonstration,
-                    showRoleChange = true,
-                    onRoleChange = onRoleChange,
-                    onMoveUp = onMoveSectionUp,
-                    onMoveDown = onMoveSectionDown,
-                    onRemove = { confirmDelete = true },
-                    showUnapprove = state.section.approvedAt != null,
-                    onUnapprove = onUnapproveSection,
-                    onOpenImages = onOpenImages,
-                )
+            }
+            if (!readOnly && isActiveSection) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    TextButton(
+                        onClick = onCopilot,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 4.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        Text(
+                            mentorHelpLabel(),
+                            softWrap = true,
+                        )
+                    }
+                    SectionMenuButton(
+                        sectionId = state.section.id,
+                        readOnly = readOnly,
+                        isFirst = isFirstSection,
+                        isLast = isLastSection,
+                        isDemonstration = isDemonstration,
+                        showRoleChange = true,
+                        onRoleChange = onRoleChange,
+                        onMoveUp = onMoveSectionUp,
+                        onMoveDown = onMoveSectionDown,
+                        onRemove = { confirmDelete = true },
+                        showUnapprove = state.section.approvedAt != null,
+                        onUnapprove = onUnapproveSection,
+                        onOpenImages = onOpenImages,
+                        modifier = Modifier.width(48.dp),
+                    )
+                }
             }
         }
 
@@ -393,20 +413,8 @@ fun SectionCardEditor(
                         // v4.2: as imagens são anexos da seção — o chip abre o
                         // sheet; nada é inserido no HTML. v5.3: demo não tem
                         // imagens (recurso de discurso).
-                        if (!readOnly && !isDemonstration) {
-                            Spacer(Modifier.width(4.dp))
-                            AssistChip(
-                                onClick = onOpenImages,
-                                label = { Text("Imagens (${images.size})") },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.AddPhotoAlternate,
-                                        null,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                },
-                            )
-                        }
+                        // Imagens agora ficam apenas em "Mais opções" (menu ⋮).
+                        // A faixa de miniaturas abaixo continua visível como conteúdo.
                     }
                     // UX de demonstrações: atalhos de papel no rodapé do card
                     // (inserem o rótulo em negrito no editor do diálogo).
@@ -929,7 +937,7 @@ private fun SectionMenuButton(
         ) {
             Icon(
                 Icons.Default.MoreVert,
-                "Menu da seção",
+                moreOptionsLabel(),
                 modifier = Modifier.size(20.dp),
             )
         }

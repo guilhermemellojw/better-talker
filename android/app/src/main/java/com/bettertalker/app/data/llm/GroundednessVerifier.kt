@@ -1,6 +1,8 @@
 package com.bettertalker.app.data.llm
 
+import com.bettertalker.app.data.ai.isRolePlayQuote
 import com.bettertalker.app.data.util.RefCanonicalizer
+import com.bettertalker.app.data.util.RefDetector
 
 /**
  * Verificador de apoio factual pós-geração (universal).
@@ -137,6 +139,60 @@ object GroundednessVerifier {
      * "⚠️ Revise"). O modo padrão (remoção) continua inalterado.
      */
     const val WARN_ONLY_NOTICE = "⚠️ Revise: há trecho sem apoio no esboço colado."
+
+    /** Ocorrência literal com a posição ORIGINAL na resposta (sem distinct()). */
+    data class QuoteOccurrence(
+        val text: String,
+        val start: Int,
+        val endExclusive: Int,
+    )
+
+    /**
+     * Citações literais longas, com posição, sem juízo de apoio.
+     * Regras de exceção (role-play/sugestão) usam a posição da ABERTURA da
+     * aspa, contrato de `CitationCheck.isRolePlayQuote`.
+     */
+    fun factualQuoteOccurrences(text: String): List<QuoteOccurrence> {
+        if (text.isBlank()) return emptyList()
+        val spans = suggestionSpans(text)
+        val hasBiblicalRef = RefDetector.detectBible(text).isNotEmpty()
+        return QUOTE.findAll(text).mapNotNull { match ->
+            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
+            if (quote.length < MIN_QUOTE_CHARS) return@mapNotNull null
+            val opening = match.range.first
+            if (isRolePlayQuote(text, opening)) return@mapNotNull null
+            if (!hasBiblicalRef && inSuggestion(opening, spans)) return@mapNotNull null
+            val start = opening + 1 // uma aspa de abertura
+            QuoteOccurrence(quote, start, start + quote.length)
+        }.toList()
+    }
+
+    /** API legada por texto — mantém contratos #48/P2/P3. */
+    fun factualQuotes(text: String): List<String> =
+        factualQuoteOccurrences(text).map { it.text }.distinct()
+
+    /** API legada por texto — mantém contratos #48/P2/P3. */
+    fun factualQuoteCandidates(text: String): List<String> = factualQuotes(text)
+
+    /**
+     * TRUST-P0A-2 (S1/S2) — ocorrências sem correspondência no corpus
+     * documental. Não é verificação semântica (paráfrases: non liquet).
+     * Comparação POR FONTE: concatenação artificial não cria apoio.
+     */
+    fun unsupportedQuoteOccurrences(
+        text: String,
+        sources: List<String>,
+    ): List<QuoteOccurrence> {
+        if (text.isBlank()) return emptyList()
+        val perSource = sources.map(::normalizeForComparison)
+        return factualQuoteOccurrences(text).filter { occ ->
+            val flat = normalizeForComparison(occ.text)
+            perSource.none { source -> source.contains(flat) }
+        }
+    }
+
+    fun unsupportedQuotes(text: String, sources: List<String>): List<String> =
+        unsupportedQuoteOccurrences(text, sources).map { it.text }.distinct()
 
     fun verify(text: String, sources: List<String>, warnOnly: Boolean = false): VerificationResult {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())
