@@ -12,7 +12,7 @@
 | Item | Valor |
 |---|---|
 | HEAD auditado (inicial) | `7d39868ab64223bf3f35a4d0305f9950c0728c1a` |
-| HEAD final | `2a04ab9326b6f28a3b121432110f5f90d4a458ae` |
+| HEAD final (código) | `2a04ab9326b6f28a3b121432110f5f90d4a458ae` — commits posteriores nesta branch são somente documentação (`git rev-parse HEAD` para o SHA corrente) |
 | Main observada | `55056c7323065631350ba0565886f2c374ca4a59` |
 | Push | `7d39868a..2a04ab93` via `git push origin feat/coord-communication-foundation`, **sem force-push**; PR permanece Draft |
 | Delta inicial→final | 6 arquivos, **+1109/−175**; `git diff --check` CLEAN |
