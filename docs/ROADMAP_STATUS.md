@@ -5,7 +5,7 @@
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `f9d96e07a85566270025b8d949227a3ee365ca94`
 - Checks da `main` consultada: **Verde**
-- PRs encontrados na janela de consulta: **55** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
+- PRs encontrados na janela de consulta: **56** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -14,7 +14,7 @@
 | Frente | Abertos | Integrados | Fechados sem merge |
 | --- | ---: | ---: | ---: |
 | Mentor | 1 | 20 | 0 |
-| Referências e UX | 0 | 11 | 0 |
+| Referências e UX | 1 | 11 | 0 |
 | TRUST | 0 | 10 | 0 |
 | Beta e infraestrutura | 0 | 2 | 0 |
 | Documentação | 2 | 6 | 0 |
@@ -24,7 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `0a7ddf71b714` | Pendente |
+| [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `3bd4dc770013` | Pendente |
+| [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `0a7ddf71b714` | Verde |
 | [#52 — feat(mentor): integração conversacional do Mentor (continuidade) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/52) | Mentor | `197560b19c2f` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 | [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker (Draft)](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | `acaee7143368` | Não verificado |
@@ -69,11 +70,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **4**; desses, Drafts: **3**.
+- PRs abertos: **5**; desses, Drafts: **4**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=51.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 3.7 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=2, Pendente=1, Verde=1.
+- Mediana de idade dos PRs abertos: 0.7 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Não verificado=2, Pendente=1, Verde=2.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
