@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, "/home/guilherme/Documentos/better-talker-coord-communication-foundation/.opencode/scripts")
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 import coord_communication as cc
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -54,6 +56,7 @@ def make_auth(mission: cc.MissionEnvelope) -> cc.Authorization:
         repository_id=mission.repository_id,
         target=mission.target,
         payload_sha256=mission.payload_sha256,
+        mission_identity=cc.canonical_mission_identity(mission),
         scope=mission.scope,
         issued_at=NOW,
         expires_at=NOW + timedelta(hours=1),
@@ -69,7 +72,7 @@ def make_report(mission: cc.MissionEnvelope) -> cc.MissionReport:
         operation_id=mission.operation_id,
         agent_id=mission.target_agent,
         session_id=mission.target_session_id,
-        message_id=f"msg-{mission.operation_id}",
+        message_id=f"msg-report-{mission.operation_id}",
         status="COMPLETED",
         head_sha=mission.expected_head_sha,
         branch=mission.expected_branch,
@@ -96,6 +99,7 @@ def run_flow(sequence: int, outcome: str):
             engine.transmit(mission.operation_id)
         except cc.AuthorizationError:
             unknown_resend_blocked = True
+    transport.simulate_deliver(mission.operation_id)
     transport.simulate_start(mission.operation_id)
     engine.reconcile(mission.operation_id)
     transport.simulate_report(mission.operation_id, make_report(mission))

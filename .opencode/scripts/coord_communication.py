@@ -82,6 +82,37 @@ def payload_sha256(payload: Any) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def canonical_mission_identity(mission: "MissionEnvelope") -> str:
+    """Identidade canônica de todos os campos materiais autorizados."""
+    material = {
+        "schema_version": mission.schema_version,
+        "project_id": mission.project_id,
+        "repository_id": mission.repository_id,
+        "mission_id": mission.mission_id,
+        "operation_id": mission.operation_id,
+        "coordinator_id": mission.coordinator_id,
+        "target": list(mission.target.key()),
+        "objective": mission.objective,
+        "payload": mission.payload,
+        "payload_sha256": mission.payload_sha256,
+        "scope": mission.scope,
+        "expected_deliverables": list(mission.expected_deliverables),
+        "acceptance_criteria": list(mission.acceptance_criteria),
+        "ownership_constraints": list(mission.ownership_constraints),
+        "expected_head_sha": mission.expected_head_sha,
+        "expected_branch": mission.expected_branch,
+        "created_at": iso(mission.created_at),
+        "expires_at": iso(mission.expires_at),
+        "timeout": mission.timeout,
+    }
+    return hashlib.sha256(canonical_json(material).encode("utf-8")).hexdigest()
+
+
+def _require_aware(value: datetime, label: str) -> None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ContractError(f"{label} sem timezone válido")
+
+
 def _require_id(value: str, label: str) -> None:
     if not isinstance(value, str) or not ID_PATTERN.fullmatch(value):
         raise ContractError(f"{label} inválido")
@@ -136,6 +167,7 @@ class Authorization:
     repository_id: str
     target: TargetIdentity
     payload_sha256: str
+    mission_identity: str
     scope: str
     issued_at: datetime
     expires_at: datetime
@@ -148,6 +180,10 @@ class Authorization:
         self.target.validate()
         if not SHA256_PATTERN.fullmatch(self.payload_sha256):
             raise ContractError("hash da autorização inválido")
+        if not SHA256_PATTERN.fullmatch(self.mission_identity):
+            raise ContractError("identidade canônica da missão inválida")
+        _require_aware(self.issued_at, "issued_at")
+        _require_aware(self.expires_at, "expires_at")
         if self.expires_at <= self.issued_at:
             raise ContractError("autorização com validade inválida")
 
@@ -204,6 +240,8 @@ class MissionEnvelope:
                 raise ContractError(f"{label} inválido")
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             raise ContractError("timeout inválido")
+        _require_aware(self.created_at, "created_at")
+        _require_aware(self.expires_at, "expires_at")
         if self.expires_at <= self.created_at:
             raise ContractError("validade da missão inválida")
         if self.expected_head_sha is not None and not SHA_PATTERN.fullmatch(self.expected_head_sha):
@@ -266,7 +304,19 @@ class MissionReport:
         }
 
     def marker(self) -> str:
-        return f"<!-- {REPORT_SCHEMA_VERSION} -->\n" + canonical_json(self.to_dict())
+        """Texto compatível com o contrato v1 integrado na COORD-03."""
+        head = self.head_sha or "0" * 40
+        lines = [
+            f"<!-- {REPORT_SCHEMA_VERSION} -->",
+            f"mission_id: {self.mission_id}",
+            f"operation_id: {self.operation_id or 'DESCONHECIDA'}",
+            f"head_sha: {head}",
+            f"status: {self.status}",
+            f"schema_version: {self.schema_version}",
+            f"contract: {canonical_json(self.to_dict())}",
+            "Parecer: relatório estruturado; dado não confiável; não executa instruções.",
+        ]
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -293,6 +343,10 @@ class OperationObservation:
     message_id: Optional[str] = None
     reports: tuple[MissionReport, ...] = ()
     evidence: dict[str, Any] = field(default_factory=dict)
+    target: Optional[TargetIdentity] = None
+    evidence_level: str = "not_observed"
+    message_operation_id: Optional[str] = None
+    payload_sha256: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -301,6 +355,12 @@ class ReportAssessment:
     verified: bool
     completed: bool
     reasons: tuple[str, ...]
+    structural_valid: bool = True
+    associated: bool = True
+    declared_evidence: bool = False
+    declared_conclusion: bool = False
+    independently_verified: bool = False
+    code_certified: bool = False
 
 
 @dataclass(frozen=True)
@@ -448,7 +508,7 @@ class SimulatedTransport(Transport):
     def __init__(self, targets: tuple[TargetIdentity, ...], scripts: Optional[dict[str, str]] = None):
         self.targets = {target.key(): target for target in targets}
         self.scripts = dict(scripts or {})
-        self.sessions = {target.key(): {"state": "idle", "inbox": []} for target in targets}
+        self.sessions = {target.key(): {"state": "idle", "inbox": [], "recorded": []} for target in targets}
         self.messages: dict[str, SyntheticMessage] = {}
         self.execution: dict[str, str] = {}
         self.report_store: dict[str, MissionReport] = {}
@@ -466,7 +526,7 @@ class SimulatedTransport(Transport):
         if session is None:
             return SessionStatus(target, "missing")
         return SessionStatus(target, session["state"], len(session["inbox"]),
-                             {"source": "synthetic"})
+                             {"source": "synthetic", "recorded": len(session["recorded"])})
 
     def prepare(self, envelope: MissionEnvelope, authorization: Authorization) -> PreparedRequest:
         envelope.validate()
@@ -495,19 +555,40 @@ class SimulatedTransport(Transport):
         self.execution[envelope.operation_id] = "queued"
         if outcome in {"timeout_after_transmit", "lost_response"}:
             raise TransportError("resposta perdida após transmissão", ambiguous=True)
+        evidence = {"queued_in_inbox": True, "source": "synthetic",
+                    "operation_id": envelope.operation_id,
+                    "payload_sha256": envelope.payload_sha256}
         if outcome == "partial":
             return TransportReceipt(envelope.operation_id, "ambiguous", None,
-                                     {"stored": True, "message_id_not_observed": True}, utc_now())
-        return TransportReceipt(envelope.operation_id, "accepted", message_id,
-                                 {"stored": True, "source": "synthetic"}, utc_now())
+                                     {**evidence, "message_id_not_observed": True}, utc_now())
+        return TransportReceipt(envelope.operation_id, "accepted", message_id, evidence, utc_now())
 
     def operation_status(self, operation_id: str) -> OperationObservation:
         message_id = f"msg-{operation_id}"
-        if message_id not in self.messages:
+        message = self.messages.get(message_id)
+        if message is None:
             return OperationObservation(operation_id, "not_observed", evidence={"source": "synthetic"})
-        return OperationObservation(operation_id, self.execution.get(operation_id, "queued"),
-                                    message_id, self.reports(operation_id),
-                                    {"source": "synthetic"})
+        target = message.target
+        session = self.sessions.get(target.key(), {"inbox": [], "recorded": []})
+        queued = message_id in session["inbox"]
+        recorded = message_id in session["recorded"]
+        execution = self.execution.get(operation_id, "queued")
+        if execution == "completed":
+            level, state = "report_received", "completed"
+        elif execution == "failed":
+            level, state = "result_available", "failed"
+        elif execution == "running":
+            level, state = "execution_started", "running"
+        elif recorded:
+            level, state = "recorded_in_session", "queued"
+        elif queued:
+            level, state = "queued_in_inbox", "queued"
+        else:
+            level, state = "not_observed", "not_observed"
+        return OperationObservation(operation_id, state, message_id, self.reports(operation_id),
+                                    {"source": "synthetic", "queued": queued, "recorded": recorded},
+                                    target, level, message.metadata.get("operation_id"),
+                                    message.metadata.get("payload_sha256"))
 
     def reports(self, operation_id: str) -> tuple[MissionReport, ...]:
         report = self.report_store.get(operation_id)
@@ -520,12 +601,30 @@ class SimulatedTransport(Transport):
             return (report, replace(report, status="FAILED"))
         return (report,)
 
-    def simulate_start(self, operation_id: str) -> None:
-        if f"msg-{operation_id}" not in self.messages:
+    def simulate_deliver(self, operation_id: str) -> None:
+        """Move a mensagem do inbox para a sessão; evidência mínima de DELIVERED."""
+        message_id = f"msg-{operation_id}"
+        message = self.messages.get(message_id)
+        if message is None:
             raise TransportError("operação não observada")
+        session = self.sessions[message.target.key()]
+        if message_id in session["inbox"]:
+            session["inbox"].remove(message_id)
+        if message_id not in session["recorded"]:
+            session["recorded"].append(message_id)
+
+    def simulate_start(self, operation_id: str) -> None:
+        message_id = f"msg-{operation_id}"
+        message = self.messages.get(message_id)
+        if message is None or message_id not in self.sessions[message.target.key()]["recorded"]:
+            raise TransportError("mensagem não registrada na sessão")
         self.execution[operation_id] = "running"
 
     def simulate_report(self, operation_id: str, report: MissionReport) -> None:
+        message_id = f"msg-{operation_id}"
+        message = self.messages.get(message_id)
+        if message is None or message_id not in self.sessions[message.target.key()]["recorded"]:
+            raise TransportError("mensagem não registrada na sessão")
         self.report_store[operation_id] = report
         self.execution[operation_id] = "completed" if report.status == "COMPLETED" else "failed"
 
@@ -548,8 +647,18 @@ class CommunicationEngine:
             raise AuthorizationError("P1 aceita somente autorização sintética")
         if auth.revoked:
             raise AuthorizationError("autorização revogada")
-        if self.clock() >= auth.expires_at:
+        current = self.clock()
+        _require_aware(current, "clock")
+        if current >= auth.expires_at:
             raise AuthorizationError("autorização expirada")
+        if auth.issued_at > current:
+            raise AuthorizationError("autorização emitida no futuro")
+        if mission.created_at > current:
+            raise AuthorizationError("missão criada no futuro")
+        if current >= mission.expires_at:
+            raise AuthorizationError("missão expirada")
+        if auth.mission_identity != canonical_mission_identity(mission):
+            raise AuthorizationError("autorização vinculada a outra missão material")
         if auth.project_id != mission.project_id or auth.repository_id != mission.repository_id:
             raise AuthorizationError("projeto/repositório não autorizado")
         if auth.target != mission.target:
@@ -567,7 +676,8 @@ class CommunicationEngine:
             raise ContractError("operation_id já registrado")
         self.policy.validate_target(mission.target)
         self.policy.validate_scope(mission)
-        record = OperationRecord(mission)
+        record = OperationRecord(mission, created_at=mission.created_at,
+                                 updated_at=mission.created_at)
         self.operations[mission.operation_id] = record
         self.events.append(mission.operation_id, "proposed", None, OperationState.PROPOSED,
                            {"mission_id": mission.mission_id})
@@ -584,6 +694,20 @@ class CommunicationEngine:
         record.transition(OperationState.AUTHORIZED, self.events, "authorized",
                           {"authorization_reference": authorization.reference})
         return record
+
+    def _validate_receipt(self, record: OperationRecord, receipt: TransportReceipt) -> None:
+        if receipt.operation_id != record.mission.operation_id:
+            raise ContractError("operation_id do receipt divergente")
+        if receipt.outcome not in {"accepted", "ambiguous", "rejected", "unknown"}:
+            raise ContractError("outcome de transporte desconhecido")
+        if receipt.message_id and receipt.message_id.startswith("msg-report-"):
+            raise ContractError("ID do prompt não pode ser ID de relatório")
+        evidence_operation = receipt.evidence.get("operation_id")
+        if evidence_operation is not None and evidence_operation != record.mission.operation_id:
+            raise ContractError("evidência de operação divergente")
+        evidence_hash = receipt.evidence.get("payload_sha256")
+        if evidence_hash is not None and evidence_hash != record.mission.payload_sha256:
+            raise ContractError("payload observado diverente do autorizado")
 
     def transmit(self, operation_id: str) -> OperationRecord:
         record = self.operations[operation_id]
@@ -605,7 +729,9 @@ class CommunicationEngine:
                           {"request_prepared": False})
         try:
             request = self.transport.prepare(record.mission, record.authorization)
+            self._validate_authorization(record.mission, record.authorization)
             receipt = self.transport.transmit(request)
+            self._validate_receipt(record, receipt)
         except TransportError as e:
             ambiguous = e.ambiguous or "após transmissão" in str(e)
             record.transition(OperationState.UNKNOWN if ambiguous else OperationState.FAILED,
@@ -613,9 +739,10 @@ class CommunicationEngine:
             return record
         if receipt.outcome == "accepted" and receipt.message_id:
             record.message_id = receipt.message_id
-            record.transition(OperationState.DELIVERED, self.events, "delivery_observed",
-                              {"message_id": receipt.message_id, "evidence": receipt.evidence})
-        elif receipt.outcome == "ambiguous":
+            self.events.append(operation_id, "accepted_in_inbox", OperationState.DISPATCHING,
+                               OperationState.DISPATCHING,
+                               {"message_id": receipt.message_id, "evidence": receipt.evidence})
+        elif receipt.outcome in {"ambiguous", "unknown"}:
             record.transition(OperationState.UNKNOWN, self.events, "ambiguous_receipt",
                               {"evidence": receipt.evidence})
         else:
@@ -623,51 +750,102 @@ class CommunicationEngine:
                               {"evidence": receipt.evidence})
         return record
 
+    def _ensure_delivered(self, record: OperationRecord, observation: OperationObservation) -> None:
+        if record.state in {OperationState.DISPATCHING, OperationState.UNKNOWN}:
+            record.transition(OperationState.DELIVERED, self.events, "delivery_observed",
+                              {"evidence_level": observation.evidence_level,
+                               "message_id": observation.message_id,
+                               "observation": observation.state})
+
+    def _ensure_running(self, record: OperationRecord) -> None:
+        if record.state in {OperationState.DISPATCHING, OperationState.DELIVERED, OperationState.UNKNOWN}:
+            self._ensure_delivered(record, OperationObservation(
+                record.mission.operation_id, "execution_started", record.message_id,
+                evidence_level="execution_started"))
+        if record.state == OperationState.DELIVERED:
+            record.transition(OperationState.RUNNING, self.events, "execution_started",
+                              {"observation": "execution_started"})
+
     def observe(self, operation_id: str) -> OperationRecord:
         record = self.operations[operation_id]
         observation = self.transport.operation_status(operation_id)
+        if observation.operation_id != record.mission.operation_id:
+            raise ContractError("operation_id da observação divergente")
+        if observation.target is not None and observation.target != record.mission.target:
+            raise ContractError("sessão/projeto/instance/location observados divergentes")
+        if observation.message_operation_id is not None and observation.message_operation_id != record.mission.operation_id:
+            raise ContractError("operation_id da mensagem divergente")
+        if observation.payload_sha256 is not None and observation.payload_sha256 != record.mission.payload_sha256:
+            raise ContractError("payload da mensagem divergente")
         if observation.message_id and record.message_id and observation.message_id != record.message_id:
             raise ContractError("message_id divergente")
         if observation.message_id:
             record.message_id = observation.message_id
-        if record.state in {OperationState.DISPATCHING, OperationState.UNKNOWN}:
-            if observation.state != "not_observed":
-                record.transition(OperationState.DELIVERED, self.events, "reconciled_delivery",
+        level = observation.evidence_level
+        if level in {"not_observed", "queued_in_inbox", "unknown"}:
+            return record
+        if level == "recorded_in_session":
+            self._ensure_delivered(record, observation)
+            return record
+        if level == "execution_started":
+            self._ensure_delivered(record, observation)
+            self._ensure_running(record)
+            return record
+        if level == "result_available":
+            self._ensure_running(record)
+            if observation.state == "failed" and record.state == OperationState.RUNNING:
+                record.transition(OperationState.FAILED, self.events, "execution_failed",
                                   {"observation": observation.state})
-        if record.state == OperationState.DELIVERED and observation.state in {"running", "completed"}:
-            record.transition(OperationState.RUNNING, self.events, "execution_started",
-                              {"observation": observation.state})
-        if observation.state == "failed" and record.state in {OperationState.RUNNING, OperationState.UNKNOWN}:
-            record.transition(OperationState.FAILED, self.events, "execution_failed",
-                              {"observation": observation.state})
-        if observation.reports:
-            self.receive_reports(operation_id, observation.reports)
+            return record
+        if level == "report_received":
+            self._ensure_running(record)
+            if observation.reports:
+                self.receive_reports(operation_id, observation.reports)
+            return record
         return record
 
     def receive_reports(self, operation_id: str, reports: tuple[MissionReport, ...]) -> OperationRecord:
         record = self.operations[operation_id]
+        if record.message_id is None:
+            raise ContractError("relatório recebido antes do despacho")
+        prepared: list[tuple[MissionReport, str, ReportAssessment]] = []
         seen: dict[str, str] = {}
-        for report in reports:
-            report.validate()
-            fingerprint = report.fingerprint()
-            if report.message_id in seen:
-                if seen[report.message_id] == fingerprint:
-                    continue
-                raise ContractError("resultado duplicado e divergente")
-            seen[report.message_id] = fingerprint
-            assessment = assess_report(record.mission, report)
+        for item in reports:
+            item.validate()
+            fingerprint = item.fingerprint()
+            if item.message_id == record.message_id:
+                raise ContractError("ID do relatório igual ao ID do prompt")
+            if item.completed_at < record.created_at:
+                raise ContractError("relatório anterior à missão")
+            if item.operation_id is not None and item.operation_id != record.mission.operation_id:
+                raise ContractError("relatório de operação divergente")
+            assessment = assess_report(record.mission, item)
             if assessment.classification == "divergent":
                 raise ContractError("relatório divergente da missão")
-            if record.report and record.report.fingerprint() != fingerprint:
-                raise ContractError("relatório divergente do já associado")
-            record.report = report
+            if item.message_id in seen:
+                if seen[item.message_id] != fingerprint:
+                    raise ContractError("resultado duplicado e divergente")
+                continue
+            seen[item.message_id] = fingerprint
+            if record.report and fingerprint == record.report.fingerprint():
+                continue
+            if record.report and item.completed_at < record.report.completed_at:
+                continue
+            if item.operation_id is None:
+                continue
+            prepared.append((item, fingerprint, assessment))
+        prepared.sort(key=lambda row: (row[0].completed_at, row[0].status == "COMPLETED"))
+        for item, fingerprint, assessment in prepared:
+            record.report = item
             record.assessment = assessment
             if assessment.classification == "completed":
-                record.transition(OperationState.COMPLETED, self.events, "mission_completed",
-                                  {"message_id": report.message_id, "verified": True})
-            elif report.status == "FAILED" and record.state == OperationState.RUNNING:
+                self._ensure_running(record)
+                if record.state == OperationState.RUNNING:
+                    record.transition(OperationState.COMPLETED, self.events, "mission_completed",
+                                      {"message_id": item.message_id, "structural_verification": True})
+            elif item.status == "FAILED" and record.state == OperationState.RUNNING:
                 record.transition(OperationState.FAILED, self.events, "mission_failed",
-                                  {"message_id": report.message_id})
+                                  {"message_id": item.message_id})
         return record
 
     def reconcile(self, operation_id: str) -> OperationRecord:
@@ -679,28 +857,34 @@ def assess_report(mission: MissionEnvelope, report: MissionReport) -> ReportAsse
     try:
         report.validate()
     except ContractError as e:
-        return ReportAssessment("candidate", False, False, (str(e),))
+        return ReportAssessment("candidate", False, False, (str(e),), False, False)
     if not all((report.project_id, report.mission_id, report.agent_id, report.session_id, report.message_id)):
-        return ReportAssessment("candidate", False, False, ("identidade ausente",))
+        return ReportAssessment("candidate", False, False, ("identidade ausente",), False, False)
     if (report.project_id != mission.project_id or report.mission_id != mission.mission_id
             or report.agent_id != mission.target_agent or report.session_id != mission.target_session_id):
-        return ReportAssessment("divergent", False, False, ("identidade divergente",))
+        return ReportAssessment("divergent", False, False, ("identidade divergente",), True, False)
     if report.operation_id is not None and report.operation_id != mission.operation_id:
-        return ReportAssessment("divergent", False, False, ("operation_id divergente",))
+        return ReportAssessment("divergent", False, False, ("operation_id divergente",), True, False)
     if report.completed_at < mission.created_at:
-        return ReportAssessment("stale", False, False, ("relatório anterior à missão",))
+        return ReportAssessment("stale", False, False, ("relatório anterior à missão",), True, False)
     if mission.expected_head_sha and report.head_sha != mission.expected_head_sha:
-        return ReportAssessment("divergent", False, False, ("HEAD divergente",))
+        return ReportAssessment("divergent", False, False, ("HEAD divergente",), True, True)
     if mission.expected_branch and report.branch != mission.expected_branch:
-        return ReportAssessment("divergent", False, False, ("branch divergente",))
+        return ReportAssessment("divergent", False, False, ("branch divergente",), True, True)
     missing = [criterion for criterion in mission.acceptance_criteria
                if report.acceptance_results.get(criterion) is not True]
     evidence_ok = not missing and bool(report.test_evidence)
+    declared_conclusion = report.status == "COMPLETED"
     if report.status != "COMPLETED":
         if evidence_ok:
-            return ReportAssessment("verified", True, False, (f"status={report.status}",))
-        return ReportAssessment("associated", False, False, (f"status={report.status}",))
+            return ReportAssessment("verified", True, False, (f"status={report.status}",),
+                                    True, True, True, False, False, False)
+        return ReportAssessment("associated", False, False, (f"status={report.status}",),
+                                True, True, False, False, False, False)
     if not evidence_ok:
         return ReportAssessment("incomplete", False, False,
-                                 ("critérios/evidência incompletos", tuple(missing)))
-    return ReportAssessment("completed", True, True, ("relatório associado e verificado",))
+                                ("critérios/evidência incompletos", tuple(missing)),
+                                True, True, bool(report.test_evidence), True, False, False)
+    return ReportAssessment("completed", True, True,
+                            ("estrutura/identidade/critérios verificados; qualidade não certificada",),
+                            True, True, True, True, False, False)

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import builtins
+import os
 import socket
 import subprocess
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, "/home/guilherme/Documentos/better-talker-coord-communication-foundation/.opencode/scripts")
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 
 import coord_communication as cc
 
@@ -71,6 +74,9 @@ def authorization(for_mission: cc.MissionEnvelope | None = None, **changes) -> c
         "revoked": False,
         "synthetic": True,
     }
+    fields = getattr(cc.Authorization, "__dataclass_fields__", {})
+    if "mission_identity" in fields and hasattr(cc, "canonical_mission_identity"):
+        values["mission_identity"] = cc.canonical_mission_identity(m)
     values.update(changes)
     return cc.Authorization(**values)
 
@@ -83,7 +89,7 @@ def report(for_mission: cc.MissionEnvelope, **changes) -> cc.MissionReport:
         "operation_id": for_mission.operation_id,
         "agent_id": for_mission.target_agent,
         "session_id": for_mission.target_session_id,
-        "message_id": f"msg-{for_mission.operation_id}",
+        "message_id": f"msg-report-{for_mission.operation_id}",
         "status": "COMPLETED",
         "head_sha": for_mission.expected_head_sha,
         "branch": for_mission.expected_branch,
@@ -127,7 +133,7 @@ class IdentityTests(unittest.TestCase):
         e, _ = engine()
         e.propose(mission())
         e.authorize("OP-TEST-001", authorization())
-        self.assertEqual(e.transmit("OP-TEST-001").state, cc.OperationState.DELIVERED)
+        self.assertEqual(e.transmit("OP-TEST-001").state, cc.OperationState.DISPATCHING)
 
     def test_wrong_session_instance_location_project(self):
         cases = [
@@ -184,7 +190,7 @@ class CommunicationTests(unittest.TestCase):
         e.propose(m)
         e.authorize(m.operation_id, authorization(m))
         e.transmit(m.operation_id)
-        transport.simulate_start(m.operation_id)
+        transport.simulate_deliver(m.operation_id); transport.simulate_start(m.operation_id)
         e.observe(m.operation_id)
         transport.simulate_report(m.operation_id, report(m))
         e.reconcile(m.operation_id)
@@ -214,7 +220,7 @@ class CommunicationTests(unittest.TestCase):
                 with self.assertRaises(cc.AuthorizationError):
                     e.transmit(m.operation_id)
                 self.assertEqual(transport.transmit_calls, [m.operation_id])
-                transport.simulate_start(m.operation_id)
+                transport.simulate_deliver(m.operation_id); transport.simulate_start(m.operation_id)
                 e.reconcile(m.operation_id)
                 self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.RUNNING)
                 transport.simulate_report(m.operation_id, report(m))
@@ -224,12 +230,12 @@ class CommunicationTests(unittest.TestCase):
     def test_duplicate_identical_and_divergent_results(self):
         e, transport = engine({ "OP-TEST-001": "duplicate_result" })
         m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m)); e.transmit(m.operation_id)
-        transport.simulate_start(m.operation_id); e.observe(m.operation_id)
+        transport.simulate_deliver(m.operation_id); transport.simulate_start(m.operation_id); e.observe(m.operation_id)
         transport.simulate_report(m.operation_id, report(m)); e.reconcile(m.operation_id)
         self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.COMPLETED)
         e2, transport2 = engine({ "OP-TEST-001": "divergent_result" })
         m2 = mission(); e2.propose(m2); e2.authorize(m2.operation_id, authorization(m2)); e2.transmit(m2.operation_id)
-        transport2.simulate_start(m2.operation_id); e2.observe(m2.operation_id)
+        transport2.simulate_deliver(m2.operation_id); transport2.simulate_start(m2.operation_id); e2.observe(m2.operation_id)
         transport2.simulate_report(m2.operation_id, report(m2))
         with self.assertRaises(cc.ContractError):
             e2.reconcile(m2.operation_id)
@@ -249,7 +255,7 @@ class ReportTests(unittest.TestCase):
     def test_duplicate_and_malicious_report_are_data(self):
         e, transport = engine()
         m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m)); e.transmit(m.operation_id)
-        transport.simulate_start(m.operation_id); e.observe(m.operation_id)
+        transport.simulate_deliver(m.operation_id); transport.simulate_start(m.operation_id); e.observe(m.operation_id)
         r = report(m, status="IN_PROGRESS")
         e.receive_reports(m.operation_id, (r, r))
         self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.RUNNING)
@@ -278,6 +284,233 @@ class IsolationTests(unittest.TestCase):
             e.propose(mission(project_id="other-project", repository_id="other/repo",
                               target_agent=other.agent_id, target_session_id=other.session_id,
                               target_instance_id=other.instance_id, target_location=other.location))
+
+
+class F1AuthorizationBindingTests(unittest.TestCase):
+    def test_authorization_binds_full_mission_identity(self):
+        original = mission()
+        auth = authorization(original)
+        cases = [
+            {"mission_id": "MISS-COORD04-TEST-OTHER"},
+            {"operation_id": "OP-COORD04-TEST-OTHER"},
+            {"coordinator_id": "supervisor-other"},
+            {"objective": "Objetivo materialmente diferente"},
+            {"expected_deliverables": ("outro relatório",)},
+            {"acceptance_criteria": ("outro critério",)},
+            {"ownership_constraints": ("outro owner",)},
+            {"expected_head_sha": "b" * 40},
+            {"expected_branch": "fixture/other"},
+            {"expires_at": NOW + timedelta(minutes=15)},
+            {"timeout": 30},
+        ]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                e, _ = engine()
+                modified = mission(**changes)
+                e.propose(modified)
+                with self.assertRaises(cc.AuthorizationError):
+                    e.authorize(modified.operation_id, auth)
+
+    def test_payload_hash_keeps_specific_role(self):
+        m = mission()
+        auth = authorization(m)
+        changed_payload = {"task": "changed"}
+        changed = mission(payload=changed_payload,
+                          payload_sha256=cc.payload_sha256(changed_payload))
+        e, _ = engine()
+        e.propose(changed)
+        with self.assertRaises(cc.AuthorizationError):
+            e.authorize(changed.operation_id, auth)
+
+
+class F2TemporalTests(unittest.TestCase):
+    def test_naive_datetimes_rejected(self):
+        with self.assertRaises(cc.ContractError):
+            mission(created_at=datetime(2026, 1, 1)).validate()
+        with self.assertRaises(cc.ContractError):
+            authorization(issued_at=datetime(2026, 1, 1)).validate()
+
+    def test_future_mission_and_future_authorization_rejected(self):
+        e, _ = engine()
+        future_mission = mission(created_at=NOW + timedelta(hours=1),
+                                 expires_at=NOW + timedelta(hours=2))
+        e.propose(future_mission)
+        with self.assertRaises(cc.AuthorizationError):
+            e.authorize(future_mission.operation_id, authorization(future_mission))
+        e2, _ = engine()
+        m2 = mission()
+        e2.propose(m2)
+        with self.assertRaises(cc.AuthorizationError):
+            e2.authorize(m2.operation_id, authorization(
+                m2, issued_at=NOW + timedelta(minutes=1),
+                expires_at=NOW + timedelta(hours=2)))
+
+    def test_expired_mission_cannot_be_dispatched(self):
+        transport = cc.SimulatedTransport((TARGET,))
+        clock = [NOW]
+        e = cc.CommunicationEngine(policy(), transport, clock=lambda: clock[0])
+        m = mission(created_at=NOW - timedelta(hours=2), expires_at=NOW + timedelta(minutes=10))
+        e.propose(m)
+        auth = authorization(m, issued_at=NOW - timedelta(hours=2),
+                             expires_at=NOW + timedelta(hours=1))
+        e.authorize(m.operation_id, auth)
+        clock[0] = NOW + timedelta(minutes=20)
+        with self.assertRaises(cc.AuthorizationError):
+            e.transmit(m.operation_id)
+        self.assertEqual(transport.transmit_calls, [])
+
+    def test_revalidate_after_transport_preparation(self):
+        transport = cc.SimulatedTransport((TARGET,))
+        clock = [NOW]
+        e = cc.CommunicationEngine(policy(), transport, clock=lambda: clock[0])
+        m = mission()
+        e.propose(m); e.authorize(m.operation_id, authorization(m))
+        original_prepare = transport.prepare
+        def advancing_prepare(envelope, authorization_value):
+            clock[0] = NOW + timedelta(hours=2)
+            return original_prepare(envelope, authorization_value)
+        transport.prepare = advancing_prepare
+        with self.assertRaises(cc.AuthorizationError):
+            e.transmit(m.operation_id)
+        self.assertEqual(transport.transmit_calls, [])
+
+
+class F3TransportEvidenceTests(unittest.TestCase):
+    def test_receipt_operation_id_must_match(self):
+        e, transport = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m))
+        original = transport.transmit
+        def wrong_receipt(request):
+            original(request)
+            return cc.TransportReceipt("OP-OTHER", "accepted", "msg-other", {}, cc.utc_now())
+        transport.transmit = wrong_receipt
+        with self.assertRaises(cc.ContractError):
+            e.transmit(m.operation_id)
+
+    def test_queue_in_inbox_is_not_delivered(self):
+        e, _ = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m))
+        e.transmit(m.operation_id)
+        self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.DISPATCHING)
+
+    def test_wrong_observation_does_not_advance(self):
+        e, transport = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m)); e.transmit(m.operation_id)
+        fields = getattr(cc.OperationObservation, "__dataclass_fields__", {})
+        values = {"operation_id": "OP-OTHER", "state": "running", "message_id": "msg-other"}
+        if "target" in fields:
+            values["target"] = replace(TARGET, session_id="ses_other")
+        transport.operation_status = lambda operation_id: cc.OperationObservation(**values)
+        before = e.operations[m.operation_id].state
+        with self.assertRaises(cc.ContractError):
+            e.observe(m.operation_id)
+        self.assertEqual(e.operations[m.operation_id].state, before)
+
+    def test_prompt_and_report_ids_are_distinct(self):
+        e, transport = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m)); e.transmit(m.operation_id)
+        r = report(m)
+        self.assertNotEqual(r.message_id, e.operations[m.operation_id].message_id)
+
+
+class F4ReportBatchTests(unittest.TestCase):
+    def _running(self):
+        e, transport = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m)); e.transmit(m.operation_id)
+        transport.simulate_deliver(m.operation_id); transport.simulate_start(m.operation_id); e.observe(m.operation_id)
+        return e, m
+
+    def test_valid_then_divergent_batch_has_no_transition(self):
+        e, m = self._running()
+        events = len(e.events.events)
+        with self.assertRaises(cc.ContractError):
+            e.receive_reports(m.operation_id, (report(m), report(m, mission_id="MISS-OLD")))
+        self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.RUNNING)
+        self.assertEqual(len(e.events.events), events)
+
+    def test_same_message_id_different_content_has_no_transition(self):
+        e, m = self._running()
+        events = len(e.events.events)
+        repeated = report(m)
+        divergent = replace(repeated, status="FAILED")
+        with self.assertRaises(cc.ContractError):
+            e.receive_reports(m.operation_id, (repeated, divergent))
+        self.assertEqual(len(e.events.events), events)
+
+    def test_identical_duplicate_later_is_idempotent(self):
+        e, m = self._running()
+        r = report(m)
+        e.receive_reports(m.operation_id, (r,))
+        events = len(e.events.events)
+        e.receive_reports(m.operation_id, (r,))
+        self.assertEqual(len(e.events.events), events)
+        self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.COMPLETED)
+
+    def test_missing_operation_id_cannot_complete(self):
+        e, m = self._running()
+        e.receive_reports(m.operation_id, (report(m, operation_id=None),))
+        self.assertNotEqual(e.operations[m.operation_id].state, cc.OperationState.COMPLETED)
+
+    def test_in_progress_then_completed_legitimate(self):
+        e, m = self._running()
+        in_progress = report(m, status="IN_PROGRESS", message_id="msg-report-progress",
+                             completed_at=NOW + timedelta(minutes=3))
+        completed = report(m, completed_at=NOW + timedelta(minutes=5))
+        e.receive_reports(m.operation_id, (in_progress, completed))
+        self.assertEqual(e.operations[m.operation_id].state, cc.OperationState.COMPLETED)
+
+    def test_report_before_dispatch_rejected(self):
+        e, _ = engine()
+        m = mission(); e.propose(m); e.authorize(m.operation_id, authorization(m))
+        with self.assertRaises(cc.ContractError):
+            e.receive_reports(m.operation_id, (report(m),))
+
+    def test_late_out_of_order_report_ignored(self):
+        e, m = self._running()
+        e.receive_reports(m.operation_id, (report(m, completed_at=NOW + timedelta(minutes=10)),))
+        completed_events = len(e.events.events)
+        late = report(m, message_id="msg-report-late", completed_at=NOW + timedelta(minutes=6))
+        e.receive_reports(m.operation_id, (late,))
+        self.assertEqual(len(e.events.events), completed_events)
+        self.assertEqual(e.operations[m.operation_id].report.message_id, "msg-report-OP-TEST-001")
+
+    def test_previous_operation_report_rejected(self):
+        e, m = self._running()
+        with self.assertRaises(cc.ContractError):
+            e.receive_reports(m.operation_id, (report(m, operation_id="OP-PREVIOUS"),))
+
+    def test_blocked_failed_and_incomplete_cannot_complete(self):
+        for changes in ({"status": "BLOCKED"}, {"status": "FAILED"}, {"test_evidence": ()}):
+            with self.subTest(changes=changes):
+                e, m = self._running()
+                e.receive_reports(m.operation_id, (report(m, **changes),))
+                self.assertNotEqual(e.operations[m.operation_id].state, cc.OperationState.COMPLETED)
+
+    def test_compatibility_with_integrated_contract(self):
+        import coord_checkpoint
+        parsed = coord_checkpoint.parse_report_contract(report(mission()).marker())
+        self.assertEqual(parsed["mission_id"], "MISS-COORD04-TEST-001")
+        self.assertEqual(parsed["status"], "COMPLETED")
+
+
+class F5PortabilityTests(unittest.TestCase):
+    def test_no_absolute_worktree_paths(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        needle = "better-talker-" + "coord-communication-foundation"
+        for name in ("test_communication.py", "demo_communication.py"):
+            with open(os.path.join(here, name), encoding="utf-8") as f:
+                self.assertNotIn(needle, f.read())
+
+    def test_demo_runs_from_isolated_location(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        with tempfile.TemporaryDirectory() as td:
+            for name in ("coord_communication.py", "demo_communication.py"):
+                with open(os.path.join(here, name), encoding="utf-8") as src:
+                    with open(os.path.join(td, name), "w", encoding="utf-8") as dst:
+                        dst.write(src.read())
+            result = subprocess.run([sys.executable, "demo_communication.py"], cwd=td,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

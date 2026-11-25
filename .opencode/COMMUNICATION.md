@@ -25,7 +25,7 @@ Discovery feito pela documentação oficial e OpenAPI correspondente, sem POST/P
 | Projeto/location | `GET /api/location?location[directory]=...` | `Location.PublicInfo`: diretório, `project.id`, `directory` e `canonical`. | 400/401/404. |
 | Sessão | `GET /api/session/{sessionID}` | `Session.Info`: ID, `projectID`, agente, modelo, outcome, tempo, tokens e location. | 400/401/404. |
 | Lista de sessões | `GET /api/session` | `SessionsResponse` paginada; filtros por diretório/projeto e cursor. | 400/401. |
-| Sessão ativa | `GET /api/session/active` | Mapa de sessões cujo agente está executando neste processo; ausente = idle. | 400/401. |
+| Sessão ativa | `GET /api/session/active` | Mapa de sessões cujo agente está executando neste processo. Ausência prova apenas que não foi observada execução ativa naquela instância; não comprova disponibilidade nem idle confirmado. | 400/401. |
 | Inbox | `GET /api/session/{sessionID}/inbox` | Itens ainda não entregues ao agente. Itens user/synthetic entregues migram para `message.list`. | 400/401/404. |
 | Envio | `POST /api/session/{sessionID}/prompt` | Retorna item de inbox após enfileirar; não espera o agente terminar. `resume=false` não inicia execução. | 400/401/404/409/502. |
 | ID da mensagem | Campo `id` do prompt | A spec documenta que reenviar o mesmo ID retorna o item original; reuso em outra sessão/tipo falha 409. | Garantia pontual de deduplicação do item; **não** prova exactly-once de execução. |
@@ -119,3 +119,59 @@ O núcleo é independente do Better Talker. Identidade de projeto, política, re
 location e sessões autorizadas são dados externos ao motor. O HealthAgentForms não foi acessado.
 Multiprojeto, persistência, transporte real, concorrência e orquestração pertencem a etapas
 futuras e não estão implementados aqui.
+
+## Correções COORD-04/P2
+
+### F1 — identidade canônica da missão
+
+`canonical_mission_identity()` cobre versão, projeto, repositório, mission/operation IDs,
+coordenador, identidade completa do destinatário, objetivo, payload, hash do payload, escopo,
+entregáveis, critérios, ownership, HEAD/branch esperados, validade e timeout. A autorização
+armazena essa identidade e é rejeitada se qualquer campo material divergir. `payload_sha256`
+continua com sua finalidade específica; IDs não implicam idempotência.
+
+### F2 — validade temporal
+
+`created_at`, `expires_at` e `issued_at` exigem timezone válido. Missão e autorização futuras
+são rejeitadas; expiração é verificada na autorização, no despacho e novamente após a
+preparação do transporte, antes da transmissão simulada. Revogação em memória é eficaz apenas
+dentro do processo atual; não é revogação operacional distribuída.
+
+### F3 — evidências de transporte
+
+O receipt precisa coincidir com `operation_id`, projeto, instância, location, sessão, hash do
+payload e identificador da mensagem da missão. Níveis distintos:
+
+- `queued_in_inbox`: aceitação/enfileiramento; não é entrega;
+- `recorded_in_session`: mensagem registrada na sessão — evidência mínima de `DELIVERED`;
+- `execution_started`: execução observada;
+- `result_available`: resultado disponível;
+- `report_received`: relatório disponível.
+
+Aceitação pelo servidor não comprova leitura pelo agente. `id` do prompt, `message_id` do
+relatório e `operation_id` são distintos. Evidência divergente não avança estado; ambiguidade
+permanece `UNKNOWN`. A ausência em `/api/session/active` não é idle confirmado.
+
+### F4 — lotes de relatório
+
+O lote é validado integralmente antes de qualquer transição: identidade, contrato v1 integrado,
+operação, ordem temporal, duplicidade e divergência. Duplicidade idêntica é idempotente;
+divergente é rejeitada sem mutar o registro. Atualizações legítimas `IN_PROGRESS → COMPLETED`
+são aceitas; relatório atrasado é ignorado; relatório anterior ao despacho é rejeitado.
+
+Distinção explícita: estrutura válida, associação, evidência declarada pelo agente, conclusão
+declarada, verificação estrutural local e certificação de código. Critérios autodeclarados não
+são prova independente de qualidade; `code_certified` permanece falso.
+
+### F5 — portabilidade
+
+Testes e demonstração resolvem o próprio diretório por `__file__`, sem caminhos absolutos da
+worktree. A demonstração foi executada a partir de local isolado. HealthAgentForms não foi
+acessado; o núcleo permanece genérico.
+
+### Autoridade e contenção
+
+A blacklist de termos proibidos é filtro auxiliar, não barreira de segurança nem prova de
+autorização. Antes de um piloto real serão necessários autoridade configurada efetiva,
+transporte real revisado, persistência/ledger, revogação distribuída, exclusão mútua e
+reconciliação entre processos. Nada disso está implementado ou ativado aqui.

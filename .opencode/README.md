@@ -30,8 +30,8 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
 
 O núcleo de comunicação existe apenas para validação sintética. O transporte real está
 desativado e nenhuma permissão do supervisor foi ampliada. A P1 não envia mensagens, não cria
-sessões e não promove SHADOW. Contratos, API focal, estados e demonstração estão em
-[`COMMUNICATION.md`](COMMUNICATION.md).
+sessões e não promove SHADOW. Contratos, API focal, estados, correções F1–F5 e demonstração
+estão em [`COMMUNICATION.md`](COMMUNICATION.md).
 
 ## Fronteira de leitura
 
