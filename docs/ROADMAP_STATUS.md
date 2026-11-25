@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `b23d334418cf0c615e4d7cc7f981441b9197dfff`
-- Checks da `main` consultada: **Pendente**
+- Checks da `main` consultada: **Falhou**
 - PRs encontrados na janela de consulta: **57** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -24,7 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `932c18d1ccd7` | Falhou |
+| [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `27fa1870e185` | Pendente |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `3bd4dc770013` | Verde |
 | [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | `0f534662fc59` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
@@ -73,8 +73,8 @@
 - PRs abertos: **5**; desses, Drafts: **4**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=52.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
-- Mediana de idade dos PRs abertos: 0.4 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Falhou=1, Não verificado=1, Verde=3.
+- Mediana de idade dos PRs abertos: 0.5 dias (referência fixa: 2026-11-25).
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=1, Verde=3.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
