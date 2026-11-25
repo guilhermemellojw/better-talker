@@ -3,8 +3,8 @@
 **Relatório gerado automaticamente com dados verificáveis da API do GitHub.** As alterações são propostas por PR; o planejamento estratégico não é modificado automaticamente.
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
-- `main` consultada: `4b7db905aa5928970260463c8e3f5e6d2ef55d30`
-- Checks da `main` consultada: **Verde**
+- `main` consultada: `b6479936c8c058f3320d54def7e4fa1757d42ba1`
+- Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **59** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
@@ -14,7 +14,7 @@
 | Frente | Abertos | Integrados | Fechados sem merge |
 | --- | ---: | ---: | ---: |
 | Mentor | 1 | 21 | 0 |
-| Referências e UX | 1 | 11 | 0 |
+| Referências e UX | 0 | 12 | 0 |
 | TRUST | 1 | 10 | 0 |
 | Beta e infraestrutura | 0 | 3 | 0 |
 | Documentação | 1 | 7 | 0 |
@@ -26,13 +26,13 @@
 | --- | --- | --- | --- |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `a2cc4fed7789` | Pendente |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `0f3a3be86958` | Verde |
-| [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `652beb5bca24` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
 ## Integrações recentes
 
 | PR | Frente inferida | Data UTC |
 | --- | --- | --- |
+| [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | 2026-11-25 15:27 |
 | [#61 — ci(android): estabiliza lint e assemblies com in-process](https://github.com/guilhermemellojw/better-talker/pull/61) | Beta e infraestrutura | 2026-11-25 14:20 |
 | [#57 — feat(coord): supervisor SHADOW persistente e checkpoint (COORD-03/P1)](https://github.com/guilhermemellojw/better-talker/pull/57) | Outros | 2026-11-25 14:08 |
 | [#10 — docs: roadmap estratégico e protocolo de continuidade do Better Talker](https://github.com/guilhermemellojw/better-talker/pull/10) | Documentação | 2026-11-25 11:17 |
@@ -57,7 +57,6 @@
 | [#37 — feat(ux-ref-1b3-b1): links de publicações clicáveis no chat](https://github.com/guilhermemellojw/better-talker/pull/37) | Referências e UX | 2026-11-22 10:13 |
 | [#36 — feat(mentor): controle 'Parar de lembrar' na Memória do Mentor (1C.2.2B1a)](https://github.com/guilhermemellojw/better-talker/pull/36) | Mentor | 2026-11-22 09:22 |
 | [#35 — feat(trust): adaptador experimental de identidade do índice Room (TRUST-2B3B-B0)](https://github.com/guilhermemellojw/better-talker/pull/35) | TRUST | 2026-11-21 18:46 |
-| [#34 — feat(ux-ref-1b3-b0): contratos puros de links de publicação](https://github.com/guilhermemellojw/better-talker/pull/34) | Referências e UX | 2026-11-21 16:13 |
 
 ## Interpretação e próximos gates
 
@@ -69,11 +68,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **4**; desses, Drafts: **2**.
-- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=55.
+- PRs abertos: **3**; desses, Drafts: **2**.
+- Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=56.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=2, Verde=1.
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=1, Verde=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
