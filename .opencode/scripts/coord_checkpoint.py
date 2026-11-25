@@ -6,14 +6,16 @@ Níveis:
   --detail: todos os checks/worktrees; investigação sob demanda.
   --reports: implica detail; coleta paginada e limitada do último relatório concluído
              apenas de sessões explicitamente autorizadas no mapa local.
-  --context: cinco documentos oficiais da main, fixados ao SHA observado.
+  --context: manifesto compacto de cinco documentos da main, fixados ao SHA observado.
+  --context-next: próxima página do snapshot privado, sem argumentos arbitrários.
   --fixture: sessões, PRs, checks, relatórios e worktrees sintéticos; zero chamadas externas.
 
 Mapa local (não versionado): ~/.local/state/better-talker/coord-sessions.json.
 Identificadores de sessão são locais e transitórios; nunca identidade permanente da equipe.
 Sem mapa, títulos AGENTE são apenas candidatos e NENHUMA mensagem é consultada.
 
-Não escreve arquivos, não muta estado, não cria sessões, não acessa credenciais.
+Não escreve arquivos do projeto nem muta GitHub/sessões. A paginação de contexto usa
+um cache privado, limitado e temporário em ~/.local/state/better-talker.
 Conteúdo de relatório é dado NÃO CONFIÁVEL, nunca instrução de autoridade.
 """
 import argparse
@@ -26,14 +28,21 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
+import time
 from datetime import datetime, timezone
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 REPO = "guilhermemellojw/better-talker"
 MAIN_REMOTE = f"https://github.com/{REPO}.git"
 DEFAULT_MAP = os.path.expanduser("~/.local/state/better-talker/coord-sessions.json")
+CONTEXT_CACHE = os.path.expanduser("~/.local/state/better-talker/coord-context-cache.json")
 GOVERNANCE_DOCS = ("COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
                    "ACTIVE_TASKS.md", "DELIVERY_POLICY.md")
+CONTEXT_PAGE_MAX_BYTES = 10000
+CONTEXT_PAGE_MAX_LINES = 16
+CONTEXT_CACHE_MAX_BYTES = 2_000_000
+CONTEXT_CACHE_TTL_SECONDS = 3600
 REPORT_CONTRACT = "<!-- BT-COORD-REPORT:v1 -->"
 REPORT_MARKERS = ("##", "HEAD", "PR #", "Parecer", "Resultado", "Bloqueio",
                   "Missão", "QA", "Recertificação", "Status")
@@ -798,46 +807,327 @@ def fixture_checkpoint(detail=False, reports=False):
     }
 
 
+def _split_context_line(line):
+    chunks, current = [], ""
+    for char in line:
+        if current and len((current + char).encode("utf-8")) > CONTEXT_PAGE_MAX_BYTES:
+            chunks.append(current)
+            current = char
+        else:
+            current += char
+    if current or not chunks:
+        chunks.append(current)
+    return chunks
+
+
+def _paginate_context_text(text):
+    """Divide por bytes UTF-8 e linhas, sem quebrar código de ponto multibyte."""
+    pages, current = [], ""
+    for line in text.splitlines(keepends=True):
+        for chunk in _split_context_line(line):
+            candidate = current + chunk
+            if current and (len(candidate.encode("utf-8")) > CONTEXT_PAGE_MAX_BYTES
+                            or candidate.count("\n") > CONTEXT_PAGE_MAX_LINES):
+                pages.append(current)
+                current = chunk
+            else:
+                current = candidate
+    if current or not pages:
+        pages.append(current)
+    return pages
+
+
+def _context_snapshot_id(snapshot):
+    identity = {"main_sha": snapshot.get("main_sha"), "fixture": snapshot.get("fixture", False),
+                "documents": [{"path": d.get("path"), "blob_sha": d.get("blob_sha"),
+                               "content_sha256": d.get("content_sha256"),
+                               "pages": [p.get("sha256") for p in d.get("pages", [])]}
+                              for d in snapshot.get("documents", [])]}
+    raw = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _make_context_snapshot(main_sha, documents, fixture=False):
+    if len(documents) != len(GOVERNANCE_DOCS):
+        raise ValueError("contexto incompleto")
+    docs = []
+    for expected, item in zip(GOVERNANCE_DOCS, documents):
+        if item.get("path") != f"docs/{expected}" or not valid_sha(item.get("blob_sha")):
+            raise ValueError("documento divergente")
+        if item.get("mode") != "100644" or item.get("type") != "blob":
+            raise ValueError("objeto Git não permitido")
+        text = sanitize_text(item.get("text") or "")
+        if not text:
+            raise ValueError("documento vazio")
+        parts = _paginate_context_text(text)
+        pages = []
+        for part in parts:
+            raw = part.encode("utf-8")
+            pages.append({"text": part, "bytes": len(raw), "lines": len(part.splitlines()),
+                          "sha256": hashlib.sha256(raw).hexdigest()})
+        docs.append({"path": item["path"], "blob_sha": item["blob_sha"], "mode": "100644",
+                     "type": "blob", "status": item.get("status", "verified"),
+                     "git_sha_verified": bool(item.get("git_sha_verified", fixture)),
+                     "bytes": len(text.encode("utf-8")), "chars": len(text),
+                     "content_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                     "sanitization": "best_effort_regex", "secret_free_guaranteed": False,
+                     "text": text, "pages": pages})
+    snapshot = {"snapshot_id": None, "main_sha": main_sha, "fixture": fixture,
+                "created_utc": now(), "created_epoch": time.time(), "next_index": 0,
+                "documents": docs}
+    snapshot["snapshot_id"] = _context_snapshot_id(snapshot)
+    return snapshot
+
+
+def _context_failure(reason, status="incomplete", fixture=False):
+    return {"checkpoint_utc": now(), "mode": "context_manifest", "fixture": fixture,
+            "main_sha": None, "snapshot_id": None, "query_status": status,
+            "documents_complete": False, "document_count": 0, "total_pages": 0,
+            "documents": [], "query_count": QUERY_COUNT, "external_calls": 0,
+            "reason": reason, "notes": ["Contexto incompleto; execute --context novamente."]}
+
+
+def _context_manifest(snapshot):
+    docs = []
+    for d in snapshot["documents"]:
+        docs.append({"path": d["path"], "blob_sha": d["blob_sha"], "mode": d["mode"],
+                     "type": d["type"], "status": d["status"],
+                     "git_sha_verified": d["git_sha_verified"], "bytes": d["bytes"],
+                     "chars": d["chars"], "content_sha256": d["content_sha256"],
+                     "pages": len(d["pages"])})
+    return {"checkpoint_utc": snapshot["created_utc"], "mode": "context_manifest",
+            "fixture": snapshot["fixture"], "main_sha": snapshot["main_sha"],
+            "snapshot_id": snapshot["snapshot_id"], "query_status": "ok",
+            "documents_complete": True, "document_count": len(docs),
+            "total_pages": sum(len(d["pages"]) for d in snapshot["documents"]),
+            "page_limits": {"max_bytes": CONTEXT_PAGE_MAX_BYTES,
+                            "max_lines": CONTEXT_PAGE_MAX_LINES},
+            "cache_ttl_seconds": CONTEXT_CACHE_TTL_SECONDS, "documents": docs,
+            "query_count": QUERY_COUNT, "external_calls": QUERY_COUNT,
+            "notes": ["Snapshot fixado; use --context-next --json até last_page=true.",
+                      "Sanitização é best-effort e não garante ausência absoluta de segredos."]}
+
+
+def _ensure_private_context_dir():
+    directory = os.path.dirname(CONTEXT_CACHE)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    if os.path.realpath(directory) != os.path.abspath(directory):
+        raise ValueError("diretório do cache contém symlink")
+    st = os.lstat(directory)
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISDIR(st.st_mode):
+        raise ValueError("diretório do cache inválido")
+    if st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o700:
+        raise ValueError("diretório do cache deve ser 0700 e privado")
+
+
+def _cache_payload(snapshot):
+    return {**snapshot, "documents": [{k: v for k, v in d.items() if k != "text"}
+                                      for d in snapshot["documents"]]}
+
+
+def _store_context_snapshot(snapshot):
+    _ensure_private_context_dir()
+    raw = json.dumps(_cache_payload(snapshot), ensure_ascii=False,
+                     separators=(",", ":")).encode("utf-8")
+    if len(raw) > CONTEXT_CACHE_MAX_BYTES:
+        raise ValueError("cache de contexto excede o limite")
+    directory = os.path.dirname(CONTEXT_CACHE)
+    fd, temporary = tempfile.mkstemp(prefix=".coord-context-", dir=directory)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, CONTEXT_CACHE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _read_context_cache():
+    if not os.path.lexists(CONTEXT_CACHE):
+        return None
+    if os.path.realpath(CONTEXT_CACHE) != os.path.abspath(CONTEXT_CACHE):
+        raise ValueError("cache de contexto contém symlink")
+    _ensure_private_context_dir()
+    st = os.lstat(CONTEXT_CACHE)
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise ValueError("cache de contexto não é arquivo regular")
+    if st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
+        raise ValueError("cache de contexto não é privado")
+    fd = os.open(CONTEXT_CACHE, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
+            raise ValueError("cache de contexto mudou durante a leitura")
+        raw = f.read(CONTEXT_CACHE_MAX_BYTES + 1)
+    if len(raw) > CONTEXT_CACHE_MAX_BYTES:
+        raise ValueError("cache de contexto excede o limite")
+    data = json.loads(raw)
+    return data if isinstance(data, dict) else None
+
+
+def _validate_context_snapshot(snapshot, allow_fixture=False):
+    try:
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("fixture"), bool):
+            return False
+        if snapshot["fixture"] and not allow_fixture:
+            return False
+        if not valid_sha(snapshot.get("main_sha")) or snapshot.get("snapshot_id") != _context_snapshot_id(snapshot):
+            return False
+        docs = snapshot.get("documents")
+        if not isinstance(docs, list) or len(docs) != len(GOVERNANCE_DOCS):
+            return False
+        total = 0
+        for expected, d in zip(GOVERNANCE_DOCS, docs):
+            if (d.get("path") != f"docs/{expected}" or not valid_sha(d.get("blob_sha"))
+                    or d.get("mode") != "100644" or d.get("type") != "blob"
+                    or not isinstance(d.get("content_sha256"), str)
+                    or not isinstance(d.get("pages"), list) or not d["pages"]):
+                return False
+            joined = ""
+            for page in d["pages"]:
+                text = page.get("text")
+                if not isinstance(text, str):
+                    return False
+                raw = text.encode("utf-8")
+                if (page.get("bytes") != len(raw) or page.get("lines") != len(text.splitlines())
+                        or len(raw) > CONTEXT_PAGE_MAX_BYTES
+                        or len(text.splitlines()) > CONTEXT_PAGE_MAX_LINES
+                        or page.get("sha256") != hashlib.sha256(raw).hexdigest()):
+                    return False
+                joined += text
+            joined_raw = joined.encode("utf-8")
+            if (hashlib.sha256(joined_raw).hexdigest() != d["content_sha256"]
+                    or d.get("bytes") != len(joined_raw) or d.get("chars") != len(joined)):
+                return False
+            total += len(d["pages"])
+        return (isinstance(snapshot.get("next_index"), int) and 0 <= snapshot["next_index"] <= total
+                and isinstance(snapshot.get("created_epoch"), (int, float)))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _flatten_context_pages(snapshot):
+    pages = []
+    for d in snapshot["documents"]:
+        for index, page in enumerate(d["pages"], 1):
+            pages.append((d, index, page))
+    return pages
+
+
+def _context_page(snapshot, index):
+    if not _validate_context_snapshot(snapshot, allow_fixture=bool(
+            isinstance(snapshot, dict) and snapshot.get("fixture"))):
+        return {"mode": "context_page", "documents_complete": False,
+                "query_status": "incomplete", "reason": "snapshot inválido ou divergente"}
+    pages = _flatten_context_pages(snapshot)
+    if not isinstance(index, int) or index < 0 or index >= len(pages):
+        return {"mode": "context_page", "documents_complete": False,
+                "query_status": "incomplete", "reason": "página fora do intervalo"}
+    d, local_page, page = pages[index]
+    return {"mode": "context_page", "fixture": snapshot["fixture"],
+            "snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
+            "query_status": "ok", "documents_complete": True,
+            "document": {"path": d["path"], "blob_sha": d["blob_sha"],
+                         "content_sha256": d["content_sha256"],
+                         "git_sha_verified": d["git_sha_verified"]},
+            "page_number": index + 1, "document_page": local_page,
+            "document_pages": len(d["pages"]), "total_pages": len(pages),
+            "last_page": index == len(pages) - 1, "truncated": False,
+            "page_sha256": page["sha256"], "bytes": page["bytes"],
+            "lines": page["lines"], "text": page["text"],
+            "query_count": 0, "external_calls": 0}
+
+
 def build_context(fixture=False):
-    """Interface determinística para governança, sem caminhos fornecidos pelo modelo."""
+    """Constrói o snapshot completo; a CLI expõe somente manifesto e páginas."""
     global QUERY_COUNT
     QUERY_COUNT = 0
     if fixture:
         cp = fixture_checkpoint(detail=True)
-        return {"checkpoint_utc": cp["checkpoint_utc"], "mode": "context", "fixture": True,
-                "main_sha": cp["main_sha"], "query_count": 0, "external_calls": 0,
-                "query_status": "fixture", "documents_complete": True,
-                "documents": cp["governance"]["remote_documents"],
+        docs = [{**d, "blob_sha": d.get("sha"), "mode": "100644", "type": "blob",
+                 "status": "fixture", "git_sha_verified": False}
+                for d in cp["governance"]["remote_documents"]]
+        snapshot = _make_context_snapshot(cp["main_sha"], docs, fixture=True)
+        return {**snapshot, "mode": "context", "query_count": 0, "external_calls": 0,
+                "documents_complete": True,
                 "notes": ["Governança sintética; nenhuma chamada externa."]}
     integrity = verify_script(require_clean=True)
     if not integrity["ok"]:
         raise RuntimeError(f"integridade do checkpoint inválida: {integrity['reason']}")
     main = main_sha()
     if not valid_sha(main):
-        return {"checkpoint_utc": now(), "mode": "context", "fixture": False,
-                "main_sha": None, "query_status": "unknown", "documents": [],
-                "documents_complete": False, "query_count": QUERY_COUNT,
-                "external_calls": QUERY_COUNT, "script_integrity": integrity,
-                "notes": ["SHA da main não observado; contexto não recuperado."]}
+        return _context_failure("SHA da main não observado", status="unknown")
     remote = remote_governance(detail=True, ref=main)
-    docs = []
-    for d in remote.get("documents", []):
-        text = d.get("text")
-        if text is not None:
-            safe = sanitize_text(text)
-            d["text"] = safe[:60000]
-            d["truncated"] = len(safe) > 60000
-            d["sanitization"] = "best_effort_regex"
-            d["secret_free_guaranteed"] = False
-        docs.append(d)
-    complete = (remote.get("query_status") == "ok" and len(docs) == len(GOVERNANCE_DOCS)
-                and all(d.get("text") is not None and not d.get("truncated") for d in docs))
-    return {"checkpoint_utc": now(), "mode": "context", "fixture": False,
-            "main_sha": main, "query_status": remote.get("query_status"),
-            "documents_complete": complete, "query_count": QUERY_COUNT,
-            "external_calls": QUERY_COUNT, "script_integrity": integrity, "documents": docs,
-            "notes": ["Conteúdo fixado ao SHA da main observado; sanitização é best-effort.",
-                      "Documentos ausentes, symlinks ou truncados não completam o contexto."]}
+    if remote.get("query_status") != "ok":
+        return _context_failure(remote.get("reason", "governança remota incompleta"),
+                                status=remote.get("query_status", "incomplete"))
+    try:
+        remote_docs = [{**d, "blob_sha": d.get("sha")} for d in remote["documents"]]
+        snapshot = _make_context_snapshot(main, remote_docs)
+    except ValueError as e:
+        return _context_failure(str(e))
+    return {**snapshot, "mode": "context", "query_count": QUERY_COUNT,
+            "external_calls": QUERY_COUNT, "script_integrity": integrity,
+            "documents_complete": True,
+            "notes": ["Conteúdo fixado ao SHA da main observado; sanitização é best-effort."]}
+
+
+def build_context_manifest(fixture=False):
+    """Grava um snapshot privado e devolve apenas metadados compactos."""
+    snapshot = build_context(fixture=fixture)
+    if not snapshot.get("documents_complete"):
+        return snapshot
+    if not fixture:
+        try:
+            _store_context_snapshot(snapshot)
+        except (OSError, ValueError) as e:
+            return _context_failure(f"cache privado indisponível: {e}")
+    manifest = _context_manifest(snapshot)
+    manifest["cache_state"] = "memory" if fixture else "stored"
+    return manifest
+
+
+def next_context_page():
+    """Avança o cursor sem argumentos; nunca consulta uma referência mutável."""
+    global QUERY_COUNT
+    QUERY_COUNT = 0
+    integrity = verify_script(require_clean=True)
+    if not integrity["ok"]:
+        raise RuntimeError(f"integridade do checkpoint inválido: {integrity['reason']}")
+    try:
+        snapshot = _read_context_cache()
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        return _context_failure(f"cache de contexto inválido: {e}")
+    if snapshot is None:
+        return _context_failure("snapshot ausente; execute --context")
+    if time.time() - snapshot.get("created_epoch", 0) > CONTEXT_CACHE_TTL_SECONDS:
+        return _context_failure("snapshot expirado; execute --context")
+    if not _validate_context_snapshot(snapshot):
+        return _context_failure("snapshot inconsistente; execute --context")
+    pages = _flatten_context_pages(snapshot)
+    if snapshot["next_index"] >= len(pages):
+        return {"checkpoint_utc": now(), "mode": "context_complete", "fixture": False,
+                "snapshot_id": snapshot["snapshot_id"], "main_sha": snapshot["main_sha"],
+                "query_status": "ok", "documents_complete": True,
+                "all_pages_delivered": True, "delivered_pages": len(pages),
+                "total_pages": len(pages), "query_count": QUERY_COUNT,
+                "external_calls": 0, "script_integrity": integrity}
+    page = _context_page(snapshot, snapshot["next_index"])
+    if not page.get("documents_complete"):
+        return page
+    snapshot["next_index"] += 1
+    try:
+        _store_context_snapshot(snapshot)
+    except (OSError, ValueError) as e:
+        return _context_failure(f"cursor não persistido: {e}")
+    page.update({"delivered_pages": snapshot["next_index"],
+                 "all_pages_delivered": snapshot["next_index"] == len(pages),
+                 "cache_hit": True, "query_count": QUERY_COUNT, "external_calls": 0,
+                 "script_integrity": integrity})
+    return page
 
 
 def build(detail=False, reports=False, fixture=False):
@@ -904,15 +1194,26 @@ def short(sha):
 
 
 def render_context(cp):
-    L = [f"CONTEXTO SHADOW — {cp['checkpoint_utc']}",
-         f"Main fixada: {cp.get('main_sha') or 'DESCONHECIDO'} | fixture={cp.get('fixture')}",
-         f"Status: {cp.get('query_status')} | contexto_completo={cp.get('documents_complete')}",
-         f"Consultas externas: {cp.get('external_calls', 'DESCONHECIDO')}"]
-    for d in cp.get("documents", []):
-        L.append(f"--- {d.get('path')} @ {d.get('sha')} | status={d.get('status')} ---")
-        L.append((d.get("text") or "[TEXTO INDISPONÍVEL]")[:60000])
-        if d.get("truncated"):
-            L.append("[DOCUMENTO TRUNCADO — CONTEXTO INCOMPLETO]")
+    mode = cp.get("mode")
+    if mode == "context_page":
+        L = [f"CONTEXTO SHADOW — página {cp.get('page_number')}/{cp.get('total_pages')}",
+             f"Snapshot: {cp.get('snapshot_id')} | main: {cp.get('main_sha')}",
+             f"Documento: {cp.get('document', {}).get('path')} @ {cp.get('document', {}).get('blob_sha')}",
+             f"Página do documento: {cp.get('document_page')}/{cp.get('document_pages')} | última={cp.get('last_page')}",
+             f"Hash da página: {cp.get('page_sha256')} | bytes={cp.get('bytes')} | linhas={cp.get('lines')}",
+             cp.get("text") or "[TEXTO INDISPONÍVEL]"]
+    elif mode == "context_complete":
+        L = [f"CONTEXTO SHADOW COMPLETO — {cp.get('delivered_pages')}/{cp.get('total_pages')} páginas",
+             f"Snapshot: {cp.get('snapshot_id')} | main: {cp.get('main_sha')}",
+             "Todas as páginas únicas foram entregues."]
+    else:
+        L = [f"MANIFESTO CONTEXTO SHADOW — {cp.get('checkpoint_utc')}",
+             f"Main fixada: {cp.get('main_sha') or 'DESCONHECIDO'} | snapshot={cp.get('snapshot_id')}",
+             f"Status: {cp.get('query_status')} | completo={cp.get('documents_complete')}",
+             f"Documentos: {cp.get('document_count')} | páginas: {cp.get('total_pages')}",
+             f"Limites: {cp.get('page_limits')} | consultas={cp.get('query_count')}"]
+        for d in cp.get("documents", []):
+            L.append(f"- {d.get('path')} @ {d.get('blob_sha')} | {d.get('bytes')} bytes | {d.get('pages')} páginas")
     for n in cp.get("notes", []):
         L.append(f"nota: {n}")
     return "\n".join(L)
@@ -982,19 +1283,23 @@ def main():
     level.add_argument("--summary", action="store_true", help="nível resumido (padrão)")
     level.add_argument("--detail", action="store_true", help="todos os checks/worktrees")
     ap.add_argument("--reports", action="store_true", help="coleta limitada de relatórios; implica detail")
-    ap.add_argument("--context", action="store_true", help="recupera governança fixada ao SHA da main")
+    context_mode = ap.add_mutually_exclusive_group()
+    context_mode.add_argument("--context", action="store_true", help="manifesto de governança fixado ao SHA da main")
+    context_mode.add_argument("--context-next", action="store_true", help="próxima página do snapshot de contexto")
     ap.add_argument("--fixture", action="store_true", help="dados sintéticos, sem chamadas externas")
     ap.add_argument("--json", action="store_true", help="saída JSON")
     args = ap.parse_args()
     try:
-        if args.context:
-            cp = build_context(fixture=args.fixture)
+        if args.context_next:
+            cp = next_context_page()
+        elif args.context:
+            cp = build_context_manifest(fixture=args.fixture)
         else:
             cp = build(detail=args.detail or args.reports, reports=args.reports, fixture=args.fixture)
     except RuntimeError as e:
         print(f"ERRO DE SEGURANÇA: {e}", file=sys.stderr)
         sys.exit(2)
-    if args.context:
+    if args.context or args.context_next:
         print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_context(cp))
         return
     print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_text(cp))

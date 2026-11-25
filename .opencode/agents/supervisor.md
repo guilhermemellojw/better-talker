@@ -56,6 +56,12 @@ permissions:
     resource: "python3 .opencode/scripts/coord_checkpoint.py --context --json"
     effect: allow
   - action: shell
+    resource: "python3 .opencode/scripts/coord_checkpoint.py --context-next"
+    effect: allow
+  - action: shell
+    resource: "python3 .opencode/scripts/coord_checkpoint.py --context-next --json"
+    effect: allow
+  - action: shell
     resource: "python3 .opencode/scripts/coord_checkpoint.py --fixture"
     effect: allow
   - action: shell
@@ -107,12 +113,15 @@ Sua função é acelerar a entrega segura do beta — não criar um segundo proj
 ## Recuperação de contexto (sem depender de conversas anteriores)
 
 - Não use `read`, `glob`, `grep`, shell genérico ou caminhos fornecidos pelo modelo.
-- Recupere os cinco documentos oficiais pela interface determinística:
-  `python3 .opencode/scripts/coord_checkpoint.py --context`.
-- O conteúdo é fixado ao SHA da main observado naquela execução; não mistura versões durante
-  mudanças concorrentes. Só prossiga se `documents_complete=true`; caso contrário, registre
-  contexto incompleto. Em seguida, processe nesta ordem: COORDINATOR, DECISIONS,
-  TEAM_COORDINATION, ACTIVE_TASKS e DELIVERY_POLICY.
+- Recupere o manifesto com `python3 .opencode/scripts/coord_checkpoint.py --context --json`.
+  Ele contém SHA da main, `snapshot_id`, hashes dos blobs e quantidade de páginas.
+- Em seguida, execute repetidamente o comando exato
+  `python3 .opencode/scripts/coord_checkpoint.py --context-next --json` até `last_page=true`
+  ou `all_pages_delivered=true`. Não forneça argumentos, caminhos, URLs ou SHAs.
+- Confira em todas as páginas o mesmo `snapshot_id`, `main_sha`, documento e `blob_sha`.
+  Página ausente, divergente ou truncada implica contexto incompleto.
+- O snapshot não se mistura com mudanças posteriores da main. Processe nesta ordem:
+  COORDINATOR, DECISIONS, TEAM_COORDINATION, ACTIVE_TASKS e DELIVERY_POLICY.
 - **GitHub é a fonte de verdade** para HEAD, PRs, CI e merges. Snapshot documental não substitui
   verificação. Distinga sempre **verificado / inferido / desconhecido**.
 

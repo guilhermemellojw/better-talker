@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import py_compile
+import stat
 import subprocess
 import sys
 import tempfile
@@ -92,6 +93,7 @@ def test_config(fm, body):
     check("script de testes não liberado", not has_rule(rules, "shell", "python3 .opencode/scripts/test_supervisor.py *", "allow"))
     check("checkpoint exato liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --reports", "allow"))
     check("contexto determinístico liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context", "allow"))
+    check("página de contexto liberada", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context-next --json", "allow"))
     check("fixture sintético liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture", "allow"))
 
 
@@ -127,6 +129,9 @@ def test_matcher(fm):
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --reports --json", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context-next", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context-next --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context-next --page 2", "deny"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --json", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --detail --json", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --reports --json", "allow"),
@@ -615,6 +620,110 @@ def test_context():
           and ctx["documents"][0]["secret_free_guaranteed"] is False)
 
 
+def test_context_pagination():
+    print("[OP2] Contexto paginado e snapshot consistente")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    docs = []
+    for index, name in enumerate(cc.GOVERNANCE_DOCS):
+        text = f"# {name}\n"
+        if index == 0:
+            text += "".join(f"linha sintética {n} — conteúdo de governança\n" for n in range(140))
+        raw = text.encode("utf-8")
+        docs.append({"path": f"docs/{name}", "blob_sha": hashlib.sha1(
+            f"blob {len(raw)}\0".encode("ascii") + raw).hexdigest(),
+            "mode": "100644", "type": "blob", "status": "verified",
+            "git_sha_verified": True, "text": text})
+    snapshot = cc._make_context_snapshot("a" * 40, docs)
+    manifest = cc._context_manifest(snapshot)
+    check("manifesto completo e compacto", manifest["documents_complete"]
+          and manifest["document_count"] == 5 and manifest["total_pages"] > 5
+          and all("text" not in d for d in manifest["documents"]))
+    check("documento pequeno em uma página", len(snapshot["documents"][1]["pages"]) == 1)
+    check("documento longo em múltiplas páginas", len(snapshot["documents"][0]["pages"]) > 1)
+    all_pages = cc._flatten_context_pages(snapshot)
+    check("páginas respeitam bytes e linhas", all(p["bytes"] <= cc.CONTEXT_PAGE_MAX_BYTES
+          and p["lines"] <= cc.CONTEXT_PAGE_MAX_LINES for _, _, p in all_pages))
+    rendered_sizes = [len(json.dumps(cc._context_page(snapshot, i), ensure_ascii=False).encode("utf-8"))
+                      for i in range(len(all_pages))]
+    check("saída JSON da página abaixo do truncamento observado", max(rendered_sizes) < 20000)
+    missing = {**snapshot, "documents": [{**d, "pages": list(d["pages"])} for d in snapshot["documents"]]}
+    missing["documents"][0]["pages"].pop()
+    check("página ausente invalida o snapshot", cc._context_page(missing, 0)["documents_complete"] is False)
+    check("página fora do intervalo é rejeitada",
+          cc._context_page(snapshot, len(all_pages))["documents_complete"] is False)
+    divergent = {**snapshot, "documents": [{**d, "blob_sha": "b" * 40 if i == 0 else d["blob_sha"]}
+                                           for i, d in enumerate(snapshot["documents"])]}
+    check("SHA divergente invalida o snapshot", cc._context_page(divergent, 0)["documents_complete"] is False)
+    old_cache, old_verify, old_main = cc.CONTEXT_CACHE, cc.verify_script, cc.main_sha
+    with tempfile.TemporaryDirectory() as td:
+        os.chmod(td, 0o700)
+        cc.CONTEXT_CACHE = os.path.join(td, "context.json")
+        cc.verify_script = lambda require_clean=False: {"ok": True, "git_clean": True}
+        def main_changed():
+            raise AssertionError("paginação não pode consultar a main")
+        cc.main_sha = main_changed
+        try:
+            cc._store_context_snapshot(snapshot)
+            delivered = []
+            for _ in range(len(all_pages)):
+                page = cc.next_context_page()
+                delivered.append(page)
+            complete = cc.next_context_page()
+        finally:
+            cc.CONTEXT_CACHE, cc.verify_script, cc.main_sha = old_cache, old_verify, old_main
+    check("cursor entrega páginas únicas e sequenciais",
+          [p.get("page_number") for p in delivered] == list(range(1, len(all_pages) + 1)))
+    check("última página e completude são explícitas", delivered[-1]["last_page"]
+          and delivered[-1]["all_pages_delivered"] and complete["all_pages_delivered"])
+    check("chamada extra não repete página", complete["mode"] == "context_complete"
+          and "text" not in complete)
+    check("mudança da main não mistura o snapshot", all(p["main_sha"] == "a" * 40
+          and p["snapshot_id"] == snapshot["snapshot_id"] for p in delivered))
+    check("páginas do cache não fazem chamadas externas", all(p["external_calls"] == 0
+          and p["query_count"] == 0 for p in delivered))
+
+
+def test_context_manifest_cache():
+    print("[OP2] Manifesto, cache privado e economia de consultas")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    old_cache, old_sh, old_verify, old_main = cc.CONTEXT_CACHE, cc.sh, cc.verify_script, cc.main_sha
+    with tempfile.TemporaryDirectory() as td:
+        os.chmod(td, 0o700)
+        cc.CONTEXT_CACHE = os.path.join(td, "context.json")
+        fake_git, git_calls, state = synthetic_governance_api()
+        calls = []
+        def fake_api(args):
+            calls.append(args)
+            if args[:2] == ["git", "ls-remote"]:
+                return True, "a" * 40 + "\trefs/heads/main"
+            return fake_git(args)
+        cc.sh = fake_api
+        cc.verify_script = lambda require_clean=False: {"ok": True, "git_clean": True}
+        try:
+            manifest = cc.build_context_manifest()
+            cache_mode = stat.S_IMODE(os.stat(cc.CONTEXT_CACHE).st_mode)
+            dir_mode = stat.S_IMODE(os.stat(td).st_mode)
+            cc.main_sha = lambda: (_ for _ in ()).throw(AssertionError("main consultada na paginação"))
+            pages = []
+            for _ in range(manifest["total_pages"]):
+                pages.append(cc.next_context_page())
+            complete = cc.next_context_page()
+        finally:
+            cc.CONTEXT_CACHE, cc.sh, cc.verify_script, cc.main_sha = old_cache, old_sh, old_verify, old_main
+    check("manifesto criado com oito GETs Git e tamanho compacto",
+          manifest["documents_complete"] and len(git_calls) == 8
+          and len(json.dumps(manifest, ensure_ascii=False).encode("utf-8")) < 10000)
+    check("cache privado respeita 0700/0600", dir_mode == 0o700 and cache_mode == 0o600)
+    check("páginas posteriores não consultam GitHub", all(p["external_calls"] == 0
+          and p["query_count"] == 0 for p in pages))
+    check("snapshot permanece o mesmo após a criação", all(p["snapshot_id"] == manifest["snapshot_id"]
+          and p["main_sha"] == "a" * 40 for p in pages))
+    check("completude só aparece após todas as páginas", complete["all_pages_delivered"]
+          and complete["delivered_pages"] == manifest["total_pages"])
+
+
 def test_fixture():
     print("[P4] Modo fixture sem chamadas externas")
     sys.path.insert(0, HERE)
@@ -635,6 +744,7 @@ def test_fixture():
     try:
         cp = cc.fixture_checkpoint(detail=True, reports=True)
         ctx = cc.build_context(fixture=True)
+        fixture_page = cc._context_page(ctx, 0)
     finally:
         auditing = False
         cc.sh = old
@@ -644,6 +754,8 @@ def test_fixture():
           len(cp["open_prs"]) == 2 and len(cp["worktrees"]) == 2 and cp["query_count"] == 0)
     check("fixture não contém SHA real da main", cp["main_sha"] == "a" * 40)
     check("contexto fixture sem chamadas", ctx["external_calls"] == 0 and len(ctx["documents"]) == 5)
+    check("página fixture sem chamadas e com snapshot sintético",
+          fixture_page["documents_complete"] and fixture_page["fixture"] and fixture_page["external_calls"] == 0)
     check("fixture COMPLETED só associa dados sintéticos",
           cp["agents"][0]["provenance"]["mission_completed"] is True and cp["fixture"] is True)
 
@@ -658,6 +770,9 @@ def test_docs():
     checks = ("INC-COORD-03-001", "intenção", "operação", "destinatário", "UNKNOWN",
               "evidência positiva", "autorização humana", "ledger completo não é implementado")
     check("incidente e protocolo UNKNOWN formalizados", all(term in readme for term in checks))
+    check("paginação e reinício do host documentados",
+          all(term in readme for term in ("--context-next", "10.000 bytes", "16 linhas",
+                                          "INC-COORD-03-OP1-HOST-RESTART", "causa é desconhecida")))
 
 
 def test_live():
@@ -687,6 +802,7 @@ def test_live():
         check("live: gh/API de mensagens negados", match_effect(perms, "shell", "gh pr view 52") == "deny" and
               match_effect(perms, "shell", "opencode api get /api/session/x/message") == "deny")
         check("live: contexto/fixture permitidos", match_effect(perms, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context") == "allow" and
+              match_effect(perms, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context-next --json") == "allow" and
               match_effect(perms, "shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture") == "allow")
         check("live: edit/subagent/git push negados", match_effect(perms, "edit", "docs/x") == "deny" and
               match_effect(perms, "subagent", "general") == "deny" and
@@ -718,6 +834,8 @@ def main():
     test_evidence()
     test_governance_git()
     test_context()
+    test_context_pagination()
+    test_context_manifest_cache()
     test_fixture()
     test_docs()
     if args.live:
