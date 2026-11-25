@@ -92,6 +92,7 @@ jobs:
             --no-daemon --max-workers=1 --stacktrace --console=plain \
             -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
             -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process \
             2>&1 | tee gradle-test.log
 
       - name: Show test failure log
@@ -128,6 +129,7 @@ jobs:
             --no-daemon --max-workers=1 --stacktrace --console=plain \
             -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
             -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process \
             2>&1 | tee gradle-androidtest-public.log
 
       - name: Compile androidTest (syncBeta)
@@ -139,6 +141,7 @@ jobs:
             --no-daemon --max-workers=1 --stacktrace --console=plain \
             -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=768m -XX:+UseSerialGC -Dfile.encoding=UTF-8" \
             -Dkotlin.daemon.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m" \
+            -Pkotlin.compiler.execution.strategy=in-process \
             2>&1 | tee gradle-androidtest-sync.log
 
       - name: Show androidTest compile failure log
