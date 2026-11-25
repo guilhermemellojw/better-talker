@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | `db8001e066b7` | Pendente |
-| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `a2cc4fed7789` | Verde |
+| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | `db8001e066b7` | Verde |
+| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `31db63888270` | Pendente |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `2fc4b2b71670` | Verde |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
