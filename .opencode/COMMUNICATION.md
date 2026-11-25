@@ -1,0 +1,121 @@
+# COORD-04/P1 — fundação de comunicação coordenada
+
+Escopo exclusivamente **sintético e offline**. Nenhuma transmissão real, sessão, LLM,
+credencial, serviço permanente ou permissão nova faz parte desta entrega.
+
+## Arquitetura
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `scripts/coord_communication.py` | Motor genérico: contratos, identidade, autorização, estados, reconciliação, eventos e transporte simulado. |
+| `scripts/test_communication.py` | Testes determinísticos de identidade, autorização, comunicação, relatórios e isolamento. |
+| `scripts/demo_communication.py` | Demonstração offline de sucesso, timeout/UNKNOWN e próxima proposta não despachada. |
+
+O motor não conhece nomes de agentes, documentos ou repositório do Better Talker.
+`ProjectPolicy` e `TargetIdentity` são injetados. O fixture Better Talker fica apenas na
+demonstração e nos testes. `DisabledRealTransport` falha fechado; não há adaptador real ativo.
+
+## Contrato focal da API OpenCode v2.3.2
+
+Discovery feito pela documentação oficial e OpenAPI correspondente, sem POST/PATCH/PUT/DELETE reais.
+
+| Mecanismo | Método/endpoint | Schema/semântica | Erros e limites |
+| --- | --- | --- | --- |
+| Instância | `GET /api/info` | `ServerInfo`: versão, PID, URLs, paths e capacidades. Identidade observável da instância. | 400/401 documentados. |
+| Projeto/location | `GET /api/location?location[directory]=...` | `Location.PublicInfo`: diretório, `project.id`, `directory` e `canonical`. | 400/401/404. |
+| Sessão | `GET /api/session/{sessionID}` | `Session.Info`: ID, `projectID`, agente, modelo, outcome, tempo, tokens e location. | 400/401/404. |
+| Lista de sessões | `GET /api/session` | `SessionsResponse` paginada; filtros por diretório/projeto e cursor. | 400/401. |
+| Sessão ativa | `GET /api/session/active` | Mapa de sessões cujo agente está executando neste processo; ausente = idle. | 400/401. |
+| Inbox | `GET /api/session/{sessionID}/inbox` | Itens ainda não entregues ao agente. Itens user/synthetic entregues migram para `message.list`. | 400/401/404. |
+| Envio | `POST /api/session/{sessionID}/prompt` | Retorna item de inbox após enfileirar; não espera o agente terminar. `resume=false` não inicia execução. | 400/401/404/409/502. |
+| ID da mensagem | Campo `id` do prompt | A spec documenta que reenviar o mesmo ID retorna o item original; reuso em outra sessão/tipo falha 409. | Garantia pontual de deduplicação do item; **não** prova exactly-once de execução. |
+| Espera | `POST /api/experimental/session/{sessionID}/wait` | Retorna quando o agente fica idle; rota experimental. | 400/401/404/503. |
+| Respostas | `GET /api/session/{sessionID}/message` | Mensagens paginadas; inbox ainda não incluído. Filtro `type=assistant` disponível. | 400/401/404/500. |
+| Jobs | `GET /api/experimental/job` | Jobs ativos/não consumidos, filtráveis por sessão/kind/status; experimental. | 400/401/404. |
+
+Não foi confirmado: entrega durável ao modelo, execução exactly-once, ordem global entre
+instâncias, confirmação de leitura pelo agente ou sobrevivência a toda falha de transporte.
+Essas propriedades não são presumidas pelo motor.
+
+## Envelope de missão `1.0`
+
+Campos obrigatórios:
+
+- `schema_version`, `project_id`, `repository_id`;
+- `mission_id` e `operation_id` separados;
+- `coordinator_id`;
+- `target_agent`, `target_session_id`, `target_instance_id`, `target_location`;
+- `objective`, `payload`, `payload_sha256`;
+- `expected_deliverables`, `acceptance_criteria`, `ownership_constraints`;
+- `authorization_reference`, `created_at`, `expires_at`, `timeout`;
+- `scope`; `expected_head_sha`/`expected_branch` opcionais para detectar divergência.
+
+O hash SHA-256 cobre o JSON canônico do payload. Alteração de payload, escopo, projeto ou
+destinatário exige nova autorização. IDs permitem correlação; não são idempotência.
+
+## Relatório `BT-COORD-REPORT:v1`
+
+Campos: projeto, missão, operação quando disponível, agente, sessão, mensagem, status,
+HEAD/branch/PR quando aplicável, evidência de testes, bloqueios, artefatos, conclusão e
+resultados por critério. `untrusted_text` permanece dado não confiável; o motor não executa
+instruções contidas nele.
+
+Classificações:
+
+- `candidate`: identidade/schema insuficiente;
+- `associated`: missão correta, sem evidência bastante;
+- `verified`: evidência/critérios verificados, missão ainda não concluída;
+- `completed`: status COMPLETED + associação + evidência/critérios;
+- `stale`: anterior à missão;
+- `divergent`: projeto, missão, operação, agente, sessão, HEAD ou branch divergentes;
+- `incomplete`: critérios ou evidência ausentes.
+
+Relatório COMPLETED não certifica código. Duplicidade idêntica é descartada; duplicidade
+divergente é rejeitada.
+
+## Autorização
+
+`Authorization` vincula referência, projeto, repositório, identidade completa do destinatário,
+hash do payload, escopo, emissão, expiração e revogação. A P1 aceita somente autorização
+sintética. O motor rejeita ausência, expiração, revogação, hash divergente, destinatário
+modificado, projeto diferente e escopo proibido. A política permanece `SHADOW`.
+
+## Estados e reconciliação
+
+```text
+PROPOSED → AUTHORIZED → DISPATCHING → DELIVERED → RUNNING → COMPLETED
+                     ↘ FAILED/UNKNOWN   ↘ FAILED/UNKNOWN   ↘ FAILED/UNKNOWN
+UNKNOWN → DELIVERED/RUNNING/COMPLETED/FAILED somente por evidência
+```
+
+- `DELIVERED` exige `message_id`/evidência de entrega definida no transporte.
+- Timeout, resposta perdida ou observação parcial viram `UNKNOWN`.
+- `transmit()` recusa nova chamada em `UNKNOWN`.
+- `reconcile()` consulta o transporte e nunca chama `transmit()`.
+- Eventos são registrados em memória com sequência, estado anterior/posterior e evidência.
+
+Não há ledger persistente, lock, daemon, banco externo ou garantia exactly-once nesta P1.
+
+## Transporte simulado
+
+Cenários determinísticos: sucesso, destinatário incorreto/inexistente, sessão/inbox ocupado,
+falha antes da transmissão, timeout após transmissão, resposta perdida, observação parcial,
+resultado duplicado e resultado divergente. Nenhuma chamada externa é realizada.
+
+## Execução
+
+```sh
+python3 .opencode/scripts/test_communication.py
+python3 .opencode/scripts/demo_communication.py
+python3 .opencode/scripts/test_supervisor.py
+```
+
+A demonstração produz dois fluxos COMPLETED: um normal e um timeout reconciliado sem reenvio.
+A próxima missão permanece PROPOSED e não é despachada.
+
+## Reutilização futura
+
+O núcleo é independente do Better Talker. Identidade de projeto, política, repositório,
+location e sessões autorizadas são dados externos ao motor. O HealthAgentForms não foi acessado.
+Multiprojeto, persistência, transporte real, concorrência e orquestração pertencem a etapas
+futuras e não estão implementados aqui.
