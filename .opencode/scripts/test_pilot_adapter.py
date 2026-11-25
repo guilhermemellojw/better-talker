@@ -111,6 +111,8 @@ def fake_client(*, active=None, inbox=None, messages=None, location=None, sessio
     client.set("GET", f"/api/session/{TARGET.session_id}", 200,
                {"data": session or {"id": TARGET.session_id, "projectID": TARGET.project_id,
                                     "agent": TARGET.agent_id, "outcome": "succeeded",
+                                    "model": {"providerID": "opencode-go", "id": "hungerg-free",
+                                              "variant": "default"},
                                     "time": {"busy": 1, "idle": 2},
                                     "location": {"directory": TARGET.location}}})
     client.set("GET", pilot.ACTIVE_PATH, 200, {"data": active or {}})
@@ -156,6 +158,8 @@ class AdapterIdentityTests(unittest.TestCase):
         self.assertEqual(busy.status(TARGET).state, "busy")
         unknown = transport(fake_client(session={"id": TARGET.session_id, "projectID": TARGET.project_id,
                                                 "agent": TARGET.agent_id, "time": {},
+                                                "model": {"providerID": "opencode-go",
+                                                          "id": "hungerg-free", "variant": "default"},
                                                 "location": {"directory": TARGET.location}}))
         self.assertEqual(unknown.status(TARGET).state, "unknown")
 

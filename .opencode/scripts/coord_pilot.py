@@ -9,11 +9,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -32,6 +34,15 @@ INBOX_SUFFIX = "/inbox"
 PROMPT_SUFFIX = "/prompt"
 MESSAGE_SUFFIX = "/message"
 DEFAULT_PILOT_DIR = os.path.expanduser("~/.local/state/better-talker/coord-pilot")
+PILOT_TRANSITIONS = {
+    "AUTHORIZED": {"DISPATCHING", "UNKNOWN", "FAILED"},
+    "DISPATCHING": {"UNKNOWN", "FAILED", "DELIVERED", "RUNNING", "COMPLETED"},
+    "DELIVERED": {"RUNNING", "FAILED", "UNKNOWN"},
+    "RUNNING": {"COMPLETED", "FAILED", "UNKNOWN"},
+    "UNKNOWN": {"RUNNING", "COMPLETED", "FAILED"},
+    "COMPLETED": set(),
+    "FAILED": set(),
+}
 ALLOWED_METHODS = {"GET", "POST"}
 ALLOWED_PATH_PREFIXES = ("/api/",)
 
@@ -57,12 +68,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class LocalHttpClient(HttpClient):
     """Cliente opcional, restrito a base local fixa e caminhos /api/."""
 
-    def __init__(self, base_url: str, *, allow_write: bool = False):
-        if not isinstance(base_url, str) or not base_url.startswith("http://127.0.0.1:"):
-            raise cc.ContractError("base_url deve ser local explícita")
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str, *, allowed_port: int, allow_write: bool = False):
+        parsed = urllib.parse.urlparse(base_url)
+        if (parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username
+                or parsed.password or parsed.fragment or parsed.query or parsed.params):
+            raise cc.ContractError("base_url inválida")
+        try:
+            port = parsed.port
+        except ValueError as e:
+            raise cc.ContractError("porta inválida") from e
+        if port is None or port != allowed_port or not 1 <= port <= 65535:
+            raise cc.ContractError("porta não autorizada")
+        if parsed.path not in {"", "/"}:
+            raise cc.ContractError("base_url não pode conter caminho adicional")
+        self.base_url = f"http://127.0.0.1:{port}"
+        self.allowed_port = port
         self.allow_write = allow_write
-        self.opener = urllib.request.build_opener(_NoRedirect)
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
 
     def request(self, method: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, dict[str, Any]]:
         method = method.upper()
@@ -97,6 +119,12 @@ def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def instance_identity(info: dict[str, Any]) -> str:
+    material = {"version": info.get("version"), "pid": info.get("pid"),
+                "urls": info.get("urls"), "hostname": info.get("hostname")}
+    return hashlib.sha256(cc.canonical_json(material).encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class PilotAuthorization:
     """Contrato de autorização experimental; não é emitida nesta missão."""
@@ -118,6 +146,7 @@ class PilotAuthorization:
     approved: bool = False
     environment: str = "PROPOSED"
     max_transmissions: int = 1
+    expected_model: str = "opencode-go/hungerg-free#default"
 
     def validate(self) -> None:
         self.target.validate()
@@ -129,7 +158,8 @@ class PilotAuthorization:
                              (self.instance_id, "instance_id"),
                              (self.mission_id, "mission_id"),
                              (self.operation_id, "operation_id"),
-                             (self.scope, "scope")):
+                             (self.scope, "scope"),
+                             (self.expected_model, "expected_model")):
             if not isinstance(value, str) or not value.strip():
                 raise cc.ContractError(f"{label} ausente")
         if not cc.SHA256_PATTERN.fullmatch(self.prompt_sha256):
@@ -145,12 +175,19 @@ class PilotAuthorization:
         if self.maintainer_id.lower() in {"supervisor", "agent-s", "agente s"}:
             raise cc.ContractError("supervisor não pode emitir sua própria autorização")
 
-    def validate_for_pilot(self, clock: Optional[datetime] = None) -> None:
+    def validate_for_pilot(self, clock: Optional[datetime] = None, *, require_real: bool = False) -> None:
         self.validate()
         if not self.approved:
             raise cc.AuthorizationError("autorização experimental não aprovada")
-        if self.environment not in {"APPROVED", "FIXTURE"}:
-            raise cc.AuthorizationError("autorização não está aprovada para execução")
+        if self.environment in {"PROPOSED", "SYNTHETIC"}:
+            raise cc.AuthorizationError("autorização proposta/sintética não habilita transmissão")
+        if require_real:
+            if self.environment != "APPROVED":
+                raise cc.AuthorizationError("HTTP real exige autorização APPROVED")
+            if self.maintainer_id.lower() in {"fixture", "fake", "test", "simulado"}:
+                raise cc.AuthorizationError("aprovador fixtures não habilita HTTP real")
+        elif self.environment not in {"FIXTURE", "APPROVED"}:
+            raise cc.AuthorizationError("autorização não utilizável no transporte de teste")
         current = clock or cc.utc_now()
         if current >= self.expires_at:
             raise cc.AuthorizationError("autorização expirada")
@@ -176,6 +213,7 @@ class PilotAuthorization:
             "approved": self.approved,
             "environment": self.environment,
             "max_transmissions": self.max_transmissions,
+            "expected_model": self.expected_model,
         }
         return hashlib.sha256(cc.canonical_json(material).encode("utf-8")).hexdigest()
 
@@ -198,8 +236,56 @@ class PilotAuthorization:
             "approved": self.approved,
             "environment": self.environment,
             "max_transmissions": self.max_transmissions,
+            "expected_model": self.expected_model,
             "canonical_sha256": self.canonical(),
         }
+
+
+@dataclass(frozen=True)
+class PilotApproval:
+    """Aprovação humana explícita do manifesto exato; não é emitida pelo agente."""
+
+    approval_id: str
+    approver_id: str
+    approver_type: str
+    approval_reference: str
+    reviewed_head_sha: str
+    manifest_sha256: str
+    operation_id: str
+    session_id: str
+    prompt_sha256: str
+    issued_at: datetime
+    expires_at: datetime
+    environment: str = "PROPOSED"
+
+    def validate(self) -> None:
+        if self.approver_type != "human":
+            raise cc.AuthorizationError("aprovação deve ser humana")
+        if self.environment not in {"PROPOSED", "APPROVED"}:
+            raise cc.AuthorizationError("ambiente de aprovação inválido")
+        if not re.fullmatch(r"[0-9a-f]{64}", self.manifest_sha256):
+            raise cc.ContractError("hash do manifesto inválido")
+        if not cc.SHA256_PATTERN.fullmatch(self.prompt_sha256):
+            raise cc.ContractError("hash do prompt inválido")
+        if not re.fullmatch(r"[0-9a-f]{40,64}", self.reviewed_head_sha):
+            raise cc.ContractError("HEAD revisado inválido")
+        cc._require_aware(self.issued_at, "issued_at")
+        cc._require_aware(self.expires_at, "expires_at")
+        if self.expires_at <= self.issued_at:
+            raise cc.ContractError("validade da aprovação inválida")
+
+    def matches(self, mission: cc.MissionEnvelope, target: cc.TargetIdentity,
+                prompt_sha256: str) -> bool:
+        manifest = cc.canonical_json({
+            "mission_identity": cc.canonical_mission_identity(mission),
+            "operation_id": mission.operation_id,
+            "session_id": target.session_id,
+            "prompt_sha256": prompt_sha256,
+        })
+        return (self.operation_id == mission.operation_id
+                and self.session_id == target.session_id
+                and self.prompt_sha256 == prompt_sha256
+                and self.manifest_sha256 == hashlib.sha256(manifest.encode("utf-8")).hexdigest())
 
 
 def mission_report_from_dict(value: dict[str, Any]) -> Optional[cc.MissionReport]:
@@ -249,7 +335,12 @@ class OpenCodeTransport(cc.Transport):
                  registered_targets: tuple[cc.TargetIdentity, ...],
                  pilot_authorization: PilotAuthorization,
                  allow_write: bool = False,
-                 clock=None):
+                 clock=None, mode: str = "fixture"):
+        if mode not in {"fixture", "real"}:
+            raise cc.ContractError("modo de transporte inválido")
+        self.mode = mode
+        self.is_real = mode == "real"
+        self.last_receipt: Optional[cc.TransportReceipt] = None
         self.client = client
         self.expected_instance_id = expected_instance_id
         self.registered = {target.key(): target for target in registered_targets}
@@ -293,10 +384,14 @@ class OpenCodeTransport(cc.Transport):
         if project.get("id") != target.project_id or location.get("directory") != target.location:
             raise cc.TransportError("location/projeto divergente", phase="pre_transmit")
         session = (self._get(f"/api/session/{target.session_id}") or {}).get("data") or {}
+        model = session.get("model") or {}
+        model_ref = f"{model.get('providerID')}/{model.get('id')}" + (
+            f"#{model.get('variant')}" if model.get("variant") else "")
         if (session.get("id") != target.session_id or session.get("projectID") != target.project_id
                 or session.get("agent") != target.agent_id
-                or (session.get("location") or {}).get("directory") != target.location):
-            raise cc.TransportError("sessão divergente", phase="pre_transmit")
+                or (session.get("location") or {}).get("directory") != target.location
+                or model_ref != self.pilot.expected_model):
+            raise cc.TransportError("sessão/modelo divergente", phase="pre_transmit")
 
     def lookup_target(self, project_id: str, agent_id: str, session_id: str) -> cc.TargetIdentity:
         target = self.pilot.target
@@ -322,7 +417,7 @@ class OpenCodeTransport(cc.Transport):
                                  "idle_metadata": idle_confirmed, "source": "opencode-api"})
 
     def prepare(self, envelope: cc.MissionEnvelope, authorization: cc.Authorization) -> cc.PreparedRequest:
-        self.pilot.validate_for_pilot(self.clock())
+        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
         envelope.validate()
         if (envelope.mission_id != self.pilot.mission_id or
                 envelope.operation_id != self.pilot.operation_id or
@@ -354,9 +449,10 @@ class OpenCodeTransport(cc.Transport):
         target = request.envelope.target
         path = f"/api/session/{target.session_id}{PROMPT_SUFFIX}"
         response = self._post(path, body)
-        message_id = ((response.get("data") or {}).get("id")) or request.request_id
+        observed_id = (response.get("data") or {}).get("id")
         evidence = {"operation_id": request.envelope.operation_id,
-                    "message_id": message_id,
+                    "expected_message_id": request.request_id,
+                    "observed_message_id": observed_id,
                     "payload_sha256": request.envelope.payload_sha256,
                     "project_id": request.envelope.project_id,
                     "repository_id": request.envelope.repository_id,
@@ -364,9 +460,16 @@ class OpenCodeTransport(cc.Transport):
                     "session_id": request.envelope.target_session_id,
                     "instance_id": request.envelope.target_instance_id,
                     "location": request.envelope.target_location,
-                    "queued_in_inbox": True, "source": "opencode-api"}
-        return cc.TransportReceipt(request.envelope.operation_id, "accepted",
-                                   message_id, evidence, cc.utc_now())
+                    "http_status": 202, "source": "opencode-api"}
+        if not isinstance(observed_id, str) or not observed_id:
+            receipt = cc.TransportReceipt(request.envelope.operation_id, "ambiguous", None,
+                                          {**evidence, "message_id_unavailable": True}, cc.utc_now())
+        else:
+            receipt = cc.TransportReceipt(request.envelope.operation_id, "accepted",
+                                          observed_id, {**evidence, "queued_in_inbox": True},
+                                          cc.utc_now())
+        self.last_receipt = receipt
+        return receipt
 
     def operation_status(self, operation_id: str) -> cc.OperationObservation:
         if operation_id != self.pilot.operation_id:
@@ -376,33 +479,43 @@ class OpenCodeTransport(cc.Transport):
         inbox = (self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}") or {}).get("data") or []
         prompt_id = f"msg-pilot-{operation_id}"
         messages = (self._get(f"/api/session/{target.session_id}{MESSAGE_SUFFIX}?limit=20&order=desc") or {}).get("data") or []
-        reports = []
-        user_ids = set()
+        reports, recorded, queued = [], False, False
         for item in messages:
             item_id = item.get("id")
             text = "\n".join(p.get("text", "") for p in item.get("content", [])
                              if isinstance(p, dict) and p.get("type") == "text")
-            if item.get("type") == "user" and item_id:
-                user_ids.add(item_id)
-            if item.get("type") == "assistant":
+            if (item.get("type") == "user" and item_id == prompt_id
+                    and sha256_text(text) == self.pilot.prompt_sha256):
+                recorded = True
+            if item.get("type") == "assistant" and item_id:
                 parsed = parse_pilot_report(text, operation_id)
                 if parsed:
-                    reports.append(parsed)
+                    reports.append(replace(
+                        parsed, message_id=item_id,
+                        agent_id=item.get("agent") or target.agent_id,
+                        session_id=target.session_id,
+                        test_evidence=({"name": "transporte observado", "message_id": item_id},)
+                        + tuple(parsed.test_evidence)))
+        for item in inbox:
+            item_id = item.get("id")
+            inbox_text = str(item.get("text") or "")
+            if item_id == prompt_id and (not inbox_text or sha256_text(inbox_text) == self.pilot.prompt_sha256):
+                queued = True
         evidence = {"source": "opencode-api", "active_observed": target.session_id in active,
-                    "queue_observed": bool(inbox), "availability_claimed": False}
+                    "queue_observed": bool(inbox), "availability_claimed": False,
+                    "prompt_content_confirmed": recorded, "prompt_id_expected": prompt_id}
         if reports:
             level, state, evidence["report_available"] = "report_received", "completed", True
-        elif target.session_id in active:
+        elif recorded and target.session_id in active:
             level, state, evidence["executing"] = "execution_started", "running", True
-        elif prompt_id in user_ids:
+        elif recorded:
             level, state, evidence["recorded"] = "recorded_in_session", "queued", True
-        elif any((item.get("id") == prompt_id) for item in inbox):
+        elif queued:
             level, state = "queued_in_inbox", "queued"
         else:
             level, state = "not_observed", "not_observed"
-        return cc.OperationObservation(operation_id, state, prompt_id, tuple(reports),
-                                       evidence, target, level, operation_id,
-                                       self.pilot.prompt_sha256)
+        return cc.OperationObservation(operation_id, state, prompt_id if recorded or queued else None,
+                                       tuple(reports), evidence, target, level, operation_id, None)
 
     def reports(self, operation_id: str) -> tuple[cc.MissionReport, ...]:
         if operation_id != self.pilot.operation_id:
@@ -472,6 +585,11 @@ class PilotOperationStore:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temporary, self.path)
+            dir_fd = os.open(self.directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
@@ -497,6 +615,8 @@ class PilotOperationStore:
         record = self.load()
         if record is None:
             raise cc.ContractError("registro ausente")
+        if state != record.state and state not in PILOT_TRANSITIONS.get(record.state, set()):
+            raise cc.ContractError(f"transição proibida: {record.state} → {state}")
         record.state = state
         record.updated_at = cc.iso(cc.utc_now())
         record.evidence.update(evidence)
@@ -539,3 +659,108 @@ class PilotOperationStore:
             return self.update("UNKNOWN", {"interruption_unknown": True,
                                            "automatic_resend": False})
         return record
+
+
+class PilotExecutor:
+    """Executa uma única operação experimental pelo caminho protegido."""
+
+    def __init__(self, transport: OpenCodeTransport, store: PilotOperationStore,
+                 approval: PilotApproval, *, allow_real: bool = False, clock=None):
+        self.transport = transport
+        self.store = store
+        self.approval = approval
+        self.allow_real = allow_real
+        self.clock = clock or cc.utc_now
+
+    def _validate(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
+                  prompt: str) -> None:
+        self.approval.validate()
+        if self.clock() >= self.approval.expires_at:
+            raise cc.AuthorizationError("aprovação expirada")
+        if self.allow_real:
+            if not self.transport.is_real or self.approval.environment != "APPROVED":
+                raise cc.AuthorizationError("execução real exige aprovação e transporte real")
+            if self.transport.pilot.environment != "APPROVED":
+                raise cc.AuthorizationError("autorização FIXTURE não habilita HTTP real")
+        elif self.transport.is_real:
+            raise cc.AuthorizationError("transporte real requer allow_real explícito")
+        if not self.approval.matches(mission, self.transport.pilot.target,
+                                     pilot_sha256 := sha256_text(prompt)):
+            raise cc.ContractError("manifesto aprovado diverge da operação")
+        if pilot_sha256 != self.transport.pilot.prompt_sha256:
+            raise cc.ContractError("prompt diverge da autorização")
+
+    def execute(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
+                prompt: str) -> dict[str, Any]:
+        self._validate(mission, authorization, prompt)
+        existing = self.store.load()
+        if existing is None:
+            self.store.create(PilotOperationRecord(
+                mission.mission_id, mission.operation_id,
+                self.approval.approval_id, self.transport.pilot.canonical(),
+                tuple(self.transport.pilot.target.key()), sha256_text(prompt),
+                "AUTHORIZED", cc.iso(self.clock()), cc.iso(self.clock())))
+        else:
+            if (existing.operation_id != mission.operation_id
+                    or existing.authorization_canonical != self.transport.pilot.canonical()):
+                raise cc.ContractError("registro persistente divergente")
+        self.store.assert_transmittable()
+        with self.store.reserve():
+            self.store.assert_transmittable()
+            # O piloto é textual e aprovado por hash exato; a autoridade vem de
+            # PilotApproval + PilotAuthorization. Mantemos cinco guardas da fundação;
+            # apenas "schema" é excetuado porque o contrato BT-COORD-REPORT:v1 exige
+            # a chave schema_version no JSON do relatório.
+            policy = cc.ProjectPolicy(mission.project_id, mission.repository_id,
+                                      (mission.target_location,), (mission.target_agent,),
+                                      (mission.target,),
+                                      forbidden_scope_terms=("merge", "push main", "release",
+                                                             "adb", "credential"),
+                                      mode="SHADOW")
+            engine = cc.CommunicationEngine(policy, self.transport, clock=self.clock)
+            engine.propose(mission)
+            engine.authorize(mission.operation_id, authorization)
+            # DISPATCHING é persistido antes de qualquer POST.
+            persisted = self.store.update("DISPATCHING", {"pre_transmit": True})
+            if persisted.state != "DISPATCHING":
+                raise cc.ContractError("persistência de DISPATCHING falhou")
+            # Revalidação imediata antes da tentativa única.
+            self._validate(mission, authorization, prompt)
+            engine_record = engine.transmit(mission.operation_id)
+            evidence = {"engine_state": engine_record.state.value,
+                        "message_id": engine_record.message_id,
+                        "receipt": self.transport.last_receipt.evidence
+                        if self.transport.last_receipt else {},
+                        "transmit_called": True}
+            if engine_record.state == cc.OperationState.UNKNOWN:
+                state = "UNKNOWN"
+            elif engine_record.state == cc.OperationState.FAILED:
+                state = "FAILED"
+            else:
+                state = "DISPATCHING"
+            self.store.update(state, evidence)
+            return {"executed": True, "state": state,
+                    "receipt_confirmed": engine_record.message_id is not None,
+                    "engine_events": len(engine.events.events)}
+
+    def reconcile(self) -> dict[str, Any]:
+        record = self.store.load()
+        if record is None:
+            raise cc.ContractError("registro ausente")
+        if record.state in {"COMPLETED", "FAILED"}:
+            return {"state": record.state, "changed": False}
+        observation = self.transport.operation_status(record.operation_id)
+        level = observation.evidence_level
+        if observation.reports:
+            state = "COMPLETED"
+        elif level == "execution_started":
+            state = "RUNNING"
+        elif level == "recorded_in_session":
+            state = "DELIVERED"
+        elif record.state == "UNKNOWN":
+            return {"state": "UNKNOWN", "changed": False, "reason": "sem evidência positiva"}
+        else:
+            return {"state": record.state, "changed": False}
+        self.store.update(state, {"observation": observation.evidence,
+                                  "automatic_resend": False})
+        return {"state": state, "changed": True, "reports": len(observation.reports)}

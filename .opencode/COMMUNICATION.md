@@ -261,3 +261,35 @@ arquivo `.lock` local com `O_EXCL`; ela impede dois consumidores locais, não é
 
 A proposta de missão, a autorização a ser aprovada e o runbook estão em `PILOT.md`. Nenhum POST
 real, sessão, prompt, serviço ou A–E foi operado na P3A.
+
+## COORD-04/P3A.1 — caminho protegido integrado
+
+`PilotExecutor.execute()` conecta os componentes em uma única sequência: valida autorização e
+manifesto aprovado, cria/valida o registro persistente, adquire a reserva exclusiva, reconfirma
+destino e condições, **persiste `DISPATCHING` antes do POST**, revalida imediatamente antes da
+tentativa única, executa no máximo uma transmissão e persiste evidências/resultado. Não existe
+caminho operacional de escrita que contorne essa ordem.
+
+`PilotApproval` é a aprovação humana explícita do manifesto exato, com `approver_type="human"`,
+HEAD revisado e `manifest_sha256` canônico; ela não é emitida pelo agente e não é exposta às
+ferramentas do supervisor. `FIXTURE`, `SYNTHETIC` e `PROPOSED` nunca habilitam HTTP real —
+somente `APPROVED` com transporte real e `allow_real=True`. `approved=true` autodeclarado não
+é prova de autorização humana. Não se declara isolamento forte contra processos arbitrários do
+mesmo usuário do sistema.
+
+`LocalHttpClient` passou a validação estrutural da URL: `http`, host exatamente `127.0.0.1`,
+porta explicitamente autorizada, ausência de userinfo, fragmento, parâmetros e caminho extra,
+proxies desativados e redirecionamentos proibidos. A sessão observada deve coincidir com
+instância, projeto, location, agente e modelo autorizados; ausência de `busy` não é prova de
+disponibilidade.
+
+`transmit()` não fabrica `message_id`: uma resposta bem-sucedida porém incompleta gera receipt
+`ambiguous` e estado `UNKNOWN`. `operation_status()` distingue identidade esperada, observada,
+correlação derivada e evidência indisponível; exige id e conteúdo do prompt para promover
+estado, e associa relatório somente com envelopes/autoria/correlação observadas. O campo
+`payload_sha256` do envelope permanece separado do `prompt_sha256` da autorização.
+
+`coord_pilot_cli.py` expõe `preflight`, `dry-run`, `prepare`, `execute`, `reconcile` e
+`closeout`. `execute` é bloqueado por padrão (`BLOCKED_BY_DEFAULT`, zero chamadas HTTP). O
+runbook em `PILOT.md` corrigiu a ordem: `DISPATCHING` é persistido **antes** do POST, nunca
+depois da aceitação. Nenhuma escrita real foi executada na P3A.1.
