@@ -6,6 +6,8 @@ Níveis:
   --detail: todos os checks/worktrees; investigação sob demanda.
   --reports: implica detail; coleta paginada e limitada do último relatório concluído
              apenas de sessões explicitamente autorizadas no mapa local.
+  --context: cinco documentos oficiais da main, fixados ao SHA observado.
+  --fixture: sessões, PRs, checks, relatórios e worktrees sintéticos; zero chamadas externas.
 
 Mapa local (não versionado): ~/.local/state/better-talker/coord-sessions.json.
 Identificadores de sessão são locais e transitórios; nunca identidade permanente da equipe.
@@ -26,12 +28,19 @@ from datetime import datetime, timezone
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 REPO = "guilhermemellojw/better-talker"
+MAIN_REMOTE = f"https://github.com/{REPO}.git"
 DEFAULT_MAP = os.path.expanduser("~/.local/state/better-talker/coord-sessions.json")
+GOVERNANCE_DOCS = ("COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
+                   "ACTIVE_TASKS.md", "DELIVERY_POLICY.md")
 REPORT_CONTRACT = "<!-- BT-COORD-REPORT:v1 -->"
 REPORT_MARKERS = ("##", "HEAD", "PR #", "Parecer", "Resultado", "Bloqueio",
                   "Missão", "QA", "Recertificação", "Status")
 KNOWN_CI_EVENTS = {"push", "pull_request", "pull_request_target", "workflow_run",
                    "workflow_dispatch", "schedule"}
+# Sem consultar a proteção da branch, somente o evento pull_request é tratado
+# como candidato de gate pertinente; os demais eventos são evidência, não gate.
+GATE_CI_EVENTS = {"pull_request"}
+INFORMATIONAL_CHECKS = {"propose"}
 QUERY_COUNT = 0
 
 
@@ -57,8 +66,10 @@ def now():
 
 
 def main_sha():
-    ok, out = sh(["git", "ls-remote", "origin", "main"])
-    return out.split()[0] if ok and out else None
+    """Observa a main do repositório fixo; não confia em um remote configurável."""
+    ok, out = sh(["git", "ls-remote", MAIN_REMOTE, "refs/heads/main"])
+    fields = out.split()
+    return fields[0] if ok and fields and re.fullmatch(r"[0-9a-f]{40}", fields[0]) else None
 
 
 def local_head():
@@ -87,21 +98,35 @@ def verify_script(require_clean=False):
         return {"ok": False, "reason": str(e)}
 
 
+def _canonical_directory(path):
+    """Exige caminho absoluto, normalizado e sem symlinks em qualquer componente."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise ValueError("diretório inválido")
+    normalized = os.path.abspath(path)
+    if path != normalized or os.path.realpath(path) != normalized:
+        raise ValueError("diretório não canônico ou contém symlink")
+    return path
+
+
 def _private_regular_file(path):
-    """Arquivo regular, não-symlink, do proprietário atual e sem acesso grupo/outros."""
+    """Arquivo 0600 em diretório 0700, sem symlinks em toda a cadeia do caminho."""
+    path = os.path.abspath(path)
+    if os.path.realpath(path) != path:
+        raise ValueError("mapa local contém symlink no caminho")
     st = os.lstat(path)
     if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
         raise ValueError("mapa local não é arquivo regular")
     if st.st_uid != os.getuid():
         raise ValueError("mapa local não pertence ao usuário atual")
-    if stat.S_IMODE(st.st_mode) & 0o077:
-        raise ValueError("mapa local com permissões amplas")
+    if stat.S_IMODE(st.st_mode) != 0o600:
+        raise ValueError("mapa local deve ter permissões 0600")
     parent = os.path.dirname(path)
     pst = os.lstat(parent)
     if stat.S_ISLNK(pst.st_mode) or not stat.S_ISDIR(pst.st_mode):
         raise ValueError("diretório do mapa inválido")
-    if pst.st_uid != os.getuid() or stat.S_IMODE(pst.st_mode) & 0o077:
-        raise ValueError("diretório do mapa não é privado do usuário")
+    if pst.st_uid != os.getuid() or stat.S_IMODE(pst.st_mode) != 0o700:
+        raise ValueError("diretório do mapa deve ser 0700 e privado do usuário")
+    return path
 
 
 def load_session_map(path=None):
@@ -109,16 +134,25 @@ def load_session_map(path=None):
     path = path or DEFAULT_MAP
     if not os.path.lexists(path):
         return None
-    _private_regular_file(path)
-    with open(path, encoding="utf-8") as f:
+    path = _private_regular_file(path)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, encoding="utf-8") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
+            raise ValueError("mapa local mudou ou não é mais privado durante a leitura")
         cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        raise ValueError("mapa local inválido")
     project = cfg.get("project") or {}
+    if not isinstance(project, dict):
+        raise ValueError("project inválido")
     if not isinstance(project.get("id"), str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", project["id"]):
         raise ValueError("project.id inválido")
     if not isinstance(project.get("allowed_directories"), list) or not project["allowed_directories"]:
         raise ValueError("allowed_directories ausente")
-    if any(not isinstance(d, str) or not os.path.isabs(d) for d in project["allowed_directories"]):
-        raise ValueError("allowed_directories inválidos")
+    for directory in project["allowed_directories"]:
+        _canonical_directory(directory)
     agents = cfg.get("agents")
     if not isinstance(agents, dict) or not agents:
         raise ValueError("mapa local sem agentes")
@@ -127,14 +161,17 @@ def load_session_map(path=None):
         if agent not in {"A", "B", "C", "D", "E"} or not isinstance(entries, list):
             raise ValueError(f"agente inválido no mapa: {agent}")
         for e in entries:
+            if not isinstance(e, dict):
+                raise ValueError(f"entrada inválida no mapa: {agent}")
             sid = e.get("session_id")
             if not isinstance(sid, str) or not re.fullmatch(r"ses_[A-Za-z0-9_-]{8,128}", sid):
                 raise ValueError(f"session_id inválido: {agent}")
             if sid in seen:
                 raise ValueError(f"session_id duplicado/ambíguo: {sid}")
             seen.add(sid)
-            if e.get("directory") not in project["allowed_directories"]:
-                raise ValueError(f"diretório não permitido no mapa: {e.get('directory')}")
+            directory = _canonical_directory(e.get("directory"))
+            if directory not in project["allowed_directories"]:
+                raise ValueError(f"diretório não permitido no mapa: {directory}")
     return cfg
 
 
@@ -212,7 +249,12 @@ def authorize_sessions(candidates, cfg):
             if c.get("project_id") != project["id"]:
                 rejected.append({"agent": agent, "reason": "projectID ausente/divergente"})
                 continue
-            if c.get("directory") != e.get("directory") or c.get("directory") not in allowed:
+            try:
+                observed_directory = _canonical_directory(c.get("directory"))
+            except ValueError:
+                rejected.append({"agent": agent, "reason": "diretório observado não canônico ou contém symlink"})
+                continue
+            if observed_directory != e.get("directory") or observed_directory not in allowed:
                 rejected.append({"agent": agent, "reason": "diretório divergente da entrada/não permitido"})
                 continue
             authorized.append({**c, "agent": agent, "mission_local": e.get("mission_id"),
@@ -305,6 +347,7 @@ def select_completed_report(messages, max_chars=4000):
             "classification": classification, "contract": contract,
             "chars_total": len(text), "text": safe[:max_chars],
             "truncated": len(safe) > max_chars, "verification": "dado não confiável",
+            "sanitization": "best_effort_regex", "secret_free_guaranteed": False,
         }, skipped
     return None, skipped
 
@@ -407,6 +450,7 @@ def pr_checks(number, pr_head, detail=False, run_cache=None):
         state = check_state(c)
         sha_ok = valid_sha(head_sha) and valid_sha(pr_head)
         event_ok = event in KNOWN_CI_EVENTS
+        gate_relevant = bool(event in GATE_CI_EVENTS and c.get("name") not in INFORMATIONAL_CHECKS)
         matches = bool(sha_ok and head_sha == pr_head)
         checks.append({
             "name": c.get("name"), "status": c.get("status"),
@@ -415,27 +459,36 @@ def pr_checks(number, pr_head, detail=False, run_cache=None):
             "head_sha": head_sha, "event": event,
             "started_at": c.get("startedAt"), "completed_at": c.get("completedAt"),
             "observed_utc": now(), "matches_pr_head": matches,
-            "certifies_current_head": bool(state == "success" and matches and event_ok),
+            "event_known": event_ok, "gate_relevant": gate_relevant,
+            "required_gate_verified": False,
+            "gate_basis": ("evento pull_request e check não informacional; "
+                           "proteção da branch não verificada" if gate_relevant
+                           else "não identificado como gate pertinente"),
+            "certifies_current_head": bool(state == "success" and matches and gate_relevant),
         })
     visible = summarize_checks(checks, detail)
     current = [c for c in checks if c["matches_pr_head"]]
+    relevant = [c for c in current if c["gate_relevant"]]
+    observed = [c for c in current if c["event"] != "schedule"
+                and c.get("name") not in INFORMATIONAL_CHECKS]
     if not roll:
         readiness = "no_checks"
-    elif any(not valid_sha(c["head_sha"]) or c["event"] not in KNOWN_CI_EVENTS for c in checks):
+    elif any(not valid_sha(c["head_sha"]) or not c["event_known"] for c in checks):
         readiness = "unknown"
-    elif not current:
+    elif not observed:
         readiness = "unknown"
-    elif any(c["state"] == "failure" for c in current):
+    elif any(c["state"] == "failure" for c in observed):
         readiness = "red"
-    elif any(c["state"] == "pending" for c in current):
+    elif any(c["state"] == "pending" for c in observed):
         readiness = "pending"
-    elif all(c["state"] == "success" for c in current):
+    elif relevant and all(c["state"] == "success" for c in observed):
         readiness = "green"
     else:
         readiness = "unknown"
     return {"query_status": "ok", "checks": visible, "all_checks_count": len(checks),
             "events": sorted({c["event"] or "DESCONHECIDO" for c in checks}),
-            "readiness": readiness, "ready_for_merge": False,
+            "readiness": readiness, "readiness_scope": "checks observados no HEAD; gates obrigatórios não verificados",
+            "required_gates_verified": False, "ready_for_merge": False,
             "authorization": "não_avaliada_pelo_checkpoint",
             "note": "sem checks" if not roll else None}
 
@@ -475,36 +528,49 @@ def relevant_worktrees(all_trees, prs, cfg):
     return selected[:12]
 
 
-def remote_governance(detail=False):
-    """Obtém documentos da main por API, com repositório explícito e somente leitura."""
-    names = {"COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
-             "ACTIVE_TASKS.md", "DELIVERY_POLICY.md"}
-    ok, out = sh(["gh", "api", f"repos/{REPO}/contents/docs?ref=main"])
+def remote_governance(detail=False, ref=None):
+    """Obtém somente arquivos regulares da main, fixados ao SHA observado."""
+    if not valid_sha(ref):
+        return {"query_status": "unknown", "repo": REPO, "ref": ref, "documents": [],
+                "missing_documents": list(GOVERNANCE_DOCS)}
+    ok, out = sh(["gh", "api", f"repos/{REPO}/contents/docs?ref={ref}"])
     if not ok:
-        return {"query_status": "error", "documents": []}
+        return {"query_status": "error", "repo": REPO, "ref": ref, "documents": [],
+                "missing_documents": list(GOVERNANCE_DOCS)}
     try:
         entries = json.loads(out)
         if not isinstance(entries, list):
             raise ValueError("resposta inválida")
     except Exception:  # noqa: BLE001
-        return {"query_status": "error", "documents": []}
-    docs = []
-    for e in entries:
-        if e.get("name") not in names:
+        return {"query_status": "error", "repo": REPO, "ref": ref, "documents": [],
+                "missing_documents": list(GOVERNANCE_DOCS)}
+    by_name = {e.get("name"): e for e in entries
+               if isinstance(e, dict) and e.get("name") in GOVERNANCE_DOCS
+               and e.get("type") == "file" and valid_sha(e.get("sha"))}
+    docs, missing = [], []
+    for name in GOVERNANCE_DOCS:
+        e = by_name.get(name)
+        if not e:
+            missing.append(name)
+            docs.append({"path": f"docs/{name}", "sha": None, "url": None,
+                         "text": None, "status": "missing_or_not_regular"})
             continue
-        item = {"path": f"docs/{e['name']}", "sha": e.get("sha"), "url": e.get("html_url")}
+        item = {"path": f"docs/{name}", "sha": e["sha"], "url": e.get("html_url"),
+                "status": "ok"}
         if detail:
-            ok2, out2 = sh(["gh", "api", f"repos/{REPO}/contents/{item['path']}?ref=main",
+            ok2, out2 = sh(["gh", "api", f"repos/{REPO}/contents/{item['path']}?ref={ref}",
                             "-H", "Accept: application/vnd.github.raw"])
             item["text"] = out2 if ok2 else None
+            if not ok2:
+                item["status"] = "content_error"
         docs.append(item)
-    return {"query_status": "ok", "repo": REPO, "ref": "main", "documents": docs}
+    complete = not missing and all(d.get("text") is not None for d in docs) if detail else not missing
+    return {"query_status": "ok" if complete else "incomplete", "repo": REPO, "ref": ref,
+            "documents": docs, "missing_documents": missing}
 
 
 def governance(local_sha, main, detail=False):
-    docs = ["docs/COORDINATOR.md", "docs/DECISIONS.md", "docs/TEAM_COORDINATION.md",
-            "docs/ACTIVE_TASKS.md", "docs/DELIVERY_POLICY.md"]
-    present = {d: os.path.exists(d) for d in docs}
+    docs = [f"docs/{name}" for name in GOVERNANCE_DOCS]
     ok_tree, tree = sh(["git", "ls-tree", "HEAD", *docs])
     local_blobs = {d: None for d in docs}
     if ok_tree:
@@ -514,23 +580,26 @@ def governance(local_sha, main, detail=False):
                 local_blobs[path] = meta.split()[2]
             except Exception:  # noqa: BLE001
                 continue
+    # A revisão vem do objeto Git do HEAD, nunca de um arquivo da worktree.
     revision = None
-    if present.get("docs/ACTIVE_TASKS.md"):
-        try:
-            with open("docs/ACTIVE_TASKS.md", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("**Revisão:**"):
-                        revision = line.strip()
-                        break
-        except Exception:  # noqa: BLE001
-            pass
-    remote = remote_governance(detail)
+    active_path = "docs/ACTIVE_TASKS.md"
+    if local_blobs.get(active_path):
+        ok_revision, revision_text = sh(["git", "show", f"HEAD:{active_path}"])
+        if ok_revision:
+            revision = next((line.strip() for line in revision_text.splitlines()
+                             if line.startswith("**Revisão:**")), None)
+    # Se o SHA da main não foi observado, não consulta uma referência mutável.
+    remote = remote_governance(detail, ref=main) if valid_sha(main) else {
+        "query_status": "unknown", "documents": [], "missing_documents": list(GOVERNANCE_DOCS)}
     remote_by_path = {d["path"]: d for d in remote.get("documents", [])}
-    comparison = {d: {"local_blob": local_blobs.get(d),
-                      "remote_blob": (remote_by_path.get(d) or {}).get("sha"),
-                      "matches_remote": local_blobs.get(d) == (remote_by_path.get(d) or {}).get("sha")}
-                  for d in docs}
-    return {"present": present, "active_tasks_revision_local": revision,
+    comparison = {}
+    for d in docs:
+        local_blob, remote_blob = local_blobs.get(d), (remote_by_path.get(d) or {}).get("sha")
+        comparison[d] = {"local_blob": local_blob, "remote_blob": remote_blob,
+                         "matches_remote": bool(valid_sha(local_blob) and valid_sha(remote_blob)
+                                                and local_blob == remote_blob)}
+    return {"tracked_at_local_head": {d: bool(local_blobs.get(d)) for d in docs},
+            "active_tasks_revision_local_blob": revision,
             "local_head": local_sha, "main_sha": main,
             "alignment": "aligned" if local_sha and main and local_sha == main else "divergent_local_branch",
             "remote_query": remote.get("query_status"),
@@ -552,6 +621,7 @@ def association(entry, report, prs, trees):
     contract = report.get("contract") if report else None
     classification = report.get("classification") if report else "unknown"
     mission_state = "desconhecida"
+    mission_completed = False
     if classification == "identified_report" and contract and entry.get("mission_local"):
         if contract["mission_id"] != entry["mission_local"]:
             mission_state = "desatualizado_ou_outra_missao"
@@ -565,7 +635,16 @@ def association(entry, report, prs, trees):
                 tests.append(bool(wt and os.path.basename(wt["path"].rstrip("/")) == entry["expected_worktree"]))
             if contract.get("head_sha") and pr and pr.get("headRefOid"):
                 tests.append(contract["head_sha"] == pr["headRefOid"])
-            mission_state = "associada_ao_mapa_local" if tests and all(tests) else "desatualizado_ou_divergente"
+            associated = bool(tests) and all(tests)
+            mission_state = "associada_ao_mapa_local" if associated else "desatualizado_ou_divergente"
+            if associated and contract.get("status") == "COMPLETED":
+                mission_state = "concluida"
+                mission_completed = True
+            elif associated:
+                mission_state = {"IN_PROGRESS": "associada_em_andamento",
+                                 "BLOCKED": "associada_bloqueada",
+                                 "FAILED": "associada_falhou"}.get(
+                                     contract.get("status"), "associada_status_desconhecido")
     elif classification == "candidate_unverified":
         mission_state = "candidato_nao_certificado"
     return {
@@ -576,15 +655,134 @@ def association(entry, report, prs, trees):
         "report_classification": classification,
         "contract": contract,
         "mission_association": mission_state,
+        "mission_completed": mission_completed,
     }
 
 
-def build(detail=False, reports=False):
+def fixture_checkpoint(detail=False, reports=False):
+    """Checkpoint 100% sintético. Não chama shell, API, GitHub ou credenciais."""
+    main, local = "a" * 40, "b" * 40
+    agents = []
+    for name in "ABCDE":
+        agents.append({
+            "id": f"ses_fixture{name}", "title": f"AGENTE {name}", "project_id": "fixture-project",
+            "directory": "/fixture/better-talker", "model": "fixture/free-model",
+            "busy_utc": None, "idle_utc": "2026-11-25T00:00:00Z",
+            "updated_utc": "2026-11-25T00:00:00Z", "tokens_in": 0, "tokens_out": 0,
+            "cost_registered": 0, "active_status": "not-running", "mission_local": f"MISS-{name}",
+            "expected_pr": 901 if name == "A" else None,
+            "expected_branch": "feat/fixture-a" if name == "A" else None,
+            "expected_worktree": "better-talker-a" if name == "A" else None,
+        })
+    prs = [
+        {"number": 901, "title": "fixture build", "headRefName": "feat/fixture-a", "isDraft": False,
+         "headRefOid": "a" * 40, "checks": {"query_status": "ok", "readiness": "green",
+         "readiness_scope": "fixture: checks observados no HEAD; gates obrigatórios não verificados",
+         "required_gates_verified": False, "ready_for_merge": False,
+         "checks": [{"name": "build-apk", "state": "success",
+         "run_id": "9001", "run_url": "https://fixture.invalid/runs/9001", "head_sha": "a" * 40,
+         "event": "pull_request", "matches_pr_head": True, "event_known": True,
+         "gate_relevant": True, "required_gate_verified": False,
+         "gate_basis": "fixture: candidato de gate; proteção da branch não verificada",
+         "certifies_current_head": True}]}},
+        {"number": 902, "title": "fixture docs", "headRefName": "docs/fixture-b", "isDraft": True,
+         "headRefOid": "c" * 40, "checks": {"query_status": "ok", "readiness": "unknown",
+         "readiness_scope": "fixture: checks observados no HEAD; gates obrigatórios não verificados",
+         "required_gates_verified": False, "ready_for_merge": False,
+         "checks": [{"name": "propose", "state": "success",
+         "run_id": "9002", "run_url": "https://fixture.invalid/runs/9002", "head_sha": "c" * 40,
+         "event": "pull_request_target", "matches_pr_head": True, "event_known": True,
+         "gate_relevant": False, "required_gate_verified": False,
+         "gate_basis": "fixture: não identificado como gate pertinente",
+         "certifies_current_head": False}]}},
+    ]
+    trees = [{"path": "/fixture/better-talker", "head": "b" * 40, "branch": "feat/coord-supervisor-shadow"},
+             {"path": "/fixture/better-talker-a", "head": "a" * 40, "branch": "feat/fixture-a"}]
+    if reports:
+        report_text = "fixture report\nPR #901\nWorktree: better-talker-a\n" + "x" * 160
+        report = {
+            "message_id": "msg_fixtureA", "created_utc": "2026-11-25T00:00:00Z",
+            "completed_utc": "2026-11-25T00:01:00Z", "finish": "stop",
+            "classification": "identified_report",
+            "contract": {"mission_id": "MISS-A", "head_sha": "a" * 40, "status": "COMPLETED"},
+            "chars_total": len(report_text), "text": report_text, "truncated": False,
+            "verification": "dado sintético não confiável", "sanitization": "best_effort_regex",
+            "secret_free_guaranteed": False,
+        }
+        agents[0]["report"] = report
+        agents[0]["provenance"] = association(agents[0], report, prs, trees)
+        agents[1]["report"] = {"status": "candidato_nao_certificado"}
+    docs = []
+    for name in ("COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
+                 "ACTIVE_TASKS.md", "DELIVERY_POLICY.md"):
+        docs.append({"path": f"docs/{name}", "sha": "d" * 40,
+                     "url": f"https://fixture.invalid/{name}", "text": f"# fixture {name}\n"})
+    return {
+        "checkpoint_utc": "2026-11-25T00:00:00Z", "level": "detail" if detail or reports else "summary",
+        "fixture": True, "query_count": 0, "external_calls": 0,
+        "main_sha": main, "local_head": local, "session_map_loaded": False,
+        "session_map_error": None, "session_candidates_count": len(agents),
+        "agents": agents, "rejected_sessions": [], "unknown_sessions": [], "active_query": "fixture",
+        "open_prs": prs, "worktrees": trees, "worktrees_total_count": len(trees),
+        "script_integrity": {"ok": True, "fixture": True},
+        "governance": {"alignment": "fixture", "remote_query": "fixture",
+                       "remote_documents": docs, "comparison": {}},
+        "notes": ["Modo fixture: nenhuma chamada externa, credencial, sessão real ou despacho.",
+                  "Dados sintéticos não certificam o projeto real."],
+    }
+
+
+def build_context(fixture=False):
+    """Interface determinística para governança, sem caminhos fornecidos pelo modelo."""
     global QUERY_COUNT
     QUERY_COUNT = 0
+    if fixture:
+        cp = fixture_checkpoint(detail=True)
+        return {"checkpoint_utc": cp["checkpoint_utc"], "mode": "context", "fixture": True,
+                "main_sha": cp["main_sha"], "query_count": 0, "external_calls": 0,
+                "query_status": "fixture", "documents_complete": True,
+                "documents": cp["governance"]["remote_documents"],
+                "notes": ["Governança sintética; nenhuma chamada externa."]}
     integrity = verify_script(require_clean=True)
     if not integrity["ok"]:
         raise RuntimeError(f"integridade do checkpoint inválida: {integrity['reason']}")
+    main = main_sha()
+    if not valid_sha(main):
+        return {"checkpoint_utc": now(), "mode": "context", "fixture": False,
+                "main_sha": None, "query_status": "unknown", "documents": [],
+                "documents_complete": False, "query_count": QUERY_COUNT,
+                "external_calls": QUERY_COUNT, "script_integrity": integrity,
+                "notes": ["SHA da main não observado; contexto não recuperado."]}
+    remote = remote_governance(detail=True, ref=main)
+    docs = []
+    for d in remote.get("documents", []):
+        text = d.get("text")
+        if text is not None:
+            safe = sanitize_text(text)
+            d["text"] = safe[:60000]
+            d["truncated"] = len(safe) > 60000
+            d["sanitization"] = "best_effort_regex"
+            d["secret_free_guaranteed"] = False
+        docs.append(d)
+    complete = (remote.get("query_status") == "ok" and len(docs) == len(GOVERNANCE_DOCS)
+                and all(d.get("text") is not None and not d.get("truncated") for d in docs))
+    return {"checkpoint_utc": now(), "mode": "context", "fixture": False,
+            "main_sha": main, "query_status": remote.get("query_status"),
+            "documents_complete": complete, "query_count": QUERY_COUNT,
+            "external_calls": QUERY_COUNT, "script_integrity": integrity, "documents": docs,
+            "notes": ["Conteúdo fixado ao SHA da main observado; sanitização é best-effort.",
+                      "Documentos ausentes, symlinks ou truncados não completam o contexto."]}
+
+
+def build(detail=False, reports=False, fixture=False):
+    global QUERY_COUNT
+    QUERY_COUNT = 0
+    if fixture:
+        return fixture_checkpoint(detail=detail, reports=reports)
+    integrity = verify_script(require_clean=True)
+    if not integrity["ok"]:
+        raise RuntimeError(f"integridade do checkpoint inválida: {integrity['reason']}")
+    main, local = main_sha(), local_head()
     cfg, map_error = None, None
     try:
         cfg = load_session_map()
@@ -598,7 +796,6 @@ def build(detail=False, reports=False):
                               if isinstance(active, dict) else "unknown")
     prs = open_prs()
     all_trees = worktrees()
-    main, local = main_sha(), local_head()
     run_cache = {}
     if prs:
         for pr in prs:
@@ -617,7 +814,7 @@ def build(detail=False, reports=False):
                     a["provenance"] = association(a, report, prs, all_trees)
     return {
         "checkpoint_utc": now(), "level": "detail" if detail or reports else "summary",
-        "query_count": QUERY_COUNT,
+        "fixture": False, "query_count": QUERY_COUNT, "external_calls": QUERY_COUNT,
         "main_sha": main, "local_head": local, "session_map_loaded": cfg is not None,
         "session_map_error": map_error, "session_candidates_count": len(candidates or []),
         "agents": authorized, "rejected_sessions": rejected, "unknown_sessions": unknown,
@@ -631,7 +828,7 @@ def build(detail=False, reports=False):
             "Título AGENTE é candidato; só sessionID + projeto/diretório do mapa local autoriza coleta.",
             "Sessão ociosa não implica disponibilidade; diretório inicial não implica worktree.",
             "PR/worktree existente não prova associação à missão; ver proveniência.",
-            "CI só certifica o HEAD quando SHA do run confere; cost=0 não prova consumo zero.",
+            "CI: SHA/evento individuais não verificam gates obrigatórios; cost=0 não prova consumo zero.",
         ],
     }
 
@@ -640,10 +837,26 @@ def short(sha):
     return (sha or "DESCONHECIDO")[:8]
 
 
+def render_context(cp):
+    L = [f"CONTEXTO SHADOW — {cp['checkpoint_utc']}",
+         f"Main fixada: {cp.get('main_sha') or 'DESCONHECIDO'} | fixture={cp.get('fixture')}",
+         f"Status: {cp.get('query_status')} | contexto_completo={cp.get('documents_complete')}",
+         f"Consultas externas: {cp.get('external_calls', 'DESCONHECIDO')}"]
+    for d in cp.get("documents", []):
+        L.append(f"--- {d.get('path')} @ {d.get('sha')} | status={d.get('status')} ---")
+        L.append((d.get("text") or "[TEXTO INDISPONÍVEL]")[:60000])
+        if d.get("truncated"):
+            L.append("[DOCUMENTO TRUNCADO — CONTEXTO INCOMPLETO]")
+    for n in cp.get("notes", []):
+        L.append(f"nota: {n}")
+    return "\n".join(L)
+
+
 def render_text(cp):
     L = [f"CHECKPOINT SHADOW [{cp['level']}] — {cp['checkpoint_utc']}",
          f"Consultas de leitura: {cp.get('query_count', 'DESCONHECIDO')}",
          f"Main: {cp['main_sha'] or 'DESCONHECIDO'} | HEAD local: {short(cp['local_head'])}",
+         f"Fixture: {cp.get('fixture', False)} | chamadas externas: {cp.get('external_calls', 'não-aplicável')}",
          f"Governança local: {cp['governance']['alignment']} | mapa de sessões: "
          f"{'carregado' if cp['session_map_loaded'] else 'ausente/inválido'}",
          f"Integridade do script: {cp.get('script_integrity')} | governança remota: "
@@ -702,14 +915,22 @@ def main():
     level = ap.add_mutually_exclusive_group()
     level.add_argument("--summary", action="store_true", help="nível resumido (padrão)")
     level.add_argument("--detail", action="store_true", help="todos os checks/worktrees")
-    ap.add_argument("--reports", action="store_true", help="coleta limitada de relatórios concluídos; implica detail")
+    ap.add_argument("--reports", action="store_true", help="coleta limitada de relatórios; implica detail")
+    ap.add_argument("--context", action="store_true", help="recupera governança fixada ao SHA da main")
+    ap.add_argument("--fixture", action="store_true", help="dados sintéticos, sem chamadas externas")
     ap.add_argument("--json", action="store_true", help="saída JSON")
     args = ap.parse_args()
     try:
-        cp = build(detail=args.detail or args.reports, reports=args.reports)
+        if args.context:
+            cp = build_context(fixture=args.fixture)
+        else:
+            cp = build(detail=args.detail or args.reports, reports=args.reports, fixture=args.fixture)
     except RuntimeError as e:
         print(f"ERRO DE SEGURANÇA: {e}", file=sys.stderr)
         sys.exit(2)
+    if args.context:
+        print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_context(cp))
+        return
     print(json.dumps(cp, ensure_ascii=False, indent=2) if args.json else render_text(cp))
     if not cp["main_sha"] or cp["session_map_error"]:
         print("\nAVISO: campos críticos desconhecidos; não usar para decisões sem reverificar.", file=sys.stderr)

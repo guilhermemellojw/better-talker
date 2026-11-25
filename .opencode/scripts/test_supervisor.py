@@ -75,8 +75,13 @@ def test_config(fm, body):
     check("prompt SHADOW", "SHADOW" in body)
     check("prompt proíbe despacho", "Não despacha" in body)
     check("sem read '*' amplo", not has_rule(rules, "read", "*", "allow"))
+    check("leitura/glob/grep nativos totalmente negados",
+          not any(r.get("action") in {"read", "glob", "grep"} and r.get("effect") == "allow" for r in rules))
     check("sem grep '*' amplo", not has_rule(rules, "grep", "*", "allow"))
     check("sem glob '*' amplo", not has_rule(rules, "glob", "*", "allow"))
+    check("allowlist de shell sem curingas",
+          all("*" not in r.get("resource", "") and "?" not in r.get("resource", "")
+              for r in rules if r.get("action") == "shell" and r.get("effect") == "allow"))
     check("sem git show/diff/log genéricos",
           not any(has_rule(rules, "shell", f"git {x} *", "allow") for x in ("show", "diff", "log")))
     check("sem API de sessões via shell", not has_rule(rules, "shell", "opencode api get /api/session*", "allow"))
@@ -84,30 +89,32 @@ def test_config(fm, body):
                                         for x in ("pr list", "pr view", "pr checks", "run list", "run view", "repo view")))
     check("script de testes não liberado", not has_rule(rules, "shell", "python3 .opencode/scripts/test_supervisor.py *", "allow"))
     check("checkpoint exato liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --reports", "allow"))
+    check("contexto determinístico liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context", "allow"))
+    check("fixture sintético liberado", has_rule(rules, "shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture", "allow"))
 
 
 def test_matcher(fm):
     print("[B] Simulação do matcher (lógica; não imposição em execução)")
     rules = fm["permissions"]
     cases = [
-        ("read", "docs/COORDINATOR.md", "allow"),
-        ("read", ".opencode/scripts/coord_checkpoint.py", "allow"),
-        ("read", "android/app/src/main/java/X.kt", "allow"),
+        ("read", "docs/COORDINATOR.md", "deny"),
+        ("read", ".opencode/scripts/coord_checkpoint.py", "deny"),
+        ("read", "android/app/src/main/java/X.kt", "deny"),
         ("read", "/home/other/project/docs/COORDINATOR.md", "deny"),
         ("read", "docs/../../.env", "deny"),
         ("read", "docs/../../other/secret.txt", "deny"),
         ("read", ".env.production", "deny"),
         ("read", "service.json", "deny"),
         ("read", "android/app/src/publicApp/google-services.json", "deny"),
-        ("glob", "docs/**", "allow"),
+        ("glob", "docs/**", "deny"),
         ("glob", "**/*.kt", "deny"),
         ("grep", "CopilotViewModel", "deny"),
         ("question", "*", "allow"),
         ("edit", "docs/COORDINATOR.md", "deny"),
         ("subagent", "general", "deny"),
         ("execute", "*", "deny"),
-        ("shell", "git status --short --branch", "allow"),
-        ("shell", "git ls-remote origin main", "allow"),
+        ("shell", "git status --short --branch", "deny"),
+        ("shell", "git ls-remote origin main", "deny"),
         ("shell", "git show HEAD:docs/COORDINATOR.md", "deny"),
         ("shell", "git diff --no-index /etc/passwd docs/COORDINATOR.md", "deny"),
         ("shell", "gh pr view 52 --json state", "deny"),
@@ -116,6 +123,11 @@ def test_matcher(fm):
         ("shell", "opencode api get /api/session/x/message?limit=1", "deny"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --reports --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --context --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --detail --json", "allow"),
+        ("shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture --reports --json", "allow"),
         ("shell", "python3 .opencode/scripts/coord_checkpoint.py --session-map /etc/passwd", "deny"),
         ("shell", "python3 .opencode/scripts/test_supervisor.py --live", "deny"),
         ("shell", "git push origin main", "deny"),
@@ -124,9 +136,9 @@ def test_matcher(fm):
         ("shell", "adb shell", "deny"),
         ("shell", "bash .opencode/scripts/coord_checkpoint.py", "deny"),
         ("shell", "eval git push", "deny"),
-        ("webfetch", "https://opencode.ai/docs/agents", "allow"),
-        ("webfetch", "https://example.invalid/x", "ask"),
-        ("external_directory", "/home/user/other", "ask"),
+        ("webfetch", "https://opencode.ai/docs/agents", "deny"),
+        ("websearch", "OpenCode", "deny"),
+        ("external_directory", "/home/user/other", "deny"),
     ]
     for action, resource, expected in cases:
         got = match_effect(rules, action, resource)
@@ -196,6 +208,31 @@ def test_sessions():
             check("symlink de mapa rejeitado", False)
         except ValueError:
             check("symlink de mapa rejeitado", True)
+        # Symlink em ancestral também é rejeitado, não apenas no arquivo/pai imediato.
+        real = os.path.join(td, "real")
+        nested = os.path.join(real, "nested")
+        os.mkdir(real, 0o700)
+        os.mkdir(nested, 0o700)
+        nested_map = os.path.join(nested, "map.json")
+        with open(nested_map, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+        os.chmod(nested_map, 0o600)
+        alias = os.path.join(td, "alias")
+        os.symlink(real, alias)
+        try:
+            cc.load_session_map(os.path.join(alias, "nested", "map.json"))
+            check("symlink em ancestral do mapa rejeitado", False)
+        except ValueError:
+            check("symlink em ancestral do mapa rejeitado", True)
+        bad = synthetic_map()
+        bad["project"]["allowed_directories"][0] = "/repo/better-talker/../better-talker"
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(bad, f)
+        try:
+            cc.load_session_map(p)
+            check("diretório não canônico no mapa rejeitado", False)
+        except ValueError:
+            check("diretório não canônico no mapa rejeitado", True)
         bad = synthetic_map()
         bad["agents"]["A"][0]["session_id"] = "invalido"
         with open(p, "w", encoding="utf-8") as f:
@@ -302,9 +339,19 @@ def test_reports():
     assoc = cc.association(entry, report, prs, [])
     check("PR existente não promove candidato", assoc["mission_association"] == "candidato_nao_certificado")
     assoc2 = cc.association(entry, report2, prs, [])
-    check("contrato + missão + HEAD atual associam", assoc2["mission_association"] == "associada_ao_mapa_local")
+    check("contrato + missão + HEAD atual associam", assoc2["mission_association"] == "concluida" and
+          assoc2["mission_completed"] is True)
     stale = cc.association(entry, report2, [{**prs[0], "headRefOid": "b" * 40}], [])
     check("HEAD divergente vira desatualizado", stale["mission_association"] == "desatualizado_ou_divergente")
+    in_progress = {**report2, "contract": {**report2["contract"], "status": "IN_PROGRESS"}}
+    running = cc.association(entry, in_progress, prs, [])
+    check("IN_PROGRESS não conclui missão", running["mission_association"] == "associada_em_andamento" and
+          running["mission_completed"] is False)
+    blocked = {**report2, "contract": {**report2["contract"], "status": "BLOCKED"}}
+    blocked_assoc = cc.association(entry, blocked, prs, [])
+    check("BLOCKED preserva bloqueio e não conclui", blocked_assoc["mission_association"] == "associada_bloqueada"
+          and blocked_assoc["mission_completed"] is False)
+    check("sanitização não garante ausência de segredos", report2["secret_free_guaranteed"] is False)
 
 
 def test_evidence():
@@ -354,6 +401,23 @@ def test_evidence():
     finally:
         cc.sh = old
     check("evento ausente vira desconhecido", no_event["readiness"] == "unknown")
+    # Evento conhecido e check informacional não são gate.
+    cc.sh = lambda args: (True, json.dumps({"statusCheckRollup": [{**roll[0], "name": "propose"}]})) if args[:3] == ["gh", "pr", "view"] else (True, json.dumps({"headSha": "a" * 40, "event": "schedule"}))
+    try:
+        informational = cc.pr_checks(52, "a" * 40)
+    finally:
+        cc.sh = old
+    check("schedule/propose não certificam gate", informational["readiness"] == "unknown" and
+          not informational["checks"][0]["gate_relevant"] and
+          not informational["checks"][0]["certifies_current_head"])
+    cc.sh = lambda args: (True, json.dumps({"statusCheckRollup": [roll[0]]})) if args[:3] == ["gh", "pr", "view"] else (True, json.dumps({"headSha": "a" * 40, "event": "push"}))
+    try:
+        push_only = cc.pr_checks(52, "a" * 40)
+    finally:
+        cc.sh = old
+    check("evento push conhecido não vira gate de PR", push_only["readiness"] == "unknown"
+          and not push_only["checks"][0]["gate_relevant"]
+          and push_only["required_gates_verified"] is False)
     cc.sh = lambda args: (True, json.dumps({"statusCheckRollup": []}))
     try:
         empty = cc.pr_checks(52, "a" * 40)
@@ -366,25 +430,147 @@ def test_evidence():
     finally:
         cc.sh = old
     check("falha de consulta distinguida", failed["query_status"] == "error")
-    # Governança remota delimitada.
+    # Governança remota delimitada, completa e fixada ao SHA.
     calls = []
+    def gov_entries():
+        return [{"name": name, "path": f"docs/{name}", "sha": "a" * 40, "type": "file"}
+                for name in cc.GOVERNANCE_DOCS]
     def gov_api(args):
         calls.append(args)
-        if "contents/docs?ref=main" in args[2]:
-            return True, json.dumps([{"name": "COORDINATOR.md", "path": "docs/COORDINATOR.md", "sha": "a" * 40}])
+        if f"contents/docs?ref={'a' * 40}" in args[2]:
+            return True, json.dumps(gov_entries())
         return True, "# doc remoto"
     cc.sh = gov_api
     try:
-        gov = cc.remote_governance(detail=True)
+        gov = cc.remote_governance(detail=True, ref="a" * 40)
+        before_invalid = len(calls)
+        invalid_ref = cc.remote_governance(detail=True, ref="main")
     finally:
         cc.sh = old
     check("governança remota com repo explícito", gov["query_status"] == "ok" and
           all("guilhermemellojw/better-talker" in c[2] for c in calls))
     check("detalhe recupera texto da main", gov["documents"][0]["text"] == "# doc remoto")
+    check("governança fixada ao SHA observado", all(f"ref={'a' * 40}" in c[2] for c in calls))
+    check("referência mutável/inválida não consulta API", invalid_ref["query_status"] == "unknown"
+          and len(calls) == before_invalid)
+    # Uma entrada symlink não é seguida nem convertida em documento válido.
+    calls.clear()
+    def gov_symlink(args):
+        calls.append(args)
+        if f"contents/docs?ref={'a' * 40}" in args[2]:
+            entries = gov_entries()
+            entries[0]["type"] = "symlink"
+            return True, json.dumps(entries)
+        return True, "# doc remoto"
+    cc.sh = gov_symlink
+    try:
+        linked = cc.remote_governance(detail=True, ref="a" * 40)
+    finally:
+        cc.sh = old
+    check("symlink remoto não é seguido", linked["query_status"] == "incomplete"
+          and linked["documents"][0]["status"] == "missing_or_not_regular"
+          and not any("contents/docs/COORDINATOR.md" in c[2] for c in calls))
     check("script regular validado", cc.verify_script()["ok"])
+    # Metadados/revisão local vêm de objetos Git; nenhuma leitura da worktree.
+    import builtins
+    old_open = builtins.open
+    def local_read_forbidden(*args, **kwargs):
+        raise AssertionError("leitura local de documento proibida")
+    def git_only(args):
+        if args[:2] == ["git", "ls-tree"]:
+            return True, "100644 blob " + "b" * 40 + "\tdocs/ACTIVE_TASKS.md"
+        if args[:2] == ["git", "show"]:
+            return True, "**Revisão:** fixture R1"
+        if args[:2] == ["gh", "api"]:
+            return True, json.dumps(gov_entries())
+        return False, ""
+    builtins.open = local_read_forbidden
+    cc.sh = git_only
+    try:
+        local_gov = cc.governance("b" * 40, "a" * 40)
+    finally:
+        builtins.open = old_open
+        cc.sh = old
+    check("governança local não abre arquivo da worktree",
+          local_gov["active_tasks_revision_local_blob"] == "**Revisão:** fixture R1")
     many = [{"path": f"/repo/better-talker-{i}", "head": "a" * 40, "branch": f"feat/{i}"}
             for i in range(120)]
     check("resumo limita worktrees", len(cc.relevant_worktrees(many, [], None)) <= 12)
+
+
+def test_context():
+    print("[P4] Contexto determinístico e integridade")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    old_sh, old_verify = cc.sh, cc.verify_script
+    calls = []
+    def forbidden(args):
+        calls.append(args)
+        raise AssertionError("chamada externa inesperada")
+    cc.sh = forbidden
+    cc.verify_script = lambda require_clean=False: {"ok": False, "reason": "fixture test"}
+    try:
+        try:
+            cc.build_context()
+            check("contexto falha fechado com script sujo", False)
+        except RuntimeError:
+            check("contexto falha fechado com script sujo", not calls)
+        entries = [{"name": name, "path": f"docs/{name}", "sha": "d" * 40, "type": "file"}
+                   for name in cc.GOVERNANCE_DOCS]
+        def fake_api(args):
+            calls.append(args)
+            if args[:2] == ["git", "ls-remote"]:
+                return True, "a" * 40 + "\trefs/heads/main"
+            if "contents/docs?ref=" in args[2]:
+                return True, json.dumps(entries)
+            return True, "# documento\ntoken=FAKE_SECRET\n"
+        cc.sh = fake_api
+        cc.verify_script = lambda require_clean=False: {"ok": True, "git_clean": True}
+        ctx = cc.build_context()
+    finally:
+        cc.sh, cc.verify_script = old_sh, old_verify
+    check("contexto fixado ao SHA observado", ctx["main_sha"] == "a" * 40
+          and all(f"ref={'a' * 40}" in c[2] for c in calls if c[:2] == ["gh", "api"]))
+    check("main observada no repositório fixo", any(c[:2] == ["git", "ls-remote"]
+          and cc.MAIN_REMOTE in c for c in calls))
+    check("contexto completo exige os cinco documentos", ctx["documents_complete"]
+          and len(ctx["documents"]) == 5)
+    check("contexto sanitiza sem garantir ausência de segredos",
+          "FAKE_SECRET" not in ctx["documents"][0]["text"]
+          and ctx["documents"][0]["secret_free_guaranteed"] is False)
+
+
+def test_fixture():
+    print("[P4] Modo fixture sem chamadas externas")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    calls, audit_events = [], []
+    auditing = False
+    def forbidden(args):
+        calls.append(args)
+        raise AssertionError("chamada externa proibida no fixture")
+    def audit(event, args):
+        if auditing and event in {"subprocess.Popen", "os.system", "socket.connect",
+                                  "socket.getaddrinfo", "open"}:
+            audit_events.append(event)
+    sys.addaudithook(audit)
+    old = cc.sh
+    cc.sh = forbidden
+    auditing = True
+    try:
+        cp = cc.fixture_checkpoint(detail=True, reports=True)
+        ctx = cc.build_context(fixture=True)
+    finally:
+        auditing = False
+        cc.sh = old
+    check("fixture não chama shell/API", not calls)
+    check("fixture não abre arquivo, subprocesso ou rede", not audit_events)
+    check("fixture tem sessões/PRs/checks/worktrees sintéticos", len(cp["agents"]) == 5 and
+          len(cp["open_prs"]) == 2 and len(cp["worktrees"]) == 2 and cp["query_count"] == 0)
+    check("fixture não contém SHA real da main", cp["main_sha"] == "a" * 40)
+    check("contexto fixture sem chamadas", ctx["external_calls"] == 0 and len(ctx["documents"]) == 5)
+    check("fixture COMPLETED só associa dados sintéticos",
+          cp["agents"][0]["provenance"]["mission_completed"] is True and cp["fixture"] is True)
 
 
 def test_docs():
@@ -392,6 +578,11 @@ def test_docs():
     for d in ["docs/COORDINATOR.md", "docs/DECISIONS.md", "docs/TEAM_COORDINATION.md",
               "docs/ACTIVE_TASKS.md", "docs/DELIVERY_POLICY.md"]:
         check(d, os.path.exists(os.path.join(ROOT, d)))
+    with open(os.path.join(ROOT, ".opencode", "README.md"), encoding="utf-8") as f:
+        readme = f.read()
+    checks = ("INC-COORD-03-001", "intenção", "operação", "destinatário", "UNKNOWN",
+              "evidência positiva", "autorização humana", "ledger completo não é implementado")
+    check("incidente e protocolo UNKNOWN formalizados", all(term in readme for term in checks))
 
 
 def test_live():
@@ -416,11 +607,12 @@ def test_live():
         check("mode primary", sup.get("mode") == "primary")
         check("sem modelo fixado", not sup.get("model"))
         check("prompt SHADOW carregado", "SHADOW" in (sup.get("system") or ""))
-        check("live: leitura de docs permitida", match_effect(perms, "read", "docs/COORDINATOR.md") == "allow")
-        check("live: leitura externa/grep negadas", match_effect(perms, "read", "/home/other/x") == "deny" and
-              match_effect(perms, "grep", "secret") == "deny")
+        check("live: leitura nativa negada", match_effect(perms, "read", "docs/COORDINATOR.md") == "deny" and
+              match_effect(perms, "glob", "docs/**") == "deny")
         check("live: gh/API de mensagens negados", match_effect(perms, "shell", "gh pr view 52") == "deny" and
               match_effect(perms, "shell", "opencode api get /api/session/x/message") == "deny")
+        check("live: contexto/fixture permitidos", match_effect(perms, "shell", "python3 .opencode/scripts/coord_checkpoint.py --context") == "allow" and
+              match_effect(perms, "shell", "python3 .opencode/scripts/coord_checkpoint.py --fixture") == "allow")
         check("live: edit/subagent/git push negados", match_effect(perms, "edit", "docs/x") == "deny" and
               match_effect(perms, "subagent", "general") == "deny" and
               match_effect(perms, "shell", "git push origin main") == "deny")
@@ -449,6 +641,8 @@ def main():
     test_sessions()
     test_reports()
     test_evidence()
+    test_context()
+    test_fixture()
     test_docs()
     if args.live:
         test_live()
