@@ -28,19 +28,52 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
   symlink observado na ferramenta nativa de leitura.
 - Governança e evidências são fornecidas pelo checkpoint, que aceita apenas comandos fixos,
   sem caminhos, repositórios ou sessões fornecidos pelo modelo.
-- `--context` recupera os cinco documentos oficiais pelo **SHA da main observado**, evitando
-  misturar versões durante mudanças concorrentes. A validação usa commit → árvore raiz → árvore
-  `docs` → blob, todos por SHA fixo: `docs` deve ser árvore `040000`; cada documento deve ser
-  `blob` `100644`. O conteúdo vem do SHA do blob e é conferido pelo hash Git. `Contents.type=file`
-  não é usado como prova; symlink, submódulo, executável, entrada ambígua, árvore truncada,
-  documento ausente ou blob divergente deixa `documents_complete=false`.
-- O limite é fixo: três consultas de metadado no resumo e até oito com os cinco blobs no contexto.
+- `--context --json` recupera os cinco documentos oficiais pelo **SHA da main observado** e
+  grava um snapshot privado. A validação usa commit → árvore raiz → árvore `docs` → blob, todos
+  por SHA fixo: `docs` deve ser árvore `040000`; cada documento deve ser `blob` `100644`. O
+  conteúdo vem do SHA do blob e é conferido pelo hash Git. `Contents.type=file` não é usado como
+  prova; symlink, submódulo, executável, entrada ambígua, árvore truncada, documento ausente ou
+  blob divergente deixa `documents_complete=false`.
+- O comando devolve apenas um **manifesto compacto**: SHA da main, `snapshot_id`, hashes dos
+  blobs, tamanhos, quantidade de páginas e completude do snapshot. Para receber o conteúdo,
+  execute repetidamente `--context-next --json` até `last_page=true`/`all_pages_emitted=true`.
+- Cada página identifica snapshot, main, documento, blob, número global/local, hash da página,
+  bytes, linhas e última página. O cursor não aceita argumentos e não consulta a main novamente;
+  todas as páginas pertencem ao mesmo snapshot.
+- `all_pages_emitted` não comprova recebimento. O consumidor deve verificar páginas únicas e
+  contíguas `1..N`, mesmo snapshot/main, documentos/blobs, `truncated=false` e total do
+  manifesto. Duplicidade idêntica é descartável; divergência, salto ou ausência exige reiniciar
+  manifesto e recuperação integral, sem combinar snapshots.
+- O cursor é persistido somente após serialização, emissão e flush bem-sucedidos. Uma interrupção
+  anterior à persistência pode repetir a página, mas não a perde silenciosamente. A perda durante
+  o transporte continua possível e não é confirmada pelo checkpoint.
+- Restrição operacional: uma sessão consumidora por vez, chamadas sequenciais, nenhuma criação
+  concorrente de manifesto e nenhum compartilhamento de cursor entre projetos/supervisores.
+- O cache é um único arquivo privado `0600` em diretório `0700`, limitado a 2 MiB e expira em
+  uma hora. Não é daemon nem banco externo. Falha de cache, cursor, hash ou página deixa o
+  contexto incompleto.
+- O limite é fixo: três metadados mais cinco blobs na criação do snapshot; as páginas seguintes
+  usam somente o cache, sem novas chamadas ao GitHub.
 - O checkpoint real exige seu próprio arquivo regular, rastreado e limpo no Git antes de qualquer
   consulta. A revisão local de `ACTIVE_TASKS.md` vem do objeto Git do HEAD, não da worktree.
+- O motor ainda é específico do Better Talker (`REPO`, `GOVERNANCE_DOCS` e cache privado).
+  A extração futura para o HealthAgentForms deve parametrizar esses elementos sem permitir
+  que o modelo escolha repositório, caminho ou projeto; multiprojeto não é suportado agora.
 - O checkpoint é uma operação confiável separada da sessão do modelo. Git limpo/rastreado é
   apenas um sinal de integridade; **não é prova suficiente de autorização**.
 - A configuração não é um sandbox forte. O script ainda executa subprocessos com autoridade do
   usuário; a confiança está no código versionado, revisão humana e allowlist de comando exato.
+
+## Limite de saída e paginação
+
+A OP-1 observou saída grande de shell encurtada para 50 linhas, com o conteúdo completo retido
+em arquivo gerenciado. A documentação oficial confirma que saídas grandes são encurtadas; `read`
+usa páginas de até 2.000 linhas/50 KiB e a configuração `tool_output` controla linhas/bytes.
+Nenhum limite global foi alterado.
+
+As páginas de contexto usam no máximo **10.000 bytes UTF-8 e 16 linhas**, incluindo metadados
+JSON abaixo do truncamento observado. O tamanho é verificado nos testes; a validação operacional
+deve confirmar que todas as páginas chegam ao modelo sem truncamento.
 
 ## Mapa local de sessões autorizadas
 
@@ -83,6 +116,17 @@ para detectar abertura de arquivo, subprocesso ou rede durante a fixture.
 - `readiness` considera evidências observadas no HEAD e é separado de autorização de merge;
   o checkpoint nunca autoriza merge.
 - Ausência de checks ≠ falha de consulta; resposta inválida vira desconhecido.
+
+## Incidente de infraestrutura — `INC-COORD-03-OP1-HOST-RESTART`
+
+Durante a OP-1, o uptime do host caiu de aproximadamente 1h49 para 25min entre duas medições e
+uma instância OpenCode existente deixou de responder. A causa é desconhecida. Não há evidência
+para atribuir o evento à memória, temperatura, kernel ou OpenCode. As sessões A–E e as duas
+sessões experimentais preservaram metadados, mas tarefas que estavam em andamento podem ter
+sido interrompidas. A missão não reiniciou o serviço compartilhado.
+
+COORD-05 deverá tratar retomada segura após reinício, persistência de estado e reconciliação de
+operações UNKNOWN. Esta missão não investiga o sistema operacional nem implementa esse ledger.
 
 ## Recuperação de operações UNKNOWN
 
