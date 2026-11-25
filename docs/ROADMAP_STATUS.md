@@ -26,7 +26,7 @@
 | --- | --- | --- | --- |
 | [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `a2cc4fed7789` | Pendente |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `0f3a3be86958` | Verde |
-| [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `652beb5bca24` | Verde |
+| [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `652beb5bca24` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
 ## Integrações recentes
@@ -69,11 +69,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **4**; desses, Drafts: **3**.
+- PRs abertos: **4**; desses, Drafts: **2**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=55.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=1, Verde=2.
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=2, Verde=1.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
