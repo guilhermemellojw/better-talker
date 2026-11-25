@@ -178,22 +178,14 @@ object ChatBiblicalSupport {
         /** F2.1 — quando o chamador conhece as citações já sinalizadas. */
         existingUnsupportedQuotes: Set<String> = emptySet(),
     ): String? {
-        // QA-TRUST-P0A-48 (controle 10): o aviso bíblico NÃO pode ser
-        // suprimido quando já existe outro aviso no turno — sempre calcular
-        // e concatenar (um único separador).
-        // P0A-2: cobre referências sem retorno E citações literais incompatíveis.
-        // Se o aviso existente JÁ fala em citação/trecho sinalizado, não repetir
-        // o mesmo sinal (aviso único do chat) — contratos #48 preservados.
-        val existingCoversQuotes = existingNotice?.let {
-            it.contains("citação", ignoreCase = true) ||
-                it.contains("trecho sinalizado", ignoreCase = true)
-        } == true
-        // Sem a lista tipada, o chamador legado (verifyChatText) só declara a
-        // categoria — deduplicação exata não é possível e é documentada.
+        // P5 — sem supressão global por texto do aviso: somente o conjunto
+        // tipado `existingUnsupportedQuotes` identifica achados já cobertos.
+        // Controle 10 (#48) preservado: sempre calcular e concatenar avisos de
+        // naturezas distintas, com um único separador.
         val biblicalNotice = supportNotice(
             answer = answer,
             documentaryCorpus = corpus,
-            includeUnsupportedQuotes = !existingCoversQuotes || existingUnsupportedQuotes.isNotEmpty(),
+            includeUnsupportedQuotes = true,
             includeMisattributed = true,
             existingUnsupportedQuotes = existingUnsupportedQuotes,
         )

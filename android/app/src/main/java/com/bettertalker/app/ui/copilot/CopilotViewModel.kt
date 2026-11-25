@@ -626,15 +626,28 @@ data class ChatVerificationOutcome(
  */
 fun verifyChatText(text: String, corpus: List<String>): ChatVerificationOutcome {
     val result = GroundednessVerifier.verify(text, corpus, warnOnly = true)
-    // TRUST-P0A — Fail-safe bíblico: citações bíblicas sem suporte em evidência
-    // documental elegantes são sinalizadas via `notice` — nunca reescritas no
-    // texto (regra de sempre: ambiente de chat = warn-only).
+    // P5 — deduplicação TIPADA: só as citações efetivamente removidas/sinalizadas
+    // pelo verificador anterior são consideradas cobertas. Role-play é excluído
+    // pela mesma regra certificada de CitationCheck. Conjunto vazio NÃO significa
+    // "sem achados" — apenas que nada foi previamente coberto.
+    val coveredQuotes = result.removed
+        .flatMap(GroundednessVerifier::factualQuotes)
+        .filterNot { quote ->
+            val opening = listOf("\"$quote\"", "“$quote”")
+                .mapNotNull { text.indexOf(it).takeIf { at -> at >= 0 } }
+                .minOrNull() ?: -1
+            opening >= 0 && com.bettertalker.app.data.ai.isRolePlayQuote(text, opening)
+        }
+        .toSet()
+    // TRUST-P0A — Fail-safe bíblico: citações sem suporte documental são
+    // sinalizadas via `notice` — nunca reescritas no texto (warn-only).
     return ChatVerificationOutcome(
         result = result,
         notice = ChatBiblicalSupport.noticeWithBiblicalSafety(
             existingNotice = chatVerificationNotice(text, corpus, result),
             answer = text,
             corpus = corpus,
+            existingUnsupportedQuotes = coveredQuotes,
         ),
     )
 }
@@ -7886,11 +7899,17 @@ class CopilotViewModel(
             // resolve por ref exata no índice (Je 29:11).
             val verses = repo.biblePassages("${b.label} ${b.chapter}:${b.verse}", 2)
             for (v in verses) {
-                sb.append("\nDa Bíblia (TNM 2015) — ${b.label} ${b.chapter}:${b.verse}:\n“${v.passage.text.take(220)}”\n")
+                // P5: rótulo restrito ao trecho REALMENTE recuperado — nunca
+                // a edição inteira nem um recorte apresentado como completo.
+                val trecho = v.passage.text.take(220)
+                val rotulo = ChatBiblicalSupport.retrievedExcerpt("TNM", trecho) ?: continue
+                sb.append("\n$rotulo — ${b.label} ${b.chapter}:${b.verse}\n")
             }
         }
         content.take(4).forEachIndexed { i, h ->
-            sb.append("\n${i + 1}. [${h.source}] ${h.passage.text.take(180)}\n")
+            val trecho = h.passage.text.take(180)
+            val rotulo = ChatBiblicalSupport.retrievedExcerpt(h.source, trecho) ?: return@forEachIndexed
+            sb.append("\n${i + 1}. $rotulo\n")
         }
         sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
         post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL, finalResponse = finalResponse)
