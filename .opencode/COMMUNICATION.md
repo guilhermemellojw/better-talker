@@ -241,3 +241,23 @@ Divergência em qualquer campo — inclusive `synthetic=False`, `expires_at` amp
 `FAILED` pré-envio com zero chamadas ao transporte. Falha após transmissão continua `UNKNOWN`,
 sem reenvio automático. Nenhuma assinatura digital, criptografia adicional, ledger distribuído
 ou autorização real foi acrescentada.
+
+## COORD-04/P3A — adaptador de piloto inativo
+
+`coord_pilot.py` implementa `OpenCodeTransport` sobre a interface `Transport`, com cliente HTTP
+local injetado, base restrita a `127.0.0.1`, paths `/api/` e nenhum redirecionamento. O cliente
+padrão falha fechado; `LocalHttpClient` exige `allow_write=True` e autorização aprovada para
+POST. O supervisor não recebe comando ou permissão nova.
+
+`PilotAuthorization` é separada das autorizações sintéticas: exige mantenedor, referência de
+aprovação, destinatário completo, missão/operação, hash do prompt, escopo, validade,
+`max_transmissions=1` e aprovação explícita. `environment=PROPOSED`/`SYNTHETIC` nunca habilita
+transmissão real; nenhuma autorização real foi criada na P3A.
+
+`PilotOperationStore` persiste uma única operação em `~/.local/state/better-talker/coord-pilot/`
+com diretório `0700`, arquivo `0600`, escrita atômica e sem segredo. A reserva exclusiva é um
+arquivo `.lock` local com `O_EXCL`; ela impede dois consumidores locais, não é lock distribuído.
+`recover()` transforma `DISPATCHING` em `UNKNOWN` sem reenviar.
+
+A proposta de missão, a autorização a ser aprovada e o runbook estão em `PILOT.md`. Nenhum POST
+real, sessão, prompt, serviço ou A–E foi operado na P3A.

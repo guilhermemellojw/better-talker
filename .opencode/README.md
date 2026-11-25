@@ -15,6 +15,9 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
 | `scripts/test_communication.py` | Testes offline de contratos, autorização, estados, relatórios e isolamento. |
 | `scripts/demo_communication.py` | Demonstração sintética de sucesso, timeout/UNKNOWN e próxima proposta. |
 | `COMMUNICATION.md` | Contratos da API, arquitetura, estados, garantias e limitações da P1. |
+| `scripts/coord_pilot.py` | Adaptador OpenCode inativo, autorização experimental, persistência mínima e reserva local para P3A. |
+| `scripts/test_pilot_adapter.py` | Testes offline do adaptador, persistência, UNKNOWN e ausência de chamadas reais. |
+| `PILOT.md` | Proposta de missão/autorização P3B e runbook de execução controlada. |
 
 ## Utilização
 
