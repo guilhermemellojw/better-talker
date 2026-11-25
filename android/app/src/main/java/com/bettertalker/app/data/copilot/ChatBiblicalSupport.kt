@@ -74,17 +74,36 @@ object ChatBiblicalSupport {
         answer: String,
         documentaryCorpus: List<String>,
     ): List<String> {
-        val forms = RefDetector.detectBible(answer)
-            .map { RefCanonicalizer.canonicalBook("${it.label} ${it.chapter}:${it.verse}") }
-            .toSet()
-        if (forms.isEmpty()) return emptyList()
-        return GroundednessVerifier.factualQuotes(answer).filter { quote ->
+        val quotes = GroundednessVerifier.factualQuoteCandidates(answer)
+        val refs = RefDetector.detectBible(answer)
+        if (quotes.isEmpty() || refs.isEmpty()) return emptyList()
+        return quotes.filter { quote ->
+            val at = answer.indexOf(quote)
             val flat = GroundednessVerifier.normalizeForComparison(quote)
             val withQuote = documentaryCorpus.filter { source ->
                 GroundednessVerifier.normalizeForComparison(source).contains(flat)
             }
+            if (withQuote.isEmpty()) return@filter false // ausência é tratada por unsupportedQuotes
+
+            // F1: vínculo por proximidade — a referência mais próxima ANTES da
+            // citação. Presença global da ref em outra parte não certifica.
+            val linked = refs.mapNotNull { ref ->
+                val forms = listOf(
+                    "${ref.label} ${ref.chapter}:${ref.verse}",
+                    "${ref.bookNorm} ${ref.chapter}:${ref.verse}",
+                )
+                val prefix = answer.substring(0, at.coerceAtMost(answer.length))
+                val refAt = forms.mapNotNull { form ->
+                    prefix.lastIndexOf(form).takeIf { it >= 0 }
+                }.maxOrNull()
+                refAt?.takeIf { at - it <= 160 }?.let { ref to it }
+            }.maxByOrNull { it.second }?.first
+                ?: return@filter true // vínculo ambíguo: não certificar atribuição
+
+            // Comparação EXATA de forma canônica: João 3:1 não casa com João 3:10.
+            val wanted = RefCanonicalizer.canonicalBook("${linked.label} ${linked.chapter}:${linked.verse}")
             val formsInSources = withQuote.flatMap(RefCanonicalizer::canonicalize).toSet()
-            withQuote.isNotEmpty() && formsInSources.none { src -> forms.any { src.contains(it) } }
+            wanted !in formsInSources
         }.distinct()
     }
 
@@ -92,11 +111,14 @@ object ChatBiblicalSupport {
     fun supportNotice(
         answer: String,
         documentaryCorpus: List<String>,
-        includeQuoteNotices: Boolean = true,
+        includeUnsupportedQuotes: Boolean = true,
+        includeMisattributed: Boolean = true,
     ): String? {
         val gaps = biblicalGaps(answer, documentaryCorpus)
-        val quotes = if (includeQuoteNotices) unsupportedQuotes(answer, documentaryCorpus) else emptyList()
-        val misattributed = if (includeQuoteNotices) misattributedQuotes(answer, documentaryCorpus) else emptyList()
+        val quotes = if (includeUnsupportedQuotes) unsupportedQuotes(answer, documentaryCorpus) else emptyList()
+        // F2: atribuição incorreta é achado DISTINTO de citação sem apoio —
+        // nunca suprimida só porque já existe aviso de citação no turno.
+        val misattributed = if (includeMisattributed) misattributedQuotes(answer, documentaryCorpus) else emptyList()
         return buildList {
             notice(gaps)?.let(::add)
             if (quotes.isNotEmpty()) {
@@ -143,7 +165,12 @@ object ChatBiblicalSupport {
             it.contains("citação", ignoreCase = true) ||
                 it.contains("trecho sinalizado", ignoreCase = true)
         } == true
-        val biblicalNotice = supportNotice(answer, corpus, includeQuoteNotices = !existingCoversQuotes)
+        val biblicalNotice = supportNotice(
+            answer = answer,
+            documentaryCorpus = corpus,
+            includeUnsupportedQuotes = !existingCoversQuotes,
+            includeMisattributed = true,
+        )
         return listOfNotNull(existingNotice, biblicalNotice).joinToString("\n\n").ifBlank { null }
     }
 }

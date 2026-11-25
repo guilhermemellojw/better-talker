@@ -52,3 +52,20 @@ Antes da implementação, `FactualSupportProtectionTest` não compilava (`unsupp
 **Propriedade:** nenhuma edição em `CopilotViewModel`; `retrievedExcerpt()` ainda não conectado a `answerAsk()` — coordenar com A antes de qualquer alteração.
 
 **Evidências (P2):** testes focados (FactualSupportProtectionTest + GateWarningsTest) **BUILD SUCCESSFUL**; regressão JVM completa `:app:testPublicAppDebugUnitTest` **BUILD SUCCESSFUL**. Gradle executado com daemon já ativo no host (sem execuções paralelas adicionais); sem ADB, instrumentação, merge, schema, provider, release, bump ou LLM pago.
+
+---
+
+## BUILD P3 — atribuição, deduplicação e exceções
+
+**Fail-first:** 6 novos testes comportamentais; primeira execução → 3 falhas (`f1_duasReferenciasComCitacoesTrocadas`, `f1_referenciaMencionadaSemVinculoComACitacao`, `f2_avisoExistenteNaoSuprimeAtribuicaoIncorreta`). Durante a iteração, 2 falhas de role-play revelaram que `isRolePlayQuote` exige a posição da abertura da aspa — corrigido em `factualQuoteCandidates`.
+
+**Correção mínima (componentes puros):**
+- F1 — `misattributedQuotes` usa o auxiliar compartilhado `factualQuoteCandidates` e vincula cada citação à referência **mais próxima antes dela** (janela de 160 caracteres); presença global da ref em outra parte não certifica; comparação **exata** da forma canônica (3:1 não casa com 3:10); vínculo ambíguo → sinaliza, nunca certifica.
+- F2 — `supportNotice` separa `includeUnsupportedQuotes` de `includeMisattributed`: aviso existente sobre citação suprime apenas a ocorrência **equivalente** de citação sem apoio; atribuição incorreta é achado distinto e nunca é descartada por texto do `existingNotice`.
+- F3 — `factualQuotes` (detecção literal bruta) → `factualQuoteCandidates` (exclusões certificadas de role-play/sugestão) → `unsupportedQuotes`/`misattributedQuotes` (juízos de suporte/atribuição); role-play e sugestão não são mecanismo de evasão quando há afirmação factual.
+
+**Preservação:** GateWarningsTest e contratos #48 intactos; nenhuma edição em `CopilotViewModel`; `retrievedExcerpt()` continua desconectado de `answerAsk()` (ownership a coordenar com A).
+
+**Evidências:** testes focados (16 novos + GateWarnings) **BUILD SUCCESSFUL**; regressão JVM completa **BUILD SUCCESSFUL**. Gradle com daemon já ativo no host (coordenação com D: única execução por vez). Sem verificação semântica geral, merge, ADB, schema, provider, release, bump ou LLM pago.
+
+**Status:** S1/S2/S4 seguem **parcialmente cobertos** até a ligação produtiva; o contrato continua estritamente literal, nunca afirma fidelidade semântica.

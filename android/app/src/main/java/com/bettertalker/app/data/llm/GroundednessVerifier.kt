@@ -159,19 +159,27 @@ object GroundednessVerifier {
      * - 〈sugestão〉 isenta prosa criativa, mas NÃO afirmação factual com
      *   referência bíblica explícita.
      */
+    fun factualQuoteCandidates(text: String): List<String> {
+        if (text.isBlank()) return emptyList()
+        val spans = suggestionSpans(text)
+        val hasBiblicalRef = RefDetector.detectBible(text).isNotEmpty()
+        return factualQuotes(text).filter { quote ->
+            // Posição da ABERTURA da aspa — contrato de isRolePlayQuote/CitationCheck.
+            val at = listOf("\"$quote\"", "“$quote”")
+                .mapNotNull { text.indexOf(it).takeIf { p -> p >= 0 } }
+                .minOrNull() ?: text.indexOf(quote)
+            at >= 0 && !isRolePlayQuote(text, at) &&
+                (hasBiblicalRef || !inSuggestion(at, spans))
+        }
+    }
+
     fun unsupportedQuotes(text: String, sources: List<String>): List<String> {
         if (text.isBlank()) return emptyList()
         val perSource = sources.map(::normalizeForComparison)
-        val spans = suggestionSpans(text)
-        val hasBiblicalRef = RefDetector.detectBible(text).isNotEmpty()
-        return QUOTE.findAll(text).mapNotNull { match ->
-            if (isRolePlayQuote(text, match.range.first)) return@mapNotNull null
-            if (!hasBiblicalRef && inSuggestion(match.range.first, spans)) return@mapNotNull null
-            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
-            if (quote.length < MIN_QUOTE_CHARS) return@mapNotNull null
+        return factualQuoteCandidates(text).filter { quote ->
             val flat = normalizeForComparison(quote)
-            quote.takeIf { perSource.none { source -> source.contains(flat) } }
-        }.distinct().toList()
+            perSource.none { source -> source.contains(flat) }
+        }.distinct()
     }
 
     fun verify(text: String, sources: List<String>, warnOnly: Boolean = false): VerificationResult {

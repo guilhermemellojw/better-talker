@@ -145,4 +145,62 @@ class FactualSupportProtectionTest {
         // Prosa criativa sem ref continua isenta.
         assertTrue(ChatBiblicalSupport.unsupportedQuotes("〈sugestão〉\"$quote\"〈/sugestão〉", emptyList()).isEmpty())
     }
+
+    // ---------- BUILD P3 — F1 atribuição, F2 deduplicação, F3 exceções ----------
+
+    private val q1 = "primeira frase biblica longa o suficiente para deteccao literal"
+    private val q2 = "segunda frase biblica longa o suficiente para deteccao literal"
+
+    @Test
+    fun f1_duasReferenciasComCitacoesTrocadas() {
+        val answer = "Em João 3:16 diz \"$q1\". Em João 3:17 diz \"$q2\"."
+        val corpus = listOf("João 3:16 — $q2", "João 3:17 — $q1")
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).contains(q1))
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).contains(q2))
+    }
+
+    @Test
+    fun f1_versiculo1NaoCertificaCitacaoDoVersiculo10() {
+        val answer = "Em João 3:10 diz \"$q1\"."
+        val corpus = listOf("João 3:1 — $q1")
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).contains(q1))
+    }
+
+    @Test
+    fun f1_referenciaMencionadaSemVinculoComACitacao() {
+        val answer = "Sobre João 3:16 há muito a dizer. " + "Outro assunto ocupa esta mensagem. ".repeat(9) +
+            "Aliás, a Bíblia diz que \"$q1\"."
+        val corpus = listOf("João 3:16 — $q1")
+        // Ref existe globalmente, mas não está vinculada à citação examinada.
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, corpus).contains(q1))
+    }
+
+    @Test
+    fun f2_avisoExistenteNaoSuprimeAtribuicaoIncorreta() {
+        val answer = "Em João 3:16 diz \"$q1\"."
+        val corpus = listOf("João 3:17 — $q1")
+        val existing = "⚠️ Revise: 1 citação fora dos trechos."
+        val notice = ChatBiblicalSupport.noticeWithBiblicalSafety(existing, answer, corpus)
+        assertNotNull(notice)
+        assertTrue(notice!!.contains(existing))
+        assertTrue(notice.contains("atribuída(s) a referência sem fonte correspondente"))
+    }
+
+    @Test
+    fun f3_rolePlayComReferenciaNaoViraEvasao() {
+        val demo = "<p><b>Morador:</b> “$q1”</p><p><b>Publicador:</b> “$q2”</p>"
+        val answer = "$demo Em João 3:16 há uma promessa."
+        assertTrue(ChatBiblicalSupport.unsupportedQuotes(answer, emptyList()).isEmpty())
+        assertTrue(ChatBiblicalSupport.misattributedQuotes(answer, emptyList()).isEmpty())
+    }
+
+    @Test
+    fun f3_prosaCriativaEFatoExplicitoSaoDistintos() {
+        val answer = "〈sugestão〉\"$q1\"〈/sugestão〉; em João 3:16 diz \"$q2\"."
+        val raw = com.bettertalker.app.data.llm.GroundednessVerifier.factualQuotes(answer)
+        val unsupported = ChatBiblicalSupport.unsupportedQuotes(answer, emptyList())
+        assertTrue(raw.containsAll(listOf(q1, q2)))
+        assertTrue(unsupported.contains(q2))
+        assertTrue(unsupported.contains(q1)) // sugestão com ref bíblica não é isenção
+    }
 }
