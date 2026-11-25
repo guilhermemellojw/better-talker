@@ -5,7 +5,7 @@
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `cc88ff9b27cc79ba13ccaf3bece9680badcc9207`
 - Checks da `main` consultada: **Verde**
-- PRs encontrados na janela de consulta: **58** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
+- PRs encontrados na janela de consulta: **59** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
 
@@ -13,7 +13,7 @@
 
 | Frente | Abertos | Integrados | Fechados sem merge |
 | --- | ---: | ---: | ---: |
-| Mentor | 0 | 21 | 0 |
+| Mentor | 1 | 21 | 0 |
 | Referências e UX | 1 | 11 | 0 |
 | TRUST | 1 | 10 | 0 |
 | Beta e infraestrutura | 1 | 2 | 0 |
@@ -24,6 +24,7 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
+| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `3b5a00c8644c` | Pendente |
 | [#61 — ci(android): estabiliza lint e assemblies com in-process (Draft)](https://github.com/guilhermemellojw/better-talker/pull/61) | Beta e infraestrutura | `55f79a69fadb` | Pendente |
 | [#60 — feat(trust): protecao factual minima do chat — citacao sem apoio e aviso deterministico (P0A-2 P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/60) | TRUST | `27fa1870e185` | Pendente |
 | [#59 — feat(ux-simple-p2b): simplificar cabeçalho do card de seção (Draft)](https://github.com/guilhermemellojw/better-talker/pull/59) | Referências e UX | `3bd4dc770013` | Verde |
@@ -70,11 +71,11 @@
 ## Métricas operacionais observáveis
 
 - Janela efetiva da coleta: 2026-11-16 a 2026-11-25 (até 300 PRs, ordenados por `updated_at`).
-- PRs abertos: **5**; desses, Drafts: **4**.
+- PRs abertos: **6**; desses, Drafts: **5**.
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=53.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.1 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Pendente=2, Verde=2.
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=3, Verde=2.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
