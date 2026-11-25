@@ -28,7 +28,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 | --- | --- | --- | --- |
 | A | PEDAGOGY-1-MIN / P6 (#62) | EM EXECUÇÃO | Integração produtiva restrita ao ViewModel; fronteiras TRUST certificadas intocáveis; HEAD `7476cf79` aberto, CI não observado |
 | B | BETA-A11Y-MIN / P1 | ATRIBUÍDA | Acessibilidade mínima do beta; não duplicar QA de E nem homologação de D |
-| C | RECONCILIAÇÃO OPERACIONAL / P2 | EM EXECUÇÃO | R07 publicada em PR documental; disponível para QA independente das entregas de B |
+| C | RECONCILIAÇÃO OPERACIONAL / P2 | CONCLUÍDA | R07 publicada no PR #65, em revisão final; disponível para QA independente das entregas de B |
 | D | HOMOLOGAÇÃO FÍSICA | AGUARDANDO AUTORIZAÇÃO | Checkpoints NÃO EXECUTADOS; exige autorização específica, preflight aprovado e plano de recuperação |
 | E | TRUST-1A / #11 + QA do delta produtivo #62 | EM EXECUÇÃO | #11 aberto (`d917df70`); prioridade de QA em #62; não repetir #48/#52/#60 certificados |
 | S | COORD-04 / #64 | EM EXECUÇÃO | Fundação de comunicação sintética; fronteira exclusivamente sintética, sem dados reais |
@@ -38,7 +38,7 @@ As atribuições representam o último direcionamento conhecido; execução efet
 **R07 — classificação da informação:**
 - **Evidência confirmada** (GitHub/CI/QA): integrações #39, #42–#45, #47–#53, #56–#61 e #63; #60 em `252bba6c` com CI pós-merge `45664202428` SUCCESS e parecer P5 FINAL aprovado; #43 com instrumentação A34 reutilizada; #48/#52/#60 com pareceres independentes.
 - **Relato de agente** (sem verificação independente nova): plano físico de D e matriz de E — preparação documental entregue, **execução NÃO realizada**; detalhes de snapshots locais não conferidos pela coordenação.
-- **Estado desconhecido / não observado**: CI e QA dos HEADs abertos #11 (`d917df70`), #54 (`b0dea697`), #62 (`7476cf79`) e #64 (`e8b02798`) — nenhum run de CI associado observado nesta revisão; disponibilidade de branch/HEAD do agente deve ser confirmada no preflight.
+- **Estado desconhecido / não observado**: CI e QA dos HEADs abertos #11 (`d917df70`), #54 (`428f9f37`), #62 (`7476cf79`) e #64 (`e8b02798`) — nenhum run de CI associado observado nesta revisão; disponibilidade de branch/HEAD do agente deve ser confirmada no preflight.
 
 **R07 — referências operacionais corrigidas:** #44 não está mais bloqueado (integrado em `301f4470`); #39/#45/#48/#49/#50/#51/#52/#60 deixaram de estar em Draft/pendentes; #47 não tem CI pós-merge em execução; #54/#62/#64 passam a constar como abertos. Nenhuma dessas correções altera autorizações passadas nem cria novas.
 
@@ -85,6 +85,8 @@ As atribuições representam o último direcionamento conhecido; execução efet
 - Pronto: pareceres por SHA e bloqueadores reproduzíveis; matriz não promove testes isolados a aprovação da jornada completa.
 
 ## 3. Fila de integração e ownership
+
+> **R07 — histórico R06:** a tabela de integração e as notas por PR abaixo pertencem ao snapshot R06 e **não têm valor de atribuição vigente**. Estados vigentes e ownership atualizada estão no quadro da seção 2 e na nota sobre `CopilotViewModel.kt` ao final desta seção. As entradas são preservadas apenas como histórico de decisões e integrações já realizadas.
 
 | PR | HEAD observado | Estado de coordenação (snapshot) | Ação |
 | --- | --- | --- | --- |
@@ -141,5 +143,6 @@ Atualizar este registro somente em mudança material de tarefa, dependência, ow
 - Origem: relatório P1 `docs/reports/2026-11-25-coord-reconciliation-p1.md` (reutilizado, sem repetir discovery). Aprovação da coordenação para publicar esta revisão.
 - Estado dos checkpoints físicos permanece **NÃO EXECUTADO / AGUARDANDO AUTORIZAÇÃO** — plano (D) e critérios (E) são relatos de preparação, não evidência de execução. Nenhum ADB, dispositivo ou LLM pago nesta revisão.
 - Mudanças aplicadas: cabeçalho/baseline R07; quadro de missões com as atribuições vigentes (A/B/C/D/E/S); classificação evidência × relato × desconhecido; referências operacionais corrigidas; ownership restrita do `CopilotViewModel.kt` para A.
+- Ajustes P3: seção 3 marcada explicitamente como histórico R06, sem valor de atribuição vigente; missão de C registrada como **CONCLUÍDA**, disponível para QA independente das entregas de B; HEAD de #54 atualizado para `428f9f37` (únicos estados observados que mudaram desde o relatório P1).
 - Histórico preservado: R06 (`70cd7513`) e decisões anteriores continuam no Git; seções detalhadas abaixo do quadro são o registro R06 e só prevalecem onde R07 não as substituiu.
 - Fora de escopo: `ROADMAP_STATUS.md` (automação), roadmap estratégico, supervisor, código Android/schema e qualquer nova autorização de merge/dispositivo. R07 é proposta em PR Draft, sujeita à revisão independente; não autoriza merge, release, bump nem uso de dispositivo.
