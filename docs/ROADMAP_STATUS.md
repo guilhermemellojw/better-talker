@@ -4,7 +4,7 @@
 
 - Repositório: https://github.com/guilhermemellojw/better-talker
 - `main` consultada: `f9d96e07a85566270025b8d949227a3ee365ca94`
-- Checks da `main` consultada: **Verde**
+- Checks da `main` consultada: **Pendente**
 - PRs encontrados na janela de consulta: **55** (até 300, ordenados por atualização; não é histórico completo se houver mais), 2026-11-16 a 2026-11-25.
 - PR aberto não significa funcionalidade concluída. PR integrado não significa beta validado.
 - CI verde no HEAD do PR não comprova CI pós-merge nem teste em aparelho.
