@@ -39,6 +39,11 @@ import com.bettertalker.app.data.copilot.CardCapturedFrom
 import com.bettertalker.app.data.copilot.CardInsertMode
 import com.bettertalker.app.data.copilot.CardOrigin
 import com.bettertalker.app.data.copilot.CardPayload
+import com.bettertalker.app.data.copilot.cardTargetKey
+import com.bettertalker.app.data.copilot.ConversationalReferentRecovery
+import com.bettertalker.app.data.copilot.ConversationalReferentResolver
+import com.bettertalker.app.data.copilot.MentorContinuityRouting
+import com.bettertalker.app.data.copilot.MentorTurnLifecycle
 import com.bettertalker.app.data.copilot.CardStatus
 import com.bettertalker.app.data.copilot.CardSuggestedAction
 import com.bettertalker.app.data.copilot.CardTarget
@@ -1785,6 +1790,9 @@ class CopilotViewModel(
     private var currentTurnId: String? = null
     /** Card-first: alvo capturado no início da geração, nunca no clique. */
     private var activeCardTarget: CardTarget? = null
+    /** P9 — origem volátil da sugestão; nunca persiste nem é reconstruída. */
+    private var lastSuggestionNoteId: String? = null
+    private var lastSuggestionScopeId: String? = null
     private data class CardUndoSnapshot(
         val targetKind: CardTargetKind,
         val targetId: String,
@@ -2443,6 +2451,8 @@ class CopilotViewModel(
 
     fun dismissNextStepSuggestion() {
         _nextStepSuggestion.value = null
+        lastSuggestionNoteId = null
+        lastSuggestionScopeId = null
     }
 
     /**
@@ -3215,6 +3225,9 @@ class CopilotViewModel(
             return
         }
         _nextStepSuggestion.value = suggestion
+        // P9 — origem volátil: sem estes metadados a sugestão não é referente.
+        lastSuggestionNoteId = nid
+        lastSuggestionScopeId = _chatScope.value
         postText("Próximo passo: ${suggestion.label.lowercase()}.", MessageOrigin.LOCAL)
     }
 
@@ -3764,6 +3777,8 @@ class CopilotViewModel(
         targetScope: String? = turnScope ?: _chatScope.value,
         /** M1: id estável do turno; só o texto final vira o item do turno. */
         turnId: String? = currentTurnId,
+        /** F4 — resposta final local explícita (vincula turnId e fecha o turno). */
+        finalResponse: Boolean = false,
         /** Card-first: origem do card (CHAT na geração; TRANSFORM na seleção). */
         cardOrigin: CardOrigin = CardOrigin.CHAT,
         /** Fase 4: reescrita sugere REPLACE; geração sugere APPEND. */
@@ -3788,9 +3803,9 @@ class CopilotViewModel(
         }
         // M1: a pergunta e a resposta final compartilham o turnId; avisos
         // intermediários não recebem a chave para não colidirem no LazyColumn.
-        val effectiveTurnId = turnId?.takeIf {
-            fromMe || (kind == "text" && durationMs != null)
-        }
+        val effectiveTurnId = MentorContinuityRouting.finalTurnId(
+            turnId, fromMe, kind, durationMs, finalResponse,
+        )
         if (effectiveTurnId != null) withOrigin["turnId"] = effectiveTurnId
         val reasoningSeconds = if (!fromMe && effectiveTurnId != null) {
             _activeTurn.value?.reasoningSeconds() ?: 0
@@ -4189,8 +4204,16 @@ class CopilotViewModel(
             _sourcesNeeded.value = null
         }
         lastUserMessage = text
+        // P9 — capta a sugestão ANTES de invalidá-la: origem é volátil.
+        val pendingSuggestion = if (postUserMessage) _nextStepSuggestion.value else null
+        val pendingSuggestionNoteId = lastSuggestionNoteId
+        val pendingSuggestionScope = lastSuggestionScopeId
         // Fatia 4: uma nova fala invalida a sugestão de próximo passo.
-        if (postUserMessage) _nextStepSuggestion.value = null
+        if (postUserMessage) {
+            _nextStepSuggestion.value = null
+            lastSuggestionNoteId = null
+            lastSuggestionScopeId = null
+        }
         currentGenerationJob = viewModelScope.launch {
             // 6.0.2: pedido explícito (“desenvolva o ponto 2”) nasce no ponto
             // 2 — o chip, o Contexto, o histórico e o card usam o mesmo escopo.
@@ -4212,53 +4235,45 @@ class CopilotViewModel(
             )
             startTurnProgress(turnId)
             _runState.value = ChatRunState.Sending
-            // Histórico e first ANTES do post: a pergunta atual não contamina
-            // a continuidade, e a primeira mensagem é detectada de verdade.
-            // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
-            val historyBefore = historyOverride ?: conversationTurnsScoped()
-            val isFirst = historyBefore.none { it.fromMe }
-            // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
-            // que o rótulo anuncia — sem rotular bloco de "seleção".
-            // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
-            // Adquirido e armazenado; a injeção no prompt vem em 3.5d.
+            // F4b — try canônico cobre TODA operação posterior à ativação
+            // do turno: histórico, dossiê, alvo, persistência da pergunta,
+            // roteamento e geração. Cleanup único no finally.
+            try {
             // F2b: alvo fixo do FAB (precedência: explícito > seleção viva > nada).
             val target: DraftTarget? = _pushedContext?.let { ctx ->
                 val sectionId = ctx.sectionId
                 when {
                     sectionId != null && ctx.subPointId != null ->
                         DraftTarget.SubPoint(sectionId, ctx.subPointId)
-                    sectionId != null ->
-                        DraftTarget.Section(sectionId)
+                    sectionId != null -> DraftTarget.Section(sectionId)
                     else -> null
                 }
             }
-            val dossier = try {
-                dossierProvider?.invoke(target)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
+            val prepared = when (val r = MentorTurnLifecycle.prepare(MentorTurnLifecycle.Operations(
+                loadHistory = { historyOverride ?: conversationTurnsScoped() },
+                loadDossier = { dossierProvider?.invoke(target) },
+                captureTarget = { d -> captureCardTarget(target, d) },
+                persistQuestion = {
+                    // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
+                    if (postUserMessage) {
+                        post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
+                    }
+                },
+            ))) {
+                is MentorTurnLifecycle.Result.Ready -> r.prepared
+                is MentorTurnLifecycle.Result.Failed -> throw r.cause
             }
+            var historyBefore = prepared.history
+            var historyFailure = prepared.historyFailure
+            val isFirst = historyBefore.none { it.fromMe }
+            val dossier = prepared.dossier
             lastDossier = dossier
-            // Regra do bloco: a geração de uma seção usa section.minutes,
-            // nunca o total do discurso.
             val blockMinutes = if (_focusMode.value == FocusMode.WHOLE) {
                 null
-            } else {
-                dossier?.currentSection?.minutes
-            }
+            } else dossier?.currentSection?.minutes
             val blockText = currentFocusText()
-            activeCardTarget = captureCardTarget(target, dossier)
-            // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
-            if (postUserMessage) {
-                post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
-            }
+            activeCardTarget = prepared.target
             _chatBusy.value = true
-            // F2.1-fix: o try cobre TUDO a partir daqui (intenção, RAG,
-            // roteamento e geração). Antes, os return@launch das rotas
-            // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
-            // do try e pulavam o finally — travando composer e runState.
-            try {
             // Card-first: “Sim/Não” ancorado em cardGateMessageId; só o card
             // mais recente que é a última fala aceita. Antes do gate antigo.
             if (postUserMessage && resolveCardShortAnswer(text)) return@launch
@@ -4464,6 +4479,104 @@ class CopilotViewModel(
                 "ChatRouter",
                 com.bettertalker.app.data.copilot.ChatRouter.describe(route),
             )
+            // ---- P9/P12 — continuidade dentro do ciclo canônico do turno ----
+            // A pergunta já foi postada, _chatBusy = true e estamos dentro do
+            // try/finally: qualquer retorno daqui finaliza turno/composer.
+            if (historyFailure != null) {
+                if (MentorContinuityRouting.needsReferent(text)) {
+                    post(
+                        false, "text",
+                        ChatCodec.escMap(mapOf("text" to
+                            "Não consegui recuperar o histórico deste tópico. " +
+                                "Qual card ou ponto você quer aprofundar?")),
+                        MessageOrigin.LOCAL,
+                        finalResponse = true,
+                    )
+                    return@launch
+                }
+                throw historyFailure
+            }
+            val nid = noteId
+            val focus = if (_focusMode.value == FocusMode.WHOLE)
+                ConversationalReferentResolver.Focus.WHOLE
+            else ConversationalReferentResolver.Focus.SECTION
+            val scope = if (focus == ConversationalReferentResolver.Focus.WHOLE)
+                null else (turnScope ?: _chatScope.value)
+            val resolution = if (nid != null) MentorContinuityRouting.resolveFromContext(
+                request = text, noteId = nid, scope = scope, focus = focus,
+                suggestion = pendingSuggestion,
+                suggestionNoteId = pendingSuggestionNoteId,
+                suggestionSectionId = pendingSuggestionScope,
+                lastResponse = historyBefore.lastOrNull { !it.fromMe }?.text,
+                sectionTitles = _guideSections.value.associate { it.id to it.title },
+                loadMessages = {
+                    db.chatDao().all(nid).map { e ->
+                        ConversationalReferentRecovery.Message(
+                            id = e.id, noteId = e.noteId, sectionId = e.sectionId,
+                            payload = ChatCodec.unescMap(e.payload),
+                            createdAt = e.createdAt, active = e.isActive,
+                        )
+                    }
+                },
+                loadTargetState = { kind, id ->
+                    when (kind) {
+                        CardTargetKind.SECTION -> db.speechSectionDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.contentHtml))
+                        }
+                        CardTargetKind.NOTE -> db.noteDao().get(id)?.let {
+                            ConversationalReferentRecovery.TargetState(true, hashText(it.richHtml))
+                        }
+                    }
+                },
+            ) else MentorContinuityRouting.Resolution.Unavailable(
+                "sem nota", IllegalStateException("sem nota"),
+            )
+            when (resolution) {
+                is MentorContinuityRouting.Resolution.Unavailable -> {
+                    android.util.Log.w("MentorContinuity", "contexto indisponível: ${resolution.reason}")
+                    if (MentorContinuityRouting.needsReferent(text)) {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não consegui recuperar o contexto deste tópico. " +
+                                    "Qual card ou ponto você quer aprofundar?")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    throw resolution.cause
+                }
+                is MentorContinuityRouting.Resolution.Ok -> when (val action = resolution.plan.action) {
+                    is MentorContinuityRouting.Action.DeepenCard ->
+                        answerAsk(action.topic, finalResponse = true).also { return@launch }
+                    is MentorContinuityRouting.Action.ExplainSuggestion -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Próximo passo: ${action.detail.ifBlank { action.label }}.")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    is MentorContinuityRouting.Action.ExplainActiveSection ->
+                        answerAsk(action.title, finalResponse = true).also { return@launch }
+                    is MentorContinuityRouting.Action.Clarify -> {
+                        post(
+                            false, "text",
+                            ChatCodec.escMap(mapOf("text" to
+                                "Não identifiquei com segurança o que aprofundar. ${action.reason}")),
+                            MessageOrigin.LOCAL,
+                        finalResponse = true,
+                        )
+                        return@launch
+                    }
+                    else -> Unit // ProceedNormal — fluxo existente preservado
+                }
+            }
+            // ---- fim P9/P12 ----
+
             // Gate determinístico de fontes: só rotas que consultam o LLM.
             // Comando de refs/estrutura já retornou antes; aqui a pergunta
             // específica sobre ref bloqueante espera a decisão do usuário.
@@ -4606,6 +4719,7 @@ class CopilotViewModel(
                 // (precisa do S-34/esboço vinculado); route() nunca emite.
                 is com.bettertalker.app.data.copilot.ChatRouter.Route.PasteAndChat -> Unit
             }
+
 
             // Fase 18: com chave BYOD, a rota nova (LLM real) decide.
             // Sem chave, o motor legado local continua (comportamento atual).
@@ -7723,11 +7837,11 @@ class CopilotViewModel(
             "“remover o 2”, “fundir 1 e 2”, “sincronizar esboço”, “desenvolva a introdução”. Exemplos:\n" +
             "• “ideias para a conclusão”\n• “exemplo para a conclusão”\n• “como introduzir?”\n• “o que dizem sobre fé?”\n• “o que diz Gênesis 1:26?”\n• “insere a segunda”\n• “quais refs faltam?”\n• “refs do esboço”\n• “mostre as seções”"
 
-    private suspend fun answerAsk(topic: String) {
+    private suspend fun answerAsk(topic: String, finalResponse: Boolean = false) {
         if (needOutline()) {
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Para responder com base nos materiais, toque no + e vincule um esboço.")),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             return
         }
         lastTopic = topic
@@ -7739,7 +7853,7 @@ class CopilotViewModel(
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Não encontrei trechos sobre “$topic” nos materiais baixados." +
                     (if (missing.isNotBlank()) "\n\n$missing" else "") + staleBodiesHint())),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             val slots = repo.missingBases()
             if (slots.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
@@ -7755,7 +7869,7 @@ class CopilotViewModel(
             post(false, "text", ChatCodec.escMap(mapOf(
                 "text" to "Sobre “$topic”, só tenho as publicações-guia (estrutura, não matéria). " +
                     "Baixe no site a matéria citada no esboço para eu responder com ela.")),
-                MessageOrigin.LOCAL)
+                MessageOrigin.LOCAL, finalResponse = finalResponse)
             val missing = repo.missingBases()
             if (missing.isNotEmpty()) {
                 post(false, "bases", ChatCodec.escMap(mapOf(
@@ -7779,7 +7893,7 @@ class CopilotViewModel(
             sb.append("\n${i + 1}. [${h.source}] ${h.passage.text.take(180)}\n")
         }
         sb.append("\nQuer que eu gere ideias com isso? Diga a seção.")
-        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL)
+        post(false, "text", ChatCodec.escMap(mapOf("text" to sb.toString().trim())), MessageOrigin.LOCAL, finalResponse = finalResponse)
     }
 
     /**
