@@ -107,4 +107,10 @@ class EditorPresentationTest {
         assertTrue(text.contains("crie um novo"))
     }
 
+
+    @Test
+    fun maisOpcoesTemRotuloExplicito() {
+        assertEquals("Mais opções", moreOptionsLabel())
+    }
+
 }
