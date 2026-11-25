@@ -222,4 +222,61 @@ class PedagogicalMinIntentTest {
         assertTrue((r as Outcome.Reformulate).referent is Referent.DeepenCard)
         assertTrue((r.referent as Referent.DeepenCard).card.targetLabel == "Romanos 8")
     }
+
+
+    // ---- P3 / F5 — negação não dispara a ação negada ----
+
+    @Test
+    fun f5_pedidosNegados_delegam() {
+        listOf(
+            "Não simplifique essa explicação.",
+            "Não reformule.",
+            "Não desenvolva essa ideia.",
+            "Não simplifique, mas reformule.",
+        ).forEach { req ->
+            assertEquals("$req -> $req", Outcome.Delegate, resolve(req))
+        }
+    }
+
+    @Test
+    fun f5_pedidosPositivos_preservados() {
+        assertTrue(resolve("Simplifique essa explicação.") is Outcome.Reformulate)
+        assertTrue(resolve("Reformule.") is Outcome.Reformulate)
+        assertTrue(resolve("Desenvolva essa ideia.") is Outcome.DevelopReferent)
+    }
+
+    // ---- P3 / F6 — identidade exata da referência explícita ----
+
+    private fun withCard(label: String) = ctx(c = card(label = label))
+
+    @Test
+    fun f6_romanos1NaoCasaRomanos10_nosDoisSentidos() {
+        val r1 = resolve("Simplifique Romanos 10.", withCard("Romanos 1"))
+        assertFalse("Romanos 1 não é Romanos 10: $r1",
+            r1 is Outcome.Reformulate && r1.referent is Referent.DeepenCard)
+        val r2 = resolve("Simplifique Romanos 1.", withCard("Romanos 10"))
+        assertFalse("Romanos 10 não é Romanos 1: $r2",
+            r2 is Outcome.Reformulate && r2.referent is Referent.DeepenCard)
+    }
+
+    @Test
+    fun f6_joao31NaoCasaJoao310() {
+        val r = resolve("Explique de outra maneira João 3:10.", withCard("João 3:1"))
+        assertFalse("João 3:1 não é João 3:10: $r",
+            r is Outcome.Reformulate && r.referent is Referent.DeepenCard)
+    }
+
+    @Test
+    fun f6_referenciaCorretaAssociadaASugestao_selecionaSugestao() {
+        val s = NextStepSuggestion(
+            label = "Romanos 10", detail = "Leia o texto.",
+            action = ResolvedChatNav.DevelopCurrent("sec-1", "Romanos 10"),
+        )
+        val c = ctx(c = card(label = "Romanos 1")).copy(
+            lastSuggestion = s, lastSuggestionNoteId = "n1", lastSuggestionSectionId = "sec-1",
+        )
+        val r = resolve("Simplifique Romanos 10.", c)
+        assertTrue("deve selecionar a sugestão: $r", r is Outcome.Reformulate)
+        assertTrue((r as Outcome.Reformulate).referent is Referent.ExplainSuggestion)
+    }
 }

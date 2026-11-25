@@ -68,18 +68,36 @@ object PedagogicalMinIntent {
     )
     /** Referência explícita ao tema (ex.: "Romanos 8", "João 3:16"). */
     private val EXPLICIT_REF = Regex(
-        """\b(\d?\s*[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?)\b"""
+        """\b(\d?\s*[A-Za-zÀ-ÿ]+\s+\d{1,3}(?:[\s:]+\d{1,3})?)\b"""
     )
 
-    private fun hasUnmatchedExplicitRef(t: String, context: Context): Boolean {
-        val known = listOfNotNull(
-            context.lastCard?.targetLabel, context.lastCard?.targetId,
-            context.lastSuggestion?.label,
-        ).map(::normalizeText)
-        return EXPLICIT_REF.findAll(t).any { m ->
-            val ref = normalizeText(m.value)
-            known.none { k -> k.contains(ref) || ref.contains(k) }
+    private enum class ExplicitTarget { NONE, CARD, SUGGESTION }
+
+    /** Mesma regra de identidade do resolvedor certificado: limites de palavra. */
+    private fun exactMentions(value: String, ref: String): Boolean {
+        val a = normalizeText(value)
+        val b = normalizeText(ref)
+        if (a.isBlank() || b.isBlank()) return false
+        return Regex("""\b${Regex.escape(b)}\b""").containsMatchIn(a) ||
+            Regex("""\b${Regex.escape(a)}\b""").containsMatchIn(b)
+    }
+
+    private fun explicitTarget(t: String, context: Context): ExplicitTarget {
+        val refs = EXPLICIT_REF.findAll(t).map { it.value }.toList()
+        if (refs.isEmpty()) return ExplicitTarget.NONE
+        val cardIds = listOfNotNull(context.lastCard?.targetLabel, context.lastCard?.targetId)
+        val suggestionIds = listOfNotNull(context.lastSuggestion?.label)
+        return when {
+            refs.any { r -> cardIds.any { exactMentions(it, r) } } -> ExplicitTarget.CARD
+            refs.any { r -> suggestionIds.any { exactMentions(it, r) } } -> ExplicitTarget.SUGGESTION
+            else -> ExplicitTarget.NONE
         }
+    }
+
+    private fun contextFor(target: ExplicitTarget, context: Context): Context = when (target) {
+        ExplicitTarget.CARD -> context.copy(lastSuggestion = null, lastSuggestionNoteId = null, lastSuggestionSectionId = null)
+        ExplicitTarget.SUGGESTION -> context.copy(lastCard = null, lastCardNoteId = null, lastCardSectionId = null)
+        ExplicitTarget.NONE -> context
     }
 
     /** Pedidos de inserção e seções explícitas pertencem aos fluxos certificados. */
@@ -114,6 +132,9 @@ object PedagogicalMinIntent {
         if (Regex("""\b(aprofund\w*|melhor\w*|refin\w*)\b""").containsMatchIn(t)) {
             return Outcome.Delegate
         }
+        // F5 — pedido negado não executa a ação negada; misto sem intenção
+        // inequívoca permanece nos fluxos certificados.
+        if (NEGATION.containsMatchIn(t)) return Outcome.Delegate
         val reformulates = REFORMULATE.containsMatchIn(t)
         val develops = DEVELOP_REFERENT.containsMatchIn(t)
         if (!reformulates && !develops) {
@@ -122,8 +143,11 @@ object PedagogicalMinIntent {
                 !NEGATION.containsMatchIn(t) && !DRAFT_MIXED.containsMatchIn(t)
             ) Outcome.PositiveFeedback else Outcome.Delegate
         }
-        if (hasUnmatchedExplicitRef(t, context)) return Outcome.Clarify
-        return when (val referent = resolveReferent(context)) {
+        val target = explicitTarget(t, context)
+        if (EXPLICIT_REF.containsMatchIn(t) && target == ExplicitTarget.NONE) {
+            return Outcome.Clarify
+        }
+        return when (val referent = resolveReferent(contextFor(target, context))) {
             is Referent.RequestClarification -> Outcome.Clarify
             Referent.ProceedNormal -> Outcome.Delegate
             else -> when {
