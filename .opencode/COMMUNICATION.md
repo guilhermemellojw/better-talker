@@ -222,3 +222,22 @@ coerentes.
 
 Infraestrutura distribuída, orquestrador completo e reutilização multiprojeto não são
 requisitos deste piloto. O HealthAgentForms segue como requisito arquitetural futuro apenas.
+
+## Correção COORD-04/P2.2 — vinculação integral da autorização
+
+`canonical_authorization_identity()` produz uma única representação canônica de **todos** os campos
+materiais da autorização: referência, projeto, repositório, destinatário completo, hash do
+payload, identidade da missão, escopo, `issued_at`, `expires_at`, `revoked` e `synthetic`.
+Timestamps são normalizados para UTC ISO; o destinatário usa a tupla canônica de identidade.
+
+O snapshot é capturado antes de `prepare()` e contém apenas valores imutáveis. Após
+`prepare()`, o motor valida a estrutura do `PreparedRequest`, valida o par efetivo com
+`_validate_authorization()`, compara a autorização preparada ao snapshot por uma única função
+canônica, clona o conteúdo em cópia independente e repete validação e comparação antes de
+`transmit()`.
+
+Divergência em qualquer campo — inclusive `synthetic=False`, `expires_at` ampliado,
+`issued_at` alterado para data válida ou mutação compartilhada durante `prepare()` — produz
+`FAILED` pré-envio com zero chamadas ao transporte. Falha após transmissão continua `UNKNOWN`,
+sem reenvio automático. Nenhuma assinatura digital, criptografia adicional, ledger distribuído
+ou autorização real foi acrescentada.

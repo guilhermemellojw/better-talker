@@ -645,6 +645,24 @@ class SimulatedTransport(Transport):
         self.execution[operation_id] = "completed" if report.status == "COMPLETED" else "failed"
 
 
+def canonical_authorization_identity(auth: Authorization) -> str:
+    """Representação canônica de todos os campos materiais da autorização."""
+    material = {
+        "reference": auth.reference,
+        "project_id": auth.project_id,
+        "repository_id": auth.repository_id,
+        "target": list(auth.target.key()),
+        "payload_sha256": auth.payload_sha256,
+        "mission_identity": auth.mission_identity,
+        "scope": auth.scope,
+        "issued_at": iso(auth.issued_at),
+        "expires_at": iso(auth.expires_at),
+        "revoked": auth.revoked,
+        "synthetic": auth.synthetic,
+    }
+    return hashlib.sha256(canonical_json(material).encode("utf-8")).hexdigest()
+
+
 def capture_authorized_snapshot(mission: MissionEnvelope, auth: Authorization) -> dict[str, Any]:
     """Referência estável da missão autorizada antes da preparação do transporte."""
     return {
@@ -665,7 +683,7 @@ def capture_authorized_snapshot(mission: MissionEnvelope, auth: Authorization) -
         "expires_at": iso(mission.expires_at),
         "timeout": mission.timeout,
         "authorization_reference": auth.reference,
-        "authorization_identity": auth.mission_identity,
+        "authorization_identity": canonical_authorization_identity(auth),
     }
 
 
@@ -782,7 +800,7 @@ class CommunicationEngine:
             "expires_at": iso(envelope.expires_at),
             "timeout": envelope.timeout,
             "authorization_reference": auth.reference,
-            "authorization_identity": auth.mission_identity,
+            "authorization_identity": canonical_authorization_identity(auth),
         }
         divergent = [key for key, value in snapshot.items() if material.get(key) != value]
         if divergent:
@@ -838,8 +856,10 @@ class CommunicationEngine:
         try:
             request = self.transport.prepare(record.mission, record.authorization)
             self._validate_prepared_request(request, snapshot)
+            self._validate_authorization(request.envelope, request.authorization)
             safe_request = clone_prepared_request(request)
             self._validate_prepared_request(safe_request, snapshot)
+            self._validate_authorization(safe_request.envelope, safe_request.authorization)
         except TransportError as e:
             failed_before_send = e.phase == "pre_transmit" and not e.ambiguous
             record.transition(OperationState.FAILED if failed_before_send else OperationState.UNKNOWN,

@@ -718,5 +718,64 @@ class R3TerminalConsistencyTests(unittest.TestCase):
             report(mission(), completed_at=datetime(2026, 1, 1)).validate()
 
 
+class P22AuthorizationBindingTests(unittest.TestCase):
+    def _run_case(self, factory):
+        transport = cc.SimulatedTransport((TARGET,))
+        original = transport.prepare
+        def prepare(envelope, authorization_value):
+            request = original(envelope, authorization_value)
+            return factory(request, authorization_value, transport)
+        transport.prepare = prepare
+        e = cc.CommunicationEngine(policy(), transport, clock=lambda: NOW)
+        m = mission()
+        e.propose(m)
+        e.authorize(m.operation_id, authorization(m))
+        try:
+            e.transmit(m.operation_id)
+        except Exception:
+            pass
+        return e, transport, m
+
+    def test_all_authorization_fields_are_bound(self):
+        cases = {
+            "reference": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, reference="AUTH-OTHER"), req.prepared_at),
+            "mission_identity": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, mission_identity="0" * 64), req.prepared_at),
+            "project_id": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, project_id="other-project"), req.prepared_at),
+            "repository_id": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, repository_id="other/repo"), req.prepared_at),
+            "target": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, target=replace(TARGET, session_id="ses_other")), req.prepared_at),
+            "payload_sha256": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, payload_sha256="0" * 64), req.prepared_at),
+            "scope": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, scope="outro escopo"), req.prepared_at),
+            "issued_at_valid": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, issued_at=NOW - timedelta(minutes=1)), req.prepared_at),
+            "expires_at_extended_valid": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, expires_at=NOW + timedelta(hours=2)), req.prepared_at),
+            "revoked": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, revoked=True), req.prepared_at),
+            "synthetic": lambda req, auth, t: cc.PreparedRequest(
+                req.request_id, req.envelope, replace(auth, synthetic=False), req.prepared_at),
+        }
+        reached = []
+        for name, factory in cases.items():
+            _, transport, _ = self._run_case(factory)
+            if transport.transmit_calls:
+                reached.append(name)
+        self.assertEqual(reached, [],
+                         f"{len(cases)} campos testados; {len(reached)} alcançaram transmit(): {reached}")
+
+    def test_shared_authorization_mutation_during_prepare_is_rejected(self):
+        def mutating(req, auth, transport):
+            object.__setattr__(req.authorization, "scope", "mutated-during-prepare")
+            return req
+        _, transport, _ = self._run_case(mutating)
+        self.assertEqual(transport.transmit_calls, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
