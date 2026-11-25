@@ -43,6 +43,7 @@ import com.bettertalker.app.data.copilot.cardTargetKey
 import com.bettertalker.app.data.copilot.ConversationalReferentRecovery
 import com.bettertalker.app.data.copilot.ConversationalReferentResolver
 import com.bettertalker.app.data.copilot.MentorContinuityRouting
+import com.bettertalker.app.data.copilot.MentorTurnLifecycle
 import com.bettertalker.app.data.copilot.CardStatus
 import com.bettertalker.app.data.copilot.CardSuggestedAction
 import com.bettertalker.app.data.copilot.CardTarget
@@ -4234,72 +4235,45 @@ class CopilotViewModel(
             )
             startTurnProgress(turnId)
             _runState.value = ChatRunState.Sending
-            // Histórico e first ANTES do post: a pergunta atual não contamina
-            // a continuidade, e a primeira mensagem é detectada de verdade.
-            // #26-fix-c: Regenerar/Editar passam o histórico já recortado.
-            var historyBefore: List<ChatTurn>
-            var historyFailure: Exception?
+            // F4b — try canônico cobre TODA operação posterior à ativação
+            // do turno: histórico, dossiê, alvo, persistência da pergunta,
+            // roteamento e geração. Cleanup único no finally.
             try {
-                historyBefore = historyOverride ?: conversationTurnsScoped()
-                historyFailure = null
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // F4 — leitura suspensa após startTurnProgress: finalização canônica
-                activeTurnProgressJob?.cancel()
-                activeTurnProgressJob = null
-                _activeTurn.value = _activeTurn.value?.cancelled()
-                _runState.value = ChatRunState.Cancelled()
-                _chatBusy.value = false
-                throw e
-            } catch (e: Exception) {
-                historyBefore = historyOverride.orEmpty()
-                historyFailure = e
-            }
-            val isFirst = historyBefore.none { it.fromMe }
-
-
-
-            // T2: push > seleção > bloco > discurso. O prompt recebe exatamente o
-            // que o rótulo anuncia — sem rotular bloco de "seleção".
-            // Fase 3.5b.3: enriquece o contexto com o dossiê (quando disponível).
-            // Adquirido e armazenado; a injeção no prompt vem em 3.5d.
             // F2b: alvo fixo do FAB (precedência: explícito > seleção viva > nada).
             val target: DraftTarget? = _pushedContext?.let { ctx ->
                 val sectionId = ctx.sectionId
                 when {
                     sectionId != null && ctx.subPointId != null ->
                         DraftTarget.SubPoint(sectionId, ctx.subPointId)
-                    sectionId != null ->
-                        DraftTarget.Section(sectionId)
+                    sectionId != null -> DraftTarget.Section(sectionId)
                     else -> null
                 }
             }
-            val dossier = try {
-                dossierProvider?.invoke(target)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
+            val prepared = when (val r = MentorTurnLifecycle.prepare(MentorTurnLifecycle.Operations(
+                loadHistory = { historyOverride ?: conversationTurnsScoped() },
+                loadDossier = { dossierProvider?.invoke(target) },
+                captureTarget = { d -> captureCardTarget(target, d) },
+                persistQuestion = {
+                    // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
+                    if (postUserMessage) {
+                        post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
+                    }
+                },
+            ))) {
+                is MentorTurnLifecycle.Result.Ready -> r.prepared
+                is MentorTurnLifecycle.Result.Failed -> throw r.cause
             }
+            var historyBefore = prepared.history
+            var historyFailure = prepared.historyFailure
+            val isFirst = historyBefore.none { it.fromMe }
+            val dossier = prepared.dossier
             lastDossier = dossier
-            // Regra do bloco: a geração de uma seção usa section.minutes,
-            // nunca o total do discurso.
             val blockMinutes = if (_focusMode.value == FocusMode.WHOLE) {
                 null
-            } else {
-                dossier?.currentSection?.minutes
-            }
+            } else dossier?.currentSection?.minutes
             val blockText = currentFocusText()
-            activeCardTarget = captureCardTarget(target, dossier)
-            // #26-fix-c: Regenerar/Retry reusam a pergunta já persistida.
-            if (postUserMessage) {
-                post(true, "text", ChatCodec.escMap(mapOf("text" to text)))
-            }
+            activeCardTarget = prepared.target
             _chatBusy.value = true
-            // F2.1-fix: o try cobre TUDO a partir daqui (intenção, RAG,
-            // roteamento e geração). Antes, os return@launch das rotas
-            // (OutOfScope/NothingToRefine/ProposalReply/Oratory) ficavam fora
-            // do try e pulavam o finally — travando composer e runState.
-            try {
             // Card-first: “Sim/Não” ancorado em cardGateMessageId; só o card
             // mais recente que é a última fala aceita. Antes do gate antigo.
             if (postUserMessage && resolveCardShortAnswer(text)) return@launch
