@@ -138,6 +138,24 @@ object GroundednessVerifier {
      */
     const val WARN_ONLY_NOTICE = "⚠️ Revise: há trecho sem apoio no esboço colado."
 
+    /**
+     * TRUST-P0A-2 (S1/S2) — citações LITERAIS da resposta sem correspondência
+     * no corpus documental. Não é verificação semântica: paráfrases não são
+     * avaliadas por esta regra (non liquet, nunca "verificado").
+     */
+    fun unsupportedQuotes(text: String, sources: List<String>): List<String> {
+        if (text.isBlank()) return emptyList()
+        val corpusFlat = normalizeForComparison(sources.joinToString(" "))
+        val spans = suggestionSpans(text)
+        return QUOTE.findAll(text).mapNotNull { match ->
+            if (inSuggestion(match.range.first, spans)) return@mapNotNull null
+            val quote = match.groupValues[1].ifBlank { match.groupValues[2] }.trim()
+            if (quote.length >= MIN_QUOTE_CHARS &&
+                !corpusFlat.contains(normalizeForComparison(quote))
+            ) quote else null
+        }.distinct().toList()
+    }
+
     fun verify(text: String, sources: List<String>, warnOnly: Boolean = false): VerificationResult {
         if (text.isBlank() || sources.isEmpty()) return VerificationResult(text, emptyList())
         val corpus = sources.map(::normalize).filter { it.isNotBlank() }

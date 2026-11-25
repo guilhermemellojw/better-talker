@@ -50,6 +50,37 @@ object ChatBiblicalSupport {
             .distinctBy { Triple(it.label, it.chapter, it.verse) }
     }
 
+    /**
+     * TRUST-P0A-2 (S1/S2/S4) — citações literais sem apoio no corpus
+     * documental. Texto do usuário, memória, S-34 e paráfrases NÃO contam
+     * como evidência — apenas o corpus recebido é examinado.
+     */
+    fun unsupportedQuotes(
+        answer: String,
+        documentaryCorpus: List<String>,
+    ): List<String> = GroundednessVerifier.unsupportedQuotes(answer, documentaryCorpus)
+
+    /** Rótulo de fonte restrito ao trecho efetivamente recuperado. */
+    fun retrievedExcerpt(sourceLabel: String, excerpt: String): String? =
+        if (sourceLabel.isBlank() || excerpt.isBlank()) null
+        else "$sourceLabel — trecho recuperado: “$excerpt”"
+
+    /** Aviso determinístico de suporte ausente — refs e citações literais. */
+    fun supportNotice(answer: String, documentaryCorpus: List<String>): String? {
+        val gaps = biblicalGaps(answer, documentaryCorpus)
+        val quotes = unsupportedQuotes(answer, documentaryCorpus)
+        return buildList {
+            notice(gaps)?.let(::add)
+            if (quotes.isNotEmpty()) {
+                add(
+                    "⚠️ Trecho(s) citado(s) sem retorno do acervo local: " +
+                        quotes.joinToString(", ") { "“$it”" } +
+                        ". Não os apresente como verificado.",
+                )
+            }
+        }.joinToString("\n\n").ifBlank { null }
+    }
+
     /** Notice visível — mesma família dos avisos do chat. Puro/testável. */
     fun notice(gaps: List<BiblicalGap>): String? =
         gaps.takeIf { it.isNotEmpty() }
@@ -71,7 +102,9 @@ object ChatBiblicalSupport {
         // QA-TRUST-P0A-48 (controle 10): o aviso bíblico NÃO pode ser
         // suprimido quando já existe outro aviso no turno — sempre calcular
         // e concatenar (um único separador).
-        val biblicalNotice = notice(biblicalGaps(answer, corpus))
+        // P0A-2: cobre referências sem retorno E citações literais incompatíveis
+        // com o trecho recuperado — sem tocar no texto da resposta (warn-only).
+        val biblicalNotice = supportNotice(answer, corpus)
         return listOfNotNull(existingNotice, biblicalNotice).joinToString("\n\n").ifBlank { null }
     }
 }
