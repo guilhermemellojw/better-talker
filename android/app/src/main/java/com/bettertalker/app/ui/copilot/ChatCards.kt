@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Row
@@ -166,6 +167,10 @@ class DownloadCtl internal constructor(
     }
 }
 
+/** Rótulo acessível da ação de geração (nunca reduzir a "…"). */
+internal fun generateActionLabel(busy: Boolean): String =
+    if (busy) "Gerando…" else "Gerar"
+
 @Composable
 fun rememberDownloadCtl(vm: CopilotViewModel, snack: SnackbarHostState): DownloadCtl {
     return remember(vm, snack) { DownloadCtl(vm, snack) }
@@ -215,7 +220,11 @@ fun SectionRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("${index + 1}. ${section.title}", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${index + 1}. ${section.title}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.semantics { heading() },
+                )
                 if (section.minutes != null) {
                     Text(
                         "${section.minutes} min",
@@ -225,7 +234,7 @@ fun SectionRow(
                 }
             }
             Button(onClick = onGenerate, enabled = !busy) {
-                Text(if (busy) "…" else "Gerar")
+                Text(generateActionLabel(busy))
             }
         }
     }
