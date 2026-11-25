@@ -29,8 +29,12 @@ Escopo: supervisão técnica operacional em modo **SHADOW** por interface determ
 - Governança e evidências são fornecidas pelo checkpoint, que aceita apenas comandos fixos,
   sem caminhos, repositórios ou sessões fornecidos pelo modelo.
 - `--context` recupera os cinco documentos oficiais pelo **SHA da main observado**, evitando
-  misturar versões durante mudanças concorrentes. Somente entradas `file` são aceitas; symlink,
-  documento ausente, erro de conteúdo ou truncamento deixa o contexto incompleto.
+  misturar versões durante mudanças concorrentes. A validação usa commit → árvore raiz → árvore
+  `docs` → blob, todos por SHA fixo: `docs` deve ser árvore `040000`; cada documento deve ser
+  `blob` `100644`. O conteúdo vem do SHA do blob e é conferido pelo hash Git. `Contents.type=file`
+  não é usado como prova; symlink, submódulo, executável, entrada ambígua, árvore truncada,
+  documento ausente ou blob divergente deixa `documents_complete=false`.
+- O limite é fixo: três consultas de metadado no resumo e até oito com os cinco blobs no contexto.
 - O checkpoint real exige seu próprio arquivo regular, rastreado e limpo no Git antes de qualquer
   consulta. A revisão local de `ACTIVE_TASKS.md` vem do objeto Git do HEAD, não da worktree.
 - O checkpoint é uma operação confiável separada da sessão do modelo. Git limpo/rastreado é

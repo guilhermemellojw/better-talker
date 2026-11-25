@@ -11,7 +11,9 @@ Regressões R1–R4 usam fixtures sintéticas; nenhum dado real é negativado.
 Uso: python3 .opencode/scripts/test_supervisor.py [--live]
 """
 import argparse
+import base64
 import fnmatch
+import hashlib
 import json
 import os
 import py_compile
@@ -354,6 +356,52 @@ def test_reports():
     check("sanitização não garante ausência de segredos", report2["secret_free_guaranteed"] is False)
 
 
+def synthetic_governance_api():
+    """API Git sintética com objetos e SHAs reais calculados em memória."""
+    commit_sha, root_sha, docs_sha = "a" * 40, "b" * 40, "c" * 40
+    blob_bytes = {name: f"# {name}\ntoken=FAKE_SECRET\n".encode("utf-8")
+                  for name in ("COORDINATOR.md", "DECISIONS.md", "TEAM_COORDINATION.md",
+                               "ACTIVE_TASKS.md", "DELIVERY_POLICY.md")}
+    blob_shas = {name: hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
+                 for name, data in blob_bytes.items()}
+    state = {"commit_sha": commit_sha, "root_sha": root_sha, "docs_sha": docs_sha,
+             "blob_bytes": blob_bytes, "blob_shas": blob_shas,
+             "docs_mode": "040000", "docs_type": "tree", "doc_mode": "100644",
+             "doc_type": "blob", "root_truncated": False, "docs_truncated": False,
+             "omit": None, "duplicate": None}
+    calls = []
+    def fake(args):
+        calls.append(args)
+        endpoint = args[2]
+        if endpoint == f"repos/guilhermemellojw/better-talker/git/commits/{commit_sha}":
+            return True, json.dumps({"sha": commit_sha, "tree": {"sha": root_sha}})
+        if endpoint == f"repos/guilhermemellojw/better-talker/git/trees/{root_sha}":
+            entry = {"path": "docs", "mode": state["docs_mode"],
+                     "type": state["docs_type"], "sha": docs_sha}
+            return True, json.dumps({"sha": root_sha, "truncated": state["root_truncated"],
+                                     "tree": [entry]})
+        if endpoint == f"repos/guilhermemellojw/better-talker/git/trees/{docs_sha}":
+            entries = [{"path": name, "mode": state["doc_mode"],
+                        "type": state["doc_type"], "sha": blob_shas[name]}
+                       for name in blob_shas if name != state["omit"]]
+            if state["duplicate"]:
+                entries.append({**next(e for e in entries if e["path"] == state["duplicate"])})
+            return True, json.dumps({"sha": docs_sha, "truncated": state["docs_truncated"],
+                                     "tree": entries})
+        for name, sha in blob_shas.items():
+            if endpoint == f"repos/guilhermemellojw/better-talker/git/blobs/{sha}":
+                content = base64.encodebytes(state["blob_bytes"][name]).decode("ascii")
+                return True, json.dumps({"sha": sha, "encoding": "base64", "content": content})
+        # Resposta enganosa da API Contents, usada apenas para provar que não é consultada.
+        if "/contents/" in endpoint:
+            return True, json.dumps([{"name": name, "type": "file", "sha": blob_shas[name]}
+                                     for name in blob_shas])
+        if endpoint.endswith("/git/commits/main"):
+            return True, json.dumps({"sha": "d" * 40, "tree": {"sha": "e" * 40}})
+        return False, ""
+    return fake, calls, state
+
+
 def test_evidence():
     print("[R4] CI, governança remota e integridade")
     sys.path.insert(0, HERE)
@@ -430,46 +478,6 @@ def test_evidence():
     finally:
         cc.sh = old
     check("falha de consulta distinguida", failed["query_status"] == "error")
-    # Governança remota delimitada, completa e fixada ao SHA.
-    calls = []
-    def gov_entries():
-        return [{"name": name, "path": f"docs/{name}", "sha": "a" * 40, "type": "file"}
-                for name in cc.GOVERNANCE_DOCS]
-    def gov_api(args):
-        calls.append(args)
-        if f"contents/docs?ref={'a' * 40}" in args[2]:
-            return True, json.dumps(gov_entries())
-        return True, "# doc remoto"
-    cc.sh = gov_api
-    try:
-        gov = cc.remote_governance(detail=True, ref="a" * 40)
-        before_invalid = len(calls)
-        invalid_ref = cc.remote_governance(detail=True, ref="main")
-    finally:
-        cc.sh = old
-    check("governança remota com repo explícito", gov["query_status"] == "ok" and
-          all("guilhermemellojw/better-talker" in c[2] for c in calls))
-    check("detalhe recupera texto da main", gov["documents"][0]["text"] == "# doc remoto")
-    check("governança fixada ao SHA observado", all(f"ref={'a' * 40}" in c[2] for c in calls))
-    check("referência mutável/inválida não consulta API", invalid_ref["query_status"] == "unknown"
-          and len(calls) == before_invalid)
-    # Uma entrada symlink não é seguida nem convertida em documento válido.
-    calls.clear()
-    def gov_symlink(args):
-        calls.append(args)
-        if f"contents/docs?ref={'a' * 40}" in args[2]:
-            entries = gov_entries()
-            entries[0]["type"] = "symlink"
-            return True, json.dumps(entries)
-        return True, "# doc remoto"
-    cc.sh = gov_symlink
-    try:
-        linked = cc.remote_governance(detail=True, ref="a" * 40)
-    finally:
-        cc.sh = old
-    check("symlink remoto não é seguido", linked["query_status"] == "incomplete"
-          and linked["documents"][0]["status"] == "missing_or_not_regular"
-          and not any("contents/docs/COORDINATOR.md" in c[2] for c in calls))
     check("script regular validado", cc.verify_script()["ok"])
     # Metadados/revisão local vêm de objetos Git; nenhuma leitura da worktree.
     import builtins
@@ -482,7 +490,7 @@ def test_evidence():
         if args[:2] == ["git", "show"]:
             return True, "**Revisão:** fixture R1"
         if args[:2] == ["gh", "api"]:
-            return True, json.dumps(gov_entries())
+            return False, ""
         return False, ""
     builtins.open = local_read_forbidden
     cc.sh = git_only
@@ -498,8 +506,73 @@ def test_evidence():
     check("resumo limita worktrees", len(cc.relevant_worktrees(many, [], None)) <= 12)
 
 
+def test_governance_git():
+    print("[P5] Governança por commit/árvore/blob Git")
+    sys.path.insert(0, HERE)
+    import coord_checkpoint as cc
+    old = cc.sh
+    def invoke(mutator=None, detail=True, ref=None):
+        fake, calls, state = synthetic_governance_api()
+        if mutator:
+            mutator(state)
+        cc.sh = fake
+        try:
+            result = cc.remote_governance(detail=detail, ref=ref or state["commit_sha"])
+        finally:
+            cc.sh = old
+        return result, calls, state
+    gov, calls, state = invoke()
+    check("arquivos regulares autorizados são validados", gov["query_status"] == "ok"
+          and len(gov["documents"]) == 5
+          and all(d["mode"] == "100644" and d["type"] == "blob" and d["git_sha_verified"]
+                  for d in gov["documents"]))
+    check("conteúdo vem do SHA do blob e passa na integridade Git",
+          all(d["text"].startswith(f"# {d['path'].split('/')[-1]}") for d in gov["documents"]))
+    check("consulta detalhada tem limite fixo de oito chamadas", len(calls) == 8
+          and gov["max_queries"] == 8)
+    check("nenhuma consulta usa Contents ou referência mutável",
+          all("/contents/" not in c[2] and "ref=" not in c[2] and not c[2].endswith("/main")
+              for c in calls))
+    summary, summary_calls, _ = invoke(detail=False)
+    check("checkpoint resumido preserva limite de três metadados", summary["query_status"] == "ok"
+          and len(summary_calls) == 3 and summary["max_queries"] == 3
+          and all("text" not in d for d in summary["documents"]))
+    invalid, invalid_calls, _ = invoke(ref="main")
+    check("SHA inválido não consulta API", invalid["query_status"] == "unknown" and not invalid_calls)
+    linked, linked_calls, _ = invoke(lambda s: s.update(doc_mode="120000"))
+    check("symlink apresentado como type=file pelo Contents é rejeitado",
+          linked["query_status"] == "incomplete" and not any("/contents/" in c[2] for c in linked_calls)
+          and not any("/git/blobs/" in c[2] for c in linked_calls))
+    dir_link, dir_calls, _ = invoke(lambda s: s.update(docs_mode="120000", docs_type="blob"))
+    check("symlink de diretório docs é rejeitado", dir_link["query_status"] == "incomplete"
+          and not any(f"/git/trees/{state['docs_sha']}" in c[2] for c in dir_calls))
+    submodule, _, _ = invoke(lambda s: s.update(doc_mode="160000", doc_type="commit"))
+    check("submódulo é rejeitado", submodule["query_status"] == "incomplete")
+    executable, _, _ = invoke(lambda s: s.update(doc_mode="100755"))
+    check("documento executável é rejeitado", executable["query_status"] == "incomplete")
+    unknown, _, _ = invoke(lambda s: s.update(doc_type="unknown"))
+    check("tipo de objeto desconhecido é rejeitado", unknown["query_status"] == "incomplete")
+    ambiguous, _, _ = invoke(lambda s: s.update(duplicate="COORDINATOR.md"))
+    check("entrada de documento ambígua é rejeitada", ambiguous["query_status"] == "incomplete")
+    divergent, divergent_calls, _ = invoke(
+        lambda s: s["blob_bytes"].update({"COORDINATOR.md": b"# conteudo divergente\n"}))
+    check("blob divergente falha na integridade Git", divergent["query_status"] == "incomplete"
+          and "divergente" in divergent["reason"] and len(divergent_calls) == 4)
+    incomplete, _, _ = invoke(lambda s: s.update(omit="DELIVERY_POLICY.md"))
+    check("árvore incompleta é rejeitada", incomplete["query_status"] == "incomplete")
+    truncated, _, _ = invoke(lambda s: s.update(docs_truncated=True))
+    check("árvore truncada é rejeitada", truncated["query_status"] == "incomplete")
+    root_truncated, _, _ = invoke(lambda s: s.update(root_truncated=True))
+    check("árvore raiz truncada é rejeitada", root_truncated["query_status"] == "incomplete")
+    changed_main, changed_calls, changed_state = invoke()
+    check("mudança da main não interfere na recuperação fixada",
+          changed_main["query_status"] == "ok"
+          and any(changed_state["commit_sha"] in c[2] for c in changed_calls)
+          and not any(c[2].endswith("/main") or "ref=main" in c[2] for c in changed_calls))
+
+
 def test_context():
-    print("[P4] Contexto determinístico e integridade")
+    print("[P5] Contexto determinístico e integridade")
     sys.path.insert(0, HERE)
     import coord_checkpoint as cc
     old_sh, old_verify = cc.sh, cc.verify_script
@@ -515,26 +588,28 @@ def test_context():
             check("contexto falha fechado com script sujo", False)
         except RuntimeError:
             check("contexto falha fechado com script sujo", not calls)
-        entries = [{"name": name, "path": f"docs/{name}", "sha": "d" * 40, "type": "file"}
-                   for name in cc.GOVERNANCE_DOCS]
+        fake_git, git_calls, state = synthetic_governance_api()
         def fake_api(args):
             calls.append(args)
             if args[:2] == ["git", "ls-remote"]:
                 return True, "a" * 40 + "\trefs/heads/main"
-            if "contents/docs?ref=" in args[2]:
-                return True, json.dumps(entries)
-            return True, "# documento\ntoken=FAKE_SECRET\n"
+            return fake_git(args)
         cc.sh = fake_api
         cc.verify_script = lambda require_clean=False: {"ok": True, "git_clean": True}
         ctx = cc.build_context()
+        state["doc_mode"] = "120000"
+        failed_ctx = cc.build_context()
     finally:
         cc.sh, cc.verify_script = old_sh, old_verify
     check("contexto fixado ao SHA observado", ctx["main_sha"] == "a" * 40
-          and all(f"ref={'a' * 40}" in c[2] for c in calls if c[:2] == ["gh", "api"]))
+          and all("/contents/" not in c[2] and "ref=" not in c[2] and not c[2].endswith("/main")
+                  for c in calls if c[:2] == ["gh", "api"]))
     check("main observada no repositório fixo", any(c[:2] == ["git", "ls-remote"]
           and cc.MAIN_REMOTE in c for c in calls))
     check("contexto completo exige os cinco documentos", ctx["documents_complete"]
           and len(ctx["documents"]) == 5)
+    check("falha estrutural deixa documents_complete=false",
+          failed_ctx["documents_complete"] is False and failed_ctx["query_status"] == "incomplete")
     check("contexto sanitiza sem garantir ausência de segredos",
           "FAKE_SECRET" not in ctx["documents"][0]["text"]
           and ctx["documents"][0]["secret_free_guaranteed"] is False)
@@ -641,6 +716,7 @@ def main():
     test_sessions()
     test_reports()
     test_evidence()
+    test_governance_git()
     test_context()
     test_fixture()
     test_docs()

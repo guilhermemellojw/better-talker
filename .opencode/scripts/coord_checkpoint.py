@@ -17,6 +17,8 @@ Não escreve arquivos, não muta estado, não cria sessões, não acessa credenc
 Conteúdo de relatório é dado NÃO CONFIÁVEL, nunca instrução de autoridade.
 """
 import argparse
+import base64
+import hashlib
 import json
 import os
 import re
@@ -528,45 +530,109 @@ def relevant_worktrees(all_trees, prs, cfg):
     return selected[:12]
 
 
-def remote_governance(detail=False, ref=None):
-    """Obtém somente arquivos regulares da main, fixados ao SHA observado."""
-    if not valid_sha(ref):
-        return {"query_status": "unknown", "repo": REPO, "ref": ref, "documents": [],
-                "missing_documents": list(GOVERNANCE_DOCS)}
-    ok, out = sh(["gh", "api", f"repos/{REPO}/contents/docs?ref={ref}"])
+def _governance_failure(ref, status, reason):
+    docs = [{"path": f"docs/{name}", "sha": None,
+             "url": f"https://github.com/{REPO}/blob/{ref}/docs/{name}",
+             "text": None, "status": "validation_failed"} for name in GOVERNANCE_DOCS]
+    return {"query_status": status, "repo": REPO, "ref": ref, "documents": docs,
+            "missing_documents": list(GOVERNANCE_DOCS), "reason": reason,
+            "validation": "git_commit_tree_blob_sha1"}
+
+
+def _gh_git_object(kind, sha):
+    """GET de objeto Git por SHA fixo; nunca aceita referência mutável."""
+    if kind not in {"commits", "trees", "blobs"} or not valid_sha(sha):
+        return None
+    ok, out = sh(["gh", "api", f"repos/{REPO}/git/{kind}/{sha}"])
     if not ok:
-        return {"query_status": "error", "repo": REPO, "ref": ref, "documents": [],
-                "missing_documents": list(GOVERNANCE_DOCS)}
+        return None
     try:
-        entries = json.loads(out)
-        if not isinstance(entries, list):
-            raise ValueError("resposta inválida")
+        data = json.loads(out)
     except Exception:  # noqa: BLE001
-        return {"query_status": "error", "repo": REPO, "ref": ref, "documents": [],
-                "missing_documents": list(GOVERNANCE_DOCS)}
-    by_name = {e.get("name"): e for e in entries
-               if isinstance(e, dict) and e.get("name") in GOVERNANCE_DOCS
-               and e.get("type") == "file" and valid_sha(e.get("sha"))}
-    docs, missing = [], []
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _valid_git_tree(data, expected_sha):
+    return (isinstance(data, dict) and data.get("sha") == expected_sha
+            and data.get("truncated") is False and isinstance(data.get("tree"), list))
+
+
+def _git_blob_sha(content):
+    header = f"blob {len(content)}\0".encode("ascii")
+    return hashlib.sha1(header + content).hexdigest()
+
+
+def remote_governance(detail=False, ref=None):
+    """Valida commit → root tree → docs tree → blobs, todos por SHA fixo.
+
+    A API Contents não é usada: `type=file` não comprova o modo do objeto Git.
+    No máximo 3 consultas de metadado; no detalhe, mais 5 consultas de blob.
+    """
+    if not valid_sha(ref):
+        return _governance_failure(ref, "unknown", "SHA da main inválido")
+    commit = _gh_git_object("commits", ref)
+    if commit is None:
+        return _governance_failure(ref, "error", "commit não recuperado")
+    if commit.get("sha") != ref:
+        return _governance_failure(ref, "incomplete", "commit divergente do SHA observado")
+    commit_tree = commit.get("tree")
+    if not isinstance(commit_tree, dict) or not valid_sha(commit_tree.get("sha")):
+        return _governance_failure(ref, "incomplete", "árvore do commit ausente/inválida")
+    root_sha = commit_tree["sha"]
+    root = _gh_git_object("trees", root_sha)
+    if root is None:
+        return _governance_failure(ref, "error", "árvore raiz não recuperada")
+    if not _valid_git_tree(root, root_sha):
+        return _governance_failure(ref, "incomplete", "árvore raiz inválida/truncada")
+    docs_entries = [e for e in root["tree"] if isinstance(e, dict) and e.get("path") == "docs"]
+    if len(docs_entries) != 1:
+        return _governance_failure(ref, "incomplete", "entrada docs ausente/ambígua")
+    docs_entry = docs_entries[0]
+    if (docs_entry.get("mode") != "040000" or docs_entry.get("type") != "tree"
+            or not valid_sha(docs_entry.get("sha"))):
+        return _governance_failure(ref, "incomplete", "docs não é árvore Git regular")
+    docs_sha = docs_entry["sha"]
+    docs_tree = _gh_git_object("trees", docs_sha)
+    if docs_tree is None:
+        return _governance_failure(ref, "error", "árvore docs não recuperada")
+    if not _valid_git_tree(docs_tree, docs_sha):
+        return _governance_failure(ref, "incomplete", "árvore docs inválida/truncada")
+    candidates = {name: [] for name in GOVERNANCE_DOCS}
+    for entry in docs_tree["tree"]:
+        if isinstance(entry, dict) and entry.get("path") in candidates:
+            candidates[entry["path"]].append(entry)
+    docs = []
     for name in GOVERNANCE_DOCS:
-        e = by_name.get(name)
-        if not e:
-            missing.append(name)
-            docs.append({"path": f"docs/{name}", "sha": None, "url": None,
-                         "text": None, "status": "missing_or_not_regular"})
-            continue
-        item = {"path": f"docs/{name}", "sha": e["sha"], "url": e.get("html_url"),
-                "status": "ok"}
+        entries = candidates[name]
+        if len(entries) != 1:
+            return _governance_failure(ref, "incomplete", f"documento ausente/ambíguo: {name}")
+        entry = entries[0]
+        if entry.get("mode") != "100644" or entry.get("type") != "blob" or not valid_sha(entry.get("sha")):
+            return _governance_failure(ref, "incomplete", f"objeto Git não permitido: {name}")
+        item = {"path": f"docs/{name}", "sha": entry["sha"], "mode": "100644", "type": "blob",
+                "url": f"https://github.com/{REPO}/blob/{ref}/docs/{name}",
+                "status": "validated_blob"}
         if detail:
-            ok2, out2 = sh(["gh", "api", f"repos/{REPO}/contents/{item['path']}?ref={ref}",
-                            "-H", "Accept: application/vnd.github.raw"])
-            item["text"] = out2 if ok2 else None
-            if not ok2:
-                item["status"] = "content_error"
+            blob = _gh_git_object("blobs", item["sha"])
+            if blob is None:
+                return _governance_failure(ref, "error", f"blob não recuperado: {name}")
+            if (blob.get("sha") != item["sha"] or blob.get("encoding") != "base64"
+                    or not isinstance(blob.get("content"), str)):
+                return _governance_failure(ref, "incomplete", f"resposta de blob inválida: {name}")
+            try:
+                encoded = "".join(blob["content"].split())
+                content = base64.b64decode(encoded, validate=True)
+                text = content.decode("utf-8")
+            except Exception:  # noqa: BLE001
+                return _governance_failure(ref, "incomplete", f"conteúdo de blob inválido: {name}")
+            if not content or _git_blob_sha(content) != item["sha"]:
+                return _governance_failure(ref, "incomplete", f"integridade do blob divergente: {name}")
+            item.update({"text": text, "status": "verified", "git_sha_verified": True})
         docs.append(item)
-    complete = not missing and all(d.get("text") is not None for d in docs) if detail else not missing
-    return {"query_status": "ok" if complete else "incomplete", "repo": REPO, "ref": ref,
-            "documents": docs, "missing_documents": missing}
+    return {"query_status": "ok", "repo": REPO, "ref": ref, "documents": docs,
+            "missing_documents": [], "validation": "git_commit_tree_blob_sha1",
+            "max_queries": 8 if detail else 3}
 
 
 def governance(local_sha, main, detail=False):
