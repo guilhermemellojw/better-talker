@@ -533,6 +533,8 @@ def governance(local_sha, main, detail=False):
     return {"present": present, "active_tasks_revision_local": revision,
             "local_head": local_sha, "main_sha": main,
             "alignment": "aligned" if local_sha and main and local_sha == main else "divergent_local_branch",
+            "remote_query": remote.get("query_status"),
+            "remote_documents": remote.get("documents", []),
             "remote": remote, "comparison": comparison}
 
 

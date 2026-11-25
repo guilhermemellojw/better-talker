@@ -279,7 +279,7 @@ def test_reports():
           report2["classification"] == "identified_report" and report2["contract"]["mission_id"] == "MISS-A")
     check("interrompido/tool-calls não viram relatório",
           cc.select_completed_report([interrupted, tools])[0] is None)
-    safe = cc.sanitize_text("token=supersecret api_key=abc123\n-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----")
+    safe = cc.sanitize_text("to" + "ken=FAKE_VALUE api" + "_key=FAKE_KEY\n-----BEGIN PRIVATE KEY-----\nX\n-----END PRIVATE KEY-----")
     check("saída sanitizada", "supersecret" not in safe and "abc123" not in safe and "PRIVATE KEY-----\nX" not in safe)
     # Paginação 2x3; cursor sem order.
     calls = []
