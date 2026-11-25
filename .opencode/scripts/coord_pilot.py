@@ -46,6 +46,46 @@ PILOT_TRANSITIONS = {
 ALLOWED_METHODS = {"GET", "POST"}
 ALLOWED_PATH_PREFIXES = ("/api/",)
 
+# Prompt único publicado em PILOT.md; compartilhado por executor, CLI e fixtures.
+PILOT_PROMPT = (
+    "MISS-COORD04-PILOT-001 / OP-COORD04-PILOT-001. Responda somente em texto "
+    "estruturado, sem ferramentas, sem edição, sem shell, sem Git, sem operações em "
+    "dispositivos e sem acesso a credenciais. Inclua o marcador <!-- BT-COORD-REPORT:v1 --> "
+    "e uma linha contract: com JSON contendo schema_version, project_id, mission_id, "
+    "operation_id, agent_id, session_id, status, head_sha null, branch null, "
+    "test_evidence [], blockers [], artifacts [], completed_at e acceptance_results."
+)
+OPERATIONAL_FILES = ("coord_communication.py", "coord_checkpoint.py", "coord_pilot.py",
+                     "coord_pilot_cli.py")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+
+
+def operational_file_digests() -> dict[str, str]:
+    """Digests recalculados dos arquivos realmente executados, não informados pelo chamador."""
+    result: dict[str, str] = {}
+    for name in OPERATIONAL_FILES:
+        path = os.path.join(SCRIPT_DIR, name)
+        if not os.path.isfile(path):
+            raise cc.ContractError(f"arquivo operacional ausente: {name}")
+        with open(path, "rb") as handle:
+            result[name] = hashlib.sha256(handle.read()).hexdigest()
+    return result
+
+
+def executed_head_sha() -> str:
+    """HEAD do repositório onde o código está sendo executado (comando git exato)."""
+    import subprocess
+    try:
+        completed = subprocess.run(["git", "-C", REPO_ROOT, "rev-parse", "HEAD"],
+                                   capture_output=True, text=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise cc.ContractError("HEAD executado indisponível") from e
+    value = completed.stdout.strip() if completed.returncode == 0 else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise cc.ContractError("HEAD executado inválido")
+    return value
+
 
 class HttpClient(ABC):
     """Cliente mínimo; implementações reais são injetadas e inativas por padrão."""
@@ -242,50 +282,122 @@ class PilotAuthorization:
 
 
 @dataclass(frozen=True)
+class PilotManifest:
+    """Representação canônica integral do que o mantenedor aprova."""
+
+    reviewed_head_sha: str
+    operational_digests: tuple[tuple[str, str], ...]
+    mission_identity: str
+    authorization_identity: str
+    authorization_id: str
+    maintainer_id: str
+    approval_reference: str
+    target_key: tuple[str, ...]
+    instance_id: str
+    model: str
+    endpoint: str
+    operation_id: str
+    prompt_sha256: str
+    issued_at: datetime
+    expires_at: datetime
+    max_transmissions: int
+
+    def material(self) -> dict[str, Any]:
+        cc._require_aware(self.issued_at, "issued_at")
+        cc._require_aware(self.expires_at, "expires_at")
+        return {
+            "reviewed_head_sha": self.reviewed_head_sha,
+            "operational_digests": dict(self.operational_digests),
+            "mission_identity": self.mission_identity,
+            "authorization_identity": self.authorization_identity,
+            "authorization_id": self.authorization_id,
+            "maintainer_id": self.maintainer_id,
+            "approval_reference": self.approval_reference,
+            "target_key": list(self.target_key),
+            "instance_id": self.instance_id,
+            "model": self.model,
+            "endpoint": self.endpoint,
+            "operation_id": self.operation_id,
+            "prompt_sha256": self.prompt_sha256,
+            "issued_at": cc.iso(self.issued_at),
+            "expires_at": cc.iso(self.expires_at),
+            "max_transmissions": self.max_transmissions,
+        }
+
+    def canonical(self) -> str:
+        return hashlib.sha256(cc.canonical_json(self.material()).encode("utf-8")).hexdigest()
+
+    def proposal(self) -> dict[str, Any]:
+        return {**self.material(), "canonical_sha256": self.canonical(), "approved": False}
+
+
+def build_runtime_manifest(mission: cc.MissionEnvelope, authorization: PilotAuthorization,
+                           prompt_sha256: str, endpoint: str) -> PilotManifest:
+    """Manifesto reconstruído do estado real, sem confiar em campos informados."""
+    return PilotManifest(
+        reviewed_head_sha=executed_head_sha(),
+        operational_digests=tuple(sorted(operational_file_digests().items())),
+        mission_identity=cc.canonical_mission_identity(mission),
+        authorization_identity=authorization.canonical(),
+        authorization_id=authorization.authorization_id,
+        maintainer_id=authorization.maintainer_id,
+        approval_reference=authorization.approval_reference,
+        target_key=tuple(authorization.target.key()),
+        instance_id=authorization.instance_id,
+        model=authorization.expected_model,
+        endpoint=endpoint,
+        operation_id=mission.operation_id,
+        prompt_sha256=prompt_sha256,
+        issued_at=authorization.issued_at,
+        expires_at=authorization.expires_at,
+        max_transmissions=authorization.max_transmissions,
+    )
+
+
+@dataclass(frozen=True)
 class PilotApproval:
-    """Aprovação humana explícita do manifesto exato; não é emitida pelo agente."""
+    """Ação humana explícita sobre um manifesto integral; não é emitida pelo agente."""
 
     approval_id: str
     approver_id: str
     approver_type: str
-    approval_reference: str
-    reviewed_head_sha: str
-    manifest_sha256: str
-    operation_id: str
-    session_id: str
-    prompt_sha256: str
-    issued_at: datetime
-    expires_at: datetime
-    environment: str = "PROPOSED"
+    environment: str
+    manifest: PilotManifest
 
-    def validate(self) -> None:
+    @property
+    def manifest_sha256(self) -> str:
+        return self.manifest.canonical()
+
+    def validate(self, clock: Optional[datetime] = None, *, require_real: bool = False) -> None:
         if self.approver_type != "human":
             raise cc.AuthorizationError("aprovação deve ser humana")
-        if self.environment not in {"PROPOSED", "APPROVED"}:
+        if self.environment not in {"PROPOSED", "FIXTURE", "APPROVED"}:
             raise cc.AuthorizationError("ambiente de aprovação inválido")
-        if not re.fullmatch(r"[0-9a-f]{64}", self.manifest_sha256):
-            raise cc.ContractError("hash do manifesto inválido")
-        if not cc.SHA256_PATTERN.fullmatch(self.prompt_sha256):
-            raise cc.ContractError("hash do prompt inválido")
-        if not re.fullmatch(r"[0-9a-f]{40,64}", self.reviewed_head_sha):
+        if require_real and self.environment != "APPROVED":
+            raise cc.AuthorizationError("HTTP real exige aprovação APPROVED")
+        manifest = self.manifest
+        if not re.fullmatch(r"[0-9a-f]{40}", manifest.reviewed_head_sha):
             raise cc.ContractError("HEAD revisado inválido")
-        cc._require_aware(self.issued_at, "issued_at")
-        cc._require_aware(self.expires_at, "expires_at")
-        if self.expires_at <= self.issued_at:
+        if manifest.reviewed_head_sha != executed_head_sha():
+            raise cc.AuthorizationError("HEAD revisado diverge do HEAD executado")
+        if dict(manifest.operational_digests) != operational_file_digests():
+            raise cc.AuthorizationError("arquivos operacionais divergentes")
+        if not cc.SHA256_PATTERN.fullmatch(manifest.prompt_sha256):
+            raise cc.ContractError("hash do prompt inválido")
+        if manifest.max_transmissions != 1:
+            raise cc.ContractError("limite de transmissão inválido")
+        cc._require_aware(manifest.issued_at, "issued_at")
+        cc._require_aware(manifest.expires_at, "expires_at")
+        if manifest.expires_at <= manifest.issued_at:
             raise cc.ContractError("validade da aprovação inválida")
+        current = clock or cc.utc_now()
+        if current < manifest.issued_at:
+            raise cc.AuthorizationError("aprovação emitida no futuro")
+        if current >= manifest.expires_at:
+            raise cc.AuthorizationError("aprovação expirada")
 
-    def matches(self, mission: cc.MissionEnvelope, target: cc.TargetIdentity,
-                prompt_sha256: str) -> bool:
-        manifest = cc.canonical_json({
-            "mission_identity": cc.canonical_mission_identity(mission),
-            "operation_id": mission.operation_id,
-            "session_id": target.session_id,
-            "prompt_sha256": prompt_sha256,
-        })
-        return (self.operation_id == mission.operation_id
-                and self.session_id == target.session_id
-                and self.prompt_sha256 == prompt_sha256
-                and self.manifest_sha256 == hashlib.sha256(manifest.encode("utf-8")).hexdigest())
+    def matches(self, runtime: PilotManifest) -> bool:
+        return self.manifest.canonical() == runtime.canonical()
 
 
 def mission_report_from_dict(value: dict[str, Any]) -> Optional[cc.MissionReport]:
@@ -314,7 +426,9 @@ def mission_report_from_dict(value: dict[str, Any]) -> Optional[cc.MissionReport
         return None
 
 
-def parse_pilot_report(text: str, operation_id: str) -> Optional[cc.MissionReport]:
+def parse_pilot_report(text: str, operation_id: str,
+                       observed_message_id: Optional[str] = None) -> Optional[cc.MissionReport]:
+    """O ID do relatório vem do envelope da API, nunca do texto gerado pelo modelo."""
     if coord_checkpoint.REPORT_CONTRACT not in text:
         return None
     for line in text.splitlines():
@@ -323,9 +437,26 @@ def parse_pilot_report(text: str, operation_id: str) -> Optional[cc.MissionRepor
                 value = json.loads(line.split(":", 1)[1])
             except Exception:
                 continue
-            if isinstance(value, dict) and value.get("operation_id") == operation_id:
-                return mission_report_from_dict(value)
+            if not isinstance(value, dict) or value.get("operation_id") != operation_id:
+                continue
+            if isinstance(observed_message_id, str) and observed_message_id:
+                value["message_id"] = observed_message_id
+            return mission_report_from_dict(value)
     return None
+
+
+@dataclass
+class _OperationGuard:
+    """Reserva + DISPATCHING persistido + autorização consumida, vinculados ao envio."""
+
+    operation_id: str
+    mission_identity: str
+    authorization_canonical: str
+    payload_sha256: str
+    target_key: tuple[str, ...]
+    store: Any
+    reservation: dict[str, Any]
+    consumed: bool = False
 
 
 class OpenCodeTransport(cc.Transport):
@@ -350,6 +481,19 @@ class OpenCodeTransport(cc.Transport):
         self.clock = clock or cc.utc_now
         self.prepared_bodies: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, str]] = []
+        self._guard: Optional[_OperationGuard] = None
+
+    def bind_operation(self, guard: _OperationGuard) -> None:
+        self._guard = guard
+
+    def release_operation(self) -> None:
+        self._guard = None
+
+    def confirm_instance(self) -> None:
+        self._confirm_instance()
+
+    def confirm_target(self, target: cc.TargetIdentity) -> None:
+        self._confirm_target(target)
 
     def _get(self, path: str) -> dict[str, Any]:
         self.calls.append(("GET", path))
@@ -443,9 +587,34 @@ class OpenCodeTransport(cc.Transport):
         return cc.PreparedRequest(request_id, envelope, authorization, cc.utc_now())
 
     def transmit(self, request: cc.PreparedRequest) -> cc.TransportReceipt:
+        guard = self._guard
+        if guard is None:
+            raise cc.AuthorizationError("transmissão exige executor autorizado")
+        if guard.consumed:
+            raise cc.AuthorizationError("autorização já consumida; reenvio bloqueado")
+        if request.envelope.operation_id != guard.operation_id:
+            raise cc.AuthorizationError("operação diverge da reserva")
+        if cc.canonical_mission_identity(request.envelope) != guard.mission_identity:
+            raise cc.AuthorizationError("missão diverge da reserva")
+        if cc.canonical_authorization_identity(request.authorization) != guard.authorization_canonical:
+            raise cc.AuthorizationError("autorização diverge da reserva")
+        if request.envelope.payload_sha256 != guard.payload_sha256:
+            raise cc.AuthorizationError("payload diverge da reserva")
+        if tuple(request.envelope.target.key()) != guard.target_key:
+            raise cc.AuthorizationError("destino diverge da reserva")
+        record = guard.store.load()
+        if record is None or record.state != "DISPATCHING":
+            raise cc.AuthorizationError("DISPATCHING persistido ausente")
+        if guard.store.read_reservation() != guard.reservation:
+            raise cc.AuthorizationError("reserva inválida ou não confirmada")
+        self.pilot.validate_for_pilot(self.clock(), require_real=self.is_real)
+        self._confirm_instance()
+        self._confirm_target(request.envelope.target)
         body = self.prepared_bodies.get(request.request_id)
         if body is None:
             raise cc.ContractError("requisição preparada não encontrada")
+        # Consome antes do POST: qualquer reentrada não pode repetir a tentativa.
+        guard.consumed = True
         target = request.envelope.target
         path = f"/api/session/{target.session_id}{PROMPT_SUFFIX}"
         response = self._post(path, body)
@@ -461,9 +630,12 @@ class OpenCodeTransport(cc.Transport):
                     "instance_id": request.envelope.target_instance_id,
                     "location": request.envelope.target_location,
                     "http_status": 202, "source": "opencode-api"}
-        if not isinstance(observed_id, str) or not observed_id:
-            receipt = cc.TransportReceipt(request.envelope.operation_id, "ambiguous", None,
-                                          {**evidence, "message_id_unavailable": True}, cc.utc_now())
+        if (not isinstance(observed_id, str) or not observed_id
+                or observed_id != request.request_id):
+            receipt = cc.TransportReceipt(
+                request.envelope.operation_id, "ambiguous", None,
+                {**evidence, "message_id_unavailable": True,
+                 "message_id_divergent": bool(observed_id)}, cc.utc_now())
         else:
             receipt = cc.TransportReceipt(request.envelope.operation_id, "accepted",
                                           observed_id, {**evidence, "queued_in_inbox": True},
@@ -479,7 +651,7 @@ class OpenCodeTransport(cc.Transport):
         inbox = (self._get(f"/api/session/{target.session_id}{INBOX_SUFFIX}") or {}).get("data") or []
         prompt_id = f"msg-pilot-{operation_id}"
         messages = (self._get(f"/api/session/{target.session_id}{MESSAGE_SUFFIX}?limit=20&order=desc") or {}).get("data") or []
-        reports, recorded, queued = [], False, False
+        reports, report_links, recorded, queued = [], [], False, False
         for item in messages:
             item_id = item.get("id")
             text = "\n".join(p.get("text", "") for p in item.get("content", [])
@@ -488,14 +660,27 @@ class OpenCodeTransport(cc.Transport):
                     and sha256_text(text) == self.pilot.prompt_sha256):
                 recorded = True
             if item.get("type") == "assistant" and item_id:
-                parsed = parse_pilot_report(text, operation_id)
+                parsed = parse_pilot_report(text, operation_id, observed_message_id=item_id)
                 if parsed:
+                    author = item.get("agent") or ""
+                    reply_to = item.get("reply_to") or (item.get("metadata") or {}).get("reply_to")
                     reports.append(replace(
-                        parsed, message_id=item_id,
-                        agent_id=item.get("agent") or target.agent_id,
-                        session_id=target.session_id,
-                        test_evidence=({"name": "transporte observado", "message_id": item_id},)
-                        + tuple(parsed.test_evidence)))
+                        parsed, message_id=item_id, agent_id=author,
+                        session_id=item.get("sessionID") or ""))
+                    declared_id = None
+                    try:
+                        declared_id = json.loads(text.split("contract:", 1)[1]).get("message_id")
+                    except Exception:
+                        pass
+                    report_links.append({
+                        "envelope_message_id": item_id,
+                        "declared_message_id": declared_id,
+                        "author_observed": author,
+                        "reply_to_observed": reply_to,
+                        "content_sha256": sha256_text(text),
+                        "status": parsed.status,
+                        "acceptance_results": dict(parsed.acceptance_results),
+                    })
         for item in inbox:
             item_id = item.get("id")
             inbox_text = str(item.get("text") or "")
@@ -503,7 +688,8 @@ class OpenCodeTransport(cc.Transport):
                 queued = True
         evidence = {"source": "opencode-api", "active_observed": target.session_id in active,
                     "queue_observed": bool(inbox), "availability_claimed": False,
-                    "prompt_content_confirmed": recorded, "prompt_id_expected": prompt_id}
+                    "prompt_content_confirmed": recorded, "prompt_id_expected": prompt_id,
+                    "report_links": tuple(report_links)}
         if reports:
             level, state, evidence["report_available"] = "report_received", "completed", True
         elif recorded and target.session_id in active:
@@ -536,6 +722,7 @@ class PilotOperationRecord:
     updated_at: str
     evidence: dict[str, Any] = field(default_factory=dict)
     history: list[dict[str, Any]] = field(default_factory=list)
+    mission_snapshot: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {"schema_version": "1.0", "mission_id": self.mission_id,
@@ -544,7 +731,7 @@ class PilotOperationRecord:
                 "target_key": list(self.target_key), "prompt_sha256": self.prompt_sha256,
                 "state": self.state, "created_at": self.created_at,
                 "updated_at": self.updated_at, "evidence": self.evidence,
-                "history": self.history}
+                "history": self.history, "mission_snapshot": self.mission_snapshot}
 
 
 def _record_from_dict(value: dict[str, Any]) -> PilotOperationRecord:
@@ -555,6 +742,7 @@ def _record_from_dict(value: dict[str, Any]) -> PilotOperationRecord:
         target_key=tuple(value["target_key"]), prompt_sha256=value["prompt_sha256"],
         state=value["state"], created_at=value["created_at"], updated_at=value["updated_at"],
         evidence=value.get("evidence", {}), history=value.get("history", []),
+        mission_snapshot=value.get("mission_snapshot", {}),
     )
 
 
@@ -624,6 +812,18 @@ class PilotOperationStore:
         self._write(record)
         return record
 
+    def read_reservation(self) -> Optional[dict[str, Any]]:
+        if not os.path.lexists(self.lock_path):
+            return None
+        if os.path.realpath(self.lock_path) != self.lock_path:
+            raise cc.ContractError("reserva contém symlink")
+        st = os.lstat(self.lock_path)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or stat.S_IMODE(st.st_mode) != 0o600:
+            raise cc.ContractError("reserva não é privada")
+        fd = os.open(self.lock_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as f:
+            return json.loads(f.read().decode("utf-8"))
+
     @contextmanager
     def reserve(self):
         self._ensure_private_dir()
@@ -631,12 +831,13 @@ class PilotOperationStore:
             fd = os.open(self.lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as e:
             raise cc.ContractError("reserva exclusiva já ativa") from e
+        reservation = {"pid": os.getpid(), "created_utc": cc.iso(cc.utc_now())}
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"pid": os.getpid(), "created_utc": cc.iso(cc.utc_now())}))
+            f.write(json.dumps(reservation, sort_keys=True))
             f.flush()
             os.fsync(f.fileno())
         try:
-            yield
+            yield reservation
         finally:
             if os.path.lexists(self.lock_path):
                 os.unlink(self.lock_path)
@@ -661,22 +862,60 @@ class PilotOperationStore:
         return record
 
 
+def assess_text_report(snapshot: dict[str, Any], report: cc.MissionReport,
+                       link: dict[str, Any], *, prompt_id: str, expected_author: str,
+                       clock: datetime) -> tuple[bool, tuple[str, ...]]:
+    """Critérios proporcionais para missão textual; sem evidências fictícias de código."""
+    try:
+        report.validate()
+    except cc.ContractError as e:
+        return False, (f"estrutura: {e}",)
+    reasons: list[str] = []
+    checks = (
+        (report.project_id == snapshot.get("project_id"), "projeto"),
+        (report.mission_id == snapshot.get("mission_id"), "missão"),
+        (report.operation_id == snapshot.get("operation_id"), "operation_id"),
+        (report.agent_id == expected_author, "agente declarado"),
+        (report.session_id == snapshot.get("target_session_id"), "sessão"),
+        (link.get("author_observed") == expected_author, "autoria observada"),
+        (link.get("reply_to_observed") == prompt_id, "associação prompt-resposta"),
+        (report.message_id == link.get("envelope_message_id"), "message_id do envelope"),
+        (not report.blockers, "bloqueios ausentes"),
+        (report.completed_at >= datetime.fromisoformat(snapshot["created_at"].replace("Z", "+00:00")),
+         "relatório posterior à missão"),
+    )
+    for passed, label in checks:
+        if not passed:
+            reasons.append(label)
+    criteria = tuple(snapshot.get("acceptance_criteria", ()))
+    missing = [criterion for criterion in criteria
+               if report.acceptance_results.get(criterion) is not True]
+    if missing:
+        reasons.append("critérios de aceitação incompletos")
+    if report.status != "COMPLETED":
+        reasons.append(f"status={report.status}")
+    if clock + timedelta(minutes=5) < report.completed_at:
+        reasons.append("relatório no futuro")
+    return (not reasons), tuple(reasons)
+
+
 class PilotExecutor:
     """Executa uma única operação experimental pelo caminho protegido."""
 
     def __init__(self, transport: OpenCodeTransport, store: PilotOperationStore,
-                 approval: PilotApproval, *, allow_real: bool = False, clock=None):
+                 approval: PilotApproval, *, endpoint: str, allow_real: bool = False,
+                 clock=None):
         self.transport = transport
         self.store = store
         self.approval = approval
+        self.endpoint = endpoint
         self.allow_real = allow_real
         self.clock = clock or cc.utc_now
 
     def _validate(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
                   prompt: str) -> None:
-        self.approval.validate()
-        if self.clock() >= self.approval.expires_at:
-            raise cc.AuthorizationError("aprovação expirada")
+        prompt_sha256 = sha256_text(prompt)
+        self.approval.validate(self.clock(), require_real=self.allow_real)
         if self.allow_real:
             if not self.transport.is_real or self.approval.environment != "APPROVED":
                 raise cc.AuthorizationError("execução real exige aprovação e transporte real")
@@ -684,33 +923,48 @@ class PilotExecutor:
                 raise cc.AuthorizationError("autorização FIXTURE não habilita HTTP real")
         elif self.transport.is_real:
             raise cc.AuthorizationError("transporte real requer allow_real explícito")
-        if not self.approval.matches(mission, self.transport.pilot.target,
-                                     pilot_sha256 := sha256_text(prompt)):
+        runtime = build_runtime_manifest(mission, self.transport.pilot, prompt_sha256,
+                                         self.endpoint)
+        if not self.approval.matches(runtime):
             raise cc.ContractError("manifesto aprovado diverge da operação")
-        if pilot_sha256 != self.transport.pilot.prompt_sha256:
+        if prompt_sha256 != self.transport.pilot.prompt_sha256:
             raise cc.ContractError("prompt diverge da autorização")
+
+    @staticmethod
+    def _snapshot(mission: cc.MissionEnvelope) -> dict[str, Any]:
+        return {"project_id": mission.project_id, "repository_id": mission.repository_id,
+                "mission_id": mission.mission_id, "operation_id": mission.operation_id,
+                "mission_identity": cc.canonical_mission_identity(mission),
+                "target_agent": mission.target_agent,
+                "target_session_id": mission.target_session_id,
+                "target_instance_id": mission.target_instance_id,
+                "target_location": mission.target_location,
+                "payload_sha256": mission.payload_sha256,
+                "acceptance_criteria": list(mission.acceptance_criteria),
+                "created_at": cc.iso(mission.created_at)}
 
     def execute(self, mission: cc.MissionEnvelope, authorization: cc.Authorization,
                 prompt: str) -> dict[str, Any]:
         self._validate(mission, authorization, prompt)
         existing = self.store.load()
+        canonical = self.transport.pilot.canonical()
         if existing is None:
             self.store.create(PilotOperationRecord(
                 mission.mission_id, mission.operation_id,
-                self.approval.approval_id, self.transport.pilot.canonical(),
+                self.approval.approval_id, canonical,
                 tuple(self.transport.pilot.target.key()), sha256_text(prompt),
-                "AUTHORIZED", cc.iso(self.clock()), cc.iso(self.clock())))
+                "AUTHORIZED", cc.iso(self.clock()), cc.iso(self.clock()),
+                mission_snapshot=self._snapshot(mission)))
         else:
             if (existing.operation_id != mission.operation_id
-                    or existing.authorization_canonical != self.transport.pilot.canonical()):
+                    or existing.authorization_canonical != canonical
+                    or existing.mission_snapshot != self._snapshot(mission)):
                 raise cc.ContractError("registro persistente divergente")
         self.store.assert_transmittable()
-        with self.store.reserve():
+        with self.store.reserve() as reservation:
             self.store.assert_transmittable()
-            # O piloto é textual e aprovado por hash exato; a autoridade vem de
-            # PilotApproval + PilotAuthorization. Mantemos cinco guardas da fundação;
-            # apenas "schema" é excetuado porque o contrato BT-COORD-REPORT:v1 exige
-            # a chave schema_version no JSON do relatório.
+            # Cinco guardas da fundação; "schema" é excetuado porque o contrato
+            # BT-COORD-REPORT:v1 exige a chave schema_version no relatório.
             policy = cc.ProjectPolicy(mission.project_id, mission.repository_id,
                                       (mission.target_location,), (mission.target_agent,),
                                       (mission.target,),
@@ -724,14 +978,28 @@ class PilotExecutor:
             persisted = self.store.update("DISPATCHING", {"pre_transmit": True})
             if persisted.state != "DISPATCHING":
                 raise cc.ContractError("persistência de DISPATCHING falhou")
-            # Revalidação imediata antes da tentativa única.
-            self._validate(mission, authorization, prompt)
-            engine_record = engine.transmit(mission.operation_id)
+            guard = _OperationGuard(
+                operation_id=mission.operation_id,
+                mission_identity=cc.canonical_mission_identity(mission),
+                authorization_canonical=cc.canonical_authorization_identity(authorization),
+                payload_sha256=mission.payload_sha256,
+                target_key=tuple(mission.target.key()),
+                store=self.store, reservation=reservation)
+            self.transport.bind_operation(guard)
+            try:
+                # Revalidação imediata antes da tentativa única.
+                self._validate(mission, authorization, prompt)
+                engine_record = engine.transmit(mission.operation_id)
+            finally:
+                self.transport.release_operation()
             evidence = {"engine_state": engine_record.state.value,
                         "message_id": engine_record.message_id,
                         "receipt": self.transport.last_receipt.evidence
                         if self.transport.last_receipt else {},
-                        "transmit_called": True}
+                        "transmit_called": True,
+                        # Origem da evidência: a reconciliação por fixture nunca
+                        # pode ser aplicada a um registro de operação real.
+                        "environment": self.approval.environment}
             if engine_record.state == cc.OperationState.UNKNOWN:
                 state = "UNKNOWN"
             elif engine_record.state == cc.OperationState.FAILED:
@@ -749,18 +1017,56 @@ class PilotExecutor:
             raise cc.ContractError("registro ausente")
         if record.state in {"COMPLETED", "FAILED"}:
             return {"state": record.state, "changed": False}
+        snapshot = record.mission_snapshot
+        if not snapshot:
+            return {"state": record.state, "changed": False, "reason": "snapshot ausente"}
+        try:
+            target = cc.TargetIdentity(*record.target_key)
+            self.transport.confirm_instance()
+            self.transport.confirm_target(target)
+        except (cc.TransportError, cc.ContractError) as e:
+            return {"state": record.state, "changed": False,
+                    "reason": f"instância/destino divergente: {e}"}
         observation = self.transport.operation_status(record.operation_id)
-        level = observation.evidence_level
-        if observation.reports:
-            state = "COMPLETED"
-        elif level == "execution_started":
-            state = "RUNNING"
-        elif level == "recorded_in_session":
-            state = "DELIVERED"
-        elif record.state == "UNKNOWN":
-            return {"state": "UNKNOWN", "changed": False, "reason": "sem evidência positiva"}
-        else:
-            return {"state": record.state, "changed": False}
-        self.store.update(state, {"observation": observation.evidence,
-                                  "automatic_resend": False})
-        return {"state": state, "changed": True, "reports": len(observation.reports)}
+        if (observation.operation_id != record.operation_id
+                or observation.target != target
+                or observation.payload_sha256 not in (None, snapshot.get("payload_sha256"))):
+            return {"state": record.state, "changed": False, "reason": "observação divergente"}
+        prompt_id = f"msg-pilot-{record.operation_id}"
+        receipt = record.evidence.get("receipt") or {}
+        observed_receipt_id = receipt.get("observed_message_id")
+        if observed_receipt_id is not None and observed_receipt_id != prompt_id:
+            return {"state": record.state, "changed": False, "reason": "receipt divergente"}
+        if (observation.evidence.get("prompt_content_confirmed") is not True
+                or observation.message_id != prompt_id):
+            return {"state": record.state, "changed": False,
+                    "reason": "prompt efetivamente observado ausente"}
+        links = {link["envelope_message_id"]: link
+                 for link in observation.evidence.get("report_links", ())}
+        for report in observation.reports:
+            link = links.get(report.message_id)
+            if link is None:
+                continue
+            ok, reasons = assess_text_report(
+                snapshot, report, link, prompt_id=prompt_id,
+                expected_author=target.agent_id, clock=self.clock())
+            if not ok:
+                continue
+            self.store.update("COMPLETED", {
+                "observation": observation.evidence,
+                "report_fingerprint": report.fingerprint(),
+                "assessment_reasons": reasons,
+                "automatic_resend": False, "receipt_confirmed": True})
+            return {"state": "COMPLETED", "changed": True,
+                    "reports": len(observation.reports), "reasons": reasons}
+        if (observation.evidence_level == "execution_started"
+                and record.state in {"DISPATCHING", "DELIVERED", "UNKNOWN"}):
+            self.store.update("RUNNING", {"observation": observation.evidence,
+                                          "automatic_resend": False})
+            return {"state": "RUNNING", "changed": True}
+        if (observation.evidence_level == "recorded_in_session"
+                and record.state == "DISPATCHING"):
+            self.store.update("DELIVERED", {"observation": observation.evidence,
+                                            "automatic_resend": False})
+            return {"state": "DELIVERED", "changed": True}
+        return {"state": record.state, "changed": False, "reason": "sem evidência conclusiva"}

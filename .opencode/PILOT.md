@@ -124,11 +124,102 @@ decisão separada sem alterar o modo global.
 
 ## Runbook proposto
 
-### 1. Preflight somente leitura
+> Na P3A.2 toda execução é **offline/fixture**. Nenhum comando `opencode api` real, nenhum
+> POST e nenhuma operação de sessão foi executada. Os comandos `opencode` abaixo são
+> procedimento documentado para o preflight posterior (P3B), não executado nesta missão.
+
+### 1. Preflight simulado (somente leitura, fixture)
 
 ```sh
-python3 .opencode/scripts/coord_pilot_cli.py preflight
+python3 .opencode/scripts/coord_pilot_cli.py --endpoint http://127.0.0.1:49999 preflight
+```
+
+ Produz a identidade observada do ambiente a partir de metadados autorizados: instância,
+ projeto, location, sessão, agente, modelo, estado da sessão e inbox. `agent_id=A` é
+ **pressuposição** explicitamente listada em `assumptions`; permissões efetivas e
+ disponibilidade permanecem em `limits`. Ausência de `busy` e ausência em `session/active`
+ **não** provam disponibilidade.
+
+### 2. Dry-run integrado
+
+```sh
+python3 .opencode/scripts/coord_pilot_cli.py dry-run
+python3 .opencode/scripts/test_supervisor.py
+python3 .opencode/scripts/test_communication.py
+python3 .opencode/scripts/test_pilot_adapter.py
+python3 .opencode/scripts/test_pilot_executor.py
+python3 .opencode/scripts/test_pilot_closure.py
+python3 .opencode/scripts/demo_communication.py
+```
+
+`dry-run` usa cliente HTTP falso, manifesto, autorização, executor, armazenamento e
+relatório; demonstra uma única escrita simulada (`http_posts=1`, `real_calls=0`) e
+reconciliação para `COMPLETED` por evidência, nunca por presença de relatório.
+
+### 3. Manifesto exato, ainda não aprovado
+
+```sh
+python3 .opencode/scripts/coord_pilot_cli.py prepare
+```
+
+Emite o manifesto canônico (`canonical_sha256`) com HEAD executado, digests dos arquivos
+operacionais recalculados, identidade integral da missão e da autorização, destinatário,
+instância, modelo, endpoint, prompt e hash, operation_id, validade e `max_transmissions=1`.
+`approved=false`. A CLI **não** cria aprovação humana nem autorização.
+
+### 4. Execução — bloqueada por padrão
+
+```sh
+python3 .opencode/scripts/coord_pilot_cli.py execute
+# -> {"executed": false, "state": "BLOCKED_BY_DEFAULT", "real_calls": 0}
+# Com ativação e aprovação, mas sem POST real autorizado nesta missão:
+python3 .opencode/scripts/coord_pilot_cli.py execute --activate --approval /caminho/aprovacao.json
+# -> "BLOCKED_APPROVAL_MANIFEST_DIVERGENT" se o hash não vincula o manifesto preparado
+# -> "BLOCKED_PENDING_REAL_ACTIVATION" se vincula (P3A.2 não autoriza POST real)
+```
+
+A autoridade vem de ação explícita do mantenedor; `approver_type != human`, ambiente
+diferente de `APPROVED` e manifesto divergente são rejeitados antes de qualquer escrita.
+
+### 5. Reconciliação e encerramento (simulação offline)
+
+```sh
 python3 .opencode/scripts/coord_pilot_cli.py reconcile
+python3 .opencode/scripts/coord_pilot_cli.py closeout
+```
+
+`reconcile` consulta evidências autorizadas e persiste somente transições válidas, sem
+reenvio. Evidência de fixture **nunca** é aplicada a registro não-fixture: se o registro
+não veio de `execute` com ambiente `FIXTURE`, o comando permanece inalterado
+(`reason: registro não-fixture; reconciliação real exige P3B`). `closeout` apresenta
+estado, evidências e limitações sem alterar estados terminais.
+
+### 6. Escrita — somente P3B, após autorização explícita
+
+```text
+1. Confirmar aprovação humana do manifesto exato e autorização APPROVED não expirada.
+2. Confirmar preflight real e destinatário exato (instância, projeto, location, sessão,
+   agente efetivo, modelo gratuito), sem presumir agent_id=A.
+3. Criar registro persistente em AUTHORIZED ANTES de qualquer transmissão.
+4. Adquirir reserva exclusiva local e vincular a guarda à autorização consumida.
+5. Persistir DISPATCHING e confirmar a escrita ANTES do POST.
+6. Revalidar autorização; executar no máximo um POST /api/session/{sessionID}/prompt com
+   id vinculado ao operation_id, somente pelo executor protegido.
+7. Persistir evidências e resultado; falha de disco antes do POST impede transmissão.
+8. Consultar inbox, mensagens e active para distinguir enfileirado, registrado e executando.
+9. Recuperar somente relatório com operation_id autorizado, message_id do envelope,
+   autoria observada e associação prompt-resposta.
+10. Se UNKNOWN: não reenviar; exigir evidência positiva ou decisão humana.
+11. Encerrar liberando a reserva, sem alterar estados terminais.
+```
+
+Nenhum comando de escrita real é executável nesta rodada: a ativação depende de decisão
+separada, autorização real e recertificação independente.
+
+## Preflight posterior (P3B) — comandos exatos (NÃO executados nesta missão)
+
+```sh
+python3 .opencode/scripts/coord_pilot_cli.py preflight --endpoint <endpoint-local-autorizado>
 opencode service status
 opencode api get /api/info
 opencode api get "/api/location?location[directory]=/home/guilherme/Documentos/better-talker-coord-supervisor-shadow"
@@ -137,58 +228,11 @@ opencode api get /api/session/active
 opencode api get /api/session/ses_defc05853ffeej4fPXrp7frx4x/inbox
 ```
 
-Confirmar instância, projeto, location, sessão, agente, modelo, disponibilidade e inbox.
-Ausência de `busy` e ausência em `session/active` **não** provam disponibilidade.
-
-### 2. Dry-run offline
-
-```sh
-python3 .opencode/scripts/coord_pilot_cli.py dry-run
-python3 .opencode/scripts/test_pilot_executor.py
-python3 .opencode/scripts/test_pilot_adapter.py
-python3 .opencode/scripts/test_supervisor.py
-python3 .opencode/scripts/test_communication.py
-python3 .opencode/scripts/demo_communication.py
-```
-
-### 3. Preparação do manifesto
-
-O mantenedor revisa o HEAD e produz a `PilotApproval` com o `manifest_sha256` exato. A CLI
-`prepare` apenas confirma a presença do registro; ela não cria aprovação nem autorização:
-
-```sh
-python3 .opencode/scripts/coord_pilot_cli.py prepare
-```
-
-### 4. Execução experimental — bloqueada por padrão
-
-```sh
-python3 .opencode/scripts/coord_pilot_cli.py execute
-# -> {"executed": false, "state": "BLOCKED_BY_DEFAULT", "http_calls": 0}
-```
-
-Nenhum POST real é emitido por este comando. A ativação futura exige decisão separada,
-autorização `APPROVED`, transporte real e recertificação independente.
-
-### 5–10. Escrita — somente P3B, após autorização explícita
-
-```text
-1. Confirmar aprovação humana do manifesto exato e autorização APPROVED não expirada.
-2. Confirmar preflight e destinatário exato (instância, projeto, location, sessão, agente, modelo).
-3. Criar registro persistente em AUTHORIZED ANTES de qualquer transmissão.
-4. Adquirir reserva exclusiva local.
-5. Persistir DISPATCHING e confirmar a escrita ANTES do POST.
-6. Revalidar autorização; executar no máximo um POST /api/session/{sessionID}/prompt com
-   id vinculado ao operation_id.
-7. Persistir evidências e resultado; falha de disco antes do POST impede transmissão.
-8. Consultar inbox, mensagens e active para distinguir enfileirado, registrado e executando.
-9. Recuperar somente relatório com operation_id autorizado e envelopes observadas.
-10. Se UNKNOWN: não reenviar; exigir evidência positiva ou decisão humana.
-11. Encerrar liberando a reserva, sem alterar estados terminais.
-```
-
-Os comandos de escrita não estão listados como comandos executáveis nesta rodada porque a
-ativação depende de autorização real ainda inexistente e de recertificação independente.
+Confirmar, somente com metadados autorizados: identidade real do agente (não presumir `A`),
+projeto e location, instância calculada de `/api/info`, modelo gratuito, disponibilidade,
+inbox, permissões efetivas da sessão e compatibilidade observada da API OpenCode v2.3.2.
+Destinatário proposto mantido: `ses_defc05853ffeej4fPXrp7frx4x`. Qualquer divergência
+bloqueia o piloto; não improvisar configuração, modelo, sessão ou permissões.
 
 ## Encerramento seguro
 

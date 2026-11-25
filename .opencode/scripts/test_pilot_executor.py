@@ -24,12 +24,10 @@ NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 TARGET = cc.TargetIdentity("better-talker", "guilhermemellojw/better-talker", "A",
                            "ses_defc05853ffeej4fPXrp7frx4x", "instance-1",
                            "/home/guilherme/Documentos/better-talker-coord-supervisor-shadow")
-PROMPT = ("MISS-COORD04-PILOT-001 / OP-COORD04-PILOT-001. Responda somente em texto "
-          "estruturado, sem ferramentas, sem edição, sem shell, sem Git, sem operações em "
-          "dispositivos e sem acesso a credenciais. Inclua o marcador <!-- BT-COORD-REPORT:v1 --> "
-          "e uma linha contract: com JSON contendo schema_version, project_id, mission_id, "
-          "operation_id, agent_id, session_id, status, head_sha null, branch null, "
-          "test_evidence [], blockers [], artifacts [], completed_at e acceptance_results.")
+PROMPT = pilot.PILOT_PROMPT
+ENDPOINT = "http://127.0.0.1:49999"
+INSTANCE = pilot.instance_identity({"version": "2.3.2", "pid": 1, "hostname": "fixture",
+                                    "urls": [ENDPOINT]})
 
 
 def mission():
@@ -109,27 +107,34 @@ def fake_client(report=None, *, prompt_status=202, prompt_body=None, inbox=None,
     client.set("GET", pilot.ACTIVE_PATH, 200, {"data": active or {}})
     client.set("GET", f"/api/session/{TARGET.session_id}{pilot.INBOX_SUFFIX}", 200,
                {"data": inbox or []})
+    # O prompt observado e a resposta são evidências complementares: a
+    # reconciliação textual exige ambos para associar prompt e relatório.
+    observed = [] if report is None else [{
+        "id": "msg-pilot-OP-COORD04-PILOT-001", "type": "user",
+        "content": [{"type": "text", "text": PROMPT}],
+    }]
     client.set("GET", f"/api/session/{TARGET.session_id}{pilot.MESSAGE_SUFFIX}?limit=20&order=desc", 200,
-               {"data": report or []})
+               {"data": observed + list(report or [])})
     client.set("POST", f"/api/session/{TARGET.session_id}{pilot.PROMPT_SUFFIX}", prompt_status,
                prompt_body if prompt_body is not None else {"data": {"id": "msg-pilot-OP-COORD04-PILOT-001"}})
     return client, instance
 
 
-def approval():
+def approval(auth=None):
     m = mission()
-    manifest = cc.canonical_json({
-        "mission_identity": cc.canonical_mission_identity(m),
-        "operation_id": m.operation_id, "session_id": TARGET.session_id,
-        "prompt_sha256": pilot.sha256_text(PROMPT)})
-    return pilot.PilotApproval(
-        approval_id="APPROVAL-HUMAN-001", approver_id="mantenedor-humano",
-        approver_type="human", approval_reference="DECISAO-PILOT-001",
-        reviewed_head_sha="a" * 40,
-        manifest_sha256=hashlib.sha256(manifest.encode("utf-8")).hexdigest(),
-        operation_id=m.operation_id, session_id=TARGET.session_id,
-        prompt_sha256=pilot.sha256_text(PROMPT),
-        issued_at=NOW, expires_at=NOW + timedelta(hours=1), environment="PROPOSED")
+    auth = auth or pilot_auth(m, instance_id=INSTANCE)
+    manifest = pilot.PilotManifest(
+        reviewed_head_sha=pilot.executed_head_sha(),
+        operational_digests=tuple(sorted(pilot.operational_file_digests().items())),
+        mission_identity=cc.canonical_mission_identity(m),
+        authorization_identity=auth.canonical(),
+        authorization_id=auth.authorization_id, maintainer_id=auth.maintainer_id,
+        approval_reference=auth.approval_reference, target_key=tuple(auth.target.key()),
+        instance_id=auth.instance_id, model=auth.expected_model, endpoint=ENDPOINT,
+        operation_id=m.operation_id, prompt_sha256=pilot.sha256_text(PROMPT),
+        issued_at=NOW, expires_at=NOW + timedelta(hours=1), max_transmissions=1)
+    return pilot.PilotApproval("APPROVAL-HUMAN-001", "mantenedor-humano", "human",
+                               "FIXTURE", manifest)
 
 
 def report_message(operation_id: str, *, status: str = "COMPLETED",
@@ -143,8 +148,10 @@ def report_message(operation_id: str, *, status: str = "COMPLETED",
         "completed_at": cc.iso(NOW + timedelta(minutes=1)),
         "acceptance_results": {"identidade da missão devolvida": True,
                                "status explícito": True, "marcador v1": True}})
-    return {"id": "msg-report-pilot-001", "type": "assistant",
-            "agent": agent_id, "content": [{"type": "text", "text": text}]}
+    return {"id": "msg-report-pilot-001", "type": "assistant", "agent": agent_id,
+            "sessionID": TARGET.session_id,
+            "reply_to": "msg-pilot-OP-COORD04-PILOT-001",
+            "content": [{"type": "text", "text": text}]}
 
 
 def build_executor(client, instance, *, store_dir, mode="fixture", allow_real=False,
@@ -158,7 +165,7 @@ def build_executor(client, instance, *, store_dir, mode="fixture", allow_real=Fa
     appr = approval()
     if auth_env == "APPROVED":
         appr = replace(appr, environment="APPROVED")
-    return m, transport, store, pilot.PilotExecutor(transport, store, appr,
+    return m, transport, store, pilot.PilotExecutor(transport, store, appr, endpoint=ENDPOINT,
                                                     allow_real=allow_real, clock=lambda: NOW)
 
 
@@ -172,7 +179,8 @@ class ExecutorIntegrationTests(unittest.TestCase):
                                                 pilot_authorization=pilot_auth(m, instance_id=instance),
                                                 allow_write=True, clock=lambda: NOW)
             store = pilot.PilotOperationStore(td)
-            ex = pilot.PilotExecutor(transport, store, approval(), allow_real=False, clock=lambda: NOW)
+            ex = pilot.PilotExecutor(transport, store, approval(), endpoint=ENDPOINT,
+                                allow_real=False, clock=lambda: NOW)
             result = ex.execute(m, core_auth(m), PROMPT)
             events = [h["state"] for h in store.load().history]
             posts = [c for c in client.calls if c[0] == "POST"]
@@ -188,7 +196,7 @@ class ExecutorIntegrationTests(unittest.TestCase):
                                                 registered_targets=(TARGET,),
                                                 pilot_authorization=pilot_auth(m, instance_id=instance),
                                                 allow_write=True, clock=lambda: NOW, mode="real")
-            ex = pilot.PilotExecutor(transport, pilot.PilotOperationStore(td), approval(),
+            ex = pilot.PilotExecutor(transport, pilot.PilotOperationStore(td), approval(), endpoint=ENDPOINT,
                                      allow_real=True, clock=lambda: NOW)
             with self.assertRaises(cc.AuthorizationError):
                 ex.execute(m, core_auth(m), PROMPT)
@@ -209,7 +217,8 @@ class ExecutorIntegrationTests(unittest.TestCase):
                                                 pilot_authorization=pilot_auth(m, instance_id=instance),
                                                 allow_write=True, clock=lambda: NOW)
             store = pilot.PilotOperationStore(td)
-            ex = pilot.PilotExecutor(transport, store, approval(), allow_real=False, clock=lambda: NOW)
+            ex = pilot.PilotExecutor(transport, store, approval(), endpoint=ENDPOINT,
+                                allow_real=False, clock=lambda: NOW)
             result = ex.execute(m, core_auth(m), PROMPT)
             self.assertEqual(result["state"], "UNKNOWN")
             self.assertFalse(result["receipt_confirmed"])
@@ -233,7 +242,7 @@ class ExecutorIntegrationTests(unittest.TestCase):
     def test_f6_cli_blocks_execution_by_default(self):
         import coord_pilot_cli
         with tempfile.TemporaryDirectory() as td:
-            out = coord_pilot_cli.run(["--store-dir", td, "execute", "--blocked"])
+            out = coord_pilot_cli.run(["--store-dir", td, "execute"])
             self.assertFalse(out["executed"])
             self.assertEqual(out["state"], "BLOCKED_BY_DEFAULT")
 
@@ -345,7 +354,9 @@ class ExecutorIntegrationTests(unittest.TestCase):
             m, transport, store, ex = build_executor(client, instance, store_dir=td)
             ex.execute(m, core_auth(m), PROMPT)
             result = ex.reconcile()
-            self.assertFalse(result["changed"])
+            # Relatório divergente não é associado: pode haver avanço não terminal
+            # (prompt observado → DELIVERED), mas nunca conclusão COMPLETED.
+            self.assertNotEqual(result["state"], "COMPLETED")
 
     def test_core_authorization_binding_preserved(self):
         m = mission()

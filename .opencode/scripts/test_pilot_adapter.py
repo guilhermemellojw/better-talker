@@ -12,6 +12,7 @@ import unittest
 import urllib.request
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
@@ -132,6 +133,30 @@ def transport(client=None, auth=None, *, allow_write=False, instance_id_value=IN
                                    allow_write=allow_write, clock=lambda: NOW)
 
 
+def bind_guard(t, m=None, auth=None):
+    """Vincula reserva + DISPATCHING ao teste de recebimento do adaptador.
+
+    F1 exige que `transmit()` só opere pelo executor autorizado; estes testes
+    de evidência de transporte exercitam o caminho protegido com uma guarda
+    mínima, sem reabrir a chamada direta.
+    """
+    m = m or mission()
+    auth = auth or core_authorization(m)
+    reservation = {"pid": os.getpid(), "created_utc": cc.iso(NOW)}
+    store = SimpleNamespace(
+        load=lambda: SimpleNamespace(state="DISPATCHING"),
+        read_reservation=lambda: reservation,
+    )
+    t.bind_operation(pilot._OperationGuard(
+        operation_id=m.operation_id,
+        mission_identity=cc.canonical_mission_identity(m),
+        authorization_canonical=cc.canonical_authorization_identity(auth),
+        payload_sha256=m.payload_sha256,
+        target_key=tuple(m.target.key()),
+        store=store, reservation=reservation))
+    return t
+
+
 class AdapterIdentityTests(unittest.TestCase):
     def test_a_correct_identity(self):
         t = transport()
@@ -197,7 +222,7 @@ class AuthorizationTests(unittest.TestCase):
 
 class TransportEvidenceTests(unittest.TestCase):
     def test_l_inbox_acceptance_is_not_delivery(self):
-        t = transport(allow_write=True)
+        t = bind_guard(transport(allow_write=True))
         request = t.prepare(mission(), core_authorization())
         receipt = t.transmit(request)
         self.assertEqual(receipt.outcome, "accepted")
@@ -239,7 +264,7 @@ class TransportEvidenceTests(unittest.TestCase):
         client = fake_client()
         client.set("POST", f"/api/session/{TARGET.session_id}{pilot.PROMPT_SUFFIX}", 500,
                    {"error": "timeout"})
-        t = transport(client, allow_write=True)
+        t = bind_guard(transport(client, allow_write=True))
         request = t.prepare(mission(), core_authorization())
         with self.assertRaises(cc.TransportError):
             t.transmit(request)
