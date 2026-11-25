@@ -54,44 +54,86 @@ internal fun planPedagogicalAction(
     PedagogicalContinuityBridge.Dispatch.Delegate -> PedagogicalAction.Delegate
 }
 
-// Citações literais, rótulos de trecho recuperado e referências são intocáveis:
-// simplificar a linguagem nunca pode reescrever evidência nem criar afirmação.
-private val PEDAGOGICAL_QUOTE = Regex("""[“"»][^”"«\n]*[”"«]""")
-private val PEDAGOGICAL_REFERENCE = Regex(
-    """Trecho recuperado[^\n]*|\b\d?\s*[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?\b|\b\d{1,3}:\d{1,3}\b""",
+// --- P7 — preservação literal por SEGMENTOS, sem tokens de stash ------------
+// Rótulos de proveniência TRUST, aspas (retas/tipográficas) e referências são
+// identificados uma única vez e copiados byte a byte. Nenhum token interno é
+// inserido no texto: o mecanismo de aninhamento/NUL foi eliminado.
+private val PEDAGOGICAL_PROTECTED = Regex(
+    """(?iu)Trecho recuperado[^\n]*|“[^”\n]*”|"[^"\n]*"|«[^»\n]*»|\b[A-Za-zÀ-ÿ]+\s+\d{1,3}(?::\d{1,3})?\b|\b\d{1,3}:\d{1,3}\b""",
 )
-private val PEDAGOGICAL_FILLERS = listOf(
-    Regex("""(?iu)\b(é importante (ressaltar|notar|salientar|destacar) que|importa (ressaltar|notar|salientar) que|vale (ressaltar|notar|lembrar) que|cabe destacar que)\b[,\s]*""") to "",
-    Regex("""(?iu)\b(ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""") to "",
-    Regex("""(?iu)\b(basicamente|simplesmente|na verdade|de certa forma|por assim dizer|literalmente|em suma|em resumo|em geral)\b[,\s]*""") to "",
-    Regex("""(?iu)\bcom o objetivo de\b""") to "para",
-    Regex("""(?iu)\ba fim de\b""") to "para",
-    Regex("""(?iu)\bno que diz respeito a\b""") to "sobre",
-    Regex("""(?iu)\blevando em consideração\b""") to "considerando",
+
+// F7 — marcadores com peso discursivo só no início do texto ou da frase.
+// `(?U)` torna `\b` Unicode-aware; o prefixo capturado impede a remoção
+// depois de negação/condição/qualificador e preserva a pontuação.
+private val PEDAGOGICAL_SENTENCE_FILLERS = listOf(
+    Regex(
+        """(?iuU)(^|[.!?\n]\s+)(é importante (ressaltar|notar|salientar|destacar) que|importa (ressaltar|notar|salientar) que|vale (ressaltar|notar|lembrar) que|cabe destacar que)\b[,\s]*""",
+    ) to "$1",
 )
+
+// Marcadores leves: remoção tolerada no meio da frase, mas nunca depois de
+// negação, condição ou qualificador (guarda em `simplifySegment`).
+private val PEDAGOGICAL_LIGHT_FILLERS = listOf(
+    Regex("""(?iuU)\b(ou seja|em outras palavras|dito de outra forma|em outros termos)\b[,\s]*""") to "",
+    Regex("""(?iuU)\b(basicamente|simplesmente|na verdade|de certa forma|por assim dizer|literalmente|em suma|em resumo|em geral)\b[,\s]*""") to "",
+)
+
+private val PEDAGOGICAL_PHRASES = listOf(
+    Regex("""(?iuU)\bcom o objetivo de\b""") to "para",
+    Regex("""(?iuU)\ba fim de\b""") to "para",
+    Regex("""(?iuU)\bno que diz respeito a\b""") to "sobre",
+    Regex("""(?iuU)\blevando em consideração\b""") to "considerando",
+)
+
+private val PEDAGOGICAL_RISK_PREFIX = Regex(
+    """(?iuU)\b(não|nunca|nem|se|caso|apenas|só|somente|talvez)\s*$""",
+)
+
+private fun simplifySegment(segment: String): String {
+    var out = segment
+    PEDAGOGICAL_SENTENCE_FILLERS.forEach { (pattern, replacement) ->
+        out = pattern.replace(out, replacement)
+    }
+    fun guardedReplace(pattern: Regex, replacement: String) {
+        out = pattern.replace(out) { match ->
+            val before = out.take(match.range.first).takeLast(40)
+            if (PEDAGOGICAL_RISK_PREFIX.containsMatchIn(before)) match.value else replacement
+        }
+    }
+    PEDAGOGICAL_LIGHT_FILLERS.forEach { (pattern, replacement) ->
+        guardedReplace(pattern, replacement)
+    }
+    PEDAGOGICAL_PHRASES.forEach { (pattern, replacement) ->
+        guardedReplace(pattern, replacement)
+    }
+    return out.replace(Regex("""[ \t]{2,}"""), " ")
+        .replace(Regex(""" *\n *"""), "\n")
+        .replace(Regex("""\n{3,}"""), "\n\n")
+}
 
 /**
  * Simplificação efetiva da linguagem, sem inventar conteúdo: remove apenas
- * marcadores discursivos e expressões verbosas; aspas, rótulos TRUST #60 e
- * referências bíblicas voltam byte a byte.
+ * marcadores discursivos e expressões verbosas dos segmentos NÃO protegidos.
+ * Aspas, rótulos TRUST #60 e referências são copiados intactos; se a
+ * transformação não puder ser comprovada, o texto original é devolvido.
  */
 internal fun simplifyPedagogicalText(text: String): String {
     if (text.isBlank()) return text
-    val protected = mutableListOf<String>()
-    fun stash(value: String): String {
-        val token = "\u0000${protected.size}\u0000"
-        protected += value
-        return token
+    val protectedBefore = PEDAGOGICAL_PROTECTED.findAll(text).map { it.value }.toList()
+    val out = StringBuilder(text.length)
+    var cursor = 0
+    PEDAGOGICAL_PROTECTED.findAll(text).forEach { match ->
+        val start = match.range.first
+        val end = match.range.last + 1
+        if (start > cursor) out.append(simplifySegment(text.substring(cursor, start)))
+        out.append(match.value) // byte a byte, sem token e sem reprocessamento
+        cursor = end
     }
-    var staged = PEDAGOGICAL_QUOTE.replace(text) { stash(it.value) }
-    staged = PEDAGOGICAL_REFERENCE.replace(staged) { stash(it.value) }
-    var out = staged
-    PEDAGOGICAL_FILLERS.forEach { (pattern, replacement) ->
-        out = pattern.replace(out, replacement)
-    }
-    out = out.replace(Regex("""[ \t]{2,}"""), " ")
-        .replace(Regex(""" *\n *"""), "\n")
-        .replace(Regex("""\n{3,}"""), "\n\n")
-        .trim()
-    return protected.foldIndexed(out) { i, acc, value -> acc.replace("\u0000$i\u0000", value) }
+    if (cursor < text.length) out.append(simplifySegment(text.substring(cursor)))
+    val result = out.toString()
+    // Fail-safe: qualquer token residual, perda ou reordenação de segmento
+    // protegido invalida a transformação.
+    if (result.contains('\u0000')) return text
+    if (PEDAGOGICAL_PROTECTED.findAll(result).map { it.value }.toList() != protectedBefore) return text
+    return result
 }
