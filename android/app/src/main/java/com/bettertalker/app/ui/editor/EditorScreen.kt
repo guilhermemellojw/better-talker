@@ -379,7 +379,7 @@ fun EditorScreen(
     LaunchedEffect(mentorHintSeen, sections.isNotEmpty()) {
         if (!mentorHintSeen && sections.isNotEmpty()) {
             snackbarHostState.showSnackbar(
-                "Toque em ✨ no ponto ativo para abrir o Copilot."
+                "Toque em “" + mentorHelpLabel() + "” no ponto ativo para conversar com o Copilot."
             )
             vm.markMentorHintSeen()
         }

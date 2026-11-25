@@ -94,4 +94,17 @@ class EditorPresentationTest {
         )
         assertEquals("Adicione pelo menos um tópico de desenvolvimento.", msg)
     }
+
+    @Test
+    fun mentorHelpLabelEhExplicito() {
+        assertEquals("Pedir ajuda ao Mentor", mentorHelpLabel())
+    }
+
+    @Test
+    fun orientacaoDoPreparoMencionaAbrirECriar() {
+        val text = prepareEmptyGuidance()
+        assertTrue(text.contains("Abra um esboço"))
+        assertTrue(text.contains("crie um novo"))
+    }
+
 }
