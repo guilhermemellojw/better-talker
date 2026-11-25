@@ -24,8 +24,8 @@
 
 | PR | Frente inferida | HEAD | Checks do HEAD |
 | --- | --- | --- | --- |
-| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | `db8001e066b7` | Verde |
-| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `31db63888270` | Verde |
+| [#63 — feat(coord): paginate supervisor context snapshot (COORD-03/OP-2) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/63) | Outros | `3309622325ef` | Pendente |
+| [#62 — feat(mentor): intenções pedagógicas mínimas — contrato puro (P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/62) | Mentor | `2957943a5e5e` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `d917df70be1f` | Não verificado |
 
 ## Integrações recentes
@@ -72,7 +72,7 @@
 - Integrações por período (mês UTC, somente períodos presentes na janela): 2026-11=57.
 - Mediana abertura → merge: 0.3 dias (PRs com ambas as datas).
 - Mediana de idade dos PRs abertos: 0.2 dias (referência fixa: 2026-11-25).
-- Estados de check dos PRs abertos: Não verificado=1, Verde=2.
+- Estados de check dos PRs abertos: Não verificado=1, Pendente=2.
 - Estado de check é fato de CI, não certificação de QA; nenhum percentual de conclusão do beta é inferido de contagens de PRs.
 - Datas ausentes são excluídas das medianas; quando não há dados suficientes, o valor é `indisponível`.
 
