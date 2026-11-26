@@ -30,7 +30,7 @@
 | [#71 — feat(coord): motor deterministico Free First/1M de selecao de modelos (COORD-05B) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/71) | Outros | `cedad1018ceb` | Verde |
 | [#70 — feat(coord05): ledger persistente de missões (Draft)](https://github.com/guilhermemellojw/better-talker/pull/70) | Outros | `e321a07bed43` | Verde |
 | [#69 — docs(coord): transferência operacional e prontidão do supervisor (COORD-08/09 PREP) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/69) | Documentação | `db58380af3b3` | Verde |
-| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `4a921c0159eb` | Pendente |
+| [#64 — feat(coord): fundação de comunicação bidirecional simulada (COORD-04/P1) (Draft)](https://github.com/guilhermemellojw/better-talker/pull/64) | Outros | `3e4c1b346dc4` | Pendente |
 | [#11 — docs: TRUST-0 discovery de confiabilidade e contrato TRUST-1A](https://github.com/guilhermemellojw/better-talker/pull/11) | Documentação | `be669824b63d` | Verde |
 
 ## Integrações recentes
