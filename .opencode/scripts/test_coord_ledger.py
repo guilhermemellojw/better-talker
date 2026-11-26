@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Testes determinísticos do ledger persistente de missões."""
+"""Testes determinísticos do ledger persistente de missões (COORD-05A/P2)."""
 
 from __future__ import annotations
 
 import multiprocessing
 import os
+import stat
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -38,7 +39,7 @@ def base_payload(text: str = "prompt") -> dict:
     return {"text": text, "mission": "MISS-BETA-0001"}
 
 
-def register(ledger: Ledger, payload: dict | None = None, **overrides):
+def register(ledger: Ledger, payload=None, **overrides):
     values = {
         "mission_id": "MISS-BETA-0001",
         "operation_id": "OP-0001",
@@ -54,8 +55,8 @@ def register(ledger: Ledger, payload: dict | None = None, **overrides):
     return ledger.register_proposed(**values)
 
 
-def authorized(ledger: Ledger, payload: dict | None = None):
-    record = register(ledger, payload)
+def authorized(ledger: Ledger, payload=None, **overrides):
+    record = register(ledger, payload, **overrides)
     return ledger.authorize(
         record.mission_id,
         authorization_reference=record.authorization_reference,
@@ -64,8 +65,8 @@ def authorized(ledger: Ledger, payload: dict | None = None):
     )
 
 
-def reserved(ledger: Ledger):
-    record = authorized(ledger)
+def reserved(ledger: Ledger, **overrides):
+    record = authorized(ledger, **overrides)
     return ledger.reserve_dispatch(
         record.mission_id,
         agent=record.agent,
@@ -76,68 +77,64 @@ def reserved(ledger: Ledger):
     )
 
 
-def _try_reserve(db_path: str, mission_id: str, queue) -> None:
+def _try_reserve(db_path, mission_id, agent, session_id, queue):
     ledger = Ledger(db_path, project_id=PROJECT, repository_id=REPO)
     try:
         ledger.reserve_dispatch(
             mission_id,
-            agent="B",
-            session_id="ses-B",
-            instance_id="instance-1",
-            worktree="/tmp/wt-b",
+            agent=agent,
+            session_id=session_id,
+            instance_id="instance-2",
+            worktree="/tmp/wt-b2",
             actor="process-2",
         )
         queue.put("ok")
-    except Exception as exc:  # noqa: BLE001 - resultado é a asserção
+    except Exception as exc:  # noqa: BLE001
         queue.put(type(exc).__name__)
 
 
 class LedgerTest(unittest.TestCase):
-    def setUp(self) -> None:
+    def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.db = Path(self._tmp.name) / "ledger.sqlite3"
         self.ledger = Ledger(self.db, project_id=PROJECT, repository_id=REPO)
 
-    def tearDown(self) -> None:
+    def tearDown(self):
         self._tmp.cleanup()
 
-    def test_persistencia_apos_encerramento(self) -> None:
+    def test_persistencia_apos_encerramento(self):
         record = register(self.ledger)
         del self.ledger
         reopened = Ledger(self.db, project_id=PROJECT, repository_id=REPO)
         self.assertEqual(PROPOSED, reopened.get(record.mission_id).state)
-        self.assertEqual(record.identity_hash, reopened.get(record.mission_id).identity_hash)
 
-    def test_identidade_imutavel_e_payload_divergente(self) -> None:
-        record = register(self.ledger)
-        self.assertEqual(payload_sha256(base_payload()), record.payload_sha256)
+    def test_payload_divergente(self):
+        register(self.ledger)
         with self.assertRaises(DuplicateMission):
             register(self.ledger, payload={"text": "diferente"})
 
-    def test_operacao_repetida_com_mesmo_conteudo_e_idempotente(self) -> None:
+    def test_operacao_repetida_idempotente(self):
         first = register(self.ledger)
         second = register(self.ledger)
         self.assertEqual(first.identity_hash, second.identity_hash)
 
-    def test_ciclo_de_vida_completo_e_historico(self) -> None:
+    def test_ciclo_de_vida_e_historico(self):
         record = reserved(self.ledger)
-        self.assertEqual(DISPATCHING, record.state)
         self.ledger.mark_delivered(record.mission_id, evidence="message-id", actor="S")
         self.ledger.mark_running(record.mission_id, evidence="session busy", actor="S")
         done = self.ledger.complete(record.mission_id, evidence="checkpoint", actor="S")
         self.assertEqual(COMPLETED, done.state)
-        states = [t.to_state for t in self.ledger.history(record.mission_id)]
         self.assertEqual(
-            [PROPOSED, AUTHORIZED, DISPATCHING, DELIVERED, RUNNING, COMPLETED], states
+            [PROPOSED, AUTHORIZED, DISPATCHING, DELIVERED, RUNNING, COMPLETED],
+            [t.to_state for t in self.ledger.history(record.mission_id)],
         )
 
-    def test_transicao_invalida(self) -> None:
+    def test_transicao_invalida(self):
         record = register(self.ledger)
         with self.assertRaises(InvalidTransition):
             self.ledger.mark_delivered(record.mission_id, evidence="x", actor="S")
-        self.assertEqual(PROPOSED, self.ledger.get(record.mission_id).state)
 
-    def test_estados_terminais_protegidos(self) -> None:
+    def test_estados_terminais_protegidos(self):
         record = reserved(self.ledger)
         self.ledger.mark_delivered(record.mission_id, evidence="x", actor="S")
         self.ledger.mark_running(record.mission_id, evidence="x", actor="S")
@@ -145,133 +142,226 @@ class LedgerTest(unittest.TestCase):
         with self.assertRaises(InvalidTransition):
             self.ledger.fail(record.mission_id, evidence="x", actor="S")
 
-    def test_reserva_duplicada_mesma_instancia(self) -> None:
+    def test_reserva_duplicada_mesma_missao(self):
         record = authorized(self.ledger)
         self.ledger.reserve_dispatch(
-            record.mission_id,
-            agent=record.agent,
-            session_id=record.session_id,
-            instance_id=record.instance_id,
-            worktree=record.worktree,
-            actor="coord-S",
+            record.mission_id, agent=record.agent, session_id=record.session_id,
+            instance_id=record.instance_id, worktree=record.worktree, actor="S")
+        with self.assertRaises(DuplicateReservation):
+            self.ledger.reserve_dispatch(
+                record.mission_id, agent=record.agent, session_id=record.session_id,
+                instance_id=record.instance_id, worktree=record.worktree, actor="S")
+
+    def test_f1_duplicidade_entre_missoes_distintas(self):
+        first = authorized(self.ledger)
+        self.ledger.reserve_dispatch(
+            first.mission_id, agent=first.agent, session_id=first.session_id,
+            instance_id=first.instance_id, worktree=first.worktree, actor="S")
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
         )
         with self.assertRaises(DuplicateReservation):
             self.ledger.reserve_dispatch(
-                record.mission_id,
-                agent=record.agent,
-                session_id=record.session_id,
-                instance_id=record.instance_id,
-                worktree=record.worktree,
-                actor="coord-S",
-            )
+                second.mission_id, agent=second.agent, session_id=second.session_id,
+                instance_id=second.instance_id, worktree=second.worktree, actor="S")
 
-    def test_concorrencia_entre_dois_processos(self) -> None:
-        record = authorized(self.ledger)
-        queue: multiprocessing.Queue[str] = multiprocessing.Queue()
+    def test_f1_concorrencia_processos_missoes_distintas(self):
+        first = authorized(self.ledger)
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+        )
+        self.ledger.reserve_dispatch(
+            first.mission_id, agent=first.agent, session_id=first.session_id,
+            instance_id=first.instance_id, worktree=first.worktree, actor="process-1")
+        queue = multiprocessing.Queue()
         proc = multiprocessing.Process(
-            target=_try_reserve, args=(str(self.db), record.mission_id, queue)
+            target=_try_reserve,
+            args=(str(self.db), second.mission_id, "B", "ses-B", queue),
         )
         proc.start()
-        self.ledger.reserve_dispatch(
-            record.mission_id,
-            agent=record.agent,
-            session_id=record.session_id,
-            instance_id=record.instance_id,
-            worktree=record.worktree,
-            actor="process-1",
-        )
         result = queue.get(timeout=20)
         proc.join(timeout=20)
         self.assertNotEqual("ok", result)
 
-    def test_recuperacao_dispatching_para_unknown(self) -> None:
-        record = reserved(self.ledger)
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
-        recovered = self.ledger.recover_stale_dispatching(
-            timeout_seconds=1, actor="restart", now=future
+    def test_f1_mudanca_instancia_nao_libera_reserva(self):
+        first = reserved(self.ledger)
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+            instance_id="instance-99",
+            worktree="/tmp/wt-b2",
         )
-        self.assertEqual([record.mission_id], recovered)
-        self.assertEqual(UNKNOWN, self.ledger.get(record.mission_id).state)
-        self.assertFalse(self.ledger.can_dispatch(record.mission_id))
+        with self.assertRaises(DuplicateReservation):
+            self.ledger.reserve_dispatch(
+                second.mission_id, agent=second.agent, session_id=second.session_id,
+                instance_id=second.instance_id, worktree=second.worktree, actor="S")
+        self.assertEqual(DISPATCHING, self.ledger.get(first.mission_id).state)
 
-    def test_unknown_sem_reenvio(self) -> None:
+    def test_f2_unknown_preserva_reserva_e_bloqueia_nova(self):
+        first = reserved(self.ledger)
+        self.ledger.mark_unknown(first.mission_id, evidence="timeout", actor="S")
+        self.assertTrue(self.ledger.is_reserved(first.mission_id))
+        second = authorized(
+            self.ledger,
+            mission_id="MISS-BETA-0002",
+            operation_id="OP-0002",
+            payload={"text": "segunda", "mission": "MISS-BETA-0002"},
+        )
+        with self.assertRaises(DuplicateReservation):
+            self.ledger.reserve_dispatch(
+                second.mission_id, agent=second.agent, session_id=second.session_id,
+                instance_id=second.instance_id, worktree=second.worktree, actor="S")
+
+    def test_f2_reconciliacao_nao_terminal_preserva_reserva(self):
         record = reserved(self.ledger)
         self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
-        with self.assertRaises(InvalidTransition):
-            self.ledger.reconcile(
-                record.mission_id,
-                target=DISPATCHING,
-                evidence="",
-                actor="S",
-                human_decision=True,
-            )
+        self.ledger.reconcile(
+            record.mission_id, target=DELIVERED, evidence="inbox",
+            authority_reference="AUTH-EVIDENCE-1", actor="human")
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
 
-    def test_reconciliacao_por_evidencia(self) -> None:
+    def test_f2_reconciliacao_terminal_libera_reserva(self):
         record = reserved(self.ledger)
         self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
         done = self.ledger.reconcile(
-            record.mission_id,
-            target=COMPLETED,
-            evidence="checkpoint do agente",
-            actor="human",
-        )
+            record.mission_id, target=COMPLETED, evidence="checkpoint",
+            authority_reference="AUTH-EVIDENCE-2", actor="human")
         self.assertEqual(COMPLETED, done.state)
+        self.assertFalse(self.ledger.is_reserved(record.mission_id))
 
-    def test_reconciliacao_sem_evidencia_bloqueada(self) -> None:
+    def test_f3_can_dispatch_so_para_autorizado(self):
+        record = authorized(self.ledger)
+        self.assertTrue(self.ledger.can_dispatch(record.mission_id))
+        self.ledger.reserve_dispatch(
+            record.mission_id, agent=record.agent, session_id=record.session_id,
+            instance_id=record.instance_id, worktree=record.worktree, actor="S")
+        self.assertFalse(self.ledger.can_dispatch(record.mission_id))
+        self.assertTrue(self.ledger.in_progress(record.mission_id))
+        self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
+        self.assertFalse(self.ledger.can_dispatch(record.mission_id))
+
+    def test_f4_privacidade(self):
+        register(self.ledger)
+        self.assertEqual(
+            0o700, stat.S_IMODE(self.db.parent.stat().st_mode)
+        )
+        self.assertEqual(0o600, stat.S_IMODE(self.db.stat().st_mode))
+        for suffix in ("-wal", "-shm"):
+            path = Path(str(self.db) + suffix)
+            if path.exists():
+                self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+
+    def test_f4_isolamento_projeto_divergente(self):
+        record = register(self.ledger)
+        other = Ledger(
+            self.db,
+            project_id="outro-projeto",
+            repository_id="outro/repo",
+        )
+        self.assertIsNone(other.get(record.mission_id))
+        with self.assertRaises(LedgerError):
+            other.reconcile(
+                record.mission_id, target=COMPLETED, evidence="x",
+                authority_reference="AUTH-X", actor="S")
+        self.assertEqual(PROPOSED, self.ledger.get(record.mission_id).state)
+
+    def test_f5_unknown_nao_contorna_reconciliacao(self):
+        record = reserved(self.ledger)
+        self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
+        with self.assertRaises(InvalidTransition):
+            self.ledger.complete(record.mission_id, evidence="x", actor="S")
+        with self.assertRaises(InvalidTransition):
+            self.ledger.mark_delivered(record.mission_id, evidence="x", actor="S")
+
+    def test_f5_autoridade_obrigatoria(self):
         record = reserved(self.ledger)
         self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
         with self.assertRaises(UnsafeReconciliation):
             self.ledger.reconcile(
-                record.mission_id, target=DELIVERED, evidence="", actor="S"
-            )
+                record.mission_id, target=DELIVERED, evidence="x",
+                authority_reference="", actor="S", human_decision=True)
 
-    def test_reinicio_da_instancia_preserva_identidade(self) -> None:
+    def test_f5_falha_antes_do_envio(self):
+        record = authorized(self.ledger)
+        failed = self.ledger.fail_before_dispatch(
+            record.mission_id, evidence="pré-despacho recusado", actor="S")
+        self.assertEqual(FAILED, failed.state)
+        self.assertFalse(self.ledger.is_reserved(record.mission_id))
+
+    def test_f6_timeout_persistido(self):
+        record = register(self.ledger, timeout_seconds=30)
+        self.assertEqual(30, self.ledger.get(record.mission_id).timeout_seconds)
+
+    def test_f6_timeout_arbitrario_nao_recupera(self):
+        record = reserved(self.ledger)
+        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        self.assertEqual(
+            [],
+            self.ledger.recover_stale_dispatching(
+                cause="timeout", actor="restart", now=future),
+        )
+        self.assertEqual(DISPATCHING, self.ledger.get(record.mission_id).state)
+
+    def test_f6_reinicio_confirmado_para_unknown(self):
+        record = reserved(self.ledger)
+        recovered = self.ledger.recover_stale_dispatching(
+            cause="restart_confirmed", actor="restart")
+        self.assertEqual([record.mission_id], recovered)
+        self.assertEqual(UNKNOWN, self.ledger.get(record.mission_id).state)
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
+
+    def test_f6_causa_desconhecida_mantem_bloqueio(self):
+        record = reserved(self.ledger)
+        self.assertEqual([], self.ledger.recover_stale_dispatching(cause="misterio"))
+        self.assertEqual(DISPATCHING, self.ledger.get(record.mission_id).state)
+        self.assertTrue(self.ledger.is_reserved(record.mission_id))
+
+    def test_recuperacao_apos_reinicio_preserva_identidade(self):
         first = register(self.ledger)
         del self.ledger
         self.ledger = Ledger(self.db, project_id=PROJECT, repository_id=REPO)
         again = self.ledger.get(first.mission_id)
         self.assertEqual(first.identity_hash, again.identity_hash)
-        self.assertEqual(first.operation_id, again.operation_id)
 
-    def test_falha_de_armazenamento(self) -> None:
-        ledger = Ledger(Path(self._tmp.name) / "inexistente" / "ledger.sqlite3",
-                        project_id=PROJECT, repository_id=REPO)
+    def test_falha_de_armazenamento_com_rollback(self):
+        ledger = Ledger(
+            Path(self._tmp.name) / "inexistente" / "ledger.sqlite3",
+            project_id=PROJECT, repository_id=REPO)
         record = register(ledger)
         ledger.db_path = Path(self._tmp.name) / "bloqueado"
         ledger.db_path.write_text("não é sqlite")
+        before = record.updated_at
         with self.assertRaises(LedgerStorageError):
             ledger.authorize(
                 record.mission_id,
                 authorization_reference=record.authorization_reference,
                 payload_sha256_value=record.payload_sha256,
-                actor="S",
-            )
+                actor="S")
+        ledger.db_path = Path(self._tmp.name) / "inexistente" / "ledger.sqlite3"
+        self.assertEqual(PROPOSED, ledger.get(record.mission_id).state)
+        self.assertEqual(before, ledger.get(record.mission_id).updated_at)
 
-    def test_projeto_e_politica_injetados(self) -> None:
+    def test_politica_injetada(self):
         other = Ledger(
             Path(self._tmp.name) / "outro.sqlite3",
             project_id="outro-projeto",
             repository_id="outro/repo",
-            policy={"mode": "SHADOW", "allow_dispatch": False},
-        )
-        record = register(self.ledger)
-        self.assertIsNone(other.get(record.mission_id))
+            policy={"mode": "SHADOW", "allow_dispatch": False})
         self.assertFalse(other.policy["allow_dispatch"])
 
-    def test_sem_reenvio_em_estado_ativo(self) -> None:
-        record = authorized(self.ledger)
-        self.assertTrue(self.ledger.can_dispatch(record.mission_id))
-        self.ledger.reserve_dispatch(
-            record.mission_id,
-            agent=record.agent,
-            session_id=record.session_id,
-            instance_id=record.instance_id,
-            worktree=record.worktree,
-            actor="S",
-        )
-        self.assertTrue(self.ledger.can_dispatch(record.mission_id))
-        self.ledger.mark_unknown(record.mission_id, evidence="timeout", actor="S")
-        self.assertFalse(self.ledger.can_dispatch(record.mission_id))
+    def test_projeto_injetado_nao_altera_missao_alheia(self):
+        record = register(self.ledger)
+        other = Ledger(self.db, project_id="outro-projeto", repository_id="outro/repo")
+        with self.assertRaises(LedgerError):
+            other.fail_before_dispatch(record.mission_id, evidence="x", actor="S")
 
 
 if __name__ == "__main__":

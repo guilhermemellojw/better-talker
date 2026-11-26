@@ -59,10 +59,19 @@ componente futuro, com autorização registrada.
 ## Garantias
 
 - Duplicidade: `mission_id` e `operation_id` únicos; payload divergente é rejeitado.
-- Concorrência: reserva por `(agent, session_id)` com chave primária e transação
-  `BEGIN IMMEDIATE`; dois processos não reservam o mesmo destino.
-- Recuperação: `DISPATCHING` sem desfecho vira `UNKNOWN`; reconciliação exige
-  evidência ou decisão humana. Nunca reenvia automaticamente.
+- Concorrência: reserva por `(project_id, agent, session_id)` com chave primária e
+  transação `BEGIN IMMEDIATE`; dois processos não reservam o mesmo destinatário.
+- Exclusividade: mudança de instância/PID não libera reserva; `UNKNOWN` preserva o
+  bloqueio. Somente reconciliação terminal confirmada libera o destinatário.
+- `can_dispatch()` indica apenas elegibilidade para a PRIMEIRA reserva
+  (`AUTHORIZED` sem reserva). Não autoriza reenvio em `DISPATCHING`, `DELIVERED`,
+  `RUNNING` ou `UNKNOWN`.
+- Recuperação: timeout é persistido por missão; causas conhecidas (`timeout`,
+  `process_loss`, `restart_confirmed`) levam a `UNKNOWN`. Causa desconhecida mantém
+  o bloqueio. Reconciliação exige evidência e referência de autoridade externa;
+  um booleano não comprova autorização humana. Nunca reenvia automaticamente.
+- Privacidade: diretório criado com `0700`, banco/WAL/SHM com `0600`. Instância de
+  outro projeto não vê, recupera nem modifica missões deste projeto.
 - Falha de armazenamento: transação revertida e `LedgerStorageError`.
 - Política e projeto injetados; nenhum nome de agente ou regra de produto é embutido.
 

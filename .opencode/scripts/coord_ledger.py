@@ -45,7 +45,7 @@ ACTIVE = frozenset({AUTHORIZED, DISPATCHING, DELIVERED, RUNNING})
 
 ALLOWED_TRANSITIONS: Mapping[str, frozenset[str]] = {
     PROPOSED: frozenset({AUTHORIZED}),
-    AUTHORIZED: frozenset({DISPATCHING}),
+    AUTHORIZED: frozenset({DISPATCHING, FAILED}),
     DISPATCHING: frozenset({DELIVERED, UNKNOWN}),
     DELIVERED: frozenset({RUNNING, UNKNOWN}),
     RUNNING: frozenset({COMPLETED, FAILED, UNKNOWN}),
@@ -118,6 +118,7 @@ class MissionRecord:
     created_at: str
     updated_at: str
     dispatched_at: Optional[str]
+    timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -185,8 +186,24 @@ class Ledger:
         finally:
             conn.close()
 
+    def _harden_files(self) -> None:
+        """Permissões privadas; nunca altera diretório produtivo preexistente."""
+        for path in (
+            self.db_path,
+            Path(str(self.db_path) + "-wal"),
+            Path(str(self.db_path) + "-shm"),
+        ):
+            try:
+                if path.exists():
+                    os.chmod(path, 0o600)
+            except OSError as exc:
+                raise LedgerStorageError(f"falha ao proteger {path}: {exc}") from exc
+
     def _initialize(self) -> None:
+        parent_existed = self.db_path.parent.exists()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not parent_existed:
+            os.chmod(self.db_path.parent, 0o700)
         try:
             with self._connect() as conn:
                 conn.executescript(
@@ -208,7 +225,8 @@ class Ledger:
                         state TEXT NOT NULL,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL,
-                        dispatched_at TEXT
+                        dispatched_at TEXT,
+                        timeout_seconds INTEGER NOT NULL DEFAULT 0
                     );
                     CREATE TABLE IF NOT EXISTS transitions (
                         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,16 +237,42 @@ class Ledger:
                         actor TEXT NOT NULL,
                         at TEXT NOT NULL
                     );
+                    """
+                )
+                mission_cols = {
+                    row["name"] for row in conn.execute("PRAGMA table_info(missions)")
+                }
+                if "timeout_seconds" not in mission_cols:
+                    conn.execute(
+                        "ALTER TABLE missions ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 0"
+                    )
+                res_cols = [
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(reservations)")
+                ]
+                if res_cols and "project_id" not in res_cols:
+                    conn.execute("DROP TABLE reservations")
+                conn.executescript(
+                    """
                     CREATE TABLE IF NOT EXISTS reservations (
+                        project_id TEXT NOT NULL,
                         agent TEXT NOT NULL,
                         session_id TEXT NOT NULL,
                         mission_id TEXT NOT NULL,
-                        PRIMARY KEY (agent, session_id)
+                        PRIMARY KEY (project_id, agent, session_id)
                     );
                     """
                 )
+            self._harden_files()
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao inicializar banco: {exc}") from exc
+
+    def _assert_scope(self, row: sqlite3.Row) -> None:
+        if (
+            row["project_id"] != self.project_id
+            or row["repository_id"] != self.repository_id
+        ):
+            raise LedgerError("projeto/repositório divergentes")
 
     # ---------- leitura ----------
     def get(self, mission_id: str) -> Optional[MissionRecord]:
@@ -237,6 +281,11 @@ class Ledger:
                 row = conn.execute(
                     "SELECT * FROM missions WHERE mission_id=?", (mission_id,)
                 ).fetchone()
+            if row and (
+                row["project_id"] != self.project_id
+                or row["repository_id"] != self.repository_id
+            ):
+                return None
             return self._record(row) if row else None
         except sqlite3.Error as exc:
             raise LedgerStorageError(f"falha ao ler missão: {exc}") from exc
@@ -245,9 +294,13 @@ class Ledger:
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    "SELECT * FROM transitions WHERE mission_id=? ORDER BY seq ASC",
+                    """SELECT t.*, m.project_id, m.repository_id
+                       FROM transitions t JOIN missions m ON m.mission_id=t.mission_id
+                       WHERE t.mission_id=? ORDER BY t.seq ASC""",
                     (mission_id,),
                 ).fetchall()
+                for row in rows:
+                    self._assert_scope(row)
             return [
                 Transition(
                     seq=int(row["seq"]),
@@ -282,6 +335,7 @@ class Ledger:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             dispatched_at=row["dispatched_at"],
+            timeout_seconds=int(row["timeout_seconds"] or 0),
         )
 
     @staticmethod
@@ -298,6 +352,7 @@ class Ledger:
             "worktree": record["worktree"],
             "authorization_reference": record["authorization_reference"],
             "payload_sha256": record["payload_sha256"],
+            "timeout_seconds": int(record.get("timeout_seconds", 0)),
         }
         return hashlib.sha256(canonical_json(material).encode("utf-8")).hexdigest()
 
@@ -314,7 +369,10 @@ class Ledger:
         worktree: str,
         authorization_reference: str,
         payload: Mapping[str, Any],
+        timeout_seconds: int = 0,
     ) -> MissionRecord:
+        if timeout_seconds < 0:
+            raise LedgerError("timeout_seconds não pode ser negativo")
         for label, value in {
             "mission_id": mission_id,
             "operation_id": operation_id,
@@ -341,6 +399,7 @@ class Ledger:
             "worktree": worktree,
             "authorization_reference": authorization_reference,
             "payload_sha256": digest,
+            "timeout_seconds": timeout_seconds,
         }
         identity = self._identity(material)
         with self._write() as conn:
@@ -354,6 +413,7 @@ class Ledger:
                     or existing["operation_id"] != operation_id
                     or existing["payload_sha256"] != digest
                     or existing["identity_hash"] != identity
+                    or int(existing["timeout_seconds"] or 0) != timeout_seconds
                 ):
                     raise DuplicateMission("missão/ operaçao repetida com identidade divergente")
                 return self._record(existing)
@@ -362,8 +422,8 @@ class Ledger:
                     mission_id, operation_id, project_id, repository_id,
                     coordinator_id, agent, session_id, instance_id, worktree,
                     authorization_reference, payload_sha256, identity_hash,
-                    state, created_at, updated_at, dispatched_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)""",
+                    state, created_at, updated_at, dispatched_at, timeout_seconds
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)""",
                 (
                     mission_id,
                     operation_id,
@@ -380,6 +440,7 @@ class Ledger:
                     PROPOSED,
                     now,
                     now,
+                    timeout_seconds,
                 ),
             )
             self._append(conn, mission_id, None, PROPOSED, "registro inicial", coordinator_id, now)
@@ -413,6 +474,7 @@ class Ledger:
         actor: str,
         require_evidence: bool = False,
         clear_reservation: bool = False,
+        allow_unknown: bool = False,
     ) -> MissionRecord:
         if target not in STATES:
             raise InvalidTransition(f"estado desconhecido: {target}")
@@ -427,8 +489,11 @@ class Ledger:
             current = row["state"]
             if current in TERMINAL:
                 raise InvalidTransition(f"estado terminal {current} é protegido")
-            if row["project_id"] != self.project_id or row["repository_id"] != self.repository_id:
-                raise LedgerError("projeto/repositório divergentes")
+            if current == UNKNOWN and not allow_unknown:
+                raise InvalidTransition(
+                    "saída de UNKNOWN exige reconciliação explícita"
+                )
+            self._assert_scope(row)
             if target not in ALLOWED_TRANSITIONS[current]:
                 raise InvalidTransition(f"{current} -> {target} não permitido")
             now = iso(utc_now())
@@ -484,8 +549,9 @@ class Ledger:
             ).fetchone()
             if row is None:
                 raise LedgerError("missão inexistente")
+            self._assert_scope(row)
             if conn.execute(
-                "SELECT 1 FROM reservations WHERE mission_id=?", (mission_id,)
+                "SELECT project_id FROM reservations WHERE mission_id=?", (mission_id,)
             ).fetchone():
                 raise DuplicateReservation("operação já reservada")
             if row["state"] != AUTHORIZED:
@@ -499,21 +565,17 @@ class Ledger:
                 raise LedgerError("destino divergente da missão registrada")
             busy = conn.execute(
                 """SELECT mission_id FROM reservations
-                   WHERE agent=? AND session_id=? AND mission_id<>?""",
-                (agent, session_id, mission_id),
+                   WHERE project_id=? AND agent=? AND session_id=? AND mission_id<>?""",
+                (self.project_id, agent, session_id, mission_id),
             ).fetchone()
             if busy:
                 raise DuplicateReservation(
                     f"agente/destino ocupado pela missão {busy['mission_id']}"
                 )
-            existing = conn.execute(
-                "SELECT mission_id FROM reservations WHERE mission_id=?", (mission_id,)
-            ).fetchone()
-            if existing:
-                raise DuplicateReservation("operação já reservada")
             conn.execute(
-                "INSERT INTO reservations (agent, session_id, mission_id) VALUES (?,?,?)",
-                (agent, session_id, mission_id),
+                """INSERT INTO reservations (project_id, agent, session_id, mission_id)
+                   VALUES (?,?,?,?)""",
+                (self.project_id, agent, session_id, mission_id),
             )
             conn.execute(
                 "UPDATE missions SET state=?, updated_at=?, dispatched_at=? WHERE mission_id=?",
@@ -555,7 +617,18 @@ class Ledger:
             clear_reservation=True,
         )
 
+    def fail_before_dispatch(
+        self, mission_id: str, *, evidence: str, actor: str
+    ) -> MissionRecord:
+        """Falha comprovada antes do envio: AUTHORIZED -> FAILED, sem envio."""
+        if not evidence.strip():
+            raise UnsafeReconciliation("falha exige evidência")
+        return self._transition(
+            mission_id, FAILED, evidence=evidence, actor=actor, clear_reservation=True
+        )
+
     def fail(self, mission_id: str, *, evidence: str, actor: str) -> MissionRecord:
+        """Falha confirmada após execução: RUNNING -> FAILED."""
         if not evidence.strip():
             raise UnsafeReconciliation("falha exige evidência")
         return self._transition(
@@ -563,8 +636,9 @@ class Ledger:
         )
 
     def mark_unknown(self, mission_id: str, *, evidence: str, actor: str) -> MissionRecord:
+        """Resultado indeterminado conserva a exclusividade do destinatário."""
         return self._transition(
-            mission_id, UNKNOWN, evidence=evidence, actor=actor, clear_reservation=True
+            mission_id, UNKNOWN, evidence=evidence, actor=actor
         )
 
     def reconcile(
@@ -573,51 +647,75 @@ class Ledger:
         *,
         target: str,
         evidence: str,
+        authority_reference: str,
         actor: str,
         human_decision: bool = False,
     ) -> MissionRecord:
-        """Reconcilia UNKNOWN. Nunca reenvia e nunca faz transição automática."""
+        """Reconcilia UNKNOWN com autoridade externa; nunca reenvia."""
         record = self.get(mission_id)
         if record is None:
             raise LedgerError("missão inexistente")
         if record.state != UNKNOWN:
             raise InvalidTransition("reconciliação exige UNKNOWN")
+        if not authority_reference.strip():
+            raise UnsafeReconciliation(
+                "referência de autoridade externa é obrigatória"
+            )
         if not evidence.strip() and not human_decision:
             raise UnsafeReconciliation("evidência ou decisão humana é obrigatória")
         if target == DISPATCHING:
             raise InvalidTransition("reenvio automático é proibido em UNKNOWN")
+        detail = (
+            f"{evidence} | autoridade={authority_reference}"
+            f" | ator={actor}"
+            + (" | decisão humana registrada" if human_decision else "")
+        )
         return self._transition(
             mission_id,
             target,
-            evidence=evidence or f"decisão humana registrada por {actor}",
+            evidence=detail,
             actor=actor,
+            allow_unknown=True,
+            clear_reservation=target in TERMINAL,
         )
+
+    RECOVERY_CAUSES = frozenset({"timeout", "process_loss", "restart_confirmed"})
 
     def recover_stale_dispatching(
         self,
         *,
-        timeout_seconds: int,
+        cause: str,
         actor: str = "recovery",
         now: Optional[datetime] = None,
     ) -> list[str]:
-        """DISPATCHING interrompido vira UNKNOWN; nunca volta a DISPATCHING."""
-        if timeout_seconds < 0:
-            raise LedgerError("timeout inválido")
+        """Usa o timeout persistido por missão; nunca substitui por valor arbitrário.
+
+        Causa desconhecida mantém o bloqueio: nenhuma transição é feita.
+        """
+        if cause not in self.RECOVERY_CAUSES:
+            return []
         reference = now or utc_now()
         recovered: list[str] = []
         with self._write() as conn:
             rows = conn.execute(
-                "SELECT mission_id, dispatched_at, state FROM missions WHERE state=?",
+                """SELECT mission_id, dispatched_at, state, project_id,
+                          repository_id, timeout_seconds
+                   FROM missions WHERE state=?""",
                 (DISPATCHING,),
             ).fetchall()
             for row in rows:
+                if row["project_id"] != self.project_id or row["repository_id"] != self.repository_id:
+                    continue
                 dispatched = row["dispatched_at"]
-                if not dispatched:
+                timeout = int(row["timeout_seconds"] or 0)
+                if cause == "timeout" and timeout > 0 and dispatched:
+                    stale = parse_iso(dispatched) + timedelta(
+                        seconds=timeout
+                    ) <= reference
+                elif cause in {"process_loss", "restart_confirmed"}:
                     stale = True
                 else:
-                    stale = parse_iso(dispatched) + timedelta(
-                        seconds=timeout_seconds
-                    ) <= reference
+                    stale = False
                 if not stale:
                     continue
                 mission_id = row["mission_id"]
@@ -627,25 +725,44 @@ class Ledger:
                     "UPDATE missions SET state=?, updated_at=? WHERE mission_id=?",
                     (UNKNOWN, now_s, mission_id),
                 )
-                conn.execute("DELETE FROM reservations WHERE mission_id=?", (mission_id,))
+                # Reserva preservada: destinatário continua bloqueado.
                 self._append(
                     conn,
                     mission_id,
                     current,
                     UNKNOWN,
-                    "DISPATCHING interrompido após reinício/timeout",
+                    f"DISPATCHING interrompido: {cause}",
                     actor,
                     now_s,
                 )
                 recovered.append(mission_id)
         return recovered
 
-    def can_dispatch(self, mission_id: str) -> bool:
+    def is_reserved(self, mission_id: str) -> bool:
+        try:
+            with self._connect() as conn:
+                return (
+                    conn.execute(
+                        """SELECT 1 FROM reservations
+                           WHERE project_id=? AND mission_id=?""",
+                        (self.project_id, mission_id),
+                    ).fetchone()
+                    is not None
+                )
+        except sqlite3.Error as exc:
+            raise LedgerStorageError(f"falha ao verificar reserva: {exc}") from exc
+
+    def in_progress(self, mission_id: str) -> bool:
         record = self.get(mission_id)
-        if record is None:
+        return bool(
+            record
+            and record.state in {DISPATCHING, DELIVERED, RUNNING}
+        )
+
+    def can_dispatch(self, mission_id: str) -> bool:
+        """Elegibilidade para PRIMEIRA reserva; não é garantia de reserva."""
+        record = self.get(mission_id)
+        if record is None or record.state != AUTHORIZED:
             return False
-        if record.state == UNKNOWN:
-            return False
-        if record.state not in ACTIVE:
-            return False
-        return True
+        return not self.is_reserved(mission_id)
+
