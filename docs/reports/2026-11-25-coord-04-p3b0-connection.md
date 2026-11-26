@@ -104,7 +104,7 @@ Nenhum campo ausente foi fabricado; ausência de `busy` **não** foi tratada com
 | `test_pilot_endpoint.py` (novo) | 15 OK |
 | **Total** | **297/297** |
 
-Demos normal e `UNKNOWN`: `final_state=COMPLETED`, `transmit_calls=1`, reenvio bloqueado no cenário timeout. `dry-run`: `http_posts=1`, `real_calls=0`, `source=fixture`. Prompt de `PILOT.md` byte-idêntico ao `PILOT_PROMPT`. Recurso: somente Python offline; zero build, Gradle, ADB, LLM pago, daemon, POST ou conexão real. CI: a conferir no SHA final; `propose` já certificado no SHA anterior.
+Demos normal e `UNKNOWN`: `final_state=COMPLETED`, `transmit_calls=1`, reenvio bloqueado no cenário timeout. `dry-run`: `http_posts=1`, `real_calls=0`, `source=fixture`. Prompt de `PILOT.md` byte-idêntico ao `PILOT_PROMPT`. Recurso: somente Python offline; zero build, Gradle, ADB, LLM pago, daemon, POST ou conexão real. CI: check `propose` concluiu `success` no run `45732703455`, `head_sha=45d3f1dc0db0f85f254c883501eaf34a6e8a3862`; commits posteriores a este são somente documentação.
 
 ## L. Preservação dos agentes A–E
 
